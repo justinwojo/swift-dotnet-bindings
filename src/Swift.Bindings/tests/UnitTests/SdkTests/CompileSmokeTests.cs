@@ -145,7 +145,7 @@ namespace TestModule
 {
     public class ObjCRootedType : Foundation.NSObject, ISwiftObject
     {
-        internal ObjCRootedType(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
+        private ObjCRootedType(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
         {
             DangerousRelease();
         }
@@ -237,7 +237,7 @@ namespace TestModule
 {
     public class ObjCClass : Foundation.NSObject, ISwiftObject
     {
-        internal ObjCClass(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
+        private ObjCClass(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
         {
             DangerousRelease();
         }

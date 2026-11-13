@@ -616,7 +616,8 @@ partial class Build
     // on probe.m's local implementation interface. Off by default so the other mixed
     // legs stay byte-identical.
     static (AbsolutePath ProbeM, AbsolutePath LibSwift) WriteMixedFrameworkSources(
-        AbsolutePath buildRoot, string module, string probeClass, bool withObjCTypeBridge = false)
+        AbsolutePath buildRoot, string module, string probeClass, bool withObjCTypeBridge = false,
+        bool withNumericInitializers = false)
     {
         var probeM = buildRoot / "probe.m";
         File.WriteAllText(probeM,
@@ -658,8 +659,21 @@ partial class Build
               $"public func echoOptionalAuthType(_ a: AuthType?) -> AuthType? {{ return a }}\n"
             : "";
 
+        // The SDK-direct overload probes: classes whose one initializer takes a single Int64, Double,
+        // Float or Int, plus an ObjC-rooted one. An SDK-direct consumer's code compiles into the
+        // binding's own assembly, so it sees every non-private constructor the generator emits; the
+        // consumer calls each initializer with an int variable and expects the value back.
+        var numericInitializers = withNumericInitializers
+            ? $"public final class {module}Amount {{ public let value: Int64; public init(value: Int64) {{ self.value = value }} }}\n" +
+              $"public final class {module}Ratio {{ public let value: Double; public init(value: Double) {{ self.value = value }} }}\n" +
+              $"public final class {module}Scale {{ public let value: Float; public init(value: Float) {{ self.value = value }} }}\n" +
+              $"public final class {module}Count {{ public let value: Int; public init(value: Int) {{ self.value = value }} }}\n" +
+              $"public final class {module}Tally: NSObject {{ public let value: Int64; public init(value: Int64) {{ self.value = value; super.init() }} }}\n"
+            : "";
+
         var libSwift = buildRoot / "Lib.swift";
         File.WriteAllText(libSwift,
+            (withNumericInitializers ? "import Foundation\n" : "") +
             $"public func {module}Marker() -> Int32 {{ return 1 }}\n" +
             $"public struct {module}Value {{ public let n: Int32; public init(n: Int32) {{ self.n = n }} }}\n" +
             $"public struct {module}Box<T> {{\n" +
@@ -668,7 +682,8 @@ partial class Build
             $"    public init(value: T, count: Int32) {{ self.value = value; self.count = count }}\n" +
             $"    public func first() -> T {{ return value }}\n" +
             $"}}\n" +
-            bridgeMembers);
+            bridgeMembers +
+            numericInitializers);
 
         return (probeM, libSwift);
     }

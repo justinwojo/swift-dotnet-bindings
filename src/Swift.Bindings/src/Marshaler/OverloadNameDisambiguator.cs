@@ -376,7 +376,7 @@ internal static class OverloadNameDisambiguator
     /// Whether a parent type's constructors can be recovered as static factories at all.
     ///
     /// <para>A factory has to hand back a finished instance from a STATIC body, so it needs a
-    /// terminal that does not write instance state. A class has one (the internal handle-adopting
+    /// terminal that does not write instance state. A class has one (the private handle-adopting
     /// constructor, which takes the Swift init's +1 exactly as <c>_handle = new SwiftClassHandle&lt;…&gt;(…)</c>
     /// does) and so does a frozen blittable struct (the value is simply returned). A non-frozen struct
     /// and a frozen struct projected as a class do NOT: their constructor's indirect-result setup

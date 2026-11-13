@@ -784,8 +784,8 @@ public class AsyncMethodGenericBridgeEmitterTests
     [Fact]
     public void TryEmit_SwiftClassReturn_RoutesThroughMarshalFromSwiftObject()
     {
-        // A SwiftClass async return may name a CROSS-MODULE class whose SwiftHandle ctor is
-        // internal → `new Foreign(new SwiftHandle(rawResult))` fails cross-module with CS1729.
+        // A SwiftClass async return may name another class, whose SwiftHandle ctor is private
+        // to it → `new Foreign(new SwiftHandle(rawResult))` fails with CS0122.
         // Swift hands the result over via Unmanaged.passRetained(...).toOpaque() (a +1), so the
         // callback must adopt it through the PUBLIC MarshalFromSwiftObject<T> (NewFromPayload)
         // factory — ownership-equivalent, cross-module-safe.

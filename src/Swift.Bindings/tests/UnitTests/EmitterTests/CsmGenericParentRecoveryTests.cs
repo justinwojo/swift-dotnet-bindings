@@ -208,6 +208,32 @@ public class CsmGenericParentRecoveryTests
         Assert.False(ConcreteProtocolSpecializationEmitter.WithholdsOpenGenericForGenericParent(wrapped, typeDecl, db, engine));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void GenericClassParent_ConstructorFactory_DoesNotCallTheHandleConstructor(bool throws)
+    {
+        // A generic class's closed-tuple initializer factory is written into a sibling
+        // `…CsmExtensions` class, not into the class itself. The class's (SwiftHandle) ctor is
+        // private, so the factory must adopt the initializer's +1 through MarshalFromSwiftObject<T>
+        // (the class's public static NewFromPayload), or the binding fails to compile with CS0122.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName(CoarseItem), Module, "CoarseItem");
+        db.Register(SwiftTypeName.FromModuleQualifiedName(FineItem), Module, "FineItem");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+        var engine = new ConcreteSpecializationEngine(db);
+        engine.IndexModuleConformances(CreateModuleWithConformers());
+
+        var cs = EmitGenericParent(db, engine, CreatePinnedExtensionClassWithInitializer(throws));
+
+        // Positive control: the closed factory was emitted into the extension class, so the
+        // assertions below are about real output.
+        Assert.Contains("PinBox", cs);
+        Assert.Contains("CsmExtensions", cs);
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<PinBox<", cs);
+        Assert.DoesNotContain("SwiftHandle(", cs);
+    }
+
     // ==================== Fixture ====================
 
     /// <summary>
@@ -231,7 +257,7 @@ public class CsmGenericParentRecoveryTests
     }
 
     private static string EmitGenericParent(
-        ResolvingTypeDatabase db, ConcreteSpecializationEngine engine, StructDecl typeDecl)
+        ResolvingTypeDatabase db, ConcreteSpecializationEngine engine, TypeDecl typeDecl)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -348,6 +374,72 @@ public class CsmGenericParentRecoveryTests
         instanceMethod.ParentDecl = structDecl;
         staticMethod.ParentDecl = structDecl;
         return structDecl;
+    }
+
+    /// <summary>
+    /// `class PinBox&lt;Lo, Hi&gt;` whose `init(_: Int)` is declared in an extension, so the
+    /// initializer re-declares both parent parameters and is emitted on the closed parents.
+    /// </summary>
+    private static ClassDecl CreatePinnedExtensionClassWithInitializer(bool throws)
+    {
+        var protocolTypeName = SwiftTypeName.FromModuleQualifiedName(Protocol);
+
+        GenericArgumentDecl Param(string mangled, string name) => new(
+            mangled, name,
+            new List<GenericParameterConformance>
+            {
+                new(new[] { mangled }, protocolTypeName, ConformanceKind.Protocol)
+            },
+            new List<GenericParameterConformance>());
+
+        ArgumentDecl Arg(string name, string type) => new()
+        {
+            Name = name, PrivateName = name, IsInOut = false, ParentDecl = null, ModuleDecl = null,
+            SwiftTypeSpec = new NamedTypeSpec(type), IsGeneric = false
+        };
+
+        var initializer = new MethodDecl
+        {
+            Name = "init",
+            ParentDecl = null,
+            ModuleDecl = null,
+            MangledName = "$sTestLib6PinBoxC4init",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = throws,
+            IsAsync = false,
+            IsMutating = false,
+            IsSynthesizedAccessor = false,
+            UsesWrapperLibrary = true,
+            GenericParameters = new List<GenericArgumentDecl>
+            {
+                Param("τ_0_0", "Lo"),
+                Param("τ_0_1", "Hi")
+            },
+            // Return type first (the constructed class), then the single Int parameter.
+            CSSignature = new List<ArgumentDecl> { Arg("", "TestLib.PinBox"), Arg("units", "Swift.Int") },
+            AvailabilityAnnotations = null
+        };
+
+        var classDecl = new ClassDecl
+        {
+            Name = "PinBox",
+            ParentDecl = null,
+            ModuleDecl = null,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestLib.PinBox"),
+            MangledName = "",
+            GenericParameters = new List<GenericArgumentDecl> { Param("τ_0_0", "Lo"), Param("τ_0_1", "Hi") },
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl> { initializer },
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            AvailabilityAnnotations = null,
+            IsFinal = true,
+        };
+
+        initializer.ParentDecl = classDecl;
+        return classDecl;
     }
 
     /// <summary>

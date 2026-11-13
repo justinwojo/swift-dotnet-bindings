@@ -359,6 +359,30 @@ public class ClassInheritanceEmissionTests
         Assert.Contains("new SwiftClassHandle<Request>(handle)", childBody);
     }
 
+    // An SDK-direct consumer's code compiles into the binding's own assembly. A handle-adopting
+    // constructor visible there outranks a public numeric initializer for an int argument
+    // (SwiftHandle converts implicitly to every numeric type nint does, so it is the better
+    // conversion target) and wraps the integer as an object pointer; against a Swift `Int`
+    // initializer the call is ambiguous instead. Each case binds to the public initializer.
+    [Theory]
+    [InlineData("long")]
+    [InlineData("double")]
+    [InlineData("float")]
+    [InlineData("decimal")]
+    [InlineData("nint")]
+    public void HandleConstructor_DoesNotCaptureIntArgumentFromSiblingType(string publicParameterType)
+    {
+        var output = EmitClassHierarchy(
+            baseClass: CreateClassDecl("Account"),
+            derived: CreateClassDecl("SavingsAccount"));
+
+        foreach (var typeName in new[] { "Account", "SavingsAccount" })
+        {
+            Assert.Equal(publicParameterType,
+                HandleConstructorOverloadProbe.BindIntArgumentFromSiblingType(output, typeName, publicParameterType));
+        }
+    }
+
     #endregion
 
     #region Fallback Tests

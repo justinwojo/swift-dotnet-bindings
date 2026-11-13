@@ -2093,19 +2093,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             if (isClass)
             {
-                // Constructor: csReturnType is the enclosing (current-module) class being
-                // constructed, so its internal (SwiftHandle) ctor is always visible here — no
-                // cross-module CS1729 hazard, and no need for the MarshalFromSwiftObject<T> factory
-                // routing used on the cross-module method/closure return paths.
+                // Constructor. On the class itself, csReturnType is the enclosing class, so its
+                // private (SwiftHandle) ctor is visible. A generic parent's closed-tuple factory
+                // lives in a sibling *CsmExtensions class instead, where that ctor is not visible:
+                // it goes through MarshalFromSwiftObject<T> (T.NewFromPayload), which adopts the
+                // initializer's +1 exactly as the ctor does.
+                string Construct(string handleExpr) => isExtension
+                    ? $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({handleExpr});"
+                    : $"return new {csReturnType}(new Swift.Runtime.SwiftHandle({handleExpr}));";
                 if (throws)
                 {
                     csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
                     csWriter.WriteLine(errorCheck);
-                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({resultLocalName}));");
+                    csWriter.WriteLine(Construct(resultLocalName));
                 }
                 else
                 {
-                    csWriter.WriteLine($"return new {csReturnType}(new Swift.Runtime.SwiftHandle({pinvokeCall}));");
+                    csWriter.WriteLine(Construct(pinvokeCall));
                 }
             }
             else
@@ -2223,7 +2227,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 case CdeclReturnKind.ClassPointer:
                     // A direct class-pointer return may name a class from ANOTHER module
                     // (e.g. a Moya method returning Alamofire.Session). That class's
-                    // SwiftHandle-taking constructor is `internal`, so `new Foreign(new
+                    // SwiftHandle-taking constructor is `private`, so `new Foreign(new
                     // SwiftHandle(...))` fails cross-module with CS1729. Route through
                     // MarshalFromSwiftObject<T>, which calls the PUBLIC static
                     // T.NewFromPayload — ownership-equivalent (both adopt the returned +1)
@@ -2233,7 +2237,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 case CdeclReturnKind.OptionalClassPointer:
                     // csReturnType is `MyClass?` — strip the `?` for the marshal type. Same
                     // cross-module rationale as ClassPointer above (NewFromPayload, not the
-                    // internal ctor); a null pointer projects to a null reference.
+                    // private ctor); a null pointer projects to a null reference.
                     csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
                     break;
                 case CdeclReturnKind.OptionalErrorPointer:

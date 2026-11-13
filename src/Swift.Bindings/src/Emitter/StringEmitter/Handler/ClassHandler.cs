@@ -956,6 +956,16 @@ namespace BindingsGeneration
         /// The handle must carry a +1 ARC retain that this wrapper takes ownership of.
         /// Dispose releases exactly one ARC reference.
         /// </summary>
+        /// <remarks>
+        /// Private, like the struct and enum handle constructors, and never internal. An SDK-direct
+        /// consumer's code compiles into the binding's own assembly, where an internal handle
+        /// constructor joins the public initializers in overload resolution. SwiftHandle converts
+        /// implicitly from IntPtr and to it, so for an int argument it is a better conversion target
+        /// than long, double, float or decimal: <c>new Account(7)</c> would adopt 7 as an object
+        /// pointer, and against an nint initializer the call is ambiguous. Code outside the type
+        /// builds an instance from a +1 handle through <c>SwiftMarshal.MarshalFromSwiftObject&lt;T&gt;</c>,
+        /// which reaches this constructor through <c>NewFromPayload</c>.
+        /// </remarks>
         private void EmitPrivateConstructor()
         {
             if (_isObjCRooted)
@@ -963,7 +973,7 @@ namespace BindingsGeneration
                 // ObjC-rooted: SwiftHandle entry-point constructor chains to base(NativeHandle).
                 // DangerousRelease() balances: Swift returns +1, MAUI NSObject(NativeHandle,false) retains +2, release back to +1.
                 var text = $$"""
-                internal {{_constructorName}}(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
+                private {{_constructorName}}(SwiftHandle handle) : base((ObjCRuntime.NativeHandle)handle.Handle)
                 {
                     DangerousRelease();
                 }
@@ -990,7 +1000,7 @@ namespace BindingsGeneration
                 // Derived private constructors chain to the base's protected sentinel constructor
                 var baseChain = _isDerived ? " : base(default(SwiftInheritanceChain))" : "";
                 var text = $$"""
-                internal {{_constructorName}}(SwiftHandle handle){{baseChain}}
+                private {{_constructorName}}(SwiftHandle handle){{baseChain}}
                 {
                     _handle = new SwiftClassHandle<{{handleType}}>(handle);
                 }

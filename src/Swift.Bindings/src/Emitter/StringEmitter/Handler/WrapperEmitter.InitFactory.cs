@@ -34,7 +34,7 @@ namespace BindingsGeneration
         /// Whether this initializer's parent shape can express the constructor's work as a static factory.
         ///
         /// <para>A factory hands back a finished instance from a STATIC body, so it needs a terminal that
-        /// writes no instance state. A class has one — the internal handle-taking constructor, which adopts
+        /// writes no instance state. A class has one — the private handle-taking constructor, which adopts
         /// the Swift initializer's +1 exactly as the constructor's own <c>_handle = new SwiftClassHandle…</c>
         /// does — and so does a frozen blittable struct, whose value is simply returned. A non-frozen struct
         /// and a frozen struct projected as a class do not: their indirect-result setup allocates into the
@@ -96,7 +96,7 @@ namespace BindingsGeneration
 
         /// <summary>
         /// The ObjC-rooted factory: the same <c>CreateSwiftInstance_…</c> helper the constructor uses, then
-        /// a tail that wraps its handle. The internal <c>(SwiftHandle)</c> constructor performs the
+        /// a tail that wraps its handle. The private <c>(SwiftHandle)</c> constructor performs the
         /// <c>DangerousRelease</c> that balances NSObject's retain against the initializer's +1, so the
         /// factory must not repeat it.
         /// </summary>
@@ -160,7 +160,7 @@ namespace BindingsGeneration
         /// <summary>
         /// Assigns the built instance to the factory's result local. Mirrors
         /// <see cref="EmitReturnConstructor"/>'s terminals one for one — a class adopts the returned +1
-        /// through its internal handle constructor (which is literally the constructor's
+        /// through its private handle constructor (which is literally the constructor's
         /// <c>_handle = new SwiftClassHandle…</c> body), and a frozen blittable struct is copied out of the
         /// return location. Shapes with no such terminal never reach here: <see cref="CanEmitInitFactory"/>
         /// declines them at the emission site.

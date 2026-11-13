@@ -901,14 +901,16 @@ partial class Build
                 }
 
                 // self + error + scalar result, and the array getter, each through its bridge from managed code.
-                // The constructors take long literals: in SDK-direct mode this code compiles into the
-                // binding's own assembly, where an int argument binds to the binding's internal
-                // handle-adopting constructor instead of the public Int64 one.
+                // The constructors take int arguments on purpose: in SDK-direct mode this code compiles into
+                // the binding's own assembly, so a handle-adopting constructor visible there would capture
+                // the call ahead of the public Int64 initializer and adopt the integer as an object pointer.
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 static void Measure()
                 {
-                    using (var account = new BridgeAccount(7L))
+                    int opening = 7;
+                    using (var account = new BridgeAccount(opening))
                     {
+                        Check("ctor-int-argument", account.Total == opening, $"total {account.Total} after new BridgeAccount({opening})");
                         var handle = ((ISwiftObject)account).SwiftHandle;
                         account.Pending = 5;
                         var first = account.Settled;
@@ -990,7 +992,8 @@ partial class Build
                     ulong* args = stackalloc ulong[8];
                     ulong result = 0;
 
-                    using (var account = new BridgeAccount(100L))
+                    int opening = 100;
+                    using (var account = new BridgeAccount(opening))
                     {
                         var self = (ulong)((ISwiftObject)account).SwiftHandle;
                         nint error = 0;
@@ -1013,8 +1016,9 @@ partial class Build
 
                     // The projection keeps its Swift array private, so the sentinel reads an array of the
                     // same element type the app builds itself: the getter, and so its bridge, is the same.
-                    using (var first = new BridgeItem(7L))
-                    using (var second = new BridgeItem(8L))
+                    int firstValue = 7, secondValue = 8;
+                    using (var first = new BridgeItem(firstValue))
+                    using (var second = new BridgeItem(secondValue))
                     using (var items = new Swift.SwiftArray<BridgeItem>(new[] { first, second }))
                     {
                         using var payload = items.PayloadBuffer;

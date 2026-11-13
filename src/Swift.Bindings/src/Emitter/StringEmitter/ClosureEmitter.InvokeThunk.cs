@@ -552,9 +552,19 @@ public static partial class ClosureEmitter
             else if (closureHandler.IsClassType(closureTypeSpec.ReturnType))
             {
                 // Pure Swift class success: _raw is an owned +1 (passRetained). Route through the
-                // public MarshalFromSwiftObject<T> factory rather than `new T(new SwiftHandle)` —
-                // a cross-module class's (SwiftHandle) ctor is internal (CS1729). The factory
-                // adopts the +1, so ownership transfer is identical.
+                // public MarshalFromSwiftObject<T> factory: a generated class's (SwiftHandle) ctor is
+                // private to the class. The factory adopts the +1, so ownership transfer is identical.
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; " +
+                    $"var _raw = {helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess(SwiftMarshal.MarshalFromSwiftObject<{successType}>(_raw));";
+            }
+            else if (closureHandler.IsObjCRootedClass(closureTypeSpec.ReturnType))
+            {
+                // ObjC-rooted Swift class success: the same factory. The class's handle constructor
+                // is private to it; NewFromPayload reaches it, adopting the +1, and reuses the
+                // object's managed peer when it already has one.
                 invokeBody =
                     $"IntPtr _err = IntPtr.Zero; " +
                     $"var _raw = {helperMethodName}({throwingCallArgs}); " +
@@ -563,7 +573,7 @@ public static partial class ClosureEmitter
             }
             else if (closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
             {
-                // ObjC-bridged/rooted success: kept on the SwiftHandle-ctor path (their
+                // ObjC-bridged success: kept on the SwiftHandle-ctor path (their
                 // ISwiftObject/NewFromPayload story differs — out of scope for the factory routing).
                 invokeBody =
                     $"IntPtr _err = IntPtr.Zero; " +
@@ -599,15 +609,22 @@ public static partial class ClosureEmitter
         {
             // Pure Swift class return: P/Invoke returns IntPtr, an owned +1 pointer (the Swift
             // thunk calls Unmanaged.passRetained()). Route through the public
-            // MarshalFromSwiftObject<T> factory rather than `new T(new SwiftHandle)` — a
-            // cross-module class's (SwiftHandle) ctor is internal (CS1729). The factory adopts
-            // the +1, so ownership transfer is identical.
+            // MarshalFromSwiftObject<T> factory: a generated class's (SwiftHandle) ctor is private
+            // to the class. The factory adopts the +1, so ownership transfer is identical.
+            csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            invokeBody = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({helperMethodName}({invokeCallArgsString}));";
+        }
+        else if (closureHandler.IsObjCRootedClass(closureTypeSpec.ReturnType))
+        {
+            // ObjC-rooted Swift class return: P/Invoke returns IntPtr (retained pointer). Same
+            // factory: the class's handle constructor is private to it, and NewFromPayload adopts
+            // the +1 and reuses the object's managed peer when it already has one.
             csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             invokeBody = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({helperMethodName}({invokeCallArgsString}));";
         }
         else if (closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
         {
-            // ObjC-bridged/rooted return: P/Invoke returns IntPtr (retained pointer). Kept on the
+            // ObjC-bridged return: P/Invoke returns IntPtr (retained pointer). Kept on the
             // SwiftHandle-ctor path — their ISwiftObject/NewFromPayload story differs (out of
             // scope for the cross-module class-pointer factory routing).
             csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);

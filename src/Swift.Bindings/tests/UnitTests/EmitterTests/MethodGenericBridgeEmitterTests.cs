@@ -602,8 +602,8 @@ public class MethodGenericBridgeEmitterTests
 
     // A method-generic bridge whose direct return is a class may name a CROSS-MODULE class
     // (e.g. a generic method on one binding returning another binding's class). That class's
-    // SwiftHandle-taking constructor is `internal`, so `new Foreign(new SwiftHandle(ptr))`
-    // fails cross-module with CS1729. The class-pointer return must route through the PUBLIC
+    // SwiftHandle-taking constructor is private to it, so `new Foreign(new SwiftHandle(ptr))`
+    // fails with CS0122. The class-pointer return must route through the PUBLIC
     // SwiftMarshal.MarshalFromSwiftObject<T> (T.NewFromPayload) factory — ownership-equivalent
     // (Swift returns Unmanaged.passRetained().toOpaque(), a +1 the factory adopts).
 
