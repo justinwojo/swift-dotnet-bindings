@@ -81,6 +81,9 @@ public sealed record TransitionViolation(
 /// <c>calli</c> and function-pointer type a rule flagged. <see cref="Rules"/> lists the rules it violates (empty when it is safe).
 /// <see cref="MemberToken"/> is the metadata token of the method (or, for a field's function-pointer
 /// type, the field) the site belongs to, so overloads that share a display name stay distinct.
+/// <see cref="Shapes"/> is, for a forward Swift-convention P/Invoke or <c>calli</c>, the
+/// <see cref="SwiftTransitionShapes"/> some runtime mishandles (zero when it is primitive-only, and
+/// for every other site).
 /// </summary>
 public sealed record TransitionSite(
     TransitionSiteKind Kind,
@@ -92,7 +95,8 @@ public sealed record TransitionSite(
     string? Library,
     int? IlOffset,
     ImmutableArray<TransitionRule> Rules,
-    string? Target = null);
+    string? Target = null,
+    ulong Shapes = 0);
 
 /// <summary>An IL body or metadata blob the gate could not inspect. Any one fails the gate.</summary>
 public sealed record InspectionError(string Member, string Message);
@@ -393,6 +397,7 @@ public static class SwiftTransitionScanner
 
             if (convention == TransitionConvention.Swift)
             {
+                site.Shapes = SwiftTransitionShapes.Of(carriers, functionPointer: false);
                 Inventory.SwiftPInvokes++;
                 var specials = carriers.Where(c => c.Verdict.IsSwiftSpecial).Select(c => c.Verdict.Kind).ToHashSet();
                 if (specials.Contains(CarrierKind.SwiftSelf)) Inventory.SwiftPInvokesWithSwiftSelf++;
@@ -662,6 +667,7 @@ public static class SwiftTransitionScanner
             {
                 case TransitionConvention.Swift:
                 {
+                    site.Shapes = SwiftTransitionShapes.Of(carriers, functionPointer: true);
                     Inventory.SwiftCalliSites++;
                     var offending = carriers.Where(c => !c.Verdict.IsPrimitiveOrVoid).ToList();
                     if (offending.Count > 0)
@@ -825,8 +831,10 @@ public static class SwiftTransitionScanner
     {
         public List<TransitionRule> Rules { get; } = new();
 
+        public ulong Shapes { get; set; }
+
         public TransitionSite Build() => new(kind, member, memberToken, convention, signature, entryPoint, library, ilOffset,
-            Rules.Distinct().OrderBy(r => r).ToImmutableArray(), target);
+            Rules.Distinct().OrderBy(r => r).ToImmutableArray(), target, Shapes);
     }
 
     /// <summary>

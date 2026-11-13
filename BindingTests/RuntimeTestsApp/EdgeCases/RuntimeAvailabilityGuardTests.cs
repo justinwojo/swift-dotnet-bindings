@@ -138,11 +138,17 @@ public class RuntimeAvailabilityGuardTests : TestBase
     /// A future-floored member reached through a native Swift bridge: the guard must fire
     /// before the bridge is called. Reaching the guard at all proves the wrapper holding the
     /// bridge loaded on an OS without the member.
+    ///
+    /// <para>Only the iOS build has the lowering evidence that routes this member through its
+    /// bridge. The other builds keep its direct Swift-convention transition, whose transition guard
+    /// runs first and refuses on an engine that mishandles the transition's shape. That refusal
+    /// holds on every OS version, so it is the more lasting answer. It is also a
+    /// <see cref="PlatformNotSupportedException"/> thrown before native code.</para>
     /// </summary>
     public void TestFutureBridgedStaticMember_GuardThrows()
     {
         var method = FindMethod(typeof(FutureBridgedHost), "FutureLabel", isStatic: true);
-        AssertGuardThrows(() => method.Invoke(null, null), "FutureBridgedHost.FutureLabel");
+        AssertGuardThrows(() => method.Invoke(null, null), "FutureBridgedHost.FutureLabel", transitionMayRefuse: true);
     }
 
     /// <summary>
@@ -288,7 +294,7 @@ public class RuntimeAvailabilityGuardTests : TestBase
         AssertGuardThrows(() => method.Invoke(null, null), "FutureGatedBuffer<int>.futureStatic");
     }
 
-    private void AssertGuardThrows(Func<object?> invoke, string memberLabel)
+    private void AssertGuardThrows(Func<object?> invoke, string memberLabel, bool transitionMayRefuse = false)
     {
         try
         {
@@ -305,6 +311,16 @@ public class RuntimeAvailabilityGuardTests : TestBase
             AssertTrue(inner is PlatformNotSupportedException,
                 $"{memberLabel} must throw PlatformNotSupportedException from its runtime guard; " +
                 $"got {inner?.GetType().Name ?? "null"} instead.");
+            if (transitionMayRefuse && inner is global::Swift.Runtime.SwiftTransitionUnsupportedException refusal)
+            {
+                AssertFalse(OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst(),
+                    $"the iOS build routes {memberLabel} through its bridge, so its transition guard must not refuse: {refusal.Message}");
+                AssertTrue(refusal.Member.Contains(memberLabel.Split('.')[0], StringComparison.Ordinal),
+                    $"the refusal names the member: {refusal.Member}");
+                AssertFalse(global::Swift.Runtime.SwiftTransitionGuard.IsSupported(refusal.Facts),
+                    $"the refusal is for a shape this engine mishandles: {refusal.Facts}");
+                return;
+            }
             AssertTrue(inner!.Message.Contains("not available", StringComparison.OrdinalIgnoreCase),
                 "The guard's exception message must explain the member is unavailable on this OS " +
                 $"version (for diagnosability); got: {inner.Message}");

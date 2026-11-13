@@ -176,11 +176,13 @@ public static class BindingArtifactManifestStore
 
         var settled = BindingReportProjection.Project(manifest);
         DirectSwiftSelfExposureCollector.Apply(settled, outputDirectory);
+        SwiftTransitionGuardReport.Apply(settled, outputDirectory);
 
-        generation.DegradedMembers.RemoveAll(item =>
-            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal));
-        generation.DegradedMembers.AddRange(settled.DegradedMembers.Where(item =>
-            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal)));
+        static bool Settled(DegradedMemberItem item) =>
+            string.Equals(item.DiagnosticId, DirectSwiftSelfExposure.DiagnosticId, StringComparison.Ordinal)
+            || string.Equals(item.DiagnosticId, SwiftTransitionGuards.MemberCode, StringComparison.Ordinal);
+        generation.DegradedMembers.RemoveAll(Settled);
+        generation.DegradedMembers.AddRange(settled.DegradedMembers.Where(Settled));
         generation.ExposureReportingVersion = settled.ExposureReportingVersion;
         generation.ExposureCompleteness = settled.ExposureCompleteness;
 
