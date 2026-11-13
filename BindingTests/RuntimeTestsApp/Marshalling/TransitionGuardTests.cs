@@ -78,8 +78,8 @@ public class TransitionGuardTests : TestBase
     /// <summary>
     /// A member whose only route on this platform is a direct transition with <c>self</c> in the
     /// self register: <c>OriginShifter.Mutate</c> takes an inout non-frozen struct, so the
-    /// <c>@_cdecl</c> wrapper declines it. The iOS builds route it through a native bridge, which
-    /// every engine runs; the other platforms' builds have no lowering evidence to route it, so it
+    /// <c>@_cdecl</c> wrapper declines it. The iOS and Mac Catalyst builds route it through a native
+    /// bridge, which every engine runs; the other platforms' builds have no lowering evidence to route it, so it
     /// stays a direct import there and is guarded. Where the engine mishandles the self register,
     /// the call must throw before Swift runs (the point is not shifted) and name the member; where
     /// it does not, Swift shifts the point.
@@ -87,7 +87,7 @@ public class TransitionGuardTests : TestBase
     public void TestDirectSelfRegisterMember_RefusesBeforeNativeOnlyWhereTheEngineMishandlesIt()
     {
         var engine = Engine;
-        var routed = OperatingSystem.IsIOS() && !OperatingSystem.IsMacCatalyst();
+        var routed = ImportRoutes.BridgesRouted;
         var refuses = !routed && (ExpectedRefusals(engine) & SwiftTransitionFacts.SelfRegister) != 0;
 
         var shifter = new OriginShifter(dx: 10.0, dy: 20.0);

@@ -24,7 +24,7 @@ public sealed class SwiftBridgeTests : IDisposable
 {
     private static readonly SwiftArchitecture[] Architectures = [SwiftArchitecture.Arm64, SwiftArchitecture.X86_64];
 
-    private static readonly Lazy<SwiftBridgeToolchain?> Toolchain = new(SwiftBridgeToolchain.Locate);
+    private static readonly Lazy<SwiftBridgeToolchain?> Toolchain = new(() => SwiftBridgeToolchain.Locate());
 
     private readonly string _scratch = Path.Combine(Path.GetTempPath(), "swift-bridge-tests", Guid.NewGuid().ToString("N"));
 
@@ -154,6 +154,69 @@ public sealed class SwiftBridgeTests : IDisposable
             var validation = SwiftBridgeValidator.Validate(assembly, [plan], toolchain!, Scratch(name));
             Assert.True(validation.IsGreen, validation.ToString() + "\n" + assembly.Source);
         }
+    }
+
+    /// <summary>
+    /// Every routed platform assembles the same bridges against its own triple and SDK: on Mac
+    /// Catalyst each architecture's macabi slice, built against the macOS SDK.
+    /// </summary>
+    [SkippableTheory]
+    [InlineData("maccatalyst")]
+    [InlineData("tvos")]
+    [InlineData("macos")]
+    public void AllShapesInOneAssembly_AreGreen_OnEachPlatformsOwnTarget(string platform)
+    {
+        var toolchain = SwiftBridgeToolchain.Locate(platform);
+        Skip.If(toolchain is null, $"xcrun with the {string.Join(" and ", SwiftBridgeToolchain.SdksOf(platform))} SDK(s) is required");
+        var plans = Shapes().Select(s => s.Plan).ToList();
+        foreach (var architecture in Architectures)
+        {
+            var assembly = SwiftBridgeEmitter.Emit(plans, architecture);
+            var scratch = Scratch(platform + "-all");
+            var validation = SwiftBridgeValidator.Validate(assembly, plans, toolchain!, scratch);
+            Assert.True(validation.IsGreen, validation.ToString());
+            Assert.Equal(plans.Count, validation.Functions.Length);
+            // The scratch image is built for the platform's own slice, not iOS's.
+            var image = Path.Combine(scratch, $"bridges-{architecture.ToString().ToLowerInvariant()}.dylib");
+            var (triple, _) = toolchain!.TargetOf(architecture);
+            var build = toolchain.Run("vtool", "-show-build", image).Output;
+            Assert.Contains(triple.EndsWith("-macabi", StringComparison.Ordinal) ? "MACCATALYST" : platform == "tvos"
+                ? (architecture == SwiftArchitecture.Arm64 ? "TVOS" : "TVOSSIMULATOR") : "MACOS", build);
+        }
+    }
+
+    [Theory]
+    [InlineData("ios", SwiftArchitecture.Arm64, "arm64-apple-ios15.0", "iphoneos")]
+    [InlineData("ios", SwiftArchitecture.X86_64, "x86_64-apple-ios15.0-simulator", "iphonesimulator")]
+    [InlineData("maccatalyst", SwiftArchitecture.Arm64, "arm64-apple-ios15.0-macabi", "macosx")]
+    [InlineData("maccatalyst", SwiftArchitecture.X86_64, "x86_64-apple-ios15.0-macabi", "macosx")]
+    [InlineData("tvos", SwiftArchitecture.Arm64, "arm64-apple-tvos15.0", "appletvos")]
+    [InlineData("tvos", SwiftArchitecture.X86_64, "x86_64-apple-tvos15.0-simulator", "appletvsimulator")]
+    [InlineData("macos", SwiftArchitecture.Arm64, "arm64-apple-macosx12.0", "macosx")]
+    public void BridgeTarget_IsThePlatformsOwnEvidenceSlice(string platform, SwiftArchitecture architecture, string triple, string sdk)
+    {
+        Assert.Equal((triple, sdk), SwiftBridgeToolchain.TargetOf(platform, architecture));
+        Assert.Contains(triple, SwiftArtifactScope.PlatformSlices(platform));
+    }
+
+    [Fact]
+    public void BridgeTarget_RefusesAPlatformWithoutEvidenceSlices() =>
+        Assert.Throws<ArgumentException>(() => SwiftBridgeToolchain.TargetOf("watchos", SwiftArchitecture.Arm64));
+
+    [Fact]
+    public void Gate_ValidatesEveryPlatformItsSidecarsClaim()
+    {
+        SwiftCallPlanSet Set(string module, params string[] platforms) => new()
+        {
+            Module = module,
+            EvidenceScope = new SwiftPlanEvidenceScope(module, platforms.SelectMany(p => SwiftArtifactScope.PlatformSlices(p)).Order(StringComparer.Ordinal).ToImmutableArray(),
+                SwiftLoweringJudgement.QualificationBasis),
+            Coverage = ImmutableArray<SwiftPlanCoverageEntry>.Empty,
+            Plans = ImmutableArray<SwiftCallPlan>.Empty,
+        };
+        Assert.Equal(["ios"], SwiftBridgeGate.Platforms([new SwiftCallPlanSet { Module = "M", Coverage = [], Plans = [] }]));
+        Assert.Equal(["maccatalyst"], SwiftBridgeGate.Platforms([Set("M", "maccatalyst")]));
+        Assert.Equal(["ios", "tvos", "maccatalyst", "macos"], SwiftBridgeGate.Platforms([Set("M", "maccatalyst"), Set("R", "macos", "ios", "tvos")]));
     }
 
     [SkippableFact]
@@ -621,7 +684,7 @@ public sealed class SwiftBridgeTests : IDisposable
             // An object's disassembly may label a function by an assembler temporary that shares its
             // address, so each bridge is found by its symbol's address.
             var all = SwiftBridgeValidator.Disassembly(toolchain.Run("llvm-objdump", "-d", "--no-show-raw-insn",
-                "--triple=" + SwiftBridgeToolchain.TargetOf(architecture).Triple, objectPath).Output)
+                "--triple=" + toolchain.TargetOf(architecture).Triple, objectPath).Output)
                 .Values.SelectMany(i => i).OrderBy(i => i.Address).ToList();
             assembled[architecture] = SwiftBridgeValidator.DefinedSymbols(toolchain.Run("nm", "--defined-only", objectPath).Output)
                 .ToDictionary(p => p.Key, p => all.SkipWhile(i => i.Address != p.Value).ToList(), StringComparer.Ordinal);
@@ -646,7 +709,7 @@ public sealed class SwiftBridgeTests : IDisposable
                 Assert.True(findings.Count == 0, $"{binary} {name}:\n" + string.Join("\n", findings));
 
                 var linked = SwiftBridgeValidator.Disassembly(toolchain.Run("llvm-objdump", "-d", "--no-show-raw-insn",
-                    "--triple=" + SwiftBridgeToolchain.TargetOf(architecture).Triple, thin).Output);
+                    "--triple=" + toolchain.TargetOf(architecture).Triple, thin).Output);
                 foreach (var symbol in routed.Keys.Select(k => "_" + k))
                 {
                     var expected = Instructions(assembled[architecture][symbol]);

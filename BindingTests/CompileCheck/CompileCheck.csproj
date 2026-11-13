@@ -2,7 +2,10 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
-    <TargetFramework>$(BtTargetFramework)-ios</TargetFramework>
+    <!-- The platform the bindings in ../output were generated for: ios, or maccatalyst for the
+         Mac Catalyst leg's compile check, which the transition gates scan the same way. -->
+    <BtCompileCheckPlatform Condition="'$(BtCompileCheckPlatform)' == ''">ios</BtCompileCheckPlatform>
+    <TargetFramework>$(BtTargetFramework)-$(BtCompileCheckPlatform)</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <!-- CS0169: unused private field (generated backing fields) -->
@@ -34,8 +37,9 @@
        compile-only gate build the ObjC binding (bgen + ApiDefinition.cs compile) too. The
        binding project carries its own NativeReference to the fixture xcframework and surfaces it
        transitively via IsBindingProject's GetNativeManifest — no .ProjectReference.targets needed.
-       Exists-gated: on non-iOS regens output-objc/ is absent and the reference is simply dropped. -->
-  <ItemGroup Condition="Exists('../output-objc/ObjCUmbrella.ObjC.iOS.csproj')">
+       Exists-gated: on non-iOS regens output-objc/ is absent and the reference is simply dropped; a
+       non-iOS compile check never takes it, since an earlier iOS regeneration may have left it. -->
+  <ItemGroup Condition="Exists('../output-objc/ObjCUmbrella.ObjC.iOS.csproj') AND '$(BtCompileCheckPlatform)' == 'ios'">
     <ProjectReference Include="../output-objc/ObjCUmbrella.ObjC.iOS.csproj" />
   </ItemGroup>
   <!-- Cross-module: SwiftBindingsTestLib.cs references IDependencyProtocol from the dependency namespace.

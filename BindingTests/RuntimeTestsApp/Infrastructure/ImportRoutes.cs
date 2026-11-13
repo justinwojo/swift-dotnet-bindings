@@ -17,6 +17,14 @@ namespace RuntimeTestsApp.Infrastructure;
 internal static class ImportRoutes
 {
     /// <summary>
+    /// Whether this platform's regeneration routed Swift-convention imports through native bridges:
+    /// the iOS and Mac Catalyst builds, whose swiftc lowering evidence the qualification record holds.
+    /// The other platforms regenerate without evidence, so a member a bridge would carry keeps its
+    /// <c>@_cdecl</c> wrapper or its guarded direct import there.
+    /// </summary>
+    public static bool BridgesRouted => OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst();
+
+    /// <summary>
     /// Asserts that <paramref name="member"/> of <paramref name="declaringType"/> has exactly one import,
     /// and that it enters a <c>@_cdecl</c> wrapper: a wrapper symbol, the C convention only, no native
     /// bridge twin and no Swift self register.

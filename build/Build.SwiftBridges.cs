@@ -7,10 +7,10 @@
 // through bridges has its plans judged by the SDK's lowering qualification record over the slices
 // the table claims. `swift-bridge-gate` reads those and the corpus sidecars of the regenerated
 // BindingTests output, re-judges each by the record over the artifact scope it records, and emits
-// and validates every bridge on arm64 and x86_64. The same record (which `swift-lowering-oracle`
-// writes, one receipt per artifact and qualified compiler family) is what an iOS BindingTests
-// regeneration passes the generator, which routes every transition it qualifies through that
-// transition's bridge.
+// and validates every bridge on arm64 and x86_64, assembled for each platform a sidecar claims. The
+// same record (which `swift-lowering-oracle` writes, one receipt per artifact and qualified compiler
+// family) is what an iOS or Mac Catalyst BindingTests regeneration passes the generator, which routes
+// every transition it qualifies through that transition's bridge.
 
 using System;
 using System.Collections.Generic;
@@ -28,20 +28,23 @@ partial class Build
     AbsolutePath SwiftLoweringEvidencePath => RootDirectory / "build" / "baselines" / "swift-lowering-evidence.json";
 
     /// <summary>
-    /// Whether a BindingTests regeneration for <paramref name="platformOverride"/> (null: iOS) routes
-    /// through native bridges. The qualification record holds the corpus's receipts for the iOS
-    /// device and simulator triples only; a platform it does not cover keeps its direct Swift imports.
+    /// The platforms whose BindingTests regeneration routes through native bridges: those whose slices
+    /// the qualification record holds the corpus's receipts for (the iOS device and simulator triples,
+    /// and both Mac Catalyst triples). A platform it does not cover keeps its direct Swift imports.
     /// </summary>
+    static readonly string[] SwiftBridgeRoutedPlatforms = ["ios", "maccatalyst"];
+
+    /// <summary>Whether a BindingTests regeneration for <paramref name="platformOverride"/> (null: iOS) routes through native bridges.</summary>
     static bool BridgeEvidenceApplies(ApplePlatform? platformOverride) =>
-        platformOverride == null || platformOverride.Name == "ios";
+        SwiftBridgeRoutedPlatforms.Contains((platformOverride ?? ApplePlatform.IOS).Name, StringComparer.Ordinal);
 
     /// <summary>
     /// The members of <c>SwiftBridgeProbe</c> that the qualification regeneration asks to route through
     /// their native bridges (<c>--swift-bridge-route</c>). Each takes a C callback, so by default it
     /// would take the closure <c>@_cdecl</c> wrapper; the request keeps it on its Swift-convention import
     /// so the corpus exercises a bridge with self, a Swift error, an indirect result and an owned class
-    /// argument. The generator fails the regeneration when one of them is not routed. Other platforms
-    /// regenerate without evidence and leave them on the wrapper.
+    /// argument. The generator fails the regeneration when one of them is not routed. Platforms that do
+    /// not route regenerate without evidence and leave them on the wrapper.
     /// </summary>
     static readonly string[] SwiftBridgeProbeRoutes =
     [
@@ -52,6 +55,32 @@ partial class Build
 
     AbsolutePath SwiftBridgeGateScratch => RootDirectory / "artifacts" / "swift-bridges";
 
+    /// <summary>
+    /// The platform the BindingTests output was last regenerated for, which must be one that routes
+    /// through bridges: a check of the corpus sidecars is otherwise a check of a generation that
+    /// never judged them.
+    /// </summary>
+    string AssertRoutedCorpusPlatform(string what)
+    {
+        var sidecar = BtOutputDir / TargetPlatformSidecarName;
+        var platform = File.Exists(sidecar) ? File.ReadAllText(sidecar).Trim() : null;
+        if (platform is null || !SwiftBridgeRoutedPlatforms.Contains(platform, StringComparer.Ordinal))
+            Assert.Fail($"{what}: the BindingTests output was regenerated for {platform ?? "no recorded platform"}, which does not route " +
+                        $"through bridges; regenerate it for {string.Join(" or ", SwiftBridgeRoutedPlatforms)} first");
+        return platform!;
+    }
+
+    /// <summary>
+    /// The sidecars a module's generation writes beside its C# that describe its Swift transitions:
+    /// its call facts, transition ledger, call plans and residual guards. A dependency's travel with
+    /// its C# into the BindingTests output, where the transition gates read them.
+    /// </summary>
+    static string[] SwiftTransitionSidecarNames(string module) =>
+    [
+        $"{module}.swift-call-facts.json", $"{module}.swift-transition-ledger.json",
+        $"{module}.swift-call-plans.json", $"{module}.swift-transition-guards.json",
+    ];
+
     /// <summary>The hand-written tables and the source directories of the assembly each belongs to.</summary>
     (AbsolutePath Table, AbsolutePath[] Sources)[] HandWrittenTransitionTables =>
     [
@@ -59,7 +88,7 @@ partial class Build
         (SourceDir / "Swift.Bindings.Apple" / "transition-facts.json", [SourceDir / "Swift.Bindings.Apple" / "Sources"]),
     ];
 
-    /// <summary>The plan sidecars of the iOS BindingTests regeneration, which routes through the bridges.</summary>
+    /// <summary>The plan sidecars of the current BindingTests regeneration (iOS or Mac Catalyst), which routes through the bridges.</summary>
     string[] SwiftBridgeCorpusPlanFiles() =>
         new[] { BtOutputDir / $"{ModuleName}.swift-call-plans.json", BtOutputDir / $"{DepModuleName}.swift-call-plans.json" }
             .Select(p => p.ToString())
@@ -116,14 +145,16 @@ partial class Build
         .DependsOn(Compile)
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
         .After(SwiftLoweringOracle, SwiftBridgeProducts)
-        .Description("Emit and validate the native bridge of every plan (corpus and hand-written tables) on arm64 and x86_64.")
+        .Description("Emit and validate the native bridge of every plan (corpus and hand-written tables) on arm64 and x86_64, " +
+                     "assembled for every platform the sidecars claim.")
         .Executes(() =>
         {
             EnsureGeneratorBuilt(ensureSwiftInterfaceParser: false);
             var plans = SwiftBridgePlanFiles();
             var routed = SwiftBridgeCorpusPlanFiles().Concat(SwiftBridgeRoutedProductFiles()).ToArray();
             foreach (var missing in plans.Where(p => !File.Exists(p)))
-                Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` first");
+                Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` (or a `--catalyst` leg) first");
+            AssertRoutedCorpusPlatform("the Swift bridge gate");
             if (Directory.Exists(SwiftBridgeGateScratch))
                 SwiftBridgeGateScratch.DeleteDirectory();
             var arguments = new List<string>

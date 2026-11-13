@@ -22,8 +22,17 @@ public sealed record SwiftOracleTarget(string Triple, string Sdk)
     public static readonly SwiftOracleTarget SimulatorArm64 = new("arm64-apple-ios15.0-simulator", "iphonesimulator");
     public static readonly SwiftOracleTarget SimulatorX64 = new("x86_64-apple-ios15.0-simulator", "iphonesimulator");
 
-    /// <summary>The iOS device and simulator targets the probe modules and the qualification corpus compile for.</summary>
+    /// <summary>The iOS device and simulator targets the probe modules compile for.</summary>
     public static readonly ImmutableArray<SwiftOracleTarget> All = ImmutableArray.Create(DeviceArm64, SimulatorArm64, SimulatorX64);
+
+    public static readonly SwiftOracleTarget CatalystArm64 = new("arm64-apple-ios15.0-macabi", "macosx");
+    public static readonly SwiftOracleTarget CatalystX64 = new("x86_64-apple-ios15.0-macabi", "macosx");
+
+    /// <summary>
+    /// The targets the qualification corpus compiles for: the slices of every platform whose BindingTests
+    /// regeneration routes through bridges (iOS, and both Mac Catalyst architectures).
+    /// </summary>
+    public static readonly ImmutableArray<SwiftOracleTarget> Corpus = ImmutableArray.Create(DeviceArm64, SimulatorArm64, SimulatorX64, CatalystArm64, CatalystX64);
 
     /// <summary>
     /// Every slice a hand-written table may claim: the iOS, tvOS, Mac Catalyst and macOS triples the
@@ -34,8 +43,8 @@ public sealed record SwiftOracleTarget(string Triple, string Sdk)
         new SwiftOracleTarget("arm64-apple-tvos15.0", "appletvos"),
         new SwiftOracleTarget("arm64-apple-tvos15.0-simulator", "appletvsimulator"),
         new SwiftOracleTarget("x86_64-apple-tvos15.0-simulator", "appletvsimulator"),
-        new SwiftOracleTarget("arm64-apple-ios15.0-macabi", "macosx"),
-        new SwiftOracleTarget("x86_64-apple-ios15.0-macabi", "macosx"),
+        CatalystArm64,
+        CatalystX64,
         new SwiftOracleTarget("arm64-apple-macosx12.0", "macosx"),
         new SwiftOracleTarget("x86_64-apple-macosx12.0", "macosx"));
 
@@ -185,6 +194,21 @@ public static class SwiftLoweringOracle
     public static readonly ImmutableArray<string> IrFlags = ["-wmo", "-parse-as-library", "-strict-concurrency=minimal"];
 
     /// <summary>
+    /// The search paths a Mac Catalyst (<c>-macabi</c>) compile needs beyond the macOS SDK root, as the
+    /// fixture and wrapper builds pass them: the iOS-flavoured frameworks a Catalyst module may import
+    /// live under the SDK's <c>System/iOSSupport</c>, which is not on the default search path. Empty
+    /// for every other target.
+    /// </summary>
+    public static IEnumerable<string> PlatformSearchPaths(SwiftOracleTarget target, string sdk) =>
+        target.Triple.EndsWith("-macabi", StringComparison.Ordinal)
+            ?
+            [
+                "-Fsystem", Path.Combine(sdk, "System", "iOSSupport", "System", "Library", "Frameworks"),
+                "-I", Path.Combine(sdk, "System", "iOSSupport", "usr", "lib", "swift"),
+            ]
+            : [];
+
+    /// <summary>
     /// The directory of a module's public textual interface, alone: what a binary framework gives a
     /// consumer, and so what a generated wrapper compiles against (no SPI, no accessor-level
     /// availability).
@@ -216,6 +240,7 @@ public static class SwiftLoweringOracle
             "-emit-module-interface-path", Path.Combine(InterfaceDirectory(outputDirectory), moduleName + ".swiftinterface"),
             "-emit-private-module-interface-path", Path.Combine(outputDirectory, moduleName + ".private.swiftinterface"),
         });
+        arguments.AddRange(PlatformSearchPaths(target, sdk));
         if (extraArguments is not null)
             arguments.AddRange(extraArguments);
         arguments.AddRange(sources);
@@ -247,6 +272,7 @@ public static class SwiftLoweringOracle
             "-target", target.Triple, "-sdk", sdk, "-module-name", moduleName, "-emit-ir", "-o", irPath,
             "-module-cache-path", Path.Combine(outputDirectory, "module-cache"),
         });
+        arguments.AddRange(PlatformSearchPaths(target, sdk));
         if (extraArguments is not null)
             arguments.AddRange(extraArguments);
         arguments.AddRange(sources);

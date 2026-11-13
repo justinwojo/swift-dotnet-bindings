@@ -228,19 +228,26 @@ public class SwiftLoweringOracleTests
     /// <summary>The environment variable naming the corpus manifest the <c>swift-lowering-oracle</c> target writes.</summary>
     public const string CorpusManifestVariable = "SWIFT_LOWERING_ORACLE_CORPUS";
 
+    /// <summary>The slices the qualification corpus is compiled and recorded for.</summary>
+    public static IEnumerable<object[]> CorpusTriples => SwiftOracleTarget.Corpus.Select(t => new object[] { t.Triple });
+
     /// <summary>
     /// The BindingTests corpus (its dependency module, then the main module), compiled by swiftc and
     /// compared callee by callee. Runs only from the <c>swift-lowering-oracle</c> build target, which
-    /// names the sources and where the reports go; refusals are reported, mismatches fail.
+    /// names the sources, the platform the corpus was regenerated for (its plan sidecars and wrappers
+    /// are that platform's) and where the reports go; refusals are reported, mismatches fail. Only the
+    /// slices of that platform run, so each platform's receipts are recorded from its own generation.
     /// </summary>
     [SkippableTheory]
-    [MemberData(nameof(Triples))]
+    [MemberData(nameof(CorpusTriples))]
     public void Corpus_EveryPredictionMatchesSwiftc(string triple)
     {
         var manifestPath = Environment.GetEnvironmentVariable(CorpusManifestVariable);
         Skip.If(string.IsNullOrEmpty(manifestPath), $"{CorpusManifestVariable} is not set; the swift-lowering-oracle target runs this");
         Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
         var manifest = System.Text.Json.JsonDocument.Parse(File.ReadAllText(manifestPath!)).RootElement;
+        var platform = manifest.TryGetProperty("platform", out var platformProperty) ? platformProperty.GetString()! : "ios";
+        Skip.IfNot(SwiftArtifactScope.PlatformSlices(platform).Contains(triple), $"the corpus was regenerated for {platform}, which claims no {triple} slice");
         string[] Strings(string property) => manifest.GetProperty(property).EnumerateArray().Select(e => e.GetString()!).ToArray();
         var reportDirectory = manifest.GetProperty("reports").GetString()!;
         var target = SwiftOracleTarget.ByTriple(triple);
