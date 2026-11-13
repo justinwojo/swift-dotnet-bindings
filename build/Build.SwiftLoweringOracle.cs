@@ -2,13 +2,15 @@
 // Licensed under the MIT License.
 //
 // Opt-in, host-only: the swiftc lowering oracle over the BindingTests corpus. Compiles the dependency
-// and main modules with swiftc for the device and both simulator triples, emits their LLVM IR, and
-// compares every callee's predicted physical signature and every frozen struct's layout with what
-// swiftc produced. Writes one report per triple, toolchain included, under artifacts/. It also
-// records this toolchain's lowering receipts into the SDK's qualification record
-// (build/baselines/swift-lowering-evidence.json): one per corpus module on the iOS triples, and one
-// per hand-written transition table on every slice its table claims. The record holds one receipt
-// per qualified compiler family, so it is rerun under each toolchain profile. The probe and fixture
+// and main modules with swiftc for the slices of the platform the corpus was regenerated for (the
+// iOS device and both simulator triples, or with --platform maccatalyst both Mac Catalyst triples),
+// emits their LLVM IR, and compares every callee's predicted physical signature and every frozen
+// struct's layout with what swiftc produced. Writes one report per triple, toolchain included, under
+// artifacts/. It also records this toolchain's lowering receipts into the SDK's qualification record
+// (build/baselines/swift-lowering-evidence.json): one per corpus module on that platform's triples,
+// read against that platform's own plan sidecars and wrappers, and one per hand-written transition
+// table on every slice its table claims. The record holds one receipt per qualified compiler family,
+// so it is rerun under each toolchain profile, once per routed platform. The probe and fixture
 // modules run in the unit tests on every `nuke test`; this target adds the whole corpus.
 
 using System;
@@ -34,6 +36,22 @@ partial class Build
 
     void RunSwiftLoweringOracle()
     {
+        // The iOS corpus is the compile-only gate's regeneration, which the oracle reads in place. Mac
+        // Catalyst has no compile-only regeneration, so the oracle regenerates it the way the Catalyst
+        // leg does. Its plan sidecars name the targets it routes, which the probe-route requests keep
+        // on their Swift-convention imports whether or not the record already holds Catalyst receipts;
+        // until it does, those requests cannot be satisfied and the regeneration needs --permissive.
+        var platform = ResolvedPlatform;
+        if (!SwiftBridgeRoutedPlatforms.Contains(platform.Name, StringComparer.Ordinal))
+            Assert.Fail($"swift-lowering-oracle: {platform.Name} does not route through bridges; the corpus is recorded for {string.Join(" and ", SwiftBridgeRoutedPlatforms)}");
+        if (platform.Name == ApplePlatform.MacCatalyst.Name)
+        {
+            RunBuildXcframework(platformOverride: platform);
+            RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
+        }
+        if (AssertRoutedCorpusPlatform("swift-lowering-oracle") != platform.Name)
+            Assert.Fail($"swift-lowering-oracle: the BindingTests output is not a {platform.Name} regeneration; run `nuke binding-tests --compile-only` first");
+
         var scratch = SwiftLoweringOracleScratch;
         if (Directory.Exists(scratch))
             scratch.DeleteDirectory();
@@ -59,6 +77,7 @@ partial class Build
             Assert.Fail($"{required} is missing: run `nuke binding-tests --compile-only` (and `nuke swift-bridge-products`) first");
         File.WriteAllText(manifest, JsonSerializer.Serialize(new
         {
+            platform = platform.Name,
             dependencyModule = DepModuleName,
             mainModule = ModuleName,
             dependency = GetDepSourceFiles().OrderBy(f => f, StringComparer.Ordinal),

@@ -462,8 +462,8 @@ partial class Build
 
         // Route every transition the SDK's lowering qualification record qualifies through its native
         // bridge: the corpus is the SDK's qualification corpus, judged under every qualified compiler
-        // family whichever toolchain regenerates it. The record covers the iOS triples only, so the
-        // other platforms keep their direct imports.
+        // family whichever toolchain regenerates it. The record covers the iOS and Mac Catalyst
+        // triples, so the other platforms keep their direct imports.
         if (BridgeEvidenceApplies(platformOverride))
         {
             genArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
@@ -626,9 +626,9 @@ partial class Build
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
             }
 
-            // The dependency module's Swift call facts sidecar, transition ledger and call plans travel
-            // with its C# for the same reason: they describe transitions that are compiled from BtOutputDir.
-            foreach (var sidecar in new[] { $"{DepModuleName}.swift-call-facts.json", $"{DepModuleName}.swift-transition-ledger.json", $"{DepModuleName}.swift-call-plans.json" })
+            // The dependency module's Swift call facts sidecar, transition ledger, call plans and guards
+            // travel with its C# for the same reason: they describe transitions compiled from BtOutputDir.
+            foreach (var sidecar in SwiftTransitionSidecarNames(DepModuleName))
             {
                 var depSidecar = depOutputDir / sidecar;
                 if (File.Exists(depSidecar))
@@ -804,12 +804,14 @@ partial class Build
         .DependsOn(RegenerateBindings)
         .Executes(() => RunCompileCheck());
 
-    void RunCompileCheck()
+    /// <param name="platform">The platform the output was generated for: <c>ios</c>, or <c>maccatalyst</c> on the Catalyst leg.</param>
+    void RunCompileCheck(string platform = "ios")
     {
-        Log.Information("--- Compile-check generated bindings ---");
+        Log.Information("--- Compile-check generated bindings ({Platform}) ---", platform);
         DotNetBuild(s => s
             .SetProjectFile(BindingTestsDir / "CompileCheck" / "CompileCheck.csproj")
             .SetProperty("BtTargetFramework", BtFramework)
+            .SetProperty("BtCompileCheckPlatform", platform)
             .SetConfiguration("Debug")
             .SetVerbosity(DotNetVerbosity.quiet));
         Log.Information("Compile-check passed (0 errors).");

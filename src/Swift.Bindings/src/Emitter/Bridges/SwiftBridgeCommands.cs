@@ -303,15 +303,24 @@ public static class SwiftBridgeGate
             logger.LogError("the lowering qualification record {Path} does not exist: the swift-lowering-oracle target records it", qualificationPath);
             return 1;
         }
-        var toolchain = SwiftBridgeToolchain.Locate();
-        if (toolchain is null)
-        {
-            logger.LogError("--swift-bridges needs xcrun with the iPhoneOS and iPhoneSimulator SDKs");
-            return 1;
-        }
-
         var qualification = SwiftLoweringEvidence.Load(qualificationPath);
         var (sets, plans, executable, unqualified) = Load(planFiles, routedPlanFiles, qualification);
+
+        // A bridge is assembled into each platform its artifact claims, against that platform's own
+        // triple and SDK, so it is validated as assembled for each of them.
+        var platforms = Platforms(sets);
+        var toolchains = new List<SwiftBridgeToolchain>();
+        foreach (var platform in platforms)
+        {
+            if (SwiftBridgeToolchain.Locate(platform) is { } located)
+                toolchains.Add(located);
+            else
+            {
+                logger.LogError("--swift-bridges needs xcrun with the {Sdks} SDK(s) to validate the {Platform} bridges",
+                    string.Join(" and ", SwiftBridgeToolchain.SdksOf(platform)), platform);
+                return 1;
+            }
+        }
         Directory.CreateDirectory(outputDirectory);
         var report = new StringBuilder();
         var failures = new List<string>(unqualified);
@@ -340,7 +349,7 @@ public static class SwiftBridgeGate
             failures.Add("no plan is executable: the evidence joins nothing, and a gate over no bridges proves nothing");
 
         var frames = 0;
-        foreach (var architecture in new[] { SwiftArchitecture.Arm64, SwiftArchitecture.X86_64 })
+        foreach (var architecture in SwiftBridgeToolchain.Architectures)
         {
             var assembly = SwiftBridgeEmitter.Emit(plans.Where(p => p.Body.Kind != SwiftPlanKind.Reverse), architecture);
             var name = architecture.ToString().ToLowerInvariant();
@@ -350,16 +359,20 @@ public static class SwiftBridgeGate
             var missing = executable.Where(s => !assembly.Bridges.Contains(s) && !assembly.Refused.Any(r => r.Symbol == s)).ToList();
             foreach (var symbol in missing)
                 failures.Add($"{architecture}: the executable plan {symbol} is not in any sidecar's plans");
-
-            var validation = SwiftBridgeValidator.Validate(assembly, plans, toolchain, Path.Combine(outputDirectory, name));
-            frames += validation.Functions.Length;
-            var line = $"{architecture}: {assembly.Bridges.Length} bridge(s) ({assembly.Bridges.Count(executable.Contains)} executable), " +
-                       $"{assembly.Refused.Length} without a template, {validation.Failures.Length} validation failure(s)";
-            report.AppendLine(line);
-            logger.LogInformation("{Line}", line);
             foreach (var refusal in assembly.Refused)
-                report.AppendLine($"  no template: {refusal.Symbol}: {refusal.Reason}");
-            failures.AddRange(validation.Failures.Select(f => $"{architecture}: {f}"));
+                report.AppendLine($"  {architecture}: no template: {refusal.Symbol}: {refusal.Reason}");
+
+            foreach (var toolchain in toolchains)
+            {
+                var (triple, _) = toolchain.TargetOf(architecture);
+                var validation = SwiftBridgeValidator.Validate(assembly, plans, toolchain, Path.Combine(outputDirectory, toolchain.Platform, name));
+                frames += validation.Functions.Length;
+                var line = $"{architecture} ({triple}): {assembly.Bridges.Length} bridge(s) ({assembly.Bridges.Count(executable.Contains)} executable), " +
+                           $"{assembly.Refused.Length} without a template, {validation.Failures.Length} validation failure(s)";
+                report.AppendLine(line);
+                logger.LogInformation("{Line}", line);
+                failures.AddRange(validation.Failures.Select(f => $"{architecture} ({triple}): {f}"));
+            }
         }
 
         report.AppendLine(failures.Count == 0 ? "green" : $"{failures.Count} failure(s):");
@@ -371,6 +384,16 @@ public static class SwiftBridgeGate
         logger.LogInformation("Swift bridge gate: {Executable} executable plan(s), {Frames} bridge frame(s) validated, {Failures} failure(s); report {Report}",
             executable.Count, frames, failures.Count, Path.Combine(outputDirectory, "bridge-gate.txt"));
         return failures.Count == 0 ? 0 : 1;
+    }
+
+    /// <summary>
+    /// The platforms the gate assembles and validates the bridges for: every platform whose slices
+    /// any judged sidecar's scope claims, or iOS when none records a scope.
+    /// </summary>
+    public static IReadOnlyList<string> Platforms(IEnumerable<SwiftCallPlanSet> sets)
+    {
+        var platforms = SwiftBridgeToolchain.PlatformsOf(sets.Where(s => s.EvidenceScope is not null).SelectMany(s => s.EvidenceScope!.Slices));
+        return platforms.Count == 0 ? ["ios"] : platforms;
     }
 
     /// <summary>A not-executable reason with its per-symbol detail dropped, for grouping.</summary>
@@ -442,7 +465,8 @@ public static class SwiftBridgeLinkedCheck
             yield return $"{architecture}: {failure}";
     }
 
-    public static int Run(IReadOnlyList<string> images, IReadOnlyList<string> planFiles, string outputDirectory, ILogger logger)
+    /// <param name="platform">The platform lane the images were built for (<c>--platform</c>; iOS by default).</param>
+    public static int Run(IReadOnlyList<string> images, IReadOnlyList<string> planFiles, string outputDirectory, ILogger logger, string platform = "ios")
     {
         var missingFiles = images.Concat(planFiles).Where(f => !File.Exists(f)).ToList();
         if (images.Count == 0 || planFiles.Count == 0 || missingFiles.Count > 0)
@@ -451,10 +475,15 @@ public static class SwiftBridgeLinkedCheck
                 missingFiles.Count > 0 ? string.Join(", ", missingFiles) : images.Count == 0 ? "an image" : "a sidecar");
             return 1;
         }
-        var toolchain = SwiftBridgeToolchain.Locate();
+        if (!SwiftBridgeToolchain.KnownPlatforms.Contains(platform, StringComparer.Ordinal))
+        {
+            logger.LogError("--validate-linked-bridges: the platform '{Platform}' has no bridge targets", platform);
+            return 1;
+        }
+        var toolchain = SwiftBridgeToolchain.Locate(platform);
         if (toolchain is null)
         {
-            logger.LogError("--validate-linked-bridges needs xcrun");
+            logger.LogError("--validate-linked-bridges needs xcrun with the {Sdks} SDK(s)", string.Join(" and ", SwiftBridgeToolchain.SdksOf(platform)));
             return 1;
         }
         var routed = Routed(planFiles.Select(f => SwiftCallPlanSet.From(SwiftCallPlanSet.Read(f))));

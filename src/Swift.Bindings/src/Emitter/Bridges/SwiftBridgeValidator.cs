@@ -131,7 +131,7 @@ public static class SwiftBridgeValidator
     {
         var wanted = functions.Order(StringComparer.Ordinal).ToImmutableArray();
         var failures = new List<SwiftBridgeFinding>();
-        var triple = SwiftBridgeToolchain.TargetOf(architecture).Triple;
+        var triple = toolchain.TargetOf(architecture).Triple;
         var symbols = DefinedSymbols(toolchain.Run("nm", "--defined-only", imagePath).Output);
         var unwind = UnwindEntries(toolchain.Run("llvm-objdump", "--unwind-info", imagePath).Output);
         var fdes = Fdes(toolchain.Run("llvm-dwarfdump", "--eh-frame", imagePath).Output, architecture);

@@ -338,7 +338,7 @@ public static class BindingsGeneratorCommand
             context.ExitCode = swiftBridges
                 ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, qualification, outputDirectory!, logger)
                 : validateLinkedBridges.Length > 0
-                ? SwiftBridgeLinkedCheck.Run(validateLinkedBridges, swiftCallPlans, outputDirectory!, logger)
+                ? SwiftBridgeLinkedCheck.Run(validateLinkedBridges, swiftCallPlans, outputDirectory!, logger, (platformStr ?? "ios").ToLowerInvariant())
                 : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!, qualification, logger);
             return;
         }

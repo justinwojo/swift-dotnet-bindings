@@ -71,7 +71,10 @@ partial class Build
     [Parameter("Swift transition gate: directory the report, site inventory and summary are written to")]
     readonly string? TransitionGateOutput;
 
-    AbsolutePath CompileCheckOutputDir => BindingTestsDir / "CompileCheck" / "bin" / "Debug" / $"{BtFramework}-ios";
+    AbsolutePath CompileCheckOutputDir => CompileCheckOutputDirFor("ios");
+
+    /// <summary>Where the compile check of output generated for <paramref name="platform"/> lands.</summary>
+    AbsolutePath CompileCheckOutputDirFor(string platform) => BindingTestsDir / "CompileCheck" / "bin" / "Debug" / $"{BtFramework}-{platform}";
 
     // The binding under test, then the runtime and Apple supplement it was compiled against.
     string[] DefaultTransitionGateAssemblies => new[] { "CompileCheck.dll", "Swift.Runtime.dll", "SwiftBindings.Apple.dll" }
@@ -175,10 +178,13 @@ partial class Build
     /// ledgers; their transitions are listed apart, and the cross-check fails if one of them no longer
     /// has any, so the list stays exact.
     /// </summary>
-    (string Assembly, AbsolutePath LedgerDirectory, string[] HandWrittenTypes)[] LedgeredAssemblies => new[]
+    (string Assembly, AbsolutePath LedgerDirectory, string[] HandWrittenTypes)[] LedgeredAssemblies => LedgeredAssembliesFor("ios");
+
+    /// <summary>The ledgered assemblies of a compile check of output generated for <paramref name="platform"/>.</summary>
+    (string Assembly, AbsolutePath LedgerDirectory, string[] HandWrittenTypes)[] LedgeredAssembliesFor(string platform) => new[]
     {
         ("CompileCheck.dll", BtOutputDir, Array.Empty<string>()),
-        ("SwiftBindings.Apple.dll", AppleSupplementDir / "obj" / "Debug" / AppleSupplementIosFramework() / "AppleTypes",
+        ("SwiftBindings.Apple.dll", AppleSupplementDir / "obj" / "Debug" / AppleSupplementFramework(platform) / "AppleTypes",
             new[] { "Swift.Foundation.Data", "Swift.Foundation.URL", "Swift.Foundation.URLRequest", "Swift.SwiftUI.Text" }),
     };
 
@@ -208,24 +214,25 @@ partial class Build
     const string RuntimeAssemblyName = "Swift.Runtime.dll";
 
     /// <summary>
-    /// The Apple supplement's iOS framework the compile check's reference to it resolves to: of the iOS
-    /// frameworks its project targets, the newest the lane's framework can consume. A lane newer than
-    /// the supplement (net11 against a net10-only supplement) consumes the older build, whose
-    /// ledger is under that framework's obj directory.
+    /// The Apple supplement's framework for <paramref name="platform"/> the compile check's reference to
+    /// it resolves to: of the frameworks its project targets for that platform, the newest the lane's
+    /// framework can consume. A lane newer than the supplement (net11 against a net10-only supplement)
+    /// consumes the older build, whose ledger is under that framework's obj directory.
     /// </summary>
-    string AppleSupplementIosFramework()
+    string AppleSupplementFramework(string platform)
     {
         var project = System.Xml.Linq.XDocument.Load(AppleSupplementDir / "Swift.Bindings.Apple.csproj");
         var lane = System.Version.Parse(BtFramework["net".Length..]);
+        var suffix = "-" + platform;
         return project.Descendants("TargetFrameworks")
                    .SelectMany(e => e.Value.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
-                   .Where(t => t.StartsWith("net", StringComparison.Ordinal) && t.EndsWith("-ios", StringComparison.Ordinal))
-                   .Select(t => (Framework: t, Version: System.Version.Parse(t["net".Length..^"-ios".Length])))
+                   .Where(t => t.StartsWith("net", StringComparison.Ordinal) && t.EndsWith(suffix, StringComparison.Ordinal))
+                   .Select(t => (Framework: t, Version: System.Version.Parse(t["net".Length..^suffix.Length])))
                    .Where(t => t.Version <= lane)
                    .OrderByDescending(t => t.Version)
                    .Select(t => t.Framework)
                    .FirstOrDefault()
-               ?? throw new Exception($"Transition ledger cross-check: Swift.Bindings.Apple.csproj targets no iOS framework a {BtFramework} compile check can consume.");
+               ?? throw new Exception($"Transition ledger cross-check: Swift.Bindings.Apple.csproj targets no {platform} framework a {BtFramework} compile check can consume.");
     }
 
     /// <summary>
@@ -234,25 +241,33 @@ partial class Build
     /// every bridge twin against its call plan (rule R3).
     /// Fail-closed and unconditional, with no baseline and no --permissive arm: a transition the
     /// ledger does not list, or lists without facts, is a producer that bypassed recording.
+    /// The Mac Catalyst leg runs it too, over a compile check of its own output
+    /// (<paramref name="platform"/> <c>maccatalyst</c>); on every routed platform a control first
+    /// proves the run is not vacuous: the bindings were judged against that platform's evidence, a
+    /// guard sidecar exists for every module, and the compiled binding holds bridge twins.
     /// </summary>
-    void RunTransitionLedgerCrossCheck()
+    void RunTransitionLedgerCrossCheck(string platform = "ios")
     {
         Log.Information("=========================================");
-        Log.Information(" Transition ledger cross-check");
+        Log.Information(" Transition ledger cross-check ({Platform})", platform);
         Log.Information("=========================================");
         var output = BtOutputDir / ".swift-transition-gate";
         output.CreateDirectory();
         var failed = new List<string>();
-        foreach (var (name, ledgerDirectory, handWritten) in LedgeredAssemblies)
+        var compileCheckOutput = CompileCheckOutputDirFor(platform);
+        var routed = SwiftBridgeRoutedPlatforms.Contains(platform, StringComparer.Ordinal);
+        if (routed)
+            failed.AddRange(CheckRoutedEvidenceControl(platform));
+        foreach (var (name, ledgerDirectory, handWritten) in LedgeredAssembliesFor(platform))
         {
-            var assembly = CompileCheckOutputDir / name;
+            var assembly = compileCheckOutput / name;
             if (!File.Exists(assembly))
                 throw new Exception($"Transition ledger cross-check: {assembly} not found; the compile check did not produce it.");
             var report = SwiftTransitionScanner.Scan(assembly, new SwiftTransitionScanOptions
             {
                 ReferenceDirectories = new[]
                 {
-                    CompileCheckOutputDir.ToString(),
+                    compileCheckOutput.ToString(),
                     System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
                 },
                 PlanSource = new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, ledgerDirectory),
@@ -277,6 +292,8 @@ partial class Build
                 Log.Error("  R3 {Member} -> {EntryPoint}: {Reason}", violation.Member, violation.EntryPoint, violation.Reason);
             if (twins.Count > 0)
                 failed.Add($"{name} (R3)");
+            if (routed && name == "CompileCheck.dll")
+                failed.AddRange(CheckRoutedAssemblyControl(platform, assembly, report));
 
             // A transition the evidence made executable but the shim refused keeps its direct import,
             // so no twin exists for R3 to reject; only the generation's own sidecar records it.
@@ -297,10 +314,130 @@ partial class Build
                 failed.Add($"{name} (evidence)");
             }
         }
-        failed.AddRange(CheckRuntimeBridgeTwins());
+        failed.AddRange(CheckRuntimeBridgeTwins(compileCheckOutput));
         if (failed.Count > 0)
-            throw new Exception($"Transition ledger cross-check FAILED for {string.Join(", ", failed)} — see the lines above.");
+            throw new Exception($"Transition ledger cross-check ({platform}) FAILED for {string.Join(", ", failed)} — see the lines above.");
     }
+
+    /// <summary>
+    /// The control that keeps the cross-check of a routed platform's output from passing vacuously,
+    /// over the generation: the output was generated for <paramref name="platform"/>, and each
+    /// module's call plans were judged by the qualification record over that platform's own slices
+    /// (every slice the platform's lanes run, and none of another platform). The compiled side of the
+    /// control is in <see cref="CheckRoutedAssemblyControl"/>. A module that guards nothing writes no
+    /// guard sidecar, so none is required here: a hazard the IL holds without one fails the
+    /// residual-guard check itself.
+    /// </summary>
+    IEnumerable<string> CheckRoutedEvidenceControl(string platform)
+    {
+        var stamp = BtOutputDir / TargetPlatformSidecarName;
+        var generatedFor = File.Exists(stamp) ? File.ReadAllText(stamp).Trim() : null;
+        if (generatedFor != platform)
+        {
+            Log.Error("  control: {Output} was generated for {Generated}, not {Platform}", BtOutputDir, generatedFor ?? "(unknown)", platform);
+            yield return $"control (output generated for {generatedFor ?? "an unknown platform"})";
+            yield break;
+        }
+        var laneSlices = RoutedLaneSlices(platform);
+        foreach (var module in new[] { ModuleName, DepModuleName })
+        {
+            var plans = BtOutputDir / $"{module}.swift-call-plans.json";
+            if (!File.Exists(plans))
+            {
+                Log.Error("  control: {Module} has no call-plan sidecar at {Path}", module, plans);
+                yield return $"control ({module}: no call plans)";
+                continue;
+            }
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(plans));
+            if (!document.RootElement.TryGetProperty("evidenceScope", out var scope) || scope.ValueKind != System.Text.Json.JsonValueKind.Object)
+            {
+                Log.Error("  control: {Module}'s call plans were judged against no evidence", module);
+                yield return $"control ({module}: no evidence scope)";
+                continue;
+            }
+            var basis = scope.GetProperty("basis").GetString();
+            var artifact = scope.GetProperty("artifact").GetString();
+            var slices = scope.GetProperty("slices").EnumerateArray().Select(e => e.GetString() ?? "").ToArray();
+            var missing = laneSlices.Except(slices, StringComparer.Ordinal).ToArray();
+            var foreign = slices.Where(s => !IsSliceOf(platform, s)).ToArray();
+            if (basis != "qualification" || artifact != module || missing.Length > 0 || foreign.Length > 0)
+            {
+                Log.Error("  control: {Module}'s call plans were judged by {Basis} for {Artifact} over [{Slices}]; expected the qualification " +
+                          "record for {Module} over the {Platform} slices (missing [{Missing}], foreign [{Foreign}])",
+                    module, basis, artifact, string.Join(", ", slices), module, platform, string.Join(", ", missing), string.Join(", ", foreign));
+                yield return $"control ({module}: evidence scope)";
+            }
+            else
+                Log.Information("  control: {Module} judged by the qualification record over [{Slices}]", module, string.Join(", ", slices));
+        }
+    }
+
+    /// <summary>
+    /// The compiled side of the control: the scanned binding is the build for <paramref name="platform"/>
+    /// (its target-platform attribute, not a stale build of another platform), the scan saw its Swift
+    /// transitions, and routing reached it (it compiles bridge twins). Then the residual-guard check
+    /// over it judged the platform's own transitions, whether or not any of them is still a hazard.
+    /// </summary>
+    static IEnumerable<string> CheckRoutedAssemblyControl(string platform, AbsolutePath assembly, AssemblyTransitionReport report)
+    {
+        var target = TargetPlatformOf(assembly);
+        if (target is null || !target.StartsWith(platform, StringComparison.OrdinalIgnoreCase)
+            || !char.IsDigit(target.ElementAtOrDefault(platform.Length)))
+        {
+            Log.Error("  control: {Assembly} targets {Target}, not {Platform}", assembly, target ?? "no platform", platform);
+            yield return $"control ({Path.GetFileName(assembly)}: built for {target ?? "no platform"})";
+        }
+        if (report.Inventory.SwiftPInvokes == 0)
+        {
+            Log.Error("  control: the scan of {Assembly} saw no Swift-convention import", assembly);
+            yield return $"control ({Path.GetFileName(assembly)}: no Swift transitions)";
+        }
+        if (report.Inventory.BridgeTwins == 0)
+        {
+            Log.Error("  control: the {Platform} binding compiles no bridge twin: routing did not reach it", platform);
+            yield return $"control ({Path.GetFileName(assembly)}: no bridge twins)";
+        }
+        Log.Information("  control: {Assembly} targets {Target}: {Imports} Swift-convention import(s), {Twins} bridge twin(s)",
+            Path.GetFileName(assembly), target, report.Inventory.SwiftPInvokes, report.Inventory.BridgeTwins);
+    }
+
+    /// <summary>The platform an assembly's <c>TargetPlatformAttribute</c> names (for example <c>maccatalyst15.0</c>), or null.</summary>
+    static string? TargetPlatformOf(AbsolutePath assembly)
+    {
+        using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(assembly));
+        var metadata = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+        foreach (var handle in metadata.GetAssemblyDefinition().GetCustomAttributes())
+        {
+            var attribute = metadata.GetCustomAttribute(handle);
+            if (attribute.Constructor.Kind != System.Reflection.Metadata.HandleKind.MemberReference)
+                continue;
+            var constructor = metadata.GetMemberReference((System.Reflection.Metadata.MemberReferenceHandle)attribute.Constructor);
+            if (constructor.Parent.Kind != System.Reflection.Metadata.HandleKind.TypeReference)
+                continue;
+            var type = metadata.GetTypeReference((System.Reflection.Metadata.TypeReferenceHandle)constructor.Parent);
+            if (metadata.GetString(type.Namespace) != "System.Runtime.Versioning" || metadata.GetString(type.Name) != "TargetPlatformAttribute")
+                continue;
+            var blob = metadata.GetBlobReader(attribute.Value);
+            return blob.ReadUInt16() == 1 ? blob.ReadSerializedString() : null;
+        }
+        return null;
+    }
+
+    /// <summary>The target triples the repo's own lanes build for <paramref name="platform"/>: each must be in its evidence scope.</summary>
+    static string[] RoutedLaneSlices(string platform) => platform switch
+    {
+        "ios" => new[] { ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget },
+        "maccatalyst" => new[] { ApplePlatform.MacCatalyst.SimulatorTarget, ApplePlatform.MacCatalystX64.SimulatorTarget },
+        _ => throw new ArgumentException($"{platform} is not a routed platform", nameof(platform)),
+    };
+
+    /// <summary>Whether <paramref name="triple"/> is a slice of <paramref name="platform"/> (and not of, say, the platform it shares an SDK or an OS name with).</summary>
+    static bool IsSliceOf(string platform, string triple) => platform switch
+    {
+        "ios" => System.Text.RegularExpressions.Regex.IsMatch(triple, @"^(arm64|x86_64)-apple-ios[0-9.]+(-simulator)?$"),
+        "maccatalyst" => System.Text.RegularExpressions.Regex.IsMatch(triple, @"^(arm64|x86_64)-apple-ios[0-9.]+-macabi$"),
+        _ => false,
+    };
 
     /// <summary>
     /// R3 over the runtime's own bridge twins: each SBSR_ twin in the compiled Swift.Runtime must be
@@ -308,9 +445,9 @@ partial class Build
     /// transition the product routes through a bridge, so a runtime compiled from stale shims, or from
     /// the declarations alone, fails here rather than as a missing entry point in an app.
     /// </summary>
-    IEnumerable<string> CheckRuntimeBridgeTwins()
+    IEnumerable<string> CheckRuntimeBridgeTwins(AbsolutePath compileCheckOutput)
     {
-        var assembly = CompileCheckOutputDir / RuntimeAssemblyName;
+        var assembly = compileCheckOutput / RuntimeAssemblyName;
         if (!File.Exists(assembly))
             throw new Exception($"Transition ledger cross-check: {assembly} not found; the compile check did not produce it.");
         var source = new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, SwiftBridgeProductsDir);
@@ -318,7 +455,7 @@ partial class Build
         {
             ReferenceDirectories = new[]
             {
-                CompileCheckOutputDir.ToString(),
+                compileCheckOutput.ToString(),
                 System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory(),
             },
             PlanSource = source,

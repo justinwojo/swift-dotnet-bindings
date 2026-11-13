@@ -1561,6 +1561,11 @@ partial class Build
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
                 AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "Mac Catalyst");
+                // Catalyst routes through bridges as iOS does, so its output gets the same transition
+                // gates the compile-only path runs on iOS: a compile check for the Catalyst framework,
+                // then the ledger, R3 and residual-guard cross-check over it.
+                RunCompileCheck(platform.Name);
+                RunTransitionLedgerCrossCheck(platform.Name);
             }
             else
             {
@@ -1709,10 +1714,10 @@ partial class Build
             // Swift types don't exist on tvOS (e.g. AuthenticationServices.
             // ASAuthorizationPublicKeyCredentialParameters is iOS/macOS only).
             //
-            // We deliberately skip RunCompileCheck() here: CompileCheck targets
-            // net10.0-ios, so invoking it on tvOS-regenerated output is a TFM
-            // mismatch. The dotnet build of RuntimeTestsApp.tvOS below is the
-            // real compile gate for the tvOS output.
+            // We deliberately skip RunCompileCheck() here: tvOS does not route
+            // through bridges yet, so no transition cross-check reads a tvOS
+            // compile check. The dotnet build of RuntimeTestsApp.tvOS below is
+            // the real compile gate for the tvOS output.
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
@@ -3492,6 +3497,15 @@ partial class Build
         // module fail-closed on a verdict it never actually reached.
         genArgs.Add("--no-verify-csharp");
 
+        // Route every transition the SDK's lowering qualification record qualifies through its native
+        // bridge, as the iOS regeneration does: the record holds the corpus's Mac Catalyst receipts,
+        // so a Catalyst regeneration routes, and macOS, which it does not cover, keeps its direct imports.
+        if (BridgeEvidenceApplies(platform))
+        {
+            genArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
+            genArgs.AddRange(SwiftBridgeProbeRoutes.Select(symbol => $"--swift-bridge-route \"{symbol}\""));
+        }
+
         // Fail-closed on a degraded input edge in strict mode — a device→sim slice fallback, a
         // missing swiftinterface, an ABI-JSON fallback, an ambiguous TBD, or a degraded
         // auto-detected dependency (see the iOS RunRegenerateBindings path for the rationale).
@@ -3548,6 +3562,8 @@ partial class Build
                 depArgs.Add("--strict-inputs");
             // Same compile gate as the main module above: the app build is the real one.
             depArgs.Add("--no-verify-csharp");
+            if (BridgeEvidenceApplies(platform))
+                depArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),
@@ -3576,6 +3592,15 @@ partial class Build
             {
                 var dest = BtOutputDir / Path.GetFileName(csFile);
                 File.Copy(csFile, dest, overwrite: true);
+            }
+
+            // Its transition sidecars travel with its C#: they describe transitions compiled from
+            // BtOutputDir, where the transition gates and the lowering oracle read them.
+            foreach (var sidecar in SwiftTransitionSidecarNames(DepModuleName))
+            {
+                var depSidecar = depOutputDir / sidecar;
+                if (File.Exists(depSidecar))
+                    File.Copy(depSidecar, BtOutputDir / sidecar, overwrite: true);
             }
 
             // Consolidate dependency Swift wrappers to dep-swift/ for RunBuildAsyncWrapper.

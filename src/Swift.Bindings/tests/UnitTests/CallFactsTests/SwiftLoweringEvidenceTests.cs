@@ -126,6 +126,38 @@ public class SwiftLoweringEvidenceTests
         Assert.True(SwiftLoweringAuthorization.Authorize(Expect(tvos), Own(tvos)).Judge(Symbol, Callee).Executable);
     }
 
+    /// <summary>
+    /// Mac Catalyst shares iOS's OS name and the macOS SDK, but its macabi slices are its own: an iOS
+    /// receipt or record never covers them, a Catalyst one never covers iOS, and one architecture's
+    /// slice is not the platform's, since a universal app runs both.
+    /// </summary>
+    [Fact]
+    public void MacCatalystEvidence_MustNameBothMacabiSlices_AndNeverStandsInForIos()
+    {
+        var catalyst = SwiftArtifactScope.ForPlatform("M", "maccatalyst");
+        Assert.Equal(new[] { "arm64-apple-ios15.0-macabi", "x86_64-apple-ios15.0-macabi" }, catalyst.Slices.ToArray());
+
+        var fromIos = SwiftLoweringAuthorization.Authorize(Expect(catalyst), Own(Ios));
+        Assert.False(fromIos.Authorizes);
+        Assert.All(catalyst.Slices, t => Assert.Contains($"has no evidence for {t}", fromIos.Refusal));
+        Assert.False(SwiftLoweringQualification.Qualify(Record("M", QualifiedCompilers, Ios.Slices, Shows), catalyst).Authorizes);
+
+        Assert.False(SwiftLoweringAuthorization.Authorize(Expect(Ios), Own(catalyst)).Authorizes);
+        Assert.False(SwiftLoweringQualification.Qualify(Record("M", QualifiedCompilers, catalyst.Slices, Shows), Ios).Authorizes);
+
+        var arm64Only = SwiftLoweringAuthorization.Authorize(Expect(catalyst), Own(new SwiftArtifactScope("M", [catalyst.Slices[0]])));
+        Assert.False(arm64Only.Authorizes);
+        Assert.Contains($"has no evidence for {catalyst.Slices[1]}", arm64Only.Refusal);
+
+        Assert.True(SwiftLoweringAuthorization.Authorize(Expect(catalyst), Own(catalyst)).Judge(Symbol, Callee).Executable);
+        var both = Record("M", QualifiedCompilers, catalyst.Slices, Shows, into: Record("M", QualifiedCompilers, Ios.Slices, Shows));
+        foreach (var scope in new[] { catalyst, Ios })
+        {
+            var qualified = SwiftLoweringQualification.Qualify(both, scope);
+            Assert.True(qualified.Judge(Symbol, Callee).Executable, qualified.Refusal);
+        }
+    }
+
     [Fact]
     public void AnExtraSlice_AuthorizesNothing_ButItsContradictionStillCounts()
     {

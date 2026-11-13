@@ -33,6 +33,9 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
     /// <summary>The slices a wrapper with no x86_64 simulator slice ships.</summary>
     private static readonly ImmutableArray<string> Shipped = ["arm64-apple-ios15.0", "arm64-apple-ios15.0-simulator"];
 
+    /// <summary>The slices a universal Mac Catalyst wrapper ships: one per architecture.</summary>
+    private static readonly ImmutableArray<string> Catalyst = ["arm64-apple-ios15.0-macabi", "x86_64-apple-ios15.0-macabi"];
+
     private const string MainFile = "M.cs";
     private const string SplitFile = "M.Types.D.cs";
 
@@ -290,6 +293,63 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         var sidecar = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M"))));
         Assert.Equal(new[] { "arm64-apple-ios15.0-simulator" }, sidecar.EvidenceScope!.Slices.ToArray());
         Assert.Contains("on 1 triple(s)", sidecar.Coverage[0].Evidence);
+    }
+
+    /// <summary>
+    /// A universal Mac Catalyst wrapper is routed from its own receipt as an iOS one is: on both
+    /// architectures' macabi slices, with a bridge assembly for each, and the guard constant of the
+    /// routed import cleared, so the app's arm64 and x86_64 halves both call through the bridge.
+    /// </summary>
+    [Fact]
+    public void AUniversalMacCatalystWrapper_IsRoutedOnBothArchitectures_AndItsGuardRefusesNowhere()
+    {
+        WriteGeneration();
+        var receipt = Receipt(Catalyst);
+        _relink = r =>
+        {
+            Assert.Equal(Catalyst.ToArray(), r.Slices.Keys.ToArray());
+            return null;
+        };
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(receipt));
+
+        var expected = GenerationUnder(receipt);
+        Assert.Equal(2, expected.Routing.Bridged.Length);
+        Assert.Equal(expected.CSharp[MainFile], Read(MainFile));
+        Assert.True(File.Exists(AssemblyPath(SwiftArchitecture.Arm64)));
+        Assert.True(File.Exists(AssemblyPath(SwiftArchitecture.X86_64)));
+        var sidecar = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M"))));
+        Assert.Equal(Catalyst.ToArray(), sidecar.EvidenceScope!.Slices.ToArray());
+        Assert.All(sidecar.Coverage, e => Assert.True(e.Bridged, e.BridgeRefusal ?? e.Evidence));
+        Assert.Equal(SwiftTransitionFacts.None, SelfImportFacts());
+    }
+
+    /// <summary>
+    /// When one architecture's slice contradicts a plan, the import keeps its Swift-convention call
+    /// on every architecture: the C# is shared by the arm64 and x86_64 halves of a universal app, so
+    /// a bridge on one alone cannot be routed, and the member stays guarded for both.
+    /// </summary>
+    [Fact]
+    public void AMacCatalystReceiptContradictingAPlanOnOneArchitecture_KeepsThatImportOnBoth()
+    {
+        WriteGeneration();
+        var receipt = SwiftLoweringEvidenceTests.Record("M", new[] { Compiler }, new[] { Catalyst[1] }, new Dictionary<string, string>
+        {
+            [SelfTarget] = "swiftcc i64 (i64, i64)",
+            [ThrowingTarget] = "swiftcc " + _throwingCallee,
+        }, into: Receipt(new[] { Catalyst[0] }));
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(receipt));
+
+        Assert.Equal(MainSource, Read(MainFile));
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+        var self = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M")))).Coverage.Single(e => e.EntryPoint == SelfTarget);
+        Assert.False(self.Executable);
+        Assert.Contains($"on {Catalyst[1]}", self.Evidence);
+        foreach (var architecture in new[] { SwiftArchitecture.Arm64, SwiftArchitecture.X86_64 })
+            Assert.DoesNotContain(self.Symbol!, File.ReadAllText(AssemblyPath(architecture)));
+        var settled = SwiftTransitionGuardDocument.Parse(Read(GuardsSidecar), GuardsSidecar);
+        Assert.Equal("C.Call(long)", Assert.Single(settled.GuardedMembers()).Display);
     }
 
     [Fact]
