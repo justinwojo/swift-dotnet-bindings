@@ -239,9 +239,10 @@ public class WrapperEmitterReturnTests
     }
 
     [Fact]
-    public void Return_ClosureType_EmitsEscapingClosureWrapper()
+    public void Return_ClosureType_EmitsEscapingClosureWrapperCalledThroughInvokeThunk()
     {
         var typeDatabase = CreateTypeDatabaseWithString();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDecl("Loader", moduleDecl);
 
@@ -259,10 +260,36 @@ public class WrapperEmitterReturnTests
             throws: false,
             methodType: MethodType.Instance);
 
-        var (csOutput, _) = EmitMethod(method, typeDatabase);
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
 
         Assert.Contains("SwiftEscapingClosure", csOutput);
         Assert.Contains("FromSwift", csOutput);
+        // The delegate calls the closure through the cdecl invoke thunk, never directly.
+        Assert.Contains("_InvCR", csOutput);
+        Assert.Contains("_InvCR", swiftOutput);
+        Assert.DoesNotContain("unmanaged[Swift]", csOutput);
+    }
+
+    [Fact]
+    public void Return_ClosureType_WithoutWrapperLibrary_FailsLoudlyInsteadOfCallingDirectly()
+    {
+        // With no wrapper library there is no invoke thunk, and the only other call — straight
+        // through the closure's function pointer — uses the wrong abstraction. The member must
+        // have been refused upstream; reaching emission is a generator fault, not a fallback.
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var method = CreateMethodDecl(
+            name: "getTransform",
+            parentDecl: parentDecl,
+            moduleDecl: moduleDecl,
+            returnType: new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int")),
+            isAsync: false,
+            throws: false,
+            methodType: MethodType.Instance);
+
+        var ex = Assert.Throws<InvalidOperationException>(() => EmitMethod(method, typeDatabase));
+        Assert.Contains("no invoke thunk", ex.Message);
     }
 
     [Fact]

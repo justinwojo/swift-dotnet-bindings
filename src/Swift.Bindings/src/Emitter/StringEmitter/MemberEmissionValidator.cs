@@ -313,9 +313,9 @@ public static class MemberEmissionValidator
                 skipDetails = "Closure type is not supported.";
                 return SkipReason.UnsupportedClosure;
             }
-            // CanInvokeFromCSharp and C12 return-marshalling checks moved to PropertyHandler.
-            // When these fail, PropertyHandler emits setter-only properties instead of skipping.
-            // This allows the callback (setter) path to work even when getter invocation is blocked.
+            // Whether C# can call the closure the getter returns is decided in PropertyHandler: when
+            // the closure has no invoke thunk, the getter is dropped and the property is emitted
+            // setter-only, so the callback (setter) path still works.
             bool isOptionalClosure = closureHandler.IsOptionalClosure(property.SwiftTypeSpec);
             projectedTypeName = isOptionalClosure
                 ? closureHandler.GetCSharpOptionalDelegateType(property.SwiftTypeSpec)
@@ -536,7 +536,8 @@ public static class MemberEmissionValidator
 
     /// <summary>
     /// Returns true if a closure property would be emitted as setter-only by PropertyHandler.
-    /// This happens when CanInvokeFromCSharp fails or C12 return-marshalling is unsupported —
+    /// This happens when the getter cannot return a closure C# can call
+    /// (<see cref="PropertyWrapperEmitter.GetClosureGetterRefusal"/>) —
     /// the getter is stripped but the setter (callback path) still works.
     /// Used by ProtocolConformanceValidator to detect accessor contract mismatches.
     /// </summary>
@@ -550,17 +551,16 @@ public static class MemberEmissionValidator
         // properties are skipped outright versus degraded to setter-only.
         if (closureTypeSpec == null || !closureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
             return false; // Would be skipped entirely, not setter-only
-        if (!closureHandler.CanInvokeFromCSharp(closureTypeSpec))
-            return true;
-        if (!closureTypeSpec.ReturnType.IsEmptyTuple)
-        {
-            var returnPInvokeType = closureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
-            if (returnPInvokeType == "void*" &&
-                !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
-                return true;
-        }
-        return false;
+        // The getter hands the closure back for C# to call, which only the invoke thunk does
+        // correctly; without it the getter is dropped and the setter stays.
+        return PropertyWrapperEmitter.GetClosureGetterRefusal(property, closureTypeSpec, typeDatabase, closureHandler) != null;
     }
+
+    /// <summary>
+    /// The skip detail for a member whose returned closure the invoke thunk cannot carry.
+    /// </summary>
+    internal static string ReturnedClosureRefusalDetails(string refusal)
+        => $"Return type is a closure C# cannot invoke: {refusal}.";
 
     /// <summary>
     /// Checks if a method can be emitted. Returns null if valid, SkipReason if not.
@@ -725,11 +725,9 @@ public static class MemberEmissionValidator
         // B21: Check for unsupported closure return types.
         // Methods returning closures where IsSupportedClosure is false will crash in
         // EmitReturnMethod (fallthrough to GetTypeRecordOrThrow on ClosureTypeSpec).
-        // CanInvokeReturnedClosure additionally rejects closures whose param/return shapes
-        // the received-closure invoker cannot reduce to void* — including NON-throwing
-        // returned closures with bound-generic returns (e.g. `() -> Optional<enum>`), which
-        // IsSupportedClosure approves for the passed (indirect-return) direction but the
-        // received `return _fp(...)` fallback cannot marshal.
+        // A returned closure is invocable only through the cdecl invoke thunk, so a shape the
+        // thunk cannot carry is refused here: any other call compiles and then calls the closure
+        // at the wrong abstraction.
         if (method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
@@ -744,9 +742,9 @@ public static class MemberEmissionValidator
                     skipDetails = "Return type is an unsupported closure type.";
                     return SkipReason.UnsupportedClosure;
                 }
-                if (!closureHandler.CanInvokeReturnedClosure(closureTypeSpec))
+                if (ClosureEmitter.GetInvokeThunkRefusal(closureTypeSpec, closureHandler) is { } refusal)
                 {
-                    skipDetails = "Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
+                    skipDetails = ReturnedClosureRefusalDetails(refusal);
                     return SkipReason.UnsupportedClosure;
                 }
             }
@@ -1011,21 +1009,19 @@ public static class MemberEmissionValidator
             return SkipReason.UnsupportedClosure;
         }
 
-        // B21 (return position): Methods returning a closure (throwing OR non-throwing) whose
-        // param/return shapes cannot be reduced to void* by ClosureEmitter.GetSwiftInvokeArgExpression
-        // / the received-return fallback produce broken C# (CS1503/CS0029/CS0019 cannot-convert
-        // errors at the _fp(...) invocation site, plus string-vs-void* mismatch on the FromSuccess
-        // return). Pruning here keeps the binding honest until full marshaling for those shapes
-        // lands. Mirrors the parameter-side check above.
+        // B21 (return position): a returned closure (throwing OR non-throwing) is invocable only
+        // through the cdecl invoke thunk; a shape the thunk cannot carry has no correct call and is
+        // refused. Mirrors the CanEmitMethod check, for the paths that reach emission through here.
         if (method.CSSignature.Count > 0)
         {
             var returnArg = method.CSSignature[0];
             if (closureHandler.IsClosure(returnArg))
             {
                 var returnClosureSpec = closureHandler.GetClosureTypeSpec(returnArg);
-                if (returnClosureSpec != null && !closureHandler.CanInvokeReturnedClosure(returnClosureSpec))
+                if (returnClosureSpec != null
+                    && ClosureEmitter.GetInvokeThunkRefusal(returnClosureSpec, closureHandler) is { } refusal)
                 {
-                    skipDetails = "Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.";
+                    skipDetails = ReturnedClosureRefusalDetails(refusal);
                     return SkipReason.UnsupportedClosure;
                 }
             }

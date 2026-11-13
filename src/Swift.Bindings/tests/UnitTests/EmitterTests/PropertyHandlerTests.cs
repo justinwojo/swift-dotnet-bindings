@@ -1824,8 +1824,8 @@ public class PropertyHandlerTests
         // existential closure arg bridged via the heap-allocated container. The alternative
         // is the legacy path: a direct CallConvSwift P/Invoke to the Swift setter dispatch
         // thunk passing SwiftClosureData by value, which crashes at runtime on Mono and
-        // NativeAOT. The property projects as set-only in C# (the getter direction cannot
-        // invoke a closure with an existential parameter), so only the setter is emitted.
+        // NativeAOT. The getter hands the closure back through its own @_cdecl wrapper, and C#
+        // calls it through the invoke thunk, which boxes the existential argument by address.
         var typeDatabase = CreateTypeDatabaseWithInt();
         typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
         RegisterProtocol(typeDatabase, "TestModule.DataCaching");
@@ -1852,12 +1852,15 @@ public class PropertyHandlerTests
         // and the callback trampoline is CallConvCdecl receiving the existential by pointer.
         Assert.Contains("CallConvCdecl", csOutput);
         Assert.Contains("FuncPtr", csOutput);
-        Assert.DoesNotContain("SwiftClosureData", csOutput);
+        Assert.DoesNotContain("SwiftClosureData value", csOutput);
         Assert.DoesNotContain("CallConvSwift", csOutput);
+        Assert.DoesNotContain("unmanaged[Swift]", csOutput);
 
-        // Set-only projection: the getter direction can't invoke an existential-param closure.
+        // Both directions are projected: the getter's closure is called through the invoke thunk.
         Assert.Contains("set => OnCacheChanged_Set(value);", csOutput);
-        Assert.DoesNotContain("get => OnCacheChanged_Get", csOutput);
+        Assert.Contains("get => OnCacheChanged_Get", csOutput);
+        Assert.Contains("SBW_Get_TestModule_Monitor_onCacheChanged_InvCR", csOutput);
+        Assert.Contains("SBW_Get_TestModule_Monitor_onCacheChanged_InvCR", swiftOutput);
     }
 
     [Fact]

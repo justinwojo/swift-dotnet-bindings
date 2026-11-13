@@ -567,10 +567,11 @@ public class ClosureEmitterDirectArgAbiTests
     }
 
     [Fact]
-    public void ClassifyDirectClosureArg_TupleOfPrimitives_StaysPassThrough()
+    public void ClassifyDirectClosureArg_TupleOfPrimitives_IsUnmodelled()
     {
-        // The control for the tuple walk: without an enum element the tuple is still declared
-        // exactly as it arrives, so the recursion must not reject tuples wholesale.
+        // Even an all-primitive tuple has no carrier here: the callback would declare it as a
+        // System.ValueTuple parameter, an auto-layout struct no unmanaged signature can take, so
+        // the runtime rejects the callback (or, on Mono, the type that declares it).
         var closureHandler = new ClosureHandler(CreateTypeDatabase());
 
         var lowering = closureHandler.ClassifyDirectClosureArg(
@@ -580,7 +581,52 @@ public class ClosureEmitterDirectArgAbiTests
                 new NamedTypeSpec("Swift.Double"),
             }));
 
-        Assert.Equal(DirectClosureArgAbi.PassThrough, lowering.Abi);
+        Assert.Equal(DirectClosureArgAbi.Unmodelled, lowering.Abi);
+    }
+
+    [Fact]
+    public void ShouldSkipMethodEmission_DirectLaneClosureWithTupleResult_IsSkipped()
+    {
+        // (Int32) -> (Int32, Int32) handed to Swift: a C function has no tuple return, so the
+        // closure misses the @convention(c) adapter and lands on the direct trampoline, whose
+        // callback would return a System.ValueTuple. The member is refused instead of emitted.
+        var typeDatabase = CreateTypeDatabase();
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int32"),
+                new NamedTypeSpec("Swift.Int32"),
+            }));
+        closureSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateClosureConstructor(closureSpec);
+
+        var reason = MemberEmissionValidator.ShouldSkipMethodEmission(method, typeDatabase, out var details);
+
+        Assert.Equal(SkipReason.UnsupportedClosure, reason);
+        Assert.NotNull(details);
+        Assert.Contains("Swift.Int32", details!);
+    }
+
+    [Fact]
+    public void ValidatePropertyEmission_SettableOptionalClosureWithTupleResult_IsSkipped()
+    {
+        // The property form: the setter builds the same direct-lane callback, and even in
+        // xcframework mode the property wrapper cannot take a closure whose result has no C type.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var closureSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("Swift.Int32"),
+            new TupleTypeSpec(new TypeSpec[]
+            {
+                new NamedTypeSpec("Swift.Int32"),
+                new NamedTypeSpec("Swift.Int32"),
+            }));
+        var property = CreateOptionalClosureProperty(closureSpec);
+
+        var result = new MemberValidationPipeline(typeDatabase).ValidatePropertyEmission(property, null);
+
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
     }
 
     [Fact]
@@ -1137,7 +1183,8 @@ public class ClosureEmitterDirectArgAbiTests
     public void ValidateSubscriptEmission_ClosureElementWithUnmodelledArg_IsSkipped()
     {
         // The subscript's ELEMENT type travels into Swift on the setter, so a closure-typed element
-        // builds the same reverse trampoline an index parameter does.
+        // builds the same reverse trampoline an index parameter does. The getter hands the same
+        // closure back with no invoke thunk to call it through, which refuses the subscript first.
         var typeDatabase = CreateXCFrameworkTypeDatabase();
         var closureSpec = new ClosureTypeSpec(
             new TupleTypeSpec(new TypeSpec[] { ArrayOfDouble(), new NamedTypeSpec("TestModule.Point") }),
@@ -1149,7 +1196,7 @@ public class ClosureEmitterDirectArgAbiTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.UnsupportedClosure, result.Reason);
-        Assert.Contains("TestModule.Point", result.Details!);
+        Assert.Contains("subscript getter has no invoke thunk", result.Details!);
     }
 
     #endregion

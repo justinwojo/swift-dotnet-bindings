@@ -392,20 +392,6 @@ public static partial class ClosureEmitter
     {
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
 
-        // Build lambda parameter list
-        var parameters = new List<string>();
-        int argIndex = 0;
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            parameters.Add($"_arg{argIndex}");
-            argIndex++;
-        }
-        var parametersString = string.Join(", ", parameters);
-        var parameterListWithParens = parameters.Count == 1 ? parametersString : $"({parametersString})";
-
-        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnIsBool = hasReturn && MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType);
-
         // When an invoke thunk is available, use the pre-emitted invoker class instead of a lambda.
         // Mono JIT crashes with assertion `!ji->async` when ANY native call mechanism is invoked
         // from a lambda/display class method. The invoker class has a regular Invoke method —
@@ -428,177 +414,13 @@ public static partial class ClosureEmitter
             return;
         }
 
-        // Fallback: direct delegate* unmanaged[Swift] invocation (for closures without invoke thunks)
-        var funcPtrType = closureHandler.GetPInvokeFunctionPointerType(closureTypeSpec);
-        var funcPtrTypeWithContext = AddContextToFunctionPointerType(funcPtrType);
-        RecordSwiftCalli(closureHandler, closureTypeSpec, funcPtrTypeWithContext);
-
-        // Build argument list for invoking the Swift function
-        // Need to convert C# types to Swift types (e.g., bool -> byte, AnyError -> EC1)
-        var invokeArgsFallback = new List<string>();
-        // +0 borrowed existential ARGS whose auto-wrapped proxy must be pinned across the native
-        // function-pointer call (design change 4 / mechanism 3) — GC.KeepAlive'd after _fp(...) returns.
-        var keepAliveVarsFallback = new List<string>();
-        argIndex = 0;
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            var argExpr = GetSwiftInvokeArgExpression(arg, argIndex, closureHandler, keepAliveVars: keepAliveVarsFallback);
-            invokeArgsFallback.Add(argExpr);
-            argIndex++;
-        }
-        // Add context (SwiftSelf) as last argument
-        invokeArgsFallback.Add("_swiftSelf");
-        var invokeArgsStringFallback = string.Join(", ", invokeArgsFallback);
-
-        // GC.KeepAlive(...) for the borrowed existential args, emitted AFTER the native call returns so
-        // a weakly-registered auto-wrapped proxy's R0 cannot be released while Swift is still borrowing.
-        var keepAliveSuffixFallback = keepAliveVarsFallback.Count > 0
-            ? " " + string.Join(" ", keepAliveVarsFallback.Select(v => $"GC.KeepAlive({v});"))
-            : string.Empty;
-        // When the closure has a return value AND there are args to keep alive, hoist the native call
-        // into a local so KeepAlive lands after it but before the value is consumed by the return shape.
-        var preCallFallback = string.Empty;
-
-        // Generate the closure body
-        // For well-known protocol returns (ExistentialContainer1 from P/Invoke → AnyError for delegate)
-        string invokeExprFallback;
-        if (keepAliveVarsFallback.Count > 0 && hasReturn)
-        {
-            preCallFallback = $"var _invRet = _fp({invokeArgsStringFallback});{keepAliveSuffixFallback} ";
-            invokeExprFallback = "_invRet";
-        }
-        else
-        {
-            invokeExprFallback = $"_fp({invokeArgsStringFallback})";
-        }
-        string returnExprFallback;
-        if (!hasReturn)
-        {
-            // Void: the call IS the statement, so KeepAlive simply follows it.
-            returnExprFallback = $"{invokeExprFallback};{keepAliveSuffixFallback}";
-        }
-        else if (returnIsBool)
-        {
-            returnExprFallback = $"return {invokeExprFallback} != 0;";
-        }
-        else if (closureHandler.NeedsWellKnownProtocolWrapping(closureTypeSpec.ReturnType, out var wrapReturnType))
-        {
-            // Owned return: invoking the Swift function pointer hands the existential back to C# at +1,
-            // so the well-known wrapper adopts and releases it on Dispose/finalize or the payload leaks.
-            returnExprFallback = $"return new {wrapReturnType}({invokeExprFallback}{ExistentialHandler.WellKnownOwnedTransferArg(wrapReturnType)});";
-        }
-        else if (closureHandler.NeedsProxyWrapping(closureTypeSpec.ReturnType, out var returnProxy))
-        {
-            // PRODUCE: the invoke thunk is the only way to materialize the returned `any Foo`, so a
-            // suppressed proxy throws here and the member-body checkpoint restubs the whole member.
-            closureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
-            // Owned return: invoking the Swift function pointer hands the existential back at +1, so
-            // the proxy adopts the container and releases it on Dispose/finalize. This branch is only
-            // reached for a real EC1-EC8 proxy (bare-`any` falls to the IsExistentialParam branch
-            // below), so the transfer is always owned.
-            returnExprFallback = $"return new {returnProxy}({invokeExprFallback}, ownsContainer: true);";
-        }
-        else if (closureHandler.IsExistentialParam(closureTypeSpec.ReturnType))
-        {
-            returnExprFallback = $"return (object){invokeExprFallback};";
-        }
-        else if (closureTypeSpec.ReturnType is TupleTypeSpec invRetTuple &&
-                 invRetTuple.Elements.Any(e => closureHandler.NeedsWellKnownProtocolWrapping(e, out _) ||
-                                                closureHandler.NeedsProxyWrapping(e, out _) ||
-                                                closureHandler.IsExistentialParam(e) ||
-                                                closureHandler.IsSimpleEnum(e)))
-        {
-            var elems = new List<string>();
-            for (int i = 0; i < invRetTuple.Elements.Count; i++)
-            {
-                var elem = invRetTuple.Elements[i];
-                var acc = $"_invResult.Item{i + 1}";
-                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out var wrt))
-                    // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
-                    elems.Add($"new {wrt}({acc}{ExistentialHandler.WellKnownOwnedTransferArg(wrt)})");
-                else if (closureHandler.NeedsProxyWrapping(elem, out var prn))
-                {
-                    // PRODUCE: a suppressed tuple-element proxy throws → member-body checkpoint restubs.
-                    closureHandler.ThrowIfProxyReferenceSuppressed(elem);
-                    // Owned tuple element: the +1 existential returned by the Swift closure is adopted here.
-                    elems.Add($"new {prn}({acc}, ownsContainer: true)");
-                }
-                else if (closureHandler.IsExistentialParam(elem))
-                    elems.Add($"(object){acc}");
-                else if (closureHandler.IsSimpleEnum(elem))
-                {
-                    var enumType = closureHandler.TranslateTypeSpecToCSharp(elem);
-                    elems.Add($"({enumType}){acc}");
-                }
-                else
-                    elems.Add(acc);
-            }
-            returnExprFallback = $"""
-                    var _invResult = {invokeExprFallback};
-                            return ({string.Join(", ", elems)});
-                """;
-        }
-        else if (closureHandler.IsSimpleEnum(closureTypeSpec.ReturnType))
-        {
-            // Simple enum return: Swift returns underlying integer, delegate expects C# enum
-            var enumCsType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnExprFallback = $"return ({enumCsType}){invokeExprFallback};";
-        }
-        else if (closureHandler.IsClassType(closureTypeSpec.ReturnType))
-        {
-            // Pure Swift class return: function pointer returns void* (opaque pointer), an owned
-            // +1 reference (Swift calling convention). Route through the public
-            // MarshalFromSwiftObject<T> factory (T.NewFromPayload): a generated class's
-            // (SwiftHandle) ctor is private to the class. The factory adopts the +1, so the
-            // ownership transfer is identical.
-            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnExprFallback = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>((IntPtr){invokeExprFallback});";
-        }
-        else if (closureHandler.IsObjCRootedClass(closureTypeSpec.ReturnType))
-        {
-            // ObjC-rooted Swift class return: function pointer returns void*, an owned reference.
-            // Same factory as the pure Swift class: the class's handle constructor is private to
-            // it, and NewFromPayload adopts the +1 and reuses the object's managed peer when it
-            // already has one.
-            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnExprFallback = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>((IntPtr){invokeExprFallback});";
-        }
-        else if (closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
-        {
-            // ObjC-bridged return: function pointer returns void* (opaque pointer).
-            // Wrap in SwiftHandle → class constructor. Swift calling convention returns
-            // an owned reference. Kept on the ctor path — ObjC-bridged types'
-            // ISwiftObject/NewFromPayload story differs and is out of scope for the
-            // cross-module class-pointer factory routing.
-            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
-            returnExprFallback = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){invokeExprFallback}));";
-        }
-        else
-        {
-            returnExprFallback = $"return {invokeExprFallback};";
-        }
-
-        // Prefix the hoisted "var _invRet = _fp(...); GC.KeepAlive(...);" for the return-value
-        // keepAlive case; empty string (no-op) for void and the no-existential-arg case.
-        returnExprFallback = preCallFallback + returnExprFallback;
-
-        csWriter.WriteLines($$"""
-            // Wrap Swift closure in SwiftEscapingClosure for ARC management
-            var _closureWrapper = SwiftEscapingClosure<{{delegateType}}>.FromSwift({{resultVariableName}}.FunctionPointer, {{resultVariableName}}.Context);
-
-            // Create invoker delegate that captures wrapper (keeps it alive for proper ARC)
-            {{delegateType}} _invoker = {{parameterListWithParens}} =>
-            {
-                unsafe
-                {
-                    var _fp = ({{funcPtrTypeWithContext}})_closureWrapper.FunctionPointer;
-                    var _swiftSelf = new SwiftSelf((void*)_closureWrapper.Context.ToPointer());
-                    {{returnExprFallback}}
-                }
-            };
-
-            return _invoker;
-            """);
+        // No invoke thunk: there is no correct way to call the closure. The member hands it back
+        // through typed memory, where Swift keeps it in its most general form, so a direct
+        // Swift-convention call through its function pointer passes indirect arguments and results
+        // in the wrong place — and crashes Mono outright. Validation refuses every such member;
+        // reaching here is a generator bug, and failing the member is the only safe answer.
+        throw new InvalidOperationException(
+            $"Returned closure '{closureTypeSpec}' has no invoke thunk; the member should have been refused before emission.");
     }
 
     /// <summary>

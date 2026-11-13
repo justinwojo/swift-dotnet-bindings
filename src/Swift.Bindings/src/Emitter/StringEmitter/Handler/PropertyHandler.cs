@@ -207,28 +207,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     "Async closure-typed properties cannot be stored via a sync accessor: Swift cannot synthesize a (Args...) async (throws) -> T closure from a C# (funcPtr, context) pair.");
                 return;
             }
-            // When the closure's parameters can't be marshalled for invocation from C#,
-            // or the return type requires unsupported marshalling, emit as setter-only.
-            // The setter (callback) marshalling is supported; runtime success depends on
-            // whether a @_cdecl wrapper is generated for the setter accessor.
-            if (!propertyEnv.ClosureHandler.CanInvokeFromCSharp(closureTypeSpec))
+            // The getter hands the closure back for C# to call, and only the invoke thunk calls it
+            // correctly — which a getter has only on the @_cdecl wrapper route. A shape the thunk
+            // cannot carry, or a getter the wrapper cannot take, drops the getter; the setter
+            // (callback) marshalling still works, so the property is emitted setter-only when it
+            // has one. Mirrors MemberEmissionValidator.IsSetterOnlyClosureProperty.
+            var getterRefusal = PropertyWrapperEmitter.GetClosureGetterRefusal(
+                propertyDecl, closureTypeSpec, propertyEnv.TypeDatabase, propertyEnv.ClosureHandler);
+            if (getterRefusal != null)
             {
                 isSetterOnlyClosure = true;
-            }
-            if (!isSetterOnlyClosure && !closureTypeSpec.ReturnType.IsEmptyTuple)
-            {
-                var returnPInvokeType = propertyEnv.ClosureHandler.TranslateTypeSpecToPInvokeType(closureTypeSpec.ReturnType);
-                if (returnPInvokeType == "void*" &&
-                    !ClosureEmitter.IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, propertyEnv.ClosureHandler))
-                {
-                    isSetterOnlyClosure = true;
-                }
             }
             // Setter-only closures require a setter accessor — skip if none available.
             if (isSetterOnlyClosure && !propertyDecl.Accessors.Any(a => a is SetAccessorDecl))
             {
-                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} — getter-only closure with non-invocable parameters or unsupported return marshalling.");
-                SkipProperty(SkipReason.UnsupportedClosure, "Getter-only closure with parameters not invocable from C# or unsupported return type.");
+                _logger.LogWarning($"PropertyHandler: Skipping closure property {propertyDecl.Name} — getter-only closure C# cannot invoke ({getterRefusal}).");
+                SkipProperty(SkipReason.UnsupportedClosure, MemberEmissionValidator.ReturnedClosureRefusalDetails(getterRefusal!));
                 return;
             }
         }
@@ -1959,8 +1953,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         }
 
         if (closureReturnSpec == null) return;
-        if (!closureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)) return;
-        if (!ClosureEmitter.CanUseInvokeThunk(closureReturnSpec, closureHandler)) return;
+        if (!ClosureEmitter.ShouldEmitReturnedClosureInvokeThunk(
+                closureReturnSpec, closureHandler, emissionContext ?? env.EmissionContext)) return;
 
         var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);
         var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";

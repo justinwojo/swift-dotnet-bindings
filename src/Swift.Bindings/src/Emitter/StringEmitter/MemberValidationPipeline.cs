@@ -1078,6 +1078,17 @@ public class MemberValidationPipeline
             return ValidationResult.Skip(SkipReason.UnsupportedClosure,
                 "Subscript has a closure nested inside a collection (Array/Set/Dictionary) in its element type or an index parameter; a collection of closures has no sound marshalling path (the wire carrier would be an illegal `delegate*` generic argument, and the runtime cannot reconstruct a C# delegate from a collection element).");
 
+        // A closure element handed back by the getter. A returned closure is invocable only through
+        // the cdecl invoke thunk, and the subscript accessors have no thunk lane: the getter returns
+        // the closure at its natural abstraction and C# could only call it through a raw
+        // Swift-convention function pointer, which crashes on Mono and is the wrong abstraction for
+        // any argument or result passed indirectly.
+        if (subscriptDecl.ReturnTypeSpec is ClosureTypeSpec
+            || new ClosureHandler(_typeDatabase).IsOptionalClosure(subscriptDecl.ReturnTypeSpec))
+            return ValidationResult.Skip(SkipReason.UnsupportedClosure,
+                MemberEmissionValidator.ReturnedClosureRefusalDetails(
+                    "a subscript getter has no invoke thunk to call the returned closure through"));
+
         // Direct-lane closure-callback argument ABI — the subscript mirror of the method gate. An
         // index parameter travels into Swift on both accessors and the element type does so on the
         // setter, each through a reverse CallConvSwift trampoline whose loadable arguments arrive in

@@ -1111,6 +1111,21 @@ public class ProtocolClosureSkipTests : TestBase
         TestLogger.Info("Shape 4: repeated factory drives produce independent closures");
     }
 
+    /// <summary>
+    /// A protocol requirement returning <c>(Int32) -&gt; Int32</c> is not dispatchable to C#, so its
+    /// conformance witness is a trapping stub. Before that stub spelled its result without
+    /// <c>@escaping</c>, the wrapper failed to compile and no part of the module bound. The Swift
+    /// conformer's own method returns a closure C# calls through the invoke thunk.
+    /// </summary>
+    public void TestAdderFactory_SwiftConformerClosureResult_IsCallable()
+    {
+        using var factory = new OffsetAdderFactory();
+        var add = factory.MakeAdder(10);
+
+        AssertEqual(15, add(5), "base 10 plus 5");
+        AssertEqual(7, add(-3), "base 10 plus -3");
+    }
+
     #endregion
 
     #region Async Closure Parameter

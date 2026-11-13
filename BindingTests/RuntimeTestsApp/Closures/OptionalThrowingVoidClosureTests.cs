@@ -114,13 +114,12 @@ public class OptionalThrowingVoidClosureTests : TestBase
     #region Closure RETURN direction — throwing getter with by-value struct arg
 
     // These exercise the OTHER direction of the same struct-arg throwing-closure shape: the
-    // `configValidator` gettable property hands C# a delegate backed by a Swift func-ptr, and each
-    // C# invocation marshals the by-value `RequestConfig` struct TO Swift through that func-ptr.
+    // `configValidator` gettable property hands C# a delegate backed by a Swift closure, and each
+    // C# invocation marshals the by-value `RequestConfig` struct TO Swift through the invoke thunk.
     // The throwing-closure RETURN invoker previously emitted a bare `_arg0` struct value into a
-    // `void*`/struct-pointer func-ptr slot → CS1503 at the compile gate. The fix routes the struct
-    // arg through the same metadata + buffer + MarshalToSwift prologue the non-throwing struct-param
-    // closure paths use; compiling these tests proves the CS1503 is gone, and the round-trip below
-    // proves the struct argument reaches Swift intact.
+    // `void*`/struct-pointer func-ptr slot → CS1503 at the compile gate. The struct now reaches the
+    // thunk by address, as for a non-throwing closure; compiling these tests proves the CS1503 is
+    // gone, and the round-trip below proves the struct argument reaches Swift intact.
 
     public void TestHolder_ConfigValidator_Success_StructArgRoundTrips()
     {

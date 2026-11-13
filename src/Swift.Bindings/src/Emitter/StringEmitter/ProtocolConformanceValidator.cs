@@ -342,8 +342,8 @@ public class ProtocolConformanceValidator
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
                 return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's property is missing a required accessor");
-            // Setter-only closure: PropertyHandler strips getter from closure properties where
-            // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
+            // Setter-only closure: PropertyHandler strips the getter from a closure property whose
+            // closure has no invoke thunk. If protocol requires getter, conformance can't be satisfied.
             if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
                 return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's property is closure-typed and emits setter-only, so the required getter is absent");
 
@@ -416,8 +416,8 @@ public class ProtocolConformanceValidator
             var concreteHasSetter = concreteProperty.Accessors.OfType<SetAccessorDecl>().Any();
             if ((protoHasGetter && !concreteHasGetter) || (protoHasSetter && !concreteHasSetter))
                 return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's static property is missing a required accessor");
-            // Setter-only closure: PropertyHandler strips getter from closure properties where
-            // CanInvokeFromCSharp fails. If protocol requires getter, conformance can't be satisfied.
+            // Setter-only closure: PropertyHandler strips the getter from a closure property whose
+            // closure has no invoke thunk. If protocol requires getter, conformance can't be satisfied.
             if (protoHasGetter && MemberEmissionValidator.IsSetterOnlyClosureProperty(concreteProperty, _typeDatabase))
                 return Fail(BindingItemKind.Property, protoProperty.Name, "the conforming type's static property is closure-typed and emits setter-only, so the required getter is absent");
 

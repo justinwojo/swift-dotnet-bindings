@@ -23,11 +23,11 @@ import Foundation
 // *parameter* direction (free function + initializer), where the C# delegate is marshalled
 // TO Swift, AND the *return* direction (the `configValidator` gettable property below), where
 // the closure is read back FROM Swift and its by-value struct argument is marshalled TO Swift
-// through the func-ptr each time the returned delegate is invoked. The return direction was
-// a throwing-closure RETURN defect: the invoker emitted a bare `_arg0` struct value into a
-// `void*`/struct-pointer func-ptr slot (CS1503 at the compile gate). It now emits the same
-// metadata + buffer + MarshalToSwift prologue the non-throwing struct-param closure paths
-// use, so `configValidator` is the durable gate for that fix.
+// through the invoke thunk each time the returned delegate is invoked. The return direction
+// was a throwing-closure RETURN defect: the invoker emitted a bare `_arg0` struct value into a
+// `void*`/struct-pointer func-ptr slot (CS1503 at the compile gate). The struct now reaches
+// the invoke thunk by address, as for a non-throwing closure, so `configValidator` is the
+// durable gate for that fix.
 
 /// Stand-in value type for the closure's input (URLRequest / HtmlProvider).
 public struct RequestConfig {

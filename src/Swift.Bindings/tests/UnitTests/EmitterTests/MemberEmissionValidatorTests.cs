@@ -105,6 +105,55 @@ public class MemberEmissionValidatorTests
         Assert.Equal(SkipReason.UnsupportedSignature, result);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void CanEmitSubscript_ClosureReturn_IsRefused(bool optional)
+    {
+        // A subscript getter hands back a closure with no invoke thunk to call it through, and a
+        // Swift-convention call through the closure's function pointer is not a correct call.
+        // The indexer is refused, bare or Optional, with a reason naming the missing thunk.
+        var typeDatabase = CreateTypeDatabase();
+        var closure = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int"));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        TypeSpec returnType = optional ? new NamedTypeSpec("Swift.Optional", closure) : closure;
+        var subscript = BuildSubscript(
+            "$sTest_subscript_closure",
+            isStatic: false,
+            returnTypeSpec: returnType,
+            indexTypeSpec: new NamedTypeSpec("Swift.Int"),
+            withGetter: true);
+
+        var result = MemberEmissionValidator.CanEmitSubscript(subscript, typeDatabase, out var skipDetails, out _);
+
+        Assert.Equal(SkipReason.UnsupportedClosure, result);
+        Assert.Contains("invoke thunk", skipDetails);
+    }
+
+    [Theory]
+    [InlineData("Swift.String", true)]
+    [InlineData("Swift.Int", false)]
+    public void IsSetterOnlyClosureProperty_FollowsTheInvokeThunk(string closureResult, bool expectedSetterOnly)
+    {
+        // A closure property whose getter would hand back a closure the invoke thunk cannot carry
+        // keeps only its setter; one the thunk carries keeps both accessors.
+        var typeDatabase = CreateTypeDatabase();
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec(closureResult));
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var property = new PropertyDecl
+        {
+            Name = "handler",
+            SwiftTypeSpec = closure,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        Assert.Equal(expectedSetterOnly, MemberEmissionValidator.IsSetterOnlyClosureProperty(property, typeDatabase));
+    }
+
     private static SubscriptDecl BuildSubscript(
         string mangledName, bool isStatic, TypeSpec returnTypeSpec, TypeSpec indexTypeSpec,
         bool hasSetter = false, bool getterIsAsync = false, bool getterThrows = false, bool withGetter = false)
@@ -949,6 +998,16 @@ public class MemberEmissionValidatorTests
                 CSharpTypeName = CSharpTypeName.NIntType,
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "String"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });

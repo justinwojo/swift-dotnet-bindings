@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "2c873fff7",
+  "git_sha": "b551a5a51",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -13254,6 +13254,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "GetRecordedClassCallbackNumber()",
+      "symbol": "thunk_SwiftBindingsTestLib_d2f7c612"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetRecordedObjCCallbackLabel()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_getRecordedObjCCallbackLabel_747CB984"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "GetRetrieveStoredObject()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_retrieveStoredObject_524B2FFC"
     },
@@ -21014,6 +21024,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OffsetAdderFactory.MakeAdder(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_OffsetAdderFactory_makeAdder_27283B8A"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OffsetAdderFactory.OffsetAdderFactory()",
+      "symbol": "thunk_SwiftBindingsTestLib_a6a44a8c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OffsetStage.Apply(int)",
       "symbol": "thunk_SwiftBindingsTestLib_1bb01282"
     },
@@ -22244,6 +22264,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OwnershipCallbackOwner.InstallRecordingClassCallback()",
+      "symbol": "thunk_SwiftBindingsTestLib_51b834f5"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OwnershipCallbackOwner.InstallRecordingObjCCallback()",
+      "symbol": "thunk_SwiftBindingsTestLib_1ef5d057"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OwnershipCallbackOwner.Invoke()",
       "symbol": "thunk_SwiftBindingsTestLib_0e780ebe"
     },
@@ -22266,6 +22296,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipCallbackOwner.InvokeStaticPod()",
       "symbol": "thunk_SwiftBindingsTestLib_9f80e10d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OwnershipCallbackOwner.ObjCCallback",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OwnershipCallbackOwner_objCCallback|SBW_Set_SwiftBindingsTestLib_OwnershipCallbackOwner_objCCallback"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -23121,6 +23156,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "PendingRequestTask.Start()\u00602",
       "symbol": "$s20SwiftBindingsTestLib18PendingRequestTaskV5starts6ResultOyxq_GyF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PendingRequestTaskValue(SwiftBindingsTestLib.PendingRequestTask\u003Cnint, SwiftBindingsTestLib.RequestTaskError\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_pendingRequestTaskValue_1F587937"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -25299,6 +25339,136 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureConfig.Label",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureConfig_label|SBW_Set_SwiftBindingsTestLib_ReturnedClosureConfig_label"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureConfig.ReturnedClosureConfig(int,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureConfig_init_3EAA1756"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureConfig.Scale",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureConfig_scale|SBW_Set_SwiftBindingsTestLib_ReturnedClosureConfig_scale"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureError.Code",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureError_code|SBW_Set_SwiftBindingsTestLib_ReturnedClosureError_code"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureError.ReturnedClosureError(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureError_init_263A9332"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureObjectSquare.GetArea()",
+      "symbol": "thunk_SwiftBindingsTestLib_26b0e5bc"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureObjectSquare.ReturnedClosureObjectSquare(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_e102d864"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureObjectSquare.Side",
+      "symbol": "thunk_SwiftBindingsTestLib_d77c8cd2|thunk_SwiftBindingsTestLib_e37c9fb6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureSquare.GetArea()",
+      "symbol": "thunk_SwiftBindingsTestLib_8768107c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureSquare.ReturnedClosureSquare(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureSquare_init_6059C124"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureSquare.Side",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureSquare_side|SBW_Set_SwiftBindingsTestLib_ReturnedClosureSquare_side"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.AreaOf(IReturnedClosureShape)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_areaOf_453372DB"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.CodeOf(Swift.Foundation.AnyError)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_codeOf_7F6723C0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeCTripler()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeCTripler_F962EEB7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeConfiguredShapeBuilder()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeConfiguredShapeBuilder_A5843525"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeErrorBuilder()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeErrorBuilder_388C7287"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeObjectShapeBuilder()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeObjectShapeBuilder_4294E0B4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeObjectShapeMeasurer()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeObjectShapeMeasurer_521E6388"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakePairMaker()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makePairMaker_D5BD4C71"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeShapeBuilder()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeShapeBuilder_5EFE3B9C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeShapeMeasurer()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeShapeMeasurer_1DD0325C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.MakeThrowingShapeMeasurer()",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_makeThrowingShapeMeasurer_D5A0F3F9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.ObjectAreaOf(IReturnedClosureObjectShape)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReturnedClosureVendor_objectAreaOf_FB6D6523"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.OptionalPairMaker",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureVendor_optionalPairMaker"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.OptionalShapeMeasurer",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReturnedClosureVendor_optionalShapeMeasurer"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReturnedClosureVendor.ReturnedClosureVendor(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_9e25fe16"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ReverseIntArray(IEnumerable\u003Cint\u003E)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_reverseIntArray_19BE9707"
     },
@@ -26550,7 +26720,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SetterOnlyCallbackHolder.OnConfigChanged",
-      "symbol": "$s20SwiftBindingsTestLib24SetterOnlyCallbackHolderC15onConfigChangedyAA14ProcessingMode_pcSgvgTj|SBW_Set_SwiftBindingsTestLib_SetterOnlyCallbackHolder_onConfigChanged"
+      "symbol": "SBW_Get_SwiftBindingsTestLib_SetterOnlyCallbackHolder_onConfigChanged|SBW_Set_SwiftBindingsTestLib_SetterOnlyCallbackHolder_onConfigChanged"
     },
     {
       "module": "SwiftBindingsTestLib",

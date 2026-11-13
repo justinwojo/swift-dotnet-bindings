@@ -221,16 +221,16 @@ public func boxableProducer() -> () -> any Boxable {
 
 // NOTE: the CONTAINER closure-return twin (`() -> [any Boxable]`) is intentionally NOT a
 // fixture. A closure whose RETURN is a container is rejected upstream by the closure-support
-// gate ("Return type is a closure whose params/return cannot be invoked from C# without a
-// function-pointer marshaler") BEFORE it ever reaches the proxy-suppression decision — so it
-// is a pre-existing closure-support limitation, not an ungated trigger-#3 site. Verified
+// gate (the invoke thunk has no marshalling for a container result) BEFORE it ever reaches the
+// proxy-suppression decision — so it is a closure-support limitation, not an ungated
+// trigger-#3 site. Verified
 // empirically: a CoGater-disabled regen of such a method emits an "Unsupported: method …
 // closure signature not yet supported" stub, never a dangling `new BoxableProxy(`.
 
 // MARK: PRODUCE — closure RETURN any Boxable with a struct parameter
 
-/// Like `boxableProducer` but the returned closure takes a frozen-struct parameter,
-/// routing through the struct-param closure invoke-thunk emitter.
+/// Like `boxableProducer` but the returned closure takes a frozen-struct parameter, which the
+/// invoke thunk passes by address.
 public struct BoxableTag {
     public let n: Int32
     public init(n: Int32) { self.n = n }
