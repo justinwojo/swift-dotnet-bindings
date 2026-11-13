@@ -289,8 +289,8 @@ The receipt goes stale through any of its inputs, each of which `Authorize` comp
 - each imported interface's digest;
 - the contract's plan, facts and collector versions.
 
-**Where it runs.** `SwiftCollectLoweringEvidence` defaults to `true` for every iOS binding project
-(`net10.0` and `net11.0`) and every `net11.0` binding project. A project can set it either way. Every
+**Where it runs.** `SwiftCollectLoweringEvidence` defaults to `true` for every iOS and Mac Catalyst
+binding project (`net10.0` and `net11.0`) and every `net11.0` binding project. A project can set it either way. Every
 other `net10.0` build runs no extra swiftc pass and keeps its fingerprint text. The extra pass is a
 full second frontend compile of the wrapper, without the link. Its cost grows with the wrapper, so
 paying it where nothing reads the result is waste. Measured on one simulator slice:
@@ -315,13 +315,15 @@ from the interface.
 
 A binding that collects its receipt routes from it in the same wrapper compile
 (`--route-swift-bridges`, `SwiftBridgeFinalizer` in `src/Swift.Bindings/src/Configuration/`). The
-SDK passes the flag when `SwiftRouteBridges` is on, which it is by default for iOS targets, and only
-when it collects and has no hand-authored `<SwiftLoweringEvidence>`. Nothing in the finalizer is
-iOS-specific: it judges the receipt over the receipt's own slices, so a Mac Catalyst wrapper's
-receipt (both macabi slices) routes the same way, and a plan one architecture's slice contradicts
-stays a guarded direct import on both. The SDK does not yet turn `SwiftRouteBridges` on by default
-for Mac Catalyst, because no consumer gate proves it there. A hand-authored record routes at
-generation instead, and the wrapper compile then leaves the C# alone.
+SDK passes the flag when `SwiftRouteBridges` is on, which it is by default for iOS and Mac Catalyst
+targets, and only when it collects and has no hand-authored `<SwiftLoweringEvidence>`. Nothing in the
+finalizer is platform-specific: it judges the receipt over the receipt's own slices, so a Mac Catalyst
+wrapper's receipt (both macabi slices) routes the same way, and a plan one architecture's slice
+contradicts stays a guarded direct import on both. The managed assembly is shared by every RID of a
+universal Catalyst app, so a guard rewritten to refuse nothing must hold for every architecture's
+native slice. `--bridge-consumer --catalyst` proves this with a universal (`maccatalyst-arm64;maccatalyst-x64`)
+consumer in all three consumption modes. tvOS and macOS still default to off. A hand-authored record
+routes at generation instead, and the wrapper compile then leaves the C# alone.
 
 **Why in the wrapper compile.** Generation runs before the wrapper is compiled, so it has no receipt.
 Feeding the receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input of the

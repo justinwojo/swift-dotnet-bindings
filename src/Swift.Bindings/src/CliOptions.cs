@@ -290,7 +290,9 @@ public class CliOptions
         aliases: new[] { "--rid" },
         description: "NuGet runtime identifier (e.g. ios-arm64, tvos-arm64, osx-arm64, " +
                      "maccatalyst-arm64). Used by --slice-xcframework to pick which slices " +
-                     "of a source xcframework to retain.");
+                     "of a source xcframework to retain. When generating, the RID of --platform the " +
+                     "emitted project stages and packs its native slices for (e.g. maccatalyst-x64 for " +
+                     "an x86_64-only library); defaults to the platform's arm64 RID.");
 
     public Option<bool> ResolveAutoDeps { get; } = new(
         aliases: new[] { "--resolve-auto-deps" },

@@ -295,7 +295,8 @@ partial class Build
     AbsolutePath BuildFatFrameworkSlice(
         AbsolutePath swiftRoot, string tag, IReadOnlyList<string> sources,
         string armTarget, string armSuffix, string x64Target, string x64Suffix,
-        string sdkName, string minOs, string plistPlatform, string module = X64PackModule)
+        string sdkName, string minOs, string plistPlatform, string module = X64PackModule,
+        IReadOnlyList<string>? armExtraSources = null)
     {
         var sdkPath = XcRun.GetSdkPath(sdkName);
         var armFw = swiftRoot / tag / "arm64" / $"{module}.framework";
@@ -306,7 +307,7 @@ partial class Build
         CompileModuleSlice(
             moduleName: module, target: armTarget, sdkPath: sdkPath,
             moduleSuffix: armSuffix, minOs: minOs, plistPlatform: plistPlatform,
-            frameworkDir: armFw, sourceFiles: sources, frameworkSearchPaths: null);
+            frameworkDir: armFw, sourceFiles: sources.Concat(armExtraSources ?? []).ToList(), frameworkSearchPaths: null);
         CompileModuleSlice(
             moduleName: module, target: x64Target, sdkPath: sdkPath,
             moduleSuffix: x64Suffix, minOs: minOs, plistPlatform: plistPlatform,

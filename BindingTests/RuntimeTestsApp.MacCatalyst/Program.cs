@@ -22,6 +22,7 @@ public class Program
     static bool FlakeDetect;
     static string? ClassFilter;
     static string? ResultsPath;
+    static readonly HashSet<string> ExcludeClasses = new(StringComparer.OrdinalIgnoreCase);
 
     static int Main(string[] args)
     {
@@ -59,6 +60,16 @@ public class Program
             {
                 TestRunFlags.RunToken = args[i + 1];
                 i++;
+            }
+            else if (args[i] == "--exclude-classes" && i + 1 < args.Length)
+            {
+                foreach (var name in args[i + 1].Split(',', StringSplitOptions.RemoveEmptyEntries))
+                    ExcludeClasses.Add(name.Trim());
+                i++;
+            }
+            else if (args[i] == "--lane-identity")
+            {
+                TestRunFlags.LaneIdentity = true;
             }
         }
 
@@ -105,6 +116,8 @@ public class Program
         TestLogger.Info($"Runtime flavor: {TestBase.RuntimeFlavorDescription}");
         if (ClassFilter != null)
             TestLogger.Info($"Class filter: {ClassFilter}");
+        if (ExcludeClasses.Count > 0)
+            TestLogger.Info($"Excluding {ExcludeClasses.Count} classes: {string.Join(", ", ExcludeClasses)}");
         TestLogger.Info($"Started at {DateTime.Now:HH:mm:ss}");
 
         var results = new TestResults();
@@ -147,6 +160,16 @@ public class Program
                 }
 
                 allClasses = filtered;
+            }
+
+            // Resume-on-crash orchestration and the interpreter lane's isolated negative controls.
+            if (ExcludeClasses.Count > 0)
+            {
+                var before = allClasses.Count;
+                allClasses = allClasses
+                    .Where(c => !ExcludeClasses.Contains(c.Name))
+                    .ToList();
+                TestLogger.Info($"Excluded {before - allClasses.Count} classes, {allClasses.Count} remaining");
             }
 
             var flakeDetect = FlakeDetect;
@@ -202,6 +225,10 @@ public class Program
     {
         TestLogger.Info("");
         TestLogger.Info($"=== {descriptor.Name} ===");
+        // After the class marker, so a crash in the probe is attributed to this class, and before
+        // any skip, so every class that records a result also records how it ran.
+        if (TestRunFlags.LaneIdentity)
+            LaneProbe.Record(descriptor.Name, results);
 
         // Check class-level skip BEFORE instantiation
         if (descriptor.SkipReason != null)

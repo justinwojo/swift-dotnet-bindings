@@ -73,8 +73,13 @@ namespace BindingsGeneration
 
                        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
                        Opt out (to probe an upstream Mono fix):
-                         <SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit> -->
+                         <SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit>
+                       DynamicCodeSupport keeps the value the platform gives a JIT build, which
+                       turning the interpreter on would otherwise change: every slice of a
+                       universal app then carries the same runtime configuration, which the
+                       per-RID bundle merge requires. -->
                   <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'maccatalyst-x64' AND '$(SwiftBindingsMacCatalystX64UseJit)' != 'true' AND $(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))">
+                    <DynamicCodeSupport Condition="'$(DynamicCodeSupport)' == '' AND '$(MtouchInterpreter)' == '' AND '$(UseInterpreter)' != 'true'">false</DynamicCodeSupport>
                     <MtouchInterpreter Condition="'$(MtouchInterpreter)' == ''">all</MtouchInterpreter>
                     <UseInterpreter Condition="'$(UseInterpreter)' == ''">true</UseInterpreter>
                   </PropertyGroup>

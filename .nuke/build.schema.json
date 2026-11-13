@@ -190,7 +190,14 @@
         },
         "BridgeConsumer": {
           "type": "boolean",
-          "description": "Opt-in, .NET 11 with --coreclr-interp: pack a binding generated with the Swift bridges on, consume it from an ordinary Debug app through NuGet, and prove on the simulator and/or a device that its calls run through the bridges from the interpreter. Never part of the default run or --compile-only"
+          "description": "Opt-in: bind a module through SwiftBindings.Sdk with default settings and no hand-authored lowering evidence, consume it as a package, SDK-direct and through a ProjectReference, and prove on the simulator, a device and/or Mac Catalyst that its calls run through the bridges the SDK routed. .NET 10: --sim (Mono AOT), --device (NativeAOT), --device --mono-aot (Mono full-AOT), --catalyst (a universal app: Mono JIT on arm64, the Mono interpreter on x86_64 under Rosetta). .NET 11: --coreclr-interp. Never part of the default run or --compile-only"
+        },
+        "BridgeConsumerModes": {
+          "type": "array",
+          "description": "With --bridge-consumer: the consumption modes to run, from package, direct and projectref. Default: all three",
+          "items": {
+            "type": "string"
+          }
         },
         "BuildOnly": {
           "type": "boolean",
