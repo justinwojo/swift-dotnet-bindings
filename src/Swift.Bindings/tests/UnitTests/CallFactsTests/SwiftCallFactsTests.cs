@@ -1168,6 +1168,72 @@ public class SwiftCallFactsTests
         Assert.Equal("ptr (ptr swiftself)", prediction.Signature!.Normalized);
     }
 
+    private const string DynamicSelf = """{ "kind": "TypeNominal", "name": "DynamicSelf", "printedName": "Self" }""";
+
+    private static string OptionalOf(string wrapper, string payload) =>
+        $$"""{ "kind": "TypeNominal", "name": "{{wrapper}}", "printedName": "Self?", "children": [{{payload}}], "usr": "s:Sq" }""";
+
+    [Theory]
+    [InlineData("Optional", false, false)]
+    [InlineData("ImplicitlyUnwrappedOptional", false, false)]
+    [InlineData("Optional", true, false)]
+    [InlineData("Optional", false, true)]
+    public void ClassMemberReturningOptionalSelf_ReturnsOneReferenceThatFoldsNil(string wrapper, bool isStatic, bool throwing)
+    {
+        // A class's Self? is its dynamic Self with nil folded into the null reference, as
+        // swiftc lowers it: `i64 (ptr swiftself)` for an instance or a class method alike.
+        const string copy = Box + "8copyIfAnyACXDSgyF";
+        var box = TypeDecl("Class", "Box", Box, new[]
+        {
+            Func("copyIfAny", "copyIfAny()", copy, new[] { OptionalOf(wrapper, DynamicSelf) }, isStatic: isStatic, throwing: throwing),
+        });
+
+        var (module, table, db) = Parse(box);
+
+        var facts = Facts(table, copy);
+        Assert.True(facts.IsComplete, string.Join("; ", facts.Unknowns));
+        Assert.True(facts.Result.Type.HasClassDynamicSelf);
+        Assert.False(facts.Result.Type.IsClassBound);
+        var prediction = SwiftPhysicalSignaturePredictor.Predict(facts, new SwiftLayoutValueLowering(new[] { module }, db));
+        Assert.True(prediction.IsPredicted, prediction.Refusal);
+        Assert.Equal(throwing ? "i64 (ptr swiftself, ptr noalias swifterror)" : "i64 (ptr swiftself)", prediction.Signature!.Normalized);
+    }
+
+    [Fact]
+    public void ClassPropertyOfOptionalSelf_ItsGetterReturnsOneReference()
+    {
+        const string mangled = Box + "7maybeMeACXDSg";
+        var box = TypeDecl("Class", "Box", Box, new[] { Var("maybeMe", mangled, OptionalOf("Optional", DynamicSelf), settable: false) });
+
+        var (module, table, db) = Parse(box);
+
+        var getter = Facts(table, mangled + "vg");
+        Assert.True(getter.Result.Type.HasClassDynamicSelf);
+        Assert.Equal("i64 (ptr swiftself)",
+            SwiftPhysicalSignaturePredictor.Predict(getter, new SwiftLayoutValueLowering(new[] { module }, db)).Signature!.Normalized);
+    }
+
+    [Fact]
+    public void ResultWithoutADynamicSelf_LeavesTheFactOutOfTheSidecar()
+    {
+        const string copy = Box + "8copyIfAnyACXDSgyF";
+        var box = TypeDecl("Class", "Box", Box, new[]
+        {
+            Func("copyIfAny", "copyIfAny()", copy, new[] { OptionalOf("Optional", DynamicSelf) }),
+            Func("open", "open()", Box + "4openyyF", new[] { Void }),
+        });
+        var (_, table, _) = Parse(box);
+
+        var coverage = SwiftCallFactsCoverage.Compute(M, new[] { Plan(copy, "TestModule.framework/TestModule"), Plan(Box + "4openyyF", "TestModule.framework/TestModule") },
+            table, "TestModuleSwiftBindings");
+        using var doc = JsonDocument.Parse(coverage.ToJson());
+        var results = doc.RootElement.GetProperty("facts").EnumerateArray()
+            .ToDictionary(f => f.GetProperty("id").GetString()!, f => f.GetProperty("result").GetProperty("type"));
+
+        Assert.True(results[copy].GetProperty("hasClassDynamicSelf").GetBoolean());
+        Assert.False(results[Box + "4openyyF"].TryGetProperty("hasClassDynamicSelf", out _));
+    }
+
     [Fact]
     public void FrozenGenericStructWithAParameterFreeLayout_PassesSelfLoweredThenItsMetadata()
     {

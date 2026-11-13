@@ -33,7 +33,7 @@ and `SwiftLoweringJudgement.cs` (the rules). The tests that pin the contract are
   "receipts": [
     { "artifact": "SwiftBindingsTestLib",
       "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)",
-      "contract": { "planVersion": 1, "factsVersion": 3, "collectorVersion": 1 },
+      "contract": { "planVersion": 1, "factsVersion": 4, "collectorVersion": 1 },
       "generator": "Swift.Bindings 0.21.0",
       "slices": {
         "arm64-apple-ios15.0": {

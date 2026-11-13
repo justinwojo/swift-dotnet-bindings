@@ -1,6 +1,6 @@
 {
   "planVersion": 1,
-  "factsVersion": 3,
+  "factsVersion": 4,
   "module": "SwiftBindings.Apple",
   "totals": {
     "transitions": 7,

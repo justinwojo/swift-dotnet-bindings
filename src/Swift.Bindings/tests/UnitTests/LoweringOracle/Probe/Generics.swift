@@ -147,10 +147,46 @@ public func genericInClassArray<T>(_ k: GenericClass<[T]>) -> Int { 0 }
 public func genericKeyPathOptional<R, V>(_ k: KeyPath<R, V?>) -> Int { 0 }
 
 // ---- a class member's dynamic Self ----
+// Swift allows a class's Self only at the top of a result, bare or optional. Either is one
+// reference; Self? folds nil into it.
 open class GenericSelfReturning {
     public required init() {}
     open func copy() -> Self { Self() }
     public class func make() -> Self { Self() }
+    open func copyIfAny() -> Self? { self }
+    open func copyUnwrapped() -> Self! { self }
+    open func copyIfAnyThrowing() throws -> Self? { self }
+    public class func makeIfAny() -> Self? { nil }
+    open var selfIfAny: Self? { self }
+    open subscript(selfAt index: Int) -> Self? { self }
+}
+
+public final class FinalSelfReturning {
+    public init() {}
+    public func copyIfAny() -> Self? { self }
+}
+
+open class GenericClassSelfReturning<T> {
+    public init() {}
+    open func copyIfAny() -> Self? { self }
+}
+
+// ---- a protocol's Self? is its generic parameter: address-only unless bound to classes ----
+public protocol SelfOptionalProtocol {
+    func optionalSelf() -> Self?
+}
+
+public protocol SelfOptionalClassProtocol: AnyObject {
+    func optionalSelf() -> Self?
+}
+
+extension SelfOptionalProtocol {
+    public func optionalSelfExtension() -> Self? { nil }
+}
+
+extension SelfOptionalClassProtocol {
+    public func optionalSelfExtension() -> Self? { self }
+    public static func makeOptionalSelf() -> Self? { nil }
 }
 
 // ---- an inout class argument: its metadata is not read, so T's is passed ----

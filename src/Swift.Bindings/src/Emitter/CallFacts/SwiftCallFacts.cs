@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 using System.Collections.Immutable;
+using System.Text.Json.Serialization;
 
 namespace BindingsGeneration;
 
@@ -25,7 +26,7 @@ public sealed record SwiftCallFacts
     /// The facts schema version. Bump it on any change to the shape or meaning of a field, so a
     /// serialized record is never read under a different schema than the one that wrote it.
     /// </summary>
-    public const int CurrentVersion = 3;
+    public const int CurrentVersion = 4;
 
     /// <summary>The schema version this record was produced under.</summary>
     public int FactsVersion { get; init; } = CurrentVersion;
@@ -485,6 +486,15 @@ public sealed record SwiftTypeFacts
     /// generic parameter, true when its signature binds it to classes.
     /// </summary>
     public bool IsClassBound { get; init; }
+
+    /// <summary>
+    /// True when the type spells a class member's dynamic <c>Self</c>: the result <c>Self</c> or
+    /// <c>Self?</c>, the only places Swift allows it. There <c>Self</c> is the type of the class
+    /// instance, so it is one reference, though no generic signature names it. Only a result
+    /// carries it; a bare <c>Self</c> is also <see cref="IsClassBound"/>.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public bool HasClassDynamicSelf { get; init; }
 
     /// <summary>
     /// The representation of every function type this type spells without a

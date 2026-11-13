@@ -39,7 +39,7 @@
       "entryPoint": "$sSayxSicig",
       "library": "KnownLibraries.SwiftCore",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Accessor",
           "accessor": "Get",
@@ -106,7 +106,7 @@
       "entryPoint": "$sSDyq_Sgxcig",
       "library": "KnownLibraries.SwiftCore",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Accessor",
           "accessor": "Get",
@@ -184,7 +184,7 @@
       "entryPoint": "$sSD12makeIteratorSD0B0Vyxq__GyF",
       "library": "KnownLibraries.SwiftCore",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Method",
           "accessor": "None",
@@ -248,7 +248,7 @@
       "entryPoint": "$sSh12makeIteratorSh0B0Vyx_GyF",
       "library": "KnownLibraries.SwiftCore",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Method",
           "accessor": "None",

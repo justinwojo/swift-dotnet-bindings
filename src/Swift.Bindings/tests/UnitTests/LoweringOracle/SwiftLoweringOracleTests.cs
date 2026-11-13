@@ -136,6 +136,28 @@ public class SwiftLoweringOracleTests
     }
 
     /// <summary>
+    /// A dynamic Self in a result, bare or optional, in a class member (instance, class, getter,
+    /// subscript, throwing, generic class) or a protocol member (requirement or extension, bound to
+    /// classes or not): every one is predicted, and each prediction is what swiftc gives.
+    /// </summary>
+    [SkippableTheory]
+    [MemberData(nameof(Triples))]
+    public void Probe_DynamicSelfResultsMatchSwiftc(string triple)
+    {
+        var report = Report(triple).Probe;
+        static bool SelfResult(SwiftOracleEntry e) =>
+            e.Facts.Target.DeclaringType is { } type
+            && (type.EndsWith("SelfReturning", StringComparison.Ordinal) || type.Contains(".SelfOptional", StringComparison.Ordinal))
+            && e.Facts.Result.Type.Spelling is var result
+            && (result.Contains("Self", StringComparison.Ordinal) || result.Contains("τ_0_0", StringComparison.Ordinal));
+        var entries = report.Entries.Where(SelfResult).ToList();
+        var notMatched = entries.Where(e => e.Outcome != SwiftOracleOutcome.Match).ToList();
+        Assert.True(notMatched.Count == 0, string.Join("\n", notMatched));
+        // Two bare-Self class members, eight class Self? callees and five protocol ones.
+        Assert.True(entries.Count >= 15, $"{entries.Count} dynamic-Self callees: " + string.Join("\n", entries));
+    }
+
+    /// <summary>
     /// Each refused effect is one swiftc really lowers differently: async is swifttailcc with a
     /// swiftasync context, typed throws adds an indirect error result after the error register, and
     /// a pack is passed as a pack address with a count.
