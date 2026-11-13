@@ -214,6 +214,7 @@ src/samples/
 BindingTests/output/
 BindingTests/output-macos/
 BindingTests/output-objc/
+BindingTests/output-consumer-shape/
 BindingTests/SwiftBridge/device/
 BindingTests/RuntimeTestsApp/TestClasses.g.txt
 BindingTests/RuntimeTestsApp.Mac/TestClasses.g.txt
