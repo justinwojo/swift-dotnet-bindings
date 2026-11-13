@@ -1317,6 +1317,13 @@ partial class Build
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
 
+                // Call-convention attribute gate: read the compiled bindings, Apple supplement and
+                // runtime, and fail on any P/Invoke whose [UnmanagedCallConv] names CallConvCdecl (the
+                // platform default). The Mono AOT compiler decodes each attribute and aborts once an
+                // app carries a few tens of thousands; only the Swift convention needs one.
+                // Fail-closed and unconditional: policy, not baseline.
+                RunCallConvAttributeGate();
+
                 // Transition ledger cross-check: join the generator's per-module transition ledgers
                 // with the compiled assembly's IL transition sites and demand a bijection, kind by
                 // kind, with facts on every entry and agreeing primitive verdicts. A Swift transition

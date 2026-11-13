@@ -234,7 +234,6 @@ public static class ErrorRegistryHelperEmitter
             /// </summary>
             internal static partial class {{helperClassName}}
             {
-                [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                 [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbol}}")]
                 private static partial void SBW_Free(IntPtr ptr);
 
@@ -273,7 +272,6 @@ public static class ErrorRegistryHelperEmitter
                     return result;
                 }
 
-                [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                 [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{classifySymbol}}")]
                 private static partial int SBW_ClassifySwiftError(IntPtr errorBox, out IntPtr payloadPtr);
 

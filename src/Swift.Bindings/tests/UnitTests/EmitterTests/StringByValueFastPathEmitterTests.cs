@@ -139,7 +139,7 @@ public class StringByValueFastPathEmitterTests
 
         var (managed, native) = EmitMethod(method, db); // Natural MethodHandler eligibility, no flag injection.
 
-        Assert.Contains("CallConvCdecl", managed);
+        PInvokeConventionAssert.CConvention(managed, "SBW_");
         Assert.Contains("LibraryImport(\"TestModuleSwiftBindings\"", managed);
         Assert.Contains("ref string text", managed);
         Assert.Contains("ref Swift.SwiftString.Buffer text", managed);

@@ -101,7 +101,7 @@ public class ClassMetatypeSelfEmitterTests
         var output = EmitClass(counter, typeDatabase);
 
         var pinvoke = PInvokeDeclaration(output, ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol));
-        Assert.Contains("CallConvCdecl", pinvoke);
+        PInvokeConventionAssert.CConvention(pinvoke);
         Assert.Contains("\"TestModuleSwiftBindings\"", pinvoke);
         Assert.DoesNotContain("SwiftSelf", pinvoke);
         Assert.DoesNotContain(operatorSymbol, output);

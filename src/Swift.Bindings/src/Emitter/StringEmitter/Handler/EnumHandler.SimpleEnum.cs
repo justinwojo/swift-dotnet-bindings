@@ -604,7 +604,6 @@ namespace BindingsGeneration
                     var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
                     pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
                 }
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
@@ -655,7 +654,6 @@ namespace BindingsGeneration
                 }
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
@@ -971,7 +969,6 @@ namespace BindingsGeneration
 
                 // P/Invoke
                 var pinvokeReturnType = returnsEnum ? csUnderlyingType : csReturnType;
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
@@ -1090,7 +1087,6 @@ namespace BindingsGeneration
                 }
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
@@ -1181,7 +1177,6 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
 
                 // P/Invoke
-                csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
@@ -1521,7 +1516,6 @@ namespace BindingsGeneration
 
             // P/Invoke for getter
             var pinvokeParams = isStatic ? "" : $"{csUnderlyingType} tag";
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}({pinvokeParams});");
             csWriter.WriteLine();
@@ -1599,7 +1593,6 @@ namespace BindingsGeneration
             }
             var hasStringParam = pinvokeParams.Any(p => p.Contains("string ") || p.Contains("string?"));
             var stringMarshal = hasStringParam ? ", StringMarshalling = global::System.Runtime.InteropServices.StringMarshalling.Utf8" : "";
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\"{stringMarshal})]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();
@@ -1643,7 +1636,6 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr PInvoke_Get{propertyPascalName}();");
             csWriter.WriteLine();
@@ -1659,7 +1651,6 @@ namespace BindingsGeneration
             if (_freePInvokeEmittedInExtensions) return;
             _freePInvokeEmittedInExtensions = true;
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{freeSymbol}\")]");
             csWriter.WriteLine("private static partial void PInvoke_SBW_Free(IntPtr ptr);");
             csWriter.WriteLine();

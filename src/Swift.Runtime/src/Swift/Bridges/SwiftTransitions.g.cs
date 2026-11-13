@@ -24,7 +24,6 @@ internal static partial class SwiftArrayPInvokes
         Get__SBSR_75d1175a25994336(index, handle, global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref elementMetadata)), (nint)result.Value);
     }
 
-    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsRuntime", EntryPoint = "SBSR_75d1175a25994336")]
     private static partial void Get__SBSR_75d1175a25994336(nint index, IntPtr handle, nint elementMetadata_0, nint __indirectResult);
 }
@@ -38,7 +37,6 @@ internal static partial class SwiftDictionaryPInvokes
         Get__SBSR_a621bc11d6484c3d(key, handle, global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref keyTypeMetadata)), global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref valueTypeMetadata)), global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<ProtocolWitnessTable, byte>(ref witnessTable)), (nint)result.Value);
     }
 
-    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsRuntime", EntryPoint = "SBSR_a621bc11d6484c3d")]
     private static partial void Get__SBSR_a621bc11d6484c3d(IntPtr key, IntPtr handle, nint keyTypeMetadata_0, nint valueTypeMetadata_0, nint witnessTable_0, nint __indirectResult);
 
@@ -49,7 +47,6 @@ internal static partial class SwiftDictionaryPInvokes
         MakeIterator__SBSR_095f1975a3d846a5(handle, global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref keyTypeMetadata)), global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref valueTypeMetadata)), global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<ProtocolWitnessTable, byte>(ref witnessTable)), (nint)result.Value);
     }
 
-    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsRuntime", EntryPoint = "SBSR_095f1975a3d846a5")]
     private static partial void MakeIterator__SBSR_095f1975a3d846a5(IntPtr handle, nint keyTypeMetadata_0, nint valueTypeMetadata_0, nint witnessTable_0, nint __indirectResult);
 }
@@ -65,7 +62,6 @@ internal static partial class SwiftSetPInvokes
         MakeIterator__SBSR_e16d2038b2c21336(handle, global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<TypeMetadata, byte>(ref elementMetadata)), global::System.Runtime.CompilerServices.Unsafe.ReadUnaligned<nint>(ref global::System.Runtime.CompilerServices.Unsafe.As<ProtocolWitnessTable, byte>(ref witnessTable)), (nint)result.Value);
     }
 
-    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
     [global::System.Runtime.InteropServices.LibraryImport("SwiftBindingsRuntime", EntryPoint = "SBSR_e16d2038b2c21336")]
     private static partial void MakeIterator__SBSR_e16d2038b2c21336(IntPtr handle, nint elementMetadata_0, nint witnessTable_0, nint __indirectResult);
 }

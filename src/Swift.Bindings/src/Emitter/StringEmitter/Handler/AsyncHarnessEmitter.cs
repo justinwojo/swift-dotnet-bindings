@@ -185,13 +185,11 @@ namespace BindingsGeneration
                 CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, _emissionContext);
                 // SBW_CancelTask / SBW_UnregisterTask P/Invokes: hoist to helper for generic types, emit inline otherwise
                 var cancelWriter = _env.PInvokeHelperContext != null ? callbackWriter : csWriter;
-                cancelWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 cancelWriter.WriteLines($"""
                     [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                     {AsyncFieldVisibility} static partial void SBW_CancelTask(long taskId);
 
                     """);
-                cancelWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                 cancelWriter.WriteLines($"""
                     [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
                     {AsyncFieldVisibility} static partial void SBW_UnregisterTask(long taskId);
@@ -1837,7 +1835,6 @@ namespace BindingsGeneration
             }
             return needsFreePInvoke
                 ? $$"""
-                        [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
                         [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLibPath}}", EntryPoint = "{{freeSymbolName}}")]
                         private static partial void SBW_Free(IntPtr ptr);
 

@@ -810,7 +810,7 @@ public class OperatorHandlerOutputTests
         Assert.True(op.UnderlyingMethod.UsesNativeThunk);
         Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
         Assert.Contains("\"TestModuleSwiftBindings\"", output);
-        Assert.Contains("CallConvCdecl", output);
+        PInvokeConventionAssert.CConvention(output, thunkSymbol);
         Assert.DoesNotContain("CallConvSwift", output);
         Assert.DoesNotContain("SwiftSelf", output);
 
@@ -1245,7 +1245,7 @@ public class OperatorHandlerOutputTests
 
         Assert.True(op.UnderlyingMethod.UsesNativeThunk);
         Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
-        Assert.Contains("CallConvCdecl", output);
+        PInvokeConventionAssert.CConvention(output, thunkSymbol);
         Assert.DoesNotContain("CallConvSwift", output);
         Assert.DoesNotContain("SwiftSelf", output);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Size>", output);
@@ -1302,7 +1302,7 @@ public class OperatorHandlerOutputTests
 
         Assert.True(op.UnderlyingMethod.UsesNativeThunk);
         Assert.Contains($"EntryPoint = \"{thunkSymbol}\"", output);
-        Assert.Contains("CallConvCdecl", output);
+        PInvokeConventionAssert.CConvention(output, thunkSymbol);
         Assert.DoesNotContain("CallConvSwift", output);
         Assert.DoesNotContain("SwiftSelf", output);
         AssertNullableClassReferenceReturn(output);

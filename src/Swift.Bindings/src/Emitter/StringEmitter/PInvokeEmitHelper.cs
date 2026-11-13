@@ -110,6 +110,33 @@ public record PInvokeEmissionInfo
 public static class PInvokeEmitHelper
 {
     /// <summary>
+    /// The <c>[UnmanagedCallConv]</c> attribute of a P/Invoke called with the Swift convention.
+    /// </summary>
+    public const string SwiftCallConvAttribute =
+        "[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]";
+
+    /// <summary>
+    /// The <c>[UnmanagedCallConv]</c> attribute line a P/Invoke of <paramref name="convention"/> carries,
+    /// or null when it carries none. Every generated P/Invoke's convention attribute is decided here.
+    /// <para>
+    /// The C convention gets no attribute: it is the platform default on every Apple target, so the
+    /// attribute would not change the call. It is not free, though. The Mono AOT compiler decodes the
+    /// attribute of every P/Invoke that carries one, allocating as it goes, and it cannot collect
+    /// garbage while it compiles; an app holding a few tens of thousands of attributed P/Invokes aborts
+    /// the compiler. Most generated P/Invokes call a <c>@_cdecl</c> wrapper, a native thunk or a native
+    /// bridge, so writing the attribute only where it means something keeps a consumer app well clear of
+    /// that. The <c>--compile-only</c> call-convention attribute gate fails on any <c>CallConvCdecl</c>
+    /// attribute in the compiled bindings. A reader of generated code treats a P/Invoke with no
+    /// attribute as a C-convention one.
+    /// </para>
+    /// </summary>
+    public static string? CallConvAttributeLine(PInvokeCallingConvention convention) => convention switch
+    {
+        PInvokeCallingConvention.Swift => SwiftCallConvAttribute,
+        _ => null,
+    };
+
+    /// <summary>
     /// Emit a P/Invoke declaration to a CSharpWriter.
     /// </summary>
     public static void EmitDeclaration(CSharpWriter csWriter, PInvokeEmissionInfo info)
@@ -284,13 +311,6 @@ public static class PInvokeEmitHelper
 
         var lines = new List<string>();
 
-        // Calling convention attribute — use the resolved convention
-        var callConvType = resolvedCallingConvention switch
-        {
-            PInvokeCallingConvention.Swift => "CallConvSwift",
-            _ => "CallConvCdecl"
-        };
-
         // If any parameter or return type is string, add StringMarshalling attribute
         var needsStringMarshalling = info.ParametersString.Contains("string ")
             || info.ParametersString.Contains("string?")
@@ -299,11 +319,12 @@ public static class PInvokeEmitHelper
             ? ", StringMarshalling = global::System.Runtime.InteropServices.StringMarshalling.Utf8"
             : "";
 
-        // Every BCL name in the emitted attribute is global::-qualified. The generated code
+        // Every BCL name in the emitted attributes is global::-qualified. The generated code
         // lands inside `namespace <SwiftModule>`, so a public Swift type whose projected name
         // matches an ambient BCL name (e.g. a `Type` that shadows System.Type) would otherwise
         // capture the reference and break the whole file.
-        lines.Add($"[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] {{ typeof(global::System.Runtime.CompilerServices.{callConvType}) }})]");
+        if (CallConvAttributeLine(resolvedCallingConvention) is { } callConvAttribute)
+            lines.Add(callConvAttribute);
         lines.Add($"[global::System.Runtime.InteropServices.LibraryImport(\"{info.LibraryPath}\", EntryPoint = \"{info.EntryPoint}\"{stringMarshalSuffix})]");
 
         // Return type (async always returns void)

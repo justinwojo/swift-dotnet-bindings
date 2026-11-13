@@ -239,10 +239,7 @@ public class ArgumentOwnershipTests : TestBase
             AssertEqual("SwiftBindings", library!.LibraryName, "wrapper library for " + name);
             AssertTrue(library.EntryPoint?.StartsWith("SBW_", StringComparison.Ordinal) == true,
                 "C wrapper export for " + name);
-            var convention = nativeImport.GetCustomAttribute<UnmanagedCallConvAttribute>();
-            AssertTrue(convention?.CallConvs != null &&
-                Array.IndexOf(convention.CallConvs, typeof(global::System.Runtime.CompilerServices.CallConvCdecl)) >= 0,
-                "C calling convention for " + name);
+            AssertTrue(ImportRoutes.UsesCConvention(nativeImport), "C calling convention for " + name);
             var parameters = nativeImport.GetParameters();
             AssertEqual(name is "consumeDirectAndThrow" or "consumeDirectWithLater" ? 3 : 2,
                 parameters.Length, "static import has no receiver slot for " + name);

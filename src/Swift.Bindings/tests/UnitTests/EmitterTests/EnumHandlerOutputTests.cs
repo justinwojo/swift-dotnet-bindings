@@ -5275,7 +5275,7 @@ public class EnumHandlerOutputTests
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         // C# should use CallConvCdecl, not CallConvSwift
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
         // P/Invoke should NOT have SwiftIndirectResult
         Assert.DoesNotContain("SwiftIndirectResult", csOutput);
         // Should have IntPtr resultPtr as last param
@@ -5313,7 +5313,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("Tuple = value;", csOutput);
         Assert.Contains("(&valueTuple)", csOutput);
         // Should use CallConvCdecl
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
         // Swift side should receive UnsafeRawPointer and load tuple
         Assert.Contains("UnsafeRawPointer", swiftOutput);
         Assert.Contains(".assumingMemoryBound(to:", swiftOutput);
@@ -5344,7 +5344,7 @@ public class EnumHandlerOutputTests
 
         // The Tagged case factory uses CallConvCdecl (SwiftIndirectResult pattern)
         Assert.Contains("SwiftIndirectResult", csOutput);
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.AnyCConvention(csOutput);
         // No @_cdecl case factory wrapper should be emitted on the Swift side
         Assert.DoesNotContain("SBW_TestModule_Message_tagged", swiftOutput);
     }

@@ -858,7 +858,7 @@ public class ClosureCdeclEmitterTests
         Assert.Contains("@_cdecl(\"SBW_", swiftOutput);
         Assert.Contains("@convention(c) (Swift.Int) -> Swift.Void", swiftOutput);
         Assert.Contains("EntryPoint = \"SBW_", csOutput);
-        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]\n[global::System.Runtime.InteropServices.LibraryImport", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
         Assert.DoesNotContain("CallConvSwift", csOutput);
         Assert.DoesNotContain("SwiftSelf", csOutput);
         Assert.DoesNotContain("callbackContext", csOutput);

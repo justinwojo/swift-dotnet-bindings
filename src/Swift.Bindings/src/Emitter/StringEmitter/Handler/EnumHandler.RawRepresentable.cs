@@ -180,7 +180,6 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
-                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
                     csWriter.WriteLine();
@@ -359,7 +358,6 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
-                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
                     csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
                     csWriter.WriteLine();
@@ -457,7 +455,6 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
                     csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{caseByIndexSymbol}\")]");
                     csWriter.WriteLine("private static partial IntPtr PInvoke_CaseByIndex(nint index);");
                     csWriter.WriteLine();

@@ -285,15 +285,14 @@ public static class AbiContractChecker
     // Matches both unqualified and global:: qualified UnmanagedCallConv attributes.
     // Captures the calling convention type name (e.g., "CallConvSwift" or "CallConvCdecl").
     //
-    // The generator emits the CallConvs array in three interchangeable C# forms, and the
-    // checker must recognize all of them — missing one mis-defaults the convention to
-    // Cdecl, which silently disables CC-001/CC-002 and fires a false CC-004:
-    //   1. new global::System.Type[] { typeof(global::System.…CallConvSwift) }  (PInvokeEmitHelper — always fully-qualified)
-    //   2. new[] { typeof(…CallConvSwift) }                                     (PInvokeHelperEmitter, KvoExtensionEmitter — target-typed)
-    //   3. [typeof(CallConvSwift)]                                              (AppleTypesCsEmitter — C# 12 collection expression)
-    // The unqualified `new Type[] { typeof(CallConvSwift) }` spelling is no longer emitted
-    // (a user type named `Type` would capture it), but the optional-group regex still
-    // accepts it so the checker keeps working against previously-generated sources.
+    // The generator writes the attribute only for the Swift convention, always as
+    // PInvokeEmitHelper.SwiftCallConvAttribute (`new global::System.Type[] { typeof(global::…CallConvSwift) }`);
+    // a C-convention P/Invoke carries none. The checker still recognizes the other spellings
+    // earlier generators wrote — target-typed `new[] { typeof(…) }`, the C# 12 collection
+    // expression `[typeof(…)]`, unqualified `new Type[] { … }`, and explicit CallConvCdecl — so
+    // it keeps working against previously-generated sources. Missing a Swift spelling would
+    // mis-default the convention to Cdecl, which silently disables CC-001/CC-002 and fires a
+    // false CC-004.
     // The optional `new …`/`new[]` prefix covers 1–2; the `[{[]`/`[}]]` bracket pair covers
     // either the `{ … }` array initializer or the `[ … ]` collection expression. Being lax
     // about pairing { with ] is harmless: inputs are only ever generator-emitted attributes.
@@ -974,16 +973,25 @@ public static class AbiContractChecker
             // the CC-001/CC-002 blittability checks for a genuine CallConvSwift P/Invoke AND
             // fires a false CC-004 on its $s… mangled symbol. So scan BOTH directions: the
             // backward pass below, plus a forward pass folded into the signature scan.
+            //
+            // The backward pass reads only this declaration's own attribute block: the
+            // contiguous attribute lines directly above [LibraryImport], stopping at the first
+            // line that is not one. A C-convention P/Invoke carries no [UnmanagedCallConv], so a
+            // fixed-width window would reach past it into the PREVIOUS declaration and borrow
+            // that one's CallConvSwift — and a Swift-mangled entry point that had lost its own
+            // Swift attribute would then pass CC-004 instead of being flagged.
             string? callingConvention = null;
-            for (int k = Math.Max(0, i - 3); k < i; k++)
+            var ownLineMatch = CallingConvRegex.Match(line);
+            if (ownLineMatch.Success)
+                callingConvention = ownLineMatch.Groups[1].Value;
+            for (int k = i - 1; callingConvention == null && k >= 0; k--)
             {
                 var prevLine = lines[k].TrimStart();
+                if (!prevLine.StartsWith("[", StringComparison.Ordinal))
+                    break;
                 var callConvMatch = CallingConvRegex.Match(prevLine);
                 if (callConvMatch.Success)
-                {
                     callingConvention = callConvMatch.Groups[1].Value;
-                    break;
-                }
             }
 
             // Look forward for the signature — may be on the next line or span multiple
@@ -1026,9 +1034,10 @@ public static class AbiContractChecker
             }
 
             // If no [UnmanagedCallConv] found in either direction, the runtime uses the
-            // platform default (C calling convention), not Swift. All real generator paths
-            // that emit $s... symbols also emit [UnmanagedCallConv(CallConvSwift)]. The
-            // no-attribute emitters (EnumHandler, SBW_Free helpers) are wrapper/C ABI paths.
+            // platform default (C calling convention), not Swift. The generator writes the
+            // attribute only for the Swift convention (PInvokeEmitHelper.CallConvAttributeLine),
+            // so every C-convention P/Invoke lands here. A $s... symbol that lands here lost its
+            // Swift attribute, which CC-004 reports.
             callingConvention ??= "CallConvCdecl";
 
             if (returnType == null || methodName == null)

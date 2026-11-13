@@ -801,13 +801,11 @@ public static class AsyncMethodGenericBridgeEmitter
         if (!CancellationTaskEmitter.HasCancelPInvokeForType(typeKey, ctx))
         {
             CancellationTaskEmitter.MarkCancelPInvokeEmittedForType(typeKey, ctx);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                 private static partial void SBW_CancelTask(long taskId);
 
                 """);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
                 private static partial void SBW_UnregisterTask(long taskId);
@@ -824,7 +822,6 @@ public static class AsyncMethodGenericBridgeEmitter
         if (!Utf8SliceEmitter.HasFreePInvokeForType(typeKey, ctx))
         {
             Utf8SliceEmitter.MarkFreePInvokeEmittedForType(typeKey, ctx);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{freeSymbolName}")]
                 private static partial void SBW_Free(IntPtr ptr);

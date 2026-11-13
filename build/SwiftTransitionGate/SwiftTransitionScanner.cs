@@ -466,15 +466,16 @@ public static class SwiftTransitionScanner
 
         /// <summary>
         /// Why a bridge twin is not the signature its plan states, or null. The twin must use the C
-        /// convention, its plan must be a forward plan in the plan source, each native carrier, result
-        /// first, must be one the plan's slot allows, in order and in number, and each trailing pointer
-        /// must sit where the plan puts its role: the trailing pointers are all pointer-sized, so a
-        /// swapped pair is told apart only by the names the generator gives them.
+        /// convention (named, or the platform default, which is C on every Apple target and is how
+        /// the generator declares it), its plan must be a forward plan in the plan source, each native
+        /// carrier, result first, must be one the plan's slot allows, in order and in number, and each
+        /// trailing pointer must sit where the plan puts its role: the trailing pointers are all
+        /// pointer-sized, so a swapped pair is told apart only by the names the generator gives them.
         /// </summary>
         private string? TwinProblem(TransitionConvention convention, List<(int Index, CarrierVerdict Verdict)> carriers,
             List<string> names, string symbol)
         {
-            if (convention != TransitionConvention.Cdecl)
+            if (convention is not (TransitionConvention.Cdecl or TransitionConvention.PlatformDefault))
                 return $"a bridge twin is called with the {convention} convention; a bridge takes the C convention";
             if (_options.PlanSource is not { } source)
                 return "a bridge twin with no plan source: nothing states the signature it must have";
@@ -855,7 +856,7 @@ public static class SwiftTransitionScanner
     }
 
     /// <summary>Decodes the attribute arguments the gate reads (<c>Type[] CallConvs</c>, strings).</summary>
-    private sealed class AttributeTypeProvider : ICustomAttributeTypeProvider<string>
+    internal sealed class AttributeTypeProvider : ICustomAttributeTypeProvider<string>
     {
         public static readonly AttributeTypeProvider Instance = new();
 

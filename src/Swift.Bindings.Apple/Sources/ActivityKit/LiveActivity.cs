@@ -341,33 +341,27 @@ public sealed partial class LiveActivity
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_Request",
             StringMarshalling = StringMarshalling.Utf8)]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial long Request(
             string name, string attrsJson, string stateJson, nint usePushToken, nint* outError);
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_Update",
             StringMarshalling = StringMarshalling.Utf8)]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static partial nint Update(long handle, string stateJson);
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_End",
             StringMarshalling = StringMarshalling.Utf8)]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static partial nint End(long handle, string? stateJson, nint immediate);
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_ObservePushToken")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial nint ObservePushToken(
             long handle, void* context,
             delegate* unmanaged[Cdecl]<void*, byte*, void> callback,
             delegate* unmanaged[Cdecl]<void*, void> release);
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_AreActivitiesEnabled")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static partial nint AreActivitiesEnabled();
 
         [LibraryImport(Library, EntryPoint = "SBW_LiveActivity_FreeString")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static partial void FreeString(nint ptr);
     }
 }

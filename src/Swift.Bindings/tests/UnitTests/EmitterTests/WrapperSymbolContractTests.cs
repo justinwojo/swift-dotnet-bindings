@@ -132,6 +132,34 @@ public class WrapperSymbolContractTests
         Assert.DoesNotContain(lines, l => l.Contains("CallConvCdecl"));
     }
 
+    [Theory]
+    [InlineData("SBW_Test_doWork", PInvokeCallingConvention.Cdecl)]
+    [InlineData("SBSR_Test_doWork", PInvokeCallingConvention.Cdecl)]
+    [InlineData("thunk_Test_doWork", PInvokeCallingConvention.Cdecl)]
+    public void CConventionImport_CarriesNoCallConvAttribute(string entryPoint, PInvokeCallingConvention cc)
+    {
+        // The C convention is the platform default on every Apple target. An attribute naming
+        // it changes nothing about the call but is one more attribute for the Mono AOT compiler
+        // to decode, and it aborts past a few tens of thousands of them.
+        var lines = PInvokeEmitHelper.FormatDeclarationLines(MakeInfo(entryPoint, cc: cc));
+
+        Assert.DoesNotContain(lines, l => l.Contains("UnmanagedCallConv"));
+        Assert.Contains(lines, l => l.Contains($"EntryPoint = \"{entryPoint}\""));
+        Assert.Null(PInvokeEmitHelper.CallConvAttributeLine(PInvokeCallingConvention.Cdecl));
+    }
+
+    [Theory]
+    [InlineData("$s4Test6doWorkyyF")]
+    [InlineData("SBSW_Test_doWork")]
+    public void SwiftConventionImport_CarriesExactlyTheSwiftAttribute(string entryPoint)
+    {
+        var lines = PInvokeEmitHelper.FormatDeclarationLines(MakeInfo(entryPoint, cc: PInvokeCallingConvention.Swift));
+
+        Assert.Equal(PInvokeEmitHelper.SwiftCallConvAttribute, Assert.Single(lines, l => l.Contains("UnmanagedCallConv")));
+        Assert.Equal(PInvokeEmitHelper.SwiftCallConvAttribute,
+            PInvokeEmitHelper.CallConvAttributeLine(PInvokeCallingConvention.Swift));
+    }
+
     [Fact]
     public void Throws_When_SBW_Paired_With_CallingConvention_Swift()
     {

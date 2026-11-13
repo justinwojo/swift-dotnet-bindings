@@ -1841,13 +1841,11 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleName);
             var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleName);
             csWriter.WriteLine();
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{libraryPath}", EntryPoint = "{cancelSymbolName}")]
                 private static partial void SBW_CancelTask(long taskId);
 
                 """);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{libraryPath}", EntryPoint = "{unregisterSymbolName}")]
                 private static partial void SBW_UnregisterTask(long taskId);

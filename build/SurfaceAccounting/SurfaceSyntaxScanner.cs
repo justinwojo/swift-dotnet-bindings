@@ -745,9 +745,13 @@ public static class SurfaceSyntaxScanner
         var entryPoint = arguments.FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "EntryPoint");
         var symbol = entryPoint is null ? method.Identifier.ValueText : ConstantString(entryPoint.Expression);
         var attributeText = method.AttributeLists.ToString();
+        // An import naming no convention is called with the platform default, which is C on every
+        // Apple target; the generator writes [UnmanagedCallConv] only for the Swift convention.
         var convention = attributeText.Contains("CallConvCdecl", StringComparison.Ordinal) ? "cdecl"
             : attributeText.Contains("CallConvSwift", StringComparison.Ordinal) ? "swift"
             : attributeText.Contains("CallingConvention.Cdecl", StringComparison.Ordinal) ? "cdecl"
+            : !attributeText.Contains("UnmanagedCallConv", StringComparison.Ordinal)
+                && !attributeText.Contains("CallingConvention", StringComparison.Ordinal) ? "cdecl"
             : "unknown";
         var parameters = method.ParameterList.Parameters.Select(p =>
         {

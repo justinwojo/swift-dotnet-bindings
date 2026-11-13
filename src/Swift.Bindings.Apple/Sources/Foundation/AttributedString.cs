@@ -27,7 +27,6 @@
 // without copy-then-replace dance.
 
 using System;
-using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
 using Swift.Runtime;
@@ -193,9 +192,9 @@ public sealed partial class AttributedString
 
     /// <summary>
     /// P/Invoke surface for the Apple Supplement shim framework.
-    /// Cdecl + raw void* — none of these symbols traffic in
-    /// CallConvSwift, so Mono and NativeAOT take identical fast paths
-    /// through them. The framework ships in this NuGet at
+    /// C convention (the platform default, so no [UnmanagedCallConv]) + raw
+    /// void* — none of these symbols traffic in CallConvSwift, so Mono and
+    /// NativeAOT take identical fast paths through them. The framework ships in this NuGet at
     /// <c>runtimes/native/SBApple.xcframework/</c>
     /// and is resolved at LoadLibrary time by SwiftFrameworkResolver's
     /// <c>@rpath/{name}.framework/{name}</c> rule.
@@ -205,23 +204,18 @@ public sealed partial class AttributedString
         private const string Library = "SBApple";
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_InitFromUtf8")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial void InitFromUtf8(byte* utf8Ptr, nint utf8Len, void* outBuffer);
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_GetCharacters")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial void GetCharacters(void* astrPtr, byte** outUtf8Ptr, nint* outUtf8Len);
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_FreeBuffer")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial void FreeBuffer(byte* ptr);
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_GetLanguageIdentifier")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial nint GetLanguageIdentifier(void* astrPtr, byte** outUtf8Ptr, nint* outUtf8Len);
 
         [LibraryImport(Library, EntryPoint = "SBW_AttributedString_SetLanguageIdentifier")]
-        [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
         public static unsafe partial void SetLanguageIdentifier(void* astrPtr, byte* utf8Ptr, nint utf8Len, nint hasValue);
     }
 }

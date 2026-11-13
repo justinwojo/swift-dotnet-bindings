@@ -263,7 +263,7 @@ public class CrossModuleExtensionEmitterTests
         // is entered under plain C, which carries the receiver as an ordinary pointer argument.
         // The alternative is a swiftcc import whose receiver rides the untyped self register, and
         // nothing about an ordinary primitive method makes that the safer of the two.
-        Assert.Contains("CallConvCdecl", result);
+        PInvokeConventionAssert.CConvention(result);
         Assert.DoesNotContain("SwiftSelf", result);
     }
 
@@ -502,7 +502,7 @@ public class CrossModuleExtensionEmitterTests
         var csResult = csOutput.ToString();
         Assert.Contains("OrigPointTestModuleExtensions", csResult);
         // Struct-receiver path emits @_cdecl trampolines: P/Invoke MUST be Cdecl, NOT Swift.
-        Assert.Contains("CallConvCdecl", csResult);
+        PInvokeConventionAssert.CConvention(csResult);
         Assert.DoesNotContain("CallConvSwift", csResult);
         // Receiver is the by-value frozen struct parameter — pinned via (&self), not via fixed.
         Assert.Contains("(IntPtr)(&self)", csResult);
@@ -1119,7 +1119,7 @@ public class CrossModuleExtensionEmitterTests
         var result = csOutput.ToString();
         Assert.DoesNotContain("SwiftIndirectResult", result);
         Assert.DoesNotContain("SwiftSelf", result);
-        Assert.Contains("CallConvCdecl", result);
+        PInvokeConventionAssert.CConvention(result);
     }
 
     [Fact]

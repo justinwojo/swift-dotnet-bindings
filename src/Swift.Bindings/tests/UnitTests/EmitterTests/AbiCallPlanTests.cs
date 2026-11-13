@@ -238,10 +238,10 @@ public class AbiCallPlanTests
         // Library + entry point appear verbatim in the LibraryImport attribute.
         Assert.Contains($"\"{plan.Library}\"", text);
         Assert.Contains($"EntryPoint = \"{plan.EntryPoint}\"", text);
-        // Resolved calling convention matches the emitted CallConv attribute.
-        Assert.Contains(
+        // Resolved calling convention is the one the rendered declaration is called with.
+        Assert.Equal(
             plan.CallingConvention == PInvokeCallingConvention.Swift ? "CallConvSwift" : "CallConvCdecl",
-            text);
+            Assert.Single(AbiContractChecker.ExtractPInvokes(text, "TestModule")).CallingConvention);
         // Return carrier + method name front the signature line.
         Assert.Contains($"{plan.ReturnCarrier} {plan.MethodName}(", signature);
         // Every parameter carrier is a substring of the rendered signature.

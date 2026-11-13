@@ -3966,18 +3966,18 @@ public class ProtocolProxyEmitterTests
         var protocolDecl = CreateProtocolWithProperty("TestProtocol", "value", hasGetter: true, hasSetter: false, new NamedTypeSpec("Swift.Int32"));
         var output = EmitProxyClass(protocolDecl);
 
-        // Both accessor and free should use Cdecl via UnmanagedCallConv attribute
+        // Both accessor and free are C-convention imports of their own
         var lines = output.Split('\n').Select(l => l.Trim()).ToArray();
 
-        // Verify accessor has its own UnmanagedCallConv + LibraryImport pair
+        // Verify the accessor import
         var accessorLibraryImportIdx = Array.FindIndex(lines, l => l.Contains("LibraryImport") && l.Contains("SBW_TestProtocol_get_value_0"));
         Assert.True(accessorLibraryImportIdx > 0, "Accessor LibraryImport not found");
-        Assert.Contains("CallConvCdecl", lines[accessorLibraryImportIdx - 1]);
+        PInvokeConventionAssert.CConvention(output, "SBW_TestProtocol_get_value_0");
 
-        // Verify free has its own UnmanagedCallConv + LibraryImport pair
+        // Verify the free import
         var freeLibraryImportIdx = Array.FindIndex(lines, l => l.Contains("LibraryImport") && l.Contains("SBW_TestProtocol_free_get_value_0"));
         Assert.True(freeLibraryImportIdx > 0, "Free LibraryImport not found");
-        Assert.Contains("CallConvCdecl", lines[freeLibraryImportIdx - 1]);
+        PInvokeConventionAssert.CConvention(output, "SBW_TestProtocol_free_get_value_0");
     }
 
     [Fact]
@@ -4509,7 +4509,7 @@ public class ProtocolProxyEmitterTests
             StringComparison.Ordinal);
         Assert.True(pInvokeIdx >= 0, "Expected the closure witness LibraryImport");
         var pInvokePrefix = output.Substring(Math.Max(0, pInvokeIdx - 300), Math.Min(300, pInvokeIdx));
-        Assert.Contains("CallConvCdecl", pInvokePrefix);
+        PInvokeConventionAssert.CConvention(output, "SBW_VendedClosureLoader_method_load_0");
 
         var methodEnd = output.IndexOf("#endregion", methodIdx, StringComparison.Ordinal);
         var methodBody = output.Substring(methodIdx, methodEnd - methodIdx);
@@ -4575,8 +4575,8 @@ public class ProtocolProxyEmitterTests
             line => line.Contains("LibraryImport", StringComparison.Ordinal) &&
                     line.Contains("SBW_MixedLoader_free_method_load_0", StringComparison.Ordinal));
         Assert.True(accessorImport > 0 && freeImport > 0, output);
-        Assert.Contains("CallConvCdecl", lines[accessorImport - 1]);
-        Assert.Contains("CallConvCdecl", lines[freeImport - 1]);
+        PInvokeConventionAssert.CConvention(output, "SBW_MixedLoader_method_load_0");
+        PInvokeConventionAssert.CConvention(output, "SBW_MixedLoader_free_method_load_0");
         Assert.Contains("Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains", output);
         Assert.Contains("new TargetProtocolProxy(container, ownsContainer: true)", output);
         Assert.Contains("NativeMethods.SBW_MixedLoader_free_method_load_0(resultPtr)", output);

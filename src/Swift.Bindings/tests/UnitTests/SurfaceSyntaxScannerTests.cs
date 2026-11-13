@@ -115,18 +115,20 @@ public class SurfaceSyntaxScannerTests
         Assert.False(member.PublicShape.Tombstoned);
     }
 
-    [Fact]
-    public void Scanner_FollowsPublicHelperToActualImport()
+    [Theory]
+    [InlineData("[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]")]
+    [InlineData("")] // the C convention is the platform default; the generator writes no attribute
+    public void Scanner_FollowsPublicHelperToActualImport(string callConv)
     {
         using var fixture = new SurfaceAccountingTestFixture();
-        var source = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "imports.cs", """
+        var source = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "imports.cs", $$"""
             using System.Runtime.CompilerServices;
             using System.Runtime.InteropServices;
             public static partial class C
             {
                 public static int M(int value) => Helper(value);
                 private static int Helper(int value) => PInvoke_M(value);
-                [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
+                {{callConv}}
                 [LibraryImport("Native", EntryPoint = "SBW_M")]
                 private static partial int PInvoke_M(int value);
             }

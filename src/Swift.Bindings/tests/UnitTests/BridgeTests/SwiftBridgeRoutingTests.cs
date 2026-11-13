@@ -98,7 +98,7 @@ public sealed class SwiftBridgeRoutingTests
         // The twin imports the bridge from the wrapper under the C convention; self is a trailing pointer.
         var twin = Method(rewritten, twinName);
         Assert.Contains(twin.Modifiers, m => m.IsKind(SyntaxKind.PartialKeyword));
-        Assert.Contains(AttributeNames(twin), a => a.Contains("CallConvCdecl", StringComparison.Ordinal));
+        Assert.DoesNotContain(AttributeNames(twin), a => a.Contains("UnmanagedCallConv", StringComparison.Ordinal));
         Assert.DoesNotContain(AttributeNames(twin), a => a.Contains("CallConvSwift", StringComparison.Ordinal));
         var import = Assert.Single(AttributeNames(twin), a => a.Contains("LibraryImport", StringComparison.Ordinal));
         Assert.Contains($"\"{Library}\"", import);

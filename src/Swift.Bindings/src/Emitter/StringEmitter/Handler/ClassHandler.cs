@@ -1460,7 +1460,6 @@ namespace BindingsGeneration
         private void EmitEqualityPInvoke(string symbolName)
         {
             _writer.WriteLines($$"""
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{symbolName}}")]
             {{MarshallingHelpers.BoolPInvokeReturnAttribute}}
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);

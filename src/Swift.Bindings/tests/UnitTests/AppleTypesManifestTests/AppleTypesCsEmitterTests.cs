@@ -176,9 +176,7 @@ public class AppleTypesCsEmitterTests
             "$s10Foundation6LocaleV8LanguageVMa");
         var (_, _, contents) = Emit(entry, "Foundation");
 
-        Assert.Contains(
-            "[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]",
-            contents);
+        Assert.Contains(PInvokeEmitHelper.SwiftCallConvAttribute, contents);
         // Bare library name (no `.framework/` substring) so the macios linker doesn't
         // force-add `-framework Foundation`. SwiftFrameworkResolver maps it to a system
         // framework path at runtime via per-assembly DllImportResolver.

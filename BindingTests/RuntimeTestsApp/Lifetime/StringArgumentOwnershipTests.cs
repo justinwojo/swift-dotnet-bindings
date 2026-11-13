@@ -39,8 +39,7 @@ public class StringArgumentOwnershipTests : TestBase
             var library = method.GetCustomAttribute<LibraryImportAttribute>();
             AssertEqual("SwiftBindings", library?.LibraryName, "wrapper library " + name);
             AssertTrue(library?.EntryPoint?.StartsWith("SBW_", StringComparison.Ordinal) == true, "wrapper export " + name);
-            var conventions = method.GetCustomAttribute<UnmanagedCallConvAttribute>()?.CallConvs;
-            AssertTrue(conventions != null && Array.IndexOf(conventions, typeof(global::System.Runtime.CompilerServices.CallConvCdecl)) >= 0, "Cdecl " + name);
+            AssertTrue(ImportRoutes.UsesCConvention(method), "Cdecl " + name);
             var parameters = method.GetParameters();
             AssertEqual(name == "replace" ? 5 : name is "consumeAndThrow" or "consumeWithLater" ? 4 : 3,
                 parameters.Length, "complete import parameter count " + name);
@@ -215,9 +214,7 @@ public class StringArgumentOwnershipTests : TestBase
             AssertEqual(parameters.Length == 2
                 ? "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_droppingClosureDefault_7386B826"
                 : "SBW_SwiftBindingsTestLib_StringOwnershipReceiver_droppingClosureDefault_C7CC85E1_cdecl", library?.EntryPoint);
-            var conventions = import.GetCustomAttribute<UnmanagedCallConvAttribute>()?.CallConvs;
-            AssertTrue(conventions != null && Array.IndexOf(conventions,
-                typeof(System.Runtime.CompilerServices.CallConvCdecl)) >= 0);
+            AssertTrue(ImportRoutes.UsesCConvention(import), "Cdecl " + import.Name);
         }
         AssertEqual(2, count, "full overload and independently named trim");
     }
