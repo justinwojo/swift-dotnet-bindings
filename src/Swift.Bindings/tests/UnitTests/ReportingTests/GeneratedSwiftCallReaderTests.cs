@@ -27,7 +27,6 @@ public sealed class GeneratedSwiftCallReaderTests
               [LibraryImport("One", EntryPoint="$sA")] private static partial int ASwift(SwiftSelf self);
               [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
               [LibraryImport("One", EntryPoint="A_C")] private static partial void ACdecl(int value, SwiftSelf self);
-              [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })]
               [LibraryImport("One", EntryPoint="B_C")] private static partial int BCdecl(SwiftSelf self);
               [UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]
               [LibraryImport("One", EntryPoint="$sB")] private static partial void BSwift(int value, SwiftSelf self);

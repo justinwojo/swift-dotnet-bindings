@@ -1576,7 +1576,7 @@ namespace BindingsGeneration.Tests
         #region Bug Fix: PInvokeEmitHelper renders correct calling convention
 
         [Fact]
-        public void PInvokeEmitHelper_CdeclConvention_EmitsCallConvCdecl()
+        public void PInvokeEmitHelper_CdeclConvention_EmitsNoCallConvAttribute()
         {
             var info = new PInvokeEmissionInfo
             {
@@ -1591,7 +1591,7 @@ namespace BindingsGeneration.Tests
             var lines = PInvokeEmitHelper.FormatDeclarationLines(info);
             var output = string.Join("\n", lines);
 
-            Assert.Contains("CallConvCdecl", output);
+            Assert.DoesNotContain("UnmanagedCallConv", output);
             Assert.DoesNotContain("CallConvSwift", output);
         }
 
@@ -1714,7 +1714,7 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void PInvokeDeclaration_CdeclConvention_EmitsCallConvCdecl()
+        public void PInvokeDeclaration_CdeclConvention_EmitsNoCallConvAttribute()
         {
             var decl = new PInvokeDeclaration
             {
@@ -1731,7 +1731,7 @@ namespace BindingsGeneration.Tests
             decl.Emit(csWriter);
             var output = sw.ToString();
 
-            Assert.Contains("CallConvCdecl", output);
+            Assert.DoesNotContain("UnmanagedCallConv", output);
             Assert.DoesNotContain("CallConvSwift", output);
         }
 

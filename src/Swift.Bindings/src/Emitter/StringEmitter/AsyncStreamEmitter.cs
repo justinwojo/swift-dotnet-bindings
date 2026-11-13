@@ -167,7 +167,6 @@ public static class AsyncStreamEmitter
         var paramList = string.Join(", ", ps);
 
         csWriter.WriteLines($$"""
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{swiftWrapperName}}")]
             private static unsafe partial void PInvoke_{{swiftWrapperName}}({{paramList}});
             """);

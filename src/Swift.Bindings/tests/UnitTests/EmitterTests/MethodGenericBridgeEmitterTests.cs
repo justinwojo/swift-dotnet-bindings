@@ -468,7 +468,7 @@ public class MethodGenericBridgeEmitterTests
         var csResult = csOutput.ToString();
         Assert.Contains("LibraryImport", csResult);
         Assert.Contains("ISwiftObject", csResult);
-        Assert.Contains("CallConvCdecl", csResult);
+        PInvokeConventionAssert.CConvention(csResult, "SBW_");
     }
 
     [Fact]

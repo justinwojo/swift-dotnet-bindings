@@ -537,7 +537,7 @@ public class MethodLevelGenericOpeningTests
             swift.Split('\n').Single(line => line.Contains("func _mlgBody0<", StringComparison.Ordinal)).Trim());
         Assert.Contains("let result: _MLG0 = obj.describe(item: item)", swift);
         Assert.Contains("resultPtr.initializeMemory(as: _MLG0.self, repeating: result, count: 1)", swift);
-        Assert.Contains("CallConvCdecl", pinvoke);
+        PInvokeConventionAssert.CConvention(pinvoke);
         Assert.DoesNotContain("SwiftSelf", pinvoke);
         Assert.DoesNotContain("τ_0_0", swift.Split('\n').Single(
             line => line.Contains("public func ", StringComparison.Ordinal)));
@@ -649,7 +649,7 @@ public class MethodLevelGenericOpeningTests
                 WrapperValidation.GetCallingConvention(env.MethodDecl)));
 
         var pInvokeText = EmitPInvokeText(env);
-        Assert.True(pInvokeText.Contains("CallConvCdecl", StringComparison.Ordinal), pInvokeText);
+        PInvokeConventionAssert.CConvention(pInvokeText, env.EmissionSymbol);
         Assert.Contains($"EntryPoint = \"{env.EmissionSymbol}\"", pInvokeText);
         Assert.Contains($"IntPtr {receiver.Name}", pInvokeText);
         Assert.DoesNotContain("SwiftSelf", pInvokeText);
@@ -691,7 +691,7 @@ public class MethodLevelGenericOpeningTests
 
         Assert.Contains("_ self_: Swift.UnsafeMutableRawPointer", swift);
         Assert.Equal("IntPtr", receiver.TypeString());
-        Assert.True(pInvoke.Contains("CallConvCdecl", StringComparison.Ordinal), pInvoke);
+        PInvokeConventionAssert.CConvention(pInvoke);
         Assert.Contains($"IntPtr {receiver.Name}", pInvoke);
         Assert.DoesNotContain("SwiftSelf", pInvoke);
     }

@@ -214,7 +214,6 @@ internal static class CodableJsonEmitter
                 }
             }
 
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLib}}", EntryPoint = "{{encodeSymbol}}")]
             private static partial int {{encodePInvokeName}}(global::System.IntPtr resultPtr, global::System.IntPtr self_);
 
@@ -246,7 +245,6 @@ internal static class CodableJsonEmitter
                 }
             }
 
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
             [global::System.Runtime.InteropServices.LibraryImport("{{wrapperLib}}", EntryPoint = "{{decodeSymbol}}")]
             private static partial int {{decodePInvokeName}}(global::System.IntPtr resultPtr, global::System.IntPtr bytesPtr, global::System.IntPtr byteCount);
             """);

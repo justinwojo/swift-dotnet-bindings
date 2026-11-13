@@ -172,7 +172,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         {
             // Everything the relink compiles is on disk before it runs.
             Assert.True(File.Exists(AssemblyPath(SwiftArchitecture.Arm64)));
-            Assert.Contains("CallConvCdecl", Read(MainFile));
+            Assert.Contains($"EntryPoint = \"{SwiftCallPlan.ForwardPrefix}", Read(MainFile));
             Assert.True(File.Exists(JournalPath));
             Assert.Equal(Shipped.ToArray(), r.Slices.Keys.ToArray());
             return null;
@@ -443,7 +443,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Directory.CreateDirectory(blocker);
         Assert.ThrowsAny<Exception>(() => Finalize(contradicting));
         Directory.Delete(blocker);
-        Assert.Contains("CallConvCdecl", Read(MainFile));
+        Assert.Contains($"EntryPoint = \"{SwiftCallPlan.ForwardPrefix}", Read(MainFile));
 
         Finalize(contradicting);
 

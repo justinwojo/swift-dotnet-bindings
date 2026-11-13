@@ -39,7 +39,7 @@ public class SubclassClosedParentTrampolineEmitterTests
         Assert.Contains("public static partial class LeafBaseTrampolines", csOut);
         Assert.Contains("public static void Pause(this Leaf self)", csOut);
         Assert.Contains("LibraryImport", csOut);
-        Assert.Contains("CallConvCdecl", csOut);
+        PInvokeConventionAssert.CConvention(csOut);
 
         // Swift @_cdecl shim that unsafeBitCasts opaque self to the CONCRETE leaf and calls through.
         Assert.Contains("@_cdecl(", swiftOut);

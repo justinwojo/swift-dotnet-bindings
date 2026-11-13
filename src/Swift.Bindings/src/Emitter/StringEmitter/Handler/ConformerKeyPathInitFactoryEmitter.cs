@@ -400,7 +400,6 @@ internal static class ConformerKeyPathInitFactoryEmitter
             // the conformer), so there is no parent floor to dedup against.
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, availability, parentAnnotations: null);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibrary}\", EntryPoint = \"{symbol}\")]");
             csWriter.WriteLine($"private static partial IntPtr {pinvokeName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();

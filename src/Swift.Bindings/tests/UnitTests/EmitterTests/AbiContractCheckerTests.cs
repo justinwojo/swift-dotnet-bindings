@@ -1290,6 +1290,82 @@ public sealed partial class TestClass
         Assert.Equal("CallConvCdecl", pinvokes[0].CallingConvention);
     }
 
+    [Fact]
+    public void Validate_MangledSymbolWithNoAttribute_FiresCC004()
+    {
+        // The generator writes no attribute for the C convention, so a Swift-mangled entry
+        // point that lost its CallConvSwift reads as a C call into a Swift symbol.
+        var csOutput = @"
+public sealed partial class TestClass
+{
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
+    private static partial int PInvoke_bar_LOST(int value);
+}";
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.Contains(result.Violations, v => v.RuleId == "CC-004" && v.MethodName == "PInvoke_bar_LOST");
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("\n")]
+    public void Validate_MangledSymbolWithNoAttribute_BelowASwiftNeighbour_FiresCC004(string separator)
+    {
+        // The import directly above carries CallConvSwift. Reading the lost import's
+        // convention must stop at its own attribute block instead of borrowing the
+        // neighbour's, or the lost CallConvSwift would pass as Swift.
+        var csOutput = $@"
+public sealed partial class TestClass
+{{
+    [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] {{ typeof(global::System.Runtime.CompilerServices.CallConvSwift) }})]
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3fooSiyF"")]
+    private static partial int PInvoke_foo_SWIFT(int value);{separator}
+    [global::System.Runtime.InteropServices.LibraryImport(""TestModule"", EntryPoint = ""$s10TestModule5MyFoo3barSiyF"")]
+    private static partial int PInvoke_bar_LOST(int value);
+}}";
+        var pinvokes = AbiContractChecker.ExtractPInvokes(csOutput, "TestModule");
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.Equal("CallConvSwift", pinvokes.Single(p => p.MethodName == "PInvoke_foo_SWIFT").CallingConvention);
+        Assert.Equal("CallConvCdecl", pinvokes.Single(p => p.MethodName == "PInvoke_bar_LOST").CallingConvention);
+        var cc004 = Assert.Single(result.Violations, v => v.RuleId == "CC-004");
+        Assert.Equal("PInvoke_bar_LOST", cc004.MethodName);
+    }
+
+    [Fact]
+    public void Extract_EmittedWrapperImportBelowEmittedSwiftImport_ReadsEachOwnConvention()
+    {
+        // Two declarations exactly as PInvokeEmitHelper renders them, back to back: the
+        // wrapper import has no attribute and must not inherit the Swift one above it.
+        var swift = PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = "TestModule",
+            EntryPoint = "$s10TestModule5MyFoo3fooSiyF",
+            MethodName = "PInvoke_foo",
+            ReturnType = "int",
+            ParametersString = "int value",
+            CallingConvention = PInvokeCallingConvention.Swift,
+        });
+        var wrapper = PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
+        {
+            LibraryPath = "TestModuleSwiftBindings",
+            EntryPoint = "SBW_TestModule_MyFoo_bar",
+            MethodName = "PInvoke_bar",
+            ReturnType = "int",
+            ParametersString = "int value",
+        });
+        var csOutput = "public sealed partial class TestClass\n{\n" +
+            string.Join("\n", swift.Concat(wrapper).Select(l => "    " + l)) + "\n}";
+
+        var pinvokes = AbiContractChecker.ExtractPInvokes(csOutput, "TestModule");
+
+        Assert.Equal("CallConvSwift", pinvokes.Single(p => p.MethodName == "PInvoke_foo").CallingConvention);
+        Assert.Equal("CallConvCdecl", pinvokes.Single(p => p.MethodName == "PInvoke_bar").CallingConvention);
+        Assert.DoesNotContain(
+            AbiContractChecker.Validate(csOutput, "TestModule", TestLogger).Violations,
+            v => v.RuleId == "CC-004");
+    }
+
     #endregion
 
     #region P2: Multiline signatures (AsyncStreamEmitter)

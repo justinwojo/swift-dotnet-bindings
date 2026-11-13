@@ -728,7 +728,7 @@ public class PInvokeHelperContext
         // declaration shape and the lie there reads register state under the wrong ABI.
         return $$"""
             [global::System.Runtime.InteropServices.LibraryImport("{{libraryPath}}", EntryPoint = "{{metadataAccessorSymbol}}")]
-            [global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+            {{PInvokeEmitHelper.SwiftCallConvAttribute}}
             private static partial global::Swift.Runtime.TypeMetadata {{BufferModeMetadataAccessorMethodName}}(global::Swift.Runtime.TypeMetadataRequest request, global::System.IntPtr parameters);
 
             internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})

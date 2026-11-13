@@ -925,7 +925,7 @@ public class ConstructorHandlerOutputTests
         // No @_cdecl wrapper emitted — thunk handles the ABI bridging in assembly
         Assert.DoesNotContain("@_cdecl(\"", swiftOutput);
         // C# P/Invoke uses CallConvCdecl (targets the thunk, not raw Swift symbol)
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "thunk_");
         // Thunk symbol in the P/Invoke entry point
         Assert.Contains("thunk_", csOutput);
     }
@@ -1011,7 +1011,7 @@ public class ConstructorHandlerOutputTests
         Assert.Contains("@_cdecl(\"", swiftOutput);
         Assert.Contains("SBW_", swiftOutput);
         // C# P/Invoke should use CallConvCdecl
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
     }
 
     [Fact]

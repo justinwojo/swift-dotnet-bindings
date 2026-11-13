@@ -216,7 +216,6 @@ internal static class SwiftTwinShim
             lines.Add($"    return {ResultLocal};");
         lines.Add("}");
         lines.Add("");
-        lines.Add("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         lines.Add(ImportAttribute(import, library, plan.Symbol));
         if (view.Result.Kind == SwiftResultKind.Scalar)
             lines.AddRange(returnLists.Select(l => l.ToString()));

@@ -441,7 +441,7 @@ public class SilgenNameTrampolineTests
         // Must use UnsafeRawPointer for large optional param
         Assert.Contains("UnsafeRawPointer", swiftOutput);
         // C# must use Cdecl
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
         Assert.DoesNotContain("CallConvSwift", csOutput);
     }
 
@@ -518,7 +518,7 @@ public class SilgenNameTrampolineTests
         Assert.Contains("@_cdecl", swiftOutput);
         Assert.Contains("errorOut", swiftOutput);
         Assert.Contains("Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()", swiftOutput);
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
     }
 
     #endregion
@@ -887,7 +887,7 @@ public class SilgenNameTrampolineTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_");
         Assert.DoesNotContain("CallConvSwift", csOutput);
     }
 

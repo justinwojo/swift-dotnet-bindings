@@ -17,6 +17,17 @@ namespace RuntimeTestsApp.Infrastructure;
 internal static class ImportRoutes
 {
     /// <summary>
+    /// Whether <paramref name="import"/> is called with the C convention. The generator writes no
+    /// <see cref="UnmanagedCallConvAttribute"/> for it, since C is the platform default on every Apple
+    /// target, so an import with none is a C import; one that does name a convention must name only C.
+    /// </summary>
+    public static bool UsesCConvention(MethodInfo import)
+    {
+        var convs = import.GetCustomAttribute<UnmanagedCallConvAttribute>()?.CallConvs ?? Array.Empty<Type>();
+        return convs.Length == 0 || (convs.Length == 1 && convs[0] == typeof(CallConvCdecl));
+    }
+
+    /// <summary>
     /// Asserts that <paramref name="member"/> of <paramref name="declaringType"/> has exactly one import,
     /// and that it enters a <c>@_cdecl</c> wrapper: a wrapper symbol, the C convention only, no native
     /// bridge twin and no Swift self register.
@@ -39,10 +50,9 @@ internal static class ImportRoutes
             throw new AssertionException($"{name} has exactly one import: Expected 1, got {imports.Length}");
         var import = imports[0];
         var entryPoint = import.GetCustomAttribute<LibraryImportAttribute>()!.EntryPoint ?? import.Name;
-        var convs = import.GetCustomAttribute<UnmanagedCallConvAttribute>()?.CallConvs ?? Array.Empty<Type>();
         if (!entryPoint.StartsWith("SBW_", StringComparison.Ordinal))
             throw new AssertionException($"{name} enters through a @_cdecl wrapper symbol (got {entryPoint})");
-        if (convs.Length != 1 || convs[0] != typeof(CallConvCdecl))
+        if (!UsesCConvention(import))
             throw new AssertionException($"{name} is declared with the C convention only");
         if (import.Name.Contains("__SBSR_", StringComparison.Ordinal))
             throw new AssertionException($"{name} is not a native bridge twin");

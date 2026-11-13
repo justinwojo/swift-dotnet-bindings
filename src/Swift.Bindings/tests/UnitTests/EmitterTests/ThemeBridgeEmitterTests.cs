@@ -644,8 +644,7 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         Assert.Contains("LibraryImport(", content);
         Assert.Contains("static partial void", content);
-        Assert.Contains("UnmanagedCallConv(CallConvs = new global::System.Type[]", content);
-        Assert.Contains("typeof(global::System.Runtime.CompilerServices.CallConvCdecl)", content);
+        PInvokeConventionAssert.CConvention(content);
         // Must NOT use DllImport. Matched without the leading bracket or any namespace
         // qualification: for a negative assertion the looser string is the stronger one,
         // since it also catches a DllImport emitted under a qualified spelling.

@@ -455,7 +455,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine($"private {leaf}(IntPtr handle) => _payload = new SwiftSafeHandle<{leaf}>(handle);");
         sb.AppendLine();
-        sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
+        sb.Append(bodyPad); sb.AppendLine(PInvokeEmitHelper.CallConvAttributeLine(PInvokeCallingConvention.Swift));
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
         sb.Append(bodyPad); sb.AppendLine($"private static extern TypeMetadata {MetadataAccessorMethod}(TypeMetadataRequest request);");
         sb.AppendLine();
@@ -525,7 +525,7 @@ public sealed class AppleTypesCsEmitter
         sb.AppendLine();
         sb.Append(bodyPad); sb.AppendLine("public static TypeMetadata Metadata => _cachedMetadata ??= PInvoke_GetMetadata(TypeMetadataRequest.Complete);");
         sb.AppendLine();
-        sb.Append(bodyPad); sb.AppendLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = [typeof(global::System.Runtime.CompilerServices.CallConvSwift)])]");
+        sb.Append(bodyPad); sb.AppendLine(PInvokeEmitHelper.CallConvAttributeLine(PInvokeCallingConvention.Swift));
         sb.Append(bodyPad); sb.AppendLine($"[global::System.Runtime.InteropServices.DllImport(\"{libraryPath}\", EntryPoint = \"{accessor.Symbol}\")]");
         sb.Append(bodyPad); sb.AppendLine($"private static extern TypeMetadata {MetadataAccessorMethod}(TypeMetadataRequest request);");
         sb.Append(pad); sb.AppendLine("}");

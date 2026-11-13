@@ -1753,7 +1753,7 @@ public class PropertyHandlerTests
         Assert.Contains("SBW_Get_TestModule_Processor_dataCache", swiftOutput);
         Assert.Contains("SBW_Set_TestModule_Processor_dataCache", swiftOutput);
         // C# setter P/Invoke uses CallConvCdecl
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_Set_TestModule_Processor_dataCache");
         // Setter property body marshals value to (IntPtr, bool) via existential container.
         // The GetOrCreate call carries a wrap fallback so plain C# implementations of the
         // interface are auto-wrapped in the generator-emitted DataCachingProxy at the call site.
@@ -1896,7 +1896,7 @@ public class PropertyHandlerTests
         var (csOutput, _) = EmitProperty(property, typeDatabase);
 
         // Cdecl wrapper, decomposed setter (not simple pass-through) — same shape as EC1.
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_Set_");
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
         // EC2 composition takes the direct-cast container path, NOT the EC1 GetOrCreate factory.
         Assert.Contains(
@@ -2191,7 +2191,7 @@ public class PropertyHandlerTests
         // @_cdecl getter wrapper must be emitted for the same property.
         Assert.Contains("SBW_Get_TestModule_Response_text", swiftOutput);
         // P/Invoke wired through CallConvCdecl, not CallConvSwift.
-        Assert.Contains("CallConvCdecl", csOutput);
+        PInvokeConventionAssert.CConvention(csOutput, "SBW_Get_TestModule_Response_text");
     }
 
     [Fact]

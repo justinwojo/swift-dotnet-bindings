@@ -466,6 +466,23 @@ public class SwiftTransitionScannerTests
     }
 
     [Fact]
+    public void R3_TwinWithNoCallConvAttribute_Passes_AsThePlatformDefaultIsC()
+    {
+        // The twin shim writes no [UnmanagedCallConv] for the C convention; that twin is the
+        // same C call as an explicit CallConvCdecl one and must pass R3.
+        var report = Scan("""
+            public static class C
+            {
+                [DllImport("lib", EntryPoint = "SBSR_1")]
+                public static extern long Twin(long a, nint __self, nint __error);
+            }
+            """, plan: Plans(SelfErrorPlan("SBSR_1")));
+
+        Assert.True(report.Passed, string.Join("\n", report.Violations.Select(v => $"{v.Rule} {v.Member}: {v.Reason}")));
+        Assert.Equal(1, report.Inventory.BridgeTwins);
+    }
+
+    [Fact]
     public void R3_ReorderedTrailingPointers_Fire()
     {
         // Every trailing pointer is pointer-sized, so the carriers agree; only the order is wrong, and a

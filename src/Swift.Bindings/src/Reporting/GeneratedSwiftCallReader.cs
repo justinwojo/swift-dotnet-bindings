@@ -222,9 +222,13 @@ public static class GeneratedSwiftCallReader
             ? method.Identifier.ValueText
             : ConstantString(entryArgument.Expression);
         var attributeText = method.AttributeLists.ToString();
+        // An import naming no convention is called with the platform default, C on every Apple
+        // target: the generator writes [UnmanagedCallConv] only for the Swift convention.
         var convention = attributeText.Contains("CallConvSwift", StringComparison.Ordinal) ? "CallConvSwift"
             : attributeText.Contains("CallConvCdecl", StringComparison.Ordinal)
                 || attributeText.Contains("CallingConvention.Cdecl", StringComparison.Ordinal) ? "CallConvCdecl"
+            : !attributeText.Contains("UnmanagedCallConv", StringComparison.Ordinal)
+                && !attributeText.Contains("CallingConvention", StringComparison.Ordinal) ? "CallConvCdecl"
             : "Unknown";
         var carriers = method.ParameterList.Parameters
             .Select(parameter => NormalizeParameter(parameter))

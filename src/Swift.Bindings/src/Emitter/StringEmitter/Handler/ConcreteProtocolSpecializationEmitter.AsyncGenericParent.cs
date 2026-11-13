@@ -327,13 +327,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
             var cancelSymbolName = CancellationTaskEmitter.GetCancelSymbolName(moduleName);
             var unregisterSymbolName = CancellationTaskEmitter.GetUnregisterSymbolName(moduleName);
             csWriter.WriteLine();
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{cancelSymbolName}")]
                 private static partial void SBW_CancelTask(long taskId);
 
                 """);
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
             csWriter.WriteLines($"""
                 [global::System.Runtime.InteropServices.LibraryImport("{wrapperLibPath}", EntryPoint = "{unregisterSymbolName}")]
                 private static partial void SBW_UnregisterTask(long taskId);
@@ -1079,8 +1077,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
-        csWriter.WriteLine(
-            "[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new global::System.Type[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
         csWriter.WriteLine(
             $"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{cdeclSymbol}\")]");
         csWriter.WriteLine(

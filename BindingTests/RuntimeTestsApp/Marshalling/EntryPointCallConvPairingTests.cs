@@ -98,13 +98,12 @@ public class EntryPointCallConvPairingTests : TestBase
                     // SBSR_ is a native Swift bridge: a C-convention stub that moves its trailing
                     // pointers into Swift's self, indirect-result and error registers. Called with
                     // the Swift convention, those pointers would land in the wrong registers.
-                    bool exclusiveCdecl = convs.Length == 1 && convs[0] == typeof(CallConvCdecl);
-                    if (!exclusiveCdecl)
+                    if (!ImportRoutes.UsesCConvention(method))
                     {
                         violations.Add(
                             $"{type.FullName}.{method.Name}: EntryPoint=\"{entryPoint}\" " +
-                            "is an SBSR_ native Swift bridge; the only correct pairing is " +
-                            "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })] " +
+                            "is an SBSR_ native Swift bridge; the only correct pairing is the C " +
+                            "convention (no [UnmanagedCallConv], the platform default) " +
                             $"(observed convs: [{string.Join(", ", convs.Select(t => t.Name))}], " +
                             $"hasCdecl={hasCdecl}, hasSwift={hasSwift}).");
                     }
@@ -112,14 +111,14 @@ public class EntryPointCallConvPairingTests : TestBase
                 else if (entryPoint.StartsWith("SBW_", StringComparison.Ordinal))
                 {
                     // SBW_ wrappers are emitted as @_cdecl Swift functions — they MUST declare
-                    // exactly one call-conv: CallConvCdecl. Same exclusivity rule as $s above.
-                    bool exclusiveCdecl = convs.Length == 1 && convs[0] == typeof(CallConvCdecl);
-                    if (!exclusiveCdecl)
+                    // the C convention, which the generator states by writing no call-conv at all
+                    // (C is the platform default). Any other convention reads the wrong registers.
+                    if (!ImportRoutes.UsesCConvention(method))
                     {
                         violations.Add(
                             $"{type.FullName}.{method.Name}: EntryPoint=\"{entryPoint}\" " +
-                            "is an SBW_ cdecl wrapper; the only correct pairing is " +
-                            "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvCdecl) })] " +
+                            "is an SBW_ cdecl wrapper; the only correct pairing is the C " +
+                            "convention (no [UnmanagedCallConv], the platform default) " +
                             $"(observed convs: [{string.Join(", ", convs.Select(t => t.Name))}], " +
                             $"hasCdecl={hasCdecl}, hasSwift={hasSwift}). " +
                             "Wrapper symbols always use the C calling convention exclusively.");

@@ -134,10 +134,10 @@ internal static class KvoExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        // Per-class invalidate P/Invoke. UnmanagedCallConv with CallConvCdecl is
-        // mandatory: SBW_ wrappers are cdecl trampolines, and EntryPointCallConvPairingTests
-        // enforces the pairing on every emitted [LibraryImport] in the binding output.
-        csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+        // Per-class invalidate P/Invoke. SBW_ wrappers are cdecl trampolines, so it takes the
+        // C convention, the platform default, and carries no [UnmanagedCallConv]
+        // (PInvokeEmitHelper.CallConvAttributeLine); EntryPointCallConvPairingTests enforces
+        // the pairing on every emitted [LibraryImport] in the binding output.
         csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{libName}\", EntryPoint = \"{invalidateEntryPoint}\")]");
         csWriter.WriteLine("private static partial void InvalidateNative(global::System.IntPtr token);");
         csWriter.WriteLine();
@@ -152,9 +152,7 @@ internal static class KvoExtensionEmitter
             var (_, csType) = s_supportedTypes[swiftTypeName];
 
             // P/Invoke — observe entry point. Same SBW_ + cdecl pairing rule as
-            // the invalidate shim above; missing UnmanagedCallConv would trip
-            // EntryPointCallConvPairingTests at runtime.
-            csWriter.WriteLine("[global::System.Runtime.InteropServices.UnmanagedCallConv(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]");
+            // the invalidate shim above.
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{libName}\", EntryPoint = \"{observeEntry}\")]");
             csWriter.WriteLine($"private static partial global::System.IntPtr Observe{propPascal}Native(global::System.IntPtr self, nuint options, global::System.IntPtr fn, global::System.IntPtr ctx);");
             csWriter.WriteLine();
