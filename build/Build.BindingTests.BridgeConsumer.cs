@@ -45,6 +45,7 @@ using Nuke.Common.IO;
 using Nuke.Common.Tooling;
 using Nuke.Common.Tools.DotNet;
 using Serilog;
+using SwiftBindings.TransitionGate;
 using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 partial class Build
@@ -310,9 +311,49 @@ partial class Build
         File.Copy(journal, BcfReceipts / $"{tag}-{journal.Name}", overwrite: true);
 
         AssertBridgeConsumerFullyRouted(label, plans);
+        AssertBridgeConsumerResidualGuards(label, tag, obj, mode == BcfMode.Direct ? BcfAppName : BcfModule,
+            One($"{BcfModule}.swift-transition-guards.json").Parent);
         var settle = BridgeConsumerSettleRoute(plans);
         AssertBridgeConsumerCollectedReceipt(label, receipt, oracle, settle);
         return new BcfBinding(plans, receipt, settle);
+    }
+
+    // The residual-guard check over the assembly this consumer build compiled the binding into, after
+    // the SDK's wrapper compile routed what its receipt authorized: every Swift-convention transition
+    // still direct is reachable only through a member that refuses first where it is unsafe, and the
+    // guards agree with the sidecar the finalizer rewrote (a routed transition's guard refuses nothing).
+    void AssertBridgeConsumerResidualGuards(string label, string tag, AbsolutePath obj, string assemblyName, AbsolutePath sidecars)
+    {
+        var assemblies = Directory.GetFiles(obj, $"{assemblyName}.dll", SearchOption.AllDirectories)
+            .Where(f => !f.Split(Path.DirectorySeparatorChar).Any(d => d is "ref" or "refint"))
+            .ToList();
+        if (assemblies.Count == 0)
+            throw new Exception($"--bridge-consumer {label}: no compiled {assemblyName}.dll under {obj} to check for residual guards.");
+        var nugetCache = Environment.GetEnvironmentVariable("NUGET_PACKAGES")
+            ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages");
+        var runtime = Directory.GetFiles(Path.Combine(nugetCache, "swiftbindings.runtime", BcfLaneVersion), "Swift.Runtime.dll", SearchOption.AllDirectories)
+            .Select(Path.GetDirectoryName).FirstOrDefault()
+            ?? throw new Exception($"--bridge-consumer {label}: SwiftBindings.Runtime {BcfLaneVersion} is not in {nugetCache}.");
+        foreach (var assembly in assemblies)
+        {
+            var report = SwiftTransitionScanner.Scan(assembly, new SwiftTransitionScanOptions
+            {
+                ReferenceDirectories = [Path.GetDirectoryName(assembly)!, runtime!, System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory()],
+            });
+            var result = ResidualGuardCheck.Check(assembly, report);
+            var problems = ResidualGuardCheck.CrossCheckSidecars(result, sidecars, []);
+            var summary = ResidualGuardCheck.ToSummary(result) + string.Concat(problems.Select(p => $"  sidecar {p}\n"));
+            File.WriteAllText(BcfReceipts / $"{tag}-residual-guards.txt", summary);
+            var errors = report.InspectionErrors.Select(e => $"inspection error {e.Member}: {e.Message}")
+                .Concat(result.Violations.Select(v => $"{v.Rule} {v.Member}: {v.Reason}"))
+                .Concat(result.Errors.Select(e => $"inspection error {e.Member}: {e.Message}"))
+                .Concat(problems.Select(p => $"sidecar {p}"))
+                .ToList();
+            if (errors.Count > 0)
+                throw new Exception($"--bridge-consumer {label}: the residual-guard check failed on {assembly}:\n  " + string.Join("\n  ", errors));
+            Log.Information("  {Label}: residual guards passed ({Hazards} direct transition(s), {Holders} holder(s), {Guards} guard call(s), {Routed} refusing nothing)",
+                label, result.Hazards.Length, result.Holders.Length, result.GuardCalls, result.RoutedGuardCalls);
+        }
     }
 
     // Every member the fixture's binding plans must reach the app through its bridge: one left on its

@@ -39,6 +39,13 @@
 // SwiftBindings.Apple: every Swift transition site in the IL must have exactly one ledger entry carrying
 // facts, and the reverse, with the two agreeing on which forward transitions are primitive-only. It runs, fail-closed, as a step of `nuke binding-tests --compile-only`, and its
 // verdict is reported by this target too (whose own verdict stays the rules above).
+//
+// The residual-guard check (build/SwiftTransitionGate/ResidualGuardCheck.cs) runs in the same step,
+// over the same assemblies and the runtime: every forward Swift transition a runtime is known to
+// mishandle (untyped self, an error or self argument ahead of ordinary ones, a lowered signature),
+// whatever its plan says, must be reachable only through a member whose first statement refuses on
+// that runtime, and the hazards the IL holds must be exactly those the generator's guard sidecars
+// (*.swift-transition-guards.json, beside each module's C#) record. Also policy, not baseline.
 
 using System;
 using System.Collections.Generic;
@@ -176,6 +183,17 @@ partial class Build
     };
 
     /// <summary>
+    /// The hand-written types of each ledgered assembly that still hold a known-unsafe direct
+    /// transition, and so guard it by hand: the residual-guard check holds them to the same rules as
+    /// generated code, and fails when one no longer holds any, so the list stays exact.
+    /// </summary>
+    static string[] HandWrittenResidualTypes(string assembly) => assembly switch
+    {
+        "SwiftBindings.Apple.dll" => new[] { "Swift.Foundation.Data" },
+        _ => Array.Empty<string>(),
+    };
+
+    /// <summary>
     /// The call-plan sidecars a scanned assembly's bridge twins are checked against: those beside a
     /// ledgered assembly's C#, and for the runtime the plan products of its hand-written table, from
     /// which its twins (SwiftTransitions.g.cs) are written.
@@ -247,6 +265,9 @@ partial class Build
             if (!result.Passed)
                 failed.Add(name);
 
+            if (!CheckResidualGuards(assembly, report, ledgerDirectory, HandWrittenResidualTypes(name), output))
+                failed.Add($"{name} (residual guards)");
+
             // R3 is enforced here although the other rules are not yet: a twin is only ever emitted
             // from its plan, so the two must agree from the first twin on.
             var twins = report.Violations.Where(v => v.Rule == TransitionRule.R3).ToList();
@@ -305,6 +326,8 @@ partial class Build
         if (!report.InspectionErrors.IsEmpty)
             throw new Exception($"Transition ledger cross-check: {report.InspectionErrors.Length} inspection error(s) reading {assembly}: " +
                                 string.Join("; ", report.InspectionErrors.Take(5).Select(e => $"{e.Member}: {e.Message}")));
+        if (!CheckResidualGuards(assembly, report, ledgerDirectory: null, Array.Empty<string>(), BtOutputDir / ".swift-transition-gate"))
+            yield return "Swift.Runtime.dll (residual guards)";
         var twins = report.Violations.Where(v => v.Rule == TransitionRule.R3).ToList();
         using var product = System.Text.Json.JsonDocument.Parse(File.ReadAllText(SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json"));
         var routed = product.RootElement.GetProperty("coverage").EnumerateArray()
@@ -332,6 +355,39 @@ partial class Build
             Log.Error("  evidence {Gap}", gap);
             yield return $"Swift.Runtime.dll (evidence: {gap})";
         }
+    }
+
+    /// <summary>
+    /// The residual-guard check over one compiled assembly: every known-unsafe direct Swift transition
+    /// it still holds, whatever its plan says (planned, refused or never planned), is reachable only
+    /// through a member that refuses first on the runtimes that mishandle it. Against the generator's
+    /// guard sidecars beside <paramref name="ledgerDirectory"/>, the hazards the IL holds are exactly
+    /// the ones the generator recorded and guarded. Fail-closed, with no baseline and no
+    /// --permissive arm: an unguarded hazard is a call that corrupts registers or crashes on a
+    /// shipping runtime.
+    /// </summary>
+    static bool CheckResidualGuards(AbsolutePath assembly, AssemblyTransitionReport report, AbsolutePath? ledgerDirectory,
+        IReadOnlyCollection<string> handWritten, AbsolutePath output)
+    {
+        var name = Path.GetFileNameWithoutExtension(assembly);
+        var result = ResidualGuardCheck.Check(assembly, report);
+        var problems = ledgerDirectory is null
+            ? System.Collections.Immutable.ImmutableArray<string>.Empty
+            : ResidualGuardCheck.CrossCheckSidecars(result, ledgerDirectory, handWritten);
+        var summary = $"[{name}] " + ResidualGuardCheck.ToSummary(result) +
+                      string.Concat(problems.Select(p => $"  sidecar {p}\n"));
+        var path = output / $"swift-transition-residual-guards.{name}.txt";
+        File.WriteAllText(path, summary);
+        var passed = result.Passed && problems.IsEmpty;
+        Log.Information("[{Assembly}] residual guards: {Verdict} ({Hazards} hazard(s), {Holders} holder(s), {Guards} guard call(s)); {Path}",
+            name, passed ? "passed" : "FAILED", result.Hazards.Length, result.Holders.Length, result.GuardCalls, path);
+        foreach (var violation in result.Violations)
+            Log.Error("  {Rule} {Member}: {Reason}", violation.Rule, violation.Member, violation.Reason);
+        foreach (var error in result.Errors)
+            Log.Error("  inspection error {Member}: {Message}", error.Member, error.Message);
+        foreach (var problem in problems)
+            Log.Error("  sidecar {Problem}", problem);
+        return passed;
     }
 
     static void WriteLedgerCrossCheck(LedgerCrossCheckResult result, AbsolutePath output, string assembly)

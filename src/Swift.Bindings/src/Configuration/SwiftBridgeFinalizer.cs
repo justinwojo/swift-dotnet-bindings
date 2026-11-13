@@ -175,12 +175,14 @@ public static class SwiftBridgeFinalizer
                 return Outcome.NotApplicable;
         }
 
-        // Generation's own C#.
+        // Generation's own C#. The guard class is not routed: it is rendered from the C# routing writes.
+        var masksFile = SwiftTransitionGuards.MasksFileName(@namespace);
         var files = new[] { Path.Combine(directory, $"{@namespace}.cs") }
             .Concat(Directory.GetFiles(directory, SplitFileNaming.TypeFileGlob(@namespace)).Order(StringComparer.Ordinal))
             .Where(File.Exists)
             .Select(Path.GetFileName)
             .Cast<string>()
+            .Where(f => !string.Equals(f, masksFile, StringComparison.Ordinal))
             .ToList();
         var current = files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal);
         Dictionary<string, string> pristine;
@@ -250,6 +252,11 @@ public static class SwiftBridgeFinalizer
             routed = pristine;
         }
 
+        // The guard class the routed C# compiles with: a transition routing moved onto a bridge refuses
+        // nowhere, and every other keeps its shapes. Checked before anything is written.
+        if (MasksOf(routed, routing.Rewrites, module, logger) is not { } masks)
+            return Outcome.Failed;
+
         var nextJournal = new SwiftBridgeRoutingJournal
         {
             Schema = SwiftBridgeRoutingJournal.SchemaVersion,
@@ -269,8 +276,8 @@ public static class SwiftBridgeFinalizer
 
         if (!relinks)
         {
-            var changed = Write(directory, nextJournal, journalPath, desired, assemblyPaths, routed, current);
-            changed |= WriteSidecars(directory, @namespace, routing, judged, logger);
+            var changed = Write(directory, @namespace, nextJournal, journalPath, desired, assemblyPaths, routed, current, masks);
+            changed |= WriteSidecars(directory, @namespace, routing, judged, masks, logger);
             if (linked.Values.SelectMany(Defined).Where(s => !needed.Contains(s)).Distinct(StringComparer.Ordinal).Count() is var leftover and > 0)
                 logger.LogInformation(
                     "{Module}'s wrapper keeps {Count} bridge(s) of an earlier routing that its C# no longer calls; with no receipt to verify a relink against, they go when the wrapper is next compiled.",
@@ -280,11 +287,11 @@ public static class SwiftBridgeFinalizer
         }
 
         beforeRelink();
-        Write(directory, nextJournal, journalPath, desired, assemblyPaths, routed, current);
+        Write(directory, @namespace, nextJournal, journalPath, desired, assemblyPaths, routed, current, masks);
         var failure = receipt is null ? "the receipt holds no evidence of the module" : relink(receipt);
         if (failure is null)
         {
-            WriteSidecars(directory, @namespace, routing, judged, logger);
+            WriteSidecars(directory, @namespace, routing, judged, masks, logger);
             LogRouted(logger, module, routing, relinked: true);
             return Outcome.Relinked;
         }
@@ -298,10 +305,29 @@ public static class SwiftBridgeFinalizer
             logger.LogWarning("{Code}: {Module}'s wrapper keeps the bridges of an earlier routing its C# no longer calls: it could not be relinked without them: {Reason}",
                 FailedCode, module, failure);
         var withdrawn = routing.Withdraw($"the wrapper could not be relinked with its bridges: {failure}");
-        Write(directory, nextJournal with { Rewrites = [] }, journalPath, linked, assemblyPaths, pristine,
-            files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal));
-        WriteSidecars(directory, @namespace, withdrawn, judged, logger);
+        // Generation's own C# guards every import it declares with that import's shapes.
+        if (MasksOf(pristine, [], module, logger) is not { } pristineMasks)
+            return Outcome.Failed;
+        Write(directory, @namespace, nextJournal with { Rewrites = [] }, journalPath, linked, assemblyPaths, pristine,
+            files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal), pristineMasks);
+        WriteSidecars(directory, @namespace, withdrawn, judged, pristineMasks, logger);
         return Outcome.Withdrawn;
+    }
+
+    /// <summary>
+    /// The guard class of <paramref name="csharp"/>, with the imports <paramref name="rewrites"/> routed
+    /// through bridges; null, with the error logged, when the C# and its guards disagree.
+    /// </summary>
+    private static IReadOnlyList<SwiftTransitionGuards.Mask>? MasksOf(
+        IReadOnlyDictionary<string, string> csharp, IEnumerable<SwiftBridgeRewrite> rewrites, string module, ILogger logger)
+    {
+        var issues = new List<string>();
+        var masks = SwiftTransitionGuards.MasksOf(csharp.Values.ToList(), rewrites.Select(r => (r.Member, r.EntryPoint)), issues);
+        if (issues.Count == 0)
+            return masks;
+        logger.LogError("{Code}: the transition guards of {Module}'s C# do not match its Swift-convention transitions, so it is left as it is: {Issues}. Regenerate the binding (a clean build).",
+            FailedCode, module, string.Join("; ", issues));
+        return null;
     }
 
     /// <summary>The bridges an assembly file defines.</summary>
@@ -312,16 +338,29 @@ public static class SwiftBridgeFinalizer
     /// Writes the journal, then the bridges, then the C#: whatever stops the build part-way leaves a
     /// journal that covers every rewrite on disk. A rewrite the journal on disk records and this one
     /// drops stays in its file until that file is written, so until then the journal records both
-    /// routings, and this one alone once every file is. Only a file whose content changes is written,
-    /// so an unchanged routing leaves the managed compile incremental. Returns whether anything was
-    /// written.
+    /// routings, and this one alone once every file is. The guard class is written before the C# as
+    /// the union of the one on disk and <paramref name="masks"/>, so no file written in between keeps a
+    /// direct import whose guard lets it through, and as <paramref name="masks"/> after. Only a file
+    /// whose content changes is written, so an unchanged routing leaves the managed compile
+    /// incremental. Returns whether anything was written.
     /// </summary>
     private static bool Write(
-        string directory, SwiftBridgeRoutingJournal journal, string journalPath,
+        string directory, string @namespace, SwiftBridgeRoutingJournal journal, string journalPath,
         IReadOnlyDictionary<SwiftArchitecture, string?> assemblies, IReadOnlyDictionary<SwiftArchitecture, string> assemblyPaths,
-        IReadOnlyDictionary<string, string> csharp, IReadOnlyDictionary<string, string> current)
+        IReadOnlyDictionary<string, string> csharp, IReadOnlyDictionary<string, string> current,
+        IReadOnlyList<SwiftTransitionGuards.Mask> masks)
     {
         var changed = false;
+        var masksPath = Path.Combine(directory, SwiftTransitionGuards.MasksFileName(@namespace));
+        var masksOnDisk = File.Exists(masksPath) ? File.ReadAllText(masksPath) : null;
+        var masksText = SwiftTransitionGuards.RenderMasks(@namespace, masks);
+        if (masksText != masksOnDisk)
+        {
+            var union = SwiftTransitionGuards.RenderMasks(@namespace, SwiftTransitionGuards.Union(SwiftTransitionGuards.ParseMasks(masksOnDisk), masks));
+            if (union is not null && union != masksOnDisk)
+                SwiftBridgeRoutingJournal.WriteAtomically(masksPath, union);
+            changed = true;
+        }
         var journalText = journal.ToJson();
         var onDisk = File.Exists(journalPath) ? File.ReadAllText(journalPath) : null;
         var dropped = onDisk is null || onDisk == journalText ? [] : SwiftBridgeRoutingJournal.Parse(onDisk).Rewrites.Except(journal.Rewrites).ToList();
@@ -356,15 +395,29 @@ public static class SwiftBridgeFinalizer
         }
         if (dropped.Count > 0)
             SwiftBridgeRoutingJournal.WriteAtomically(journalPath, journalText);
+        if (masksText != masksOnDisk)
+        {
+            if (masksText is null)
+                File.Delete(masksPath);
+            else
+                SwiftBridgeRoutingJournal.WriteAtomically(masksPath, masksText);
+        }
         return changed;
     }
 
-    /// <summary>The plan sidecar judged and annotated with the routes, and the ledger with the bridges. Returns whether either changed.</summary>
-    private static bool WriteSidecars(string directory, string @namespace, SwiftBridgeRouting routing, SwiftCallPlanSet judged, ILogger logger)
+    /// <summary>
+    /// The plan sidecar judged and annotated with the routes, the ledger with the bridges, and the
+    /// guard sidecar with the shapes <paramref name="masks"/> leave, whose guarded members are logged.
+    /// Returns whether any changed.
+    /// </summary>
+    private static bool WriteSidecars(
+        string directory, string @namespace, SwiftBridgeRouting routing, SwiftCallPlanSet judged,
+        IReadOnlyList<SwiftTransitionGuards.Mask> masks, ILogger logger)
     {
         var changed = false;
         var plansPath = Path.Combine(directory, SwiftCallPlanSet.FileName(@namespace));
-        var plansText = routing.Annotate(judged).ToJson();
+        var annotated = routing.Annotate(judged);
+        var plansText = annotated.ToJson();
         if (!File.Exists(plansPath) || File.ReadAllText(plansPath) != plansText)
         {
             SwiftBridgeRoutingJournal.WriteAtomically(plansPath, plansText);
@@ -387,6 +440,28 @@ public static class SwiftBridgeFinalizer
             {
                 logger.LogWarning("Could not record the bridges in the Swift transition ledger {Ledger}: {Message}", ledgerPath, ex.Message);
             }
+        }
+        var guardsPath = Path.Combine(directory, SwiftTransitionGuards.SidecarFileName(@namespace));
+        if (File.Exists(guardsPath))
+        {
+            var text = File.ReadAllText(guardsPath);
+            SwiftTransitionGuardDocument settled;
+            try
+            {
+                settled = SwiftTransitionGuardDocument.Parse(text, guardsPath).Settle(masks, annotated);
+            }
+            catch (Exception ex) when (ex is InvalidDataException or System.Text.Json.JsonException)
+            {
+                logger.LogWarning("Could not record the routing in the transition guard sidecar {Sidecar}: {Message}", guardsPath, ex.Message);
+                return changed;
+            }
+            var settledText = settled.ToJson();
+            if (settledText != text)
+            {
+                SwiftBridgeRoutingJournal.WriteAtomically(guardsPath, settledText);
+                changed = true;
+            }
+            settled.Log(logger);
         }
         return changed;
     }

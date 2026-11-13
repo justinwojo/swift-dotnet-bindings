@@ -9,6 +9,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using Microsoft.Extensions.Logging;
+using Swift.Runtime;
 using Xunit;
 using static BindingsGeneration.Tests.SwiftCallPlanTests;
 
@@ -35,7 +36,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
     private const string MainFile = "M.cs";
     private const string SplitFile = "M.Types.D.cs";
 
-    private const string MainSource = """
+    private const string MainDeclared = """
         namespace M
         {
             public static unsafe partial class C
@@ -49,7 +50,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         }
         """;
 
-    private const string SplitSource = """
+    private const string SplitDeclared = """
         namespace M
         {
             public static unsafe partial class D
@@ -60,6 +61,19 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
             }
         }
         """;
+
+    /// <summary>
+    /// The guards generation writes over the module: <c>Call</c> reaches <c>PInvoke_f</c>, whose
+    /// untyped self some runtimes mishandle; nothing calls <c>PInvoke_t</c>.
+    /// </summary>
+    private static readonly SwiftTransitionGuards Guards = SwiftTransitionGuards.Plan("M", [MainDeclared, SplitDeclared]);
+
+    /// <summary>Generation's C#: the declared module with its guards.</summary>
+    private static readonly string MainSource = Guards.Rewrite(MainDeclared);
+    private static readonly string SplitSource = Guards.Rewrite(SplitDeclared);
+
+    private static readonly string MasksFile = SwiftTransitionGuards.MasksFileName("M");
+    private static readonly string GuardsSidecar = SwiftTransitionGuards.SidecarFileName("M");
 
     private readonly string _dir = Path.Combine(Path.GetTempPath(), $"sbfin_{Guid.NewGuid():N}");
     private readonly CapturingLoggerFactory _log = new();
@@ -118,7 +132,15 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         File.WriteAllText(PathOf(SplitFile), SplitSource);
         File.WriteAllText(PathOf(SwiftCallPlanSet.FileName("M")), _generated.ToJson());
         File.WriteAllText(PathOf(SwiftTransitionLedger.FileName("M")), _ledger.ToJson());
+        File.WriteAllText(PathOf(MasksFile), SwiftTransitionGuards.RenderMasks("M", Guards.Masks()));
+        File.WriteAllText(PathOf(GuardsSidecar), Guards.Document("M", _generated).ToJson());
     }
+
+    /// <summary>The shapes the guard class on disk gives the constant of <c>PInvoke_f</c>.</summary>
+    private SwiftTransitionFacts SelfImportFacts() =>
+        SwiftTransitionGuards.ParseMasks(Read(MasksFile)).Single(m => m.Name == Guards.Hazards.Single().Name).Facts;
+
+    private const SwiftTransitionFacts SelfImportShapes = SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.LoweredSignature;
 
     /// <summary>A receipt of M under the build's compiler on <paramref name="slices"/>, showing each target as the plans predict unless told otherwise.</summary>
     private SwiftLoweringEvidence Receipt(IEnumerable<string>? slices = null, string? selfShows = null) =>
@@ -538,6 +560,105 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Assert.Equal(unrouted, SwiftTransitionLedger.WithBridges(routed, Array.Empty<SwiftBridgeRoute>()));
         Assert.Equal(unrouted, SwiftTransitionLedger.WithBridges(routed, routing.Withdraw("withdrawn").Routes));
         Assert.Throws<InvalidDataException>(() => SwiftTransitionLedger.WithBridges("{ \"schema\": 0 }", routing.Routes));
+    }
+
+    // ---- the transition guards ----
+
+    [Fact]
+    public void ARoutedImport_LeavesItsCallersGuard_ButTheGuardClassLetsItThroughEverywhere()
+    {
+        WriteGeneration();
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt()));
+
+        // Member bodies are never touched: the guard stays, and its constant now refuses nowhere.
+        Assert.Contains("SwiftTransitionGuard.ThrowIfUnsupported(", Read(MainFile));
+        Assert.Equal(SwiftTransitionFacts.None, SelfImportFacts());
+        var settled = SwiftTransitionGuardDocument.Parse(Read(GuardsSidecar), GuardsSidecar);
+        Assert.Empty(settled.GuardedMembers());
+        Assert.DoesNotContain(_log.Warnings, w => w.Contains(SwiftTransitionGuards.MemberCode, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AnImportTheReceiptDoesNotRoute_KeepsItsShapes_AndItsCallerIsReportedGuarded()
+    {
+        WriteGeneration();
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt(selfShows: "swiftcc i64 (i64, i64)")));
+
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+        var settled = SwiftTransitionGuardDocument.Parse(Read(GuardsSidecar), GuardsSidecar);
+        var member = Assert.Single(settled.GuardedMembers());
+        Assert.Equal("C.Call(long)", member.Display);
+        Assert.Contains("not executable", settled.Transitions.Single().Residual);
+        Assert.False(settled.Transitions.Single().Pending);
+        Assert.Contains(_log.Warnings, w => w.Contains(SwiftTransitionGuards.MemberCode, StringComparison.Ordinal) && w.Contains("C.Call(long)", StringComparison.Ordinal));
+        Assert.Contains(_log.Warnings, w => w.Contains(SwiftTransitionGuards.SummaryCode, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AFailedRelink_RestoresEveryGuardConstant_WithTheImportsItRestores()
+    {
+        WriteGeneration();
+        _relink = _ =>
+        {
+            // The relink runs on the routed C#, which the guard class matches.
+            Assert.Equal(SwiftTransitionFacts.None, SelfImportFacts());
+            Assert.DoesNotContain("CallConvSwift", Read(MainFile));
+            return "swiftc exited 1";
+        };
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Withdrawn, Finalize(Receipt()));
+
+        // Generation's C# is back, and with it every import's shapes.
+        Assert.Equal(MainSource, Read(MainFile));
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+        Assert.Equal(SwiftTransitionGuards.RenderMasks("M", Guards.Masks()), Read(MasksFile));
+        var settled = SwiftTransitionGuardDocument.Parse(Read(GuardsSidecar), GuardsSidecar);
+        Assert.Equal("C.Call(long)", Assert.Single(settled.GuardedMembers()).Display);
+        Assert.Contains("swiftc exited 1", settled.Transitions.Single().Residual);
+    }
+
+    [Fact]
+    public void UndoingARouting_RestoresTheShapes_AndAReRunChangesNothing()
+    {
+        WriteGeneration();
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt()));
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Rewritten, Finalize(receipt: null, route: false));
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+        var before = Snapshot();
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Unchanged, Finalize(receipt: null, route: false));
+        Assert.Equal(before, Snapshot());
+    }
+
+    [Fact]
+    public void CSharpWhoseGuardsDoNotCoverAnImport_FailsTheBuild_AndIsLeftAsFound()
+    {
+        WriteGeneration();
+        // C# with a direct import its caller does not guard: not what generation writes.
+        File.WriteAllText(PathOf(MainFile), MainDeclared);
+        var before = Snapshot();
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Failed, Finalize(Receipt(selfShows: "swiftcc i64 (i64, i64)")));
+
+        Assert.Empty(_events);
+        Assert.Equal(before, Snapshot());
+        Assert.Contains(_log.Entries, e => e.Level == LogLevel.Error && e.Message.Contains("no guard names", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AGuardClassThatLostAConstant_IsRebuiltFromTheCSharp()
+    {
+        WriteGeneration();
+        File.WriteAllText(PathOf(MasksFile), SwiftTransitionGuards.RenderMasks("M", [new SwiftTransitionGuards.Mask("Unrelated_00000000", SwiftTransitionFacts.None, "x")]));
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt(selfShows: "swiftcc i64 (i64, i64)")));
+
+        Assert.Equal(SelfImportShapes, SelfImportFacts());
+        Assert.DoesNotContain("Unrelated_00000000", Read(MasksFile));
     }
 
     private string WriteText(string file, string text)

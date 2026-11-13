@@ -104,8 +104,13 @@ public struct Data : ISwiftObject
     /// <summary>
     /// Constructs a new Data from the given buffer.
     /// </summary>
+    /// <exception cref="SwiftTransitionUnsupportedException">
+    /// The runtime does not lower the two-word Swift result this initializer returns (CoreCLR without
+    /// its JIT on x86_64); it refuses before calling Swift.
+    /// </exception>
     public unsafe Data(UnsafeRawPointer pointer, nint count)
     {
+        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data(UnsafeRawPointer, nint)");
         this = PInvoke_InitWithBytes(pointer, count);
     }
 
@@ -114,23 +119,27 @@ public struct Data : ISwiftObject
     internal static unsafe extern Data PInvoke_InitWithBytes(UnsafeRawPointer pointer, nint count);
 
     /// <summary>Returns the number of bytes held by this Data.</summary>
-    public readonly nint Count => PInvoke_GetCount(this);
+    public readonly nint Count => PInvoke_GetCount(_flags, _object);
 
+    // Foundation.Data is two words, which swiftc passes as { i64, i64 }. Passing the two words as
+    // integers is that lowering done here, so no runtime has to lower the struct (an interpreter
+    // without Swift lowering would otherwise pass it wrongly).
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV5countSivg")]
-    internal static unsafe extern nint PInvoke_GetCount(Data data);
+    internal static extern nint PInvoke_GetCount(long flags, IntPtr @object);
 
     /// <summary>Copies the bytes of this Data into the supplied destination buffer.</summary>
     /// <param name="buffer">Destination buffer; must be at least <paramref name="count"/> bytes wide.</param>
     /// <param name="count">Number of bytes to copy (typically <see cref="Count"/>).</param>
     public unsafe void CopyBytes(UnsafeMutablePointer<byte> buffer, nint count)
     {
-        PInvoke_CopyBytes(buffer, count, this);
+        PInvoke_CopyBytes(buffer.Pointee, count, _flags, _object);
     }
 
+    // The buffer pointer, the count, then self's two words: { i64, i64 } lowered here, as for Count.
     [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
     [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF")]
-    internal static unsafe extern void PInvoke_CopyBytes(UnsafeMutablePointer<byte> buffer, nint count, Data data);
+    internal static unsafe extern void PInvoke_CopyBytes(byte* buffer, nint count, long flags, IntPtr @object);
 
     /// <summary>
     /// Creates a Swift.Data from a byte array.
@@ -140,6 +149,7 @@ public struct Data : ISwiftObject
     /// <exception cref="ArgumentNullException">Thrown if bytes is null.</exception>
     public static unsafe Data FromByteArray(byte[] bytes)
     {
+        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.FromByteArray(byte[])");
         if (bytes == null) throw new ArgumentNullException(nameof(bytes));
         if (bytes.Length == 0) return new Data(new UnsafeRawPointer(null), 0);
         fixed (byte* ptr = bytes)
@@ -184,6 +194,7 @@ public struct Data : ISwiftObject
     /// <exception cref="ArgumentNullException">Thrown if nsData is null.</exception>
     public static unsafe Data FromNSData(global::Foundation.NSData nsData)
     {
+        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.FromNSData(NSData)");
         if (nsData == null)
             throw new ArgumentNullException(nameof(nsData));
 
@@ -201,7 +212,11 @@ public struct Data : ISwiftObject
     /// Implicitly converts a global::Foundation.NSData to a Swift.Data.
     /// </summary>
     /// <param name="nsData">The NSData to convert.</param>
-    public static implicit operator Data(global::Foundation.NSData nsData) => FromNSData(nsData);
+    public static implicit operator Data(global::Foundation.NSData nsData)
+    {
+        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.implicit operator Data(NSData)");
+        return FromNSData(nsData);
+    }
 
     /// <summary>
     /// Implicitly converts a Swift.Data to a global::Foundation.NSData.

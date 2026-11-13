@@ -215,7 +215,7 @@ internal static class SwiftTransitionSyntax
     /// parenthesized cast to one, or a local, parameter or field declared as one (or a <c>var</c>
     /// initialized by a cast to one) in scope of the call.
     /// </summary>
-    private static FunctionPointerTypeSyntax? SwiftFunctionPointerCalled(InvocationExpressionSyntax invocation)
+    internal static FunctionPointerTypeSyntax? SwiftFunctionPointerCalled(InvocationExpressionSyntax invocation)
     {
         switch (invocation.Expression)
         {
@@ -301,7 +301,7 @@ internal static class SwiftTransitionSyntax
         return candidates.Count == 1 ? candidates[0] : null;
     }
 
-    private static bool IsPrimitive(TypeSyntax type, SyntaxTokenList modifiers, HashSet<string> enums, bool lowered = false)
+    internal static bool IsPrimitive(TypeSyntax type, SyntaxTokenList modifiers, HashSet<string> enums, bool lowered = false)
     {
         var byReference = modifiers.Any(m => m.IsKind(SyntaxKind.RefKeyword) || m.IsKind(SyntaxKind.OutKeyword) || m.IsKind(SyntaxKind.InKeyword));
         if (type is RefTypeSyntax refType)
@@ -336,7 +336,7 @@ internal static class SwiftTransitionSyntax
         return simple == name || simple == name + "Attribute";
     }
 
-    private static string SimpleName(TypeSyntax type) => type switch
+    internal static string SimpleName(TypeSyntax type) => type switch
     {
         QualifiedNameSyntax q => q.Right.Identifier.ValueText,
         AliasQualifiedNameSyntax a => a.Name.Identifier.ValueText,
@@ -373,7 +373,7 @@ internal static class SwiftTransitionSyntax
     }
 
     /// <summary>The IL method a member declaration's code lands in, or null for a declaration that holds no code.</summary>
-    private static string? MethodNameOf(MemberDeclarationSyntax member)
+    internal static string? MethodNameOf(MemberDeclarationSyntax member)
     {
         static bool IsStatic(MemberDeclarationSyntax m) => m.Modifiers.Any(t => t.IsKind(SyntaxKind.StaticKeyword) || t.IsKind(SyntaxKind.ConstKeyword));
         return member switch
@@ -392,7 +392,7 @@ internal static class SwiftTransitionSyntax
     }
 
     /// <summary>An accessor's method: <c>get_Name</c>, <c>set_Name</c> (also for <c>init</c>), <c>add_Name</c>, <c>remove_Name</c>; an indexer's is named <c>Item</c>.</summary>
-    private static string AccessorMethodName(AccessorDeclarationSyntax accessor, MemberDeclarationSyntax owner)
+    internal static string AccessorMethodName(AccessorDeclarationSyntax accessor, MemberDeclarationSyntax owner)
     {
         var prefix = accessor.Keyword.Kind() switch
         {
@@ -413,7 +413,7 @@ internal static class SwiftTransitionSyntax
     }
 
     /// <summary>The IL name of the type that declares <paramref name="node"/>: <c>Namespace.Outer+Inner</c>, generic types with their arity.</summary>
-    private static string TypePathOf(SyntaxNode node)
+    internal static string TypePathOf(SyntaxNode node)
     {
         var types = new List<string>();
         var namespaces = new List<string>();

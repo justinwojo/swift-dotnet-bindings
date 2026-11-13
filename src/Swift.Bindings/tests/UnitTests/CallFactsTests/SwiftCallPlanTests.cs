@@ -1043,7 +1043,14 @@ public class SwiftCallPlanTests
         var set = PlanHandWritten(Path.Combine("src", "Swift.Bindings.Apple", "transition-facts.json"),
             SourcesUnder("src", "Swift.Bindings.Apple", "Sources"), out var table);
 
-        AssertEveryTransitionPlanned(set, table, expected: 3);
+        // Data's count and copyBytes take the value as its two words, which every runtime places
+        // identically; only the initializer, which returns Data, still needs a plan.
+        Assert.Empty(set.Coverage.Where(e => e.Status == SwiftPlanStatus.Refused));
+        Assert.Equal(3, table.Transitions.Length);
+        Assert.Equal(1, set.Count(SwiftPlanStatus.Planned));
+        foreach (var transition in table.Transitions)
+            Assert.Contains(set.Coverage, e => e.EntryPoint == transition.EntryPoint
+                && e.Status == (transition.EntryPoint == "$s10Foundation4DataV5bytes5countACSV_SitcfC" ? SwiftPlanStatus.Planned : SwiftPlanStatus.NotBridged));
         // Data travels as its two words, in and out.
         var init = set.Plans.Single(p => p.Body.Target == "$s10Foundation4DataV5bytes5countACSV_SitcfC");
         Assert.Equal(SwiftResultKind.Direct, init.Body.Managed.Result.Kind);

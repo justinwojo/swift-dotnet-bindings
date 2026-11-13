@@ -237,19 +237,48 @@ namespace BindingsGeneration
                 SwiftBridgeRouteRequests.Record(moduleDecl.Name, annotatedPlans);
                 wholeOutput = routing.Rewrite(wholeOutput);
 
-                // The bridge rewrite runs after qualification, over the same text, so a file's journal
-                // is the two passes composed.
+                // What routing leaves: every member that still reaches a direct Swift-convention
+                // transition of a shape some runtimes do not execute correctly refuses on those runtimes,
+                // as its first statement, before any native work. A transition the guards cannot precede
+                // is a defect of the emitted C#, not something to ship.
+                var guards = SwiftTransitionGuards.Plan(@namespace, [wholeOutput]);
+                if (!guards.Issues.IsEmpty)
+                    throw new InvalidOperationException(
+                        $"{moduleDecl.Name} reaches a direct Swift-convention transition that no guard can precede: " + string.Join("; ", guards.Issues));
+                wholeOutput = guards.Rewrite(wholeOutput);
+
+                // The bridge rewrite and the guards run after qualification, over the same text, so a
+                // file's journal is the passes composed.
                 string QualifyAndBridge(string source, TextEditJournal? journal)
                 {
-                    if (!routing.BridgesAny)
+                    if (!routing.BridgesAny && !guards.GuardsAny)
                         return Qualify(source, journal);
-                    var qualifying = journal is null ? null : new TextEditJournal();
-                    var qualified = Qualify(source, qualifying);
-                    var bridging = journal is null ? null : new TextEditJournal();
-                    var bridged = routing.Rewrite(qualified, bridging);
+                    var composed = journal is null ? null : new TextEditJournal();
+                    var text = Qualify(source, composed);
+                    if (routing.BridgesAny)
+                    {
+                        var bridging = journal is null ? null : new TextEditJournal();
+                        text = routing.Rewrite(text, bridging);
+                        composed = Then(composed, bridging);
+                    }
+                    if (guards.GuardsAny)
+                    {
+                        var guarding = journal is null ? null : new TextEditJournal();
+                        text = guards.Rewrite(text, guarding, written: true);
+                        composed = Then(composed, guarding);
+                    }
                     if (journal is not null)
-                        TextEditJournal.Compose(qualifying!, bridging!, journal);
-                    return bridged;
+                        TextEditJournal.Compose(composed!, new TextEditJournal(), journal);
+                    return text;
+                }
+
+                static TextEditJournal? Then(TextEditJournal? first, TextEditJournal? second)
+                {
+                    if (first is null || second is null)
+                        return null;
+                    var both = new TextEditJournal();
+                    TextEditJournal.Compose(first, second, both);
+                    return both;
                 }
 
                 // Split the combined output into one file per top-level type (prelude keeps the
@@ -258,6 +287,20 @@ namespace BindingsGeneration
                 WriteModuleFiles(
                     preQualifyOutput, wholeOutput, @namespace, emissionContext, QualifyAndBridge,
                     csTiling, fragmentSet);
+
+                // Every guard planned over the whole module is in exactly one of the files just written;
+                // the constants they name, and what they guard, are written beside them.
+                guards.VerifyWritten();
+                if (guards.Write(_outputDirectory, moduleDecl.Name, annotatedPlans, _logger) is { } masks)
+                {
+                    // The guard class belongs to the module, not to any member it guards: one
+                    // module-root fragment, interstitial since it renders no artifact of its own.
+                    var fragment = new OutputFragment
+                    {
+                        Owner = moduleOwner, Plane = OutputPlane.CSharp, Text = masks, IsWholeScope = false, Depth = 0,
+                    };
+                    fragmentSet.Add(SwiftTransitionGuards.MasksFileName(@namespace), masks, [new FragmentInterval(fragment, 0, masks.Length)]);
+                }
 
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
                 // It records every emitted public member's post-collision C# signature → native

@@ -1169,6 +1169,7 @@ namespace BindingsGeneration
                 if (report != null)
                 {
                     DirectSwiftSelfExposureCollector.Apply(report, outputDirectory);
+                    SwiftTransitionGuardReport.Apply(report, outputDirectory);
                     if (report.ExposureCompleteness?.Status != ExposureCompletenessStatus.Complete)
                     {
                         var unresolved = report.ExposureCompleteness?.UnresolvedSpecimens ?? [];
@@ -2365,6 +2366,10 @@ namespace BindingsGeneration
                         outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet),
                     logger);
                 routingFailed = finalization == SwiftBridgeFinalizer.Outcome.Failed;
+                // The binding report describes the final C#: re-settle it over what routing wrote.
+                if (finalization is SwiftBridgeFinalizer.Outcome.Rewritten or SwiftBridgeFinalizer.Outcome.Relinked or SwiftBridgeFinalizer.Outcome.Withdrawn
+                    && BindingArtifactManifestStore.TryRead(outputDirectory) is not null)
+                    BindingArtifactManifestStore.ReadModifyWrite(outputDirectory, moduleName, _ => { }, logger);
                 hasWrapperXcfw = !routingFailed
                     && compilationResult?.XCFrameworkPath != null
                     && Directory.Exists(compilationResult.XCFrameworkPath);

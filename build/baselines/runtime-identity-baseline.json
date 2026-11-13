@@ -456,7 +456,7 @@
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3469,
+      "pass_count": 3539,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -472,6 +472,66 @@
           "class": "ClosureFanOutTests",
           "method": "TestAsyncClosureFan_PeerExistential",
           "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorIsolatedClass_AwaitContinuationCanReenter",
+          "reason": "refused on Mono (Arm64): GlobalActorIsolatedClass.Label.get (SelfRegister)"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorIsolatedClass_CreateAsyncRoundTrips",
+          "reason": "refused on Mono (Arm64): GlobalActorIsolatedClass.Label.get (SelfRegister)"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorIsolatedDefaultArgClass_TrimmedCreateAsyncRoundTrips",
+          "reason": "refused on Mono (Arm64): GlobalActorIsolatedDefaultArgClass.Label.get (SelfRegister)"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorIsolatedThrowingClass_CreateAsyncSuccess",
+          "reason": "refused on Mono (Arm64): GlobalActorIsolatedThrowingClass.Value.get (SelfRegister)"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorStorageBoundary_MutableAndComputedAccessorsRoundTrip",
+          "reason": "refused on Mono (Arm64): GlobalActorStorageBoundary.StableTag.get (SelfRegister)"
+        },
+        {
+          "class": "CustomGlobalActorTests",
+          "method": "TestGlobalActorStorageBoundary_StoredAccessorsStayReadable",
+          "reason": "refused on Mono (Arm64): GlobalActorStorageBoundary.StableTag.get (SelfRegister)"
+        },
+        {
+          "class": "GeneratedLocalNameCollisionTests",
+          "method": "TestDirectOptionalExistentialReturnCarriesParameterValue",
+          "reason": "refused on Mono (Arm64): DirectReturnLocalNameCollider\u003CTTag\u003E.OptionalExistentialReturn(int) (SelfRegister)"
+        },
+        {
+          "class": "GeneratedLocalNameCollisionTests",
+          "method": "TestDirectOptionalExistentialReturnNullArmReachable",
+          "reason": "refused on Mono (Arm64): DirectReturnLocalNameCollider\u003CTTag\u003E.OptionalExistentialReturn(int) (SelfRegister)"
+        },
+        {
+          "class": "GenericStaticMemberTests",
+          "method": "TestEnumStaticFactoryWithoutArguments",
+          "reason": "refused on Mono (Arm64): StaticChoice\u003CTValue\u003E.Boxed.get (SelfRegister)"
+        },
+        {
+          "class": "GenericStaticMemberTests",
+          "method": "TestEnumStaticFactoryWrapsScalar",
+          "reason": "refused on Mono (Arm64): StaticChoice\u003CTValue\u003E.Boxed.get (SelfRegister)"
+        },
+        {
+          "class": "GenericStaticMemberTests",
+          "method": "TestEnumStaticFactoryWrapsString",
+          "reason": "refused on Mono (Arm64): StaticChoice\u003CTValue\u003E.Boxed.get (SelfRegister)"
+        },
+        {
+          "class": "InoutStructDispatchTests",
+          "method": "TestForwardInoutNonFrozenStructDispatch",
+          "reason": "refused on Mono (Arm64): OriginShifter.Mutate(ref NonFrozenPoint) (SelfRegister)"
         },
         {
           "class": "LeakDetectionTests",
@@ -494,6 +554,56 @@
           "reason": "weak/unowned references not supported by generator"
         },
         {
+          "class": "MetatypeSelfInitTests",
+          "method": "TestGenericNestedClassInitAllocatesEachSpecialization",
+          "reason": "refused on Mono (Arm64): StaticNestOuter\u003CT\u003E.Node(int) (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestActorStaticReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): MetatypeSelfActor.GetReport() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestClassFuncReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): StaticSelfErrorProbe.GetReport() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestClassStaticReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): StaticSelfErrorProbe.Check() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestGlobalActorBoundStaticReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): MetatypeSelfGlobalActorBound.GetReport() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestInternalParentStaticMethodReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): MetatypeSelfInternalHost.GetDescribeSelf() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestInternalParentStaticPropertyReceivesItsOwnMetatype",
+          "reason": "refused on Mono (Arm64): MetatypeSelfInternalHost.SelfName.get (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestOverriddenClassFuncCalledThroughSubclass",
+          "reason": "refused on Mono (Arm64): StaticSelfErrorProbeDerived.GetReport() (SelfRegister)"
+        },
+        {
+          "class": "MetatypeSelfStaticTests",
+          "method": "TestOverriddenInstanceMethodDispatchesOnTheInstance",
+          "reason": "refused on Mono (Arm64): StaticSelfErrorProbe.GetInstanceReport() (SelfRegister)"
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostClass_AcceptsForeignOuterNested",
+          "reason": "refused on Mono (Arm64): CrossHostSiblingClass\u003CT\u003E(CrossHostOuter\u003CT\u003E.Body) (SelfRegister)"
+        },
+        {
           "class": "NestedOfParentTests",
           "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
           "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
@@ -502,6 +612,11 @@
           "class": "NonStandardEnumTests",
           "method": "TestPermissionCaseValues",
           "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
+        },
+        {
+          "class": "OptionalMarshallingTests",
+          "method": "TestDirectPathGenericPayloadOptionalParamRoundTrips",
+          "reason": "refused on Mono (Arm64): GenericOptionalAbiBox\u003CTTag\u003E.TagIsPresent(TTag?) (SelfRegister)"
         },
         {
           "class": "OptionalMarshallingTests",
@@ -554,14 +669,64 @@
           "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
         },
         {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingClassFactoryOnSwiftConventionRoute",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.MakeForTagSets(int, Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingFullTagSetOverloadReturnsSameInstance",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.OnTagSet(DispatchQueue, Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingOptionalSelfOnSwiftConventionRoute",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.OnTagSetIfTagged(int, Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingReturnsDoNotLeak",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.OnTagSet(Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingTagSetHandlersReceiveTheSet",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.OnTagSet(Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "ReturnPathTests",
+          "method": "TestSelfChainingTrimmedTagSetOverloadReturnsSameInstance",
+          "reason": "refused on Mono (Arm64): SelfChainingBuilder.OnTagSet(Action\u003CSwiftSet\u003CSwiftString\u003E\u003E) (SelfRegister)"
+        },
+        {
+          "class": "SelfAndParameterPassingTests",
+          "method": "TestGenericArrayGetterHandsTheCallerOneOwnedArray",
+          "reason": "refused on Mono (Arm64): PassingTokenBox\u003CT\u003E.Items.get (SelfRegister)"
+        },
+        {
+          "class": "StaticOptionalErrorReturnTests",
+          "method": "TestStaticOptionalErrorReturn_MathError",
+          "reason": "refused on Mono (Arm64): StaticOptionalErrorReturn.ValidateMathError() (SelfRegister)"
+        },
+        {
+          "class": "StaticOptionalErrorReturnTests",
+          "method": "TestStaticOptionalErrorReturn_NSError",
+          "reason": "refused on Mono (Arm64): StaticOptionalErrorReturn.ValidateNSError() (SelfRegister)"
+        },
+        {
+          "class": "StaticOptionalErrorReturnTests",
+          "method": "TestStaticOptionalErrorReturn_None",
+          "reason": "refused on Mono (Arm64): StaticOptionalErrorReturn.ValidateNone() (SelfRegister)"
+        },
+        {
+          "class": "StaticOptionalErrorReturnTests",
+          "method": "TestStaticOptionalErrorReturn_ValidationError",
+          "reason": "refused on Mono (Arm64): StaticOptionalErrorReturn.ValidateValidationError() (SelfRegister)"
+        },
+        {
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "SwiftBridgeTests",
-          "method": "TestProbeMembersAreRoutedThroughNativeBridges",
-          "reason": "lowering evidence is applied to the iOS regeneration only"
         }
       ],
       "known_fails": []

@@ -158,6 +158,11 @@ public abstract class TestBase
             stopwatch.Stop();
             Results.Skip(testName, ex.Message);
         }
+        catch (Exception ex) when (RefusalOf(ex) is { } refusal)
+        {
+            stopwatch.Stop();
+            Results.Skip(testName, RefusalReason(refusal));
+        }
         catch (Exception ex)
         {
             stopwatch.Stop();
@@ -165,6 +170,39 @@ public abstract class TestBase
             Results.Fail(testName, ex.Message, stopwatch.Elapsed);
         }
     }
+
+    /// <summary>
+    /// The refusal a test ran into, if it stopped because a generated member refused on this
+    /// runtime: the member's only route into Swift is a direct transition this runtime mishandles,
+    /// and it threw before any native work. That is the binding's designed behavior here, not a
+    /// test failure, so the test is reported as a skip whose reason names the member and the
+    /// runtime. Skips are part of each platform's runtime-identity baseline, so a test that starts
+    /// refusing (a route that regressed, or a guard that now covers it) is a new identity and fails
+    /// the lane until the baseline records it deliberately.
+    /// </summary>
+    private static Swift.Runtime.SwiftTransitionUnsupportedException? RefusalOf(Exception ex)
+    {
+        for (var current = ex; current is not null;)
+        {
+            switch (current)
+            {
+                case Swift.Runtime.SwiftTransitionUnsupportedException refusal:
+                    return refusal;
+                case System.Reflection.TargetInvocationException { InnerException: { } inner }:
+                    current = inner;
+                    break;
+                case AggregateException { InnerExceptions.Count: 1 } aggregate:
+                    current = aggregate.InnerExceptions[0];
+                    break;
+                default:
+                    return null;
+            }
+        }
+        return null;
+    }
+
+    private static string RefusalReason(Swift.Runtime.SwiftTransitionUnsupportedException refusal) =>
+        $"refused on {refusal.Runtime}: {refusal.Member} ({refusal.RefusedFacts})";
 
     /// <summary>
     /// Runs a test method 3 times for flake detection. If results are inconsistent
@@ -200,6 +238,14 @@ public abstract class TestBase
                 totalElapsed += stopwatch.Elapsed;
                 skipCount++;
                 skipReason = ex.Message;
+                TestLogger.Debug($"  Run {i + 1}/{runs}: SKIP - {skipReason}");
+            }
+            catch (Exception ex) when (RefusalOf(ex) is { } refusal)
+            {
+                stopwatch.Stop();
+                totalElapsed += stopwatch.Elapsed;
+                skipCount++;
+                skipReason = RefusalReason(refusal);
                 TestLogger.Debug($"  Run {i + 1}/{runs}: SKIP - {skipReason}");
             }
             catch (Exception ex)

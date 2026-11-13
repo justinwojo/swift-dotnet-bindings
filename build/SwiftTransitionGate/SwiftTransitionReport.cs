@@ -162,6 +162,8 @@ public static class SwiftTransitionReport
                         writer.WriteNumber("ilOffset", offset);
                     if (site.Target is not null)
                         writer.WriteString("target", site.Target);
+                    if (site.Shapes != 0)
+                        writer.WriteString("shapes", SwiftTransitionShapes.Describe(site.Shapes));
                     writer.WriteStartArray("rules");
                     foreach (var rule in site.Rules)
                         writer.WriteStringValue(rule.ToString());
