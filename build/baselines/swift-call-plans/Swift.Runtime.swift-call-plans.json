@@ -1,6 +1,6 @@
 {
   "planVersion": 1,
-  "factsVersion": 3,
+  "factsVersion": 4,
   "module": "Swift.Runtime",
   "evidenceScope": {
     "artifact": "Swift.Runtime",

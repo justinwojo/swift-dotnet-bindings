@@ -158,6 +158,7 @@ public class SyntheticSwiftFunctionTests
         {
             Rec("Swift.Int", TypeRecordKind.Struct, TypeRecordFlags.Frozen),
             Rec("Swift.Bool", TypeRecordKind.Struct, TypeRecordFlags.Frozen),
+            Rec("Swift.Optional", TypeRecordKind.Enum, TypeRecordFlags.Frozen),
             Rec("TestModule.Point", TypeRecordKind.Struct, TypeRecordFlags.Frozen),
             Rec("TestModule.Box", TypeRecordKind.Class, TypeRecordFlags.None),
         });
@@ -268,6 +269,33 @@ public class SyntheticSwiftFunctionTests
 
         Assert.Equal(SwiftLoweringOutcome.Direct, result.Outcome);
         Assert.Equal(1, result.Pieces);
+    }
+
+    [Theory]
+    [InlineData("@_silgen_name(\"S\") public func f(_ tag: Swift.Int) -> Self? {")]
+    [InlineData("@_silgen_name(\"S\") public static func make(_ tag: Swift.Int) -> Self? {")]
+    public void Facts_AnOptionalSelfResultInAClassExtensionIsOneReferenceReturnedDirectly(string declaration)
+    {
+        // Self? in a class extension is the dynamic class type with nil folded into the null
+        // reference: one pointer-sized piece, as swiftc returns it.
+        var (module, db) = Fixture();
+        var facts = Describe(declaration, new SyntheticSwiftDeclaringType("TestModule.Box", IsClass: true));
+
+        var result = SwiftPassingClassifier.PhysicalResult(facts.Result.Type, facts.Generics, new SwiftLayoutValueLowering(new[] { module }, db));
+
+        Assert.True(facts.Result.Type.HasClassDynamicSelf);
+        Assert.Equal(SwiftLoweringOutcome.Direct, result.Outcome);
+        Assert.Equal(1, result.Pieces);
+    }
+
+    [Fact]
+    public void Facts_AnOptionalSelfResultInAValueTypeExtensionIsNotTakenForAReference()
+    {
+        var facts = Describe(
+            "@_silgen_name(\"S\") public func f(_ tag: Swift.Int) -> Self? {",
+            new SyntheticSwiftDeclaringType("TestModule.Point", IsClass: false));
+
+        Assert.False(facts.Result.Type.HasClassDynamicSelf);
     }
 
     [Fact]

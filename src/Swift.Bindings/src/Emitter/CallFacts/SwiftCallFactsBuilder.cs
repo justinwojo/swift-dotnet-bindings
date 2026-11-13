@@ -186,7 +186,7 @@ public sealed class SwiftCallFactsBuilder
             ? SwiftResultFacts.Void
             : new SwiftResultFacts
             {
-                Type = DynamicSelfOf(ResolveType(resultSpec, genericNames, unknowns, "result", generics: generics, closures: closures), parent),
+                Type = DynamicSelfOf(ResolveType(resultSpec, genericNames, unknowns, "result", generics: generics, closures: closures), resultSpec, parent),
                 IsFailableInitializer = method.IsConstructor && method.IsFailable,
             };
 
@@ -314,9 +314,12 @@ public sealed class SwiftCallFactsBuilder
 
         // In an extension of a class, a written Self is the dynamic class type, as for the member
         // the function forwards to: one reference, not an address-only generic value.
-        var result = function.ResultType is { } resultType
-            ? new SwiftResultFacts { Type = DynamicSelfOf(Written(resultType, "result").Facts, function.DeclaringTypeIsClass) }
-            : SwiftResultFacts.Void;
+        var result = SwiftResultFacts.Void;
+        if (function.ResultType is { } resultType)
+        {
+            var (resultFacts, resultSpec) = Written(resultType, "result");
+            result = new SwiftResultFacts { Type = DynamicSelfOf(resultFacts, resultSpec, function.DeclaringTypeIsClass) };
+        }
         if (result.Type.Category == SwiftTypeCategory.Void)
             result = SwiftResultFacts.Void;
 
@@ -575,15 +578,22 @@ public sealed class SwiftCallFactsBuilder
 
     /// <summary>
     /// A class member's <c>Self</c> is the dynamic type of its class instance: one reference, like
-    /// a generic parameter bound to the class.
+    /// a generic parameter bound to the class. Swift allows it only at the top of a result, bare or
+    /// optional; either way the type is marked, so the lowering reads the <c>Self</c> inside an
+    /// <c>Optional</c> as that reference too.
     /// </summary>
-    private SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, TypeDecl? parent) =>
-        DynamicSelfOf(type, parent is not null && Canonical(parent) is ClassDecl);
+    private SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, TypeSpec? spec, TypeDecl? parent) =>
+        DynamicSelfOf(type, spec, parent is not null && Canonical(parent) is ClassDecl);
 
-    private static SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, bool inClass) =>
-        type is { Category: SwiftTypeCategory.GenericParameter, Spelling: "Self" } && inClass
+    private static SwiftTypeFacts DynamicSelfOf(SwiftTypeFacts type, TypeSpec? spec, bool inClass)
+    {
+        if (!inClass || spec is null || !spec.HasDynamicSelf)
+            return type;
+        type = type with { HasClassDynamicSelf = true };
+        return type is { Category: SwiftTypeCategory.GenericParameter, Spelling: "Self" }
             ? type with { IsClassBound = true }
             : type;
+    }
 
     private static SwiftSelfFacts Metatype(SwiftCallSelfKind kind, SwiftSelfAbstraction abstraction, SwiftTypeFacts selfType) => new()
     {

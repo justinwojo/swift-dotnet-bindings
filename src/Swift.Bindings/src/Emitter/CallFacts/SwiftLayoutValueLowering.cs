@@ -56,7 +56,7 @@ public sealed class SwiftLayoutValueLowering : ISwiftValueLowering
             var pieces = ImmutableArray.CreateBuilder<SwiftLoweredPiece>();
             foreach (var element in TupleLeaves(spec))
             {
-                var answer = FromLayout(_resolver.Resolve(element, type.Representation, generics), element.ToString(true));
+                var answer = FromLayout(_resolver.Resolve(element, type.Representation, generics, type.HasClassDynamicSelf), element.ToString(true));
                 if (answer.Outcome != SwiftLoweringOutcome.Direct)
                     return SwiftLoweringAnswer.UnknownBecause($"tuple '{type.Spelling}': element '{element.ToString(true)}' is {answer.Outcome.ToString().ToLowerInvariant()}: {answer.Reason}");
                 pieces.AddRange(answer.Layout);
@@ -64,7 +64,7 @@ public sealed class SwiftLayoutValueLowering : ISwiftValueLowering
             return SwiftLoweringAnswer.DirectLayout(pieces.ToImmutable(), $"tuple '{type.Spelling}' passes its elements one by one");
         }
 
-        return FromLayout(_resolver.Resolve(spec, type.Representation, generics), type.Spelling);
+        return FromLayout(_resolver.Resolve(spec, type.Representation, generics, type.HasClassDynamicSelf), type.Spelling);
     }
 
     private static IEnumerable<TypeSpec> TupleLeaves(TypeSpec spec)
@@ -162,8 +162,18 @@ public sealed class SwiftLayoutResolver
     /// <c>@convention</c> attribute, when the caller knows it; such a function type is unknown otherwise.
     /// </param>
     /// <param name="generics">The generic signature the spec's generic parameters belong to.</param>
-    public SwiftLayoutResult Resolve(TypeSpec spec, SwiftFunctionRepresentation? functions = null, SwiftGenericSignatureFacts? generics = null) =>
-        Resolve(spec, 0, new Scope(functions, generics, null));
+    /// <param name="classDynamicSelf">
+    /// True when the spec's <c>Self</c> is a class member's dynamic Self: the type of the class
+    /// instance, one reference. Otherwise <c>Self</c> is a generic parameter the signature must name.
+    /// </param>
+    public SwiftLayoutResult Resolve(TypeSpec spec, SwiftFunctionRepresentation? functions = null, SwiftGenericSignatureFacts? generics = null,
+        bool classDynamicSelf = false) =>
+        Resolve(spec, 0, new Scope(functions, generics, classDynamicSelf ? ClassDynamicSelf : null));
+
+    private static readonly IReadOnlyDictionary<string, SwiftLayoutResult> ClassDynamicSelf = new Dictionary<string, SwiftLayoutResult>(StringComparer.Ordinal)
+    {
+        ["Self"] = SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), "a class member's dynamic Self is one reference to the class instance"),
+    };
 
     private SwiftLayoutResult Resolve(TypeSpec spec, int depth, Scope scope)
     {
