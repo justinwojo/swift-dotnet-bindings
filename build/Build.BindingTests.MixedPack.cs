@@ -224,11 +224,15 @@ partial class Build
     // (WriteMixedFrameworkSources + BuildMixedFrameworkSlice in Build.PackGate.MixedFixture.cs).
     // Slice parameters come from ApplePlatform.IOS so the device/sim triples, module suffixes,
     // sdks, min-OS, and plist platforms stay the single source of truth.
-    AbsolutePath BuildMixedPackIosXcframework(AbsolutePath buildRoot, string module, string probeClass)
+    // withNumericInitializers adds the SDK-direct overload probes (see WriteMixedFrameworkSources);
+    // only --mixed-direct asks for them.
+    AbsolutePath BuildMixedPackIosXcframework(AbsolutePath buildRoot, string module, string probeClass,
+        bool withNumericInitializers = false)
     {
         if (Directory.Exists(buildRoot)) buildRoot.DeleteDirectory();
         buildRoot.CreateDirectory();
-        var (probeM, libSwift) = WriteMixedFrameworkSources(buildRoot, module, probeClass);
+        var (probeM, libSwift) = WriteMixedFrameworkSources(buildRoot, module, probeClass,
+            withNumericInitializers: withNumericInitializers);
 
         var ios = ApplePlatform.IOS;
 

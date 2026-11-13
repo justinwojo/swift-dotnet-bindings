@@ -10,7 +10,9 @@
 // new _ReferenceMixedObjCCompanion target — injects the companion's managed assembly as a
 // <Reference> into the app's OWN compile so `new Module.ObjCType()` resolves. This leg builds
 // that app for the iOS Simulator, runs it, and asserts the ObjC greeting round-trips AND the
-// class registers exactly once.
+// class registers exactly once. The app's code compiles into the binding's own assembly, so it
+// also calls numeric initializers with an int variable and expects the values back: a generated
+// constructor visible there (the handle-adopting one) would capture those calls.
 //
 // WHY IT EXISTS / WHAT IT ADDS over the sibling legs:
 //   • --mixed-pack covers PATH (a): one packed nupkg consumed via one PackageReference (the
@@ -103,7 +105,10 @@ partial class Build
         // Reuse the shared 2-slice STATIC iOS mixed xcframework builder (Build.BindingTests.MixedPack.cs):
         // the sim build links the simulator slice, and a 2-slice xcframework is the real-world shape
         // (a sim-only xcframework would not exercise the SDK's slice selection).
-        var xcfw = BuildMixedPackIosXcframework(scratch / "build", MixedDirectModule, MixedDirectProbeClass);
+        // With the numeric-initializer probes: this is the leg whose consumer code compiles into the
+        // binding's own assembly, where a visible handle constructor would capture `new T(int)`.
+        var xcfw = BuildMixedPackIosXcframework(scratch / "build", MixedDirectModule, MixedDirectProbeClass,
+            withNumericInitializers: true);
 
         WriteMixedDirectConsumerApp(appDir, MixedDirectModule, MixedDirectProbeClass, xcfw, RuntimeLane, MixedDirectLaneVersion);
         // No fixture package in SDK-direct mode: the app resolves SwiftBindings.Sdk + the transitive
@@ -329,6 +334,20 @@ partial class Build
                         var probe = new global::{{module}}.{{probeClass}}();
                         Console.WriteLine("OBJC_GREETING:" + probe.Greeting());
                         Console.WriteLine("FOREIGN_CATEGORY:" + global::{{module}}.NSNull_{{module}}Extras.Contract{{module}}Answer(global::Foundation.NSNull.Null));
+                        // This code compiles into the binding's own assembly. Each initializer takes an
+                        // int variable, which must bind to the public initializer (not a generated
+                        // handle constructor) and come back as 7.
+                        int seven = 7;
+                        using (var amount = new global::{{module}}.{{module}}Amount(seven))
+                            Console.WriteLine("NUMERIC_INIT:Int64:" + amount.Value);
+                        using (var ratio = new global::{{module}}.{{module}}Ratio(seven))
+                            Console.WriteLine("NUMERIC_INIT:Double:" + ratio.Value);
+                        using (var scale = new global::{{module}}.{{module}}Scale(seven))
+                            Console.WriteLine("NUMERIC_INIT:Float:" + scale.Value);
+                        using (var count = new global::{{module}}.{{module}}Count(seven))
+                            Console.WriteLine("NUMERIC_INIT:Int:" + count.Value);
+                        using (var tally = new global::{{module}}.{{module}}Tally(seven))
+                            Console.WriteLine("NUMERIC_INIT:ObjCRootedInt64:" + tally.Value);
                         Console.WriteLine("RESULTS FLUSHED");
                         Console.WriteLine("TEST SUCCESS");
                     }
@@ -435,6 +454,17 @@ partial class Build
 
         if (!result.Output.Contains("FOREIGN_CATEGORY:73", StringComparison.Ordinal))
             Assert.Fail($"Mixed consumer: foreign category selector did not round-trip.\n{result.Output}");
+
+        // A missing line means the call bound to something other than the public initializer: the
+        // generated handle constructor adopts 7 as an object pointer, and the read crashes.
+        var numericInitFailures = new[] { "Int64", "Double", "Float", "Int", "ObjCRootedInt64" }
+            .Where(kind => !result.Output.Contains($"NUMERIC_INIT:{kind}:7", StringComparison.Ordinal))
+            .ToList();
+        if (numericInitFailures.Count > 0)
+            Assert.Fail(
+                $"--mixed-direct: `new T(int)` did not round-trip 7 through the public initializer for {string.Join(", ", numericInitFailures)}. " +
+                "In SDK-direct mode the app's code compiles into the binding's own assembly, so a non-private generated " +
+                $"constructor taking a SwiftHandle captures the int argument.\noutput:\n{result.Output}");
 
         var expected = $"OBJC_GREETING:{PackGateMixedObjCGreeting}";
         if (!result.Output.Contains(expected, StringComparison.Ordinal))

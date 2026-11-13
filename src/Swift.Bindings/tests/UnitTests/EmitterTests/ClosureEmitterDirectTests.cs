@@ -34,8 +34,8 @@ public class ClosureEmitterDirectTests
     }
 
     // A Swift-closure-returning-a-class wrapper (the fallback invoke path, ClosureEmitter.cs)
-    // may return a CROSS-MODULE class whose SwiftHandle ctor is internal → `new Foreign(new
-    // SwiftHandle(ptr))` fails CS1729 across assemblies. The PURE-Swift-class arm must route
+    // may return another class, whose SwiftHandle ctor is private to it → `new Foreign(new
+    // SwiftHandle(ptr))` fails CS0122. The PURE-Swift-class arm must route
     // through the public MarshalFromSwiftObject<T> (NewFromPayload) factory; Swift returns an
     // owned +1 (Unmanaged.passRetained), which the factory adopts. The ObjC-bridged arm is
     // intentionally left on the SwiftHandle-ctor path (those types' ISwiftObject/NewFromPayload
@@ -1927,8 +1927,8 @@ public class ClosureEmitterDirectTests
     }
 
     // The invoke-thunk helper (the Mono-JIT-safe C#→Swift closure call path) wraps a class
-    // return into a C# object. A CROSS-MODULE class's `(SwiftHandle)` ctor is internal, so
-    // `new Foreign(new SwiftHandle(ptr))` fails CS1729 across assemblies. The PURE-Swift-class
+    // return into a C# object. A generated class's `(SwiftHandle)` ctor is private to it, so
+    // `new Foreign(new SwiftHandle(ptr))` fails CS0122. The PURE-Swift-class
     // arm must route through the public MarshalFromSwiftObject<T> factory (Swift returns an
     // owned +1 via Unmanaged.passRetained, which the factory adopts). The ObjC-bridged arm is
     // intentionally left on the SwiftHandle-ctor path.
@@ -2000,6 +2000,50 @@ public class ClosureEmitterDirectTests
         var result = output.ToString();
         Assert.Contains("new Swift.Runtime.SwiftHandle(", result);
         Assert.DoesNotContain("MarshalFromSwiftObject", result);
+    }
+
+    // A generated ObjC-rooted Swift class keeps its handle constructor private (an internal one
+    // captures an SDK-direct consumer's `new T(7)`), so every closure-return arm that builds one
+    // goes through the factory, never the constructor.
+    [Theory]
+    [InlineData("fallback", false)]
+    [InlineData("invoke-thunk", false)]
+    [InlineData("invoke-thunk", true)]
+    public void ClosureReturn_ObjCRootedClass_RoutesThroughMarshalFromSwiftObject(string path, bool throws)
+    {
+        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
+        var rootedModule = new ModuleTypeDatabase("RootedModule", "/tmp/RootedModule.dylib");
+        rootedModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("RootedModule.Gadget"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RootedModule", "Gadget"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("RootedModule.Gadget"),
+                MetadataAccessor = "$s12RootedModule6GadgetCMa",
+                Flags = TypeRecordFlags.ObjCRooted | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(rootedModule);
+        var closureHandler = new ClosureHandler(typeDatabase);
+        Assert.True(closureHandler.IsObjCRootedClass(new NamedTypeSpec("RootedModule.Gadget")));
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("RootedModule.Gadget"))
+        {
+            Throws = throws
+        };
+
+        var output = new StringWriter();
+        var csWriter = new CSharpWriter(output);
+        if (path == "fallback")
+            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+        else
+            ClosureEmitter.EmitCSharpInvokeThunkHelper(
+                csWriter, closureTypeSpec, closureHandler,
+                "_InvokeClosureThunk_ROOT0001", "SBW_Rooted_InvCR", "TestLib");
+
+        var result = output.ToString();
+        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", result);
+        Assert.Contains("Gadget", result);
+        Assert.DoesNotContain("SwiftHandle(", result);
     }
 
     [Fact]

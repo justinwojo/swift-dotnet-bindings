@@ -991,9 +991,8 @@ public static class AsyncMethodGenericBridgeEmitter
             case AsyncReturnKind.SwiftClass:
                 // rawResult is an owned +1 (the async bridge callback receives a
                 // Unmanaged.passRetained() pointer). Route through the public
-                // MarshalFromSwiftObject<T> factory (T.NewFromPayload) rather than `new T(new
-                // SwiftHandle(ptr))` — a cross-module class's (SwiftHandle) ctor is internal and
-                // invisible across generated assemblies (CS1729). The factory adopts the +1, so the
+                // MarshalFromSwiftObject<T> factory (T.NewFromPayload): a generated class's
+                // (SwiftHandle) ctor is private to the class. The factory adopts the +1, so the
                 // ownership transfer is identical.
                 csWriter.WriteLine($"var result = SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>(rawResult);");
                 break;

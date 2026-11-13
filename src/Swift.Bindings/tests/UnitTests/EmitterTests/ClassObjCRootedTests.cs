@@ -768,7 +768,7 @@ public class ClassObjCRootedTests
         var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
 
         var body = GetClassBody(output, "MyLayer");
-        // Internal SwiftHandle constructor: base((ObjCRuntime.NativeHandle)handle.Handle)
+        // Private SwiftHandle constructor: base((ObjCRuntime.NativeHandle)handle.Handle)
         Assert.Contains("base((ObjCRuntime.NativeHandle)handle.Handle)", body);
     }
 
@@ -805,6 +805,20 @@ public class ClassObjCRootedTests
         Assert.DoesNotContain("NativeMemory.Free", body);
         Assert.DoesNotContain("NativeMemory.Alloc", body);
         Assert.Contains("NewFromPayload", body);
+    }
+
+    // The SDK-direct overload hazard, for the ObjC-rooted handle constructor: an int argument from a
+    // sibling type in the binding's assembly must bind to the public numeric initializer.
+    [Theory]
+    [InlineData("long")]
+    [InlineData("double")]
+    [InlineData("nint")]
+    public void ObjCRooted_HandleConstructor_DoesNotCaptureIntArgumentFromSiblingType(string publicParameterType)
+    {
+        var output = EmitObjCRootedClass("MyLayer", "QuartzCore.CALayer");
+
+        Assert.Equal(publicParameterType,
+            HandleConstructorOverloadProbe.BindIntArgumentFromSiblingType(output, "MyLayer", publicParameterType));
     }
 
     [Fact]

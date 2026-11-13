@@ -548,20 +548,28 @@ public static partial class ClosureEmitter
         {
             // Pure Swift class return: function pointer returns void* (opaque pointer), an owned
             // +1 reference (Swift calling convention). Route through the public
-            // MarshalFromSwiftObject<T> factory (T.NewFromPayload) rather than `new T(new
-            // SwiftHandle(ptr))`: a cross-module class's (SwiftHandle) ctor is internal and
-            // invisible across generated assemblies (CS1729). The factory adopts the +1, so the
+            // MarshalFromSwiftObject<T> factory (T.NewFromPayload): a generated class's
+            // (SwiftHandle) ctor is private to the class. The factory adopts the +1, so the
             // ownership transfer is identical.
+            var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            returnExprFallback = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>((IntPtr){invokeExprFallback});";
+        }
+        else if (closureHandler.IsObjCRootedClass(closureTypeSpec.ReturnType))
+        {
+            // ObjC-rooted Swift class return: function pointer returns void*, an owned reference.
+            // Same factory as the pure Swift class: the class's handle constructor is private to
+            // it, and NewFromPayload adopts the +1 and reuses the object's managed peer when it
+            // already has one.
             var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             returnExprFallback = $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>((IntPtr){invokeExprFallback});";
         }
         else if (closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType))
         {
-            // ObjC-bridged/rooted return: function pointer returns void* (opaque pointer).
+            // ObjC-bridged return: function pointer returns void* (opaque pointer).
             // Wrap in SwiftHandle → class constructor. Swift calling convention returns
-            // an owned reference, so SwiftClassHandle takes ownership. Kept on the ctor path —
-            // ObjC-bridged types' ISwiftObject/NewFromPayload story differs and is out of scope
-            // for the cross-module class-pointer factory routing.
+            // an owned reference. Kept on the ctor path — ObjC-bridged types'
+            // ISwiftObject/NewFromPayload story differs and is out of scope for the
+            // cross-module class-pointer factory routing.
             var csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
             returnExprFallback = $"return new {csReturnType}(new Swift.Runtime.SwiftHandle((IntPtr){invokeExprFallback}));";
         }
