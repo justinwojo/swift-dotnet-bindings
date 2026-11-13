@@ -302,6 +302,25 @@ public class HandlerFactoryRouter {
     }
 }
 
+// MARK: - Protocol Requirement Returning a Closure With Arguments
+
+/// Protocol whose requirement returns a closure that takes and returns a value. Only a
+/// `() -> Void` result dispatches to a C# implementation, so the conformance a C# object uses
+/// carries a trapping stub for this one, and that stub has to spell its result without
+/// `@escaping` for the module's wrapper to compile at all.
+public protocol AdderFactory {
+    func makeAdder(base: Int32) -> (Int32) -> Int32
+}
+
+/// A Swift conformer: its own `makeAdder` binds as a class method whose result C# can call.
+public final class OffsetAdderFactory: AdderFactory {
+    public init() {}
+
+    public func makeAdder(base: Int32) -> (Int32) -> Int32 {
+        return { base + $0 }
+    }
+}
+
 // MARK: - Protocol with Async Closure Parameter (Shape 2)
 
 /// Protocol with an `@escaping () async -> Int32` closure parameter. Tests

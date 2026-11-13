@@ -1667,8 +1667,7 @@ public static partial class ClosureEmitter
                     closureReturnSpec = optNts.GenericParameters[0] as ClosureTypeSpec;
             }
             if (cdeclNeedsResultPtr && closureReturnSpec != null
-                && closureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)
-                && CanUseInvokeThunk(closureReturnSpec, closureHandler))
+                && ShouldEmitReturnedClosureInvokeThunk(closureReturnSpec, closureHandler, emissionContext))
             {
                 var thunkEntryPoint = GetInvokeThunkEntryPoint(env.EmissionSymbol);
                 var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";

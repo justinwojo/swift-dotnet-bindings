@@ -444,14 +444,14 @@ public class SuppressedProxyChannelTests : TestBase
     }
 
     /// <summary>
-    /// PRODUCE — closure return with a struct parameter. Routes through the struct-param closure
-    /// invoke-thunk emitter; still a throw stub.
+    /// PRODUCE — closure return with a struct parameter, which the invoke thunk takes by address;
+    /// still a throw stub.
     /// </summary>
     public void TestGetBoxableProducerWithParamThrows()
     {
         AssertMethodPoisoned(typeof(TestLibFunctions), "GetBoxableProducerWithParam",
-            "GetBoxableProducerWithParam returns a (BoxableTag) -> any Boxable closure; the struct-param " +
-            "invoke thunk would build a suppressed BoxableProxy, so the member must be compile-poisoned (SB0006).");
+            "GetBoxableProducerWithParam returns a (BoxableTag) -> any Boxable closure; its invoke thunk " +
+            "would build a suppressed BoxableProxy, so the member must be compile-poisoned (SB0006).");
     }
 
     /// <summary>

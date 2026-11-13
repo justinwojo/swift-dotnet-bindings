@@ -441,6 +441,18 @@ public static partial class ClosureEmitter
             return true;
         }
 
+        // A tuple result would be declared as the callback's System.ValueTuple return, and ValueTuple
+        // is an auto-layout generic struct that no unmanaged signature can carry. CoreCLR rejects the
+        // callback when Swift first calls it; Mono fails the static initializer of the type that
+        // declares the callback's function-pointer field, which takes every member of that type down
+        // with it. The @_cdecl adapter cannot take the shape either, since a C function has no tuple
+        // return, so nothing carries it.
+        if (spec.ReturnType is TupleTypeSpec { IsEmptyTuple: false })
+        {
+            shape = spec.ReturnType.ToString();
+            return true;
+        }
+
         return HasUnmodelledDirectLaneArg(spec, closureHandler, out shape);
     }
 }

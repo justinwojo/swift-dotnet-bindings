@@ -1934,288 +1934,31 @@ public partial class ClosureHandler
     }
 
     /// <summary>
-    /// Checks if a closure can be invoked from C# when received from Swift.
-    /// Closures with non-primitive parameters cannot be invoked because we can't
-    /// easily marshal C# structs to void* pointers in the lambda.
+    /// True for an existential the returned-closure invoke thunk carries BY ADDRESS: a single
+    /// non-<c>@objc</c> protocol with a generated proxy (opaque or class-bound), or the well-known
+    /// <c>any Error</c>. The thunk receives the address of a container the invoker builds and
+    /// <c>load(as:)</c>s the existential from it, and hands an existential result back through an
+    /// out-pointer the invoker supplies — so the closure is always called by Swift itself, at the
+    /// abstraction it was stored at.
+    /// <para>
+    /// Everything else is refused rather than guessed at: a composition (its class-bound form is
+    /// narrower than the container the C# side carries), a protocol with no proxy (the C# type is
+    /// <c>object</c>, which cannot be turned into a container), <c>Any</c>, and an <c>@objc</c>
+    /// protocol (a bare object pointer, not a container).
+    /// </para>
     /// </summary>
-    /// <param name="closureTypeSpec">The closure type specification.</param>
-    /// <returns>True if all parameters are primitive types that can be passed directly.</returns>
-    public bool CanInvokeFromCSharp(ClosureTypeSpec closureTypeSpec)
+    public bool IsInvokeThunkExistential(TypeSpec typeSpec)
     {
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            if (!IsInvocableParameter(arg))
-                return false;
-        }
-        return true;
-    }
-
-    /// <summary>
-    /// Checks if a closure RETURNED from Swift can be reconstructed into a C#-callable delegate
-    /// without emitting uncompilable code. A returned closure is emittable iff the ONE emitter the
-    /// dispatch in <c>WrapperEmitter.Return.cs</c> selects for it can produce compilable C#. That
-    /// dispatch picks among FOUR emitters carrying only TWO distinct return-capability matrices, so
-    /// this gate routes on the same conditions the dispatch does — applying a single matrix
-    /// uniformly is wrong in one direction (the rich matrix over-accepts on the narrow paths; the
-    /// narrow matrix over-prunes on the bare path):
-    ///
-    ///   1. Invoke-thunk invoker (preferred whenever <see cref="Emitter.StringEmitter.ClosureEmitter.CanUseInvokeThunk"/>
-    ///      holds — args are cdecl primitives / simple+complex enums / by-value structs INCLUDING
-    ///      Swift.String + Foundation.Data via the metadata-remap buffer / Swift and ObjC class
-    ///      references; return is a cdecl
-    ///      primitive / simple enum / class / ObjC class; not async). EVERY other emitter below
-    ///      routes through the pre-generated invoker class when a thunk exists, so this is checked
-    ///      first and short-circuits. (This is why <c>makeStringLength() -> (String) -> Int32</c>
-    ///      and <c>makeByteCount() -> (Data) -> Int32</c> are emittable.)
-    ///   2. NARROW return matrix — the throwing emitter (<c>EmitThrowingClosureReturnMarshalling</c>,
-    ///      chosen for any throwing closure) and the struct / non-frozen param emitters
-    ///      (<c>EmitClosureReturnMarshallingWith(Struct|NonFrozen)Params</c>, chosen when a by-value
-    ///      struct arg is present). All three marshal frozen / non-frozen struct args through a
-    ///      buffer, so their ARG set is <see cref="IsDirectInvokeArgSupported"/> PLUS by-value
-    ///      structs — but their RETURN handling is narrow: bool, well-known protocol, proxy,
-    ///      existential, then a bare <c>return _fp(...)</c> / <c>FromSuccess(_rawResult)</c> that
-    ///      compiles ONLY for void / blittable primitives. They have NO simple-enum cast, NO
-    ///      class/ObjC SwiftHandle wrap, and NO tuple conversion — modeled by
-    ///      <see cref="IsNarrowEmitterReturnSupported"/>.
-    ///   3. RICH return matrix — the bare fallback (<c>EmitClosureReturnMarshalling</c>: no thunk,
-    ///      non-throwing, no struct arg). ARG set is <see cref="IsDirectInvokeArgSupported"/> only
-    ///      (a struct arg would have routed to (2)). Its RETURN handling adds the simple-enum cast,
-    ///      class/ObjC SwiftHandle wrap, and tuple-element conversion on top of the narrow set —
-    ///      modeled by <see cref="IsDirectInvokeReturnSupported"/>.
-    ///
-    /// A return outside the chosen path's matrix falls to a bare <c>return _fp(...)</c> the C#
-    /// compiler rejects: <c>nodeEncodings(...) -> (any CodingKey) -> NodeEncoding?</c>
-    /// (Optional&lt;enum&gt;) is pruned on the bare path (void* -> typed nullable, CS0029/CS1662),
-    /// and a struct-arg closure returning a simple enum / class is pruned on the narrow path (raw
-    /// integer / void* -> typed enum / class, CS0266/CS0029). Keep each matrix in sync with its
-    /// emitter's branch list — this is load-bearing.
-    /// </summary>
-    public bool CanInvokeReturnedClosure(ClosureTypeSpec closureTypeSpec)
-    {
-        // Path 1: invoke-thunk invoker. When a thunk exists the dispatch emits the pre-generated
-        // invoker class regardless of throwing / struct-arg shape, so the raw matrices below do
-        // not apply. Self-consistent arg+return capability (incl. String/Data via the remap buffer).
-        if (ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, this))
-            return true;
-
-        // No thunk. A throwing closure routes to the throwing emitter; a closure carrying a by-value
-        // struct arg routes to a struct / non-frozen emitter. Those three share the SAME narrow
-        // return matrix (no simple-enum / class / ObjC / tuple branch) and the SAME arg set
-        // (IsDirectInvokeArgSupported plus by-value frozen / non-frozen structs). Everything else
-        // falls to the bare fallback, whose richer return matrix adds simple-enum / class / tuple.
-        bool usesNarrowEmitter = closureTypeSpec.Throws
-            || RequiresNonFrozenMarshalling(closureTypeSpec)
-            || RequiresStructMarshalling(closureTypeSpec);
-
-        if (usesNarrowEmitter)
-        {
-            if (!IsNarrowEmitterReturnSupported(closureTypeSpec.ReturnType))
-                return false;
-            foreach (var arg in closureTypeSpec.EachArgument())
-            {
-                if (IsDirectInvokeArgSupported(arg))
-                    continue;
-                if (IsFrozenStruct(arg) || IsNonFrozenStruct(arg))
-                    continue;
-                return false;
-            }
-            return true;
-        }
-
-        // Bare fallback: rich return matrix, IsDirectInvokeArgSupported-only args (no struct arg is
-        // present here — one would have set usesNarrowEmitter via RequiresStructMarshalling).
-        if (!IsDirectInvokeReturnSupported(closureTypeSpec.ReturnType))
+        if (typeSpec.IsInOut || !_existentialHandler.IsExistential(typeSpec))
             return false;
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            if (!IsDirectInvokeArgSupported(arg))
-                return false;
-        }
-
-        return true;
-    }
-
-    /// <summary>
-    /// The RETURN capability shared by the throwing emitter and the struct / non-frozen param
-    /// emitters (<c>EmitThrowingClosureReturnMarshalling</c>,
-    /// <c>EmitClosureReturnMarshallingWith(Struct|NonFrozen)Params</c>). These three handle bool,
-    /// well-known protocol, proxy, and existential returns explicitly, then fall to a bare
-    /// <c>return _fp(...)</c> / <c>FromSuccess(_rawResult)</c> that compiles ONLY for void or a
-    /// blittable primitive (the function-pointer return type equals the delegate's there). Unlike
-    /// <see cref="IsDirectInvokeReturnSupported"/> they have NO simple-enum cast, NO class/ObjC
-    /// SwiftHandle wrap, and NO tuple-element conversion — a simple-enum return would emit the raw
-    /// integer (CS0266) and a class return would emit void* (CS0029). Mirror their branch lists.
-    /// </summary>
-    private bool IsNarrowEmitterReturnSupported(TypeSpec typeSpec)
-    {
-        // void return: emitter omits the return / returns FromSuccess(SwiftVoid).
-        if (typeSpec.IsEmptyTuple)
-            return true;
-        if (MarshallingHelpers.IsBoolType(typeSpec))
-            return true;
-        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
-            return true;
-        if (NeedsProxyWrapping(typeSpec, out _))
-            return true;
-        if (IsExistentialParam(typeSpec))
-            return true;
-        // Blittable primitive: the bare `return _fp(...)` compiles because the function-pointer
-        // return type equals the delegate's. Pointers are excluded for the same IntPtr/void*
-        // mismatch reason as IsDirectInvokeReturnSupported; simple enums / classes / ObjC classes
-        // / tuples are excluded because these emitters have no conversion branch for them.
-        if (typeSpec is NamedTypeSpec namedType && GetBlittablePrimitiveType(namedType.Name) != null)
-            return true;
-        return false;
-    }
-
-    /// <summary>
-    /// The RICH RETURN capability of the bare fallback emitter
-    /// <see cref="Emitter.StringEmitter.ClosureEmitter.EmitClosureReturnMarshalling"/> (chosen when
-    /// there is no thunk, the closure does not throw, and it has no by-value struct arg). On top of
-    /// the narrow set (<see cref="IsNarrowEmitterReturnSupported"/>) it adds an explicit simple-enum
-    /// cast, a class/ObjC SwiftHandle wrap, and tuple-element conversion. Anything outside it falls
-    /// to a bare <c>return _fp(...)</c>, which only compiles when the function pointer's P/Invoke
-    /// return type matches the delegate's declared C# return type. Bound generics, frozen
-    /// structs with reference fields, complex enums, ObjC-bridged classes, etc. translate
-    /// to <c>void*</c> in the function pointer but stay as their C# shape in the delegate
-    /// — assigning void* to those produces CS1503 at compile time.
-    /// Mirror the explicit branch list in <c>EmitClosureReturnMarshalling</c>; keeping
-    /// these in sync is load-bearing.
-    /// </summary>
-    private bool IsDirectInvokeReturnSupported(TypeSpec typeSpec)
-    {
-        // void return: emitter omits the return statement
-        if (typeSpec.IsEmptyTuple)
-            return true;
-        if (MarshallingHelpers.IsBoolType(typeSpec))
-            return true;
-        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
-            return true;
-        if (NeedsProxyWrapping(typeSpec, out _))
-            return true;
-        if (IsExistentialParam(typeSpec))
-            return true;
-        if (IsSimpleEnum(typeSpec))
-            return true;
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            if (IsClassType(namedType))
-                return true;
-            // Pointer types are NOT supported here for the same reason as in
-            // IsDirectInvokeArgSupported: TranslateTypeSpecToCSharp emits IntPtr for
-            // the delegate return type while TranslateTypeSpecToPInvokeType emits
-            // void* for the function pointer return; bare `return _fp(...)` would
-            // produce CS1503 without an explicit cast that the emitter does not insert.
-            if (GetBlittablePrimitiveType(namedType.Name) != null)
-                return true;
-        }
-        if (typeSpec is TupleTypeSpec tuple)
-        {
-            foreach (var element in tuple.Elements)
-            {
-                if (!IsDirectInvokeReturnSupported(element))
-                    return false;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    private bool IsDirectInvokeArgSupported(TypeSpec typeSpec)
-    {
-        if (MarshallingHelpers.IsBoolType(typeSpec))
-            return true;
-        if (IsSimpleEnum(typeSpec) || IsComplexEnum(typeSpec))
-            return true;
-        if (NeedsWellKnownProtocolWrapping(typeSpec, out _))
-            return true;
-        if (NeedsProxyWrapping(typeSpec, out _))
-            return true;
-        if (IsExistentialParam(typeSpec))
-            return true;
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Blittable primitives translate to int/long/float/etc. and are passed
-            // bare as `_arg{N}` — the function pointer's typed parameter accepts them
-            // directly. Without this, `(Int32) throws -> Void` returns get pruned even
-            // though the emitter would produce valid C#.
-            // (Pointer types are NOT included: TranslateTypeSpecToCSharp emits IntPtr
-            // for the delegate signature while TranslateTypeSpecToPInvokeType emits void*
-            // for the function pointer; the emitter does not insert the cross-cast, so
-            // bare `_argN` would produce CS1503.)
-            if (GetBlittablePrimitiveType(namedType.Name) != null)
-                return true;
-            if (IsClassType(namedType))
-                return true;
-            if (IsObjCBridgedClass(namedType))
-                return true;
-        }
-        if (typeSpec is TupleTypeSpec tuple && !tuple.IsEmptyTuple)
-        {
-            foreach (var element in tuple.Elements)
-            {
-                if (!IsDirectInvokeArgSupported(element))
-                    return false;
-            }
-            return true;
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if a parameter type can be passed when invoking a Swift closure from C#.
-    /// Supports primitive types, frozen structs, non-frozen structs, enums, and reference types.
-    /// </summary>
-    private bool IsInvocableParameter(TypeSpec typeSpec)
-    {
-        if (typeSpec is NamedTypeSpec namedType)
-        {
-            // Pointer types are supported
-            if (TypeDatabaseExtensions.IsPointerType(namedType))
-                return true;
-
-            // Primitive types are supported (direct pass)
-            var primitiveType = GetBlittablePrimitiveType(namedType.Name);
-            if (primitiveType != null)
-                return true;
-
-            // Frozen structs are supported (via marshalling with stackalloc)
-            if (IsFrozenStruct(namedType))
-                return true;
-
-            // Non-frozen structs are supported (via ISwiftObject marshalling with NativeMemory)
-            if (IsNonFrozenStruct(namedType))
-                return true;
-
-            // Class types are supported (via IntPtr / Unmanaged patterns)
-            if (IsClassType(namedType))
-                return true;
-
-            // ObjC-bridged types are supported (via Handle patterns)
-            if (IsObjCBridgedClass(namedType))
-                return true;
-
-            // Simple enums are supported (cast to underlying integer type)
-            if (IsSimpleEnum(namedType))
-                return true;
-
-            // Complex enums are supported (via payload handle extraction)
-            if (IsComplexEnum(namedType))
-                return true;
-
+        if (ExistentialHandler.IsObjCProtocolExistentialSpec(typeSpec, _typeDatabase))
             return false;
-        }
-
-        // Tuples of primitives could be supported but aren't currently
-        if (typeSpec is TupleTypeSpec)
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
+        if (protocolList == null || !_existentialHandler.IsSupportedExistential(protocolList))
             return false;
-
-        // Empty tuples (void) are fine
-        if (typeSpec.IsEmptyTuple)
-            return true;
-
-        // Other types (closures, existentials, etc.) are not supported
-        return false;
+        if (_existentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownType))
+            return wellKnownType == "Swift.Foundation.AnyError";
+        return NeedsProxyWrapping(typeSpec, out _) && ShouldUseGetOrCreate(typeSpec);
     }
 
     /// <summary>
@@ -2692,49 +2435,10 @@ public partial class ClosureHandler
     }
 
     /// <summary>
-    /// Checks if invoking a closure from C# requires struct marshalling for any parameter.
-    /// When true, the invoker lambda needs to marshal struct parameters to void* before calling Swift.
-    /// </summary>
-    /// <param name="closureTypeSpec">The closure type specification.</param>
-    /// <returns>True if any parameter requires struct marshalling.</returns>
-    public bool RequiresStructMarshalling(ClosureTypeSpec closureTypeSpec)
-    {
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            if (arg is NamedTypeSpec namedType &&
-                !TypeDatabaseExtensions.IsPointerType(namedType) &&
-                GetBlittablePrimitiveType(namedType.Name) == null &&
-                IsFrozenStruct(namedType))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
-    /// Checks if invoking a closure from C# requires non-frozen struct marshalling for any parameter.
-    /// Non-frozen structs require heap allocation via NativeMemory and InitializeWithCopy/Destroy.
-    /// </summary>
-    /// <param name="closureTypeSpec">The closure type specification.</param>
-    /// <returns>True if any parameter requires non-frozen struct marshalling.</returns>
-    public bool RequiresNonFrozenMarshalling(ClosureTypeSpec closureTypeSpec)
-    {
-        foreach (var arg in closureTypeSpec.EachArgument())
-        {
-            if (IsNonFrozenStruct(arg))
-            {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    /// <summary>
     /// Returns the blittable C# type for known Swift primitive types.
     /// Returns null for non-primitive types that should use void*.
     /// </summary>
-    private static string? GetBlittablePrimitiveType(string swiftTypeName)
+    internal static string? GetBlittablePrimitiveType(string swiftTypeName)
     {
         return swiftTypeName switch
         {
@@ -2999,10 +2703,17 @@ public partial class ClosureHandler
     /// return instead; this predicate is only for the trampoline whose entire purpose is the
     /// (now-impossible) proxy construction.
     /// </summary>
-    public bool IsProxyReferenceSuppressed(TypeSpec typeSpec)
+    public bool IsProxyReferenceSuppressed(TypeSpec typeSpec) => IsProxyReferenceSuppressed(typeSpec, EmissionContext);
+
+    /// <summary>
+    /// <see cref="IsProxyReferenceSuppressed(TypeSpec)"/> against an explicit emission context, for
+    /// a caller holding a freshly marshaled environment whose handler was never given one.
+    /// </summary>
+    public bool IsProxyReferenceSuppressed(TypeSpec typeSpec, ModuleEmissionContext? emissionContext)
     {
+        emissionContext ??= EmissionContext;
         if (typeSpec is TupleTypeSpec tuple)
-            return tuple.Elements.Any(IsProxyReferenceSuppressed);
+            return tuple.Elements.Any(e => IsProxyReferenceSuppressed(e, emissionContext));
         // A container ARG (Array/Set/Dictionary/Optional/ArraySlice) whose element/value is a
         // suppressed-proxy existential slips past the bare NeedsProxyWrapping check below — that
         // predicate inspects the container TYPE, not its element. The UCO trampoline deserializes
@@ -3014,9 +2725,9 @@ public partial class ClosureHandler
         {
             if ((named.Name is "Swift.Array" or "Swift.ArraySlice" or "Swift.Set" or "Swift.Optional")
                 && named.GenericParameters.Count == 1)
-                return IsProxyReferenceSuppressed(named.GenericParameters[0]);
+                return IsProxyReferenceSuppressed(named.GenericParameters[0], emissionContext);
             if (named.Name == "Swift.Dictionary" && named.GenericParameters.Count == 2)
-                return IsProxyReferenceSuppressed(named.GenericParameters[1]);
+                return IsProxyReferenceSuppressed(named.GenericParameters[1], emissionContext);
         }
         if (!NeedsProxyWrapping(typeSpec, out var filteredProxy)) return false;
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
@@ -3027,7 +2738,7 @@ public partial class ClosureHandler
         // halves or the no-op-body branch misses the flags-half shape and the trampoline references
         // the absent proxy class.
         var qualified = _existentialHandler.QualifyProxyClassName(filteredProxy, protocolList);
-        return _existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, EmissionContext) ||
+        return _existentialHandler.IsProxyNameSuppressed(filteredProxy, qualified, emissionContext) ||
             _existentialHandler.IsProxyStructurallyNeverEmitted(protocolList);
     }
 }

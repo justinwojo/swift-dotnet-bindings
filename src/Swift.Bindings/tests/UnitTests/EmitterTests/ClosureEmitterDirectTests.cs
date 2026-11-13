@@ -7,80 +7,58 @@ using Xunit;
 namespace BindingsGeneration.Tests;
 
 /// <summary>
-/// Direct tests for ClosureEmitter static methods — EmitClosureReturnMarshalling
-/// and EmitEscapingClosureCallback in Swift vs Cdecl calling conventions.
+/// Direct tests for ClosureEmitter static methods — returned-closure marshalling through the
+/// invoke thunk, and EmitEscapingClosureCallback in Swift vs Cdecl calling conventions.
 /// </summary>
 public class ClosureEmitterDirectTests
 {
-    [Fact]
-    public void EmitClosureReturnMarshalling_NonVoidReturn_EmitsEscapingClosure()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReturnedClosureMarshalling_WithInvokeThunk_HandsBackTheInvokerDelegate(bool throws)
     {
-        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("Swift.Int"));
+        // A returned closure is wrapped for ARC and handed back as the invoker class's Invoke
+        // method group; nothing calls the closure's function pointer directly.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithSwiftInt());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int")) { Throws = throws };
 
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+        if (throws)
+            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result",
+                "SBW_Test_InvCR", "TestLib", "_InvokeClosureThunk_ABCD1234", "");
+        else
+            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result",
+                "SBW_Test_InvCR", "TestLib", "_InvokeClosureThunk_ABCD1234", "");
 
         var result = output.ToString();
-        Assert.Contains("SwiftEscapingClosure", result);
-        Assert.Contains("FromSwift", result);
-        Assert.Contains("result.FunctionPointer", result);
-        Assert.Contains("result.Context", result);
+        Assert.Contains("SwiftEscapingClosure<", result);
+        Assert.Contains("FromSwift(result.FunctionPointer, result.Context)", result);
+        Assert.Contains("new _ClosureInv_ABCD1234(", result);
+        Assert.Contains("_inv.Invoke", result);
+        Assert.DoesNotContain("unmanaged[Swift]", result);
     }
 
-    // A Swift-closure-returning-a-class wrapper (the fallback invoke path, ClosureEmitter.cs)
-    // may return another class, whose SwiftHandle ctor is private to it → `new Foreign(new
-    // SwiftHandle(ptr))` fails CS0122. The PURE-Swift-class arm must route
-    // through the public MarshalFromSwiftObject<T> (NewFromPayload) factory; Swift returns an
-    // owned +1 (Unmanaged.passRetained), which the factory adopts. The ObjC-bridged arm is
-    // intentionally left on the SwiftHandle-ctor path (those types' ISwiftObject/NewFromPayload
-    // story differs and is out of this fix's proven scope).
-
-    [Fact]
-    public void EmitClosureReturnMarshalling_SwiftClassReturn_RoutesThroughMarshalFromSwiftObject()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReturnedClosureMarshalling_WithoutInvokeThunk_FailsInsteadOfEmittingASwiftCall(bool throws)
     {
-        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        // Closure: () -> Loader (a pure Swift class)
-        var closureTypeSpec = new ClosureTypeSpec(
-            TupleTypeSpec.Empty,
-            new NamedTypeSpec("TestModule.Loader"));
+        // Without an invoke thunk there is no correct way to call a returned closure: the member
+        // hands it back at maximal abstraction, so a Swift-convention call through its function
+        // pointer passes indirect arguments in the wrong place. Validation refuses those members;
+        // the emitter fails closed if one slips through rather than emitting that call.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithSwiftInt());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int")) { Throws = throws };
+        var csWriter = new CSharpWriter(new StringWriter());
 
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", result);
-        Assert.DoesNotContain("new Swift.Runtime.SwiftHandle(", result);
-    }
-
-    [Fact]
-    public void EmitClosureReturnMarshalling_ObjCClassReturn_KeepsSwiftHandleConstruction()
-    {
-        // The ObjC-bridged arm is intentionally UNCHANGED — it still constructs via the
-        // SwiftHandle ctor, never MarshalFromSwiftObject.
-        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        // Closure: () -> NSError (an ObjC-bridged class)
-        var closureTypeSpec = new ClosureTypeSpec(
-            TupleTypeSpec.Empty,
-            new NamedTypeSpec("Foundation.NSError"));
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        Assert.Contains("new Swift.Runtime.SwiftHandle(", result);
-        Assert.DoesNotContain("MarshalFromSwiftObject", result);
+        Assert.Throws<InvalidOperationException>(() =>
+        {
+            if (throws)
+                ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+            else
+                ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
+        });
     }
 
     [Fact]
@@ -632,42 +610,30 @@ public class ClosureEmitterDirectTests
     }
 
     [Fact]
-    public void EmitClosureReturnMarshalling_TupleWithExistentialAndEnum_EmitsBothConversions()
+    public void InvokeThunkRefusal_TupleResultWithExistentialElement_IsRefused()
     {
-        // Invoker direction: P/Invoke returns ValueTuple<EC1, int>, delegate returns (IImageProcessing, StatusEnum)
-        var typeDatabase = CreateTypeDatabaseWithProtocolAndSimpleEnum();
-        var closureHandler = new ClosureHandler(typeDatabase);
-
-        var existentialElement = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
-        var enumElement = new NamedTypeSpec("TestModule.StatusEnum");
-        var tupleReturn = new TupleTypeSpec(new List<TypeSpec> { existentialElement, enumElement });
+        // The thunk hands a tuple back element by element as scalars; an existential element has
+        // no scalar spelling, so the shape is refused (named by its result) rather than guessed at.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithProtocolAndSimpleEnum());
+        var tupleReturn = new TupleTypeSpec(new List<TypeSpec>
+        {
+            new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true },
+            new NamedTypeSpec("TestModule.StatusEnum"),
+        });
         var closureTypeSpec = new ClosureTypeSpec(null, tupleReturn);
 
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
+        var refusal = ClosureEmitter.GetInvokeThunkRefusal(closureTypeSpec, closureHandler);
 
-        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        // Existential should be wrapped with proxy constructor
-        Assert.Contains("new ImageProcessingProxy(", result);
-        // Simple enum should be cast from underlying int to enum type (namespace-qualified)
-        Assert.Contains("(TestModule.StatusEnum)", result);
+        Assert.NotNull(refusal);
+        Assert.Contains("result", refusal);
     }
 
     [Fact]
-    public void EmitClosureReturnMarshalling_CompositionExistentialArg_PinsProxyAcrossNativeCall()
+    public void InvokeThunkRefusal_CompositionExistentialArgument_IsRefused()
     {
-        // Invoke direction: the closure receives a composition existential (any A & B) ARG and
-        // forwards it to the Swift function pointer. A composition projects to ExistentialContainer2
-        // with no auto-wrap factory — _arg0 IS the Swift-vended proxy aliasing its sole +1 (R0).
-        // Under B2 the proxy is weakly registered, so a GC could finalize it and release R0 while
-        // the Swift function pointer still borrows the container. The forwarded arg must be pinned
-        // across the native call (the EC2+ analogue of the EC1 GetOrCreate __ka keepAlive), and
-        // with a non-void return the call is hoisted into _invRet so KeepAlive lands after it.
-        var typeDatabase = CreateTypeDatabaseWithTwoProtocols();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        // Closure: (any Nameable & Ageable) -> Int
+        // A composition's container is wider than a single-protocol one and its class-bound form
+        // narrower, so the by-address recipe the thunk uses for `any P` does not carry it.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithTwoProtocols());
         var compositionArg = new ProtocolListTypeSpec(new[]
         {
             new NamedTypeSpec("TestModule.Nameable"),
@@ -675,20 +641,10 @@ public class ClosureEmitterDirectTests
         });
         var closureTypeSpec = new ClosureTypeSpec(compositionArg, new NamedTypeSpec("Swift.Int"));
 
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
+        var refusal = ClosureEmitter.GetInvokeThunkRefusal(closureTypeSpec, closureHandler);
 
-        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        // EC2 composition takes the direct-cast container path, NOT the EC1 GetOrCreate factory.
-        Assert.Contains(
-            "((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer2>)_arg0).GetExistentialContainer()",
-            result);
-        // The forwarded proxy is pinned past the native function-pointer call (the re-review High).
-        Assert.Contains("GC.KeepAlive(_arg0)", result);
-        // Non-void return ⇒ the call is hoisted so KeepAlive runs after _fp but before the return shape.
-        Assert.Contains("var _invRet = _fp(", result);
+        Assert.NotNull(refusal);
+        Assert.Contains("argument 0", refusal);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithTwoProtocols()
@@ -789,52 +745,6 @@ public class ClosureEmitterDirectTests
     #endregion
 
     #region Class/ObjC argument handle extraction
-
-    [Fact]
-    public void EmitClosureReturnMarshalling_ClassArg_ExtractsPayloadHandle()
-    {
-        // When a C# closure invokes a Swift function pointer with a class argument,
-        // the class handle must be extracted as void* via .Payload.DangerousGetHandle()
-        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
-        var closureHandler = new ClosureHandler(typeDatabase);
-
-        // Closure: (Loader) -> Void — class param in Swift function pointer needs void*
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("TestModule.Loader"),
-            TupleTypeSpec.Empty);
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitClosureReturnMarshalling(
-            csWriter, closureTypeSpec, closureHandler);
-
-        var result = output.ToString();
-        Assert.Contains("Payload.DangerousGetHandle()", result);
-    }
-
-    [Fact]
-    public void EmitClosureReturnMarshalling_ObjCArg_ExtractsHandle()
-    {
-        // When a C# closure invokes a Swift function pointer with an ObjC-bridged argument,
-        // the handle must be extracted as void* via .Handle
-        var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
-        var closureHandler = new ClosureHandler(typeDatabase);
-
-        // Closure: (NSError) -> Void — ObjC param in Swift function pointer needs void*
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Foundation.NSError"),
-            TupleTypeSpec.Empty);
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitClosureReturnMarshalling(
-            csWriter, closureTypeSpec, closureHandler);
-
-        var result = output.ToString();
-        Assert.Contains(".Handle", result);
-    }
 
     private static TypeDatabase CreateTypeDatabaseWithClassAndObjC()
     {
@@ -2006,10 +1916,9 @@ public class ClosureEmitterDirectTests
     // captures an SDK-direct consumer's `new T(7)`), so every closure-return arm that builds one
     // goes through the factory, never the constructor.
     [Theory]
-    [InlineData("fallback", false)]
-    [InlineData("invoke-thunk", false)]
-    [InlineData("invoke-thunk", true)]
-    public void ClosureReturn_ObjCRootedClass_RoutesThroughMarshalFromSwiftObject(string path, bool throws)
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ClosureReturn_ObjCRootedClass_RoutesThroughMarshalFromSwiftObject(bool throws)
     {
         var typeDatabase = CreateTypeDatabaseWithClassAndObjC();
         var rootedModule = new ModuleTypeDatabase("RootedModule", "/tmp/RootedModule.dylib");
@@ -2033,12 +1942,9 @@ public class ClosureEmitterDirectTests
 
         var output = new StringWriter();
         var csWriter = new CSharpWriter(output);
-        if (path == "fallback")
-            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-        else
-            ClosureEmitter.EmitCSharpInvokeThunkHelper(
-                csWriter, closureTypeSpec, closureHandler,
-                "_InvokeClosureThunk_ROOT0001", "SBW_Rooted_InvCR", "TestLib");
+        ClosureEmitter.EmitCSharpInvokeThunkHelper(
+            csWriter, closureTypeSpec, closureHandler,
+            "_InvokeClosureThunk_ROOT0001", "SBW_Rooted_InvCR", "TestLib");
 
         var result = output.ToString();
         Assert.Contains("SwiftMarshal.MarshalFromSwiftObject<", result);
@@ -2456,117 +2362,6 @@ public class ClosureEmitterDirectTests
         Assert.Contains("byte* _arg1Buffer = null;", result);
         // Allocation happens INSIDE the try (after `try {`), not before it.
         var tryIdx = result.IndexOf("try {", StringComparison.Ordinal);
-        var alloc0Idx = result.IndexOf("_arg0Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
-        var alloc1Idx = result.IndexOf("_arg1Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
-        Assert.True(tryIdx >= 0 && alloc0Idx > tryIdx, "arg0 allocation must be inside the try block");
-        Assert.True(alloc1Idx > tryIdx, "arg1 allocation must be inside the try block");
-        // Cleanup is null-guarded so a never-allocated buffer is not Destroyed.
-        Assert.Contains("if (_arg0Buffer != null)", result);
-        Assert.Contains("if (_arg1Buffer != null)", result);
-    }
-
-    [Fact]
-    public void EmitThrowingClosureReturnMarshalling_StringArgFallback_ConvertsViaSwiftStringNotMetadataThrow()
-    {
-        // The THROWING closure return fallback (the inline-lambda path taken
-        // when CanUseInvokeThunk is false — no invoke-thunk entry point passed) marshalled a
-        // Swift.String arg via the same generic GetTypeMetadataOrThrow<string>() path the
-        // invoke-thunk path already avoids. `string` carries no Swift TypeMetadata, so the
-        // returned throwing closure threw on first invoke. The fallback must convert to the
-        // metadata-bearing SwiftString and marshal its inline representation into a heap buffer
-        // (then Destroy+Free it), exactly like the invoke-thunk path.
-        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Swift.String"),
-            new NamedTypeSpec("Swift.Int32")) { Throws = true };
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        // Swift.SwiftString lives in Swift.Runtime (always referenced) — the String arg path must
-        // NOT pull in the Apple supplement; only the Foundation.Data path does.
-        AppleSupplementReferences.Reset();
-
-        // No invoke-thunk entry point/helper → the inline-lambda fallback is emitted.
-        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        // The broken generic-metadata path must be gone.
-        Assert.DoesNotContain("GetTypeMetadataOrThrow<string>", result);
-        // String pulls in no Apple supplement dependency.
-        Assert.DoesNotContain("Foundation.Data", AppleSupplementReferences.Current);
-        // Metadata-bearing conversion + value-witness marshalling.
-        Assert.Contains("new Swift.SwiftString(_arg0)", result);
-        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata()", result);
-        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
-        // String carries a +1 from the retaining copy → buffer MUST be Destroy+Free'd in a finally.
-        Assert.Contains("byte* _arg0Buffer = null;", result);
-        Assert.Contains("finally", result);
-        Assert.Contains("if (_arg0Buffer != null)", result);
-        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
-    }
-
-    [Fact]
-    public void EmitThrowingClosureReturnMarshalling_DataArgFallback_ConvertsViaFromByteArrayNotMetadataThrow()
-    {
-        // Data variant of the throwing-fallback metadata-remap fix: Foundation.Data projects to
-        // C# `byte[]` (no Swift TypeMetadata). The fallback must build the metadata-bearing
-        // Foundation.Data via FromByteArray and record the Apple supplement dependency so the
-        // consumer csproj references it (the closure-delegate translation bypasses the projection
-        // path that normally records it).
-        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Foundation.Data"),
-            new NamedTypeSpec("Swift.Int32")) { Throws = true };
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        AppleSupplementReferences.Reset();
-
-        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        Assert.DoesNotContain("GetTypeMetadataOrThrow<byte[]>", result);
-        Assert.Contains("Swift.Foundation.Data.FromByteArray(_arg0)", result);
-        Assert.Contains("Swift.Runtime.SwiftObjectHelper<Swift.Foundation.Data>.GetTypeMetadata()", result);
-        Assert.Contains("MarshalToSwift(ref _arg0Span)", result);
-        Assert.Contains("NativeMemory.Free(_arg0Buffer)", result);
-        // The Apple supplement dependency must be recorded so the consumer csproj references it.
-        Assert.Contains("Foundation.Data", AppleSupplementReferences.Current);
-    }
-
-    [Fact]
-    public void EmitThrowingClosureReturnMarshalling_MultipleHeapStructArgsFallback_AllocInsideTryWithNullGuardedCleanup()
-    {
-        // The throwing fallback allocated non-frozen heap buffers in the
-        // prologue BEFORE the try, so a later arg's InitializeWithCopy failure leaked an earlier
-        // arg's buffer. Buffers must be declared null before the try, allocated INSIDE it, and
-        // Destroy+Free'd in a null-guarded finally — matching the invoke-thunk path.
-        var typeDatabase = CreateTypeDatabaseWithStringDataArgs();
-        var closureHandler = new ClosureHandler(typeDatabase);
-        // (ResilientConfig, ResilientConfig) throws -> Int32 — two non-frozen heap buffers.
-        var closureTypeSpec = new ClosureTypeSpec(
-            new TupleTypeSpec(new TypeSpec[]
-            {
-                new NamedTypeSpec("TestModule.ResilientConfig"),
-                new NamedTypeSpec("TestModule.ResilientConfig")
-            }),
-            new NamedTypeSpec("Swift.Int32")) { Throws = true };
-
-        var output = new StringWriter();
-        var csWriter = new CSharpWriter(output);
-
-        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, closureHandler, "result");
-
-        var result = output.ToString();
-        // Both buffers declared null BEFORE the try.
-        Assert.Contains("byte* _arg0Buffer = null;", result);
-        Assert.Contains("byte* _arg1Buffer = null;", result);
-        // Allocation happens INSIDE the try, not before it.
-        var tryIdx = result.IndexOf("try", StringComparison.Ordinal);
         var alloc0Idx = result.IndexOf("_arg0Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
         var alloc1Idx = result.IndexOf("_arg1Buffer = (byte*)NativeMemory.AllocZeroed", StringComparison.Ordinal);
         Assert.True(tryIdx >= 0 && alloc0Idx > tryIdx, "arg0 allocation must be inside the try block");

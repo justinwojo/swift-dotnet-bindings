@@ -115,10 +115,14 @@ public static class PropertyWrapperEmitter
         // 3b. Optional<closure> setter: the closure's params/return must be cdecl-compatible
         //     (Layer 2 gate — same as method closures). Without this, the Swift adapter
         //     passes non-primitive args directly to @convention(c) which expects raw pointers.
+        //     Scoped to the setter like 3a: the getter's wrapper never builds that adapter, and it
+        //     is the only route that carries the invoke thunk C# needs to call the closure it gets
+        //     back, so a setter-side limitation must not push the getter onto the direct route.
         if (propertyDecl.SwiftTypeSpec is NamedTypeSpec optClosure &&
             optClosure.Name == "Swift.Optional" && optClosure.GenericParameters.Count == 1 &&
             optClosure.GenericParameters[0] is ClosureTypeSpec closureInner &&
-            propertyDecl.Accessors.OfType<SetAccessorDecl>().Any() &&
+            (accessor is SetAccessorDecl ||
+             (accessor is null && propertyDecl.Accessors.OfType<SetAccessorDecl>().Any())) &&
             !ClosureEmitter.IsClosureCdeclCompatible(closureInner, accessorEnv.ClosureHandler))
             return WrapperEligibility.Reject("optional_closure_not_cdecl_compatible");
 
@@ -200,6 +204,30 @@ public static class PropertyWrapperEmitter
     /// </summary>
     public static string? GetRejectionReason(PropertyDecl propertyDecl, MethodEnvironment accessorEnv, AccessorDecl? accessor = null)
         => EvaluateWrapperEligibility(propertyDecl, accessorEnv, accessor).Reason;
+
+    /// <summary>
+    /// Why the getter of a closure-typed property cannot hand C# a closure it can call, or null when
+    /// it can. A returned closure is called correctly only through its invoke thunk, and a property
+    /// getter gets one only on the @_cdecl wrapper route, so the getter must clear both the thunk's
+    /// shape contract and this emitter's eligibility gates. A getter that fails either is dropped
+    /// (the setter, a callback path, is unaffected). PropertyHandler and MemberEmissionValidator both
+    /// ask here so the emitted accessor set and the conformance check cannot disagree.
+    /// </summary>
+    public static string? GetClosureGetterRefusal(PropertyDecl propertyDecl, ClosureTypeSpec closure, ITypeDatabase typeDatabase, ClosureHandler closureHandler)
+    {
+        var thunkRefusal = ClosureEmitter.GetInvokeThunkRefusal(closure, closureHandler);
+        if (thunkRefusal != null)
+            return thunkRefusal;
+
+        var getter = propertyDecl.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
+        if (getter == null || getter.Method.ParentDecl == null)
+            return null;
+
+        var eligibility = EvaluateWrapperEligibility(propertyDecl, new MethodEnvironment(getter.Method, typeDatabase), getter);
+        return eligibility.IsWrappable
+            ? null
+            : $"the getter has no @_cdecl wrapper to carry the invoke thunk ({eligibility.Reason})";
+    }
 
     /// <summary>
     /// Gets the @_cdecl symbol name for a property accessor wrapper.

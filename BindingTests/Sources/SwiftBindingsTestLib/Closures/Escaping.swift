@@ -199,15 +199,15 @@ public class ClosureWithExistentialArray {
     public func getTransformResult() -> Int32 { transformResult }
 }
 
-// MARK: - Setter-Only Closure Properties
+// MARK: - Closure Properties With an Existential Parameter
 
-/// Class with closure properties whose parameter types can't be marshalled for C# invocation.
-/// The generator emits these as setter-only: C# can set callback handlers but can't get/invoke.
-/// Mirrors the ClosureEventMonitor pattern (closures with ObjC-bridgeable/complex params).
+/// Class with a stored closure property whose parameter is a protocol existential: the shape of
+/// an event-monitor class whose handlers take complex arguments. The type name records the
+/// property's former set-only binding.
 public class SetterOnlyCallbackHolder {
-    /// Closure with a protocol existential parameter (non-invocable from C#).
-    /// The generator emits this as set-only because CanInvokeFromCSharp rejects existential params
-    /// (they aren't NamedTypeSpec, so they fall through all IsInvocableParameter checks).
+    /// Closure with a protocol existential parameter. The setter takes a C# callback; the getter
+    /// hands the stored closure back, and C# calls it through the invoke thunk, which passes the
+    /// existential by address.
     public var onConfigChanged: ((any ProcessingMode) -> Void)?
 
     /// Verification: trigger the callback from Swift side.

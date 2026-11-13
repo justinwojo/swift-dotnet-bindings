@@ -1538,6 +1538,10 @@ namespace BindingsGeneration
             if (closureTypeSpec == null) return;
             if (!_env.ClosureHandler.IsSupportedClosure(closureTypeSpec)) return;
             if (!ClosureEmitter.CanUseInvokeThunk(closureTypeSpec, _env.ClosureHandler)) return;
+            // An existential result whose proxy was suppressed cannot be adopted by the invoker.
+            // This helper is written ahead of the member-body checkpoint, so it must not throw:
+            // skip it, and let the body's own suppression check restub the member.
+            if (_env.ClosureHandler.IsProxyReferenceSuppressed(closureTypeSpec.ReturnType)) return;
 
             var helperName = ClosureEmitter.GetInvokeThunkHelperName(_env.EmissionSymbol);
             var entryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(_env.EmissionSymbol);

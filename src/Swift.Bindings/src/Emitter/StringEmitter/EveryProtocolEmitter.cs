@@ -3080,7 +3080,7 @@ public class EveryProtocolEmitter
     {
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
         var swiftTypeName = ContainsSelfTypeParam(property.SwiftTypeSpec)
-            ? RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec)
+            ? RenderResultTypeWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec)
             : GetSwiftTypeNameForDeclaration(property.SwiftTypeSpec);
         var message = $"[SwiftBindings] EveryProtocol: static property '{property.Name}' cannot be dispatched through vtable";
 
@@ -3102,7 +3102,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
+        var swiftTypeName = RenderResultTypeWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
@@ -3831,8 +3831,9 @@ public class EveryProtocolEmitter
         var genericClause = BuildStubGenericClause(method, genericNameMap, out var genericWhereClause);
 
         // Render TypeSpec, substituting generic param names.
-        // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift,
-        // so @escaping on Optional<Closure> is invalid syntax.
+        // suppressEscaping: true everywhere but a parameter position. `@escaping` may only mark a
+        // parameter, so a closure inside a generic argument (an Optional closure is always escaping),
+        // a tuple element or a result must not carry it.
         string RenderTypeSpec(TypeSpec? ts, bool suppressEscaping = false)
         {
             if (ts == null) return "Any";
@@ -3868,9 +3869,8 @@ public class EveryProtocolEmitter
                 {
                     if (named.ContainsGenericParameters && named.GenericParameters.Count > 0)
                     {
-                        bool isOptional = named.Name == "Swift.Optional";
                         var renderedParams = string.Join(", ", named.GenericParameters
-                            .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
+                            .Select(p => RenderTypeSpec(p, suppressEscaping: true)));
                         return SwiftTypeNameHelper.AppendInnerTypes($"{named.Name}<{renderedParams}>", named, t => RenderTypeSpec(t));
                     }
                     return GetSwiftTypeName(ts);
@@ -3890,7 +3890,7 @@ public class EveryProtocolEmitter
                     args = "";
                 else
                     args = RenderTypeSpec(closure.Arguments);
-                var ret = RenderTypeSpec(closure.ReturnType);
+                var ret = RenderTypeSpec(closure.ReturnType, suppressEscaping: true);
                 var attrs = new List<string>();
                 if (closure.IsEscaping && !suppressEscaping) attrs.Add("@escaping");
                 if (closure.HasAttributes)
@@ -3911,7 +3911,7 @@ public class EveryProtocolEmitter
                 if (tuple.Elements.Count == 0) return "()";
                 var rendered = tuple.Elements.Select(e =>
                 {
-                    var typeName = RenderTypeSpec(e);
+                    var typeName = RenderTypeSpec(e, suppressEscaping: true);
                     return e.TypeLabel != null ? $"{e.TypeLabel}: {typeName}" : typeName;
                 });
                 return $"({string.Join(", ", rendered)})";
@@ -3935,6 +3935,8 @@ public class EveryProtocolEmitter
         // would be a syntax error.
         string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
             SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
+        string RenderResultTypeForDeclaration(TypeSpec ts) =>
+            SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts, suppressEscaping: true), ts);
         var parameters = new List<string>();
         var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -3957,7 +3959,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -3982,7 +3984,7 @@ public class EveryProtocolEmitter
         var genericClause = BuildStubGenericClause(method, genericNameMap, out var genericWhereClause);
 
         // Render TypeSpec preserving generic params (replacing τ_1_0 → _G0, etc.)
-        // suppressEscaping: true when inside Optional — Optional closures are always escaping in Swift.
+        // suppressEscaping: true everywhere but a parameter position, the only place `@escaping` is legal.
         string RenderTypeSpec(TypeSpec? ts, bool suppressEscaping = false)
         {
             if (ts == null) return "Any";
@@ -4017,10 +4019,9 @@ public class EveryProtocolEmitter
                 {
                     if (named.ContainsGenericParameters && named.GenericParameters.Count > 0)
                     {
-                        bool isOptional = named.Name == "Swift.Optional";
                         // Render generic params recursively (e.g., ServiceEntry<τ_1_1> → ServiceEntry<_G1>)
                         var renderedParams = string.Join(", ", named.GenericParameters
-                            .Select(p => RenderTypeSpec(p, suppressEscaping: isOptional)));
+                            .Select(p => RenderTypeSpec(p, suppressEscaping: true)));
                         return SwiftTypeNameHelper.AppendInnerTypes($"{named.Name}<{renderedParams}>", named, t => RenderTypeSpec(t));
                     }
                     return GetSwiftTypeName(ts);
@@ -4037,7 +4038,7 @@ public class EveryProtocolEmitter
                     args = "";
                 else
                     args = RenderTypeSpec(closure.Arguments);
-                var ret = RenderTypeSpec(closure.ReturnType);
+                var ret = RenderTypeSpec(closure.ReturnType, suppressEscaping: true);
                 var attrs = new List<string>();
                 if (closure.IsEscaping && !suppressEscaping) attrs.Add("@escaping");
                 if (closure.HasAttributes)
@@ -4058,7 +4059,7 @@ public class EveryProtocolEmitter
                 if (tuple.Elements.Count == 0) return "()";
                 var rendered = tuple.Elements.Select(e =>
                 {
-                    var typeName = RenderTypeSpec(e);
+                    var typeName = RenderTypeSpec(e, suppressEscaping: true);
                     return e.TypeLabel != null ? $"{e.TypeLabel}: {typeName}" : typeName;
                 });
                 return $"({string.Join(", ", rendered)})";
@@ -4082,6 +4083,8 @@ public class EveryProtocolEmitter
         // would be a syntax error.
         string RenderTypeSpecForDeclaration(TypeSpec? ts) =>
             SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts), ts);
+        string RenderResultTypeForDeclaration(TypeSpec ts) =>
+            SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(RenderTypeSpec(ts, suppressEscaping: true), ts);
         var parameters = new List<string>();
         var internalNames = BuildSwiftParameterNames(method);
         for (int i = 1; i < method.CSSignature.Count; i++)
@@ -4101,7 +4104,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4162,7 +4165,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4234,7 +4237,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // This non-dispatchable fatalError stub keeps the requirement's own effects (`async`/`throws`)
         // — a stub satisfies its protocol either way, and a mixed sync/async (or throws/non-throws)
         // fan-out group never routes through an effect-mismatched stub: ComputeMethodEmissionPlans
@@ -4370,7 +4373,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4417,7 +4420,7 @@ public class EveryProtocolEmitter
     {
         var hasGetter = property.Accessors.OfType<GetAccessorDecl>().Any();
         var hasSetter = property.Accessors.OfType<SetAccessorDecl>().Any();
-        var swiftTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
+        var swiftTypeName = RenderResultTypeWithSelfSubstitutionForDeclaration(property.SwiftTypeSpec);
 
         writer.WriteLine($"public var {NameProvider.ParserNameToSwift(property)}: {swiftTypeName} {{");
         writer.Indent++;
@@ -4455,7 +4458,7 @@ public class EveryProtocolEmitter
 
         var returnType = method.CSSignature.FirstOrDefault()?.SwiftTypeSpec;
         var hasReturn = returnType != null && !returnType.IsEmptyTuple;
-        var returnTypeName = hasReturn ? RenderTypeSpecWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
+        var returnTypeName = hasReturn ? RenderResultTypeWithSelfSubstitutionForDeclaration(returnType!) : "Swift.Void";
         // Keep the requirement's own effects — a stub satisfies its protocol either way (see
         // EmitSelfTypedMethodStub for the effect-mismatch fan-out rationale).
         var asyncDecl = method.IsAsync ? " async" : "";
@@ -4486,7 +4489,7 @@ public class EveryProtocolEmitter
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
         }
 
-        var returnTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
+        var returnTypeName = RenderResultTypeWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
 
         writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
         writer.Indent++;
@@ -4516,7 +4519,7 @@ public class EveryProtocolEmitter
             parameters.Add($"{externalLabel} {internalName}: {typeName}");
         }
 
-        var returnTypeName = RenderTypeSpecWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
+        var returnTypeName = RenderResultTypeWithSelfSubstitutionForDeclaration(subscript.ReturnTypeSpec);
 
         writer.WriteLine($"public subscript({string.Join(", ", parameters)}) -> {returnTypeName} {{");
         writer.Indent++;
@@ -5945,6 +5948,11 @@ public class EveryProtocolEmitter
         // Mirrors ClosureEmitter.CanUseInvokeThunk so accepted shapes have a working emit path.
         if (!ClosureEmitter.CanUseInvokeThunk(closure, closureHandler))
             return false;
+        // The by-address shapes (an existential argument, a result through out-pointers) are
+        // carried for returned closures only; this lane's vtable and receiver have not been
+        // extended to them, so they stay undispatchable here.
+        if (ClosureEmitter.UsesInvokeThunkAddressedValues(closure, closureHandler))
+            return false;
         return true;
     }
 
@@ -6554,6 +6562,14 @@ public class EveryProtocolEmitter
         SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(
             RenderTypeSpecWithSelfSubstitution(typeSpec), typeSpec);
 
+    /// <summary>
+    /// <see cref="RenderTypeSpecWithSelfSubstitutionForDeclaration"/> for a result, property or
+    /// subscript type: a position that is not a parameter, so a closure there carries no `@escaping`.
+    /// </summary>
+    private string RenderResultTypeWithSelfSubstitutionForDeclaration(TypeSpec? typeSpec) =>
+        SwiftTypeNameHelper.ApplyImplicitlyUnwrappedOptionalSigil(
+            RenderTypeSpecWithSelfSubstitution(typeSpec, suppressEscaping: true), typeSpec);
+
     private string RenderTypeSpecWithSelfSubstitution(TypeSpec? typeSpec, bool suppressEscaping = false)
     {
         if (typeSpec == null)
@@ -6610,9 +6626,10 @@ public class EveryProtocolEmitter
                 {
                     if (namedType.ContainsGenericParameters && namedType.GenericParameters.Count > 0)
                     {
-                        bool isOptional = namedType.Name == "Swift.Optional";
+                        // A generic argument is never a parameter position, so it never carries
+                        // `@escaping` (an Optional closure is always escaping).
                         var renderedParams = string.Join(", ", namedType.GenericParameters
-                            .Select(p => RenderTypeSpecWithSelfSubstitution(p, suppressEscaping: isOptional)));
+                            .Select(p => RenderTypeSpecWithSelfSubstitution(p, suppressEscaping: true)));
                         return SwiftTypeNameHelper.AppendInnerTypes($"{namedType.Name}<{renderedParams}>", namedType, t => RenderTypeSpecWithSelfSubstitution(t));
                     }
                     return GetSwiftTypeName(typeSpec);
@@ -6627,7 +6644,7 @@ public class EveryProtocolEmitter
                     args = "";
                 else
                     args = RenderTypeSpecWithSelfSubstitution(closure.Arguments);
-                var ret = RenderTypeSpecWithSelfSubstitution(closure.ReturnType);
+                var ret = RenderTypeSpecWithSelfSubstitution(closure.ReturnType, suppressEscaping: true);
                 var attrs = new List<string>();
                 if (closure.IsEscaping && !suppressEscaping) attrs.Add("@escaping");
                 if (closure.HasAttributes)
@@ -6647,7 +6664,7 @@ public class EveryProtocolEmitter
                 if (tuple.Elements.Count == 0) return "()";
                 var rendered = tuple.Elements.Select(e =>
                 {
-                    var typeName = RenderTypeSpecWithSelfSubstitution(e);
+                    var typeName = RenderTypeSpecWithSelfSubstitution(e, suppressEscaping: true);
                     return e.TypeLabel != null ? $"{e.TypeLabel}: {typeName}" : typeName;
                 });
                 return $"({string.Join(", ", rendered)})";
