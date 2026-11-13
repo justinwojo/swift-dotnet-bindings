@@ -241,8 +241,8 @@ partial class Build
     /// every bridge twin against its call plan (rule R3).
     /// Fail-closed and unconditional, with no baseline and no --permissive arm: a transition the
     /// ledger does not list, or lists without facts, is a producer that bypassed recording.
-    /// The Mac Catalyst leg runs it too, over a compile check of its own output
-    /// (<paramref name="platform"/> <c>maccatalyst</c>); on every routed platform a control first
+    /// The Mac Catalyst and tvOS legs run it too, each over a compile check of its own output
+    /// (<paramref name="platform"/> <c>maccatalyst</c> or <c>tvos</c>); on every routed platform a control first
     /// proves the run is not vacuous: the bindings were judged against that platform's evidence, a
     /// guard sidecar exists for every module, and the compiled binding holds bridge twins.
     /// </summary>
@@ -428,6 +428,7 @@ partial class Build
     {
         "ios" => new[] { ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget },
         "maccatalyst" => new[] { ApplePlatform.MacCatalyst.SimulatorTarget, ApplePlatform.MacCatalystX64.SimulatorTarget },
+        "tvos" => new[] { ApplePlatform.TvOS.DeviceTarget!, ApplePlatform.TvOS.SimulatorTarget },
         _ => throw new ArgumentException($"{platform} is not a routed platform", nameof(platform)),
     };
 
@@ -436,6 +437,7 @@ partial class Build
     {
         "ios" => System.Text.RegularExpressions.Regex.IsMatch(triple, @"^(arm64|x86_64)-apple-ios[0-9.]+(-simulator)?$"),
         "maccatalyst" => System.Text.RegularExpressions.Regex.IsMatch(triple, @"^(arm64|x86_64)-apple-ios[0-9.]+-macabi$"),
+        "tvos" => System.Text.RegularExpressions.Regex.IsMatch(triple, @"^(arm64|x86_64)-apple-tvos[0-9.]+(-simulator)?$"),
         _ => false,
     };
 

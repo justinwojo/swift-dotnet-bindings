@@ -2,8 +2,8 @@
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
-    <!-- The platform the bindings in ../output were generated for: ios, or maccatalyst for the
-         Mac Catalyst leg's compile check, which the transition gates scan the same way. -->
+    <!-- The platform the bindings in ../output were generated for: ios, or maccatalyst or tvos for
+         those legs' compile checks, which the transition gates scan the same way. -->
     <BtCompileCheckPlatform Condition="'$(BtCompileCheckPlatform)' == ''">ios</BtCompileCheckPlatform>
     <TargetFramework>$(BtTargetFramework)-$(BtCompileCheckPlatform)</TargetFramework>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

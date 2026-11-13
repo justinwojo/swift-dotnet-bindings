@@ -1714,16 +1714,19 @@ partial class Build
             // Swift types don't exist on tvOS (e.g. AuthenticationServices.
             // ASAuthorizationPublicKeyCredentialParameters is iOS/macOS only).
             //
-            // We deliberately skip RunCompileCheck() here: tvOS does not route
-            // through bridges yet, so no transition cross-check reads a tvOS
-            // compile check. The dotnet build of RuntimeTestsApp.tvOS below is
-            // the real compile gate for the tvOS output.
+            // tvOS routes through bridges as iOS does, so its output gets the same
+            // transition gates the compile-only path runs on iOS: a compile check
+            // for the tvOS framework, then the ledger, R3 and residual-guard
+            // cross-check over it. The dotnet build of RuntimeTestsApp.tvOS below
+            // stays the compile gate for the app itself.
             if (!EffectiveSkipRegen)
             {
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateBindings(strict: Strict, platformOverride: platform);
                 AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "tvOS Simulator");
                 RunBuildBridge(platformOverride: platform);
+                RunCompileCheck(platform.Name);
+                RunTransitionLedgerCrossCheck(platform.Name);
             }
             else
             {

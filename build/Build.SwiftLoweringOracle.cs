@@ -3,7 +3,8 @@
 //
 // Opt-in, host-only: the swiftc lowering oracle over the BindingTests corpus. Compiles the dependency
 // and main modules with swiftc for the slices of the platform the corpus was regenerated for (the
-// iOS device and both simulator triples, or with --platform maccatalyst both Mac Catalyst triples),
+// iOS device and both simulator triples; with --platform tvos the tvOS device and both simulator
+// triples; with --platform maccatalyst both Mac Catalyst triples),
 // emits their LLVM IR, and compares every callee's predicted physical signature and every frozen
 // struct's layout with what swiftc produced. Writes one report per triple, toolchain included, under
 // artifacts/. It also records this toolchain's lowering receipts into the SDK's qualification record
@@ -37,10 +38,11 @@ partial class Build
     void RunSwiftLoweringOracle()
     {
         // The iOS corpus is the compile-only gate's regeneration, which the oracle reads in place. Mac
-        // Catalyst has no compile-only regeneration, so the oracle regenerates it the way the Catalyst
-        // leg does. Its plan sidecars name the targets it routes, which the probe-route requests keep
-        // on their Swift-convention imports whether or not the record already holds Catalyst receipts;
-        // until it does, those requests cannot be satisfied and the regeneration needs --permissive.
+        // Catalyst and tvOS have no compile-only regeneration, so the oracle regenerates each the way
+        // its leg does (tvOS through the iOS-family path). Its plan sidecars name the targets it routes,
+        // which the probe-route requests keep on their Swift-convention imports whether or not the
+        // record already holds that platform's receipts; until it does, those requests cannot be
+        // satisfied and the regeneration needs --permissive.
         var platform = ResolvedPlatform;
         if (!SwiftBridgeRoutedPlatforms.Contains(platform.Name, StringComparer.Ordinal))
             Assert.Fail($"swift-lowering-oracle: {platform.Name} does not route through bridges; the corpus is recorded for {string.Join(" and ", SwiftBridgeRoutedPlatforms)}");
@@ -48,6 +50,11 @@ partial class Build
         {
             RunBuildXcframework(platformOverride: platform);
             RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
+        }
+        else if (platform.Name == ApplePlatform.TvOS.Name)
+        {
+            RunBuildXcframework(platformOverride: platform);
+            RunRegenerateBindings(strict: Strict, platformOverride: platform);
         }
         if (AssertRoutedCorpusPlatform("swift-lowering-oracle") != platform.Name)
             Assert.Fail($"swift-lowering-oracle: the BindingTests output is not a {platform.Name} regeneration; run `nuke binding-tests --compile-only` first");

@@ -114,16 +114,45 @@ public class SwiftLoweringEvidenceTests
         Assert.Contains("has no evidence for arm64-apple-ios15.0-simulator", judgement.Refusal);
     }
 
+    /// <summary>
+    /// tvOS shares iOS's architectures and its device/simulator split, but its slices are its own: an
+    /// iOS or Mac Catalyst receipt or record never covers them, a tvOS one never covers either of
+    /// those, and every tvOS slice is required, since the device, the arm64 simulator and the x86_64
+    /// simulator each run the bridges.
+    /// </summary>
     [Fact]
-    public void TvosEvidence_MustNameTvos()
+    public void TvosEvidence_MustNameEveryTvosSlice_AndNeverStandsInForIosOrCatalyst()
     {
         var tvos = SwiftArtifactScope.ForPlatform("M", "tvos");
+        var catalyst = SwiftArtifactScope.ForPlatform("M", "maccatalyst");
+        Assert.Equal(new[] { "arm64-apple-tvos15.0", "arm64-apple-tvos15.0-simulator", "x86_64-apple-tvos15.0-simulator" }, tvos.Slices.ToArray());
 
-        var fromIos = SwiftLoweringAuthorization.Authorize(Expect(tvos), Own(Ios));
-        Assert.False(fromIos.Authorizes);
-        Assert.All(tvos.Slices, t => Assert.Contains($"has no evidence for {t}", fromIos.Refusal));
+        foreach (var other in new[] { Ios, catalyst })
+        {
+            var fromOther = SwiftLoweringAuthorization.Authorize(Expect(tvos), Own(other));
+            Assert.False(fromOther.Authorizes);
+            Assert.All(tvos.Slices, t => Assert.Contains($"has no evidence for {t}", fromOther.Refusal));
+            Assert.False(SwiftLoweringQualification.Qualify(Record("M", QualifiedCompilers, other.Slices, Shows), tvos).Authorizes);
+
+            Assert.False(SwiftLoweringAuthorization.Authorize(Expect(other), Own(tvos)).Authorizes);
+            Assert.False(SwiftLoweringQualification.Qualify(Record("M", QualifiedCompilers, tvos.Slices, Shows), other).Authorizes);
+        }
+
+        foreach (var missing in tvos.Slices)
+        {
+            var partial = SwiftLoweringAuthorization.Authorize(Expect(tvos), Own(new SwiftArtifactScope("M", tvos.Slices.Where(t => t != missing))));
+            Assert.False(partial.Authorizes);
+            Assert.Contains($"has no evidence for {missing}", partial.Refusal);
+        }
 
         Assert.True(SwiftLoweringAuthorization.Authorize(Expect(tvos), Own(tvos)).Judge(Symbol, Callee).Executable);
+        var all = Record("M", QualifiedCompilers, tvos.Slices, Shows,
+            into: Record("M", QualifiedCompilers, catalyst.Slices, Shows, into: Record("M", QualifiedCompilers, Ios.Slices, Shows)));
+        foreach (var scope in new[] { tvos, catalyst, Ios })
+        {
+            var qualified = SwiftLoweringQualification.Qualify(all, scope);
+            Assert.True(qualified.Judge(Symbol, Callee).Executable, qualified.Refusal);
+        }
     }
 
     /// <summary>
@@ -553,6 +582,26 @@ public class SwiftLoweringEvidenceTests
             Assert.Equal(SwiftLoweringQualification.Families.Order(StringComparer.Ordinal),
                 artifact.Select(r => SwiftCompilerIdentity.Family(r.Compiler)).Order(StringComparer.Ordinal));
             Assert.All(artifact, r => Assert.Equal(SwiftLoweringContract.Current, r.Contract));
+        }
+    }
+
+    /// <summary>
+    /// The BindingTests corpus routes through bridges on iOS, Mac Catalyst and tvOS, so the committed
+    /// record qualifies both corpus modules over each of those platforms' own slices; macOS, which
+    /// regenerates without evidence, is not covered.
+    /// </summary>
+    [Theory]
+    [InlineData("ios", true)]
+    [InlineData("maccatalyst", true)]
+    [InlineData("tvos", true)]
+    [InlineData("macos", false)]
+    public void TheCommittedRecord_QualifiesTheCorpusOnExactlyTheRoutedPlatforms(string platform, bool routed)
+    {
+        var record = SwiftLoweringEvidence.Load(SwiftCallPlanTests.LoweringEvidencePath);
+        foreach (var module in new[] { "SwiftBindingsTestLib", "SwiftBindingsTestLibDependency" })
+        {
+            var judgement = SwiftLoweringQualification.Qualify(record, SwiftArtifactScope.ForPlatform(module, platform));
+            Assert.True(judgement.Authorizes == routed, $"{module} on {platform}: {judgement.Refusal ?? "qualified"}");
         }
     }
 

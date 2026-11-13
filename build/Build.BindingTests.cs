@@ -462,8 +462,8 @@ partial class Build
 
         // Route every transition the SDK's lowering qualification record qualifies through its native
         // bridge: the corpus is the SDK's qualification corpus, judged under every qualified compiler
-        // family whichever toolchain regenerates it. The record covers the iOS and Mac Catalyst
-        // triples, so the other platforms keep their direct imports.
+        // family whichever toolchain regenerates it. The record covers the iOS, tvOS and Mac Catalyst
+        // triples, so macOS keeps its direct imports.
         if (BridgeEvidenceApplies(platformOverride))
         {
             genArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
@@ -804,7 +804,7 @@ partial class Build
         .DependsOn(RegenerateBindings)
         .Executes(() => RunCompileCheck());
 
-    /// <param name="platform">The platform the output was generated for: <c>ios</c>, or <c>maccatalyst</c> on the Catalyst leg.</param>
+    /// <param name="platform">The platform the output was generated for: <c>ios</c>, or <c>maccatalyst</c> or <c>tvos</c> on those legs.</param>
     void RunCompileCheck(string platform = "ios")
     {
         Log.Information("--- Compile-check generated bindings ({Platform}) ---", platform);

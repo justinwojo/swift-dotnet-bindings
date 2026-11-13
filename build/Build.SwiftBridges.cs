@@ -9,8 +9,8 @@
 // BindingTests output, re-judges each by the record over the artifact scope it records, and emits
 // and validates every bridge on arm64 and x86_64, assembled for each platform a sidecar claims. The
 // same record (which `swift-lowering-oracle` writes, one receipt per artifact and qualified compiler
-// family) is what an iOS or Mac Catalyst BindingTests regeneration passes the generator, which routes
-// every transition it qualifies through that transition's bridge.
+// family) is what an iOS, Mac Catalyst or tvOS BindingTests regeneration passes the generator, which
+// routes every transition it qualifies through that transition's bridge.
 
 using System;
 using System.Collections.Generic;
@@ -29,10 +29,10 @@ partial class Build
 
     /// <summary>
     /// The platforms whose BindingTests regeneration routes through native bridges: those whose slices
-    /// the qualification record holds the corpus's receipts for (the iOS device and simulator triples,
-    /// and both Mac Catalyst triples). A platform it does not cover keeps its direct Swift imports.
+    /// the qualification record holds the corpus's receipts for (the iOS and tvOS device and simulator
+    /// triples, and both Mac Catalyst triples). A platform it does not cover keeps its direct Swift imports.
     /// </summary>
-    static readonly string[] SwiftBridgeRoutedPlatforms = ["ios", "maccatalyst"];
+    static readonly string[] SwiftBridgeRoutedPlatforms = ["ios", "maccatalyst", "tvos"];
 
     /// <summary>Whether a BindingTests regeneration for <paramref name="platformOverride"/> (null: iOS) routes through native bridges.</summary>
     static bool BridgeEvidenceApplies(ApplePlatform? platformOverride) =>
@@ -88,7 +88,7 @@ partial class Build
         (SourceDir / "Swift.Bindings.Apple" / "transition-facts.json", [SourceDir / "Swift.Bindings.Apple" / "Sources"]),
     ];
 
-    /// <summary>The plan sidecars of the current BindingTests regeneration (iOS or Mac Catalyst), which routes through the bridges.</summary>
+    /// <summary>The plan sidecars of the current BindingTests regeneration (iOS, Mac Catalyst or tvOS), which routes through the bridges.</summary>
     string[] SwiftBridgeCorpusPlanFiles() =>
         new[] { BtOutputDir / $"{ModuleName}.swift-call-plans.json", BtOutputDir / $"{DepModuleName}.swift-call-plans.json" }
             .Select(p => p.ToString())
@@ -153,7 +153,7 @@ partial class Build
             var plans = SwiftBridgePlanFiles();
             var routed = SwiftBridgeCorpusPlanFiles().Concat(SwiftBridgeRoutedProductFiles()).ToArray();
             foreach (var missing in plans.Where(p => !File.Exists(p)))
-                Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` (or a `--catalyst` leg) first");
+                Assert.Fail($"{missing} is missing: run `nuke binding-tests --compile-only` (or a `--catalyst` or `--tvos` leg) first");
             AssertRoutedCorpusPlatform("the Swift bridge gate");
             if (Directory.Exists(SwiftBridgeGateScratch))
                 SwiftBridgeGateScratch.DeleteDirectory();

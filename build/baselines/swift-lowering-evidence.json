@@ -1449,6 +1449,386 @@
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
           }
         },
+        "arm64-apple-tvos15.0": {
+          "sdk": "appletvos 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
+        "arm64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
         "x86_64-apple-ios15.0-macabi": {
           "sdk": "macosx 26.2 (25C58)",
           "sources": [
@@ -1690,6 +2070,196 @@
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
               "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
+        "x86_64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2411,6 +2981,386 @@
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
           }
         },
+        "arm64-apple-tvos15.0": {
+          "sdk": "appletvos 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
+        "arm64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
         "x86_64-apple-ios15.0-macabi": {
           "sdk": "macosx 27.2 (26B118)",
           "sources": [
@@ -2652,6 +3602,196 @@
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
               "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC10accumulate_7throughs5Int64VAG_A2GXCtKF": "swiftcc i64 (i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC6derive_7throughAA13TrackedObjectCAG_s5Int64VAIXCtF": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0A11BridgeProbeC7combine__7throughAA17LargeScalarStructVs5Int64V_A3IXCtF": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib0bC11GlobalActorC6sharedACvgZ": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib10InoutTallyC7measure_4seenSix_SbztAA0E5ShapeRzlF": "swiftcc i64 (ptr noalias, ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib11NbgOptOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib12StaticChoiceO5boxedxSgvg": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib13DocParamValueV4seedACSgSi_tcfC": "swiftcc void (ptr noalias sret, i64)",
+            "$s20SwiftBindingsTestLib13IndirectTableV6CursorV8position5labelAEyx_GSi_SStcfC": "swiftcc void (ptr noalias sret, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib13NbgTupleOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13OriginShifterC6mutateyyAA14NonFrozenPointVzF": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib13ValidatedNameV4nameACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14BufferModeQuadV5first6second5third6fourthACyxq_q0_q1_Gx_q_q0_q1_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14CrossHostOuterV4BodyV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC12readWithSelf5_self_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readThenThrow4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC13readWithCdecl5cdecl_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC20readThenThrowTracked4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14DatabaseReaderC4read4from_xAC_xACKXEtKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib14InternalHolderC6offsets5Int32VAF_tcigTj": "swiftcc i32 (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib14InternalHolderC8describeSSyFTj": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib14NonEmptyStringVyACSgSScfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib14ResultFailableV6resultACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib14ReturnMetadataV1poiyAA22LocalNameCollisionWideVAC_ACtFZ": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV2lo2hiACSiYt_SiYttcfC": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib15ConstLiteralBoxV7exactlyACSiYt_tcfC": "swiftcc { i64, i64 } (i64)",
+            "$s20SwiftBindingsTestLib15NestedHostClassC3TagV5labelAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvg": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib15PassingTokenBoxC5itemsSayxGvs": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4LeafV5valueAEyx_Gs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib15StaticNestOuterV4NodeC5valueAEyx_Gs5Int32V_tcfC": "swiftcc ptr (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16CodableScalarBoxV5valueACyxGx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16NestedHostStructV7CaptionV4textAEyx_GSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvgTj": "swiftcc ptr (ptr swiftself)",
+            "$s20SwiftBindingsTestLib16ReservedRegistryC5itemsSayxGvsTj": "swiftcc void (ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib16TagLocalColliderV3tagACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE04textQrSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17AsyncOpaqueWorkerV04makefE8Throwing4textQrSS_tYaKF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib17FutureBridgedHostC11futureLabelSSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17MetatypeSelfActorC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib17WitnessReadingBoxV5value5probeACyxGx_xtcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18BugReproBindTargetV9ScenePathV4selfACvg": "swiftcc void (ptr noalias sret, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib18OwnedArgStringHostV4textACSgSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV5valueACyxq_Gx_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib18PendingRequestTaskV6erasedAA0fG0_pq_7FailureRts_x5ValueRtsXPyF": "swiftcc void (ptr noalias sret, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib19makePairDescriptionySSAA0F0Vyxq_Gr0_lF": "swiftcc { i64, ptr } (ptr noalias, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20ConsumedCarrierProbeV7readingACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib20InoutTextInitializerV_7succeedACSgSSz_SbtcfC": "swiftcc void (ptr noalias sret, ptr, i1)",
+            "$s20SwiftBindingsTestLib20PatBoundedStatsQueryVACyxGycfC": "swiftcc void (ptr noalias sret, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC14instanceReports0G0_pSgyFTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC5checks0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib20StaticSelfErrorProbeC6reports0G0_pSgyFZTj": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC8evaluateyxxyKXKKlF_XC_void": "swiftcc void (i64, i64, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21BoxableConsumerParityV8optionalACSgAA0E0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib21CollidableAsyncVendorC05fetchE05labelAA05BoundE0_pSS_tYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib21CrossHostSiblingClassC2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc ptr (ptr noalias, ptr swiftself)",
+            "$s20SwiftBindingsTestLib21FailableLifetimeValueV_8argument4modeACSgSSz_AA0eF8ArgumentVhs5Int32VtKcfC": "swiftcc void (ptr noalias sret, ptr, ptr noalias, i32, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib21GenericOptionalAbiBoxV12tagIsPresentySbxSgF": "swiftcc i1 (ptr noalias, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib22CrossHostSiblingStructV2byACyxGAA0eF5OuterV4BodyVyx_G_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr)",
+            "$s20SwiftBindingsTestLib22RefBoxArityTransformerC9transformyxSgAA0eF0CSglF": "swiftcc void (ptr noalias sret, i64, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10emptyLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO10labelWidthys5Int32VSSSgFZ": "swiftcc i32 (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvgZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO11storedLabelSSSgvsZ": "swiftcc void (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO14timestampWholeys5Int32VSdSgFZ": "swiftcc i32 (i64, i8)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO5label7forSeedSSSgs5Int32V_tFZ": "swiftcc { i64, i64 } (i32)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9echoLabelySSSgAEFZ": "swiftcc { i64, i64 } (i64, i64)",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
+            "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
+            "$s20SwiftBindingsTestLib23makeColorAttributeAsync4name5colorAA0G4Kind_pSS_SStYaF_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr, i64, ptr)",
+            "$s20SwiftBindingsTestLib24CopyableFailableResourceV2idACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC5applyyxx_xxKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GenericArgClosureFixtureC7combineyxx_xxx_xtKXEtKlF_XC": "swiftcc void (i64, i64, ptr, ptr, ptr, ptr, ptr swiftself, ptr noalias swifterror)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5counts5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24GlobalActorIsolatedClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC08describeF0SSyFZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24MetatypeSelfInternalHostC8selfNameSSvgZ": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC": "swiftcc void (ptr noalias sret, ptr, ptr, i1)",
+            "$s20SwiftBindingsTestLib24ResilientRefConsumerCellV8optionalACSgAA07TrackedF6StructV_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
+            "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF": "swiftcc i32 (ptr, ptr)",
+            "$s20SwiftBindingsTestLib25BufferModeDescribablePairV5first6secondACyxq_Gx_q_tcfC": "swiftcc void (ptr noalias sret, ptr noalias, ptr noalias, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib25InternalContractConformerC11contractTags5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25ResultBufferLocalColliderV06resultF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC012validateMathG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC018validateValidationG0s0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC12validateNones0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib25StaticOptionalErrorReturnC15validateNSErrors0G0_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC11stableDepths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12doubledCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12mutableCounts5Int32VvsTj": "swiftcc void (i32, ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC12privatelySets5Int32VvgTj": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib26GlobalActorStorageBoundaryC9stableTagSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib28MetatypeSelfGlobalActorBoundC6reports5Error_pSgyFZ": "swiftcc i64 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib29ClassBoundConsumedCarrierCellV8optionalACSgAA0efgH0_p_tcfC": "swiftcc void (ptr noalias sret, ptr, ptr)",
+            "$s20SwiftBindingsTestLib29DirectReturnLocalNameColliderV019optionalExistentialF011swiftResultAA0gH14CollisionShape_pSgs5Int32V_tF": "swiftcc void (ptr noalias sret, i32, ptr, ptr noalias swiftself)",
+            "$s20SwiftBindingsTestLib29OptionalMetadataLocalColliderV08optionalF0ACSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32)",
+            "$s20SwiftBindingsTestLib29makeTrackedRenderableOptional_3tagAA0G0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF": "swiftcc { i64, ptr } (ptr, ptr)",
+            "$s20SwiftBindingsTestLib32GlobalActorIsolatedThrowingClassC5values5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5depths5Int32Vvg": "swiftcc i32 (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34GlobalActorIsolatedDefaultArgClassC5labelSSvg": "swiftcc { i64, ptr } (ptr swiftself)",
+            "$s20SwiftBindingsTestLib34makeBoxedTrackedRenderableOptional_3tagAA0H0_pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib34makeTrackedNameableAgeableOptional_3tagAA0H0_AA0G0pSgSb_s5Int32VtF": "swiftcc void (ptr noalias sret, i1, i32)",
+            "$s20SwiftBindingsTestLib7ItemBagVyAA06StoredE0_pSgSScis_optbuf": "swiftcc void (ptr, i64, ptr, ptr)",
+            "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC": "swiftcc void (ptr noalias sret, i32, ptr)",
+            "$s20SwiftBindingsTestLib8PinRangeV3rawACyxq_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr)",
+            "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1": "swiftcc ptr (ptr, ptr, ptr swiftself)",
+            "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
+            "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
+            "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
+          }
+        },
+        "x86_64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2983,6 +4123,126 @@
           ],
           "symbols": {}
         },
+        "arm64-apple-tvos15.0": {
+          "sdk": "appletvos 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
+        "arm64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
         "x86_64-apple-ios15.0-macabi": {
           "sdk": "macosx 26.2 (25C58)",
           "sources": [
@@ -3094,6 +4354,66 @@
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
               "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
+        "x86_64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 26.2 (23K50)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3295,6 +4615,126 @@
           ],
           "symbols": {}
         },
+        "arm64-apple-tvos15.0": {
+          "sdk": "appletvos 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
+        "arm64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
         "x86_64-apple-ios15.0-macabi": {
           "sdk": "macosx 27.2 (26B118)",
           "sources": [
@@ -3406,6 +4846,66 @@
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
               "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            }
+          ],
+          "symbols": {}
+        },
+        "x86_64-apple-tvos15.0-simulator": {
+          "sdk": "appletvsimulator 27.2 (24K122)",
+          "sources": [
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLib",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "definition",
+              "name": "SwiftBindingsTestLibDependency",
+              "digest": "sha256:e9f09ff699645cec66393fa88cc7fa4bb3cb4110763ffa62c09bf71629c19475",
+              "flags": [
+                "-swift-version",
+                "5",
+                "-wmo",
+                "-parse-as-library",
+                "-enable-library-evolution"
+              ]
+            },
+            {
+              "role": "probe",
+              "name": "HandWrittenTargets",
+              "digest": "sha256:16c5e441692d5c2e7f14902556678f42eaf11b3f59f4421d0e22ef7e701d5f14",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibDependencySwiftBindings",
+              "digest": "sha256:030ecfeb86fdb77027575456a0e389c45816cbe22271404fc03c2654e20f77ef",
+              "flags": [
+                "-wmo",
+                "-parse-as-library",
+                "-strict-concurrency=minimal"
+              ]
+            },
+            {
+              "role": "wrapper",
+              "name": "SwiftBindingsTestLibSwiftBindings",
+              "digest": "sha256:6f2887a24795d7dc86fa3978e6caedc4e3be53b772634f2c65bb54e96582a6d1",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
