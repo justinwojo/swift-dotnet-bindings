@@ -635,12 +635,11 @@ public class ClosureTests : TestBase
 
     #endregion
 
-    #region Setter-Only Closure Properties (network-client ClosureEventMonitor pattern)
-    // Tests for closure properties where the parameter type (existential) prevents C# invocation
-    // via getter, but the setter path works. The generator emits these as set-only properties.
-    // Runtime: the setter routes through the @_cdecl property wrapper (funcPtr + context,
-    // CallConvCdecl); the Swift adapter heap-allocates the existential per invocation and the
-    // C# callback rewraps it in the protocol proxy — same bridge as existential closure params.
+    #region Closure Properties With an Existential Parameter (event-monitor pattern)
+    // The setter routes through the @_cdecl property wrapper (funcPtr + context, CallConvCdecl);
+    // the Swift adapter heap-allocates the existential per invocation and the C# callback rewraps
+    // it in the protocol proxy — same bridge as existential closure params. The getter hands the
+    // stored closure back through the invoke thunk.
 
     public void TestSetterOnlyCallbackHolder_SetAndTrigger()
     {
@@ -659,6 +658,30 @@ public class ClosureTests : TestBase
         holder.OnConfigChanged = null;
         holder.NotifyConfigChanged();
         TestLogger.Info("SetterOnlyCallbackHolder set-to-null + trigger passed (no crash)");
+    }
+
+    public void TestSetterOnlyCallbackHolder_GetterInvokesStoredCallback()
+    {
+        // Read the stored closure back and call it from C#: the invoke thunk boxes the C#-held
+        // argument as an existential, Swift calls the stored closure, and that reaches the C#
+        // callback set below with the argument rewrapped in the protocol proxy.
+        using var holder = new SetterOnlyCallbackHolder();
+        AssertNull(holder.OnConfigChanged, "an unset closure property reads null");
+
+        var recorder = new ModeNameRecorder();
+        holder.OnConfigChanged = recorder.Record;
+        var callback = holder.OnConfigChanged;
+        AssertNotNull(callback, "the getter returns the stored closure");
+
+        using var mode = new SimpleMode();
+        callback!(mode);
+        AssertEqual("simple", recorder.Name, "the stored C# callback received the argument");
+    }
+
+    private sealed class ModeNameRecorder
+    {
+        public string? Name { get; private set; }
+        public void Record(IProcessingMode mode) => Name = mode.ModeName;
     }
 
     #endregion

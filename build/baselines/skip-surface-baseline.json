@@ -1,5 +1,5 @@
 {
-  "git_sha": "0aa73af32",
+  "git_sha": "b551a5a51",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -316,12 +316,6 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027TaggedKeyDeriver.deriveKey\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
       "reason": "method \u0027GatedKernel.tickCount\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
       "count": 1
     },
@@ -346,13 +340,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027GenericConstrainedExtensionMapper.map\u0027 \u2014 ConstrainedExtensionWrapper (Method \u0027map\u0027 on generic type \u0027GenericConstrainedExtensionMapper\u0027 declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).)",
+      "reason": "method \u0027GenericClassParentBitwiseReviewBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027GenericClassParentBitwiseReviewBox.init\u0027 \u2014 NonBlittableCallConvSwift (generic-type constructor inadmissible for open dispatch (CSM emits concrete forms))",
+      "reason": "method \u0027GenericConstrainedExtensionMapper.map\u0027 \u2014 ConstrainedExtensionWrapper (Method \u0027map\u0027 on generic type \u0027GenericConstrainedExtensionMapper\u0027 declares generic constraints narrower than its parent; the wrapper conformance extension is unconstrained, so the method is invisible at the call site (conditional-conformance wrapper not yet supported).)",
       "count": 1
     },
     {
@@ -484,12 +478,6 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027NativeThunkReceiver.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
-      "count": 1
-    },
-    {
-      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
-      "marker": "Unsupported",
       "reason": "method \u0027MixedEmittability.transform\u0027 \u2014 closure signature not yet supported (Parameter \u0027_using\u0027 has unsupported closure type that cannot be marshalled.)",
       "count": 1
     },
@@ -503,6 +491,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027MixedTupleHost.mixedStaticPair\u0027 \u2014 parameter or return type not yet supported (mixed generic tuple return has a per-element indirect/direct ABI the P/Invoke cannot express)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027NativeThunkReceiver.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
       "count": 1
     },
     {
@@ -569,6 +563,24 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027ReturnTypeOnlyOverloadHost.selectExpression\u0027 \u2014 C# signature collides with another member",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ReturnedClosureVendor.makeApplier\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: argument 0 (@escaping (Swift.Int32) -\u003E Swift.Int32) has no invoke-thunk marshalling.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ReturnedClosureVendor.makeAsyncCounter\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: the closure is async; a returned async closure has no invoke thunk.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ReturnedClosureVendor.makeCFunctionApplier\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: argument 0 ((Swift.Int32) -\u003E Swift.Int32) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
@@ -682,6 +694,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027TaggedKeyDeriver.deriveKey\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ThrowingSealedBox.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
@@ -760,37 +778,37 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: argument 0 (Any) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeAnyProducer\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: the result (Any) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makePointAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makePointAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: argument 1 (Any) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makeSendableProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeSendableProducer\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: the result (any Swift.Sendable) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makeStringProducer\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeStringProducer\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: the result (Any) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ZeroWitnessClosureHost.makeTagAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure whose params/return cannot be invoked from C# without a function-pointer marshaler.)",
+      "reason": "method \u0027ZeroWitnessClosureHost.makeTagAnyDescriber\u0027 \u2014 closure signature not yet supported (Return type is a closure C# cannot invoke: argument 1 (Any) has no invoke-thunk marshalling.)",
       "count": 1
     },
     {
@@ -1276,7 +1294,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027PinSingle.doubled\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027doubled\u0027 on generic type \u0027PinSingle\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "reason": "property \u0027PinRange.coarseUnits\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027coarseUnits\u0027 on generic type \u0027PinRange\u0027 pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.)",
       "count": 1
     },
     {
@@ -1288,7 +1306,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027PinRange.coarseUnits\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027coarseUnits\u0027 on generic type \u0027PinRange\u0027 pins a generic parameter of a multi-parameter parent to a concrete type, so it has no open-generic form; it is emitted per closed parent instantiation as a concrete-specialization extension method.)",
+      "reason": "property \u0027PinSingle.doubled\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027doubled\u0027 on generic type \u0027PinSingle\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
       "count": 1
     },
     {
@@ -1319,6 +1337,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027RefWeighedBox.slot\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027ReturnedClosureVendor.storedPairMaker\u0027 \u2014 closure signature not yet supported (Closure-typed property setter passes \u0027(Swift.Int32, Swift.Int32)\u0027 by value in registers, a lowering the direct callback does not model.)",
       "count": 1
     },
     {

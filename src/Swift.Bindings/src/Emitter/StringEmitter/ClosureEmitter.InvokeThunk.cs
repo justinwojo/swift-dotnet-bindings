@@ -52,16 +52,28 @@ public static partial class ClosureEmitter
 
         var isThrowing = closureTypeSpec.Throws;
 
-        // Build parameter list: funcPtr (Int), context (Int), then closure args, then
-        // (for throwing closures) an explicit error-out pointer. Cdecl exits via
-        // explicit error-out, not the SwiftCC SwiftError register.
+        // A result the thunk cannot return as one C scalar (an existential, a tuple) leaves
+        // through out-pointers the invoker supplies, placed after the closure's own arguments;
+        // the thunk itself then returns Void.
+        var resultOuts = GetInvokeThunkResultOuts(closureTypeSpec.ReturnType, closureHandler);
+
+        // Build parameter list: funcPtr (Int), context (Int), then closure args, then any
+        // result out-pointers, then (for throwing closures) an explicit error-out pointer.
+        // Cdecl exits via explicit error-out, not the SwiftCC SwiftError register.
         var swiftParams = new List<string> { "_ _funcPtr: Swift.Int", "_ _context: Swift.Int" };
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            var swiftType = SwiftBuilder.GetSwiftCdeclParamType(arg, closureHandler);
+            // An existential arrives as the address of a container the invoker built.
+            var swiftType = closureHandler.IsInvokeThunkExistential(arg)
+                ? "Swift.UnsafeRawPointer"
+                : SwiftBuilder.GetSwiftCdeclParamType(arg, closureHandler);
             swiftParams.Add($"_ arg{argIndex}: {swiftType}");
             argIndex++;
+        }
+        foreach (var resultOut in resultOuts)
+        {
+            swiftParams.Add($"_ {resultOut}: Swift.UnsafeMutableRawPointer");
         }
         if (isThrowing)
         {
@@ -69,7 +81,7 @@ public static partial class ClosureEmitter
         }
 
         // Determine Swift return type
-        var returnsVoid = closureTypeSpec.ReturnType.IsEmptyTuple;
+        var returnsVoid = closureTypeSpec.ReturnType.IsEmptyTuple || resultOuts.Count > 0;
         string swiftReturnType;
         if (returnsVoid)
         {
@@ -120,7 +132,14 @@ public static partial class ClosureEmitter
         argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
-            if (MarshallingHelpers.IsBoolType(arg))
+            if (closureHandler.IsInvokeThunkExistential(arg))
+            {
+                // Existential: a copying load out of the invoker's container. The copy is the
+                // closure's own (Swift releases it after the call); the invoker's container is left
+                // intact for the invoker to destroy.
+                callArgs.Add($"arg{argIndex}.load(as: {RenderExistentialMetatypeOperand(arg, closureHandler)}.self)");
+            }
+            else if (MarshallingHelpers.IsBoolType(arg))
             {
                 callArgs.Add($"arg{argIndex} != 0");
             }
@@ -194,7 +213,23 @@ public static partial class ClosureEmitter
 
             // do { try _closure(...) } catch { marshal error; return default }
             ThrowingWrapperErrorContractEmitter.EmitInitialization(swiftWriter, "_errorOut");
-            if (returnsVoid)
+            if (resultOuts.Count > 0)
+            {
+                // Result through out-pointers: written only on success. On a throw they stay
+                // uninitialised and the invoker never reads them.
+                swiftWriter.WriteLine("do {");
+                swiftWriter.Indent++;
+                swiftWriter.WriteLine($"let _result = try _closure({callArgsString})");
+                EmitInvokeThunkResultStores(swiftWriter, closureTypeSpec.ReturnType, closureHandler, "_result");
+                swiftWriter.Indent--;
+                swiftWriter.WriteLines($$"""
+                    } catch {
+                        _errorOut.pointee = Swift.Unmanaged.passRetained(error as Swift.AnyObject).toOpaque()
+                        {{defaultReturnExpr}}
+                    }
+                    """);
+            }
+            else if (returnsVoid)
             {
                 swiftWriter.WriteLines($$"""
                     do {
@@ -217,6 +252,11 @@ public static partial class ClosureEmitter
                     }
                     """);
             }
+        }
+        else if (resultOuts.Count > 0)
+        {
+            swiftWriter.WriteLine($"let _result = _closure({callArgsString})");
+            EmitInvokeThunkResultStores(swiftWriter, closureTypeSpec.ReturnType, closureHandler, "_result");
         }
         else if (returnsVoid)
         {
@@ -297,6 +337,80 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// The out-pointer parameter names a returned closure's result needs, in thunk-signature
+    /// order: one for an existential (the address of a container), one per element for a tuple,
+    /// none for a result the thunk returns directly as a C scalar or pointer. The Swift thunk and
+    /// the C# invoker both read the parameter list from this, so the two signatures cannot drift.
+    /// </summary>
+    internal static IReadOnlyList<string> GetInvokeThunkResultOuts(TypeSpec returnType, ClosureHandler closureHandler)
+    {
+        if (closureHandler.IsInvokeThunkExistential(returnType))
+            return ["_resultOut"];
+        if (IsInvokeThunkTupleReturn(returnType, closureHandler))
+            return ((TupleTypeSpec)returnType).Elements.Select((_, i) => $"_resultOut{i}").ToList();
+        return [];
+    }
+
+    /// <summary>
+    /// Writes a returned closure's result (bound to <paramref name="resultExpr"/>) into the
+    /// out-pointers <see cref="GetInvokeThunkResultOuts"/> names. An existential is initialised
+    /// in place — the invoker adopts that copy at +1. A tuple stores each element as the scalar
+    /// the invoker reads it back as: Bool as one byte, a simple enum as its integer scalar.
+    /// </summary>
+    private static void EmitInvokeThunkResultStores(
+        SwiftWriter swiftWriter, TypeSpec returnType, ClosureHandler closureHandler, string resultExpr)
+    {
+        if (closureHandler.IsInvokeThunkExistential(returnType))
+        {
+            swiftWriter.WriteLine(
+                $"_resultOut.initializeMemory(as: {RenderExistentialMetatypeOperand(returnType, closureHandler)}.self, repeating: {resultExpr}, count: 1)");
+            return;
+        }
+        var tuple = (TupleTypeSpec)returnType;
+        for (int i = 0; i < tuple.Elements.Count; i++)
+        {
+            var element = tuple.Elements[i];
+            var scalarType = MarshallingHelpers.IsBoolType(element)
+                ? "Swift.Bool"
+                : SwiftBuilder.GetSwiftCdeclParamType(element, closureHandler);
+            var value = BuildSwiftInvokeThunkReturnExpr(closureHandler, element, scalarType, $"{resultExpr}.{i}");
+            swiftWriter.WriteLine($"_resultOut{i}.storeBytes(of: {value}, as: {scalarType}.self)");
+        }
+    }
+
+    /// <summary>
+    /// The existential's Swift type as a metatype operand: <c>(any P)</c>, parenthesised so that
+    /// <c>.self</c> binds to the whole existential rather than to the protocol name.
+    /// </summary>
+    private static string RenderExistentialMetatypeOperand(TypeSpec typeSpec, ClosureHandler closureHandler)
+    {
+        var swiftType = CdeclParamMapper.RenderModuleQualifiedSwiftTypeWithExistentialAny(typeSpec, closureHandler.TypeDatabase);
+        return swiftType.StartsWith("any ") ? $"({swiftType})" : swiftType;
+    }
+
+    /// <summary>
+    /// Whether a returned closure's tuple result is one the thunk hands back element by element:
+    /// every element a numeric primitive, Bool, or simple enum — values with a fixed scalar
+    /// spelling on both sides that the invoker reassembles into the C# tuple.
+    /// </summary>
+    internal static bool IsInvokeThunkTupleReturn(TypeSpec returnType, ClosureHandler closureHandler)
+    {
+        if (returnType is not TupleTypeSpec tuple || tuple.IsEmptyTuple || tuple.Elements.Count < 2)
+            return false;
+        foreach (var element in tuple.Elements)
+        {
+            if (element.IsInOut)
+                return false;
+            if (MarshallingHelpers.IsBoolType(element) || closureHandler.IsSimpleEnum(element))
+                continue;
+            if (element is NamedTypeSpec named && ClosureHandler.GetBlittablePrimitiveType(named.Name) != null)
+                continue;
+            return false;
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Gets a unique C# static helper method name for the invoke thunk.
     /// Uses a deterministic hash of the entry point to avoid collisions.
     /// </summary>
@@ -343,6 +457,7 @@ public static partial class ClosureEmitter
         bool invokerIsExternallyVisible = false)
     {
         var isThrowing = closureTypeSpec.Throws;
+        var resultOuts = GetInvokeThunkResultOuts(closureTypeSpec.ReturnType, closureHandler);
 
         // Build P/Invoke parameter list: funcPtr, ctx, then closure args (all P/Invoke types)
         // Use nint instead of void* for complex enums to avoid requiring unsafe context.
@@ -353,6 +468,13 @@ public static partial class ClosureEmitter
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
+            // An existential travels as the address of a container the invoker builds.
+            if (closureHandler.IsInvokeThunkExistential(arg))
+            {
+                pinvokeParams.Add($"nint arg{argIndex}");
+                argIndex++;
+                continue;
+            }
             var csType = closureHandler.TranslateTypeSpecToPInvokeType(arg);
             // Complex enums: TranslateTypeSpecToPInvokeType returns void*, but the invoke
             // thunk P/Invoke uses CallingConvention.Cdecl (not unmanaged[Swift]), so nint
@@ -370,6 +492,10 @@ public static partial class ClosureEmitter
             pinvokeParams.Add($"{csType} arg{argIndex}");
             argIndex++;
         }
+        // A result that is not one C scalar comes back through out-pointers, in the order the Swift
+        // thunk declares them (after the arguments, before the error out-pointer).
+        foreach (var resultOut in resultOuts)
+            pinvokeParams.Add($"nint {resultOut}");
         // RuntimeTestsApp (and other consumers) set DisableRuntimeMarshalling, which forbids
         // by-ref params (CA1420). Use an unmanaged pointer instead — IntPtr* is blittable and
         // marshals trivially. Inside the unsafe Invoke method we pass `&_err`.
@@ -379,7 +505,7 @@ public static partial class ClosureEmitter
 
         var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
         string returnType;
-        if (!hasReturn)
+        if (!hasReturn || resultOuts.Count > 0)
             returnType = "void";
         else if (MarshallingHelpers.IsBoolType(closureTypeSpec.ReturnType))
             returnType = "byte";
@@ -433,7 +559,12 @@ public static partial class ClosureEmitter
         {
             var csType = closureHandler.TranslateTypeSpecToCSharp(arg);
             invokeParams.Add($"{csType} _arg{invArgIndex}");
-            if (IsInvokeThunkStructArg(arg, closureHandler))
+            if (closureHandler.IsInvokeThunkExistential(arg))
+            {
+                AddInvokeThunkExistentialArg(arg, invArgIndex, closureHandler, heapPreTry, heapInTry, heapCleanup);
+                invokeCallArgs.Add($"(nint)_arg{invArgIndex}Heap");
+            }
+            else if (IsInvokeThunkStructArg(arg, closureHandler))
             {
                 int i = invArgIndex;
                 if (IsMetadataRemappedValueStructArg(arg))
@@ -491,8 +622,20 @@ public static partial class ClosureEmitter
             invArgIndex++;
         }
         var invokeParamsString = string.Join(", ", invokeParams);
-        var invokeCallArgsString = string.Join(", ", invokeCallArgs);
         var hasStructArg = heapPreTry.Count > 0 || frozenPrologue.Count > 0;
+
+        // A result read back through out-pointers: the locals the thunk writes into, their
+        // addresses (appended after the closure arguments), and the C# value built from them.
+        string resultOutDecls = "";
+        string? resultOutValue = null;
+        if (resultOuts.Count > 0)
+        {
+            var (decls, outArgs, value) = BuildInvokeThunkResultRead(closureTypeSpec.ReturnType, closureHandler);
+            resultOutDecls = decls;
+            resultOutValue = value;
+            invokeCallArgs.AddRange(outArgs);
+        }
+        var invokeCallArgsString = string.Join(", ", invokeCallArgs);
 
         // Build return type and invoke body with C# delegate types. Throwing closures
         // wrap the call in SwiftResult<T, SwiftError>: the user's delegate is typed
@@ -500,8 +643,9 @@ public static partial class ClosureEmitter
         string csReturnType;
         string invokeBody;
         // Throwing closures need `unsafe` to construct `SwiftError` from the raw error
-        // pointer; struct args need it for stackalloc/NativeMemory/value-witness pointers.
-        var invokeModifier = (isThrowing || hasStructArg) ? "internal unsafe" : "internal";
+        // pointer; struct args need it for stackalloc/NativeMemory/value-witness pointers, and
+        // result out-pointers for the addresses of their locals.
+        var invokeModifier = (isThrowing || hasStructArg || resultOuts.Count > 0) ? "internal unsafe" : "internal";
         if (isThrowing)
         {
             // The success/Void/class transformations mirror the non-throwing branch — the
@@ -524,7 +668,17 @@ public static partial class ClosureEmitter
             var swiftErrorCtor = "new SwiftError((void*)_err)";
             var failureExpr = $"return {csReturnType}.FromFailure({swiftErrorCtor});";
             string successExpr;
-            if (!hasReturn)
+            if (resultOutValue != null)
+            {
+                // The out-pointers are written only on success; on a throw they stay zeroed and
+                // are never read.
+                invokeBody =
+                    $"IntPtr _err = IntPtr.Zero; {resultOutDecls} " +
+                    $"{helperMethodName}({throwingCallArgs}); " +
+                    $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
+                    $"return {csReturnType}.FromSuccess({resultOutValue});";
+            }
+            else if (!hasReturn)
             {
                 successExpr = "Swift.SwiftVoid.Value";
                 invokeBody =
@@ -589,6 +743,11 @@ public static partial class ClosureEmitter
                     $"if (_err != IntPtr.Zero) {{ {failureExpr} }} " +
                     $"return {csReturnType}.FromSuccess(_raw);";
             }
+        }
+        else if (resultOutValue != null)
+        {
+            csReturnType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
+            invokeBody = $"{resultOutDecls} {helperMethodName}({invokeCallArgsString}); return {resultOutValue};";
         }
         else if (!hasReturn)
         {
@@ -678,36 +837,178 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Determines whether a closure return type can use an invoke thunk.
-    /// Supports closures with primitive/enum/complex-enum/struct/class args and primitive/enum/class/void returns.
+    /// Builds the container an existential closure argument travels in — the same recipe an
+    /// existential method parameter uses. A single-protocol existential goes through
+    /// <c>GetOrCreate</c>: a Swift-vended conformer hands over its own container, a C#-authored one
+    /// is wrapped in the protocol's proxy (or, when no proxy class is emitted, only a Swift-vended
+    /// conformer is accepted). <c>any Error</c> hands over its wrapper's container. The container is
+    /// copied to the heap, the thunk takes its own copy of the existential out of it, and the finally
+    /// destroys only a container <c>GetOrCreate</c> boxed at +1, frees the buffer, and keeps the
+    /// source reachable until Swift has returned.
+    /// </summary>
+    private static void AddInvokeThunkExistentialArg(
+        TypeSpec arg,
+        int index,
+        ClosureHandler closureHandler,
+        List<string> preTry,
+        List<string> inTry,
+        List<string> cleanup)
+    {
+        const string container = "global::Swift.Runtime.ExistentialContainer1";
+        preTry.Add($"void* _arg{index}Heap = null;");
+        string ownsExpr;
+        string keepAliveExpr;
+        if (closureHandler.NeedsWellKnownProtocolWrapping(arg, out _))
+        {
+            inTry.Add($"var _arg{index}Container = ((global::Swift.Runtime.ISwiftExistentialConvertible<{container}>)_arg{index}).GetExistentialContainer();");
+            ownsExpr = "false";
+            keepAliveExpr = $"_arg{index}";
+        }
+        else
+        {
+            preTry.Add($"bool _arg{index}Owns = false;");
+            preTry.Add($"object? _arg{index}KeepAlive = null;");
+            var publicType = ResolveClosureExistentialOrDegrade(closureHandler, arg);
+            var proxy = closureHandler.GetQualifiedProxyClassName(arg);
+            inTry.Add(proxy != null
+                ? $"var _arg{index}Container = global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(_arg{index}, static __v => new {proxy}(__v), out _arg{index}Owns, out _arg{index}KeepAlive);"
+                : $"var _arg{index}Container = global::Swift.Runtime.ExistentialContainerFactory.GetOrCreate<{publicType}>(_arg{index}, out _arg{index}Owns, out _arg{index}KeepAlive);");
+            ownsExpr = $"_arg{index}Owns";
+            keepAliveExpr = $"_arg{index}KeepAlive";
+        }
+        inTry.Add($"_arg{index}Heap = global::System.Runtime.InteropServices.NativeMemory.Alloc((nuint)global::System.Runtime.CompilerServices.Unsafe.SizeOf<{container}>());");
+        inTry.Add($"global::System.Runtime.CompilerServices.Unsafe.Copy(_arg{index}Heap, ref _arg{index}Container);");
+        cleanup.Add($"global::Swift.Runtime.ExistentialContainerFactory.DestroyAndFreeExistential(_arg{index}Heap, 1, {ownsExpr}); global::System.GC.KeepAlive({keepAliveExpr});");
+    }
+
+    /// <summary>
+    /// The C# half of a result the thunk hands back through out-pointers: the zeroed locals it
+    /// writes into, their addresses (in <see cref="GetInvokeThunkResultOuts"/> order), and the value
+    /// built from them. An existential is adopted at +1 by its proxy (or <c>AnyError</c>), exactly as
+    /// a method's existential result is; a class-bound one occupies only the first two words, which
+    /// <c>ReadHeapCell</c> widens into the container the proxy takes. A tuple is reassembled from its
+    /// scalar elements.
+    /// </summary>
+    private static (string decls, IReadOnlyList<string> outArgs, string value) BuildInvokeThunkResultRead(
+        TypeSpec returnType, ClosureHandler closureHandler)
+    {
+        if (closureHandler.IsInvokeThunkExistential(returnType))
+        {
+            var read = closureHandler.IsClassBoundArity1Existential(returnType)
+                ? "global::Swift.Runtime.ClassExistentialContainer1.ReadHeapCell((nint)(&_ret))"
+                : "_ret";
+            string value;
+            if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out var wellKnown))
+            {
+                value = $"new global::{wellKnown}({read}{ExistentialHandler.WellKnownOwnedTransferArg(wellKnown)})";
+            }
+            else
+            {
+                // The member-body checkpoint turns a suppressed proxy into a restubbed member before
+                // any helper is emitted; reaching here without a proxy is a caller bug.
+                closureHandler.ThrowIfProxyReferenceSuppressed(returnType);
+                var proxy = closureHandler.GetQualifiedProxyClassName(returnType)
+                    ?? throw new InvalidOperationException($"No proxy class for returned-closure result '{returnType}'.");
+                value = $"new {proxy}({read}, ownsContainer: true)";
+            }
+            return ("global::Swift.Runtime.ExistentialContainer1 _ret = default;", ["(nint)(&_ret)"], value);
+        }
+
+        var tuple = (TupleTypeSpec)returnType;
+        var decls = new List<string>();
+        var outArgs = new List<string>();
+        var parts = new List<string>();
+        for (int i = 0; i < tuple.Elements.Count; i++)
+        {
+            var element = tuple.Elements[i];
+            var elementType = closureHandler.TranslateTypeSpecToCSharp(element);
+            string scalar;
+            if (MarshallingHelpers.IsBoolType(element))
+            {
+                scalar = "byte";
+                parts.Add($"_r{i} != 0");
+            }
+            else if (closureHandler.IsSimpleEnum(element))
+            {
+                scalar = closureHandler.GetSimpleEnumInfo(element)?.csUnderlying ?? "int";
+                parts.Add($"({elementType})_r{i}");
+            }
+            else
+            {
+                scalar = ClosureHandler.GetBlittablePrimitiveType(((NamedTypeSpec)element).Name)!;
+                parts.Add($"({elementType})_r{i}");
+            }
+            decls.Add($"{scalar} _r{i} = default;");
+            outArgs.Add($"(nint)(&_r{i})");
+        }
+        return (string.Join(" ", decls), outArgs, $"({string.Join(", ", parts)})");
+    }
+
+    /// <summary>
+    /// Whether a returned closure can be invoked from C#. The invoke thunk is the only route: the
+    /// member hands the closure back through typed memory, where Swift keeps it in its most general
+    /// form, and only Swift code that loads it back at its own type calls it correctly.
     /// </summary>
     public static bool CanUseInvokeThunk(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
+        => GetInvokeThunkRefusal(closureTypeSpec, closureHandler) == null;
+
+    /// <summary>
+    /// Whether the Swift wrapper of a closure-returning member emits the invoke thunk the C#
+    /// delegate calls. A result whose protocol proxy was suppressed turns the C# member into a
+    /// throw stub that never calls the thunk, so the thunk is left out with it rather than shipped
+    /// as an export nothing references.
+    /// </summary>
+    internal static bool ShouldEmitReturnedClosureInvokeThunk(
+        ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler, ModuleEmissionContext? emissionContext)
+        => closureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false)
+           && CanUseInvokeThunk(closureTypeSpec, closureHandler)
+           && !closureHandler.IsProxyReferenceSuppressed(closureTypeSpec.ReturnType, emissionContext);
+
+    /// <summary>
+    /// Why the invoke thunk cannot carry a closure shape, or <c>null</c> when it can. The reason
+    /// names the first argument or the result the thunk has no marshalling for, so a refused
+    /// member's skip record says what to support next.
+    /// </summary>
+    public static string? GetInvokeThunkRefusal(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
     {
+        // An async closure has to be awaited on the Swift side and its result delivered back
+        // through a completion, which the synchronous thunk does not do.
+        if (closureTypeSpec.IsAsync)
+            return "the closure is async; a returned async closure has no invoke thunk";
+
+        int index = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
         {
+            if (arg.IsInOut)
+                return $"argument {index} is inout, which the invoke thunk cannot write back";
             if (!IsInvokeThunkCompatibleArg(arg, closureHandler))
-                return false;
+                return $"argument {index} ({arg}) has no invoke-thunk marshalling";
+            index++;
         }
 
-        // Check return type
-        if (!closureTypeSpec.ReturnType.IsEmptyTuple)
-        {
-            if (!IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
-                return false;
-        }
+        if (!closureTypeSpec.ReturnType.IsEmptyTuple
+            && !IsInvokeThunkCompatibleReturn(closureTypeSpec.ReturnType, closureHandler))
+            return $"the result ({closureTypeSpec.ReturnType}) has no invoke-thunk marshalling";
 
-        // Async closures still need new Task-based dispatch machinery — out of scope here.
-        if (closureTypeSpec.IsAsync)
-            return false;
-
-        return true;
+        return null;
     }
+
+    /// <summary>
+    /// Whether the thunk for this shape passes an argument or result by address — an existential
+    /// argument, or a result that comes back through out-pointers. The protocol-conformance lane,
+    /// which builds the same thunk for closures handed to a C# implementation, does not take these
+    /// shapes yet.
+    /// </summary>
+    internal static bool UsesInvokeThunkAddressedValues(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler)
+        => closureTypeSpec.EachArgument().Any(closureHandler.IsInvokeThunkExistential)
+           || GetInvokeThunkResultOuts(closureTypeSpec.ReturnType, closureHandler).Count > 0;
 
     /// <summary>
     /// Checks if a type is compatible as an invoke thunk argument.
     /// Primitives and simple enums pass directly. Complex enums and by-value
     /// structs pass via pointer (the @_cdecl thunk param is UnsafeMutableRawPointer
-    /// and the body reloads the value via assumingMemoryBound(to:).pointee).
+    /// and the body reloads the value via assumingMemoryBound(to:).pointee). A single-protocol
+    /// existential or <c>any Error</c> passes as the address of a container.
     /// </summary>
     private static bool IsInvokeThunkCompatibleArg(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
@@ -718,6 +1019,8 @@ public static partial class ClosureEmitter
         // whole thunk is declined rather than emitted with a dropped write-back.
         if (typeSpec.IsInOut)
             return false;
+        if (closureHandler.IsInvokeThunkExistential(typeSpec))
+            return true;
         if (CdeclParamMapper.IsCdeclPrimitive(typeSpec))
             return true;
         if (closureHandler.IsSimpleEnum(typeSpec))
@@ -810,10 +1113,14 @@ public static partial class ClosureEmitter
 
     /// <summary>
     /// Checks if a type is compatible as an invoke thunk return type.
-    /// Primitives, simple enums, and class/ObjC types (returned as retained pointers) are supported.
+    /// Primitives, simple enums, and class/ObjC types (returned as retained pointers) are supported,
+    /// and — through out-pointers — a single-protocol existential, <c>any Error</c>, and a tuple of
+    /// scalars.
     /// </summary>
     internal static bool IsInvokeThunkCompatibleReturn(TypeSpec returnType, ClosureHandler closureHandler)
     {
+        if (closureHandler.IsInvokeThunkExistential(returnType) || IsInvokeThunkTupleReturn(returnType, closureHandler))
+            return true;
         if (CdeclParamMapper.IsCdeclPrimitive(returnType))
             return true;
         if (closureHandler.IsSimpleEnum(returnType))

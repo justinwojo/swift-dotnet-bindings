@@ -1551,65 +1551,6 @@ public class ClosureHandlerTests
         }
     }
 
-    [Fact]
-    public void CanInvokeFromCSharp_WithFrozenStructParameter_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (CGPoint) -> Void
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("CoreGraphics.CGPoint"),
-            TupleTypeSpec.Empty);
-
-        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresStructMarshalling_WithPrimitiveParameter_ReturnsFalse()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (Int) -> Void - only primitives, no struct marshalling needed
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Swift.Int"),
-            TupleTypeSpec.Empty);
-
-        Assert.False(handler.RequiresStructMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresStructMarshalling_WithFrozenStructParameter_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (CGPoint) -> Void - frozen struct needs marshalling
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("CoreGraphics.CGPoint"),
-            TupleTypeSpec.Empty);
-
-        Assert.True(handler.RequiresStructMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresStructMarshalling_WithMixedParameters_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (Int, CGPoint) -> Void - has frozen struct, needs marshalling
-        var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
-        {
-            new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("CoreGraphics.CGPoint")
-        });
-        var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
-
-        Assert.True(handler.RequiresStructMarshalling(closureTypeSpec));
-    }
-
     #endregion
 
     #region MainActor and Sendable Detection Tests
@@ -2066,105 +2007,25 @@ public class ClosureHandlerTests
         Assert.False(handler.IsNonFrozenStruct(typeSpec));
     }
 
-    [Fact]
-    public void IsInvocableParameter_WithNonFrozenStruct_ReturnsTrue()
+    // A closure C# receives from Swift is callable only through the invoke thunk, so the thunk's
+    // admission rule is the invocability contract: each of these argument shapes has thunk
+    // marshalling (by-value structs through a buffer, classes as their object pointer), alone or
+    // mixed with a primitive.
+    [Theory]
+    [InlineData("CoreGraphics.CGPoint")]
+    [InlineData("ImagePipeline.ImageDecodingContext")]
+    [InlineData("ImagePipeline.ImageTask")]
+    public void InvokeThunkRefusal_StructOrClassArgument_IsAdmitted(string argumentType)
     {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
+        var handler = new ClosureHandler(new MockTypeDatabase());
 
-        // Closure: (ImageDecodingContext) -> Void
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
+        var single = new ClosureTypeSpec(new NamedTypeSpec(argumentType), TupleTypeSpec.Empty);
+        var mixed = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), new NamedTypeSpec(argumentType) }),
             TupleTypeSpec.Empty);
 
-        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresNonFrozenMarshalling_WithNonFrozenStructParameter_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (ImageDecodingContext) -> Void - non-frozen struct needs special marshalling
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("ImagePipeline.ImageDecodingContext"),
-            TupleTypeSpec.Empty);
-
-        Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresNonFrozenMarshalling_WithFrozenStructParameter_ReturnsFalse()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (CGPoint) -> Void - frozen struct does NOT require non-frozen marshalling
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("CoreGraphics.CGPoint"),
-            TupleTypeSpec.Empty);
-
-        Assert.False(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresNonFrozenMarshalling_WithPrimitiveParameter_ReturnsFalse()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (Int) -> Void - primitive does NOT require non-frozen marshalling
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Swift.Int"),
-            TupleTypeSpec.Empty);
-
-        Assert.False(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void RequiresNonFrozenMarshalling_WithMixedParameters_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (Int, ImageDecodingContext) -> Void - has non-frozen struct
-        var argsWrapper = new TupleTypeSpec(new List<TypeSpec>
-        {
-            new NamedTypeSpec("Swift.Int"),
-            new NamedTypeSpec("ImagePipeline.ImageDecodingContext")
-        });
-        var closureTypeSpec = new ClosureTypeSpec(argsWrapper, TupleTypeSpec.Empty);
-
-        Assert.True(handler.RequiresNonFrozenMarshalling(closureTypeSpec));
-    }
-
-    [Fact]
-    public void CanInvokeFromCSharp_ClassType_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (ImageTask) -> Void — class type should be invocable
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("ImagePipeline.ImageTask"),
-            TupleTypeSpec.Empty);
-
-        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
-    }
-
-    [Fact]
-    public void CanInvokeFromCSharp_ObjCBridgedType_ReturnsTrue()
-    {
-        var typeDatabase = new MockTypeDatabase();
-        var handler = new ClosureHandler(typeDatabase);
-
-        // Closure: (NSError) -> Void — ObjC-bridged type should be invocable
-        var closureTypeSpec = new ClosureTypeSpec(
-            new NamedTypeSpec("Foundation.NSError"),
-            TupleTypeSpec.Empty);
-
-        Assert.True(handler.CanInvokeFromCSharp(closureTypeSpec));
+        Assert.Null(ClosureEmitter.GetInvokeThunkRefusal(single, handler));
+        Assert.Null(ClosureEmitter.GetInvokeThunkRefusal(mixed, handler));
     }
 
     #endregion

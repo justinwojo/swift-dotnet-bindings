@@ -120,10 +120,9 @@ public func makeProbeModeFlipper(_ log: @escaping (Int32) -> Void) -> (ProbeMode
 /// NO closure parameter. This is the adversarial shape for invoke-thunk *selection*: the returned
 /// closure is invoke-thunk-compatible (struct arg + simple-enum return both accepted by
 /// `CanUseInvokeThunk`), but there is no closure parameter forcing the outer method onto the cdecl
-/// wrapper. If the method failed to route through the cdecl invoke thunk it would fall to the
-/// struct-params emitter, whose return path has no simple-enum scalar→enum cast — producing
-/// uncompilable C# (raw integer assigned to the enum delegate). Regression cover that a returned
-/// closure of this shape selects the invoke thunk regardless of any closure parameter.
+/// wrapper. A returned closure has no correct call other than the invoke thunk, so this is
+/// regression cover that a closure of this shape selects the thunk, and converts the enum result,
+/// regardless of any closure parameter.
 public func makeQuadrantClassifier() -> (ProbePoint) -> ProbeQuadrant {
     return { p in p.x >= 0 ? .one : .two }
 }

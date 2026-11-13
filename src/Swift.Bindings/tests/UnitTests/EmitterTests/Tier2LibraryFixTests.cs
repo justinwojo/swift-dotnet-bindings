@@ -192,38 +192,37 @@ public class Tier2LibraryFixTests
     }
 
     [Fact]
-    public void CanInvokeReturnedClosure_NonThrowingBoundGenericReturn_ReturnsFalse()
+    public void InvokeThunkRefusal_NonThrowingBoundGenericReturn_IsRefused()
     {
-        // Problem C (XMLCoder regression): a method RETURNING a closure whose own return is
-        // a bound generic (Optional<enum>) — e.g. `nodeEncodings(...) -> (any CodingKey) ->
-        // NodeEncoding?`. The received-closure invoker emits `return _fp(...)`, where the
-        // function pointer returns void* but the delegate returns the bound-generic shape;
-        // that produces CS0029/CS1503 (cannot convert void* -> NodeEncoding?). The gate must
-        // reject it REGARDLESS of Throws — the bug was a `!Throws` short-circuit that left
-        // non-throwing returned closures ungated, so this closure has Throws=false.
+        // A method RETURNING a closure whose own return is a bound generic (Optional<enum>) —
+        // e.g. `encoding(for:) -> (any CodingKey) -> Encoding?`. The invoke thunk has no
+        // marshalling for an Optional result, so the shape must be refused REGARDLESS of Throws
+        // (an earlier `!Throws` short-circuit left non-throwing returned closures ungated). The
+        // refusal names the result, so the skip record says what to support next.
         var closureHandler = new ClosureHandler(CreateTypeDatabase());
         var nonThrowingBoundGenericReturn = new ClosureTypeSpec(
             TupleTypeSpec.Empty,
             new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int")));
 
         Assert.False(nonThrowingBoundGenericReturn.Throws);
-        Assert.False(closureHandler.CanInvokeReturnedClosure(nonThrowingBoundGenericReturn));
+        var refusal = ClosureEmitter.GetInvokeThunkRefusal(nonThrowingBoundGenericReturn, closureHandler);
+        Assert.NotNull(refusal);
+        Assert.Contains("result", refusal);
     }
 
     [Fact]
-    public void CanInvokeReturnedClosure_NonThrowingPrimitiveReturn_ReturnsTrue()
+    public void InvokeThunkRefusal_NonThrowingPrimitiveReturn_IsAdmitted()
     {
-        // Counterpart to the bound-generic case: a non-throwing returned closure whose return
-        // is a blittable primitive marshals fine through the `return _fp(...)` fallback, so the
-        // gate must still ADMIT it. Pins that the fix is additive — it prunes only the broken
-        // shapes, it does not over-prune every non-throwing returned closure.
+        // Counterpart to the bound-generic case: a non-throwing returned closure whose return is
+        // a blittable primitive goes through the invoke thunk, so it must still be ADMITTED. Pins
+        // that the gate prunes only the shapes the thunk cannot carry.
         var closureHandler = new ClosureHandler(CreateTypeDatabase());
         var nonThrowingPrimitiveReturn = new ClosureTypeSpec(
             TupleTypeSpec.Empty,
             new NamedTypeSpec("Swift.Int"));
 
         Assert.False(nonThrowingPrimitiveReturn.Throws);
-        Assert.True(closureHandler.CanInvokeReturnedClosure(nonThrowingPrimitiveReturn));
+        Assert.Null(ClosureEmitter.GetInvokeThunkRefusal(nonThrowingPrimitiveReturn, closureHandler));
     }
 
     [Fact]
@@ -233,7 +232,7 @@ public class Tier2LibraryFixTests
         // closure `() -> Optional<Int>` (resolvable inner types, so the only reason to skip is
         // the received-closure return gate — not an unresolvable-type prune). IsSupportedClosure
         // approves the bound-generic return for the PASSED (indirect-return) direction, so the
-        // method must be pruned by CanInvokeReturnedClosure, not the IsSupportedClosure check.
+        // method must be pruned by the invoke-thunk refusal, not the IsSupportedClosure check.
         // (Swift.Optional must be in the DB, else IsSupportedClosureReturnType rejects the bound
         // generic at line 672 and the gate at 677 is never reached.)
         var typeDatabase = CreateTypeDatabaseWithOptional();
@@ -265,7 +264,8 @@ public class Tier2LibraryFixTests
         var result = MemberEmissionValidator.CanEmitMethod(method, typeDatabase, out var skipDetails, out _);
 
         Assert.Equal(SkipReason.UnsupportedClosure, result);
-        Assert.Contains("cannot be invoked from C# without a function-pointer marshaler", skipDetails);
+        Assert.Contains("closure C# cannot invoke", skipDetails);
+        Assert.Contains("result", skipDetails);
     }
 
     #endregion
@@ -733,7 +733,7 @@ public class Tier2LibraryFixTests
     /// <summary>
     /// DB with Swift.Optional registered so that IsSupportedClosureReturnType APPROVES a bound
     /// generic closure return (e.g. Optional&lt;Int&gt;) for the passed/indirect-return direction —
-    /// the precondition for reaching the B21 CanInvokeReturnedClosure gate (Problem C / XMLCoder).
+    /// the precondition for reaching the returned-closure invoke-thunk gate.
     /// </summary>
     private static TypeDatabase CreateTypeDatabaseWithOptional()
     {

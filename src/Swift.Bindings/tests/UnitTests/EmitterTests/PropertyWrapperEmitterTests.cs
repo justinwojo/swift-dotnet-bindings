@@ -1317,6 +1317,100 @@ public class PropertyWrapperEmitterTests
         Assert.NotEqual("direct_closure_setter", PropertyWrapperEmitter.GetRejectionReason(propertyDecl, env, getter));
     }
 
+    [Fact]
+    public void EvaluateWrapperEligibility_OptionalClosureTupleResult_SetterRejected_GetterStillWrappable()
+    {
+        // The setter's C-callable adapter cannot return a tuple, so the setter is refused the
+        // wrapper. The getter builds no adapter, and the wrapper is the only route that carries the
+        // invoke thunk, so the setter's limitation must not push the getter off it.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var (propertyDecl, getter, setter) = CreateSettableProperty(
+            "pairMaker", OptionalOf(IntToIntPairClosure()), parentDecl, moduleDecl);
+
+        var getterEnv = new MethodEnvironment(getter.Method, typeDb);
+        var setterEnv = new MethodEnvironment(setter.Method, typeDb);
+
+        Assert.True(PropertyWrapperEmitter.EvaluateWrapperEligibility(propertyDecl, getterEnv, getter).IsWrappable);
+        Assert.Equal("optional_closure_not_cdecl_compatible",
+            PropertyWrapperEmitter.GetRejectionReason(propertyDecl, setterEnv, setter));
+        // Asked about the property as a whole, the stricter accessor answers.
+        Assert.Equal("optional_closure_not_cdecl_compatible",
+            PropertyWrapperEmitter.GetRejectionReason(propertyDecl, getterEnv));
+    }
+
+    [Fact]
+    public void GetClosureGetterRefusal_WrappableGetterWithThunkShape_IsNull()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closure = IntToIntPairClosure();
+        var (propertyDecl, _, _) = CreateSettableProperty("pairMaker", OptionalOf(closure), parentDecl, moduleDecl);
+
+        Assert.Null(PropertyWrapperEmitter.GetClosureGetterRefusal(
+            propertyDecl, closure, typeDb, new ClosureHandler(typeDb)));
+    }
+
+    [Fact]
+    public void GetClosureGetterRefusal_GetterWithoutWrapper_IsRefused()
+    {
+        // No wrapper library: the getter would fall to the direct Swift-convention route, which
+        // returns the closure at its natural abstraction with no invoke thunk to call it through.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closure = IntToIntPairClosure();
+        var (propertyDecl, _, _) = CreateSettableProperty("pairMaker", OptionalOf(closure), parentDecl, moduleDecl);
+
+        var refusal = PropertyWrapperEmitter.GetClosureGetterRefusal(
+            propertyDecl, closure, typeDb, new ClosureHandler(typeDb));
+
+        Assert.NotNull(refusal);
+        Assert.Contains("no @_cdecl wrapper", refusal);
+    }
+
+    [Fact]
+    public void GetClosureGetterRefusal_ShapeWithoutThunk_ReportsTheThunkRefusal()
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("MyType");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateClassDecl("MyType", moduleDecl);
+        var closure = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int")) { IsAsync = true };
+        var (propertyDecl, _, _) = CreateSettableProperty("counter", OptionalOf(closure), parentDecl, moduleDecl);
+        var closureHandler = new ClosureHandler(typeDb);
+
+        var expected = ClosureEmitter.GetInvokeThunkRefusal(closure, closureHandler);
+        Assert.NotNull(expected);
+        Assert.Equal(expected, PropertyWrapperEmitter.GetClosureGetterRefusal(propertyDecl, closure, typeDb, closureHandler));
+    }
+
+    private static ClosureTypeSpec IntToIntPairClosure()
+        => new(
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int") }),
+            new TupleTypeSpec(new[] { new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Int") }));
+
+    private static NamedTypeSpec OptionalOf(TypeSpec inner)
+        => new("Swift.Optional", inner);
+
+    private static (PropertyDecl property, GetAccessorDecl getter, SetAccessorDecl setter) CreateSettableProperty(
+        string name, TypeSpec typeSpec, TypeDecl parentDecl, ModuleDecl moduleDecl)
+    {
+        var getter = new GetAccessorDecl { Method = CreateAccessorMethod($"getter:{name}", isGetter: true, parentDecl, moduleDecl) };
+        var setter = new SetAccessorDecl { Method = CreateAccessorMethod($"setter:{name}", isGetter: false, parentDecl, moduleDecl) };
+        var property = new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = typeSpec,
+            HasStorage = true,
+            IsStatic = false,
+            Accessors = new List<AccessorDecl> { getter, setter },
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl
+        };
+        return (property, getter, setter);
+    }
+
     #endregion
 
     #region Actor Isolation — Stored Immutable Properties Stay Behind The Gate

@@ -831,8 +831,7 @@ public static class MethodWrapperEmitter
         }
         if (needsResultPtr && closureReturnSpec != null
             && env.ClosureHandler != null
-            && env.ClosureHandler.IsSupportedClosure(closureReturnSpec, allowInOutArguments: false)
-            && ClosureEmitter.CanUseInvokeThunk(closureReturnSpec, env.ClosureHandler))
+            && ClosureEmitter.ShouldEmitReturnedClosureInvokeThunk(closureReturnSpec, env.ClosureHandler, ctx))
         {
             var thunkEntryPoint = ClosureEmitter.GetInvokeThunkEntryPoint(symbolName);
             var thunkFuncName = $"_sbw_inv_closure_{EmitterUtility.DeterministicHash8(thunkEntryPoint)}";

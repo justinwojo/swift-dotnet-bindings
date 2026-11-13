@@ -79,8 +79,8 @@ public class ZeroWitnessClosureHost: NSObject {
 
     // MARK: Swift closures called by C#
 
-    /// C# passes a value into the returned Swift closure. Not bound today: an invoker that takes an
-    /// existential argument has no function-pointer marshaler, so the member is refused.
+    /// C# passes a value into the returned Swift closure. Not bound today: the invoke thunk has no
+    /// marshalling for an `Any` argument, so the member is refused.
     public func makeAnyDescriber() -> (Any) -> String {
         { zeroWitnessClosureDescribe($0) }
     }

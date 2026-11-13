@@ -25,9 +25,9 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Returns the invoke thunk info (entry point, library name, helper method name, and the
-        /// member-access prefix the invoker class is reachable through) if the closure return type
-        /// can use one. Returns null if the closure has struct/class params or is async
-        /// (CanUseInvokeThunk gates those out). Throwing closures ARE supported.
+        /// member-access prefix the invoker class is reachable through) if the returned closure
+        /// can be called through one. Returns null when the member has no @_cdecl wrapper or the
+        /// closure's shape has no invoke-thunk marshalling (<see cref="ClosureEmitter.GetInvokeThunkRefusal"/>).
         /// </summary>
         private (string entryPoint, string libraryName, string helperName, string invokerQualifier)? GetInvokeThunkInfoIfAvailable(ClosureTypeSpec closureTypeSpec)
         {
@@ -58,6 +58,39 @@ namespace BindingsGeneration
             _env.PInvokeHelperContext == null
                 ? string.Empty
                 : $"{_env.PInvokeHelperContext.HelperClassName}.";
+
+        /// <summary>
+        /// Emits the statements that turn a returned closure (already read into
+        /// <see cref="ReturnLocalName"/> as a <c>SwiftClosureData</c>) into the C# delegate the
+        /// member returns. The delegate calls the closure only through its @_cdecl invoke thunk:
+        /// the wrapper hands the closure back through typed memory, where Swift keeps it in its most
+        /// general form, and the thunk reloads it at that same form. A direct Swift-convention call
+        /// through the closure's function pointer has no such guarantee and is never emitted, so a
+        /// member that reaches here without a thunk is a validation gap and fails emission.
+        /// </summary>
+        private void EmitReturnedClosureDelegate(CSharpWriter csWriter, ClosureTypeSpec closureTypeSpec)
+        {
+            var thunk = GetInvokeThunkInfoIfAvailable(closureTypeSpec)
+                ?? throw new InvalidOperationException(
+                    $"Returned closure '{closureTypeSpec}' of '{_env.MethodDecl.Name}' has no invoke thunk; " +
+                    "the member should have been refused before emission.");
+
+            // The invoker adopts an existential result through its proxy. When that proxy was
+            // suppressed it cannot be constructed, so unwind to the member-body checkpoint, which
+            // restubs the member (the invoker class itself was not emitted for the same reason).
+            _env.ClosureHandler.ThrowIfProxyReferenceSuppressed(closureTypeSpec.ReturnType);
+
+            // The invoker marshals the closure's ARGUMENTS C#→Swift; a suppressed-proxy existential
+            // argument drops its wrap fallback there — a silent CONSUME degrade of this member.
+            RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
+
+            if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
+                ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler,
+                    ReturnLocalName, thunk.entryPoint, thunk.libraryName, thunk.helperName, thunk.invokerQualifier);
+            else
+                ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler,
+                    ReturnLocalName, thunk.entryPoint, thunk.libraryName, thunk.helperName, thunk.invokerQualifier);
+        }
 
         /// <summary>
         /// Emits the return statement for the constructor.
@@ -349,31 +382,13 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                     {
-                        // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
-                        var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
-                        var invokeThunkName = invokeThunkInfo?.entryPoint;
-                        var invokeThunkLib = invokeThunkInfo?.libraryName;
-                        var invokeThunkHelper = invokeThunkInfo?.helperName;
-                        var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
-
-                        // A returned closure's INVOKER marshals its ARGUMENTS C#→Swift; a suppressed-proxy
-                        // existential arg drops its wrap fallback (GetSwiftInvokeArgExpression / struct-param
-                        // path) — a silent CONSUME degrade of this member. Pure read: byte-identical.
-                        RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
                         csWriter.WriteLines($$"""
                             unsafe {
                                 var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
                                 if ({{ReturnLocalName}}.FunctionPointer == IntPtr.Zero) return null;
                             """);
                         csWriter.Indent++;
-                        if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
-                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
+                        EmitReturnedClosureDelegate(csWriter, closureTypeSpec);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -538,29 +553,12 @@ namespace BindingsGeneration
                     var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                     if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                     {
-                        // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
-                        var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
-                        var invokeThunkName = invokeThunkInfo?.entryPoint;
-                        var invokeThunkLib = invokeThunkInfo?.libraryName;
-                        var invokeThunkHelper = invokeThunkInfo?.helperName;
-                        var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
-
-                        // See the sibling closure-return block above: record the returned closure's
-                        // invoker-ARGUMENT CONSUME degrade for any suppressed proxy. Pure read.
-                        RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
                         csWriter.WriteLines($$"""
                             unsafe {
                                 var {{ReturnLocalName}} = *(SwiftClosureData*){{ResultPtrName}};
                             """);
                         csWriter.Indent++;
-                        if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                            ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
-                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                            ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                        else
-                            ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
+                        EmitReturnedClosureDelegate(csWriter, closureTypeSpec);
                         csWriter.Indent--;
                         csWriter.WriteLine("}");
                         return;
@@ -905,40 +903,9 @@ namespace BindingsGeneration
                 var closureTypeSpec = _env.ClosureHandler.GetClosureTypeSpec(returnArg)!;
                 if (_env.ClosureHandler.IsSupportedClosure(closureTypeSpec, allowInOutArguments: false))
                 {
-                    // Use invoke thunk for closure return when available (avoids delegate* unmanaged[Swift] crash)
-                    var invokeThunkInfo = GetInvokeThunkInfoIfAvailable(closureTypeSpec);
-                    var invokeThunkName = invokeThunkInfo?.entryPoint;
-                    var invokeThunkLib = invokeThunkInfo?.libraryName;
-                    var invokeThunkHelper = invokeThunkInfo?.helperName;
-                    var invokeThunkQualifier = invokeThunkInfo?.invokerQualifier;
-
-                    // See the sibling closure-return blocks: record the returned closure's invoker-ARGUMENT
-                    // CONSUME degrade for any suppressed proxy. Pure read: byte-identical.
-                    RecordClosureConsumeDegrade(closureTypeSpec.EachArgument());
-
-                    // Throwing closures need special marshalling to handle SwiftError
-                    if (_env.ClosureHandler.IsThrowingClosure(closureTypeSpec))
-                    {
-                        ClosureEmitter.EmitThrowingClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
-                    }
-                    // Use non-frozen struct marshalling if any parameter is a non-frozen struct
-                    // (requires heap allocation with NativeMemory and InitializeWithCopy/Destroy).
-                    // Skipped when an invoke thunk is available — the thunk's CallConvCdecl invoker
-                    // marshals struct args itself and avoids the raw delegate* unmanaged[Swift] call.
-                    else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresNonFrozenMarshalling(closureTypeSpec))
-                    {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithNonFrozenParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                    }
-                    // Use frozen struct marshalling if any parameter is a frozen struct
-                    // (uses stackalloc for stack allocation). Also skipped when a thunk is available.
-                    else if (invokeThunkInfo == null && _env.ClosureHandler.RequiresStructMarshalling(closureTypeSpec))
-                    {
-                        ClosureEmitter.EmitClosureReturnMarshallingWithStructParams(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName);
-                    }
-                    else
-                    {
-                        ClosureEmitter.EmitClosureReturnMarshalling(csWriter, closureTypeSpec, _env.ClosureHandler, ReturnLocalName, invokeThunkName, invokeThunkLib, invokeThunkHelper, invokeThunkQualifier);
-                    }
+                    // A closure returned without a @_cdecl wrapper has no invoke thunk, so this throws:
+                    // there is no correct way to call it from C#.
+                    EmitReturnedClosureDelegate(csWriter, closureTypeSpec);
                     return;
                 }
                 // Unsupported closure return: MemberEmissionValidator should have caught this,

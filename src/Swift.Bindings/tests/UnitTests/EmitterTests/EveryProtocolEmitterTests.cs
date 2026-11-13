@@ -4137,6 +4137,8 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         Assert.Contains("closure method 'register' cannot be dispatched", output);
+        // `@escaping` marks only a parameter; inside a generic argument it does not compile.
+        Assert.DoesNotContain("<@escaping", output);
     }
 
     [Fact]
@@ -4157,6 +4159,68 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         Assert.Contains("closure method 'schedule' cannot be dispatched", output);
+        // `@escaping` marks only a parameter; on a tuple element it does not compile.
+        Assert.DoesNotContain("Swift.Int, @escaping", output);
+    }
+
+    [Theory]
+    [InlineData("Swift.Int32", "Swift.Int32")]
+    [InlineData("τ_0_0", "EveryProtocol")]
+    public void EmitProtocolExtension_ClosureResultStub_ResultCarriesNoEscaping(string argumentType, string renderedArgument)
+    {
+        // `func makeAdder() -> (Arg) -> Swift.Int32` is not dispatchable, so its witness is a
+        // fatalError stub. The parsed result closure carries the escaping attribute, but `@escaping`
+        // is legal only on a parameter: a stub that spells it on its result fails the wrapper compile,
+        // which refuses the whole binding. Both shapes take the closure-method stub; the Self-typed
+        // one also checks that stub's τ_0_0 substitution.
+        var result = new ClosureTypeSpec
+        {
+            Arguments = new NamedTypeSpec(argumentType),
+            ReturnType = new NamedTypeSpec("Swift.Int32"),
+        };
+        result.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodDecl("makeAdder");
+        method.CSSignature[0].SwiftTypeSpec = result;
+        var protocol = CreateSimpleProtocol("AdderFactory");
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains($"public func makeAdder() -> ({renderedArgument}) -> Swift.Int32 {{", output);
+        Assert.DoesNotContain("@escaping", output);
+    }
+
+    [Fact]
+    public void EmitProtocolExtension_StaticSelfClosurePropertyStub_TypeCarriesNoEscaping()
+    {
+        // A static requirement is always a stub, and a Self-typed one is spelled by the
+        // Self-substituting renderer. A closure as the property's type is not a parameter, so
+        // `@escaping` there would fail the wrapper compile like a closure result does.
+        var closure = new ClosureTypeSpec
+        {
+            Arguments = new NamedTypeSpec("τ_0_0"),
+            ReturnType = new NamedTypeSpec("Swift.Int32"),
+        };
+        closure.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var protocol = CreateSimpleProtocol("RankerFactory");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "ranker",
+            SwiftTypeSpec = closure,
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("ranker_get") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains("public static var ranker: (EveryProtocol) -> Swift.Int32 {", output);
+        Assert.DoesNotContain("@escaping", output);
     }
 
     [Fact]

@@ -165,8 +165,16 @@ public partial class ClosureHandler
             return new DirectClosureArgLowering(
                 DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
 
+        // A tuple argument would be declared as a System.ValueTuple parameter of the callback, and
+        // ValueTuple is an auto-layout generic struct that no unmanaged signature can carry: CoreCLR
+        // rejects the callback and Mono fails the static initializer of the type that declares it.
+        // The @_cdecl adapter has no tuple carrier either, so the member is failed closed.
+        if (typeSpec is TupleTypeSpec { IsEmptyTuple: false })
+            return new DirectClosureArgLowering(
+                DirectClosureArgAbi.Unmodelled, Array.Empty<string>(), typeSpec.ToString());
+
         // Anything the P/Invoke translation already declares as a concrete blittable type
-        // (primitive, Bool, tuple, supported existential container) is passed in the shape the
+        // (primitive, Bool, supported existential container) is passed in the shape the
         // declaration says, so the register content already matches. No-payload enums are the one
         // family whose declaration does NOT match, and the arm above has already removed them.
         if (TranslateTypeSpecToPInvokeType(typeSpec) != "void*")
