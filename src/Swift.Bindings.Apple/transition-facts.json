@@ -30,7 +30,7 @@
       "entryPoint": "$s10Foundation4DataV5bytes5countACSV_SitcfC",
       "library": "KnownLibraries.SwiftFoundation",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Initializer",
           "accessor": "None",
@@ -110,7 +110,7 @@
       "entryPoint": "$s10Foundation4DataV5countSivg",
       "library": "KnownLibraries.SwiftFoundation",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Accessor",
           "accessor": "Get",
@@ -161,7 +161,7 @@
       "entryPoint": "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF",
       "library": "KnownLibraries.SwiftFoundation",
       "facts": {
-        "factsVersion": 3,
+        "factsVersion": 4,
         "target": {
           "kind": "Method",
           "accessor": "None",

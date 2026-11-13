@@ -6,7 +6,7 @@
       "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -228,7 +228,7 @@
       "compiler": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -450,7 +450,7 @@
       "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -662,7 +662,7 @@
       "compiler": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -874,7 +874,7 @@
       "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -885,7 +885,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -929,7 +929,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -993,6 +993,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -1074,7 +1075,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1118,7 +1119,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1182,6 +1183,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -1263,7 +1265,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1307,7 +1309,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1371,6 +1373,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -1453,7 +1456,7 @@
       "compiler": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -1464,7 +1467,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1508,7 +1511,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1572,6 +1575,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -1653,7 +1657,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1697,7 +1701,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1761,6 +1765,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -1842,7 +1847,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1886,7 +1891,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1950,6 +1955,7 @@
             "$s20SwiftBindingsTestLib19ConsumedCarrierCellV8optionalACSgAA0eF0_p_tcfC": "swiftcc void (ptr noalias sret, ptr noalias)",
             "$s20SwiftBindingsTestLib19IndirectRankedTableV6CursorV8positionAEyx_GSi_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZTj": "swiftcc ptr (i32, ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctFTj": "swiftcc i64 (i32, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctFTj": "swiftcc ptr (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib19WitnessReadingQueryV4jsonACyxGSS_tcfC": "swiftcc void (ptr noalias sret, i64, ptr, ptr, ptr, ptr, ptr)",
             "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF": "swiftcc i32 (ptr, ptr)",
@@ -2032,7 +2038,7 @@
       "compiler": "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -2043,7 +2049,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2087,7 +2093,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2103,7 +2109,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2147,7 +2153,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2163,7 +2169,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2207,7 +2213,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2224,7 +2230,7 @@
       "compiler": "Apple Swift version 6.4.2 (swiftlang-6.4.2.1.9 clang-2100.4.1.1)",
       "contract": {
         "planVersion": 1,
-        "factsVersion": 3,
+        "factsVersion": 4,
         "collectorVersion": 1
       },
       "generator": "Swift.Bindings 1.0.0",
@@ -2235,7 +2241,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2279,7 +2285,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2295,7 +2301,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2339,7 +2345,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2355,7 +2361,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:f81f89612ba1691608b28d0d6b077f406feb8dd0b4df9d5f49b9cb18f7d99d92",
+              "digest": "sha256:1ac727fe9cc7835a968f828180c9c5463e887530e10ed427e375563928e0d230",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2399,7 +2405,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:1ff979d301a9676ea1fcf41a77b5005556f4c8a146000127a4248d897298dc73",
+              "digest": "sha256:1a476e98cf04661e140d36672a234d21cd6caa6f12deef88476d6c829c659731",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
