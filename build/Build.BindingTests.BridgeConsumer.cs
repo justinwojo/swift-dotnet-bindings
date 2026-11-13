@@ -24,8 +24,8 @@
 // - Array's subscript getter through the Runtime's bridge, by indexing the array the module returns.
 // Every measured call records its stack in Swift. The host requires the routed bridge under the Swift
 // code and the lane's managed caller under the bridge, on every call: the CoreCLR interpreter's call
-// stub (.NET 11), JIT code in no image (Mono JIT, .NET 10 simulator) or code compiled into the app
-// (NativeAOT, or Mono full-AOT with --mono-aot). The app also calls both bridges from a register
+// stub (.NET 11), or code compiled into the app (.NET 10: NativeAOT, and Mono, which the iOS SDK
+// AOT-compiles on the arm64 simulator as well as the device). The app also calls both bridges from a register
 // sentinel and checks the module's live-object count before and after. The host checks each mode's
 // SDK-collected receipt against the oracle and validates the bridges of the packed and linked images.
 //
@@ -72,7 +72,7 @@ partial class Build
     enum BcfMode { Package, Direct, ProjectReference }
 
     /// <summary>What must call a bridge on a lane: the managed code that made the Swift call.</summary>
-    enum BcfCaller { Interpreter, Jit, App }
+    enum BcfCaller { Interpreter, App }
 
     /// <summary>One platform a mode runs on.</summary>
     sealed record BcfPlatform(bool OnDevice, bool MonoAot)
@@ -113,8 +113,10 @@ partial class Build
         _ => "projectref",
     };
 
+    // .NET 10 runs Mono, which the iOS SDK AOT-compiles on the device and on the arm64 simulator alike
+    // (it runs the AOT compiler for iossimulator-arm64), so the P/Invoke wrapper is in the app image.
     BcfCaller BcfExpectedCaller(BcfPlatform platform) =>
-        RuntimeLane.IsNet11 ? BcfCaller.Interpreter : platform.OnDevice ? BcfCaller.App : BcfCaller.Jit;
+        RuntimeLane.IsNet11 ? BcfCaller.Interpreter : BcfCaller.App;
 
     void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot)
     {
@@ -691,9 +693,7 @@ partial class Build
         _ when caller is null => "no frame under the bridge",
         BcfCaller.Interpreter => RuntimeLaneIdentity.Classify(caller, BcfAppName) == RuntimeExecutionLane.Interpreter
             ? null : "expected the CoreCLR interpreter's call stub",
-        // Mono JIT code is mapped memory no image covers, so dladdr finds none.
-        BcfCaller.Jit => caller.Address != 0 && caller.Image == "?" ? null : "expected Mono JIT code, which lies in no image",
-        // NativeAOT and Mono full-AOT compile the managed code, P/Invoke stubs included, into the app.
+        // NativeAOT and Mono AOT compile the managed code, P/Invoke stubs included, into the app.
         _ => caller.Image == BcfAppName ? null : $"expected code compiled into {BcfAppName}",
     };
 
@@ -901,10 +901,13 @@ partial class Build
                 }
 
                 // self + error + scalar result, and the array getter, each through its bridge from managed code.
+                // The constructors take long literals: in SDK-direct mode this code compiles into the
+                // binding's own assembly, where an int argument binds to the binding's internal
+                // handle-adopting constructor instead of the public Int64 one.
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 static void Measure()
                 {
-                    using (var account = new BridgeAccount(7))
+                    using (var account = new BridgeAccount(7L))
                     {
                         var handle = ((ISwiftObject)account).SwiftHandle;
                         account.Pending = 5;
@@ -987,7 +990,7 @@ partial class Build
                     ulong* args = stackalloc ulong[8];
                     ulong result = 0;
 
-                    using (var account = new BridgeAccount(100))
+                    using (var account = new BridgeAccount(100L))
                     {
                         var self = (ulong)((ISwiftObject)account).SwiftHandle;
                         nint error = 0;
@@ -1010,8 +1013,8 @@ partial class Build
 
                     // The projection keeps its Swift array private, so the sentinel reads an array of the
                     // same element type the app builds itself: the getter, and so its bridge, is the same.
-                    using (var first = new BridgeItem(7))
-                    using (var second = new BridgeItem(8))
+                    using (var first = new BridgeItem(7L))
+                    using (var second = new BridgeItem(8L))
                     using (var items = new Swift.SwiftArray<BridgeItem>(new[] { first, second }))
                     {
                         using var payload = items.PayloadBuffer;

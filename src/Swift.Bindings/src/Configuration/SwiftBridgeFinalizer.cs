@@ -310,8 +310,11 @@ public static class SwiftBridgeFinalizer
 
     /// <summary>
     /// Writes the journal, then the bridges, then the C#: whatever stops the build part-way leaves a
-    /// journal that covers every rewrite on disk. Only a file whose content changes is written, so an
-    /// unchanged routing leaves the managed compile incremental. Returns whether anything was written.
+    /// journal that covers every rewrite on disk. A rewrite the journal on disk records and this one
+    /// drops stays in its file until that file is written, so until then the journal records both
+    /// routings, and this one alone once every file is. Only a file whose content changes is written,
+    /// so an unchanged routing leaves the managed compile incremental. Returns whether anything was
+    /// written.
     /// </summary>
     private static bool Write(
         string directory, SwiftBridgeRoutingJournal journal, string journalPath,
@@ -320,7 +323,14 @@ public static class SwiftBridgeFinalizer
     {
         var changed = false;
         var journalText = journal.ToJson();
-        if (!File.Exists(journalPath) || File.ReadAllText(journalPath) != journalText)
+        var onDisk = File.Exists(journalPath) ? File.ReadAllText(journalPath) : null;
+        var dropped = onDisk is null || onDisk == journalText ? [] : SwiftBridgeRoutingJournal.Parse(onDisk).Rewrites.Except(journal.Rewrites).ToList();
+        if (dropped.Count > 0)
+        {
+            SwiftBridgeRoutingJournal.WriteAtomically(journalPath, (journal with { Rewrites = [.. journal.Rewrites, .. dropped] }).ToJson());
+            changed = true;
+        }
+        else if (onDisk != journalText)
         {
             SwiftBridgeRoutingJournal.WriteAtomically(journalPath, journalText);
             changed = true;
@@ -344,6 +354,8 @@ public static class SwiftBridgeFinalizer
             SwiftBridgeRoutingJournal.WriteAtomically(Path.Combine(directory, file), text);
             changed = true;
         }
+        if (dropped.Count > 0)
+            SwiftBridgeRoutingJournal.WriteAtomically(journalPath, journalText);
         return changed;
     }
 

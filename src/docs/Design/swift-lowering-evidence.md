@@ -209,12 +209,19 @@ slice to IR, with the link's frontend flags under a module name of its own (`<wr
   throwing or newly available member can be called. Every argument and receiver comes from a generic
   helper that never returns, so the body only has to type-check. Each generic parameter becomes a
   metatype parameter of that function.
+- **A member only its own actor can call.** No actor may set another actor's property, so the
+  main-actor function cannot call a setter of a type isolated to a custom global actor. A member of
+  a non-generic type therefore has a second form: the same body in a static function of an
+  extension of its type. An extension's members share the type's isolation, so the probe reaches
+  the setter without naming the actor. The second form is compiled only when the first does not
+  compile. A member isolated on its own, in a type that is not, still has no call form.
 - **What counts.** Only a declaration of the exact mangled target in the probe's IR counts. The
   probe's own definitions are discarded. A call that resolves to another overload or entry shows
   nothing for the target. The probe never names a target by symbol.
-- **What a call that fails costs.** A call that does not compile is dropped, and the compiler's
-  error becomes its reason. The probe then compiles again, at most four times. An error outside
-  every call fails the remaining calls, with the error as their reason.
+- **What a call that fails costs.** A call that does not compile is replaced by its second form,
+  when it has one, or dropped, and the compiler's error (both of them, after a second form) becomes
+  its reason. The probe then compiles again, at most four times. An error outside every call fails
+  the remaining calls, with the error as their reason.
 - **The failure rule.** The probe never fails the build and never withholds the receipt. A target
   it cannot show is recorded as unobserved, with the probe's reason. Each reason starts with its
   class:
@@ -279,17 +286,18 @@ full second frontend compile of the wrapper, without the link. Its cost grows wi
 paying it where nothing reads the result is waste. Measured on one simulator slice:
 - BindingTests: the IR pass took 29 to 42 s after a 32 to 34 s wrapper compile, under both Xcode 26.3
   and 27.2.
-- Alamofire: it took 1.3 to 2.7 s after a 2.1 to 2.5 s compile.
+- A third-party networking binding: it took 1.3 to 2.7 s after a 2.1 to 2.5 s compile.
 
-So it roughly doubles the wrapper's swiftc time. The probe adds little: on BindingTests it wrote 92
-calls and took 0.9 s, in two compiles, under each compiler family. A build that finds the wrapper up
+So it roughly doubles the wrapper's swiftc time. The probe adds little: on BindingTests it wrote 89
+calls and took 1.2 s, in two compiles, under Xcode 27.2. A build that finds the wrapper up
 to date skips all of it, so an incremental build pays nothing. The direct generator path (a wrapper compiled
 inline during generation) and Apple-framework mode do not collect, and so do not route from a receipt.
 
-The wrapper's IR alone shows 32 of the 131 plan targets on BindingTests. With the probe, the receipt
-shows 115, all agreeing with the oracle record, under both compiler families. The other 16 are
-unobserved: 15 are `@usableFromInline internal`, and one is a setter isolated to a custom global
-actor, which the probe's main-actor call cannot mutate. The probe needs the descriptor a framework
+The wrapper's IR alone shows 32 of the 128 plan targets on BindingTests. With the probe, the receipt
+shows 113, measured under Xcode 27.2, and every one agrees with the oracle record of both compiler
+families. The other 15 are unobserved because they are `@usableFromInline internal`, which no
+client can call. A setter isolated to a custom global actor is reached by the probe's in-type form.
+The probe needs the descriptor a framework
 ships. A slice without one leaves its targets unobserved; the probe does not generate a descriptor
 from the interface.
 

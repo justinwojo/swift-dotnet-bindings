@@ -17,7 +17,8 @@ namespace BindingsGeneration;
 /// <remarks>
 /// The journal is written before the C# it describes, so a build interrupted between the two leaves a
 /// file the journal says is rewritten that is not yet: <see cref="Revert"/> accepts an import still in
-/// its original form. Generation removes the journal, as the C# it then writes is the original. With no
+/// its original form; a routing that drops rewrites keeps them in the journal until its C# is written.
+/// Generation removes the journal, as the C# it then writes is the original. With no
 /// journal, the module's C# is generation's own: the routing never touches C# whose plans generation
 /// judged itself.
 /// </remarks>
@@ -43,12 +44,14 @@ public sealed record SwiftBridgeRoutingJournal
     /// <summary>A directory glob that matches every module's journal.</summary>
     public const string FilePattern = "*.swift-bridge-routing.json";
 
-    public static SwiftBridgeRoutingJournal Read(string path)
+    public static SwiftBridgeRoutingJournal Read(string path) => Parse(File.ReadAllText(path), path);
+
+    public static SwiftBridgeRoutingJournal Parse(string json, string source = "the journal")
     {
-        var journal = JsonSerializer.Deserialize(File.ReadAllText(path), SwiftBridgeRoutingJournalJsonContext.Default.SwiftBridgeRoutingJournal)
-            ?? throw new InvalidDataException($"{path} holds no bridge routing journal");
+        var journal = JsonSerializer.Deserialize(json, SwiftBridgeRoutingJournalJsonContext.Default.SwiftBridgeRoutingJournal)
+            ?? throw new InvalidDataException($"{source} holds no bridge routing journal");
         if (journal.Schema != SchemaVersion)
-            throw new InvalidDataException($"{path} has journal schema {journal.Schema}; this generator reads {SchemaVersion}");
+            throw new InvalidDataException($"{source} has journal schema {journal.Schema}; this generator reads {SchemaVersion}");
         return journal;
     }
 
@@ -61,26 +64,37 @@ public sealed record SwiftBridgeRoutingJournal
     /// <summary>
     /// <paramref name="source"/>, the file <paramref name="file"/>, with every rewrite the journal records
     /// in it undone. A rewrite whose replacement is not in the file but whose original is was never
-    /// written (the build stopped between journal and C#) and is accepted as undone.
+    /// written (the build stopped between journal and C#) and is accepted as undone. A journal written
+    /// while the routing changed records an import's rewrite under both routings, of which the file holds
+    /// at most one, so the rewrites the file holds are undone before the rest are checked.
     /// </summary>
     /// <exception cref="InvalidDataException">The file holds neither form of a recorded rewrite, or not as often as recorded.</exception>
     public string Revert(string file, string source)
     {
         var reverted = source;
+        var unwritten = new List<(IGrouping<(string Original, string Replacement), SwiftBridgeRewrite> Group, int Expected)>();
         foreach (var group in Rewrites.Where(r => r.File == file).GroupBy(r => (r.Original, r.Replacement)))
         {
             var expected = group.Count();
-            var (original, replacement) = group.Key;
-            var rewritten = Occurrences(reverted, replacement);
+            var rewritten = Occurrences(reverted, group.Key.Replacement);
             if (rewritten == expected)
-                reverted = reverted.Replace(replacement, original, StringComparison.Ordinal);
-            else if (rewritten != 0 || Occurrences(reverted, original) < expected)
-                throw new InvalidDataException(
-                    $"{file} does not hold the bridge rewrite of {group.First().Member} ({group.First().EntryPoint}) the routing journal records " +
-                    $"({rewritten} of {expected} rewritten); the generated C# was changed by something other than its generator");
+                reverted = reverted.Replace(group.Key.Replacement, group.Key.Original, StringComparison.Ordinal);
+            else if (rewritten != 0)
+                throw NotDescribed(file, group.First(), $"{rewritten} of {expected} rewritten");
+            else
+                unwritten.Add((group, expected));
+        }
+        foreach (var (group, expected) in unwritten)
+        {
+            if (Occurrences(reverted, group.Key.Original) < expected)
+                throw NotDescribed(file, group.First(), $"0 of {expected} rewritten");
         }
         return reverted;
     }
+
+    private static InvalidDataException NotDescribed(string file, SwiftBridgeRewrite rewrite, string count) =>
+        new($"{file} does not hold the bridge rewrite of {rewrite.Member} ({rewrite.EntryPoint}) the routing journal records " +
+            $"({count}); the generated C# was changed by something other than its generator");
 
     private static int Occurrences(string text, string value)
     {

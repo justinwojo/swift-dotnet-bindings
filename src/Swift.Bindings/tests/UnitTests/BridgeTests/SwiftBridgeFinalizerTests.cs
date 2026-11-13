@@ -431,6 +431,28 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Assert.Equal(routed, Snapshot());
     }
 
+    [Fact]
+    public void ARoutingThatBridgesLess_InterruptedBeforeItsCSharp_IsCompletedByTheNextCompile()
+    {
+        WriteGeneration();
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt()));
+        var contradicting = Receipt(selfShows: "swiftcc i64 (i64, i64)");
+        // The build stops at the first C# file: the journal and the bridges are written, and the
+        // file whose import is no longer routed still holds its rewrite.
+        var blocker = PathOf(MainFile) + $".{Environment.ProcessId}.tmp";
+        Directory.CreateDirectory(blocker);
+        Assert.ThrowsAny<Exception>(() => Finalize(contradicting));
+        Directory.Delete(blocker);
+        Assert.Contains("CallConvCdecl", Read(MainFile));
+
+        Finalize(contradicting);
+
+        var expected = GenerationUnder(contradicting);
+        Assert.Equal(MainSource, Read(MainFile));
+        Assert.Equal(expected.CSharp[SplitFile], Read(SplitFile));
+        Assert.Equal(new[] { SplitFile }, SwiftBridgeRoutingJournal.Read(JournalPath).Rewrites.Select(r => r.File));
+    }
+
     // ---- the journal ----
 
     [Fact]
@@ -455,6 +477,22 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         // A file the journal records nothing in is left as it is.
         Assert.Equal("anything", read.Revert("M.Types.E.cs", "anything"));
         Assert.Empty(Directory.GetFiles(_dir, "*.tmp"));
+    }
+
+    [Fact]
+    public void Journal_RecordingAnImportUnderTwoRoutings_RevertsWhicheverTheFileHolds()
+    {
+        var routing = GenerationUnder(Receipt()).Routing;
+        var main = routing.Rewrites.Single(r => r.File == MainFile);
+        var other = main with { Symbol = "SBSR_0000000000000000", Replacement = main.Replacement.Replace(main.Symbol, "SBSR_0000000000000000", StringComparison.Ordinal) };
+        // Either order of the two in the journal.
+        foreach (var rewrites in new[] { ImmutableArray.Create(main, other), ImmutableArray.Create(other, main) })
+        {
+            var journal = new SwiftBridgeRoutingJournal { Schema = SwiftBridgeRoutingJournal.SchemaVersion, Module = "M", Library = Library, Rewrites = rewrites };
+            Assert.Equal(MainSource, journal.Revert(MainFile, routing.Rewrite(MainSource)));
+            Assert.Equal(MainSource, journal.Revert(MainFile, MainSource.Replace(main.Original, other.Replacement, StringComparison.Ordinal)));
+            Assert.Equal(MainSource, journal.Revert(MainFile, MainSource));
+        }
     }
 
     [Fact]
