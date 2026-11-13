@@ -28,11 +28,17 @@ public sealed record SwiftOracleTarget(string Triple, string Sdk)
     public static readonly SwiftOracleTarget CatalystArm64 = new("arm64-apple-ios15.0-macabi", "macosx");
     public static readonly SwiftOracleTarget CatalystX64 = new("x86_64-apple-ios15.0-macabi", "macosx");
 
+    public static readonly SwiftOracleTarget TvosDeviceArm64 = new("arm64-apple-tvos15.0", "appletvos");
+    public static readonly SwiftOracleTarget TvosSimulatorArm64 = new("arm64-apple-tvos15.0-simulator", "appletvsimulator");
+    public static readonly SwiftOracleTarget TvosSimulatorX64 = new("x86_64-apple-tvos15.0-simulator", "appletvsimulator");
+
     /// <summary>
     /// The targets the qualification corpus compiles for: the slices of every platform whose BindingTests
-    /// regeneration routes through bridges (iOS, and both Mac Catalyst architectures).
+    /// regeneration routes through bridges (iOS and tvOS, device and both simulator architectures, and
+    /// both Mac Catalyst architectures).
     /// </summary>
-    public static readonly ImmutableArray<SwiftOracleTarget> Corpus = ImmutableArray.Create(DeviceArm64, SimulatorArm64, SimulatorX64, CatalystArm64, CatalystX64);
+    public static readonly ImmutableArray<SwiftOracleTarget> Corpus = ImmutableArray.Create(
+        DeviceArm64, SimulatorArm64, SimulatorX64, TvosDeviceArm64, TvosSimulatorArm64, TvosSimulatorX64, CatalystArm64, CatalystX64);
 
     /// <summary>
     /// Every slice a hand-written table may claim: the iOS, tvOS, Mac Catalyst and macOS triples the
@@ -40,9 +46,7 @@ public sealed record SwiftOracleTarget(string Triple, string Sdk)
     /// </summary>
     public static readonly ImmutableArray<SwiftOracleTarget> Every = ImmutableArray.Create(
         DeviceArm64, SimulatorArm64, SimulatorX64,
-        new SwiftOracleTarget("arm64-apple-tvos15.0", "appletvos"),
-        new SwiftOracleTarget("arm64-apple-tvos15.0-simulator", "appletvsimulator"),
-        new SwiftOracleTarget("x86_64-apple-tvos15.0-simulator", "appletvsimulator"),
+        TvosDeviceArm64, TvosSimulatorArm64, TvosSimulatorX64,
         CatalystArm64,
         CatalystX64,
         new SwiftOracleTarget("arm64-apple-macosx12.0", "macosx"),

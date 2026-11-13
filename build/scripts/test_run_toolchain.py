@@ -156,6 +156,8 @@ class ToolchainIsolationTests(unittest.TestCase):
         baselines = self.source / "build/baselines"
         baselines.mkdir(parents=True, exist_ok=True)
         (baselines / "runtime-identity-baseline.json").write_text('{"platforms": {"device": {}}}\n')
+        (baselines / "swift-call-plans").mkdir(exist_ok=True)
+        (baselines / "swift-call-plans/Runtime.swift-call-plans.json").write_text('{"plans": []}\n')
         if baseline is not None:
             (self.source / profile.NET11_IDENTITY_BASELINE).write_text(baseline)
         workspace = self.prepare()
@@ -175,7 +177,10 @@ class ToolchainIsolationTests(unittest.TestCase):
     def test_seed_write_back_refuses_any_other_baseline_change(self):
         for mutate in (lambda w: (w / "build/baselines/runtime-identity-baseline.json").write_text("{}"),
                        lambda w: (w / "build/baselines/skip-surface-baseline.json").write_text("{}"),
-                       lambda w: (w / "build/baselines/runtime-identity-baseline.json").unlink()):
+                       lambda w: (w / "build/baselines/runtime-identity-baseline.json").unlink(),
+                       lambda w: (w / "build/baselines/swift-call-plans/Runtime.swift-call-plans.json").write_text("{}"),
+                       lambda w: (w / "build/baselines/swift-call-plans/Added.swift-call-plans.json").write_text("{}"),
+                       lambda w: (w / "build/baselines/swift-call-plans/Runtime.swift-call-plans.json").unlink()):
             with self.subTest(mutate=mutate):
                 workspace, inventory = self.seeded_workspace()
                 mutate(workspace)

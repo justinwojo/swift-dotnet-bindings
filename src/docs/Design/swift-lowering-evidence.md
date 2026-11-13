@@ -116,12 +116,13 @@ host toolchain, so the verdict is the same under any profile. It judges:
   supplement's) is planned but not judged, even though the record holds its receipts. A plan judged
   executable that nothing routes would be a transition left on its direct import, which the
   transition ledger reports as a routing gap;
-- the qualification corpus: the iOS BindingTests regeneration (the compile-only gate's) and the Mac
-  Catalyst one (the `--catalyst` leg's), via `--swift-lowering-qualification`. Each is judged over
-  its own platform's slices, so the record holds the corpus's receipts for the three iOS triples and
-  both macabi triples, and neither platform's receipts stand in for the other's. The Catalyst
-  leg compile-checks its output for `maccatalyst` and runs the same ledger, R3 and residual-guard
-  cross-check over it, after a control that the plans were judged over the macabi slices, the
+- the qualification corpus: the iOS BindingTests regeneration (the compile-only gate's), the Mac
+  Catalyst one (the `--catalyst` leg's) and the tvOS one (the `--tvos` leg's), via
+  `--swift-lowering-qualification`. Each is judged over its own platform's slices, so the record
+  holds the corpus's receipts for the three iOS triples, the three tvOS triples and both macabi
+  triples, and no platform's receipts stand in for another's. The Catalyst and tvOS legs
+  compile-check their output for their own framework and run the same ledger, R3 and residual-guard
+  cross-check over it, after a control that the plans were judged over that platform's slices, the
   main module still records guarded transitions, and the binding compiles bridge twins;
 - the bridge gate (`nuke swift-bridge-gate`), which re-judges every sidecar by the scope it records
   and assembles and validates every bridge for each platform a judged sidecar's slices claim,
@@ -131,9 +132,9 @@ host toolchain, so the verdict is the same under any profile. It judges:
   routes nothing records none and stays unjudged.
 
 `swift-lowering-oracle` writes the record, one family per run, so it runs once under each toolchain
-profile, and once per routed platform (`--platform maccatalyst` regenerates the Catalyst corpus
-first; until the record holds that corpus's receipts, its probe-route requests cannot be met, so
-that first run needs `--permissive`). The corpus evidence includes the libraries' own definition IR, which a binary framework's
+profile, and once per routed platform (`--platform maccatalyst` or `--platform tvos` regenerates
+that platform's corpus first; until the record holds that corpus's receipts, its probe-route
+requests cannot be met, so that first run needs `--permissive`). The corpus evidence includes the libraries' own definition IR, which a binary framework's
 consumer never has. That is why corpus agreement qualifies the planner and the bridges, but never
 authorizes a third-party plan by itself.
 

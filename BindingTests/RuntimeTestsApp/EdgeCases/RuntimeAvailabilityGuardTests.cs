@@ -139,8 +139,8 @@ public class RuntimeAvailabilityGuardTests : TestBase
     /// before the bridge is called. Reaching the guard at all proves the wrapper holding the
     /// bridge loaded on an OS without the member.
     ///
-    /// <para>Only the iOS and Mac Catalyst builds have the lowering evidence that routes this member
-    /// through its bridge. The other builds keep its direct Swift-convention transition, whose transition guard
+    /// <para>Only the iOS, Mac Catalyst and tvOS builds have the lowering evidence that routes this member
+    /// through its bridge. The macOS build keeps its direct Swift-convention transition, whose transition guard
     /// runs first and refuses on an engine that mishandles the transition's shape. That refusal
     /// holds on every OS version, so it is the more lasting answer. It is also a
     /// <see cref="PlatformNotSupportedException"/> thrown before native code.</para>

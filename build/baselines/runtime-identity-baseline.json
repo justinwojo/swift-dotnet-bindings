@@ -562,7 +562,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3557,
+      "pass_count": 3645,
       "skips": [
         {
           "class": "AsyncClosureTests",

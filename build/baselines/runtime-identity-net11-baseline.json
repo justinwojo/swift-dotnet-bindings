@@ -1,5 +1,5 @@
 {
-  "git_sha": "9d0f7d2f0",
+  "git_sha": "b2236ff9f",
   "platforms": {
     "net11.0_macos_osx-arm64_coreclr_release": {
       "pass_count": 3473,
@@ -532,7 +532,7 @@
       "known_fails": []
     },
     "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_release": {
-      "pass_count": 3561,
+      "pass_count": 3649,
       "skips": [
         {
           "class": "AsyncClosureTests",

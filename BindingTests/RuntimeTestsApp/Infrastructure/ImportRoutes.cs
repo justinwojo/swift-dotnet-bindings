@@ -29,11 +29,11 @@ internal static class ImportRoutes
 
     /// <summary>
     /// Whether this platform's regeneration routed Swift-convention imports through native bridges:
-    /// the iOS and Mac Catalyst builds, whose swiftc lowering evidence the qualification record holds.
-    /// The other platforms regenerate without evidence, so a member a bridge would carry keeps its
+    /// the iOS, Mac Catalyst and tvOS builds, whose swiftc lowering evidence the qualification record
+    /// holds. macOS regenerates without evidence, so a member a bridge would carry keeps its
     /// <c>@_cdecl</c> wrapper or its guarded direct import there.
     /// </summary>
-    public static bool BridgesRouted => OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst();
+    public static bool BridgesRouted => OperatingSystem.IsIOS() || OperatingSystem.IsMacCatalyst() || OperatingSystem.IsTvOS();
 
     /// <summary>
     /// Asserts that <paramref name="member"/> of <paramref name="declaringType"/> has exactly one import,
