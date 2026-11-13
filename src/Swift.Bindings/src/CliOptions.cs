@@ -248,6 +248,15 @@ public class CliOptions
                      "receipt is written only when every shipped slice compiled and was observed, and only when the selected " +
                      "compiler is a qualified family; otherwise any receipt at the path is removed.");
 
+    public Option<bool> RouteSwiftBridges { get; } = new(
+        aliases: new[] { "--route-swift-bridges" },
+        description: "With --collect-swift-lowering-evidence: once the receipt is written, route every Swift-convention import " +
+                     "it authorizes through a native bridge. The generated C# in the output directory is rewritten in place " +
+                     "(a journal beside it records each rewrite), the bridges are written beside the thunks, and the wrapper is " +
+                     "relinked with them when it lacks one, each slice checked against the receipt. An import the receipt does " +
+                     "not authorize keeps its Swift-convention call. Without this option, an earlier routing is undone.",
+        getDefaultValue: () => false);
+
     public Option<bool> CompileBridgeOnly { get; } = new(
         aliases: new[] { "--compile-bridge-only" },
         description: "Compile-bridge-only mode: skips all parsing and C# generation, compiles existing .SwiftUIBridge.swift files " +
@@ -586,6 +595,7 @@ public class CliOptions
             SkipThunkCompilation,
             CompileWrapperOnly,
             CollectSwiftLoweringEvidence,
+            RouteSwiftBridges,
             CompileBridgeOnly,
             DetectAppleCrossModuleDeps,
             SliceXcframework,

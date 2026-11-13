@@ -9,9 +9,7 @@
 //   and returns a mask of what fn failed to preserve: bits 0-9 x19-x28, bit 10 the frame pointer
 //   and stack, bits 12-19 the low halves of d8-d15. x18 is the platform register and is never
 //   read or written.
-//
-// int64_t bcf_identity_map(int64_t)   returns its argument.
-// int64_t bcf_negate_map(int64_t)     returns its negation.
+
 .text
 .p2align 2
 .globl _bcf_bridge_sentinel
@@ -144,13 +142,3 @@ _bcf_bridge_sentinel:
     add sp, sp, #192
     ret
 
-.p2align 2
-.globl _bcf_identity_map
-_bcf_identity_map:
-    ret
-
-.p2align 2
-.globl _bcf_negate_map
-_bcf_negate_map:
-    neg x0, x0
-    ret

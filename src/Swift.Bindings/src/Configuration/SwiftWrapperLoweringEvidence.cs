@@ -26,16 +26,41 @@ public sealed class SwiftWrapperLoweringEvidence
 {
     private readonly List<Pass> _passes = new();
     private readonly Func<string, string?> _sdkIdentity;
+    private readonly SwiftLoweringReceipt? _verifying;
 
     private SwiftWrapperLoweringEvidence(
-        string artifact, string platform, string compiler, SortedSet<string> targets, Func<string, string?> sdkIdentity)
+        string artifact, string platform, string compiler, IEnumerable<string> targets, Func<string, string?> sdkIdentity,
+        SwiftLoweringReceipt? verifying = null)
     {
         Artifact = artifact;
         Platform = platform;
         Compiler = compiler;
         Targets = targets.ToImmutableSortedSet(StringComparer.Ordinal);
         _sdkIdentity = sdkIdentity;
+        _verifying = verifying;
     }
+
+    /// <summary>
+    /// The verification of a wrapper compiled again from the sources <paramref name="receipt"/> was
+    /// collected from (the wrapper relinked with its bridges). A pass reads no IR and runs no probe:
+    /// each slice must compile the very wrapper sources, with the very flags, against the very
+    /// interfaces and SDK the receipt's slice records, and then records that slice of the receipt as
+    /// its own. A slice the receipt does not have, or whose inputs differ, is a failure, so
+    /// <see cref="Receipt"/> returns the receipt only when the relinked wrapper is the one it describes.
+    /// </summary>
+    /// <remarks>
+    /// The probe is not compiled again because its source is a function of what the receipt's other
+    /// sources already pin: the targets the wrapper's IR does not define (the wrapper sources) and the
+    /// descriptors and interfaces the frameworks ship (the interface digests).
+    /// </remarks>
+    public static SwiftWrapperLoweringEvidence ForVerification(
+        SwiftLoweringReceipt receipt, string platform, Func<string, string?>? sdkIdentity = null) =>
+        new(receipt.Artifact, platform, receipt.Compiler,
+            receipt.Slices.Values.SelectMany(s => s.Symbols.Keys.Concat(s.Unobserved?.Keys ?? Enumerable.Empty<string>())).Distinct(StringComparer.Ordinal),
+            sdkIdentity ?? SwiftToolchainProbe.SdkIdentity, receipt);
+
+    /// <summary>Whether the passes verify a relinked wrapper against a receipt rather than collect one.</summary>
+    public bool Verifies => _verifying is not null;
 
     /// <summary>The module the receipt answers for.</summary>
     public string Artifact { get; }
@@ -247,6 +272,9 @@ public sealed class SwiftWrapperLoweringEvidence
         /// <summary>The targets the collection searches each slice's IR for.</summary>
         public ImmutableSortedSet<string> Targets => _owner.Targets;
 
+        /// <summary>Whether this pass verifies a relinked wrapper (<see cref="Verify"/>) rather than observes one.</summary>
+        public bool Verifies => _owner.Verifies;
+
         /// <summary>
         /// Records what <paramref name="modules"/>, the IR of the wrapper compiled for
         /// <paramref name="compiledTriple"/> from <paramref name="sources"/>, and the slice's
@@ -274,6 +302,38 @@ public sealed class SwiftWrapperLoweringEvidence
         /// <summary>Records that the slice compiled for <paramref name="compiledTriple"/> could not be observed, and why.</summary>
         public void Fail(string compiledTriple, string why) => _failures.Add($"{compiledTriple}: {why}");
 
+        /// <summary>
+        /// In a verification (<see cref="ForVerification"/>): whether the slice compiled for
+        /// <paramref name="compiledTriple"/> read exactly <paramref name="sources"/> the receipt's slice
+        /// records (its probe aside) against the same SDK. A match records the receipt's slice as this
+        /// pass's; a mismatch is recorded as a failure, with what differs.
+        /// </summary>
+        public bool Verify(string compiledTriple, IReadOnlyList<SwiftEvidenceSource> sources)
+        {
+            var receipt = _owner._verifying ?? throw new InvalidOperationException("this collection verifies no receipt");
+            if (!TrySlice(compiledTriple, out var triple, out var sdk))
+                return false;
+            if (!receipt.Slices.TryGetValue(triple, out var expected))
+            {
+                Fail(compiledTriple, $"the receipt being verified has no evidence for {triple}");
+                return false;
+            }
+            var differences = new List<string>();
+            if (expected.Sdk != sdk)
+                differences.Add($"the receipt was collected against {expected.Sdk}; this compile used {sdk}");
+            var recorded = expected.Sources.Where(s => s.Role != SwiftEvidenceSource.ProbeRole).ToHashSet();
+            var compiled = sources.ToHashSet();
+            differences.AddRange(recorded.Except(compiled).Select(s => $"the receipt records {s}, which this compile did not read"));
+            differences.AddRange(compiled.Except(recorded).Select(s => $"this compile read {s}, which the receipt does not record"));
+            if (differences.Count > 0)
+            {
+                Fail(compiledTriple, string.Join("; ", differences));
+                return false;
+            }
+            _slices.Add((triple, expected));
+            return true;
+        }
+
         private bool TrySlice(string compiledTriple, out string triple, out string sdk)
         {
             triple = sdk = string.Empty;
@@ -291,6 +351,25 @@ public sealed class SwiftWrapperLoweringEvidence
             (triple, sdk) = (key, identity);
             return true;
         }
+    }
+
+    /// <summary>
+    /// What a wrapper slice compiled for <paramref name="compiledTriple"/> reads besides its probe: the
+    /// wrapper's own post-processed sources, with the wrapper flags, and, for a bound module, the
+    /// interfaces it could import (<see cref="InterfaceSources"/>). Collection and verification both
+    /// record exactly this, so the two cannot disagree on what a slice was compiled from.
+    /// </summary>
+    public static List<SwiftEvidenceSource> SliceSources(
+        IReadOnlyList<string> wrapperFiles, string wrapperModuleName, string compiledTriple,
+        string? boundModuleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths)
+    {
+        var sources = new List<SwiftEvidenceSource>
+        {
+            new(SwiftEvidenceSource.WrapperRole, wrapperModuleName, SwiftEvidenceSource.DigestOf(wrapperFiles), WrapperFlags(compiledTriple)),
+        };
+        if (!string.IsNullOrEmpty(boundModuleName))
+            sources.AddRange(InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths));
+        return sources;
     }
 
     /// <summary>

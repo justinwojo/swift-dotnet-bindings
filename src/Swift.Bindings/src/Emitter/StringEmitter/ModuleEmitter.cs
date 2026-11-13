@@ -335,6 +335,12 @@ namespace BindingsGeneration
                         File.Delete(bridgePath);
                 }
 
+                // The C# just written is generation's own: the wrapper compile's journal of the routing it
+                // applied to the previous C# describes nothing here.
+                var routingJournal = Path.Combine(_outputDirectory, SwiftBridgeRoutingJournal.FileName(@namespace));
+                if (File.Exists(routingJournal))
+                    File.Delete(routingJournal);
+
                 // Detect theme-bridgeable types (classes with singleton + Color/Font properties)
                 var themeInfos = ThemeBridgeEmitter.DetectThemeBridgeableTypes(moduleDecl);
                 var hasViews = collectedViews.Count > 0;

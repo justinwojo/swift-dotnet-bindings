@@ -641,8 +641,11 @@ namespace BindingsGeneration.Tests
                 .Single(e => e.Name.LocalName == "Target" && (string?)e.Attribute("Name") == "_ComputeSwiftFingerprint")
                 .Descendants().Single(e => e.Name.LocalName == "Exec" && ((string?)e.Attribute("Condition"))?.Contains("!= 'AppleFramework'") == true)
                 .Attribute("Command")!.Value;
-            var guarded = fingerprint[fingerprint.IndexOf("if [ -n \"$(_SwiftFingerprintToolchain)\" ]; then", StringComparison.Ordinal)..];
-            guarded = guarded[..guarded.IndexOf("fi;", StringComparison.Ordinal)];
+            var guardStart = fingerprint.IndexOf("if [ -n \"$(_SwiftFingerprintToolchain)\" ]; then", StringComparison.Ordinal);
+            var guardEnd = fingerprint.IndexOf("echo \"$(TargetFramework) ", StringComparison.Ordinal);
+            Assert.True(guardStart >= 0 && guardEnd > guardStart, "the toolchain block precedes the closing property echo");
+            var guarded = fingerprint[guardStart..guardEnd];
+            var unguarded = fingerprint[..guardStart] + fingerprint[guardEnd..];
 
             Assert.Contains("xcrun swiftc --version", guarded);
             foreach (var sdk in new[] { "iphoneos", "iphonesimulator", "appletvos", "appletvsimulator", "macosx" })
@@ -651,6 +654,45 @@ namespace BindingsGeneration.Tests
             Assert.Contains("--show-sdk-build-version", guarded);
             // Before the pipeline's sort and hash.
             Assert.True(fingerprint.IndexOf("--show-sdk-build-version", StringComparison.Ordinal) < fingerprint.IndexOf("| sort | shasum", StringComparison.Ordinal));
+
+            // Whether the receipt routes bridges, so turning routing on or off regenerates (and with it
+            // the C# the routing rewrites).
+            Assert.Contains("echo \"route-bridges $(_SwiftRouteBridges)\"", guarded);
+            // Every module file the receipt's interface digests and probe read, for the bound framework and
+            // each dependency: a descriptor- or private-interface-only change recompiles the wrapper and
+            // collects a new receipt.
+            Assert.Contains("find \"%(SwiftFramework.Identity)\" -path \"*.framework/Modules/*\" -type f -exec shasum -a 256", guarded);
+            Assert.Contains("\"@(SwiftFrameworkDependency, '%0A')\" \"@(_AutoFrameworkDependency, '%0A')\" | while IFS= read -r dep", guarded);
+            Assert.Equal(2, guarded.Split("-path \"*.framework/Modules/*\"").Length - 1);
+            // A build that neither reads nor collects a receipt fingerprints what it did before: none of
+            // this outside the guard.
+            Assert.DoesNotContain("route-bridges", unguarded);
+            Assert.DoesNotContain("-path \"*.framework/Modules/*\"", unguarded);
+        }
+
+        [Fact]
+        public void Targets_BridgeRouting_IsAskedOfTheWrapperCompile_OnlyWithACollectedReceiptAndNoHandAuthoredEvidence()
+        {
+            var compile = XDocument.Parse(TargetsContent).Descendants()
+                .Single(e => e.Name.LocalName == "Target" && (string?)e.Attribute("Name") == "_CompileSwiftWrapper");
+            var route = compile.Descendants()
+                .Single(e => e.Name.LocalName == "_SwiftWrapperCmd" && e.Value.Contains("--route-swift-bridges", StringComparison.Ordinal));
+            Assert.Equal("'$(_SwiftRouteBridges)' == 'true'", (string?)route.Attribute("Condition"));
+            Assert.EndsWith("--route-swift-bridges", route.Value);
+            Assert.Equal(1, TargetsContent.Split("--route-swift-bridges").Length - 1);
+
+            // The flag follows the receipt it routes from.
+            var commands = compile.Descendants().Where(e => e.Name.LocalName == "_SwiftWrapperCmd").ToList();
+            var collect = commands.Single(e => e.Value.Contains("--collect-swift-lowering-evidence", StringComparison.Ordinal));
+            Assert.True(commands.IndexOf(collect) < commands.IndexOf(route));
+
+            // Routing needs a collected receipt and stands down for hand-authored evidence, which
+            // generation routes from itself.
+            var definition = XDocument.Parse(TargetsContent).Descendants()
+                .Single(e => e.Name.LocalName == "_SwiftRouteBridges" && e.Parent?.Name.LocalName == "PropertyGroup" && e.Ancestors().All(a => a.Name.LocalName != "Target"));
+            var condition = (string?)definition.Attribute("Condition") ?? "";
+            Assert.Contains("'$(_SwiftCollectLoweringEvidence)' == 'true'", condition);
+            Assert.Contains("'$(SwiftLoweringEvidence)' == ''", condition);
         }
 
         [Fact]

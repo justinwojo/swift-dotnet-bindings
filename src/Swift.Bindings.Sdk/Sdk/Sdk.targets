@@ -118,13 +118,23 @@
     <SwiftAppleFrameworkMinDeploymentVersion Condition="'$(SwiftAppleFrameworkMinDeploymentVersion)' == ''">15.0</SwiftAppleFrameworkMinDeploymentVersion>
 
     <!-- swiftc lowering receipt of this binding's module, collected by _CompileSwiftWrapper from the IR
-         of the wrapper it compiles, with the same swiftc, SDK and flags. Only .NET 11 routing reads a
-         receipt, so only net11 targets collect one by default; set SwiftCollectLoweringEvidence to
-         false to skip the extra swiftc pass, or true to collect on any target. A receipt is written only
-         under a qualified compiler family, and only once every slice of the wrapper compiled. -->
+         of the wrapper it compiles, with the same swiftc, SDK and flags, and the receipt that authorizes
+         the binding's bridges. Collected by default on every iOS target (net10.0 and net11.0) and on
+         every net11.0 target; set SwiftCollectLoweringEvidence to false to skip the extra swiftc pass
+         (and with it the bridges), or true to collect on any target. A receipt is written only under a
+         qualified compiler family, and only once every slice of the wrapper compiled. -->
     <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND '$(_SwiftBindingManagedFramework)' == 'net11.0'">true</SwiftCollectLoweringEvidence>
+    <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND '$(_SwiftBindingPlatform)' == 'ios'">true</SwiftCollectLoweringEvidence>
     <_SwiftCollectLoweringEvidence Condition="$([System.String]::Equals('$(SwiftCollectLoweringEvidence)', 'true', StringComparison.OrdinalIgnoreCase))">true</_SwiftCollectLoweringEvidence>
     <_SwiftLoweringReceipt>$(_SwiftBindingIntermediateDir)swift-lowering-receipt.json</_SwiftLoweringReceipt>
+    <!-- Bridge routing from that receipt: the wrapper compile routes every Swift-convention import the
+         receipt authorizes through a native bridge, rewriting the generated C# in place and relinking
+         the wrapper with the bridges; an import it does not authorize keeps its Swift-convention call.
+         On by default for iOS targets; set SwiftRouteBridges to false to keep every import as
+         generated while still collecting the receipt. A hand-authored SwiftLoweringEvidence routes at
+         generation instead, so the wrapper compile then leaves the C# alone. -->
+    <SwiftRouteBridges Condition="'$(SwiftRouteBridges)' == '' AND '$(_SwiftBindingPlatform)' == 'ios'">true</SwiftRouteBridges>
+    <_SwiftRouteBridges Condition="$([System.String]::Equals('$(SwiftRouteBridges)', 'true', StringComparison.OrdinalIgnoreCase)) AND '$(_SwiftCollectLoweringEvidence)' == 'true' AND '$(SwiftLoweringEvidence)' == ''">true</_SwiftRouteBridges>
     <!-- The selected swiftc and SDK identities join the fingerprint whenever a receipt is read or
          collected: switching Xcode then regenerates and recompiles, which replaces the receipt. -->
     <_SwiftFingerprintToolchain Condition="'$(SwiftLoweringEvidence)' != '' OR '$(_SwiftCollectLoweringEvidence)' == 'true'">true</_SwiftFingerprintToolchain>
@@ -675,7 +685,11 @@ done; true"
       6. Dependency xcframework contents (Info.plist + binaries)
       7. With a lowering receipt read (SwiftLoweringEvidence) or collected (SwiftCollectLoweringEvidence):
          the selected swiftc and SDK identities, which a receipt must match to authorize bridges, so
-         switching Xcode regenerates and recompiles the wrapper
+         switching Xcode regenerates and recompiles the wrapper; whether the receipt routes bridges;
+         and every file under the frameworks' Modules/ (the module descriptors and private
+         interfaces the receipt's probe and interface digests read), so a change to any of them
+         recompiles the wrapper and collects a new receipt. A build that neither reads nor collects a
+         receipt fingerprints exactly what it did before.
       Shell pipeline because framework binaries have no extension (*.dylib glob misses them).
       Sorted for deterministic output regardless of filesystem traversal order.
     -->
@@ -715,6 +729,11 @@ done; true"
         echo &quot;swiftc %24(xcrun swiftc --version 2>/dev/null | head -1)&quot;; \
         for sdk in iphoneos iphonesimulator appletvos appletvsimulator macosx; do \
           echo &quot;sdk %24sdk %24(xcrun --sdk %24sdk --show-sdk-version 2>/dev/null) %24(xcrun --sdk %24sdk --show-sdk-build-version 2>/dev/null)&quot;; \
+        done; \
+        echo &quot;route-bridges $(_SwiftRouteBridges)&quot;; \
+        find &quot;%(SwiftFramework.Identity)&quot; -path &quot;*.framework/Modules/*&quot; -type f -exec shasum -a 256 {} \; ; \
+        printf &apos;%25s\n&apos; &quot;@(SwiftFrameworkDependency, '%0A')&quot; &quot;@(_AutoFrameworkDependency, '%0A')&quot; | while IFS= read -r dep; do \
+          if [ -n &quot;%24dep&quot; ] &amp;&amp; [ -d &quot;%24dep&quot; ]; then find &quot;%24dep&quot; -path &quot;*.framework/Modules/*&quot; -type f -exec shasum -a 256 {} \; ; fi; \
         done; \
       fi; \
       echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
@@ -3155,6 +3174,10 @@ done; true"
            The generator removes the previous receipt first and writes the new one only after every
            slice compiled, so an interrupted compile leaves none. -->
       <_SwiftWrapperCmd Condition="'$(_SwiftCollectLoweringEvidence)' == 'true'">$(_SwiftWrapperCmd) --collect-swift-lowering-evidence "$(_SwiftLoweringReceipt)"</_SwiftWrapperCmd>
+      <!-- Routes what that receipt authorizes through native bridges: the generated C# is rewritten in
+           place (journaled beside it) and the wrapper relinked with the bridges when it lacks one.
+           Without the flag, the compile undoes any earlier routing. -->
+      <_SwiftWrapperCmd Condition="'$(_SwiftRouteBridges)' == 'true'">$(_SwiftWrapperCmd) --route-swift-bridges</_SwiftWrapperCmd>
     </PropertyGroup>
 
     <!-- With collection off, a receipt left by an earlier build describes a wrapper this compile replaces. -->

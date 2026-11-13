@@ -1175,15 +1175,16 @@ partial class Build
                 return;
             }
 
-            // --bridge-consumer: the opt-in .NET 11 packaged Debug consumer of the Swift bridges. It
-            // packs its own feed and fixture binding and runs one Debug app on the simulator and/or
-            // a device (simulator when neither is given). Focused + exclusive.
+            // --bridge-consumer: the opt-in ordinary consumer of the Swift bridges. It packs its own
+            // feed, binds its fixture with default SDK settings in each consumption mode and runs the
+            // app on the simulator and/or a device (simulator when neither is given); --mono-aot
+            // re-flavors the .NET 10 device app as Mono full-AOT. Focused + exclusive.
             if (BridgeConsumer)
             {
-                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos || MonoAot)
+                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
                     throw new Exception("--bridge-consumer runs an iOS app on the simulator and/or a device; " +
-                        "it cannot be combined with --macos, --catalyst, --tvos or --mono-aot.");
-                RunBridgeConsumerLeg(sim: Sim || !Device, device: Device);
+                        "it cannot be combined with --macos, --catalyst or --tvos.");
+                RunBridgeConsumerLeg(sim: Sim || !Device, device: Device, monoAot: MonoAot);
                 return;
             }
 

@@ -1,23 +1,26 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 //
-// Packaged Debug consumer fixture for `nuke binding-tests --bridge-consumer`. A third-party-shaped
-// module the SDK binds with the swiftc lowering evidence, so its Swift-convention members are called
-// through native bridges (SBSR_) instead of a direct import. An ordinary .NET 11 Debug app consumes
-// the packed binding, which runs on the CoreCLR interpreter, and calls it.
+// Ordinary-consumer fixture for `nuke binding-tests --bridge-consumer`. A third-party-shaped module
+// the SDK binds with its default settings: the SDK's own wrapper compile collects the swiftc lowering
+// receipt and routes what it authorizes through native bridges (SBSR_) instead of a direct import.
+// An ordinary app consumes the binding (as a package, as the app's own SDK binding, or through a
+// ProjectReference) and calls it on the CoreCLR interpreter, Mono or NativeAOT.
 //
 // Two transitions are measured per call:
-// - BridgeAccount.accumulate: self, a Swift error and a scalar result, through the binding's own
-//   bridge. The @convention(c) parameter keeps the member off the @_cdecl wrapper, so it stays a
-//   Swift-convention transition that only a bridge can make for the interpreter.
+// - BridgeAccount.settled: self, a Swift error and a scalar result, through the binding's own
+//   bridge. BridgeAccount is isolated to a global actor, and a synchronous nonisolated wrapper
+//   cannot read an isolated property, so the binding reaches the getter directly through the Swift
+//   calling convention: the transition only a bridge can make safely for the interpreter and Mono.
 // - Array's subscript getter ($sSayxSicig), through SwiftBindings.Runtime's bridge. The array the
 //   binding hands out is backed by an NSArray subclass, so every element read runs object(at:)
 //   inside the getter, where the stack still shows who called it.
 //
 // Each measured call records its own stack (`backtrace` + `dladdr`): the address, the image's load
 // address and the symbol of every frame. The host checks that a bridge frame sits under the Swift
-// code and that the interpreter's call stub sits under the bridge. A device app is stripped, so the
-// load address lets the host resolve the stub against the build's unstripped copy of the runtime.
+// code and that the runtime's managed-to-native transition sits under the bridge. A device app is
+// stripped, so the load address lets the host resolve the stub against the build's unstripped copy
+// of the runtime.
 
 import Darwin
 import Foundation
@@ -73,14 +76,29 @@ public func bridgeConsumerLiveObjects() -> Int {
 
 // MARK: - self + error + scalar result
 
+/// The fixture's global actor. Its executor is the main actor's, so the app's main-thread calls run
+/// on the actor's executor.
+@globalActor
+public actor BridgeConsumerActor {
+    public static let shared = BridgeConsumerActor()
+
+    public nonisolated var unownedExecutor: UnownedSerialExecutor {
+        MainActor.sharedUnownedExecutor
+    }
+}
+
 public enum BridgeAccountError: Error {
     case negative(Int64)
 }
 
+@BridgeConsumerActor
 public final class BridgeAccount {
     public private(set) var total: Int64
 
-    public init(total: Int64) {
+    /// The delta the next read of `settled` adds to the total.
+    public var pending: Int64 = 0
+
+    nonisolated public init(total: Int64) {
         self.total = total
         bcfLive += 1
     }
@@ -89,16 +107,19 @@ public final class BridgeAccount {
         bcfLive -= 1
     }
 
-    /// Adds the mapped delta to the total and returns it. A negative mapped delta throws and leaves
-    /// the total as it was, so the next call shows whether the receiver survived the error.
-    public func accumulate(_ delta: Int64, through map: @convention(c) (Int64) -> Int64) throws -> Int64 {
-        bcfCapture("accumulate")
-        let mapped = map(delta)
-        if mapped < 0 {
-            throw BridgeAccountError.negative(mapped)
+    /// Adds the pending delta to the total, clears it and returns the new total. A negative pending
+    /// delta throws and leaves both as they were, so the next read shows whether the receiver
+    /// survived the error.
+    public var settled: Int64 {
+        get throws {
+            bcfCapture("settle")
+            if pending < 0 {
+                throw BridgeAccountError.negative(pending)
+            }
+            total += pending
+            pending = 0
+            return total
         }
-        total += mapped
-        return total
     }
 }
 

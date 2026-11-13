@@ -2104,7 +2104,23 @@ namespace BindingsGeneration
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
             }
 
-            if (lowering != null)
+            if (lowering is { Verifies: true })
+            {
+                // A relink of a wrapper whose receipt is already written: the slice must have been
+                // compiled from the inputs that receipt records, which is what makes it still the
+                // receipt of the wrapper the build ships.
+                try
+                {
+                    lowering.Verify(targetTriple, SwiftWrapperLoweringEvidence.SliceSources(
+                        swiftFiles, wrapperModuleName, targetTriple, originalModuleName, frameworkSearchPath,
+                        transitiveScanSearchPaths ?? additionalFrameworkSearchPaths));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    lowering.Fail(targetTriple, $"the relinked slice's inputs could not be read: {ex.Message}");
+                }
+            }
+            else if (lowering != null)
             {
                 CollectLoweringEvidence(
                     lowering, sharedFrontendArgs, frontendArgs, swiftFiles, wrapperModuleName, targetTriple, frameworkSearchPath,
@@ -2178,15 +2194,11 @@ namespace BindingsGeneration
 
                 var irTime = clock.Elapsed;
 
-                var sources = new List<SwiftEvidenceSource>
-                {
-                    new(SwiftEvidenceSource.WrapperRole, wrapperModuleName, SwiftEvidenceSource.DigestOf(swiftFiles),
-                        SwiftWrapperLoweringEvidence.WrapperFlags(targetTriple)),
-                };
+                var sources = SwiftWrapperLoweringEvidence.SliceSources(
+                    swiftFiles, wrapperModuleName, targetTriple, boundModuleName, frameworkSearchPath, dependencySearchPaths);
                 SwiftLoweringProbe.Result? probe = null;
                 if (!string.IsNullOrEmpty(boundModuleName))
                 {
-                    sources.AddRange(SwiftWrapperLoweringEvidence.InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths));
                     // A target the wrapper defines is the wrapper's own code; every other one is called
                     // as a client of the library calls it, whether or not the wrapper calls it too.
                     var probed = lowering.Targets.Where(t => !modules.Any(m => m.Functions.ContainsKey(t))).ToList();

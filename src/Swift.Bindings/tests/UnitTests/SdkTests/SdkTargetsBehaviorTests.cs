@@ -840,22 +840,27 @@ namespace BindingsGeneration.Tests
         }
 
         /// <summary>
-        /// Only .NET 11 routing reads a lowering receipt, so a net10 binding neither pays for the extra
-        /// swiftc pass nor gains toolchain lines in its fingerprint unless it asks; a net11 binding
-        /// collects one unless it opts out. The toolchain joins the fingerprint whenever a receipt is
-        /// collected or read.
+        /// Every iOS binding (net10.0 and net11.0) collects its lowering receipt and routes its bridges
+        /// from it by default, and every net11 binding collects one; other net10 targets neither pay for
+        /// the extra swiftc pass nor gain toolchain lines in their fingerprint unless they ask. Routing
+        /// needs a collected receipt and stands down when the project hands generation its own
+        /// evidence. The toolchain joins the fingerprint whenever a receipt is collected or read.
         /// </summary>
         [Theory]
-        [InlineData("net10.0-ios26.0", "", "", false, false)]
-        [InlineData("net10.0-maccatalyst26.0", "", "", false, false)]
-        [InlineData("net11.0-ios27.2", "", "", true, true)]
-        [InlineData("net11.0-tvos27.2", "", "", true, true)]
-        [InlineData("net11.0-macos27.2", "", "", true, true)]
-        [InlineData("net11.0-ios27.2", "false", "", false, false)]
-        [InlineData("net10.0-ios26.0", "True", "", true, true)]
-        [InlineData("net10.0-ios26.0", "", "/evidence/receipt.json", false, true)]
-        public void LoweringReceipt_IsCollectedForNet11ByDefault_AndTheToolchainFingerprintedOnlyWhenOneIsUsed(
-            string framework, string collect, string evidence, bool collected, bool toolchain)
+        [InlineData("net10.0-ios26.0", "", "", "", true, true, true)]
+        [InlineData("net10.0-maccatalyst26.0", "", "", "", false, false, false)]
+        [InlineData("net10.0-macos26.0", "", "", "", false, false, false)]
+        [InlineData("net11.0-ios27.2", "", "", "", true, true, true)]
+        [InlineData("net11.0-tvos27.2", "", "", "", true, true, false)]
+        [InlineData("net11.0-macos27.2", "", "", "", true, true, false)]
+        [InlineData("net11.0-ios27.2", "false", "", "", false, false, false)]
+        [InlineData("net10.0-ios26.0", "false", "", "", false, false, false)]
+        [InlineData("net10.0-ios26.0", "True", "", "", true, true, true)]
+        [InlineData("net10.0-ios26.0", "", "false", "", true, true, false)]
+        [InlineData("net10.0-maccatalyst26.0", "true", "true", "", true, true, true)]
+        [InlineData("net10.0-ios26.0", "", "", "/evidence/receipt.json", true, true, false)]
+        public void LoweringReceipt_IsCollectedAndRoutedForIosByDefault_AndTheToolchainFingerprintedOnlyWhenOneIsUsed(
+            string framework, string collect, string route, string evidence, bool collected, bool toolchain, bool routed)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
@@ -866,16 +871,18 @@ namespace BindingsGeneration.Tests
                   <PropertyGroup>
                     <TargetFramework>{framework}</TargetFramework>
                     <SwiftCollectLoweringEvidence>{collect}</SwiftCollectLoweringEvidence>
+                    <SwiftRouteBridges>{route}</SwiftRouteBridges>
                     <SwiftLoweringEvidence>{evidence}</SwiftLoweringEvidence>
                   </PropertyGroup>
                   <Import Project="{sdkTargetsPath}" />
-                  <Target Name="Probe"><Message Importance="high" Text="COLLECT=[$(_SwiftCollectLoweringEvidence)] TOOLCHAIN=[$(_SwiftFingerprintToolchain)] RECEIPT=[$(_SwiftLoweringReceipt)]" /></Target>
+                  <Target Name="Probe"><Message Importance="high" Text="COLLECT=[$(_SwiftCollectLoweringEvidence)] TOOLCHAIN=[$(_SwiftFingerprintToolchain)] ROUTE=[$(_SwiftRouteBridges)] RECEIPT=[$(_SwiftLoweringReceipt)]" /></Target>
                 </Project>
                 """);
             var result = RunDotnet($"msbuild \"{project}\" -t:Probe -nologo -v:n");
             Assert.True(result.ExitCode == 0, result.StdOut + result.StdErr);
             Assert.Contains($"COLLECT=[{(collected ? "true" : "")}]", result.StdOut);
             Assert.Contains($"TOOLCHAIN=[{(toolchain ? "true" : "")}]", result.StdOut);
+            Assert.Contains($"ROUTE=[{(routed ? "true" : "")}]", result.StdOut);
             Assert.Matches(@"RECEIPT=\[[^\]]*obj[/\\][^\]]*swift-binding/swift-lowering-receipt\.json\]", result.StdOut);
         }
 

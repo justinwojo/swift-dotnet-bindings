@@ -224,7 +224,24 @@ The concrete-class reopen trigger fired: a real compiled class replacement/inspe
 - **Other assemblies.** `Swift.Runtime` and `SwiftBindings.Apple` carry no `SwiftSelf` P/Invoke on any lane.
 - **`x21`.** No victim anywhere.
 
-The iOS figure depends on swiftc lowering evidence. Only the iOS BindingTests regeneration passes it (`BridgeEvidenceApplies` in `build/Build.SwiftBridges.cs`), and the SDK passes it only when `$(SwiftLoweringEvidence)` is set. Regenerated without it, the iOS Simulator binary has the Catalyst surface exactly: 69 wrappers and the same 10 victims. `SwiftBridgeTests.TestCombineThroughBridge_SelfIndirectResultAndArguments` then crashes in `SwiftBridgeProbe.Dispose`. A consumer binding built through the SDK with default settings therefore carries the larger direct surface on iOS, which the iOS BindingTests gate does not exercise.
+The iOS figure depends on swiftc lowering evidence. The iOS BindingTests regeneration passes the repo's evidence (`BridgeEvidenceApplies` in `build/Build.SwiftBridges.cs`). Regenerated without it, the iOS Simulator binary has the Catalyst surface exactly: 69 wrappers and the same 10 victims. `SwiftBridgeTests.TestCombineThroughBridge_SelfIndirectResultAndArguments` then crashes in `SwiftBridgeProbe.Dispose`. A consumer binding built through the SDK with default settings now collects its own receipt in its wrapper compile and, in the same build, routes every member that receipt authorizes through a native bridge, on .NET 10 and .NET 11 iOS (`src/docs/Design/swift-lowering-evidence.md`). `nuke binding-tests --bridge-consumer` gates that for the package, SDK-direct and ProjectReference consumption modes with no repo evidence injected.
+
+**Consumer-default surface before and after receipt routing (2026-11-12).** Measured on net10 / Xcode 26.3, Mono full-AOT `ios-arm64`, with the `m2n-x20-v3` classifier. The sample is five third-party binding projects from the shipped-0.20.2 consumer measurement. Together they hold 61 of its 65 third-party victims. Each was rebuilt with default SDK settings.
+
+| | 0.20.2 | receipt routing |
+|---|---|---|
+| Untyped-`SwiftSelf` direct imports | 137 | 82 |
+| `x20` victims (LMF and cookie) | 61 | 45 |
+| Victims reachable from plainly public members | 21 | 15 |
+
+The builds routed 191 members through bridges. No member the receipt authorizes stayed direct. Each of the 45 remaining victims is a member the plan refuses or the receipt cannot observe:
+- **Facts (12, all public).** The signature names a UIKit type (`UITableView`, `UICollectionView`, `UIButton`) that the call-facts layer does not know. This accounts for 12 of the 15 public residuals.
+- **Lowering (12, 2 public).** Ten are `Swift.Result` returns, which have no carrier in the table. Two are other lowering refusals.
+- **Indirect result (14).** The callee returns indirectly, but the managed signature returns `nint`.
+- **Prefix mismatch (2).** swiftc lowers `Optional<UInt16>` to `i32`, but the managed signature passes `nint`.
+- **Unobserved (5, 1 public).** The probe cannot reach `@usableFromInline internal` members. It also cannot reach a static member that shares its name with an instance member, and for those it reports a misleading reason.
+
+The Apple supplement held 63 victims in the 0.20.2 measurement. It is built in Apple-framework mode, which collects no receipt, so this routing does not cover it.
 
 **Second victim: the LMF address (2026-11-12, Mac Catalyst, Mono JIT).** The same allocator defect parks the wrapper's LMF address in `x20`. In the managed-to-native wrapper of `SwiftBridgeProbe.combine` (a direct import with an untyped `SwiftSelf` and a 40-byte indirect result), the wrapper calls `mono_get_lmf_addr` and keeps the result in `x20` (`mov x20, x0`), pushes the LMF through it, parks the GC-safe cookie in `x22` (outside the defect), then loads `SwiftSelf` into `x20` (`mov x20, x3`) and branches. `x20` is callee-saved, so after the call it still holds self, and the LMF pop (`str x0, [x20]`) writes the previous-LMF pointer over the receiver's isa. lldb showed the isa before the call and the saved previous-LMF pointer in its place after the pop. The next `swift_release` of the receiver branched to garbage (`SIGSEGV`), and the thread's LMF chain was left pointing at the dead frame. Unlike the cookie case, nothing fails at the transition: the call returns normally and **the receiver is silently corrupted**. A survey of the Catalyst binary's wrappers found six direct untyped-`SwiftSelf` imports that park the LMF address in `x20` and then write it, of which only `combine` crashed; the others' tests passed while the wrapper wrote into their receivers. The remedy is the same `@_cdecl` reroute: members taking a `@convention(c)` callback now pass it through their wrapper instead of staying on the direct route, which is the shape `combine` had. The members with no wrapper route remain exposed on Mono lanes without lowering evidence.
 

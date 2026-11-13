@@ -3,6 +3,7 @@
 
 using System.Collections.Immutable;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -586,6 +587,38 @@ public sealed class SwiftTransitionLedger
 
     public string ToJson() =>
         JsonSerializer.Serialize(ToDocument(), SwiftTransitionLedgerJsonContext.Default.SwiftTransitionLedgerDocument) + "\n";
+
+    /// <summary>
+    /// The ledger sidecar <paramref name="json"/> with its forward imports' bridges recorded as
+    /// <paramref name="routes"/> route them: a bridged route's entry names its bridge and twin, and every
+    /// other forward entry names none. Everything else in the sidecar is kept as written.
+    /// </summary>
+    /// <exception cref="InvalidDataException">The sidecar is not a ledger of this schema.</exception>
+    public static string WithBridges(string json, IEnumerable<SwiftBridgeRoute> routes)
+    {
+        var bridged = routes.Where(r => r.IsBridged)
+            .ToDictionary(r => KeyOf(r.Member, r.EntryPoint), r => r, StringComparer.Ordinal);
+        if (JsonNode.Parse(json) is not JsonObject root || root["schema"]?.GetValue<int>() != SchemaVersion
+            || root["transitions"] is not JsonArray transitions)
+            throw new InvalidDataException($"the sidecar is not a transition ledger of schema {SchemaVersion}");
+        foreach (var entry in transitions.OfType<JsonObject>())
+        {
+            if (entry["transition"]?.GetValue<string>() != nameof(SwiftTransitionKind.ForwardPInvoke))
+                continue;
+            entry.Remove("bridge");
+            var key = KeyOf(entry["member"]?.GetValue<string>() ?? "", entry["entryPoint"]?.GetValue<string>() ?? "");
+            if (!bridged.TryGetValue(key, out var route))
+                continue;
+            // Where the serializer writes it: after the entry's other fields, before its key.
+            var bridge = new JsonObject { ["symbol"] = route.Symbol, ["twin"] = route.Twin };
+            var at = entry.IndexOf("key");
+            if (at < 0)
+                entry["bridge"] = bridge;
+            else
+                entry.Insert(at, "bridge", bridge);
+        }
+        return root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }) + "\n";
+    }
 
     /// <summary>
     /// Writes the ledger next to the module's C#. A diagnostic artifact: a failure to write it is

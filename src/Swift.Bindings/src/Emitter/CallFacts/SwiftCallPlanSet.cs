@@ -277,6 +277,26 @@ public sealed class SwiftCallPlanSet
         };
     }
 
+    /// <summary>
+    /// This plan set as generation records it with no evidence joined: no evidence scope, no entry
+    /// executable, no route. Judging the result (<see cref="WithEvidence"/>) gives what generation
+    /// would have recorded under that judgement.
+    /// </summary>
+    public SwiftCallPlanSet WithoutEvidence() => new()
+    {
+        Module = Module,
+        EvidenceScope = null,
+        Coverage = Coverage.Select(e => e with
+        {
+            Executable = false,
+            Evidence = e.Status == SwiftPlanStatus.Planned ? NoEvidenceReason : null,
+            Bridged = null,
+            Twin = null,
+            BridgeRefusal = null,
+        }).ToImmutableArray(),
+        Plans = Plans,
+    };
+
     // ---- the sidecar ----
 
     /// <summary>Reads a plan sidecar back; every plan's hash is checked against its body.</summary>

@@ -1999,7 +1999,8 @@ namespace BindingsGeneration
             string? targetArchitectures = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            string? loweringReceiptPath = null)
+            string? loweringReceiptPath = null,
+            bool routeBridges = false)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2078,11 +2079,13 @@ namespace BindingsGeneration
             var moduleName = resolution.ModuleName;
 
             // The module's lowering receipt is read from the IR of the wrapper each compile pass builds.
+            // A relink with the bridges replaces it with a verification of the passes against that receipt.
+            var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
             SwiftWrapperLoweringEvidence? lowering = null;
             if (loweringReceiptPath != null)
             {
                 lowering = SwiftWrapperLoweringEvidence.Begin(
-                    loweringReceiptPath, outputDirectory, moduleName, (platformStr ?? "ios").ToLowerInvariant(), logger);
+                    loweringReceiptPath, outputDirectory, moduleName, loweringPlatform, logger);
             }
 
             // Decide the wrapper's CPU arch passes from the SOURCE slice. x86_64 lives only in the
@@ -2326,14 +2329,111 @@ namespace BindingsGeneration
             // The receipt is written only for a wrapper the build will ship, once that wrapper is complete
             // on disk. A build interrupted before this point has already removed the previous receipt;
             // one interrupted after it leaves a receipt of the wrapper that is on disk.
-            if (lowering != null && hasWrapperXcfw && outcome.ExitCode == 0)
-                lowering.Commit(loweringReceiptPath!, unmergedExtraArchs, logger);
+            SwiftLoweringEvidence? receipt = null;
+            if (lowering != null && hasWrapperXcfw && outcome.ExitCode == 0
+                && lowering.Commit(loweringReceiptPath!, unmergedExtraArchs, logger))
+            {
+                receipt = lowering.Receipt(unmergedExtraArchs, out _);
+            }
+
+            // Route what the receipt authorizes through bridges, relinking the wrapper when it lacks one,
+            // or undo an earlier routing that is no longer asked for.
+            var routingFailed = false;
+            if (hasWrapperXcfw && outcome.ExitCode == 0 && SwiftBridgeFinalizer.Applies(outputDirectory, routeBridges))
+            {
+                var finalization = SwiftBridgeFinalizer.Finalize(
+                    new SwiftBridgeFinalizer.Request(
+                        outputDirectory, moduleName, wrapperModuleName, routeBridges, receipt,
+                        scope =>
+                        {
+                            var expectation = SwiftToolchainProbe.Expect(scope, out var why);
+                            return (expectation, why);
+                        }),
+                    RelinkWithBridges,
+                    () => XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                        outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet),
+                    logger);
+                routingFailed = finalization == SwiftBridgeFinalizer.Outcome.Failed;
+                hasWrapperXcfw = !routingFailed
+                    && compilationResult?.XCFrameworkPath != null
+                    && Directory.Exists(compilationResult.XCFrameworkPath);
+            }
 
             XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,
                 compilationResult?.SliceCount ?? 0, logger, contractualUnmet);
 
-            return reconciliationFailure != null ? 1 : outcome.ExitCode;
+            return reconciliationFailure != null || routingFailed ? 1 : outcome.ExitCode;
+
+            // Compiles the wrapper again, now with its bridges, verifying every slice against the receipt
+            // the first compile collected; on any difference the first compile's wrapper is put back.
+            string? RelinkWithBridges(SwiftLoweringReceipt expected)
+            {
+                var wrapperPath = compilationResult!.XCFrameworkPath!;
+                var setAside = wrapperPath + ".routing-backup";
+                try
+                {
+                    if (Directory.Exists(setAside))
+                        Directory.Delete(setAside, true);
+                    Directory.Move(wrapperPath, setAside);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    return $"the wrapper could not be set aside: {ex.Message}";
+                }
+
+                var verification = SwiftWrapperLoweringEvidence.ForVerification(expected, loweringPlatform);
+                lowering = verification;
+                SwiftWrapperCompilationResult? relinked = null;
+                Exception? relinkException = null;
+                IReadOnlyList<string> relinkUnmerged = Array.Empty<string>();
+                try
+                {
+                    relinked = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileForArch, logger, out relinkUnmerged);
+                }
+                catch (Exception ex)
+                {
+                    relinkException = ex;
+                }
+                var relinkOutcome = WrapperBuildOutcome.From(relinked, relinkException, autoMatchSource ? Array.Empty<string>() : relinkUnmerged);
+
+                string? why = null;
+                if (relinkOutcome.ExitCode != 0 || relinked?.XCFrameworkPath is null || !Directory.Exists(relinked.XCFrameworkPath))
+                    why = $"the relink failed{(relinkException is null ? "" : ": " + relinkException.Message)}";
+                else if (!relinkUnmerged.SequenceEqual(unmergedExtraArchs, StringComparer.Ordinal))
+                    why = $"the relink folded other architectures (unmerged [{string.Join(", ", relinkUnmerged)}], first compile [{string.Join(", ", unmergedExtraArchs)}])";
+                else if (!relinkOutcome.StrippedSymbols.SetEquals(outcome.StrippedSymbols))
+                    why = "the relink stripped other wrapper symbols than the first compile";
+                else if (verification.Receipt(relinkUnmerged, out var unverified) is not { } verified)
+                    why = $"the relinked wrapper is not the one the receipt describes: {unverified}";
+                else if (!verified.Receipts.Single().Slices.Keys.SequenceEqual(expected.Slices.Keys, StringComparer.Ordinal))
+                    why = $"the relinked wrapper ships [{string.Join(", ", verified.Receipts.Single().Slices.Keys)}], the receipt describes [{string.Join(", ", expected.Slices.Keys)}]";
+
+                try
+                {
+                    if (why is null)
+                    {
+                        compilationResult = relinked;
+                        Directory.Delete(setAside, true);
+                        return null;
+                    }
+                    if (Directory.Exists(wrapperPath))
+                        Directory.Delete(wrapperPath, true);
+                    Directory.Move(setAside, wrapperPath);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    if (why is null)
+                    {
+                        // The relinked wrapper is in place; only its predecessor was left behind.
+                        logger.LogDebug("The wrapper set aside for the relink could not be removed: {Message}", ex.Message);
+                        return null;
+                    }
+                    logger.LogError("The wrapper the receipt describes could not be put back from {SetAside}: {Message}", setAside, ex.Message);
+                    compilationResult = null;
+                }
+                return why;
+            }
         }
 
         /// <summary>
