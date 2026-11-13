@@ -196,21 +196,25 @@ public class OwnedReturnCleanupTests : TestBase
         DrainFinalizers();
         LifetimeTracker.Reset();
 
-        LifetimeTracker.RunIsolated(() => AbandonClassParentReturns(300));
+        using var observations = new LeakObservations(300);
+        LifetimeTracker.RunIsolated(() => AbandonClassParentReturns(300, observations));
         DrainFinalizers();
 
-        LifetimeTracker.AssertNoLeaks("abandoned owned returns must be released when the adopting handle finalizes");
+        LifetimeTracker.AssertNoLeaks("abandoned owned returns must be released when the adopting handle finalizes", observations);
         TestLogger.Info("class parent: 300 abandoned owned returns released via finalization");
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
-    private static void AbandonClassParentReturns(int iterations)
+    private static void AbandonClassParentReturns(int iterations, LeakObservations observations)
     {
         var factory = new OwnedReturnClassFactory();
         try
         {
             for (int i = 0; i < iterations; i++)
-                _ = factory.MakeBox(i);
+            {
+                var box = factory.MakeBox(i);
+                observations.Add(box, box.Payload);
+            }
         }
         finally
         {
