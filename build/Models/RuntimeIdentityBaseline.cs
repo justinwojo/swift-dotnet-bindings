@@ -86,6 +86,17 @@ public record RuntimeIdentityBaseline
         [JsonRequired]
         [JsonPropertyName("known_fails")]
         public IReadOnlyList<TestId> KnownFails { get; init; } = Array.Empty<TestId>();
+
+        /// <summary>
+        /// Why this floor is lower than the floors it was checked against, when its seed lowered one
+        /// (see <see cref="RuntimeIdentitySeedPolicy.Lowerings"/>); absent otherwise. A reseed
+        /// replaces the entry, so a floor that still lowers must be justified again.
+        /// </summary>
+        [JsonPropertyName("justification")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+#nullable enable
+        public string? Justification { get; init; }
+#nullable restore
     }
 
     /// <summary>Scalar view mechanically derived from one identity record.</summary>

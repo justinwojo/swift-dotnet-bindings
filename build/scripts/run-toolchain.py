@@ -237,8 +237,14 @@ def write_back_seeded_baseline(source, workspace, inventory):
     baselines = workspace / "build/baselines"
     if baselines.is_symlink():
         raise RuntimeError(f"Refusing a symlink baseline directory: {baselines}")
-    for path in sorted(baselines.iterdir()):
-        name = f"build/baselines/{path.name}"
+    # The baselines hold directories of their own (the call-plan products), so every file below them
+    # is compared, not only the top-level entries. A symlinked directory is never followed.
+    paths = []
+    for directory, subdirectories, files in os.walk(baselines):
+        paths += [Path(directory) / child for child in subdirectories if (Path(directory) / child).is_symlink()]
+        paths += [Path(directory) / child for child in files]
+    for path in sorted(paths):
+        name = path.relative_to(workspace).as_posix()
         if name == NET11_IDENTITY_BASELINE:
             continue
         entry = snapshot.get(name)

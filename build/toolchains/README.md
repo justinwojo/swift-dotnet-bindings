@@ -266,6 +266,22 @@ bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --macos \
   --binding-test-configuration Release --seed-runtime-identity-baseline
 ```
 
+A Debug lane (the CoreCLR interpreter on the iOS simulator, tvOS simulator, Mac Catalyst
+or device) seeds the same way, from its own fresh run, and must also prove itself: every
+class proved the interpreter ran it, every registered interpreter negative control is in
+the app, ran in its isolated process and behaved as expected, and the seeded floor is not
+lower than the lane's previous Debug floor or its Release floor. Lower means a smaller pass
+count (against Release, after adding back the control tests the Debug lane runs apart) or a
+skip the reference floor does not have. A lowering is refused unless the run explains it
+with `--identity-floor-justification "<why>"`, which is stored in the entry. Seed the
+Release lane first. macOS has no Debug floor: its runtime has no interpreter, so a Debug
+macOS app runs the JIT.
+
+```sh
+bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --catalyst --coreclr-interp \
+  --seed-runtime-identity-baseline
+```
+
 `--skip-regen` is allowed; `--skip-build` and `--class-filter` are not, and a failing run
 writes nothing. `--seed-runtime-identity-baseline` is the only baseline write the launcher
 accepts, only on this profile and only for `binding-tests`. Nuke writes the entry in the
@@ -274,8 +290,8 @@ back to the checkout. It refuses if any other baseline changed in the workspace 
 checkout's copy changed during the run. Review and commit the result like any other baseline.
 A write-back changes the source identity, so the next profile run refreshes the workspace
 and must regenerate.
-Debug lanes, which run the CoreCLR interpreter, are not seedable until the interpreter
-bridge work lands; Nuke rejects a seed request without `--binding-test-configuration Release`.
+A lane that builds Release whatever was requested (plain `--device`, NativeAOT) seeds only
+from an explicit `--binding-test-configuration Release` request.
 
 `--compile-only` runs under the net11 profile. It starts no runtime, so it needs no identity
 entry. It generates for and compile-checks `net11.0-ios` (platform 27.2): the BindingTests

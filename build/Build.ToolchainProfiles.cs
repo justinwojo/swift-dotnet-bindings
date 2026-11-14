@@ -125,9 +125,14 @@ partial class Build
                 ProfileContext.AssertBaselineWriteAllowed(target.Name);
         // The one profile-run exception is the .NET 11 runtime-identity floor (RuntimeTestLane
         // states the policy); every other seed, promotion and auto-update stays refused above.
+        // This is the eligibility check, made before anything runs; a Debug lane's proof is checked
+        // at its seed, before the write.
         if (SeedRuntimeIdentityBaseline &&
-            RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, RuntimeLane.Configuration) is { } refusal)
+            RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, RuntimeLane.BuildConfiguration(Device, MonoAot), Macos || MacosX64,
+                !string.IsNullOrEmpty(ClassFilter)) is { } refusal)
             throw new InvalidOperationException("--seed-runtime-identity-baseline: " + refusal);
+        if (!string.IsNullOrWhiteSpace(IdentityFloorJustification) && !SeedRuntimeIdentityBaseline)
+            throw new InvalidOperationException("--identity-floor-justification explains a seeded floor; it needs --seed-runtime-identity-baseline.");
         if (ProfileContext.IsIsolated)
             Log.Information(SeedRuntimeIdentityBaseline
                 ? "Toolchain profile: {Profile}; this run may seed only runtime-identity-net11-baseline.json."

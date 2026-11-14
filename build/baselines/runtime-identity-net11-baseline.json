@@ -1,5 +1,5 @@
 {
-  "git_sha": "9d0f7d2f0",
+  "git_sha": "4c94229da",
   "platforms": {
     "net11.0_macos_osx-arm64_coreclr_release": {
       "pass_count": 3473,
@@ -533,6 +533,198 @@
     },
     "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_release": {
       "pass_count": 3561,
+      "skips": [
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": "GC-pressure-during-call requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": "Heap-alloc shape matrix requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": "Property-setter replace requires --lifetime"
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
+        }
+      ],
+      "known_fails": []
+    },
+    "net11.0_simulator_iossimulator-arm64_coreclr_debug": {
+      "pass_count": 4513,
+      "skips": [
+        {
+          "class": "AsyncClosureTests",
+          "method": "TestAsyncClosure_UnhandledException_FailsFast",
+          "reason": "FailFast on unhandled managed exception in non-throwing async closure requires a subprocess harness; not feasible from the in-process iOS test runner."
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_OwnerExistential",
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
+        },
+        {
+          "class": "ClosureFanOutTests",
+          "method": "TestAsyncClosureFan_PeerExistential",
+          "reason": "async closure-param reverse dispatch is compile-gated only \u2014 the shared sync witness reads sync vtables; by-design-gray ABI grid cell"
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestDescribeTokenA_ReturnsDescription",
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestMakeTokenA_ReturnsToken",
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
+        },
+        {
+          "class": "CrossModuleAliasTests",
+          "method": "TestTokenHolder_Creation",
+          "reason": "Generator resolves cross-module aliases at the type-database level but does not yet emit bound C# types for alias targets \u2014 the emitter skips types whose ABI module differs from the registered module"
+        },
+        {
+          "class": "FoundationKvoTests",
+          "method": "TestObserveCounter_HandlerThrows_FailsFast",
+          "reason": "FailFast on an unhandled managed exception in a KVO change handler requires a subprocess harness; not feasible from the in-process iOS test runner."
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestDelegatePatternWeakRef",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestOwnerResourceUnowned",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestStrongCycleCreation",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "LeakDetectionTests",
+          "method": "TestTreeCycleWithWeakParent",
+          "reason": "weak/unowned references not supported by generator"
+        },
+        {
+          "class": "NestedOfParentTests",
+          "method": "TestCrossHostStruct_AcceptsForeignOuterNested",
+          "reason": "Cross-host nested-of-parent destroy-witness fault (doc 14 hypothesis 3); foreign outer\u0027s VWT does not thread through \u0060any _SBW_GSF_X.Type\u0060 existential dispatch."
+        },
+        {
+          "class": "NonStandardEnumTests",
+          "method": "TestPermissionCaseValues",
+          "reason": "Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain \u0060enum: UInt32\u0060, and the ABI JSON lacks them too, so there is no source of truth \u2014 execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below."
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundle01_LifetimeStress_EqualsAndGenericEnumExtractor",
+          "reason": "SafeHandle/refcount lifetime stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_EphemeralRepeatCall",
+          "reason": "Closure lifetime ephemeral stress requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_GCPressureDuringCall",
+          "reason": "GC-pressure-during-call requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_HeapAllocShapeMatrix",
+          "reason": "Heap-alloc shape matrix requires --lifetime"
+        },
+        {
+          "class": "OwnershipGCStressTests",
+          "method": "TestBundleB_ClosureLifetime_PropertySetterReplace",
+          "reason": "Property-setter replace requires --lifetime"
+        },
+        {
+          "class": "ProtocolClosureSkipTests",
+          "method": "TestEphemeralKeyProviderProxy_DispatchesThroughSwift",
+          "reason": "closure arg is String, invoke thunk needs UTF-8 marshalling extension"
+        },
+        {
+          "class": "SuppressedProxyChannelTests",
+          "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
+          "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
+        }
+      ],
+      "known_fails": []
+    },
+    "net11.0_maccatalyst_maccatalyst-arm64_coreclr_debug": {
+      "pass_count": 3591,
       "skips": [
         {
           "class": "AsyncClosureTests",
