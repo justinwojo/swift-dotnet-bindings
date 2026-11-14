@@ -108,28 +108,64 @@ public class RuntimeTestLaneTests
     }
 
     [Theory]
-    // Simulator / host / CoreCLR device lanes build the requested configuration.
+    // Simulator / host / CoreCLR device lanes build the requested configuration. Debug lanes are
+    // eligible inside the profile; the run then has to prove them (RuntimeIdentitySeedPolicyTests).
     [InlineData(false, false, "Release", true, true)]
     [InlineData(true, true, "Release", true, true)]
-    [InlineData(false, false, "Debug", true, false)]
-    [InlineData(true, true, "Debug", true, false)]
-    // NativeAOT device publishes Release whatever was requested; the run-level check still
-    // requires an explicit Release request, which BuildConfiguration then echoes.
+    [InlineData(false, false, "Debug", true, true)]
+    [InlineData(true, true, "Debug", true, true)]
+    // NativeAOT device publishes Release whatever was requested.
     [InlineData(true, false, "Release", true, true)]
-    // Outside the net11 launcher nothing .NET 11 is seedable, Release or not.
+    // Outside the net11 launcher nothing .NET 11 is seedable, Release or Debug.
     [InlineData(false, false, "Release", false, false)]
     [InlineData(true, false, "Release", false, false)]
-    public void Net11FloorsAreSeededOnlyForReleaseLanesInsideTheProfile(bool device, bool coreClr, string configuration,
+    [InlineData(false, false, "Debug", false, false)]
+    [InlineData(true, true, "Debug", false, false)]
+    public void Net11FloorsAreEligibleOnlyInsideTheProfile(bool device, bool coreClr, string configuration,
         bool isolated, bool allowed)
     {
         var lane = RuntimeTestLane.Create("net11.0", "net11.0", configuration, coreClr, device, false);
         Assert.Equal("runtime-identity-net11-baseline.json", lane.IdentityBaselineFile);
         var refusal = lane.IdentitySeedRefusal(isolated, lane.BuildConfiguration(device, false));
         Assert.Equal(allowed, refusal == null);
-        if (!allowed && !isolated)
+        if (!allowed)
             Assert.Contains("net11 toolchain profile launcher", refusal);
-        if (!allowed && isolated)
-            Assert.Contains("Debug .NET 11 lanes", refusal);
+    }
+
+    [Theory]
+    [InlineData("Debug")]
+    [InlineData("Release")]
+    public void Net11FloorNeedsTheWholeSuite(string configuration)
+    {
+        // A filter naming only a negative control grades the control and never reaches the seed,
+        // so the request is refused before anything runs.
+        var lane = RuntimeTestLane.Create("net11.0", "net11.0", configuration, false, false, false);
+        Assert.Contains("--class-filter", lane.IdentitySeedRefusal(isolatedProfile: true, configuration, classFilter: true));
+    }
+
+    [Theory]
+    [InlineData("Debug", false)]
+    [InlineData("Release", true)]
+    public void MacOSHasNoDebugInterpreterFloor(string configuration, bool allowed)
+    {
+        // The macOS runtime has no interpreter: a Debug app runs the JIT and proves no lane.
+        var lane = RuntimeTestLane.Create("net11.0", "net11.0", configuration, false, false, false);
+        var refusal = lane.IdentitySeedRefusal(isolatedProfile: true, configuration, macOS: true);
+        Assert.Equal(allowed, refusal == null);
+        if (!allowed)
+            Assert.Contains("JIT", refusal);
+    }
+
+    [Theory]
+    [InlineData("simulator", "iossimulator-arm64", false, false, "net11.0_simulator_iossimulator-arm64_coreclr_release")]
+    [InlineData("maccatalyst", "maccatalyst-arm64", false, false, "net11.0_maccatalyst_maccatalyst-arm64_coreclr_release")]
+    [InlineData("tvos_simulator", "tvossimulator-arm64", false, false, "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_release")]
+    [InlineData("device", "ios-arm64", true, true, "net11.0_device_ios-arm64_coreclr_release")]
+    public void DebugFloorIsCheckedAgainstTheSameEngineReleaseFloor(string platform, string rid, bool device, bool coreClr, string release)
+    {
+        var lane = RuntimeTestLane.Create("net11.0", "net11.0", "Debug", coreClr, device, false);
+        Assert.EndsWith("_debug", lane.BaselineKey(platform, rid, device));
+        Assert.Equal(release, lane.ReleaseSiblingKey(platform, rid, device));
     }
 
     [Theory]
@@ -152,12 +188,15 @@ public class RuntimeTestLaneTests
     }
 
     [Fact]
-    public void Net11RunLevelSeedCheckRejectsTheDefaultDebugRequest()
+    public void Net11ReleaseFloorNeedsAnExplicitReleaseRequest()
     {
-        // The NativeAOT lane alone would build Release, but a run's seed request is checked against
-        // the requested configuration first, so a Debug request can never seed a CoreCLR lane.
-        var lane = RuntimeTestLane.Create("net11.0", "net11.0", null, false, true, false);
-        Assert.NotNull(lane.IdentitySeedRefusal(isolatedProfile: true, lane.Configuration));
-        Assert.Null(lane.IdentitySeedRefusal(isolatedProfile: true, lane.BuildConfiguration(true, false)));
+        // The NativeAOT device lane publishes Release whatever was requested; a Debug request,
+        // which may seed Debug lanes, must not write its Release floor.
+        var debugRequest = RuntimeTestLane.Create("net11.0", "net11.0", null, false, true, false);
+        Assert.Contains("explicit --binding-test-configuration Release",
+            debugRequest.IdentitySeedRefusal(isolatedProfile: true, debugRequest.BuildConfiguration(true, false)));
+        Assert.Null(debugRequest.IdentitySeedRefusal(isolatedProfile: true, debugRequest.BuildConfiguration(false, false)));
+        var releaseRequest = RuntimeTestLane.Create("net11.0", "net11.0", "Release", false, true, false);
+        Assert.Null(releaseRequest.IdentitySeedRefusal(isolatedProfile: true, releaseRequest.BuildConfiguration(true, false)));
     }
 }

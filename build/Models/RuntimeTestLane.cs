@@ -61,6 +61,9 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
         device && !monoAot && !DeviceCoreClr ? "Release" : Configuration;
     public string BaselineKey(string platform, string rid, bool device) =>
         $"{Framework}_{platform}_{rid}_{Engine(device)}_{BuildConfiguration(device, false).ToLowerInvariant()}";
+    /// <summary>The Release floor of the same platform, architecture and engine: the reference a Debug floor is checked against.</summary>
+    public string ReleaseSiblingKey(string platform, string rid, bool device) =>
+        (this with { Configuration = "Release" }).BaselineKey(platform, rid, device);
     public string AppBinDirectory(bool device) => IsNet11 ? $"bin/{Engine(device)}" : "bin";
 
     /// <summary>
@@ -76,18 +79,32 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
     public string IdentityBaselineFile => IsNet11 ? "runtime-identity-net11-baseline.json" : "runtime-identity-baseline.json";
 
     /// <summary>
-    /// Why <c>--seed-runtime-identity-baseline</c> may not write this lane's floor, or null when it may.
+    /// Why <c>--seed-runtime-identity-baseline</c> may not write this lane's floor, or null when the
+    /// lane is eligible. This is the check that needs no run: it is made before the build and again
+    /// for each lane at its seed, where <see cref="RuntimeIdentitySeedPolicy"/> adds what the run proved.
     /// </summary>
     /// <remarks>
-    /// The .NET 10 floors belong to the unprofiled repository toolchain, so a toolchain profile never
-    /// writes them. The .NET 11 floors are the opposite: only the net11 profile can build those apps,
-    /// so they are seeded only inside it, and its launcher copies that one file back to the checkout.
-    /// Debug .NET 11 lanes run the CoreCLR interpreter, whose known defects the bridge work has not
-    /// closed, so they get no floor yet. <paramref name="buildConfiguration"/> is the configuration
-    /// the lane actually builds; when seeding is checked before any lane runs, pass the requested
-    /// configuration, which every non-NativeAOT lane builds.
+    /// <para>The .NET 10 floors belong to the unprofiled repository toolchain, so a toolchain profile
+    /// never writes them. The .NET 11 floors are the opposite: only the net11 profile can build those
+    /// apps, so they are seeded only inside it, and its launcher copies that one file back to the
+    /// checkout.</para>
+    /// <para>A Debug .NET 11 lane runs the CoreCLR interpreter, which has known defects the generated
+    /// bindings route around. It is eligible, and earns its floor from its own run's evidence: the
+    /// run must prove the interpreter ran, every registered negative control must behave as expected,
+    /// and the floor may not drop below its previous Debug floor or its Release sibling without a
+    /// justification (<see cref="RuntimeIdentitySeedPolicy"/>). macOS is not such a lane: its
+    /// runtime has no interpreter, so Debug runs CoreCLR's JIT, and its run proves no execution
+    /// lane, so it gets no Debug floor.</para>
+    /// <para><paramref name="buildConfiguration"/> is the configuration the lane actually builds;
+    /// before any lane runs, pass the configuration the requested lanes build. A lane that builds
+    /// another configuration than the run requested (the NativeAOT device publishes Release) seeds
+    /// only from an explicit request for that configuration, so a Debug request never writes a
+    /// Release floor.</para>
     /// </remarks>
-    public string? IdentitySeedRefusal(bool isolatedProfile, string buildConfiguration)
+    /// <param name="macOS">The lane, or before the build any requested lane, is macOS.</param>
+    /// <param name="classFilter">The run selects classes. A floor needs the whole suite, and a filter
+    /// naming only a negative control would grade the control and never reach the seed.</param>
+    public string? IdentitySeedRefusal(bool isolatedProfile, string buildConfiguration, bool macOS = false, bool classFilter = false)
     {
         if (!IsNet11)
             return isolatedProfile
@@ -96,8 +113,13 @@ public sealed record RuntimeTestLane(string Framework, string Configuration, boo
         if (!isolatedProfile)
             return "The .NET 11 runtime-identity floors are seeded only through the net11 toolchain profile launcher, " +
                    "which records the SDK, workload and Xcode identity and copies the seeded file back.";
-        if (buildConfiguration != "Release")
-            return "Debug .NET 11 lanes have no runtime-identity floor yet; seed with --binding-test-configuration Release.";
+        if (classFilter)
+            return "A floor is seeded from the whole suite; drop --class-filter.";
+        if (buildConfiguration != Configuration)
+            return $"This lane builds {buildConfiguration} whatever was requested; seed its floor with an explicit --binding-test-configuration {buildConfiguration}.";
+        if (buildConfiguration == "Debug" && macOS)
+            return "Debug .NET 11 floors qualify the CoreCLR interpreter, which the macOS runtime does not have: " +
+                   "a Debug macOS app runs the JIT, and the macOS lane proves no execution lane. Seed macOS with --binding-test-configuration Release.";
         return null;
     }
 

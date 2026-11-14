@@ -182,6 +182,11 @@ partial class Build
     [Parameter("Seed/refresh runtime-identity-baseline.json from this run instead of comparing")]
     readonly bool SeedRuntimeIdentityBaseline;
 
+    // A Debug .NET 11 seed that would lower its floor below the lane's previous Debug floor or its
+    // Release sibling is refused unless the run says why; the reason is written into the entry.
+    [Parameter("With --seed-runtime-identity-baseline on a Debug .NET 11 lane: why the seeded floor may be lower than the lane's previous Debug floor or its Release floor. Written into the seeded entry.")]
+    readonly string? IdentityFloorJustification;
+
     // The single count + per-test-identity authority for shared arm64 runtime lanes. The two x64
     // lanes have no identity counterpart and retain their scalar floors in validation-baseline.json.
     // A separate file (a plain dictionary keyed by platform) lets the unit-test project
@@ -2224,18 +2229,22 @@ partial class Build
         }
 
         var finalResult = attempts.FinalResult(lastResult);
-        VerifyRuntimeLaneIdentity(suite, inventory, laneClasses, laneResults, interruptions, finalResult, attemptDirectory);
+        var provenLane = VerifyRuntimeLaneIdentity(suite, inventory, laneClasses, laneResults, interruptions, finalResult, attemptDirectory);
 
-        // Report final aggregated result
+        // Report final aggregated result. The run fails on a control problem only after this, so a
+        // seed reads the lane proof and the control grades from here, before it writes anything.
         var finalJsonl = aggregated.Tests.Count > 0 ? aggregated : null;
-        ReportRuntimeTestResult(finalResult, suite.LaneLabel, finalJsonl);
+        ReportRuntimeTestResult(finalResult, suite.LaneLabel, finalJsonl,
+            new RuntimeIdentitySeedProof(provenLane, inventory.ClassNames, controls.Grades));
         ThrowOnNegativeControlProblems(suite, controls);
     }
 
     /// <summary>The graded runs of a lane's negative controls.</summary>
     /// <param name="Results">Every control's rows and lane witnesses, for the lane-identity proof.</param>
+    /// <param name="Grades">Each control that ran, by class, with the problems its grade found.</param>
     /// <param name="LastLaunch">The last control launch, or null when there were none.</param>
-    sealed record NegativeControlRuns(JsonlTestResults Results, IReadOnlyList<string> Problems, string? Report, LaunchResult? LastLaunch);
+    sealed record NegativeControlRuns(JsonlTestResults Results, IReadOnlyList<string> Problems,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> Grades, string? Report, LaunchResult? LastLaunch);
 
     /// <summary>
     /// Runs each negative control alone in a fresh process and grades it against its expected
@@ -2247,10 +2256,11 @@ partial class Build
     {
         var all = new JsonlTestResults();
         var problems = new List<string>();
+        var grades = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         var lines = new List<string>();
         LaunchResult? last = null;
         if (controls.Count == 0)
-            return new NegativeControlRuns(all, problems, null, null);
+            return new NegativeControlRuns(all, problems, grades, null, null);
 
         var attempts = new RuntimeTestAttempts(Path.Combine(attemptDirectory, "negative-controls"));
         var launch = 0;
@@ -2289,6 +2299,7 @@ partial class Build
 
             var grade = InterpreterNegativeControls.Grade(control, inventory.GetMethods(control.ClassName), results, result.Result);
             problems.AddRange(grade);
+            grades[control.ClassName] = grade;
             lines.Add($"{control.ClassName} ({control.Defect}): {(grade.Count == 0 ? "as expected" : $"{grade.Count} problem(s)")}, process {result.Result}");
             foreach (var expectation in control.Tests)
             {
@@ -2313,7 +2324,7 @@ partial class Build
         }
         foreach (var line in lines)
             Log.Information("{Line}", line);
-        return new NegativeControlRuns(all, problems, report, last);
+        return new NegativeControlRuns(all, problems, grades, report, last);
     }
 
     static void ThrowOnNegativeControlProblems(RecoveringSuite suite, NegativeControlRuns controls)
@@ -2331,12 +2342,14 @@ partial class Build
     /// NativeAOT), writes the lane report, and fails the run on any disagreement. Runs before the
     /// result is graded, so a mislabeled run can never move a baseline.
     /// </summary>
-    void VerifyRuntimeLaneIdentity(RecoveringSuite suite, TestClassInventory inventory, IReadOnlySet<string> eligible,
+    /// <returns>The lane every class proved, or null when there was nothing to prove: a .NET 10 lane,
+    /// or a run in which no class started.</returns>
+    RuntimeExecutionLane? VerifyRuntimeLaneIdentity(RecoveringSuite suite, TestClassInventory inventory, IReadOnlySet<string> eligible,
         JsonlTestResults aggregated, IReadOnlyList<RuntimeLaneInterruption> interruptions, LaunchResult finalResult,
         string attemptDirectory)
     {
         if (RuntimeLane.ExecutionLane(suite.Device) is not { } claimed)
-            return;
+            return null;
         var engine = RuntimeLane.Engine(suite.Device);
         var configuration = RuntimeLane.BuildConfiguration(suite.Device, false);
 
@@ -2377,7 +2390,7 @@ partial class Build
         if (classesWithResults.Count == 0 && aggregated.LaneWitnesses.Count == 0 && finalResult.Result != TestResult.Success)
         {
             Log.Warning("{Lane}: no class ran, so there is no lane evidence to verify.", suite.LaneLabel);
-            return;
+            return null;
         }
 
         if (mislabels.Count > 0)
@@ -2392,6 +2405,7 @@ partial class Build
         }
         Log.Information("Lane identity: {Count} classes proved {Lane}; app bodies in the composite: {Bodies}.",
             verdict.ByClass.Count, claimed, map?.BodiesFor(suite.AppName).ToString() ?? "no crossgen2 map");
+        return claimed;
     }
 
     /// <summary>
@@ -2767,7 +2781,10 @@ partial class Build
     // Result Reporting
     // ============================================================
 
-    void ReportRuntimeTestResult(LaunchResult result, string platform, JsonlTestResults? jsonlResults = null)
+    /// <param name="seedProof">What the run proved about its lane and its negative controls; null for
+    /// a lane that proves neither (macOS). Read only by a .NET 11 seed.</param>
+    void ReportRuntimeTestResult(LaunchResult result, string platform, JsonlTestResults? jsonlResults = null,
+        RuntimeIdentitySeedProof? seedProof = null)
     {
         AssertLiveRuntimeLane(result, device: platform.StartsWith("Device/", StringComparison.Ordinal));
         if (RuntimeLane.IsNet11)
@@ -2858,7 +2875,7 @@ partial class Build
                 Log.Information(" RUNTIME TESTS PASSED ({Platform})", platform);
                 Log.Information("=========================================");
                 if (jsonlResults != null)
-                    CompareRuntimeBaseline(platform, jsonlResults);
+                    CompareRuntimeBaseline(platform, jsonlResults, seedProof);
                 break;
 
             case TestResult.Failure:
@@ -2895,7 +2912,7 @@ partial class Build
     /// Skipped entirely for smoke-enabled runs (see the early return) — their pass count
     /// includes opt-in Apple-framework classes and is not comparable to the no-smoke baseline.
     /// </summary>
-    void CompareNet11RuntimeBaseline(string platform, JsonlTestResults results)
+    void CompareNet11RuntimeBaseline(string platform, JsonlTestResults results, RuntimeIdentitySeedProof? seedProof)
     {
         var (platformKey, rid, device) = platform switch
         {
@@ -2913,7 +2930,8 @@ partial class Build
         var path = BaselinesDir / RuntimeLane.IdentityBaselineFile;
         if (SeedRuntimeIdentityBaseline)
         {
-            SeedNet11RuntimeBaseline(platform, key, path, results, device);
+            SeedNet11RuntimeBaseline(platform, key, RuntimeLane.ReleaseSiblingKey(platformKey, rid, device), path,
+                results, device, platformKey == "macos", seedProof);
             return;
         }
         if (ReusedAppUngraded || !string.IsNullOrEmpty(ClassFilter))
@@ -2942,31 +2960,68 @@ partial class Build
     /// <summary>
     /// Writes one .NET 11 lane's identity floor from a full, freshly built, green run. Same
     /// replacement semantics as the .NET 10 seed: the entry is the lane's whole count and skip set.
+    /// A Debug (interpreter) lane must also carry the run's proof and may not lower its floor without
+    /// a justification (<see cref="RuntimeIdentitySeedPolicy"/>). Every check runs before the write.
     /// The profile launcher copies the file back to the checkout once Nuke succeeds.
     /// </summary>
-    void SeedNet11RuntimeBaseline(string platform, string key, AbsolutePath path, JsonlTestResults results, bool device)
+    /// <param name="releaseKey">The lane's Release floor, the reference a Debug floor is checked against.</param>
+    void SeedNet11RuntimeBaseline(string platform, string key, string releaseKey, string path, JsonlTestResults results,
+        bool device, bool macOS, RuntimeIdentitySeedProof? proof)
     {
-        if (RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, RuntimeLane.BuildConfiguration(device, MonoAot)) is { } refusal)
+        var configuration = RuntimeLane.BuildConfiguration(device, MonoAot);
+        if (RuntimeLane.IdentitySeedRefusal(ProfileContext.IsIsolated, configuration, macOS) is { } refusal)
             throw new InvalidOperationException($"Cannot seed {key}: {refusal}");
         if (ReusedAppUngraded || !string.IsNullOrEmpty(ClassFilter))
             throw new InvalidOperationException(
                 $"Cannot seed {key} from a partial or unverified reused-app run; drop --class-filter and --skip-build.");
         if (results.CrashCount != 0 || results.FailCount != 0)
             throw new InvalidOperationException($"Cannot seed runtime identity baseline for {platform} from a failing run.");
-        var seeded = RuntimeIdentityBaseline.Load(path)
-            .WithPlatform(key, RuntimeIdentityBaseline.FromResults(results.Tests
-                .Select(t => new RuntimeIdentityBaseline.TestRecord(t.ClassName, t.TestName, t.Status, t.Error ?? ""))
-                .ToList())) with { GitSha = ReadHeadShaShort() };
+        if (RuntimeIdentitySeedPolicy.ProofRefusals(configuration, proof, InterpreterNegativeControls.Classes) is { Count: > 0 } unproven)
+        {
+            foreach (var reason in unproven)
+                Log.Error("Seed proof ({Key}): {Reason}", key, reason);
+            throw new InvalidOperationException($"Cannot seed {key}: the run does not qualify a Debug floor: {string.Join("; ", unproven)}.");
+        }
+
+        var baseline = RuntimeIdentityBaseline.Load(path);
+        var entry = RuntimeIdentityBaseline.FromResults(results.Tests
+            .Select(t => new RuntimeIdentityBaseline.TestRecord(t.ClassName, t.TestName, t.Status, t.Error ?? ""))
+            .ToList());
+        var justification = string.IsNullOrWhiteSpace(IdentityFloorJustification) ? null : IdentityFloorJustification.Trim();
+        if (configuration == "Debug")
+        {
+            if (!baseline.Platforms.ContainsKey(releaseKey))
+                throw new InvalidOperationException(
+                    $"Cannot seed {key}: a Debug floor is checked against its Release floor, and {releaseKey} has none; seed the Release lane first.");
+            var lowerings = RuntimeIdentitySeedPolicy.Lowerings(entry, baseline.Platforms.GetValueOrDefault(key),
+                baseline.Platforms.GetValueOrDefault(releaseKey), InterpreterNegativeControls.Classes.Sum(c => c.Tests.Count));
+            foreach (var lowering in lowerings)
+                Log.Warning("Floor lowering ({Key}): {Lowering}", key, lowering);
+            if (lowerings.Count > 0 && justification == null)
+                throw new InvalidOperationException(
+                    $"Cannot seed {key}: the floor would be lower than the floors it is checked against ({lowerings.Count} lowering(s): " +
+                    $"{string.Join("; ", lowerings)}). Resolve them, or pass --identity-floor-justification \"<why>\" to record why this lane's floor is lower.");
+            // The reason is recorded only where it explains a lowering, so a lane that lowers nothing
+            // in a run seeding several lanes carries no stale reason.
+            if (lowerings.Count > 0)
+                entry = entry with { Justification = justification };
+            else if (justification != null)
+                Log.Warning("--identity-floor-justification: the {Key} floor lowers nothing, so it records no justification.", key);
+        }
+        else if (justification != null)
+            Log.Warning("--identity-floor-justification applies to Debug floors only; the {Key} floor ignores it.", key);
+
+        var seeded = baseline.WithPlatform(key, entry) with { GitSha = ReadHeadShaShort() };
         seeded.Save(path);
         Log.Information("Seeded .NET 11 runtime identity baseline {Key}: pass={Pass}, {Skips} skip(s).",
-            key, seeded.Platforms[key].PassCount, seeded.Platforms[key].Skips.Count);
+            key, entry.PassCount, entry.Skips.Count);
     }
 
-    void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults)
+    void CompareRuntimeBaseline(string platform, JsonlTestResults jsonlResults, RuntimeIdentitySeedProof? seedProof)
     {
         if (RuntimeLane.IsNet11)
         {
-            CompareNet11RuntimeBaseline(platform, jsonlResults);
+            CompareNet11RuntimeBaseline(platform, jsonlResults, seedProof);
             return;
         }
         // This opt-in arm compiles one additional device-only test into the otherwise

@@ -222,7 +222,7 @@ public class RuntimeResultReportingTests
                     public static void Error(string text, params object[] args) { }
                 }
                 void StashAbiGridResults(string platform, JsonlTestResults? results) { }
-                void CompareRuntimeBaseline(string platform, JsonlTestResults results) {
+                void CompareRuntimeBaseline(string platform, JsonlTestResults results, RuntimeIdentitySeedProof? seedProof) {
                     if (throwAtBoundary) throw new Exception("BASELINE_BOUNDARY_FAILURE");
                     foreach (var name in new[] { "validation-baseline.json", "runtime-identity-baseline.json" })
                         File.WriteAllText(Path.Combine(directory, name), "comparison reached");

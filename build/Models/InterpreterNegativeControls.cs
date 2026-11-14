@@ -27,6 +27,20 @@ public sealed record NegativeControlExpectation(string TestName, string Status, 
 public sealed record NegativeControlClass(string ClassName, string Defect, IReadOnlyList<NegativeControlExpectation> Tests);
 
 /// <summary>The interpreter lane's negative-control classes and how a run of one is graded.</summary>
+/// <remarks>
+/// <para>These controls are the fence that lets a Debug .NET 11 lane earn a runtime-identity floor:
+/// a Debug seed requires every class registered here to be in the app, to run, and to grade as
+/// expected, and it refuses when the registry is empty (<see cref="RuntimeIdentitySeedPolicy"/>).</para>
+/// <para>When the upstream defect a control reproduces is fixed, its expected failures start
+/// passing, the grade reports each one, and every interpreter run fails until the registry changes.
+/// Confirm the fix on every interpreter lane (simulator, tvOS simulator, Mac Catalyst, device) and
+/// change those expectations to <c>pass</c>. A class with no expected failure left reproduces no
+/// defect, so it leaves the registry and runs as an ordinary class: the Debug counts then include
+/// its tests, so reseed the Debug floors in the same commit. If that empties the registry, every
+/// Debug seed refuses until <see cref="RuntimeIdentitySeedPolicy.ProofRefusals"/> is changed, in
+/// that commit, to name what fences the interpreter lane instead, or to retire the requirement
+/// deliberately once nothing is left to fence.</para>
+/// </remarks>
 public static class InterpreterNegativeControls
 {
     /// <summary>
@@ -92,7 +106,7 @@ public static class InterpreterNegativeControls
                     problems.Add($"{name} failed, but not as {control.Defect} does (expected \"{text}\"): {row.Error}");
             }
             else if (expectation.Status == "fail" && row.Status == "pass")
-                problems.Add($"{name} passed: {control.Defect} no longer reproduces on this lane; confirm the fix and change the expectation to pass, or remove the class from the registry once no expected failure remains");
+                problems.Add($"{name} passed: {control.Defect} no longer reproduces on this lane; confirm the fix on every interpreter lane and change the expectation to pass (see the registry's remarks before removing a class)");
             else
                 problems.Add($"{name} recorded {row.Status}, expected {expectation.Status}{(row.Error is { } e ? ": " + e : "")}");
         }
