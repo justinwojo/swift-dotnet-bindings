@@ -224,9 +224,9 @@ partial class Build
         File.WriteAllText(fixtureDir / "FoundationFixture.csproj", csproj);
 
         // The fixture exercises a real Swift round-trip: byte[] → Swift.Foundation.Data
-        // (PInvoke_InitWithBytes) → Data.Count (PInvoke_GetCount). A managed-only
-        // construction would not prove the supplement's P/Invokes are linkable on the
-        // host; reading Count after construction does.
+        // (the SBApple shim SBW_Data_InitWithBytes) → Data.Count (PInvoke_GetCount). A
+        // managed-only construction would not prove the supplement's framework and P/Invokes
+        // are linkable on the host; reading Count after construction does.
         var program = """
             // Copyright (c) 2026 Justin Wojciechowski.
             // Licensed under the MIT License.

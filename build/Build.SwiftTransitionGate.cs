@@ -191,13 +191,10 @@ partial class Build
     /// <summary>
     /// The hand-written types of each ledgered assembly that still hold a known-unsafe direct
     /// transition, and so guard it by hand: the residual-guard check holds them to the same rules as
-    /// generated code, and fails when one no longer holds any, so the list stays exact.
+    /// generated code, and fails when one no longer holds any, so the list stays exact. None does
+    /// today: Data, the last, builds its value through the supplement's C shim.
     /// </summary>
-    static string[] HandWrittenResidualTypes(string assembly) => assembly switch
-    {
-        "SwiftBindings.Apple.dll" => new[] { "Swift.Foundation.Data" },
-        _ => Array.Empty<string>(),
-    };
+    static string[] HandWrittenResidualTypes(string assembly) => Array.Empty<string>();
 
     /// <summary>
     /// The call-plan sidecars a scanned assembly's bridge twins are checked against: those beside a

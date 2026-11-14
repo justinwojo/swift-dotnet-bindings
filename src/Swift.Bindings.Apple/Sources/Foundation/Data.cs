@@ -104,19 +104,19 @@ public struct Data : ISwiftObject
     /// <summary>
     /// Constructs a new Data from the given buffer.
     /// </summary>
-    /// <exception cref="SwiftTransitionUnsupportedException">
-    /// The runtime does not lower the two-word Swift result this initializer returns (CoreCLR without
-    /// its JIT on x86_64); it refuses before calling Swift.
-    /// </exception>
     public unsafe Data(UnsafeRawPointer pointer, nint count)
     {
-        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data(UnsafeRawPointer, nint)");
-        this = PInvoke_InitWithBytes(pointer, count);
+        Data result;
+        SBW_InitWithBytes(pointer.Pointee, count, &result);
+        this = result;
     }
 
-    [UnmanagedCallConv(CallConvs = [typeof(CallConvSwift)])]
-    [DllImport(KnownLibraries.SwiftFoundation, EntryPoint = "$s10Foundation4DataV5bytes5countACSV_SitcfC")]
-    internal static unsafe extern Data PInvoke_InitWithBytes(UnsafeRawPointer pointer, nint count);
+    // Foundation.Data.init(bytes:count:) through the Apple supplement's @_cdecl shim: a plain-C
+    // transition (pointer, count, the caller's two-word slot) that every runtime places
+    // identically. Called directly, swiftc's two-word { i64, i64 } result would need the runtime's
+    // Swift lowering, which the CoreCLR interpreter does not apply on x86_64.
+    [DllImport("SBApple", EntryPoint = "SBW_Data_InitWithBytes")]
+    private static unsafe extern void SBW_InitWithBytes(void* bytes, nint count, Data* result);
 
     /// <summary>Returns the number of bytes held by this Data.</summary>
     public readonly nint Count => PInvoke_GetCount(_flags, _object);
@@ -149,7 +149,6 @@ public struct Data : ISwiftObject
     /// <exception cref="ArgumentNullException">Thrown if bytes is null.</exception>
     public static unsafe Data FromByteArray(byte[] bytes)
     {
-        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.FromByteArray(byte[])");
         if (bytes == null) throw new ArgumentNullException(nameof(bytes));
         if (bytes.Length == 0) return new Data(new UnsafeRawPointer(null), 0);
         fixed (byte* ptr = bytes)
@@ -194,7 +193,6 @@ public struct Data : ISwiftObject
     /// <exception cref="ArgumentNullException">Thrown if nsData is null.</exception>
     public static unsafe Data FromNSData(global::Foundation.NSData nsData)
     {
-        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.FromNSData(NSData)");
         if (nsData == null)
             throw new ArgumentNullException(nameof(nsData));
 
@@ -214,7 +212,6 @@ public struct Data : ISwiftObject
     /// <param name="nsData">The NSData to convert.</param>
     public static implicit operator Data(global::Foundation.NSData nsData)
     {
-        SwiftTransitionGuard.ThrowIfUnsupported(SwiftTransitionFacts.LoweredSignature, "Data.implicit operator Data(NSData)");
         return FromNSData(nsData);
     }
 
