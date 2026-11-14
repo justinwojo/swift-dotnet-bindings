@@ -177,6 +177,25 @@ namespace BindingsGeneration.Tests
             Assert.Equal(expected, XCFrameworkSlicer.MatchesRid(slice, rid));
         }
 
+        // The RID a generation run may pack for: a supported RID of the --platform it generates for.
+        [Theory]
+        [InlineData("maccatalyst-arm64", ApplePlatform.MacCatalyst, true)]
+        [InlineData("maccatalyst-x64",   ApplePlatform.MacCatalyst, true)]
+        [InlineData("osx-x64",           ApplePlatform.macOS,       true)]
+        [InlineData("ios-arm64",         ApplePlatform.iOS,         true)]
+        [InlineData("iossimulator-x64",  ApplePlatform.iOS,         true)]
+        [InlineData("tvossimulator-x64", ApplePlatform.tvOS,        true)]
+        [InlineData("maccatalyst-x64",   ApplePlatform.iOS,         false)]
+        [InlineData("osx-x64",           ApplePlatform.MacCatalyst, false)]
+        [InlineData("ios-arm64",         ApplePlatform.MacCatalyst, false)]
+        [InlineData("tvos-arm64",        ApplePlatform.iOS,         false)]
+        [InlineData("linux-x64",         ApplePlatform.macOS,       false)]
+        [InlineData("maccatalyst-arm",   ApplePlatform.MacCatalyst, false)]
+        public void IsRidOf_AcceptsOnlyTheSupportedRidsOfThePlatform(string rid, ApplePlatform platform, bool expected)
+        {
+            Assert.Equal(expected, XCFrameworkSlicer.IsRidOf(rid, platform));
+        }
+
         [Fact]
         public void WritePrunedInfoPlist_PreservesWideRootInteger_AsInteger()
         {

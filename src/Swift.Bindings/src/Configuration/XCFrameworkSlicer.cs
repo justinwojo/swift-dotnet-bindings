@@ -216,6 +216,20 @@ namespace BindingsGeneration
             slice.SupportedArchitectures.Any(a =>
                 string.Equals(a, RequiredArchitecture(nuGetRid), StringComparison.OrdinalIgnoreCase));
 
+        /// <summary>
+        /// Whether <paramref name="nuGetRid"/> is a supported RID of <paramref name="platform"/>: the RID
+        /// a binding generated for that platform may stage and pack its native slices for.
+        /// </summary>
+        internal static bool IsRidOf(string nuGetRid, ApplePlatform platform) =>
+            SupportedRids.Contains(nuGetRid) && (PlatformToken(nuGetRid), platform) switch
+            {
+                ("ios" or "iossimulator", ApplePlatform.iOS) => true,
+                ("tvos" or "tvossimulator", ApplePlatform.tvOS) => true,
+                ("osx", ApplePlatform.macOS) => true,
+                ("maccatalyst", ApplePlatform.MacCatalyst) => true,
+                _ => false,
+            };
+
         /// <summary>Strips the <c>-arm64</c>/<c>-x64</c> suffix, leaving the platform token.</summary>
         private static string PlatformToken(string nuGetRid)
         {

@@ -840,16 +840,18 @@ namespace BindingsGeneration.Tests
         }
 
         /// <summary>
-        /// Every iOS binding (net10.0 and net11.0) collects its lowering receipt and routes its bridges
-        /// from it by default, and every net11 binding collects one; other net10 targets neither pay for
+        /// Every iOS and Mac Catalyst binding (net10.0 and net11.0) collects its lowering receipt and
+        /// routes its bridges from it by default, and every net11 binding collects one; other net10 targets neither pay for
         /// the extra swiftc pass nor gain toolchain lines in their fingerprint unless they ask. Routing
         /// needs a collected receipt and stands down when the project hands generation its own
         /// evidence. The toolchain joins the fingerprint whenever a receipt is collected or read.
         /// </summary>
         [Theory]
         [InlineData("net10.0-ios26.0", "", "", "", true, true, true)]
-        [InlineData("net10.0-maccatalyst26.0", "", "", "", false, false, false)]
+        [InlineData("net10.0-maccatalyst26.0", "", "", "", true, true, true)]
+        [InlineData("net11.0-maccatalyst27.2", "", "", "", true, true, true)]
         [InlineData("net10.0-macos26.0", "", "", "", false, false, false)]
+        [InlineData("net10.0-tvos26.0", "", "", "", false, false, false)]
         [InlineData("net11.0-ios27.2", "", "", "", true, true, true)]
         [InlineData("net11.0-tvos27.2", "", "", "", true, true, false)]
         [InlineData("net11.0-macos27.2", "", "", "", true, true, false)]
@@ -857,9 +859,11 @@ namespace BindingsGeneration.Tests
         [InlineData("net10.0-ios26.0", "false", "", "", false, false, false)]
         [InlineData("net10.0-ios26.0", "True", "", "", true, true, true)]
         [InlineData("net10.0-ios26.0", "", "false", "", true, true, false)]
-        [InlineData("net10.0-maccatalyst26.0", "true", "true", "", true, true, true)]
+        [InlineData("net10.0-maccatalyst26.0", "", "false", "", true, true, false)]
+        [InlineData("net10.0-maccatalyst26.0", "false", "", "", false, false, false)]
+        [InlineData("net10.0-macos26.0", "true", "true", "", true, true, true)]
         [InlineData("net10.0-ios26.0", "", "", "/evidence/receipt.json", true, true, false)]
-        public void LoweringReceipt_IsCollectedAndRoutedForIosByDefault_AndTheToolchainFingerprintedOnlyWhenOneIsUsed(
+        public void LoweringReceipt_IsCollectedAndRoutedForIosAndCatalystByDefault_AndTheToolchainFingerprintedOnlyWhenOneIsUsed(
             string framework, string collect, string route, string evidence, bool collected, bool toolchain, bool routed)
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");

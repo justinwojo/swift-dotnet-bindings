@@ -452,6 +452,20 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // A library that ships only one architecture of its platform (an x86_64-only Mac Catalyst or
+        // macOS slice) is packed for that architecture's RID; the platform's default RID is arm64.
+        if (!string.IsNullOrWhiteSpace(rid))
+        {
+            if (!XCFrameworkSlicer.IsRidOf(rid, platformInfo.Platform))
+            {
+                logger.LogError("Error: --rid '{Rid}' is not a supported RID of --platform '{Platform}'. Supported RIDs: {Rids}.",
+                    rid, platformStr, string.Join(", ", XCFrameworkSlicer.SupportedRids));
+                context.ExitCode = 1;
+                return;
+            }
+            platformInfo = platformInfo with { NuGetRid = rid };
+        }
+
         // The Apple-type surface index verifies every ObjC-bridged reference against the reference
         // assembly that actually ships for the target platform. Record the platform now, before any
         // downstream ingest can read AppleTypeSurfaceIndex.Default, so a macOS/tvOS/MacCatalyst run
@@ -3445,7 +3459,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine();
         Console.WriteLine("Per-RID xcframework slicing — ignores binding-generation options:");
         Console.WriteLine("  --slice-xcframework  Stage a sliced copy of --xcframework into -o, retaining only slices the given --rid can consume.");
-        Console.WriteLine("  --rid                NuGet RID: ios-arm64, tvos-arm64, osx-arm64, maccatalyst-arm64.");
+        Console.WriteLine("  --rid                NuGet RID (e.g. ios-arm64, osx-x64, maccatalyst-x64); when generating, defaults to the platform's arm64 RID.");
         Console.WriteLine();
         Console.WriteLine("Apple types manifest (SwiftBindings.Apple) — ignores binding-generation options:");
         Console.WriteLine("  --emit-apple-types-manifest  Emit the Apple-types metadata manifest from ABI JSON dumps. With this flag, -o is a FILE path (the target .json), not a directory.");

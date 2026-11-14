@@ -119,21 +119,21 @@
 
     <!-- swiftc lowering receipt of this binding's module, collected by _CompileSwiftWrapper from the IR
          of the wrapper it compiles, with the same swiftc, SDK and flags, and the receipt that authorizes
-         the binding's bridges. Collected by default on every iOS target (net10.0 and net11.0) and on
-         every net11.0 target; set SwiftCollectLoweringEvidence to false to skip the extra swiftc pass
+         the binding's bridges. Collected by default on every iOS and Mac Catalyst target (net10.0 and
+         net11.0) and on every net11.0 target; set SwiftCollectLoweringEvidence to false to skip the extra swiftc pass
          (and with it the bridges), or true to collect on any target. A receipt is written only under a
          qualified compiler family, and only once every slice of the wrapper compiled. -->
     <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND '$(_SwiftBindingManagedFramework)' == 'net11.0'">true</SwiftCollectLoweringEvidence>
-    <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND '$(_SwiftBindingPlatform)' == 'ios'">true</SwiftCollectLoweringEvidence>
+    <SwiftCollectLoweringEvidence Condition="'$(SwiftCollectLoweringEvidence)' == '' AND ('$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'maccatalyst')">true</SwiftCollectLoweringEvidence>
     <_SwiftCollectLoweringEvidence Condition="$([System.String]::Equals('$(SwiftCollectLoweringEvidence)', 'true', StringComparison.OrdinalIgnoreCase))">true</_SwiftCollectLoweringEvidence>
     <_SwiftLoweringReceipt>$(_SwiftBindingIntermediateDir)swift-lowering-receipt.json</_SwiftLoweringReceipt>
     <!-- Bridge routing from that receipt: the wrapper compile routes every Swift-convention import the
          receipt authorizes through a native bridge, rewriting the generated C# in place and relinking
          the wrapper with the bridges; an import it does not authorize keeps its Swift-convention call.
-         On by default for iOS targets; set SwiftRouteBridges to false to keep every import as
+         On by default for iOS and Mac Catalyst targets; set SwiftRouteBridges to false to keep every import as
          generated while still collecting the receipt. A hand-authored SwiftLoweringEvidence routes at
          generation instead, so the wrapper compile then leaves the C# alone. -->
-    <SwiftRouteBridges Condition="'$(SwiftRouteBridges)' == '' AND '$(_SwiftBindingPlatform)' == 'ios'">true</SwiftRouteBridges>
+    <SwiftRouteBridges Condition="'$(SwiftRouteBridges)' == '' AND ('$(_SwiftBindingPlatform)' == 'ios' OR '$(_SwiftBindingPlatform)' == 'maccatalyst')">true</SwiftRouteBridges>
     <_SwiftRouteBridges Condition="$([System.String]::Equals('$(SwiftRouteBridges)', 'true', StringComparison.OrdinalIgnoreCase)) AND '$(_SwiftCollectLoweringEvidence)' == 'true' AND '$(SwiftLoweringEvidence)' == ''">true</_SwiftRouteBridges>
     <!-- The selected swiftc and SDK identities join the fingerprint whenever a receipt is read or
          collected: switching Xcode then regenerates and recompiles, which replaces the receipt. -->
@@ -4040,8 +4040,12 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
   &lt;!-- maccatalyst-x64 Mono JIT instability workaround.
        Defaults to Mono interpreter — JIT has four confirmed crash classes on this RID.
        Public docs: https://github.com/justinwojo/swift-dotnet-bindings/wiki/Known-Limitations
-       Opt out: &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt; --&gt;
+       Opt out: &lt;SwiftBindingsMacCatalystX64UseJit&gt;true&lt;/SwiftBindingsMacCatalystX64UseJit&gt;
+       DynamicCodeSupport keeps the value the platform gives a JIT build, which turning the
+       interpreter on would otherwise change: every slice of a universal app then carries the
+       same runtime configuration, which the per-RID bundle merge requires. --&gt;
   &lt;PropertyGroup Condition=&quot;'\%24(RuntimeIdentifier)' == 'maccatalyst-x64' AND '\%24(SwiftBindingsMacCatalystX64UseJit)' != 'true' AND \%24(TargetFramework.StartsWith('net10.0-', StringComparison.OrdinalIgnoreCase))&quot;&gt;
+    &lt;DynamicCodeSupport Condition=&quot;'\%24(DynamicCodeSupport)' == '' AND '\%24(MtouchInterpreter)' == '' AND '\%24(UseInterpreter)' != 'true'&quot;&gt;false&lt;/DynamicCodeSupport&gt;
     &lt;MtouchInterpreter Condition=&quot;'\%24(MtouchInterpreter)' == ''&quot;&gt;all&lt;/MtouchInterpreter&gt;
     &lt;UseInterpreter Condition=&quot;'\%24(UseInterpreter)' == ''&quot;&gt;true&lt;/UseInterpreter&gt;
   &lt;/PropertyGroup&gt;

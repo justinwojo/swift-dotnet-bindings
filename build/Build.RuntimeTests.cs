@@ -2563,28 +2563,15 @@ partial class Build
 
     void RunOnCatalyst(ApplePlatform platform)
     {
+        var laneLabel = platform.RunUnderRosetta ? "Mac Catalyst x64" : "Mac Catalyst";
         Log.Information("--- Running on {Label} ---", platform.RunUnderRosetta ? "Mac Catalyst x64 (Rosetta)" : "Mac Catalyst");
 
         // Catalyst uses the simulator skip policy; the live banner identifies the engine.
         // Pass --results-path so JSONL is written outside the .app bundle.
         var catalystResultsDir = (AbsolutePath)Path.GetTempPath() / $"swift-bindings-catalyst-results-{platform.Rid}{RuntimeEvidenceSuffix()}";
         Directory.CreateDirectory(catalystResultsDir);
-        // Remove stale JSONL from previous runs so a crash doesn't report old results.
-        var staleJsonl = catalystResultsDir / "test-results.jsonl";
-        if (File.Exists(staleJsonl)) File.Delete(staleJsonl);
-        // Belt-and-braces alongside the delete above — see RunOnMacOS for the rationale.
-        var runToken = NewRunToken();
-        var argList = new List<string>
-            { "--platform", "simulator", "--results-path", catalystResultsDir.ToString(), "--run-token", runToken };
-        if (FlakeDetect) argList.Add("--flake-detect");
-        if (Lifetime) argList.Add("--lifetime");
-        if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
+        var jsonlPath = catalystResultsDir / "test-results.jsonl";
 
-        Log.Information("Launching RuntimeTestsApp.MacCatalyst{Mode} (timeout: {Timeout}s)...",
-            platform.RunUnderRosetta ? " under Rosetta (arch -x86_64)" : "", Timeout);
-
-        var output = new ConcurrentQueue<string>();
-        using var process = new Process();
         // net10.0-maccatalyst produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
         var catalystExe = BindingTestsDir / "RuntimeTestsApp.MacCatalyst" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
@@ -2592,8 +2579,48 @@ partial class Build
             "Contents" / "MacOS" / "RuntimeTestsApp.MacCatalyst";
         StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(catalystExe)!, "../..")),
             interpreter: CatalystUsesInterpreter(platform));
-        process.StartInfo = BuildHostLaunchStartInfo(catalystExe, argList, platform.RunUnderRosetta);
 
+        // The same resume-on-crash suite as the simulator and device: on the interpreter lane the
+        // negative controls run apart and are graded, and .NET 11 proves its lane per class.
+        RunRecoveringSuite(new RecoveringSuite(
+            LaneLabel: laneLabel, Project: "RuntimeTestsApp.MacCatalyst", AppName: "RuntimeTestsApp.MacCatalyst",
+            RuntimeIdentifier: platform.Rid!, Device: false,
+            PlatformArgs: ["--platform", "simulator", "--results-path", catalystResultsDir.ToString()],
+            Launch: args =>
+            {
+                // A launch that writes nothing must not be scored from a previous launch's file.
+                if (File.Exists(jsonlPath)) File.Delete(jsonlPath);
+                Log.Information("Launching RuntimeTestsApp.MacCatalyst{Mode} (timeout: {Timeout}s)...",
+                    platform.RunUnderRosetta ? " under Rosetta (arch -x86_64)" : "", Timeout);
+                return LaunchHostApp(catalystExe, args, platform.RunUnderRosetta, TimeSpan.FromSeconds(Timeout));
+            },
+            CopyResults: (runToken, _) => ReadHostResults(jsonlPath, runToken, laneLabel),
+            AfterAppStarted: _ => { }));
+    }
+
+    /// <summary>
+    /// The JSONL a host-launched app wrote, when it carries this launch's run token; null otherwise.
+    /// </summary>
+    static string? ReadHostResults(AbsolutePath jsonlPath, string runToken, string laneLabel)
+    {
+        if (!File.Exists(jsonlPath))
+            return null;
+        var content = File.ReadAllText(jsonlPath);
+        if (JsonlTestResults.HasMatchingRunToken(content, runToken))
+            return content;
+        Log.Warning("{Lane}: {Path} does not carry this launch's run token; ignoring it.", laneLabel, jsonlPath);
+        return null;
+    }
+
+    /// <summary>
+    /// Launches a host executable (the binary inside a Mac Catalyst or macOS .app), natively or
+    /// under Rosetta, and waits until it has flushed its results and reported, exits, or times out.
+    /// </summary>
+    static LaunchResult LaunchHostApp(AbsolutePath exe, IReadOnlyList<string> args, bool underRosetta, TimeSpan timeout)
+    {
+        var output = new ConcurrentQueue<string>();
+        using var process = new Process();
+        process.StartInfo = BuildHostLaunchStartInfo(exe, args.ToList(), underRosetta);
         process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
         process.ErrorDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
 
@@ -2605,7 +2632,7 @@ partial class Build
         var testResult = TestResult.Timeout;
         bool resultsFlushed = false;
 
-        while (sw.Elapsed < TimeSpan.FromSeconds(Timeout))
+        while (sw.Elapsed < timeout)
         {
             if (process.HasExited)
             {
@@ -2646,23 +2673,7 @@ partial class Build
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
-        var result = new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
-
-        Log.Information("");
-        Log.Information("=== APP OUTPUT ===");
-        Log.Information(result.Output);
-
-        // JSONL is written to --results-path (temp dir outside the .app bundle).
-        JsonlTestResults? jsonlResults = null;
-        var catalystJsonlPath = catalystResultsDir / "test-results.jsonl";
-        if (File.Exists(catalystJsonlPath))
-        {
-            jsonlResults = ValidateRunToken(JsonlTestResults.ParseFile(catalystJsonlPath), runToken, "Mac Catalyst");
-            if (jsonlResults != null)
-                Log.Information("JSONL results: {Summary}", jsonlResults.ToString());
-        }
-
-        ReportRuntimeTestResult(result, platform.RunUnderRosetta ? "Mac Catalyst x64" : "Mac Catalyst", jsonlResults);
+        return new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
     }
 
     // ============================================================
@@ -3492,6 +3503,12 @@ partial class Build
             $"--async-library {WrapperModule}",
         };
 
+        // An x86_64 cell builds x86_64-only frameworks, so the emitted project must stage and pack
+        // them for its own RID; the generator's default for the platform is the arm64 RID, whose
+        // slice such an xcframework does not have (SWIFTBIND051).
+        if (platform.SliceArchitecture == "x86_64")
+            genArgs.Add($"--rid {platform.Rid}");
+
         // The RuntimeTestsApp build below is the real C# compile gate here, so opt out of the
         // generator's in-process C# verification build. Beyond being a redundant per-regen dotnet
         // build, that verification cannot restore: the emitted csproj carries a PackageReference on
@@ -3561,6 +3578,8 @@ partial class Build
                 $"--target-framework {platform.GetTfm(BtFramework)}",
                 $"-o \"{depOutputDir}\"",
             };
+            if (platform.SliceArchitecture == "x86_64")
+                depArgs.Add($"--rid {platform.Rid}");
             if (strict)
                 depArgs.Add("--strict-inputs");
             // Same compile gate as the main module above: the app build is the real one.

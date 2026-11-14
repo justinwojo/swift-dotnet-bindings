@@ -772,6 +772,146 @@ namespace BindingsGeneration.Tests
             }
             finally { Directory.Delete(dir, true); }
         }
+
+        // A universal Mac Catalyst app builds each RID separately and merges the bundles, and the
+        // merge refuses any non-binary file that differs between slices. The platform gives a JIT
+        // build DynamicCodeSupport=false, and that lands in the bundle's runtime configuration; turning
+        // the interpreter on for x64 alone used to drop it from the x64 slice only, so every universal
+        // app consuming a binding failed to merge. The x64 slice must evaluate to what arm64 gets.
+        [Theory]
+        // No consumer preset: the workaround turns the interpreter on and keeps the JIT build's value.
+        [InlineData("", "false", "all", "true")]
+        // The consumer chose the interpreter for every slice: the platform leaves the value unset on
+        // every slice, so the workaround must too.
+        [InlineData("<MtouchInterpreter>all</MtouchInterpreter>", "", "all", "true")]
+        [InlineData("<UseInterpreter>true</UseInterpreter>", "", "all", "true")]
+        // A consumer's own value always wins.
+        [InlineData("<DynamicCodeSupport>true</DynamicCodeSupport>", "true", "all", "true")]
+        public void Emit_MacCatalystX64Workaround_KeepsJitDynamicCodeSupport(
+            string consumerProperties, string dynamicCode, string mtouchInterpreter, string useInterpreter)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                ConsumerTargetsTestHelper.EmitTargets(
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                foreach (var targets in new[] { "ImagePipeline.Swift.MacCatalyst.targets", "ImagePipeline.Swift.MacCatalyst.ProjectReference.targets" })
+                {
+                    var values = EvaluateConsumer(dir, targets, "net10.0-maccatalyst", "maccatalyst-x64", consumerProperties);
+                    Assert.Equal(dynamicCode, values["DynamicCodeSupport"]);
+                    Assert.Equal(mtouchInterpreter, values["MtouchInterpreter"]);
+                    Assert.Equal(useInterpreter, values["UseInterpreter"]);
+                }
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // The arm64 slice, and an x64 slice that opted back into the JIT, are left to the platform.
+        [Theory]
+        [InlineData("maccatalyst-arm64", "")]
+        [InlineData("maccatalyst-x64", "<SwiftBindingsMacCatalystX64UseJit>true</SwiftBindingsMacCatalystX64UseJit>")]
+        public void Emit_MacCatalystX64Workaround_LeavesOtherSlicesToThePlatform(string rid, string consumerProperties)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                ConsumerTargetsTestHelper.EmitTargets(
+                    dir, "ImagePipeline", "ImagePipeline.Swift.MacCatalyst", "15.0", hasWrapper: true);
+                var values = EvaluateConsumer(dir, "ImagePipeline.Swift.MacCatalyst.targets", "net10.0-maccatalyst", rid, consumerProperties);
+                Assert.Equal("", values["DynamicCodeSupport"]);
+                Assert.Equal("", values["MtouchInterpreter"]);
+                Assert.Equal("", values["UseInterpreter"]);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        // The SDK writes the packed {PackageId}.targets itself, from a heredoc in Sdk.targets; its
+        // workaround properties must be the emitter's, so both consumption paths agree.
+        [Fact]
+        public void SdkTargetsPackedWorkaround_MatchesEmitter()
+        {
+            var sdkTargets = XDocument.Load(Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets"));
+            var command = sdkTargets.Descendants()
+                .Where(e => e.Name.LocalName == "Exec")
+                .Select(e => (string?)e.Attribute("Command") ?? "")
+                .Single(c => c.Contains("TARGETSEOF", StringComparison.Ordinal) && c.Contains("maccatalyst-x64", StringComparison.Ordinal));
+            // The heredoc escapes MSBuild's `$(` from both MSBuild and the shell.
+            var packed = Normalize(command.Replace("\\%24", "$").Replace("%24", "$"));
+
+            var emitter = ConsumerTargetsEmitter.MacCatalystX64Workaround;
+            var start = emitter.IndexOf("<PropertyGroup", StringComparison.Ordinal);
+            var end = emitter.IndexOf("</PropertyGroup>", start, StringComparison.Ordinal) + "</PropertyGroup>".Length;
+            var properties = Normalize(emitter[start..end]);
+
+            Assert.Contains("DynamicCodeSupport", properties);
+            Assert.Contains(properties, packed);
+        }
+
+        static string Normalize(string text) => System.Text.RegularExpressions.Regex.Replace(text, @"\s+", " ");
+
+        // Evaluates `targets` the way a consumer project imports it, after the consumer's own
+        // properties, and returns the properties the workaround governs.
+        static Dictionary<string, string> EvaluateConsumer(string dir, string targets, string targetFramework, string rid, string consumerProperties)
+        {
+            var project = Path.Combine(dir, $"Consumer-{Guid.NewGuid():N}.proj");
+            File.WriteAllText(project, $"""
+                <Project>
+                  <PropertyGroup>
+                    <TargetFramework>{targetFramework}</TargetFramework>
+                    <RuntimeIdentifier>{rid}</RuntimeIdentifier>
+                    {consumerProperties}
+                  </PropertyGroup>
+                  <Import Project="{targets}" />
+                </Project>
+                """);
+            string[] names = ["DynamicCodeSupport", "MtouchInterpreter", "UseInterpreter"];
+            var (exitCode, stdOut, stdErr) = RunProcess("dotnet",
+                $"msbuild \"{project}\" -nologo {string.Join(' ', names.Select(n => $"-getProperty:{n}"))}");
+            Assert.True(exitCode == 0, $"msbuild evaluation failed.\nStdOut: {stdOut}\nStdErr: {stdErr}");
+            using var json = System.Text.Json.JsonDocument.Parse(stdOut);
+            var properties = json.RootElement.GetProperty("Properties");
+            return names.ToDictionary(n => n, n => properties.GetProperty(n).GetString() ?? "");
+        }
+
+        static readonly Lazy<bool> MsbuildAvailable = new(() =>
+        {
+            try { return RunProcess("dotnet", "msbuild --version").ExitCode == 0; }
+            catch { return false; }
+        });
+
+        static void SkipUnless(bool condition, string reason)
+        {
+            if (!condition)
+                throw Xunit.Sdk.SkipException.ForSkip(reason);
+        }
+
+        static (int ExitCode, string StdOut, string StdErr) RunProcess(string fileName, string arguments)
+        {
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = fileName,
+                Arguments = arguments,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            using var process = System.Diagnostics.Process.Start(psi)!;
+            var stdOutTask = process.StandardOutput.ReadToEndAsync();
+            var stdErr = process.StandardError.ReadToEnd();
+            process.WaitForExit(60_000);
+            return (process.ExitCode, stdOutTask.Result, stdErr);
+        }
+
+        static string FindRepoRoot()
+        {
+            var dir = new DirectoryInfo(AppContext.BaseDirectory);
+            while (dir != null && !File.Exists(Path.Combine(dir.FullName, "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets")))
+                dir = dir.Parent;
+            return dir?.FullName ?? throw new InvalidOperationException("repository root not found above the test assembly");
+        }
     }
 
     #endregion
