@@ -1233,6 +1233,12 @@ namespace BindingsGeneration
             // an Optional class) may take the thunk too.
             if (!NativeThunkEmitter.ShouldEmitThunk(methodEnv, classReferenceResultAllowed: true))
                 return false;
+            // A frozen operand swiftcc passes indirectly must reach the thunk as an explicit address,
+            // which the member body stages and the operator body does not. On the direct route the
+            // runtime's Swift lowering passes it by reference itself, so it stays there.
+            if (methodEnv.MethodDecl.CSSignature.Skip(1)
+                    .Any(a => NativeThunkEmitter.ForwardsParameterByAddress(a, methodEnv.TypeDatabase)))
+                return false;
 
             var methodDecl = methodEnv.MethodDecl;
             var moduleName = parentDecl.SwiftTypeName.Module;

@@ -294,6 +294,24 @@ public class ClosureEmitterDirectArgAbiTests
     #region Emitted trampoline
 
     [Fact]
+    public void EmitEscapingClosureCallback_SwiftMode_BoolArgument_ReadsBitZero()
+    {
+        // On the direct lane Swift passes a Bool argument as an i1, so only bit 0 of the register is
+        // defined. Testing the whole byte against zero would read a set upper bit as true.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var closureTypeSpec = new ClosureTypeSpec(new NamedTypeSpec("Swift.Bool"), TupleTypeSpec.Empty);
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitEscapingClosureCallback(
+            new CSharpWriter(output), "observe", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule7observeyyF", useCdecl: false);
+
+        var result = output.ToString();
+        Assert.Contains("CallConvSwift", result);
+        Assert.Contains("(arg0 & 1) != 0", result);
+    }
+
+    [Fact]
     public void EmitEscapingClosureCallback_SwiftMode_ArrayThenOptionalString_DeclaresTheExtraWord()
     {
         // ([Double], String?) -> Void: the array is one register, the optional string two. The

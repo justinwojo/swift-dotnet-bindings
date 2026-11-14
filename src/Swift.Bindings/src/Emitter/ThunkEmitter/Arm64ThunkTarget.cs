@@ -44,6 +44,20 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
     /// <inheritdoc/>
     public override void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor)
     {
+        // A Bool return must be masked to bit 0 after the call (swiftcc returns it as an i1), so it
+        // cannot branch away. A frame record keeps the link register across the call; the cdecl and
+        // swiftcc argument registers already coincide here, so the arguments pass through untouched.
+        if (ThunkAssemblyEmitter.BoolReturnRegisters(descriptor).Count > 0)
+        {
+            sb.AppendLine("    stp     x29, x30, [sp, #-16]!");
+            sb.AppendLine("    mov     x29, sp");
+            sb.AppendLine($"    bl      {descriptor.SwiftSymbol}");
+            EmitBoolReturnNormalization(sb, descriptor);
+            sb.AppendLine("    ldp     x29, x30, [sp], #16");
+            sb.AppendLine("    ret");
+            return;
+        }
+
         sb.AppendLine($"    b       {descriptor.SwiftSymbol}");
     }
 
@@ -151,6 +165,9 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
         // Call the Swift function
         sb.AppendLine($"    bl      {descriptor.SwiftSymbol}");
 
+        // Mask every register that carries a Bool to bit 0 before the return-buffer store reads it.
+        EmitBoolReturnNormalization(sb, descriptor);
+
         // Store return registers to cdecl return buffer if needed
         if (needsReturnBridge)
             EmitReturnStore(sb, descriptor.ReturnLowering!);
@@ -256,6 +273,19 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
             }
             sb.AppendLine($"    add     sp, sp, #{stackSize}");
         }
+    }
+
+    /// <summary>
+    /// Masks each integer return register that carries a lone Swift <c>Bool</c> to bit 0. swiftcc
+    /// returns a Bool as an i1 whose bits 1-63 are undefined (Swift's own arm64 callers apply the same
+    /// <c>and</c> after the call), while the managed side reads the byte as a C <c>bool</c> where any
+    /// nonzero value is true. Writing the w register also clears bits 32-63. See
+    /// <see cref="RegisterSlot.IsBool"/>.
+    /// </summary>
+    private static void EmitBoolReturnNormalization(StringBuilder sb, ThunkDescriptor descriptor)
+    {
+        foreach (int index in ThunkAssemblyEmitter.BoolReturnRegisters(descriptor))
+            sb.AppendLine($"    and     w{index}, w{index}, #0x1");
     }
 
     /// <summary>

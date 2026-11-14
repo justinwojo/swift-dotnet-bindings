@@ -104,10 +104,16 @@ public sealed record SwiftManagedSignature(
         : modifiers.Any(m => m.IsKind(SyntaxKind.InKeyword)) ? SwiftManagedRefKind.In
         : SwiftManagedRefKind.None;
 
-    /// <summary>The <c>UnmanagedType</c> member of a <c>[MarshalAs]</c> among the attribute lists, if any.</summary>
+    /// <summary>
+    /// The <c>UnmanagedType</c> member of a <c>[MarshalAs]</c> among the attribute lists, if any; or
+    /// <see cref="SwiftBoolMarshalling"/> for a <c>[MarshalUsing]</c> of the runtime's Swift Bool marshaller.
+    /// </summary>
     private static string? MarshalAsOf(IEnumerable<AttributeListSyntax> lists)
     {
-        var marshalAs = lists.SelectMany(l => l.Attributes).FirstOrDefault(a =>
+        var attributes = lists.SelectMany(l => l.Attributes).ToList();
+        if (attributes.Any(IsSwiftBoolMarshalUsing))
+            return SwiftBoolMarshalling;
+        var marshalAs = attributes.FirstOrDefault(a =>
             SwiftManagedTypeIndex.SimpleName(a.Name) is "MarshalAs" or "MarshalAsAttribute");
         var argument = marshalAs?.ArgumentList?.Arguments.FirstOrDefault()?.Expression;
         return argument switch
@@ -118,6 +124,17 @@ public sealed record SwiftManagedSignature(
             _ => argument.ToString(),
         };
     }
+
+    /// <summary>
+    /// The marshalling a <c>[MarshalUsing(typeof(SwiftBoolMarshaller))]</c> bool reports in place of an
+    /// <c>UnmanagedType</c>: one byte, read back from bit 0 (a Swift-convention Bool is an <c>i1</c>).
+    /// </summary>
+    internal const string SwiftBoolMarshalling = "SwiftBoolMarshaller";
+
+    private static bool IsSwiftBoolMarshalUsing(AttributeSyntax attribute) =>
+        SwiftManagedTypeIndex.SimpleName(attribute.Name) is "MarshalUsing" or "MarshalUsingAttribute"
+        && attribute.ArgumentList?.Arguments.FirstOrDefault()?.Expression is TypeOfExpressionSyntax typeOf
+        && SwiftManagedTypeIndex.SimpleName(typeOf.Type) == SwiftBoolMarshalling;
 
     /// <summary>A type as written, without <c>global::</c> and with its whitespace normalized.</summary>
     internal static string Spell(TypeSyntax type) =>
@@ -664,7 +681,7 @@ public sealed class SwiftManagedCarrierClassifier
 
     private static SwiftManagedValue Bool(string spelling, string? marshalAs, SwiftManagedMarshalling marshalling) => marshalAs switch
     {
-        "U1" or "I1" => SwiftManagedValue.Scalar("bool", SwiftScalarKind.Int8, signed: false),
+        "U1" or "I1" or SwiftManagedSignature.SwiftBoolMarshalling => SwiftManagedValue.Scalar("bool", SwiftScalarKind.Int8, signed: false),
         "I4" or "U4" or "Bool" => SwiftManagedValue.Scalar("bool", SwiftScalarKind.Int32, signed: marshalAs != "U4"),
         null when marshalling == SwiftManagedMarshalling.None => SwiftManagedValue.Scalar("bool", SwiftScalarKind.Int8, signed: false),
         null => SwiftManagedValue.Refuse(spelling, SwiftPlanRefusalKind.NonBlittable,

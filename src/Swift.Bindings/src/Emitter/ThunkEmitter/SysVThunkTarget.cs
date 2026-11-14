@@ -60,9 +60,12 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     /// True when the cdecl (C SysV) return is passed indirectly via a hidden %rdi sret pointer.
     /// In C, any struct larger than 16 bytes is returned this way regardless of whether Swift
     /// returns it directly in registers (17-32 bytes) or indirectly (&gt;32 bytes / address-only).
+    /// An indirect return counts whatever size the lowering recorded: an address-only value may
+    /// arrive with no known size, and EmitTailCall/EmitFullFrame shift the arguments for the
+    /// buffer on <c>IsIndirect</c> alone, so the register accounting must key off the same fact.
     /// </summary>
     private static bool CdeclUsesSret(ThunkDescriptor descriptor) =>
-        descriptor.ReturnLowering is { TotalByteSize: > 16 };
+        descriptor.ReturnLowering is { IsIndirect: true } or { TotalByteSize: > 16 };
 
     /// <inheritdoc/>
     public override bool CanEmit(ThunkDescriptor descriptor)
@@ -102,17 +105,20 @@ public sealed class SysVThunkTarget : ThunkTargetArch
     public override void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor)
     {
         // A no-payload enum tag return must be zero-extended on x86_64 (the SysV ABI leaves the
-        // upper bits of a sub-word return unspecified), so it cannot tail-call away. Set up a
-        // minimal aligned frame, call, widen the tag, and return. On entry %rsp is 8 mod 16; the
+        // upper bits of a sub-word return unspecified), and a Bool return must be masked to bit 0
+        // (swiftcc returns it as an i1), so neither can tail-call away. Set up a minimal aligned
+        // frame, call, fix the return register(s), and return. On entry %rsp is 8 mod 16; the
         // single push realigns it so the call sees a 16-byte-aligned stack. The cdecl and swiftcc
         // argument registers already coincide here (no self/error/metatype/sret), so the arguments
         // pass through untouched.
-        if (descriptor.ReturnZeroExtendFromBytes > 0)
+        if (descriptor.ReturnZeroExtendFromBytes > 0
+            || ThunkAssemblyEmitter.BoolReturnRegisters(descriptor).Count > 0)
         {
             sb.AppendLine("    pushq   %rbp");
             sb.AppendLine("    movq    %rsp, %rbp");
             sb.AppendLine($"    callq   {descriptor.SwiftSymbol}");
             EmitReturnZeroExtension(sb, descriptor);
+            EmitBoolReturnNormalization(sb, descriptor);
             sb.AppendLine("    popq    %rbp");
             sb.AppendLine("    retq");
             return;
@@ -231,6 +237,10 @@ public sealed class SysVThunkTarget : ThunkTargetArch
             sb.AppendLine("    movq    %rbx, %rax");
 
         sb.AppendLine($"    callq   {descriptor.SwiftSymbol}");
+
+        // Mask every register that carries a Bool to bit 0 before anything reads it, including the
+        // return-bridge store below.
+        EmitBoolReturnNormalization(sb, descriptor);
 
         // Zero-extend a narrow no-payload-enum tag return. Mutually exclusive with the return
         // bridge (a bridged struct is >16 bytes; an enum tag is 1-2), so it never races the
@@ -369,6 +379,18 @@ public sealed class SysVThunkTarget : ThunkTargetArch
                 sb.AppendLine("    movzwl  %ax, %eax");
                 break;
         }
+    }
+
+    /// <summary>
+    /// Masks each integer return register that carries a lone Swift <c>Bool</c> to bit 0. swiftcc
+    /// returns a Bool as an i1, so only bit 0 is defined: an unoptimised <c>!(a &lt; b)</c> compiles to
+    /// <c>setl %al; xorb $-1, %al</c> and returns 0xfe for false, which a C <c>bool</c> reads as true.
+    /// The 32-bit <c>andl</c> also clears bits 32-63. See <see cref="RegisterSlot.IsBool"/>.
+    /// </summary>
+    private static void EmitBoolReturnNormalization(StringBuilder sb, ThunkDescriptor descriptor)
+    {
+        foreach (int index in ThunkAssemblyEmitter.BoolReturnRegisters(descriptor))
+            sb.AppendLine($"    andl    $1, %{IntRetSubReg(index, 4)}");
     }
 
     /// <summary>Sub-registers of the four swiftcc integer return registers, indexed [retReg][byte/word/dword/qword].</summary>

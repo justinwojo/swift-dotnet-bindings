@@ -1786,6 +1786,19 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Whether a frozen struct argument crosses the native boundary as a pointer to its Swift-layout
+    /// bytes (the <c>CdeclFrozenStruct</c> carrier: P/Invoke <c>IntPtr</c>, call argument
+    /// <c>{name}Ptr</c>) rather than as the value. Two routes need it: a @_cdecl wrapper, which cannot
+    /// name a custom struct in its C signature, and a native thunk, whose one-register-per-argument
+    /// model only holds for an indirectly passed struct when the caller hands over the address
+    /// explicitly. The P/Invoke signature, the body's pointer setup and its unsafe context all key off
+    /// this one predicate so the three cannot disagree.
+    /// </summary>
+    public static bool PassesFrozenStructByAddress(ArgumentDecl arg, MethodEnvironment env)
+        => (env.MethodDecl.UsesCdeclWrapper && IsNonPrimitiveFrozenStructParam(arg, env.TypeDatabase))
+            || (env.MethodDecl.UsesNativeThunk && NativeThunkEmitter.ForwardsParameterByAddress(arg, env.TypeDatabase));
+
+    /// <summary>
     /// Per-param check: is this argument a non-primitive frozen struct?
     /// @_cdecl rejects "Swift structs cannot be represented in Objective-C" for custom frozen
     /// struct types. Primitives (Int, Float, Bool, CGFloat) and String are handled via

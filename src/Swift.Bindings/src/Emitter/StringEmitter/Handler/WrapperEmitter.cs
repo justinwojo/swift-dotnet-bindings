@@ -316,9 +316,8 @@ namespace BindingsGeneration
             _needsUnsafeBody = _syncPlan.RequiresUnsafe;
 
             // CdeclFrozenStruct params use stackalloc + byte* which require unsafe context
-            if (_env.MethodDecl.UsesCdeclWrapper &&
-                _env.MethodDecl.CSSignature.Skip(1).Any(arg =>
-                    WrapperValidation.IsNonPrimitiveFrozenStructParam(arg, _env.TypeDatabase) &&
+            if (_env.MethodDecl.CSSignature.Skip(1).Any(arg =>
+                    WrapperValidation.PassesFrozenStructByAddress(arg, _env) &&
                     !_env.BoundGenericsHandler.IsBoundGeneric(arg) &&
                     !_env.ClosureHandler.IsClosure(arg) &&
                     !MarshallingHelpers.IsConvertibleType(arg.SwiftTypeSpec) &&

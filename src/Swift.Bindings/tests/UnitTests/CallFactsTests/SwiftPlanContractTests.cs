@@ -151,6 +151,28 @@ public class SwiftPlanContractTests
         Assert.Equal("void (nint)", direct.Twin.ToString());
     }
 
+    // ---- a Swift Bool result ----
+
+    /// <summary>
+    /// A Swift-convention Bool comes back as an <c>i1</c>: only bit 0 is defined. The import reads it
+    /// through the runtime's Swift Bool marshaller, which is a one-byte carrier like <c>MarshalAs(U1)</c>,
+    /// so the plan must accept it rather than refuse it as a four-byte BOOL. A refusal here keeps the
+    /// import on its direct Swift-convention route, which Mono refuses outright when it has a self.
+    /// </summary>
+    [Fact]
+    public void BoolResultReadThroughTheSwiftBoolMarshaller_IsPlannedAsOneByteReadFromBitZero()
+    {
+        var method = (Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax)Microsoft.CodeAnalysis.CSharp.SyntaxFactory.ParseMemberDeclaration(
+            "[return: global::System.Runtime.InteropServices.Marshalling.MarshalUsing(typeof(global::Swift.Runtime.Marshalling.SwiftBoolMarshaller))] " +
+            "private static partial bool PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);")!;
+        var managed = SwiftManagedSignature.Of(method, SwiftManagedMarshalling.SourceGenerated);
+
+        Assert.Equal(SwiftManagedSignature.SwiftBoolMarshalling, managed.ReturnMarshalAs);
+        var obligations = Obligations(ClassMethod("Swift.Bool", "Swift.Int"), managed);
+        Assert.Contains(obligations, o => o.Kind == SwiftMarshallingObligationKind.NormalizeBool && o.Parameter is null
+            && o.Detail.Contains("1-byte integer, bit 0 is the value"));
+    }
+
     // ---- the obligations ----
 
     private static ImmutableArray<SwiftMarshallingObligation> Obligations(SwiftCallFacts facts, SwiftManagedSignature managed, string? source = null, ISwiftValueLowering? lowering = null)

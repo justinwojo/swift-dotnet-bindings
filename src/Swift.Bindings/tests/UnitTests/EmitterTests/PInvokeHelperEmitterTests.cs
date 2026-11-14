@@ -361,18 +361,26 @@ public class PInvokeHelperEmitterTests
 
     #region PInvokeDeclaration.Emit Tests
 
-    [Fact]
-    public void PInvokeDeclaration_Emit_BoolReturn_AddsMarshalAs()
+    [Theory]
+    // A C callee (@_cdecl wrapper, native thunk) returns a C bool that is already 0 or 1.
+    [InlineData(PInvokeCallingConvention.Cdecl,
+        "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]")]
+    // A Swift-convention callee returns Bool as an i1 with only bit 0 defined, so the byte is
+    // decoded from that bit rather than treated as true whenever it is nonzero.
+    [InlineData(PInvokeCallingConvention.Swift,
+        "[return: global::System.Runtime.InteropServices.Marshalling.MarshalUsing(typeof(global::Swift.Runtime.Marshalling.SwiftBoolMarshaller))]")]
+    public void PInvokeDeclaration_Emit_BoolReturn_MarshalsPerCallingConvention(
+        PInvokeCallingConvention callingConvention, string expectedReturnAttribute)
     {
         var decl = new PInvokeDeclaration
         {
             LibraryPath = "/tmp/lib.dylib",
-            EntryPoint = "$sTest",
+            EntryPoint = callingConvention == PInvokeCallingConvention.Swift ? "$sTest" : "thunk_Test_00000000",
             MethodName = "PInvoke_isValid",
             ReturnType = "bool",
             ParametersString = "",
             IsAsync = false,
-            CallingConvention = PInvokeCallingConvention.Swift
+            CallingConvention = callingConvention
         };
 
         var output = new StringWriter();
@@ -382,9 +390,8 @@ public class PInvokeHelperEmitterTests
         var result = output.ToString();
         // Qualified: the attribute is emitted into `namespace <SwiftModule>`, where a bound
         // library's own `MarshalAs`/`UnmanagedType` would otherwise capture it.
-        Assert.Contains(
-            "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]",
-            result);
+        Assert.Contains(expectedReturnAttribute, result);
+        Assert.Single(result.Split('\n'), line => line.TrimStart().StartsWith("[return:", System.StringComparison.Ordinal));
         Assert.Contains("internal static partial bool PInvoke_isValid();", result);
     }
 

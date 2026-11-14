@@ -2137,19 +2137,19 @@
   },
   "runtime_tests": {
     "macos_x64": {
-      "pass": 1913,
+      "pass": 3595,
       "fail": 0,
-      "skip": 47,
+      "skip": 16,
       "crash": 0
     },
     "maccatalyst_x64": {
-      "pass": 1917,
+      "pass": 3591,
       "fail": 0,
-      "skip": 47,
+      "skip": 20,
       "crash": 0
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 21468
+    "swift_bindings_unit_pass_floor": 21510
   }
 }

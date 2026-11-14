@@ -20,7 +20,14 @@ public enum RegisterFile
 /// <param name="File">Which register file (integer or float) this slot uses.</param>
 /// <param name="Index">The index within its register file (e.g., 0 for x0/d0).</param>
 /// <param name="ByteSize">The byte size of the value in this slot (e.g., 8 for Int, 1 for Bool).</param>
-public record RegisterSlot(RegisterFile File, int Index, int ByteSize);
+/// <param name="IsBool">
+/// True when the register carries a lone Swift <c>Bool</c>. swiftcc passes it as an LLVM <c>i1</c>,
+/// so only bit 0 is defined and the callee may leave bits 1-63 set. A C caller reads the byte as a
+/// <c>bool</c> where any nonzero value is true, so a thunk masks such a return register to bit 0.
+/// A Bool that shares an eightbyte with other fields is not marked: swiftcc coalesces that eightbyte
+/// through memory, where a Bool is always a clean 0/1 byte.
+/// </param>
+public record RegisterSlot(RegisterFile File, int Index, int ByteSize, bool IsBool = false);
 
 /// <summary>
 /// The result of lowering a Swift type to ARM64 register assignments.
@@ -306,7 +313,11 @@ public static class TypeLowering
                 int byteSize = Math.Min(8, totalBytes - eightbyteBase);
                 if (byteSize != 1 && byteSize != 2 && byteSize != 4 && byteSize != 8)
                     return null;
-                slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, byteSize));
+                // A Bool alone in its eightbyte stays an i1 in the swiftcc explosion ({ i64, i1 } for
+                // {Int, Bool}), so its register has only bit 0 defined. Fields that share an eightbyte
+                // are coalesced through memory into one integer, which keeps each Bool a clean byte.
+                bool loneBool = members.Count == 1 && members[0].Class == 'b';
+                slots.Add(new RegisterSlot(RegisterFile.Integer, intIndex++, byteSize, IsBool: loneBool));
             }
         }
 
@@ -447,9 +458,9 @@ public static class TypeLowering
                 new[] { new RegisterSlot(RegisterFile.Integer, 0, 8) },
                 IsIndirect: false, TotalByteSize: 8),
 
-            // Bool — 1 byte, integer register
+            // Bool — 1 byte, integer register; an i1 in swiftcc, so only bit 0 is defined
             "Swift.Bool" => new TypeLoweringResult(
-                new[] { new RegisterSlot(RegisterFile.Integer, 0, 1) },
+                new[] { new RegisterSlot(RegisterFile.Integer, 0, 1, IsBool: true) },
                 IsIndirect: false, TotalByteSize: 1),
 
             // Float types — map to float register slots
