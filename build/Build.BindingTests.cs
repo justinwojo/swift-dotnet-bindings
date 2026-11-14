@@ -1187,15 +1187,15 @@ partial class Build
 
             // --bridge-consumer: the opt-in ordinary consumer of the Swift bridges. It packs its own
             // feed, binds its fixture with default SDK settings in each consumption mode and runs the
-            // app on the simulator, a device and/or Mac Catalyst (simulator when none is given); a
-            // Catalyst app is universal and runs on arm64 and, under Rosetta, x86_64. --mono-aot
-            // re-flavors the .NET 10 device app as Mono full-AOT. Focused + exclusive.
+            // app on the iOS simulator, a device, Mac Catalyst and/or the tvOS simulator (the iOS
+            // simulator when none is given); a Catalyst app is universal and runs on arm64 and, under
+            // Rosetta, x86_64. --mono-aot re-flavors the .NET 10 device app as Mono full-AOT. Focused + exclusive.
             if (BridgeConsumer)
             {
-                if (Macos || MacosX64 || CatalystX64 || Tvos)
-                    throw new Exception("--bridge-consumer runs an iOS app on the simulator and/or a device, and a universal Mac Catalyst app; " +
-                        "it cannot be combined with --macos, --macos-x64, --catalyst-x64 (--catalyst runs both slices) or --tvos.");
-                RunBridgeConsumerLeg(sim: Sim || (!Device && !Catalyst), device: Device, monoAot: MonoAot, catalyst: Catalyst);
+                if (Macos || MacosX64 || CatalystX64)
+                    throw new Exception("--bridge-consumer runs an iOS app on the simulator and/or a device, a universal Mac Catalyst app and a tvOS simulator app; " +
+                        "it cannot be combined with --macos, --macos-x64 or --catalyst-x64 (--catalyst runs both slices).");
+                RunBridgeConsumerLeg(sim: Sim || (!Device && !Catalyst && !Tvos), device: Device, monoAot: MonoAot, catalyst: Catalyst, tvos: Tvos);
                 return;
             }
 

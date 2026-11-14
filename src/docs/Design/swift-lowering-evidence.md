@@ -290,8 +290,8 @@ The receipt goes stale through any of its inputs, each of which `Authorize` comp
 - each imported interface's digest;
 - the contract's plan, facts and collector versions.
 
-**Where it runs.** `SwiftCollectLoweringEvidence` defaults to `true` for every iOS and Mac Catalyst
-binding project (`net10.0` and `net11.0`) and every `net11.0` binding project. A project can set it either way. Every
+**Where it runs.** `SwiftCollectLoweringEvidence` defaults to `true` for every iOS, Mac Catalyst and
+tvOS binding project (`net10.0` and `net11.0`) and every `net11.0` binding project. A project can set it either way. Every
 other `net10.0` build runs no extra swiftc pass and keeps its fingerprint text. The extra pass is a
 full second frontend compile of the wrapper, without the link. Its cost grows with the wrapper, so
 paying it where nothing reads the result is waste. Measured on one simulator slice:
@@ -316,15 +316,20 @@ from the interface.
 
 A binding that collects its receipt routes from it in the same wrapper compile
 (`--route-swift-bridges`, `SwiftBridgeFinalizer` in `src/Swift.Bindings/src/Configuration/`). The
-SDK passes the flag when `SwiftRouteBridges` is on, which it is by default for iOS and Mac Catalyst
-targets, and only when it collects and has no hand-authored `<SwiftLoweringEvidence>`. Nothing in the
+SDK passes the flag when `SwiftRouteBridges` is on, which it is by default for iOS, Mac Catalyst and
+tvOS targets, and only when it collects and has no hand-authored `<SwiftLoweringEvidence>`. Nothing in the
 finalizer is platform-specific: it judges the receipt over the receipt's own slices, so a Mac Catalyst
 wrapper's receipt (both macabi slices) routes the same way, and a plan one architecture's slice
 contradicts stays a guarded direct import on both. The managed assembly is shared by every RID of a
 universal Catalyst app, so a guard rewritten to refuse nothing must hold for every architecture's
 native slice. `--bridge-consumer --catalyst` proves this with a universal (`maccatalyst-arm64;maccatalyst-x64`)
-consumer in all three consumption modes. tvOS and macOS still default to off. A hand-authored record
-routes at generation instead, and the wrapper compile then leaves the C# alone.
+consumer in all three consumption modes. A tvOS library ships an arm64 device slice and a universal
+(arm64 + x86_64) simulator slice, so its receipt holds three slices, and a plan any one of them
+contradicts stays guarded on all. `--bridge-consumer --tvos` binds a fixture shaped that way, requires
+each build's receipt to cover all three slices and the packed simulator wrapper to carry both
+architectures, and runs the consumer on the arm64 tvOS simulator in all three consumption modes.
+macOS still defaults to off. A hand-authored record routes at generation instead, and the wrapper
+compile then leaves the C# alone.
 
 **Why in the wrapper compile.** Generation runs before the wrapper is compiled, so it has no receipt.
 Feeding the receipt back as `<SwiftLoweringEvidence>` would make it a fingerprint input of the

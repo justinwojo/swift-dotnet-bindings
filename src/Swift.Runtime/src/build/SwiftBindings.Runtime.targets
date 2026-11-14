@@ -132,6 +132,34 @@
                       Overwrite="true" />
   </Target>
 
+  <!-- tvOS Mono apps resolve P/Invokes the way iOS apps do.
+       The workload's bundler decides per assembly whether Mono's AOT compiler binds a P/Invoke
+       through dlsym at run time or as a direct reference the app's link must satisfy
+       (dotnet-linker Application.UseDlsym). On iOS every non-SDK assembly gets dlsym, on Mac
+       Catalyst every assembly does, and on tvOS none does. Swift.Runtime, the Apple supplement
+       and generated bindings P/Invoke into /usr/lib/swift and system Swift frameworks that the
+       app's executable does not link, so an AOT-compiled tvOS app fails to link
+       ("Swift.Array.init() -> [A]", referenced from wrapper_managed_to_native_...). Name every
+       non-SDK assembly, as iOS's default does, so the same assemblies bind the same way on both
+       platforms. The bundler checks each named assembly before the platform default and the
+       first match wins.
+       _BundlerDlsym holds the dlsym options the workload parsed from MtouchExtraArgs; an app that
+       passed any keeps exactly those. The items are added just before _ComputeLinkerInputs writes
+       them into the linker's options, a build-only step that runs after references resolve.
+       _ParseBundlerArguments is no hook for this: a Rebuild runs it once, during Clean, before
+       any reference is known. The interpreter, NativeAOT and .NET 11's CoreCLR do not use this
+       choice. -->
+  <Target Name="_SwiftBindingsTvosDlsym"
+          BeforeTargets="_ComputeLinkerInputs"
+          Condition="$(TargetFramework.Contains('-tvos'))
+                     AND '$(UseMonoRuntime)' == 'true'
+                     AND ('$(OutputType)' == 'Exe' OR '$(IsAppExtension)' == 'true')">
+    <ItemGroup Condition="'@(_BundlerDlsym)' == ''">
+      <_BundlerDlsym Include="@(ReferencePath->'+%(Filename).dll')" Condition="'%(ReferencePath.FrameworkReferenceName)' == ''" />
+      <_BundlerDlsym Include="+$(AssemblyName).dll" />
+    </ItemGroup>
+  </Target>
+
   <!-- NativeAOT trimmer descriptor wiring.
        Swift.Runtime ships ILLink.Descriptors.xml as an EmbeddedResource for the IL trimmer's
        auto-discovery path. ILC (NativeAOT) does not auto-discover embedded descriptors from

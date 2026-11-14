@@ -458,11 +458,13 @@ partial class Build
 
     // Builds the consumer and returns its .app bundle: a NativeAOT publish on a device unless the lane
     // runs CoreCLR there or `monoAot` asks for Mono full-AOT (a Debug device build, no PublishAot).
-    AbsolutePath BuildPackageConsumer(AbsolutePath appDir, string appName, bool onDevice, string leg, string label, bool monoAot = false)
+    // `rid` names a simulator RID other than the iOS one (the tvOS simulator's).
+    AbsolutePath BuildPackageConsumer(AbsolutePath appDir, string appName, bool onDevice, string leg, string label, bool monoAot = false,
+        string? rid = null)
     {
         var nativeAot = onDevice && !RuntimeLane.DeviceCoreClr && !monoAot;
         var config = RuntimeLane.BuildConfiguration(onDevice, monoAot);
-        var rid = onDevice ? "ios-arm64" : "iossimulator-arm64";
+        rid ??= onDevice ? "ios-arm64" : "iossimulator-arm64";
         Log.Information("=== {Leg} ({Label}): building the consumer ===", leg, label);
         if (nativeAot)
         {
@@ -506,8 +508,9 @@ partial class Build
     }
 
     // Installs and launches a built consumer on the device or simulator, with `arguments` on its command line.
+    // `simulatorFamily` picks a simulator other than an iPhone (an Apple TV for a tvOS consumer).
     LaunchResult LaunchPackageConsumer(AbsolutePath appPath, string appName, string bundleId, bool onDevice, string leg, string label,
-        string[] arguments)
+        string[] arguments, SimCtl.SimDeviceFamily? simulatorFamily = null)
     {
         Log.Information("=== {Leg} ({Label}): deploying + launching consumer ===", leg, label);
 
@@ -535,9 +538,16 @@ partial class Build
             // in one invocation: when the device leg is also running, that UDID is the phone's and
             // simctl must not be handed it.
             var simUdid = SimulatorUdidFor($"{leg} ({label})");
+            // A pinned UDID must name a simulator of the family the app runs on: an iOS app cannot
+            // install on an Apple TV, nor a tvOS app on an iPhone.
+            if (!string.IsNullOrEmpty(simUdid) && simulatorFamily is not null
+                && !SimCtl.ListDevices(simulatorFamily.RuntimeFilter).Any(d => string.Equals(d.Udid, simUdid, StringComparison.OrdinalIgnoreCase)))
+                throw new InvalidOperationException(
+                    $"{leg} ({label}): --device-udid {simUdid} is not a {simulatorFamily.DisplayName} simulator; " +
+                    $"drop the flag or pass a {simulatorFamily.RuntimeFilter} simulator's UDID from `xcrun simctl list devices {simulatorFamily.RuntimeFilter}`.");
             var sim = !string.IsNullOrEmpty(simUdid)
                 ? new SimCtl.SimDevice(simUdid, "pre-booted", "Booted", true, "")
-                : SimCtl.EnsureBootedDevice();
+                : SimCtl.EnsureBootedDevice(simulatorFamily);
             Log.Information("    simulator: {Name} ({Udid})", sim.Name, sim.Udid);
             deployAndLaunch = () =>
             {
