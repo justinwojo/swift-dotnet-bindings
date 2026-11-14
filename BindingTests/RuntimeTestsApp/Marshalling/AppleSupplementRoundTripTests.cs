@@ -25,6 +25,31 @@ public class AppleSupplementRoundTripTests : TestBase
 {
     public AppleSupplementRoundTripTests(TestResults results) : base(results) { }
 
+    /// <summary>
+    /// Swift.Foundation.Data's buffer initializer goes through the supplement's
+    /// <c>SBW_Data_InitWithBytes</c> shim, a plain-C transition, so it builds the value on every
+    /// runtime, the x86_64 CoreCLR interpreter included, rather than refusing: inline (short) and
+    /// heap-backed payloads round-trip byte for byte, and a null buffer of length zero is the empty Data.
+    /// </summary>
+    public unsafe void TestDataBufferInitializerRoundTripsThroughTheSupplementShim()
+    {
+        foreach (var length in new[] { 3, 14, 15, 4096 })
+        {
+            var bytes = new byte[length];
+            for (var i = 0; i < length; i++)
+                bytes[i] = (byte)(i * 7 + 1);
+            global::Swift.Foundation.Data data;
+            fixed (byte* pointer = bytes)
+                data = new global::Swift.Foundation.Data(new global::Swift.UnsafeRawPointer(pointer), length);
+            AssertEqual((nint)length, data.Count, $"Data({length}) count");
+            AssertTrue(bytes.AsSpan().SequenceEqual(data.ToByteArray()), $"Data({length}) bytes");
+        }
+
+        var empty = new global::Swift.Foundation.Data(new global::Swift.UnsafeRawPointer(null), 0);
+        AssertEqual((nint)0, empty.Count, "a null buffer of length zero is the empty Data");
+        AssertEqual(0, empty.ToByteArray().Length, "the empty Data has no bytes");
+    }
+
     public void TestFoundationLocaleLanguageMetadataResolves()
     {
         if (!OperatingSystem.IsIOSVersionAtLeast(16))

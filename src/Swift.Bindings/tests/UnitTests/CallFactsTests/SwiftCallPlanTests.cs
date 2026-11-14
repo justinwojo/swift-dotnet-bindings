@@ -1044,17 +1044,14 @@ public class SwiftCallPlanTests
             SourcesUnder("src", "Swift.Bindings.Apple", "Sources"), out var table);
 
         // Data's count and copyBytes take the value as its two words, which every runtime places
-        // identically; only the initializer, which returns Data, still needs a plan.
+        // identically, so neither needs a plan. The initializer, which returned Data in two
+        // registers, is no Swift transition at all: Data is built by the supplement's C shim.
         Assert.Empty(set.Coverage.Where(e => e.Status == SwiftPlanStatus.Refused));
-        Assert.Equal(3, table.Transitions.Length);
-        Assert.Equal(1, set.Count(SwiftPlanStatus.Planned));
+        Assert.Equal(2, table.Transitions.Length);
+        Assert.Equal(0, set.Count(SwiftPlanStatus.Planned));
         foreach (var transition in table.Transitions)
-            Assert.Contains(set.Coverage, e => e.EntryPoint == transition.EntryPoint
-                && e.Status == (transition.EntryPoint == "$s10Foundation4DataV5bytes5countACSV_SitcfC" ? SwiftPlanStatus.Planned : SwiftPlanStatus.NotBridged));
-        // Data travels as its two words, in and out.
-        var init = set.Plans.Single(p => p.Body.Target == "$s10Foundation4DataV5bytes5countACSV_SitcfC");
-        Assert.Equal(SwiftResultKind.Direct, init.Body.Managed.Result.Kind);
-        Assert.Equal(2, init.Body.Managed.Result.Pieces.Length);
+            Assert.Contains(set.Coverage, e => e.EntryPoint == transition.EntryPoint && e.Status == SwiftPlanStatus.NotBridged);
+        Assert.DoesNotContain(table.Transitions, t => t.EntryPoint == "$s10Foundation4DataV5bytes5countACSV_SitcfC");
     }
 
     /// <summary>

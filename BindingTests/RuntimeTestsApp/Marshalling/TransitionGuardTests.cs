@@ -37,8 +37,9 @@ public class TransitionGuardTests : TestBase
 
     /// <summary>The shapes each engine mishandles: the self register on Mono (it parks its own state
     /// in the callee-saved register Swift loads <c>self</c> into), the self register and a special
-    /// argument ahead of ordinary ones on the arm64 interpreter, and any lowered signature on the
-    /// x86_64 interpreter. NativeAOT and CoreCLR with its JIT handle all of them.</summary>
+    /// argument ahead of ordinary ones on the arm64 interpreter, and any lowered signature and any
+    /// Swift-convention callback on the x86_64 interpreter. NativeAOT and CoreCLR with its JIT handle
+    /// all of them.</summary>
     private static SwiftTransitionFacts ExpectedRefusals(ExpectedEngine engine) => engine switch
     {
         ExpectedEngine.Mono => SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.FunctionPointerSelfRegister,
@@ -46,11 +47,12 @@ public class TransitionGuardTests : TestBase
             SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.SpecialBeforeArguments |
             SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments,
         ExpectedEngine.CoreClrInterpreter when RuntimeInformation.ProcessArchitecture == Architecture.X64 =>
-            SwiftTransitionFacts.LoweredSignature | SwiftTransitionFacts.FunctionPointerLoweredSignature,
+            SwiftTransitionFacts.LoweredSignature | SwiftTransitionFacts.FunctionPointerLoweredSignature |
+            SwiftTransitionFacts.ReverseCallback,
         ExpectedEngine.CoreClrInterpreter =>
             SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.SpecialBeforeArguments | SwiftTransitionFacts.LoweredSignature |
             SwiftTransitionFacts.FunctionPointerSelfRegister | SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments |
-            SwiftTransitionFacts.FunctionPointerLoweredSignature,
+            SwiftTransitionFacts.FunctionPointerLoweredSignature | SwiftTransitionFacts.ReverseCallback,
         _ => SwiftTransitionFacts.None,
     };
 
@@ -58,7 +60,7 @@ public class TransitionGuardTests : TestBase
     [
         SwiftTransitionFacts.SelfRegister, SwiftTransitionFacts.SpecialBeforeArguments, SwiftTransitionFacts.LoweredSignature,
         SwiftTransitionFacts.FunctionPointerSelfRegister, SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments,
-        SwiftTransitionFacts.FunctionPointerLoweredSignature,
+        SwiftTransitionFacts.FunctionPointerLoweredSignature, SwiftTransitionFacts.ReverseCallback,
     ];
 
     /// <summary>
@@ -122,6 +124,59 @@ public class TransitionGuardTests : TestBase
         {
             point.Dispose();
             shifter.Dispose();
+        }
+    }
+
+    /// <summary>
+    /// A member that hands Swift a Swift-convention callback: the closure argument of
+    /// <c>OwnershipCallbackFactory.init?(_:valid:)</c>, a failable initializer of a non-frozen struct,
+    /// which the <c>@_cdecl</c> wrapper declines, so its closure reaches Swift as a managed
+    /// <c>UnmanagedCallersOnly</c> function Swift calls with the context in the self register. Where
+    /// the engine cannot deliver that register to the callback, the member must throw before Swift
+    /// runs (the body is never called); where it can, Swift calls the body once with its value.
+    /// </summary>
+    public void TestSwiftConventionCallbackMember_RefusesBeforeNativeOnlyWhereTheEngineMishandlesIt()
+    {
+        var engine = Engine;
+        var refuses = (ExpectedRefusals(engine) & SwiftTransitionFacts.ReverseCallback) != 0;
+        var calls = 0;
+        var number = 0;
+        Action<CallbackOwnedValue> body = value =>
+        {
+            calls++;
+            number = value.Number;
+            value.Dispose();
+        };
+
+        SwiftTransitionUnsupportedException? refusal = null;
+        OwnershipCallbackFactory? factory = null;
+        var created = false;
+        try
+        {
+            created = OwnershipCallbackFactory.TryCreate(body, true, out factory);
+        }
+        catch (SwiftTransitionUnsupportedException ex)
+        {
+            refusal = ex;
+        }
+        finally
+        {
+            factory?.Dispose();
+        }
+
+        if (refuses)
+        {
+            AssertNotNull(refusal, $"{engine}: OwnershipCallbackFactory.TryCreate must refuse");
+            AssertTrue(refusal!.Member.Contains("OwnershipCallbackFactory.TryCreate", StringComparison.Ordinal), $"refusal names the member: {refusal.Member}");
+            AssertEqual(SwiftTransitionFacts.ReverseCallback, refusal.RefusedFacts, "refused for the Swift-convention callback alone");
+            AssertEqual(0, calls, "Swift did not run: the body was never called");
+        }
+        else
+        {
+            AssertNull(refusal, $"{engine}: OwnershipCallbackFactory.TryCreate must run");
+            AssertTrue(created, $"{engine}: the initializer returned a value");
+            AssertEqual(1, calls, $"{engine}: Swift called the body once");
+            AssertEqual(76, number, $"{engine}: the body received Swift's value");
         }
     }
 

@@ -149,6 +149,16 @@
     </NativeReference>
   </ItemGroup>
 
+  <!-- The dev-built Apple supplement framework, as in RuntimeTestsApp.csproj: a
+       packaged consumer gets it from SwiftBindings.Apple.targets on every Apple
+       TFM, and Swift.Foundation.Data builds its value through the supplement's
+       C shim, so the app must embed it to run the Foundation tests. -->
+  <ItemGroup Condition="Exists('../../src/Swift.Bindings.Apple/native/SBApple.xcframework')">
+    <NativeReference Include="../../src/Swift.Bindings.Apple/native/SBApple.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+
   <!-- StoreKit is the one Apple-framework smoke with an explicit tvOS command-line
        Sandbox lane. It uses a tvOS-generated snapshot and the same source assertions as iOS. -->
   <PropertyGroup>

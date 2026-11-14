@@ -5,8 +5,9 @@ namespace Swift.Runtime;
 
 /// <summary>
 /// The register-convention shapes of a direct Swift-convention transition — a
-/// <c>[UnmanagedCallConv(CallConvSwift)]</c> import or a call through an
-/// <c>unmanaged[Swift]</c> function pointer — that some .NET runtimes do not execute correctly.
+/// <c>[UnmanagedCallConv(CallConvSwift)]</c> import, a call through an
+/// <c>unmanaged[Swift]</c> function pointer, or a Swift-convention callback handed to Swift — that
+/// some .NET runtimes do not execute correctly.
 /// </summary>
 /// <remarks>
 /// <para>
@@ -53,4 +54,12 @@ public enum SwiftTransitionFacts : ulong
 
     /// <summary><see cref="LoweredSignature"/>, for a call through an <c>unmanaged[Swift]</c> function pointer.</summary>
     FunctionPointerLoweredSignature = 1UL << 10,
+
+    /// <summary>
+    /// The member hands Swift the address of a managed Swift-convention <c>[UnmanagedCallersOnly]</c>
+    /// callback as a closure function. Swift calls it with the closure context in the self register
+    /// (x20 on arm64, r13 on x86_64), and with the error register when the closure throws, so the
+    /// runtime's reverse stub must apply Swift lowering on the way back in.
+    /// </summary>
+    ReverseCallback = 1UL << 16,
 }

@@ -95,6 +95,125 @@ public sealed class SwiftTransitionGuardsTests
         Assert.NotNull(Site(guards, "Box.Get(nint)"));
     }
 
+    // ---- Swift-convention callbacks ----
+
+    /// <summary>A Swift-convention callback whose address a static field holds, the shape the closure emitters write.</summary>
+    private const string SwiftCallback = """
+            [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+            private static unsafe void Body_Callback(void* arg0, global::System.Runtime.InteropServices.Swift.SwiftSelf context) { }
+            private static unsafe readonly delegate* unmanaged[Swift]<void*, global::System.Runtime.InteropServices.Swift.SwiftSelf, void> s_Body_Callback = &Body_Callback;
+        """;
+
+    [Fact]
+    public void AMemberHandingSwiftASwiftConventionCallback_IsGuardedForTheReverseCallback()
+    {
+        var guards = Plan($$"""
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    {{SwiftCallback}}
+                    public static nint Make() => (nint)s_Body_Callback;
+                    public static nint Unrelated() => 2;
+                }
+            }
+            """);
+
+        var hazard = Assert.Single(guards.Hazards);
+        Assert.Equal(SwiftTransitionKind.ReverseCallback, hazard.Kind);
+        Assert.Equal("M.Factory::Body_Callback", hazard.Member);
+        Assert.Equal(SwiftTransitionFacts.ReverseCallback, hazard.Facts);
+        // The field's initializer only takes the address; the member that reads it hands it to Swift.
+        Assert.True(Site(guards, "Factory.Make()") is { Direct: true, Visible: true });
+        Assert.Null(Site(guards, "Factory.Unrelated()"));
+        Assert.Empty(guards.Issues);
+    }
+
+    [Fact]
+    public void ACallbackAddressTakenInsideAMember_GuardsThatMember_AndItsPublicCallers()
+    {
+        var guards = Plan("""
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+                    private static void Body_Callback(global::System.Runtime.InteropServices.Swift.SwiftSelf context) { }
+                    private static nint Address() => (nint)(delegate* unmanaged[Swift]<global::System.Runtime.InteropServices.Swift.SwiftSelf, void>)&Body_Callback;
+                    public static nint Make() => Address();
+                }
+            }
+            """);
+
+        Assert.Equal(SwiftTransitionKind.ReverseCallback, Assert.Single(guards.Hazards).Kind);
+        Assert.True(Site(guards, "Factory.Address()") is { Direct: true, Visible: false });
+        Assert.True(Site(guards, "Factory.Make()") is { Direct: false, Visible: true });
+        Assert.Empty(guards.Issues);
+    }
+
+    [Fact]
+    public void ACdeclCallback_IsNoHazard()
+    {
+        var guards = Plan("""
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })]
+                    private static void Body_Callback(nint context) { }
+                    private static readonly delegate* unmanaged[Cdecl]<nint, void> s_Body_Callback = &Body_Callback;
+                    public static nint Make() => (nint)s_Body_Callback;
+                }
+            }
+            """);
+
+        Assert.Empty(guards.Hazards);
+        Assert.False(guards.GuardsAny);
+    }
+
+    [Fact]
+    public void ACallbackGuard_IsWrittenFirst_AndItsConstantHoldsTheReverseCallbackFact()
+    {
+        var source = $$"""
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    {{SwiftCallback}}
+                    public static nint Make() => (nint)s_Body_Callback;
+                }
+            }
+            """;
+        var guards = Plan(source);
+        var rewritten = guards.Rewrite(source);
+        Assert.Contains("SwiftTransitionGuard.ThrowIfUnsupported(global::M.__SwiftBindingsTransitionGuards.", rewritten);
+
+        var issues = new List<string>();
+        var mask = Assert.Single(SwiftTransitionGuards.MasksOf([rewritten], [], issues));
+        Assert.Equal(SwiftTransitionFacts.ReverseCallback, mask.Facts);
+        Assert.Empty(issues);
+        // Without the guard, the C# keeps a callback no guard names.
+        SwiftTransitionGuards.MasksOf([source], [], issues);
+        Assert.Contains(issues, i => i.Contains("M.Factory::Body_Callback", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void ACallbackFieldReadByATypeInitializer_IsAnIssue()
+    {
+        var guards = Plan($$"""
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    {{SwiftCallback}}
+                    private static readonly nint s_copy = (nint)s_Body_Callback;
+                }
+            }
+            """);
+
+        Assert.Contains(guards.Issues, i => i.Contains("Body_Callback", StringComparison.Ordinal));
+    }
+
     // ---- which members ----
 
     [Fact]

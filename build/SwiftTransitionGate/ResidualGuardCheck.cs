@@ -31,6 +31,7 @@ public static class SwiftTransitionShapes
     public const ulong FunctionPointerSelfRegister = 1UL << 8;
     public const ulong FunctionPointerSpecialBeforeArguments = 1UL << 9;
     public const ulong FunctionPointerLoweredSignature = 1UL << 10;
+    public const ulong ReverseCallback = 1UL << 16;
 
     private static readonly (ulong Bit, string Name)[] Names =
     {
@@ -40,6 +41,7 @@ public static class SwiftTransitionShapes
         (FunctionPointerSelfRegister, nameof(FunctionPointerSelfRegister)),
         (FunctionPointerSpecialBeforeArguments, nameof(FunctionPointerSpecialBeforeArguments)),
         (FunctionPointerLoweredSignature, nameof(FunctionPointerLoweredSignature)),
+        (ReverseCallback, nameof(ReverseCallback)),
     };
 
     /// <summary>
@@ -241,6 +243,7 @@ public static class ResidualGuardCheck
                     {
                         "ForwardPInvoke" => TransitionSiteKind.PInvoke,
                         "ForwardCalli" => TransitionSiteKind.Calli,
+                        "ReverseCallback" => TransitionSiteKind.UnmanagedCallersOnly,
                         var other => throw new InvalidDataException($"transition kind {other}"),
                     };
                     var member = transition.GetProperty("member").GetString() ?? "";
@@ -352,13 +355,24 @@ public static class ResidualGuardCheck
                 holder.Local |= site.Shapes;
                 hazardSites.Add((site, holder.Handle));
             }
+            var callbacks = CallbackHandOffs(report);
+            foreach (var (_, executes) in callbacks)
+                foreach (var method in executes)
+                    method.Local |= SwiftTransitionShapes.ReverseCallback;
 
             Propagate();
             var hazards = new List<ResidualHazard>();
             foreach (var (site, handle) in hazardSites)
             {
-                var referenced = AttributeHolders(site, _methods[handle]);
+                var referenced = AttributeHolders(site.Kind == TransitionSiteKind.Calli, site.Shapes, site.Member, _methods[handle]);
                 hazards.Add(new ResidualHazard(site.Kind, site.Member, site.EntryPoint, site.IlOffset, site.Shapes, referenced));
+            }
+            foreach (var (callback, executes) in callbacks.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            {
+                var referenced = false;
+                foreach (var method in executes.Distinct())
+                    referenced |= AttributeHolders(atExecutor: true, SwiftTransitionShapes.ReverseCallback, callback, method);
+                hazards.Add(new ResidualHazard(TransitionSiteKind.UnmanagedCallersOnly, callback, null, null, SwiftTransitionShapes.ReverseCallback, referenced));
             }
 
             var holders = new List<ResidualGuardHolder>();
@@ -676,6 +690,61 @@ public static class ResidualGuardCheck
         // ---- the graph -----------------------------------------------------------------------------
 
         /// <summary>Each method's <see cref="Method.Reach"/>: the shapes it holds or reaches over edges that are not dispatch.</summary>
+        /// <summary>
+        /// The methods that hand Swift each Swift-convention callback (by its member name), from the
+        /// scanner's <c>ldftn</c> sites: the method taking the address, or, when the address is stored
+        /// straight into a static field (the closure emitters' <c>s_&lt;callback&gt;</c>, which a type
+        /// initializer fills), every method that loads that field. Swift calls the callback with its
+        /// context in the self register, so each of them reaches <see cref="SwiftTransitionShapes.ReverseCallback"/>.
+        /// </summary>
+        private Dictionary<string, List<Method>> CallbackHandOffs(AssemblyTransitionReport report)
+        {
+            var handOffs = new Dictionary<string, List<Method>>(StringComparer.Ordinal);
+            List<Method> Of(string callback) => handOffs.TryGetValue(callback, out var list) ? list : handOffs[callback] = new List<Method>();
+            var fields = new Dictionary<FieldDefinitionHandle, string>();
+            foreach (var site in report.Sites)
+            {
+                if (site.Kind != TransitionSiteKind.CallbackAddress || site.Convention != TransitionConvention.Swift || site.Target is not { } callback)
+                    continue;
+                var handle = MetadataTokens.EntityHandle(site.MemberToken);
+                if (handle.Kind != HandleKind.MethodDefinition || !_methods.TryGetValue((MethodDefinitionHandle)handle, out var taker))
+                {
+                    _errors.Add(new InspectionError(site.Member, $"callback address site token 0x{site.MemberToken:X8} is not a method of this assembly"));
+                    continue;
+                }
+                var at = taker.Instructions.IndexOf(taker.Instructions.FirstOrDefault(i => i.Offset == site.IlOffset && i.OpCode == ILOpCode.Ldftn));
+                if (at < 0)
+                {
+                    _errors.Add(new InspectionError(taker.Display, $"no ldftn of {callback} at IL_{site.IlOffset:X4}"));
+                    continue;
+                }
+                if (at + 1 < taker.Instructions.Length && taker.Instructions[at + 1] is { OpCode: ILOpCode.Stsfld } store
+                    && MetadataTokens.EntityHandle(store.Token) is { Kind: HandleKind.FieldDefinition } field)
+                    fields[(FieldDefinitionHandle)field] = callback;
+                else
+                    Of(callback).Add(taker);
+            }
+            if (fields.Count == 0)
+                return handOffs;
+            var byName = fields.ToLookup(kv => md.GetString(md.GetFieldDefinition(kv.Key).Name), kv => kv.Value, StringComparer.Ordinal);
+            foreach (var method in _methods.Values)
+            {
+                foreach (var instruction in method.Instructions)
+                {
+                    if (instruction.OpCode is not (ILOpCode.Ldsfld or ILOpCode.Ldsflda))
+                        continue;
+                    var token = MetadataTokens.EntityHandle(instruction.Token);
+                    if (token.Kind == HandleKind.FieldDefinition && fields.TryGetValue((FieldDefinitionHandle)token, out var callback))
+                        Of(callback).Add(method);
+                    // A field of a generic type is loaded through a reference to its instantiation: matched by name.
+                    else if (token.Kind == HandleKind.MemberReference)
+                        foreach (var named in byName[md.GetString(md.GetMemberReference((MemberReferenceHandle)token).Name)])
+                            Of(named).Add(method);
+                }
+            }
+            return handOffs;
+        }
+
         private void Propagate()
         {
             foreach (var method in _methods.Values)
@@ -701,12 +770,12 @@ public static class ResidualGuardCheck
         /// <c>LibraryImport</c> stub, to the first method that is neither. A compiler-generated method
         /// nothing refers to is reported, since the walk cannot tell which method it belongs to.
         /// </summary>
-        private bool AttributeHolders(TransitionSite site, Method executes)
+        private bool AttributeHolders(bool atExecutor, ulong shapes, string member, Method executes)
         {
             var seen = new HashSet<MethodDefinitionHandle>();
             var queue = new Queue<Method>();
             var marked = false;
-            if (site.Kind == TransitionSiteKind.Calli)
+            if (atExecutor)
                 queue.Enqueue(executes);
             else
                 foreach (var caller in CallersOf(executes))
@@ -721,13 +790,13 @@ public static class ResidualGuardCheck
                     var referrers = CallersOf(method).Where(m => m.Handle != method.Handle).ToList();
                     if (referrers.Count == 0 && method.Generated && !IsImport(method))
                         _violations.Add(new ResidualGuardViolation(UnattributedRule, method.Display,
-                            $"holds a transition of shape {SwiftTransitionShapes.Describe(site.Shapes)} ({site.Member}), and no method of the assembly creates it"));
+                            $"holds a transition of shape {SwiftTransitionShapes.Describe(shapes)} ({member}), and no method of the assembly creates it"));
                     foreach (var referrer in referrers)
                         queue.Enqueue(referrer);
                     continue;
                 }
                 method.IsDirect = true;
-                method.Direct |= site.Shapes;
+                method.Direct |= shapes;
                 marked = true;
             }
             return marked;
