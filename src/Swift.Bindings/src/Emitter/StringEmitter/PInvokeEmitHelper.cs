@@ -330,9 +330,13 @@ public static class PInvokeEmitHelper
         // Return type (async always returns void)
         var returnTypeStr = info.IsAsync ? "void" : info.ReturnType;
 
-        // Bool return marshalling
+        // Bool return marshalling. A Swift-convention callee returns Bool as an i1 with only bit 0
+        // defined, so it is decoded from that bit; a C callee (@_cdecl wrapper, native thunk) returns
+        // a C bool that is already 0 or 1.
         if (MarshallingHelpers.IsBoolType(returnTypeStr))
-            lines.Add(MarshallingHelpers.BoolPInvokeReturnAttribute);
+            lines.Add(resolvedCallingConvention == PInvokeCallingConvention.Swift
+                ? MarshallingHelpers.SwiftBoolPInvokeReturnAttribute
+                : MarshallingHelpers.BoolPInvokeReturnAttribute);
 
         // Build parameter string with metadata parameters
         var paramsStr = info.ParametersString;

@@ -921,9 +921,10 @@ public static partial class ClosureEmitter
             return $"(object)({containerAccess})";
         }
 
-        // Bool requires byte->bool conversion
+        // Bool requires byte->bool conversion. Read bit 0 only: on the direct CallConvSwift lane Swift
+        // passes Bool as an i1 whose other bits are undefined (a C caller's bool is already 0 or 1).
         if (MarshallingHelpers.IsBoolType(typeSpec))
-            return $"arg{argIndex} != 0";
+            return $"(arg{argIndex} & 1) != 0";
 
         // Simple enum: callback receives underlying integer, delegate expects C# enum → cast
         if (closureHandler.IsSimpleEnum(typeSpec))

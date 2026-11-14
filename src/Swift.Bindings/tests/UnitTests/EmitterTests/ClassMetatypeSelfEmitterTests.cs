@@ -107,6 +107,39 @@ public class ClassMetatypeSelfEmitterTests
         Assert.DoesNotContain(operatorSymbol, output);
     }
 
+    [Fact]
+    public void ClassOperator_WithAnIndirectlyPassedFrozenOperand_StaysOnTheDirectRoute()
+    {
+        // A frozen operand wider than swiftcc's register budget must reach a thunk as an explicit
+        // address, which the operator body does not stage. Handing the thunk the value instead puts
+        // it on the stack under System V, so the operator keeps the direct route, where the runtime's
+        // own Swift lowering passes the operand by reference.
+        var (typeDatabase, module) = CreateModule();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var big = SwiftTypeName.FromModuleQualifiedName("TestModule.Big");
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: big, record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Big"),
+                SwiftTypeName = big,
+                MetadataAccessor = "$s10TestModule3BigVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                AbiFieldLayout = "i8,i8,i8,i8,i8",
+                InlineSize = 40,
+            }),
+        });
+        var counter = CreateClass("Counter", module, typeDatabase);
+        const string operatorSymbol = "$s10TestModule7CounterC1poiySiAC_AA3BigVtFZ";
+        AddOperator(counter, module, "+", operatorSymbol, rhsType: "TestModule.Big");
+
+        var output = EmitClass(counter, typeDatabase);
+
+        Assert.DoesNotContain(ThunkAssemblyEmitter.GenerateThunkSymbol("TestModule", operatorSymbol), output);
+        Assert.Contains($"EntryPoint = \"{operatorSymbol}\"", output);
+    }
+
     [Theory]
     [InlineData("static", true)]
     [InlineData("constructor", true)]
@@ -280,7 +313,8 @@ public class ClassMetatypeSelfEmitterTests
         return method;
     }
 
-    private static void AddOperator(ClassDecl parent, ModuleDecl module, string symbol, string mangledName)
+    private static void AddOperator(ClassDecl parent, ModuleDecl module, string symbol, string mangledName,
+        string rhsType = null)
     {
         ArgumentDecl Argument(string swiftType, string name) => new()
         {
@@ -303,7 +337,7 @@ public class ClassMetatypeSelfEmitterTests
             {
                 Argument("Swift.Int", string.Empty),
                 Argument($"TestModule.{parent.Name}", "lhs"),
-                Argument($"TestModule.{parent.Name}", "rhs"),
+                Argument(rhsType ?? $"TestModule.{parent.Name}", "rhs"),
             },
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = parent,

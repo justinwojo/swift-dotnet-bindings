@@ -158,7 +158,9 @@ public static class SwiftMarshallingObligations
 
         if (SimpleName(managed.ReturnType) is "bool" or "Boolean" && returned.Kind == SwiftManagedValueKind.Primitive)
             list.Add(new(SwiftMarshallingObligationKind.NormalizeBool, null,
-                $"read the result as a {returned.Layout!.Leaves[0].Size}-byte integer, non-zero is true (MarshalAs {managed.ReturnMarshalAs ?? "none"})"));
+                $"read the result as a {returned.Layout!.Leaves[0].Size}-byte integer, " +
+                (managed.ReturnMarshalAs == SwiftManagedSignature.SwiftBoolMarshalling ? "bit 0 is the value" : "non-zero is true") +
+                $" (MarshalAs {managed.ReturnMarshalAs ?? "none"})"));
         if (view.Result.Kind == SwiftResultKind.Direct)
             list.Add(new(SwiftMarshallingObligationKind.ResultBuffer, null,
                 $"supply a {view.Result.Size}-byte buffer for {view.Result.ManagedType} and read the result from it after the call"));

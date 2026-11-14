@@ -911,11 +911,13 @@ namespace BindingsGeneration
                     continue;
                 }
 
-                // @_cdecl frozen struct params: pass as IntPtr (pointer to marshalled buffer).
-                // Custom frozen structs are not C-representable in @_cdecl — Swift wrapper
+                // Frozen struct params passed by address: IntPtr to the value's Swift-layout bytes.
+                // @_cdecl: custom frozen structs are not C-representable — the Swift wrapper
                 // receives UnsafeRawPointer and reconstructs via .load(as: T.self).
-                if (_env.MethodDecl.UsesCdeclWrapper &&
-                    WrapperValidation.IsNonPrimitiveFrozenStructParam(argument, _env.TypeDatabase))
+                // Native thunk: swiftcc passes a struct wider than its register budget as a pointer,
+                // and only an explicit pointer lands in an integer register on every C ABI (System V
+                // copies a large by-value struct onto the stack instead).
+                if (WrapperValidation.PassesFrozenStructByAddress(argument, _env))
                 {
                     AddParameter(new MarshalledType.CdeclFrozenStruct(
                         argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);

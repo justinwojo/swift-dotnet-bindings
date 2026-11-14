@@ -494,7 +494,11 @@ public static class NativeThunkEmitter
             }
             else
             {
-                // Multi-slot or unlowerable param — count as 1 integer register (pointer)
+                // Every other argument AreAllParametersLowerable admits is one integer register: an
+                // indirectly passed struct arrives as a pointer (the payload handle of a non-frozen
+                // value, or the explicit address ForwardsParameterByAddress requires of a frozen one),
+                // and a class reference or frozen simple enum without a lowering is a single word.
+                // Multi-slot by-value aggregates never get here; they are declined to the wrapper.
                 intParamCount++;
             }
         }
@@ -570,7 +574,8 @@ public static class NativeThunkEmitter
             return 0;
 
         // Only no-payload (@frozen simple) enums are returned as a sub-word tag and read back as a
-        // wider integer. Bool, UInt8/UInt16 scalars are read at their native width (no mismatch).
+        // wider integer. UInt8/UInt16 scalars are read at their native width (no mismatch); a Bool
+        // return is an i1 rather than a byte and is masked by the targets (RegisterSlot.IsBool).
         if (record.Kind != TypeRecordKind.Enum
             || !record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
             || !record.Flags.HasFlag(TypeRecordFlags.Frozen))
@@ -728,6 +733,38 @@ public static class NativeThunkEmitter
             return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// Whether a thunk-routed argument must reach the thunk as a pointer to its value rather than
+    /// as the value itself.
+    ///
+    /// <para>The thunk models every non-floating-point argument as exactly one integer register
+    /// holding a scalar or a pointer (<see cref="ThunkDescriptor.ParameterCount"/>). A frozen struct
+    /// that swiftcc passes indirectly (wider than its direct-passing budget) is a pointer on the Swift
+    /// side, but its managed carrier is a by-value struct, and how a C caller places a by-value
+    /// composite is ABI-specific: AAPCS64 replaces one larger than 16 bytes with a pointer to a caller
+    /// copy, while System V AMD64 copies it onto the stack (MEMORY class) and leaves the register the
+    /// thunk forwards unset. Passing the address explicitly is the one form every C ABI places in an
+    /// integer register, so the managed side passes these by address on every architecture.</para>
+    ///
+    /// <para>A non-frozen struct is not included: its managed carrier is already the value's payload
+    /// handle, a pointer. Register-sized frozen structs pass as themselves, and every other by-value
+    /// aggregate (two eightbytes, floating-point aggregates) is refused by
+    /// <see cref="AreAllParametersLowerable"/> before a thunk is chosen.</para>
+    /// </summary>
+    /// <param name="argument">The Swift argument.</param>
+    /// <param name="typeDb">Type database used to resolve and lower the argument's type.</param>
+    /// <returns>True when the managed side must pass the argument's address.</returns>
+    public static bool ForwardsParameterByAddress(ArgumentDecl argument, ITypeDatabase typeDb)
+    {
+        if (argument.SwiftTypeSpec.IsEmptyTuple)
+            return false;
+        if (!typeDb.TryGetTypeRecord(argument.SwiftTypeSpec, out var record)
+            || record.Kind != TypeRecordKind.Struct
+            || !MarshallingHelpers.IsTypeFrozen(record))
+            return false;
+        return TypeLowering.LowerParameterType(argument.SwiftTypeSpec, typeDb) is { IsIndirect: true };
     }
 
     /// <summary>

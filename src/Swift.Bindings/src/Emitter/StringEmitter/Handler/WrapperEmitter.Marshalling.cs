@@ -1271,7 +1271,9 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits marshalling code for @_cdecl frozen struct parameters.
+        /// Emits marshalling code for frozen struct parameters passed by address
+        /// (<see cref="WrapperValidation.PassesFrozenStructByAddress"/>: @_cdecl wrappers, and
+        /// native thunks for structs swiftcc passes indirectly).
         /// Blittable frozen structs use stackalloc + MarshalToSwift to create a native buffer.
         /// Frozen structs with ref fields (e.g., containing String) use Payload.DangerousGetHandle()
         /// to get a pointer to the existing native buffer.
@@ -1279,12 +1281,9 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitCdeclFrozenStructMarshalling(CSharpWriter csWriter)
         {
-            if (!_env.MethodDecl.UsesCdeclWrapper)
-                return;
-
             foreach (var argument in _env.MethodDecl.CSSignature.Skip(1))
             {
-                if (!WrapperValidation.IsNonPrimitiveFrozenStructParam(argument, _env.TypeDatabase))
+                if (!WrapperValidation.PassesFrozenStructByAddress(argument, _env))
                     continue;
 
                 // Skip parameters already handled by other marshalling paths:

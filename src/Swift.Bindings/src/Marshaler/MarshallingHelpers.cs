@@ -1099,6 +1099,14 @@ namespace BindingsGeneration
         public const string BoolPInvokeReturnAttribute = "[return: global::System.Runtime.InteropServices.MarshalAs(global::System.Runtime.InteropServices.UnmanagedType.U1)]";
 
         /// <summary>
+        /// The <c>[return:]</c> marshalling for a Bool returned by a <c>CallConvSwift</c> callee. Swift
+        /// returns Bool as an i1 whose bits above bit 0 are undefined, while
+        /// <see cref="BoolPInvokeReturnAttribute"/> reads any nonzero byte as true, so the runtime's
+        /// marshaller decodes bit 0.
+        /// </summary>
+        public const string SwiftBoolPInvokeReturnAttribute = "[return: global::System.Runtime.InteropServices.Marshalling.MarshalUsing(typeof(global::Swift.Runtime.Marshalling.SwiftBoolMarshaller))]";
+
+        /// <summary>
         /// Checks if a Swift type spec represents Bool, which requires conversion in callbacks.
         /// </summary>
         public static bool IsBoolType(TypeSpec typeSpec)

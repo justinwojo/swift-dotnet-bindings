@@ -111,6 +111,36 @@ public sealed class SwiftBridgeRoutingTests
         Assert.DoesNotContain("CallConvSwift", rewritten);
     }
 
+    /// <summary>
+    /// A Swift Bool result read through the runtime's Swift Bool marshaller is bridged like any other
+    /// one-byte result, and the twin keeps that marshaller: the bridge hands the callee's register back
+    /// unchanged, so the twin is where bit 0 is read.
+    /// </summary>
+    [Fact]
+    public void BoolResultWithTheSwiftBoolMarshaller_IsBridged_AndTheTwinKeepsTheMarshaller()
+    {
+        const string entryPoint = "$s1M1CC1fySbSiF";
+        const string marshalUsing = "global::System.Runtime.InteropServices.Marshalling.MarshalUsing(typeof(global::Swift.Runtime.Marshalling.SwiftBoolMarshaller))";
+        var source = Source(Import(entryPoint,
+            $"[return: {marshalUsing}]\n                private static partial bool PInvoke_f(long a, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var plan = Planned(Planner().PlanForward(
+            ClassMethod("Swift.Bool", "Swift.Int"),
+            SwiftManagedSignature.Of(Method(source, "PInvoke_f"), SwiftManagedMarshalling.SourceGenerated),
+            entryPoint));
+        var routing = SwiftBridgeRouting.Plan(Set(plan, entryPoint), source, Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.True(route.IsBridged, route.Refusal);
+
+        var rewritten = routing.Rewrite(source);
+        var twin = Method(rewritten, SwiftBridgeRouting.TwinName("PInvoke_f", plan.Symbol));
+        var returnAttributes = twin.AttributeLists
+            .Where(l => l.Target?.Identifier.IsKind(SyntaxKind.ReturnKeyword) == true)
+            .SelectMany(l => l.Attributes).Select(a => a.ToString()).ToList();
+        Assert.Equal(marshalUsing, Assert.Single(returnAttributes));
+        Assert.DoesNotContain("CallConvSwift", rewritten);
+    }
+
     [Fact]
     public void ParameterNamedLikeASwiftRegister_IsBridged_OnlyTheShimsOwnLocalsCollide()
     {

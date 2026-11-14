@@ -202,6 +202,18 @@ public static class ThunkAssemblyEmitter
     }
 
     /// <summary>
+    /// The integer return registers that carry a lone Swift <c>Bool</c> (see
+    /// <see cref="RegisterSlot.IsBool"/>), which each target masks to bit 0 after the call so the
+    /// cdecl caller reads 0 or 1. Empty for a void or indirect return, where no register carries the
+    /// value. Arch-neutral: swiftcc returns Bool as an i1 on every architecture, and Swift's own
+    /// callers mask it on both.
+    /// </summary>
+    internal static IReadOnlyList<int> BoolReturnRegisters(ThunkDescriptor descriptor) =>
+        descriptor.ReturnLowering is { IsIndirect: false } returnLowering
+            ? returnLowering.Slots.Where(s => s.File == RegisterFile.Integer && s.IsBool).Select(s => s.Index).ToList()
+            : Array.Empty<int>();
+
+    /// <summary>
     /// Walks a return type's register slots in field order, pairing each with the byte offset it
     /// occupies in the cdecl return buffer. Offsets follow natural C/Swift struct alignment (each
     /// field aligned to its own size), which matches the <c>[StructLayout(Sequential)]</c> layout the
