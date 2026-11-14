@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 //
 // Build.BindingTests.BridgeConsumer.cs — opt-in ordinary consumer of the Swift bridges, on .NET 10 and
-// .NET 11 for iOS and Mac Catalyst.
+// .NET 11 for iOS, Mac Catalyst and tvOS.
 //
 // The generator and SwiftBindings.Runtime route each Swift-convention call the swiftc lowering
 // evidence authorizes through a native bridge (SBSR_), reached through a C twin: the .NET 11 CoreCLR
@@ -35,6 +35,10 @@
 // slices, so every RID's build must route the same members, and the merged app runs natively on arm64
 // and under Rosetta on x86_64.
 //
+// tvOS (--tvos) binds a fixture that ships the slices a tvOS library ships: arm64 for the device and a
+// universal arm64 + x86_64 simulator slice. Each build's receipt must cover all three, and the app runs
+// on the arm64 tvOS simulator.
+//
 // Opt-in. .NET 11 runs it with --coreclr-interp. Never part of the default run or --compile-only.
 
 using System;
@@ -56,7 +60,7 @@ using static Nuke.Common.Tools.DotNet.DotNetTasks;
 
 partial class Build
 {
-    [Parameter("Opt-in: bind a module through SwiftBindings.Sdk with default settings and no hand-authored lowering evidence, consume it as a package, SDK-direct and through a ProjectReference, and prove on the simulator, a device and/or Mac Catalyst that its calls run through the bridges the SDK routed. .NET 10: --sim (Mono AOT), --device (NativeAOT), --device --mono-aot (Mono full-AOT), --catalyst (a universal app run natively on arm64 and under Rosetta on x86_64). .NET 11: --coreclr-interp. Never part of the default run or --compile-only.")]
+    [Parameter("Opt-in: bind a module through SwiftBindings.Sdk with default settings and no hand-authored lowering evidence, consume it as a package, SDK-direct and through a ProjectReference, and prove on the simulator, a device, Mac Catalyst and/or the tvOS simulator that its calls run through the bridges the SDK routed. .NET 10: --sim (Mono AOT), --device (NativeAOT), --device --mono-aot (Mono full-AOT), --catalyst (a universal app run natively on arm64 and under Rosetta on x86_64), --tvos (the arm64 tvOS simulator). .NET 11: --coreclr-interp. Never part of the default run or --compile-only.")]
     readonly bool BridgeConsumer;
 
     [Parameter("With --bridge-consumer: the consumption modes to run, from package, direct and projectref. Default: all three.")]
@@ -69,6 +73,8 @@ partial class Build
     const string BcfAppName = "BridgeConsumerApp";
     const string BcfBundleId = "com.swiftbindings.bridgeconsumer";
     const string BcfRuntimeLibrary = "SwiftBindingsRuntime";
+    // The x86_64 half of a tvOS simulator slice, which tvOS libraries ship for Intel hosts.
+    const string BcfTvosSimulatorX64Target = "x86_64-apple-tvos15.0-simulator";
 
     string BcfLaneVersion => MixedPackageLaneVersion(BcfVersion, RuntimeLane);
     string BcfLaneAppleVersion => MixedPackageAppleVersion("bridge", RuntimeLane);
@@ -82,14 +88,19 @@ partial class Build
     enum BcfCaller { Interpreter, App, MonoInterpreter, MonoJit }
 
     /// <summary>One platform a mode builds an app for. A Mac Catalyst app is universal.</summary>
-    sealed record BcfPlatform(bool OnDevice, bool MonoAot, bool Catalyst = false)
+    sealed record BcfPlatform(bool OnDevice, bool MonoAot, bool Catalyst = false, bool Tvos = false)
     {
-        public string Name => Catalyst ? "catalyst" : OnDevice ? MonoAot ? "device-monoaot" : "device" : "simulator";
+        public string Name => Catalyst ? "catalyst" : Tvos ? "tvos-simulator" : OnDevice ? MonoAot ? "device-monoaot" : "device" : "simulator";
+
+        /// <summary>The app's platform, as its target framework names it.</summary>
+        public string TfmPlatform => Catalyst ? "maccatalyst" : Tvos ? "tvos" : "ios";
 
         /// <summary>The slices of the built app the host runs, each by its RID.</summary>
         public IReadOnlyList<BcfRun> Runs => Catalyst
             ? [new BcfRun("catalyst-arm64", "maccatalyst-arm64", UnderRosetta: false), new BcfRun("catalyst-x64", "maccatalyst-x64", UnderRosetta: true)]
-            : [new BcfRun(Name, OnDevice ? "ios-arm64" : "iossimulator-arm64", UnderRosetta: false)];
+            : Tvos
+                ? [new BcfRun(Name, "tvossimulator-arm64", UnderRosetta: false)]
+                : [new BcfRun(Name, OnDevice ? "ios-arm64" : "iossimulator-arm64", UnderRosetta: false)];
     }
 
     /// <summary>One run of a built app: the slice it runs, natively or under Rosetta.</summary>
@@ -102,11 +113,14 @@ partial class Build
     sealed record BcfFamily(string Platform, IReadOnlyList<BcfPlatform> Platforms, AbsolutePath Root, AbsolutePath Receipts)
     {
         public bool Catalyst => Platform == "maccatalyst";
+        public bool Tvos => Platform == "tvos";
 
         /// <summary>The evidence slices the fixture ships, by the triple each is compiled for.</summary>
         public IReadOnlyList<string> SliceTriples => Catalyst
             ? [ApplePlatform.MacCatalyst.SimulatorTarget, ApplePlatform.MacCatalystX64.SimulatorTarget]
-            : [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
+            : Tvos
+                ? [ApplePlatform.TvOS.DeviceTarget!, ApplePlatform.TvOS.SimulatorTarget, BcfTvosSimulatorX64Target]
+                : [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
     }
 
     /// <summary>One routed bridge the host expects on a measured call.</summary>
@@ -142,8 +156,8 @@ partial class Build
     };
 
     // .NET 11 runs the CoreCLR interpreter everywhere this leg runs. .NET 10 runs Mono, which the SDK
-    // AOT-compiles on the device, the arm64 simulator and the arm64 Mac Catalyst slice alike, so the
-    // P/Invoke wrapper is in the app image. The x86_64 Mac Catalyst slice is JIT-compiled, except that
+    // AOT-compiles on the device, the arm64 iOS and tvOS simulators and the arm64 Mac Catalyst slice
+    // alike, so the P/Invoke wrapper is in the app image. The x86_64 Mac Catalyst slice is JIT-compiled, except that
     // a binding package's targets turn the Mono interpreter on there, because that JIT has known
     // Swift-interop defects; the interpreter's native-call path, linked into the app, then calls the
     // bridge. An SDK-direct app and a plain ProjectReference consumer import no such targets.
@@ -152,18 +166,18 @@ partial class Build
         : platform.Catalyst && run.Rid == "maccatalyst-x64" ? mode == BcfMode.Package ? BcfCaller.MonoInterpreter : BcfCaller.MonoJit
         : BcfCaller.App;
 
-    void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot, bool catalyst)
+    void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot, bool catalyst, bool tvos)
     {
         var modes = ParseBridgeConsumerModes(BridgeConsumerModes);
         Log.Information("=================================================");
         Log.Information(" BindingTests — ordinary consumer of the Swift bridges (--bridge-consumer)");
-        Log.Information("   {Framework}   sim: {Sim}   device: {Device}{MonoAot}   catalyst: {Catalyst}   modes: {Modes}", RuntimeLane.Framework, sim, device,
-            monoAot ? " (Mono full-AOT)" : "", catalyst, string.Join(", ", modes.Select(BcfModeName)));
+        Log.Information("   {Framework}   sim: {Sim}   device: {Device}{MonoAot}   catalyst: {Catalyst}   tvos: {Tvos}   modes: {Modes}", RuntimeLane.Framework, sim, device,
+            monoAot ? " (Mono full-AOT)" : "", catalyst, tvos, string.Join(", ", modes.Select(BcfModeName)));
         Log.Information("=================================================");
 
         if (RuntimeLane.IsNet11 && !RuntimeLane.CoreClrInterpreter)
             throw new Exception("--bridge-consumer measures the .NET 11 CoreCLR interpreter on .NET 11. Run it with --coreclr-interp: " +
-                "bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --bridge-consumer --coreclr-interp [--sim] [--device] [--catalyst]");
+                "bash build.sh --toolchain-profile net11-xcode27 -- binding-tests --bridge-consumer --coreclr-interp [--sim] [--device] [--catalyst] [--tvos]");
         // Also stages SwiftInterfaceParser, which the SDK package ships and every binding build runs.
         EnsureGeneratorBuilt();
         var stagedParser = SwiftInterfaceParserStagingDir / "SwiftInterfaceParser";
@@ -175,8 +189,8 @@ partial class Build
         var nupkgDir = BcfScratch / "packages";
         nupkgDir.CreateDirectory();
 
-        // Each family binds its own fixture xcframework: iOS (device + simulator slices) and Mac
-        // Catalyst (one universal slice).
+        // Each family binds its own fixture xcframework: iOS (device + simulator slices), Mac
+        // Catalyst (one universal slice) and tvOS (a device slice and a universal simulator slice).
         var families = new List<BcfFamily>();
         var ios = new List<BcfPlatform>();
         if (sim) ios.Add(new BcfPlatform(OnDevice: false, MonoAot: false));
@@ -186,6 +200,9 @@ partial class Build
         if (catalyst)
             families.Add(new BcfFamily("maccatalyst", [new BcfPlatform(OnDevice: false, MonoAot: false, Catalyst: true)],
                 BcfScratch / "maccatalyst", BcfReceipts / "maccatalyst"));
+        if (tvos)
+            families.Add(new BcfFamily("tvos", [new BcfPlatform(OnDevice: false, MonoAot: false, Tvos: true)],
+                BcfScratch / "tvos", BcfReceipts / "tvos"));
 
         var failures = new List<string>();
         var passed = false;
@@ -506,7 +523,8 @@ partial class Build
 
     // The family's fixture framework. iOS: a two-slice (device + simulator) xcframework, each slice
     // linking the register sentinel. Mac Catalyst: one universal (arm64 + x86_64) slice, as real
-    // libraries ship it; the sentinel is arm64 code, so only the arm64 half links it.
+    // libraries ship it; the sentinel is arm64 code, so only the arm64 half links it. tvOS: an arm64
+    // device slice and a universal (arm64 + x86_64) simulator slice, as real tvOS libraries ship them.
     AbsolutePath BuildBridgeConsumerXcframework(BcfFamily family)
     {
         var buildRoot = family.Root / "build";
@@ -532,11 +550,11 @@ partial class Build
         }
         else
         {
-            var ios = ApplePlatform.IOS;
+            var apple = family.Tvos ? ApplePlatform.TvOS : ApplePlatform.IOS;
             var slices = new[]
             {
-                (Id: ios.DeviceSliceId!, Target: ios.DeviceTarget!, Sdk: ios.DeviceSdkName!, Suffix: ios.DeviceModuleSuffix!, Plist: ios.DevicePlistPlatform!),
-                (Id: ios.SimulatorSliceId, Target: ios.SimulatorTarget, Sdk: ios.SimulatorSdkName, Suffix: ios.SimulatorModuleSuffix, Plist: ios.SimulatorPlistPlatform),
+                (Id: apple.DeviceSliceId!, Target: apple.DeviceTarget!, Sdk: apple.DeviceSdkName!, Suffix: apple.DeviceModuleSuffix!, Plist: apple.DevicePlistPlatform!, Device: true),
+                (Id: apple.SimulatorSliceId, Target: apple.SimulatorTarget, Sdk: apple.SimulatorSdkName, Suffix: apple.SimulatorModuleSuffix, Plist: apple.SimulatorPlistPlatform, Device: false),
             };
             foreach (var slice in slices)
             {
@@ -545,8 +563,18 @@ partial class Build
                 var sdkPath = XcRun.GetSdkPath(slice.Sdk);
                 var sentinelObject = sliceDir / "bridge-sentinel-arm64.o";
                 XcRunTool($"clang -c \"{sentinel}\" -o \"{sentinelObject}\" -target {slice.Target} -isysroot \"{sdkPath}\"");
+                if (family.Tvos && !slice.Device)
+                {
+                    // The tvOS simulator slice is universal; the arm64 sentinel links into its arm64 half only.
+                    create = create.AddFrameworkPath(BuildFatFrameworkSlice(sliceDir, "universal", swiftSources,
+                        armTarget: slice.Target, armSuffix: slice.Suffix,
+                        x64Target: BcfTvosSimulatorX64Target, x64Suffix: "x86_64-apple-tvos-simulator",
+                        sdkName: slice.Sdk, minOs: apple.MinOsVersion, plistPlatform: slice.Plist,
+                        module: BcfModule, armExtraSources: [sentinelObject.ToString()]));
+                    continue;
+                }
                 var frameworkDir = sliceDir / $"{BcfModule}.framework";
-                CompileModuleSlice(BcfModule, slice.Target, sdkPath, slice.Suffix, ios.MinOsVersion, slice.Plist, frameworkDir,
+                CompileModuleSlice(BcfModule, slice.Target, sdkPath, slice.Suffix, apple.MinOsVersion, slice.Plist, frameworkDir,
                     swiftSources.Append(sentinelObject.ToString()).ToList(), frameworkSearchPaths: [sliceDir.ToString()]);
                 create = create.AddFrameworkPath(frameworkDir);
             }
@@ -740,7 +768,8 @@ partial class Build
     }
 
     // The binding package's wrapper must export its bridges, validated against the binding's sidecar on
-    // every slice: iOS ships a device and a simulator slice, Mac Catalyst one universal slice.
+    // every slice: iOS ships a device and a simulator slice, Mac Catalyst one universal slice, and tvOS a
+    // device slice and a universal simulator slice.
     void AssertBridgeConsumerPackedWrapper(BcfFamily family, AbsolutePath fixtureOut, AbsolutePath fixturePlans)
     {
         var nupkg = fixtureOut / $"{BcfPackageId}.{BcfLaneVersion}.nupkg";
@@ -771,6 +800,14 @@ partial class Build
         }
         else if (images.Count < 2)
             throw new Exception($"--bridge-consumer: {nupkg.Name} carries {images.Count} wrapper slice(s); expected the device and simulator slices.");
+        else if (family.Tvos)
+        {
+            // The wrapper's simulator slice must carry every architecture the fixture's does.
+            var simulator = images.Where(i => i.Contains("simulator", StringComparison.Ordinal)).ToList();
+            if (simulator.Count != 1)
+                throw new Exception($"--bridge-consumer: {nupkg.Name} carries {simulator.Count} simulator wrapper slice(s); expected one.");
+            AssertBcfArchitectures(simulator[0], ["arm64", "x86_64"], $"the packed simulator wrapper of {nupkg.Name}");
+        }
         ValidateLinkedBridges(images, fixturePlans, $"the packed wrapper of {nupkg.Name}", family.Platform);
         extract.DeleteDirectory();
     }
@@ -817,7 +854,7 @@ partial class Build
     {
         var config = RuntimeLane.BuildConfiguration(platform.OnDevice, platform.MonoAot);
         var engine = RuntimeLane.IsNet11 ? RuntimeLane.Engine(platform.OnDevice)
-            : platform.OnDevice ? platform.MonoAot ? "mono-aot" : "nativeaot" : platform.Catalyst ? "mono" : "mono-jit";
+            : platform.OnDevice ? platform.MonoAot ? "mono-aot" : "nativeaot" : platform.Catalyst || platform.Tvos ? "mono" : "mono-jit";
         var label = $"[{BcfModeName(mode)}] {platform.Name} ({RuntimeLane.Framework} {engine}, {config})";
 
         var failures = new List<string>();
@@ -827,7 +864,7 @@ partial class Build
         {
             appPath = platform.Catalyst
                 ? BuildBridgeConsumerCatalystApp(appDir, config, label)
-                : BuildPackageConsumer(appDir, BcfAppName, platform.OnDevice, "--bridge-consumer", label, platform.MonoAot);
+                : BuildPackageConsumer(appDir, BcfAppName, platform.OnDevice, "--bridge-consumer", label, platform.MonoAot, rid: platform.Runs[0].Rid);
             binding = bindingFor(config);
         }
         catch (Exception ex)
@@ -873,7 +910,8 @@ partial class Build
                 result = LaunchHostApp(appPath / "Contents" / "MacOS" / BcfAppName, arguments, run.UnderRosetta, TimeSpan.FromSeconds(Timeout));
             }
             else
-                result = LaunchPackageConsumer(appPath, BcfAppName, BcfBundleId, platform.OnDevice, "--bridge-consumer", runLabel, arguments);
+                result = LaunchPackageConsumer(appPath, BcfAppName, BcfBundleId, platform.OnDevice, "--bridge-consumer", runLabel, arguments,
+                    simulatorFamily: platform.Tvos ? SimCtl.TvOSAppleTVFamily : null);
             File.WriteAllText(family.Receipts / $"{tag}-console.txt", result.Output);
             Log.Information("=== CONSUMER OUTPUT ({Label}) ===", runLabel);
             foreach (var line in result.Output.Split('\n').Where(l => l.Contains("BCF CHECK") || l.Contains("BCF SENTINEL") || l.Contains("Runtime flavor")
@@ -1049,7 +1087,7 @@ partial class Build
             <Project Sdk="{(direct ? $"SwiftBindings.Sdk/{BcfLaneVersion}" : "Microsoft.NET.Sdk")}">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>{RuntimeLane.Framework}-{(catalyst ? "maccatalyst" : "ios")}</TargetFramework>
+                <TargetFramework>{RuntimeLane.Framework}-{platform.TfmPlatform}</TargetFramework>
                 {(catalyst
                     ? $"<RuntimeIdentifiers>{string.Join(';', platform.Runs.Select(r => r.Rid))}</RuntimeIdentifiers>"
                     : $"<RuntimeIdentifier>{platform.Runs[0].Rid}</RuntimeIdentifier>")}
@@ -1064,7 +1102,7 @@ partial class Build
                 {(direct ? "<IsPackable>false</IsPackable>\n<TreatWarningsAsErrors>false</TreatWarningsAsErrors>" : "")}
                 <NoWarn>$(NoWarn);CA1416;CA1422{(device ? ";IL2121" : "")}{(direct ? ";CS0649;CS0114;CS8604" : "")}</NoWarn>
               </PropertyGroup>
-              <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64' OR $(TargetFramework.EndsWith('-maccatalyst'))">
+              <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'iossimulator-arm64' OR '$(RuntimeIdentifier)' == 'tvossimulator-arm64' OR $(TargetFramework.EndsWith('-maccatalyst'))">
                 <MtouchLink>None</MtouchLink>
               </PropertyGroup>
               <PropertyGroup Condition="'$(RuntimeIdentifier)' == 'ios-arm64'">
@@ -1338,11 +1376,12 @@ partial class Build
                 "</dict>\n</plist>\n");
             return;
         }
+        // UILaunchScreen is an iOS key; a tvOS app launches from its scene manifest alone.
         File.WriteAllText(appDir / "Info.plist",
             "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n" +
             "<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n" +
             "<plist version=\"1.0\">\n<dict>\n" +
-            "    <key>UILaunchScreen</key>\n    <dict/>\n" +
+            (platform.Tvos ? "" : "    <key>UILaunchScreen</key>\n    <dict/>\n") +
             "    <key>UIApplicationSceneManifest</key>\n" +
             "    <dict>\n" +
             "        <key>UIApplicationSupportsMultipleScenes</key>\n" +
