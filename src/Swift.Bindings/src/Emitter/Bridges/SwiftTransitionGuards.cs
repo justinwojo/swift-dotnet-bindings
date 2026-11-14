@@ -254,6 +254,15 @@ internal sealed class SwiftTransitionGuards
                 {
                     var attributes = method.AttributeLists.SelectMany(l => l.Attributes).ToList();
                     var import = attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "LibraryImport") || SwiftTransitionSyntax.IsAttribute(a, "DllImport"));
+                    if (import is null && attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "UnmanagedCallersOnly")) is { } uco
+                        && SwiftTransitionSyntax.NamesCallConvSwift(uco))
+                    {
+                        // A Swift-convention callback: Swift calls it with the closure context in the self
+                        // register, so every member that hands Swift its address reaches that shape.
+                        var callback = SwiftTransitionSyntax.MemberOf(method);
+                        found.Add((new SwiftTransitionHazard(MaskName(callback, ""), SwiftTransitionKind.ReverseCallback, callback, "", SwiftTransitionFacts.ReverseCallback), method));
+                        break;
+                    }
                     var callConv = attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "UnmanagedCallConv"));
                     if (import is null || callConv is null || !SwiftTransitionSyntax.NamesCallConvSwift(callConv))
                         break;
@@ -318,6 +327,11 @@ internal sealed class SwiftTransitionGuards
             if (hazard.Kind == SwiftTransitionKind.ForwardCalli)
             {
                 Attribute(node, holders, issues, $"the call through {hazard.EntryPoint} in {hazard.Member}");
+            }
+            else if (hazard.Kind == SwiftTransitionKind.ReverseCallback)
+            {
+                foreach (var read in graph.CallbackAddressReads((MethodDeclarationSyntax)node))
+                    Attribute(read, holders, issues, $"the address of {hazard.Member}");
             }
             else
             {
@@ -646,6 +660,8 @@ internal sealed class SwiftTransitionGuards
     {
         if (kind == nameof(SwiftTransitionKind.ForwardCalli))
             return "no native bridge carries a call through a function pointer";
+        if (kind == nameof(SwiftTransitionKind.ReverseCallback))
+            return "no native bridge carries a Swift-convention callback: reverse stubs have no template yet";
         if (!coverage.TryGetValue(SwiftTransitionLedger.KeyOf(member, entryPoint), out var entry))
             return "the transition has no bridge plan";
         return entry.Status switch
@@ -746,10 +762,43 @@ internal sealed class SwiftTransitionGuards
                 if (importNames.Contains(name.Identifier.ValueText))
                     called.Add(name.Identifier.ValueText);
 
+        // Which callbacks code hands on: the address taken in a function, or a field it initializes read.
+        var handedOn = new HashSet<string>(StringComparer.Ordinal);
+        var callbackNames = declared.Values.Where(h => h.Kind == SwiftTransitionKind.ReverseCallback)
+            .Select(h => h.Member[(h.Member.LastIndexOf("::", StringComparison.Ordinal) + 2)..]).ToHashSet(StringComparer.Ordinal);
+        if (callbackNames.Count > 0)
+        {
+            var identifiers = roots.SelectMany(r => r.DescendantNodes().OfType<IdentifierNameSyntax>()).ToList();
+            foreach (var address in roots.SelectMany(r => r.DescendantNodes().OfType<PrefixUnaryExpressionSyntax>()).Where(p => p.IsKind(SyntaxKind.AddressOfExpression)))
+            {
+                var name = address.Operand switch
+                {
+                    IdentifierNameSyntax id => id.Identifier.ValueText,
+                    MemberAccessExpressionSyntax access => access.Name.Identifier.ValueText,
+                    _ => null,
+                };
+                if (name is null || !callbackNames.Contains(name))
+                    continue;
+                if (address.FirstAncestorOrSelf<VariableDeclaratorSyntax>() is { Initializer: { } initializer } declarator
+                    && initializer.Span.Contains(address.Span) && declarator.Parent?.Parent is FieldDeclarationSyntax)
+                {
+                    if (identifiers.Any(i => i.Identifier.ValueText == declarator.Identifier.ValueText))
+                        handedOn.Add(name);
+                }
+                else
+                    handedOn.Add(name);
+            }
+        }
+
         foreach (var hazard in declared.Values)
         {
-            var calledByCode = hazard.Kind == SwiftTransitionKind.ForwardCalli
-                || called.Contains(hazard.Member[(hazard.Member.LastIndexOf("::", StringComparison.Ordinal) + 2)..]);
+            var simpleName = hazard.Member[(hazard.Member.LastIndexOf("::", StringComparison.Ordinal) + 2)..];
+            var calledByCode = hazard.Kind switch
+            {
+                SwiftTransitionKind.ForwardCalli => true,
+                SwiftTransitionKind.ReverseCallback => handedOn.Contains(simpleName),
+                _ => called.Contains(simpleName),
+            };
             if (calledByCode && !referenced.Contains(hazard.Name))
                 issues.Add($"{hazard.Member} ({hazard.EntryPoint}) is a direct Swift-convention transition of shape {hazard.Facts} that no guard names");
         }
@@ -940,6 +989,43 @@ internal sealed class SwiftTransitionGuards
             _names.TryGetValue(name, out var list) ? list : [];
 
         public IMethodSymbol? SymbolOf(MethodDeclarationSyntax method) => Normalize(ModelOf(method).GetDeclaredSymbol(method) as IMethodSymbol);
+
+        /// <summary>
+        /// Where code reads the address of <paramref name="callback"/> to hand it on: each
+        /// <c>&amp;callback</c> in a function, and, when the address initializes a field (the closure
+        /// emitters' <c>s_&lt;callback&gt;</c>), each read of that field instead, since the field's
+        /// initializer only stores it. A name the model cannot bind is taken as the callback.
+        /// </summary>
+        public List<SyntaxNode> CallbackAddressReads(MethodDeclarationSyntax callback)
+        {
+            var reads = new List<SyntaxNode>();
+            var symbol = SymbolOf(callback);
+            foreach (var reference in ReferencesByName(callback.Identifier.ValueText))
+            {
+                SyntaxNode operand = reference.Parent is MemberAccessExpressionSyntax access && access.Name == reference ? access : reference;
+                if (operand.Parent is not PrefixUnaryExpressionSyntax address || !address.IsKind(SyntaxKind.AddressOfExpression))
+                    continue;
+                var bound = ModelOf(reference).GetSymbolInfo(reference);
+                var target = Normalize((bound.Symbol ?? bound.CandidateSymbols.FirstOrDefault()) as IMethodSymbol);
+                if (target is not null && symbol is not null && !SymbolEqualityComparer.Default.Equals(target, symbol))
+                    continue;
+                if (address.FirstAncestorOrSelf<VariableDeclaratorSyntax>() is { Initializer: { } initializer } declarator
+                    && initializer.Span.Contains(address.Span)
+                    && declarator.Parent?.Parent is FieldDeclarationSyntax
+                    && ModelOf(declarator).GetDeclaredSymbol(declarator) is IFieldSymbol field)
+                {
+                    foreach (var use in ReferencesByName(field.Name))
+                    {
+                        var used = ModelOf(use).GetSymbolInfo(use).Symbol;
+                        if (used is null || SymbolEqualityComparer.Default.Equals(used.OriginalDefinition, field.OriginalDefinition))
+                            reads.Add(use);
+                    }
+                    continue;
+                }
+                reads.Add(address);
+            }
+            return reads;
+        }
 
         /// <summary>The method a function declaration compiles to.</summary>
         public IMethodSymbol? FunctionSymbol(SyntaxNode function)

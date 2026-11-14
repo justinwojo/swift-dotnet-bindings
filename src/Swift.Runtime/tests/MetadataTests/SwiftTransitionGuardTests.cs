@@ -20,6 +20,7 @@ public class SwiftTransitionGuardTests
     private const SwiftTransitionFacts FpSelf = SwiftTransitionFacts.FunctionPointerSelfRegister;
     private const SwiftTransitionFacts FpSpecial = SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments;
     private const SwiftTransitionFacts FpLowered = SwiftTransitionFacts.FunctionPointerLoweredSignature;
+    private const SwiftTransitionFacts Reverse = SwiftTransitionFacts.ReverseCallback;
 
     [Theory]
     [InlineData(true, false, true, "Mono")]
@@ -58,13 +59,32 @@ public class SwiftTransitionGuardTests
         Assert.Equal(SwiftTransitionFacts.None, refused & FpSelf);
         // A trailing SwiftError or an aggregate is not refused on arm64.
         Assert.Equal(SwiftTransitionFacts.None, refused & (Lowered | FpLowered));
+        // The arm64 interpreter delivers a Swift-convention callback's context when it is declared
+        // last and its error first, the order the generator emits.
+        Assert.Equal(SwiftTransitionFacts.None, refused & Reverse);
     }
 
     [Fact]
-    public void CoreClrInterpreter_X64_RefusesEveryLoweredSignature()
+    public void CoreClrInterpreter_X64_RefusesEveryLoweredSignatureAndEverySwiftConventionCallback()
     {
         var refused = SwiftTransitionGuard.UnsupportedFactsFor(SwiftTransitionGuard.Engine.CoreClr, compilesDynamicCode: false, Architecture.X64);
-        Assert.Equal(Lowered | FpLowered, refused & SwiftTransitionGuard.KnownFacts);
+        // The x86_64 interpreter applies no Swift lowering in either direction: a callback Swift calls
+        // with its context in r13 reads an ordinary argument register instead.
+        Assert.Equal(Lowered | FpLowered | Reverse, refused & SwiftTransitionGuard.KnownFacts);
+    }
+
+    [Theory]
+    [InlineData(Architecture.Arm64)]
+    [InlineData(Architecture.X64)]
+    public void SwiftConventionCallbacks_AreRefusedOnlyByTheX64Interpreter(Architecture architecture)
+    {
+        foreach (var compiles in new[] { true, false })
+            Assert.Equal(SwiftTransitionFacts.None,
+                SwiftTransitionGuard.UnsupportedFactsFor(SwiftTransitionGuard.Engine.Mono, compiles, architecture) & Reverse);
+        Assert.Equal(SwiftTransitionFacts.None,
+            SwiftTransitionGuard.UnsupportedFactsFor(SwiftTransitionGuard.Engine.NativeAot, compilesDynamicCode: false, architecture) & Reverse);
+        Assert.Equal(SwiftTransitionFacts.None,
+            SwiftTransitionGuard.UnsupportedFactsFor(SwiftTransitionGuard.Engine.CoreClr, compilesDynamicCode: true, architecture) & Reverse);
     }
 
     [Theory]

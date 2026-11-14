@@ -19,7 +19,7 @@ namespace Swift.Runtime;
 /// keep their GC-transition state in the register an untyped <c>SwiftSelf</c> is loaded into; the
 /// CoreCLR interpreter's arm64 stubs keep the thread pointer there and shift the ordinary arguments
 /// that follow a <c>SwiftSelf</c> or <c>SwiftError*</c>, and on x86_64 it applies no Swift lowering at
-/// all. NativeAOT and CoreCLR with its JIT handle every measured shape.
+/// all, so a Swift-convention callback Swift calls with its context in r13 never receives it. NativeAOT and CoreCLR with its JIT handle every measured shape.
 /// </para>
 /// <para>
 /// The engine is identified from the core library the process actually runs — Mono's and CoreCLR's
@@ -34,7 +34,7 @@ public static class SwiftTransitionGuard
     internal const SwiftTransitionFacts KnownFacts =
         SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.SpecialBeforeArguments | SwiftTransitionFacts.LoweredSignature |
         SwiftTransitionFacts.FunctionPointerSelfRegister | SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments |
-        SwiftTransitionFacts.FunctionPointerLoweredSignature;
+        SwiftTransitionFacts.FunctionPointerLoweredSignature | SwiftTransitionFacts.ReverseCallback;
 
     /// <summary>The engine a process runs on, as far as the guard can tell.</summary>
     internal enum Engine
@@ -102,7 +102,8 @@ public static class SwiftTransitionGuard
                 SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.SpecialBeforeArguments |
                 SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments,
             Engine.CoreClr when architecture == Architecture.X64 =>
-                SwiftTransitionFacts.LoweredSignature | SwiftTransitionFacts.FunctionPointerLoweredSignature,
+                SwiftTransitionFacts.LoweredSignature | SwiftTransitionFacts.FunctionPointerLoweredSignature |
+                SwiftTransitionFacts.ReverseCallback,
             _ => KnownFacts,
         };
     }

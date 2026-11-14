@@ -341,6 +341,125 @@ public class ResidualGuardCheckTests
         AssertViolation(result, ResidualGuardCheck.SuperfluousRule, display);
     }
 
+    // ---- Swift-convention callbacks ------------------------------------------------------------
+
+    /// <summary>A Swift-convention callback and the static field the closure emitters store its address in.</summary>
+    private const string Callback = """
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+            private static unsafe void Body_Callback(void* arg0, SwiftSelf context) { }
+            private static unsafe readonly delegate* unmanaged[Swift]<void*, SwiftSelf, void> s_Body_Callback = &Body_Callback;
+        """;
+
+    private const string CallbackGuard = "SwiftTransitionGuard.ThrowIfUnsupported((SwiftTransitionFacts)0x10000, \"member\");";
+
+    [Theory]
+    [MemberData(nameof(Levels))]
+    public void AMemberHandingSwiftACallbackFromItsField_IsAHolder_AndPassesGuarded(OptimizationLevel level)
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                {{Callback}}
+                public static nint Make() { {{CallbackGuard}} return (nint)s_Body_Callback; }
+                public static nint Unrelated() => 2;
+            }
+            """, level);
+
+        AssertPassed(result);
+        var hazard = Assert.Single(result.Hazards, h => h.Referenced);
+        Assert.Equal(TransitionSiteKind.UnmanagedCallersOnly, hazard.Kind);
+        Assert.Equal("Factory::Body_Callback", hazard.Member);
+        Assert.Equal(SwiftTransitionShapes.ReverseCallback, hazard.Shapes);
+        // The type initializer that stores the address is not a holder; the member reading it is.
+        Assert.Equal(["Factory::Make()"], result.Holders.Select(h => h.Member));
+    }
+
+    [Theory]
+    [MemberData(nameof(Levels))]
+    public void AnUnguardedCallbackHandOff_IsUnguarded(OptimizationLevel level)
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                {{Callback}}
+                public static nint Make() => (nint)s_Body_Callback;
+            }
+            """, level);
+
+        AssertViolation(result, ResidualGuardCheck.UnguardedRule, "Factory::Make()");
+    }
+
+    [Theory]
+    [MemberData(nameof(Levels))]
+    public void ACallbackAddressTakenInAMember_MakesThatMemberTheHolder(OptimizationLevel level)
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+                private static void Body_Callback(SwiftSelf context) { }
+                public static nint Make() { {{CallbackGuard}} return (nint)(delegate* unmanaged[Swift]<SwiftSelf, void>)&Body_Callback; }
+            }
+            """, level);
+
+        AssertPassed(result);
+        Assert.Equal(SwiftTransitionShapes.ReverseCallback, Assert.Single(result.Hazards, h => h.Referenced).Shapes);
+        Assert.Equal(["Factory::Make()"], result.Holders.Select(h => h.Member));
+    }
+
+    [Fact]
+    public void ACallbackGuardRefusingAForwardShape_DoesNotCoverTheCallback()
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                {{Callback}}
+                public static nint Make() { {{Guard}} return (nint)s_Body_Callback; }
+            }
+            """);
+
+        AssertViolation(result, ResidualGuardCheck.UncoveredRule, "Factory::Make()");
+    }
+
+    [Fact]
+    public void ACallbackFieldReadByATypeInitializer_IsAnInitializerViolation()
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                {{Callback}}
+                private static readonly nint s_copy = (nint)s_Body_Callback;
+                public static nint Copy() => s_copy;
+            }
+            """);
+
+        Assert.Contains(result.Violations, v => v.Rule == ResidualGuardCheck.InitializerRule && v.Member.StartsWith("Factory::.cctor", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TheSidecars_RecordACallbackAsAReverseCallbackTransition()
+    {
+        var result = Check($$"""
+            public sealed unsafe class Factory
+            {
+                {{Callback}}
+                public static nint Make() { {{CallbackGuard}} return (nint)s_Body_Callback; }
+            }
+            """);
+        AssertPassed(result);
+        var directory = Directory.CreateTempSubdirectory("residual-guards").FullName;
+        try
+        {
+            Assert.Contains(ResidualGuardCheck.CrossCheckSidecars(result, directory, []), p => p.Contains("record 0", StringComparison.Ordinal));
+            WriteSidecar(directory, ("ReverseCallback", "Factory::Body_Callback", "", SwiftTransitionShapes.ReverseCallback));
+            Assert.Empty(ResidualGuardCheck.CrossCheckSidecars(result, directory, []));
+        }
+        finally
+        {
+            Directory.Delete(directory, recursive: true);
+        }
+    }
+
     // ---- the inventory tripwire -----------------------------------------------------------------
 
     [Fact]
@@ -384,9 +503,11 @@ public class ResidualGuardCheckTests
         Assert.Equal((ulong)SwiftTransitionFacts.FunctionPointerSelfRegister, SwiftTransitionShapes.FunctionPointerSelfRegister);
         Assert.Equal((ulong)SwiftTransitionFacts.FunctionPointerSpecialBeforeArguments, SwiftTransitionShapes.FunctionPointerSpecialBeforeArguments);
         Assert.Equal((ulong)SwiftTransitionFacts.FunctionPointerLoweredSignature, SwiftTransitionShapes.FunctionPointerLoweredSignature);
+        Assert.Equal((ulong)SwiftTransitionFacts.ReverseCallback, SwiftTransitionShapes.ReverseCallback);
         // Every runtime fact has a shape the gate knows, so the gate never describes a guard's bit as unknown.
         var known = SwiftTransitionShapes.SelfRegister | SwiftTransitionShapes.SpecialBeforeArguments | SwiftTransitionShapes.LoweredSignature
-            | SwiftTransitionShapes.FunctionPointerSelfRegister | SwiftTransitionShapes.FunctionPointerSpecialBeforeArguments | SwiftTransitionShapes.FunctionPointerLoweredSignature;
+            | SwiftTransitionShapes.FunctionPointerSelfRegister | SwiftTransitionShapes.FunctionPointerSpecialBeforeArguments | SwiftTransitionShapes.FunctionPointerLoweredSignature
+            | SwiftTransitionShapes.ReverseCallback;
         Assert.Equal(known, Enum.GetValues<SwiftTransitionFacts>().Aggregate(0UL, (all, f) => all | (ulong)f));
     }
 
