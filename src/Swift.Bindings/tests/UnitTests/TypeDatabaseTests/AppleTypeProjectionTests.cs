@@ -96,6 +96,31 @@ public class AppleTypeProjectionTests
         Assert.Null(r);
     }
 
+    [Theory]
+    [InlineData("c:@T@UIFontWeight", true)]
+    [InlineData("c:@M@UIKit@T@UIFontWeight", true)]
+    [InlineData("c:@E@UIFontWeight", false)]
+    [InlineData("c:@S@CGPoint", false)]
+    [InlineData("s:So12UIFontWeighta", false)]
+    [InlineData(null, false)]
+    public void IsClangTypedefUsr_TrueOnlyForTypedefs(string? usr, bool expected)
+        => Assert.Equal(expected, TypeDatabaseExtensions.IsClangTypedefUsr(usr));
+
+    [Fact]
+    public void Project_EnumHitForATypedef_IsAbsent_NotTheEnum()
+    {
+        // Swift imports UIFont.Weight (typedef CGFloat UIFontWeight, NS_TYPED_EXTENSIBLE_ENUM) as a
+        // struct over a CGFloat. The platform binding's UIFontWeight is an int enum numbering the
+        // constants, so the enum hit says nothing about the bytes: the member is skipped, never
+        // marshalled as a 4-byte int.
+        var index = IndexOf(Enum("UIKit", "UIFontWeight", underlying: "Int"));
+        var r = Project("UIKit.UIFont.Weight", "c:@T@UIFontWeight", "UIKit", "UIFontWeight", index);
+
+        Assert.NotNull(r);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+        Assert.False(Has(r, TypeRecordFlags.ExternalAppleEnum));
+    }
+
     [Fact]
     public void Project_QualifiedEnumHit_ProjectsExternalValueTypeWithCorrectedName()
     {

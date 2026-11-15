@@ -1,0 +1,4643 @@
+{
+  "target": "arm64-apple-ios26.0-macabi",
+  "sdk": "macosx26.2",
+  "generatedBy": "build/scripts/platform-type-abi-probe.py",
+  "types": {
+    "ARKit.ARHitTestResult.ResultType": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "ARKit.ARRaycastQuery": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "ARKit.ARRaycastQuery.Target": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "ARKit.ARRaycastQuery.TargetAlignment": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVAudioChannelCount": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ]
+    },
+    "AVFoundation.AVAudioFrameCount": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ]
+    },
+    "AVFoundation.AVAudioFramePosition": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ]
+    },
+    "AVFoundation.AVAudioPacketCount": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ]
+    },
+    "AVFoundation.AVCaptureDevice": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "AVFoundation.AVCaptureDevice.AutoFocusRangeRestriction": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVCaptureDevice.DeviceType": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVCaptureDevice.FlashMode": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVCaptureDevice.FocusMode": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVCaptureDevice.Position": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVCaptureDevice.TorchMode": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVCaptureSession": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "AVFoundation.AVCaptureSession.Preset": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVCaptureVideoOrientation": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVFileType": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVLayerVideoGravity": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVMIDIPlayer": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "AVFoundation.AVMediaType": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVMetadataObject.ObjectType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "AVFoundation.AVPlayer.Status": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVPlayer.TimeControlStatus": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVPlayerItem.Status": {
+      "source": "AVFoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "AVFoundation.AVURLAsset": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "AppKit.NSColor": {
+      "source": "AppKitDatabase.xml",
+      "unprobed": "'NSColor' is unavailable in Mac Catalyst"
+    },
+    "AppKit.NSImage": {
+      "source": "AppKitDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreBluetooth.CBAttributePermissions": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "CoreBluetooth.CBCharacteristicProperties": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "CoreBluetooth.CBCharacteristicWriteType": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreBluetooth.CBManagerAuthorization": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreBluetooth.CBManagerState": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreBluetooth.CBPeripheralState": {
+      "source": "CoreBluetoothDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreData.NSAttributeType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "CoreData.NSDeleteRule": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "CoreData.NSFetchRequestResultType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "CoreGraphics.CGBlendMode": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "i32"
+      ],
+      "rawValue": "Int32"
+    },
+    "CoreGraphics.CGColor": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGColorRef": {
+      "source": "CoreGraphicsDatabase.xml",
+      "unprobed": "'CGColorRef' has been renamed to 'CGColor'"
+    },
+    "CoreGraphics.CGColorSpace": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGColorSpaceRef": {
+      "source": "CoreGraphicsDatabase.xml",
+      "unprobed": "'CGColorSpaceRef' has been renamed to 'CGColorSpace'"
+    },
+    "CoreGraphics.CGContext": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGContextRef": {
+      "source": "CoreGraphicsDatabase.xml",
+      "unprobed": "'CGContextRef' has been renamed to 'CGContext'"
+    },
+    "CoreGraphics.CGFloat": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ]
+    },
+    "CoreGraphics.CGFont": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGGradient": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGImage": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGImageRef": {
+      "source": "CoreGraphicsDatabase.xml",
+      "unprobed": "'CGImageRef' has been renamed to 'CGImage'"
+    },
+    "CoreGraphics.CGPath": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreGraphics.CGPoint": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreGraphics.CGRect": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreGraphics.CGSize": {
+      "source": "CoreGraphicsDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreImage.CIContext": {
+      "source": "CoreImageDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreImage.CIFilter": {
+      "source": "CoreImageDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreImage.CIImage": {
+      "source": "CoreImageDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreLocation.CLAccuracyAuthorization": {
+      "source": "CoreLocationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreLocation.CLAuthorizationStatus": {
+      "source": "CoreLocationDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "i32"
+      ],
+      "rawValue": "Int32"
+    },
+    "CoreLocation.CLLocationCoordinate2D": {
+      "source": "CoreLocationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreLocation.CLLocationDegrees": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ]
+    },
+    "CoreLocation.CLLocationDirection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ]
+    },
+    "CoreLocation.CLLocationDistance": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ]
+    },
+    "CoreML.MLComputeUnits": {
+      "source": "CoreMLDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreML.MLFeatureType": {
+      "source": "CoreMLDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreML.MLMultiArrayDataType": {
+      "source": "CoreMLDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "CoreMedia.CMSampleBuffer": {
+      "source": "CoreMediaDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "CoreMedia.CMTime": {
+      "source": "CoreMediaDatabase.xml",
+      "kind": "value",
+      "size": 24,
+      "align": 4,
+      "leaves": [
+        "i64",
+        "i32",
+        "u32",
+        "i64"
+      ]
+    },
+    "CoreMedia.CMTimeMapping": {
+      "source": "CoreMediaDatabase.xml",
+      "kind": "value",
+      "size": 96,
+      "align": 4,
+      "leaves": [
+        "i64",
+        "i32",
+        "u32",
+        "i64",
+        "i64",
+        "i32",
+        "u32",
+        "i64",
+        "i64",
+        "i32",
+        "u32",
+        "i64",
+        "i64",
+        "i32",
+        "u32",
+        "i64"
+      ]
+    },
+    "CoreMedia.CMTimeRange": {
+      "source": "CoreMediaDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 4,
+      "leaves": [
+        "i64",
+        "i32",
+        "u32",
+        "i64",
+        "i64",
+        "i32",
+        "u32",
+        "i64"
+      ]
+    },
+    "CoreMotion.CMAcceleration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreMotion.CMCalibratedMagneticField": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ]
+    },
+    "CoreMotion.CMMagneticField": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreMotion.CMQuaternion": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreMotion.CMRotationMatrix": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 72,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreMotion.CMRotationRate": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "CoreText.CTFont": {
+      "source": "CoreTextDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Dispatch.DispatchQueue": {
+      "source": "DispatchDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.BlockOperation": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Bundle": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.ByteCountFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.CachedURLResponse": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Calendar": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.Calendar.Identifier": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "int8"
+      ]
+    },
+    "Foundation.CharacterSet": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "Foundation.ComparisonResult": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.Data": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.Date": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ]
+    },
+    "Foundation.Date.ComponentsFormatStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 49,
+      "align": 8,
+      "leaves": [
+        "opaque49"
+      ]
+    },
+    "Foundation.DateComponents": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 283,
+      "align": 8,
+      "leaves": [
+        "opaque283"
+      ]
+    },
+    "Foundation.DateComponentsFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.DateFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.DateInterval": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "Foundation.DateIntervalFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Decimal": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 20,
+      "align": 4,
+      "leaves": [
+        "u16",
+        "u16",
+        "u16",
+        "u16",
+        "u16",
+        "u16",
+        "u16",
+        "u16"
+      ]
+    },
+    "Foundation.Decimal.FormatStyle.Currency": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 123,
+      "align": 8,
+      "leaves": [
+        "opaque123"
+      ]
+    },
+    "Foundation.Dimension": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.DistributedNotificationCenter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.EnergyFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.FileAttributeKey": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Foundation.FileHandle": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.FileManager": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.FileManager.SearchPathDirectory": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.FileWrapper": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Formatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.HTTPCookie": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.HTTPCookieStorage": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.HTTPURLResponse": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Host": {
+      "source": "FoundationDatabase.xml",
+      "unprobed": "'Host' is unavailable in Mac Catalyst"
+    },
+    "Foundation.ISO8601DateFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.IndexPath": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ]
+    },
+    "Foundation.IndexSet": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "Foundation.InputStream": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.JSONDecoder": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.JSONEncoder": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.JSONSerialization": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.JSONSerialization.ReadingOptions": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.JSONSerialization.WritingOptions": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.LengthFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.ListFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Locale": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.Locale.Currency": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ]
+    },
+    "Foundation.Locale.Language": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 96,
+      "align": 8,
+      "leaves": [
+        "opaque96"
+      ]
+    },
+    "Foundation.Locale.Region": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ]
+    },
+    "Foundation.MassFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Measurement": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.MeasurementFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.MessagePort": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NSAttributedString.Key": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Foundation.NSData.WritingOptions": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.NSError": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NSMutableURLRequest": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NSNotification.Name": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Foundation.NSRange": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64"
+      ]
+    },
+    "Foundation.NSRegularExpression.Options": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.NSURL": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NSURLRequest": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NSUUID": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NetService": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NetServiceBrowser": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Notification": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ]
+    },
+    "Foundation.Notification.Name": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Foundation.NotificationCenter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NotificationQueue": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.NumberFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.ObjCBool": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "int8"
+      ]
+    },
+    "Foundation.Operation": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Operation.QueuePriority": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.OperationQueue": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.OutputStream": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.PersonNameComponents": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "Foundation.PersonNameComponentsFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Pipe": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Port": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.PortMessage": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Process": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.ProcessInfo": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Progress": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.PropertyListDecoder": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.PropertyListEncoder": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.PropertyListSerialization": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.RelativeDateTimeFormatter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.RunLoop": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.RunLoop.Mode": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Foundation.Scanner": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Selector": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.SocketPort": {
+      "source": "FoundationDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "Foundation.Stream": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Stream.Event": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.Thread": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.TimeZone": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.Timer": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URL": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.URLAuthenticationChallenge": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLCache": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLComponents": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 154,
+      "align": 8,
+      "leaves": [
+        "opaque154"
+      ]
+    },
+    "Foundation.URLConnection": {
+      "source": "FoundationDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "Foundation.URLCredential": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLCredential.Persistence": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Foundation.URLCredentialStorage": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLError": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "Foundation.URLError.Code": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.URLProtectionSpace": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLProtocol": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLQueryItem": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ]
+    },
+    "Foundation.URLRequest": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "Foundation.URLResponse": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSession": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSession.AuthChallengeDisposition": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.URLSession.ResponseDisposition": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.URLSessionConfiguration": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionDataTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionDownloadTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionStreamTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionTaskMetrics": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionTaskTransactionMetrics": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionUploadTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionWebSocketTask": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.URLSessionWebSocketTask.CloseCode": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Foundation.URLSessionWebSocketTask.Message": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ]
+    },
+    "Foundation.UUID": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 1,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "Foundation.UndoManager": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.Unit": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitAcceleration": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitAngle": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitArea": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitConcentrationMass": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitConverter": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitConverterLinear": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitDispersion": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitDuration": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitElectricCharge": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitElectricCurrent": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitElectricPotentialDifference": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitElectricResistance": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitEnergy": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitFrequency": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitFuelEfficiency": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitIlluminance": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitInformationStorage": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitLength": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitMass": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitPower": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitPressure": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitSpeed": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitTemperature": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UnitVolume": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.UserDefaults": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.ValueTransformer": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLDTD": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLDTDNode": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLDocument": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLElement": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLNode": {
+      "source": "FoundationDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation.XMLParser": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Foundation._NSRange": {
+      "source": "FoundationDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64"
+      ]
+    },
+    "Foundation.objc_AssociationPolicy": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "HealthKit.HKWorkoutActivityType": {
+      "source": "HealthKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "HealthKit.HKWorkoutSessionLocationType": {
+      "source": "HealthKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "HealthKit.HKWorkoutSwimmingLocationType": {
+      "source": "HealthKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "ImageIO.CGImagePropertyOrientation": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ],
+      "rawValue": "UInt32"
+    },
+    "ManagedSettings.ActivityCategory": {
+      "source": "ManagedSettingsDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ]
+    },
+    "ManagedSettings.Application": {
+      "source": "ManagedSettingsDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ]
+    },
+    "ManagedSettings.Token": {
+      "source": "ManagedSettingsDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "ManagedSettings.WebDomain": {
+      "source": "ManagedSettingsDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ]
+    },
+    "MapKit.MKCoordinateRegion": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "MapKit.MKCoordinateSpan": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "MapKit.MKDirectionsTransportType": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "MapKit.MKMapPoint": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "MapKit.MKMapRect": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "MapKit.MKMapSize": {
+      "source": "MapKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "Matter.MTRNetworkCommissioningWiFiBand": {
+      "source": "MatterDatabase.xml",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "u8"
+      ],
+      "rawValue": "UInt8"
+    },
+    "Matter.MTRNetworkCommissioningWiFiSecurity": {
+      "source": "MatterDatabase.xml",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "u8"
+      ],
+      "rawValue": "UInt8"
+    },
+    "Metal.MTLClearColor": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "Metal.MTLOrigin": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64",
+        "i64"
+      ]
+    },
+    "Metal.MTLPixelFormat": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Metal.MTLPrimitiveType": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Metal.MTLRegion": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64",
+        "i64",
+        "i64",
+        "i64",
+        "i64"
+      ]
+    },
+    "Metal.MTLResourceOptions": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Metal.MTLScissorRect": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64",
+        "i64",
+        "i64"
+      ]
+    },
+    "Metal.MTLSize": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64",
+        "i64"
+      ]
+    },
+    "Metal.MTLStorageMode": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Metal.MTLViewport": {
+      "source": "MetalDatabase.xml",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "NaturalLanguage.NLLanguage": {
+      "source": "NaturalLanguageDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "NaturalLanguage.NLTag": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "NaturalLanguage.NLTagScheme": {
+      "source": "NaturalLanguageDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "NaturalLanguage.NLTokenUnit": {
+      "source": "NaturalLanguageDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Network.NWEndpoint.Port": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 2,
+      "align": 2,
+      "leaves": [
+        "u16"
+      ],
+      "rawValue": "UInt16"
+    },
+    "PassKit.PKAddIdentityDocumentType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKAddPassButtonStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKAddPaymentPassError": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKAddPaymentPassStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKAddSecureElementPassErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKAddShareablePassConfigurationPrimaryAction": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKAddressField": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKApplePayLaterAvailability": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKAutomaticPassPresentationSuppressionResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKBarcodeEventConfigurationDataType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKContactField": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKDisbursementErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKDisbursementErrorKey": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKEncryptionScheme": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKIdentityButton.Label": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKIdentityButton.Style": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKIdentityError": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "PassKit.PKIssuerProvisioningExtensionAuthorizationResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKMerchantCapability": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKPassKitErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKPassLibrary.AuthorizationStatus": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPassLibrary.Capability": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPassLibraryAddPassesStatus": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPassLibraryNotificationKey": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKPassLibraryNotificationName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKPassType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKPayLater": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKPayLaterAction": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKPayLaterDisplayStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKPaymentAuthorizationStatus": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPaymentButtonStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPaymentButtonType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKPaymentErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKPaymentErrorKey": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKPaymentMethodType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKPaymentNetwork": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKPaymentPassActivationState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKPaymentRequest.MerchantCategoryCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 2,
+      "align": 2,
+      "leaves": [
+        "i16"
+      ],
+      "rawValue": "Int16"
+    },
+    "PassKit.PKPaymentSummaryItemType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKRadioTechnology": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKSecureElementPass.PassActivationState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKShareSecureElementPassErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PassKit.PKShareSecureElementPassResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKShippingContactEditingMode": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKShippingType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "PassKit.PKStoredValuePassBalance.BalanceType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "PassKit.PKSuppressionRequestToken": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ]
+    },
+    "PassKit.PKVehicleConnectionErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PassKit.PKVehicleConnectionSessionConnectionState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAccessLevel": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAssetCollectionSubtype": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAssetCollectionType": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAssetMediaSubtype": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Photos.PHAssetMediaType": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAssetResourceType": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHAuthorizationStatus": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Photos.PHImageContentMode": {
+      "source": "PhotosDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "PhotosUI.PHPickerFilter": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ]
+    },
+    "PhotosUI.PHPickerResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "QuartzCore.CAAutoresizingMask": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ],
+      "rawValue": "UInt32"
+    },
+    "QuartzCore.CAContentsFormat": {
+      "source": "QuartzCoreDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "QuartzCore.CACornerCurve": {
+      "source": "QuartzCoreDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "QuartzCore.CACornerMask": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "QuartzCore.CADynamicRange": {
+      "source": "QuartzCoreDatabase.xml",
+      "unprobed": "'CADynamicRange' has been renamed to 'CALayer.DynamicRange'"
+    },
+    "QuartzCore.CAEdgeAntialiasingMask": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ],
+      "rawValue": "UInt32"
+    },
+    "QuartzCore.CAGradientLayerType": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CAKeyframeAnimation": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "QuartzCore.CALayerContentsGravity": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CAMediaTimingFunctionName": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CAScroll": {
+      "source": "QuartzCoreDatabase.xml",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "QuartzCore.CATextLayerAlignmentMode": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CATextLayerTruncationMode": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CAToneMapMode": {
+      "source": "QuartzCoreDatabase.xml",
+      "unprobed": "'CAToneMapMode' has been renamed to 'CALayer.ToneMapMode'"
+    },
+    "QuartzCore.CATransform3D": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 128,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "QuartzCore.CATransitionSubtype": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "QuartzCore.CATransitionType": {
+      "source": "QuartzCoreDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "SceneKit.SCNMatrix4": {
+      "source": "SceneKitDatabase.xml",
+      "kind": "value",
+      "size": 64,
+      "align": 4,
+      "leaves": [
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32",
+        "f32"
+      ]
+    },
+    "SceneKit.SCNVector3": {
+      "source": "SceneKitDatabase.xml",
+      "kind": "value",
+      "size": 12,
+      "align": 4,
+      "leaves": [
+        "f32",
+        "f32",
+        "f32"
+      ]
+    },
+    "SceneKit.SCNVector4": {
+      "source": "SceneKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 4,
+      "leaves": [
+        "f32",
+        "f32",
+        "f32",
+        "f32"
+      ]
+    },
+    "Security.SecCertificate": {
+      "source": "SecurityDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Security.SecIdentity": {
+      "source": "SecurityDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Security.SecKey": {
+      "source": "SecurityDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Security.SecTrust": {
+      "source": "SecurityDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "Security.SecTrustResultType": {
+      "source": "SecurityDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "u32"
+      ],
+      "rawValue": "UInt32"
+    },
+    "StoreKit.SKError.Code": {
+      "source": "StoreKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "StoreKit.SKPaymentTransactionState": {
+      "source": "StoreKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "StoreKit.SKProduct.PeriodUnit": {
+      "source": "StoreKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "StoreKit.SKProductDiscount.PaymentMode": {
+      "source": "StoreKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.NSDirectionalEdgeInsets": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "UIKit.NSLayoutConstraint.Relation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.NSLineBreakMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.NSParagraphStyle.LineBreakStrategy": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.NSTextAlignment": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.NSUnderlineStyle": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.NSWritingDirection": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIAccessibilityCustomRotor.Direction": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIAccessibilityTraits": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt64"
+    },
+    "UIKit.UIActivityIndicatorView.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIAlertAction.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIAlertController.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIApplication.LaunchOptionsKey": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "UIKit.UIApplication.OpenURLOptionsKey": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "UIKit.UIBackgroundRefreshStatus": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIBarButtonItem.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIBarButtonItem.SystemItem": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIBarPosition": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIBarStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIBlurEffect.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UICollectionView.ScrollDirection": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UICollectionView.ScrollPosition": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIColor": {
+      "source": "UIKitDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "UIKit.UIContentSizeCategory": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "UIKit.UIControl.ContentHorizontalAlignment": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIControl.ContentVerticalAlignment": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIControl.Event": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIControl.State": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIDataDetectorTypes": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIDatePicker.Mode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIDropOperation": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIEdgeInsets": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64",
+        "f64",
+        "f64"
+      ]
+    },
+    "UIKit.UIFloatRange": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "UIKit.UIFont.TextStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "UIKit.UIFont.Weight": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ],
+      "rawValue": "CGFloat"
+    },
+    "UIKit.UIGestureRecognizer.State": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIImage": {
+      "source": "UIKitDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "UIKit.UIImage.RenderingMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIImage.ResizingMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIImage.SymbolScale": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIImage.SymbolWeight": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIImageView": {
+      "source": "UIKitDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "UIKit.UIInterfaceOrientation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIInterfaceOrientationMask": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIKeyboardAppearance": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIKeyboardType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UILayoutPriority": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "f32"
+      ],
+      "rawValue": "Float"
+    },
+    "UIKit.UIModalPresentationStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIModalTransitionStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UINavigationController.Operation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UINavigationItem.LargeTitleDisplayMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UINotificationFeedbackGenerator.FeedbackType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIOffset": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "UIKit.UIPageViewController.NavigationDirection": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIPageViewController.NavigationOrientation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIPageViewController.SpineLocation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIPageViewController.TransitionStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIRectCorner": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIRectEdge": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIReturnKeyType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIScrollView.ContentInsetAdjustmentBehavior": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIScrollView.IndicatorStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIScrollView.KeyboardDismissMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UISemanticContentAttribute": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIStackView.Alignment": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIStackView.Distribution": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIStatusBarAnimation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIStatusBarStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UISwipeGestureRecognizer.Direction": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UITabBarItem.SystemItem": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableView.RowAnimation": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableView.ScrollPosition": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableView.Style": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableViewCell.AccessoryType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableViewCell.CellStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableViewCell.EditingStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITableViewCell.SelectionStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextAutocapitalizationType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextAutocorrectionType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextField.DidEndEditingReason": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextField.ViewMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextLayoutDirection": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UITextSpellCheckingType": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIUserInterfaceIdiom": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIUserInterfaceLayoutDirection": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIUserInterfaceStyle": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIView": {
+      "source": "UIKitDatabase.xml",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "UIKit.UIView.AnimationCurve": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "UIKit.UIView.AnimationOptions": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIView.AutoresizingMask": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "UIKit.UIView.ContentMode": {
+      "source": "UIKitDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNAnimalBodyPoseObservation.JointName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointKey"
+    },
+    "Vision.VNAnimalBodyPoseObservation.JointsGroupName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointGroupKey"
+    },
+    "Vision.VNAnimalIdentifier": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNAspectRatio": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "f32"
+      ]
+    },
+    "Vision.VNBarcodeCompositeType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNBarcodeSymbology": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNChirality": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNComputeStage": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNConfidence": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "f32"
+      ]
+    },
+    "Vision.VNDegrees": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 4,
+      "align": 4,
+      "leaves": [
+        "f32"
+      ]
+    },
+    "Vision.VNElementType": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Vision.VNErrorCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNGenerateOpticalFlowRequestComputationAccuracy": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'VNGenerateOpticalFlowRequestComputationAccuracy' has been renamed to 'VNGenerateOpticalFlowRequest.ComputationAccuracy'"
+    },
+    "Vision.VNGeneratePersonSegmentationRequestQualityLevel": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'VNGeneratePersonSegmentationRequestQualityLevel' has been renamed to 'VNGeneratePersonSegmentationRequest.QualityLevel'"
+    },
+    "Vision.VNHumanBodyPose3DObservation.JointName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointKey"
+    },
+    "Vision.VNHumanBodyPose3DObservation.JointsGroupName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointGroupKey"
+    },
+    "Vision.VNHumanBodyPose3DObservationHeightEstimation": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'VNHumanBodyPose3DObservationHeightEstimation' has been renamed to 'VNHumanBodyPose3DObservation.HeightEstimation'"
+    },
+    "Vision.VNHumanBodyPoseObservation.JointName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointKey"
+    },
+    "Vision.VNHumanBodyPoseObservation.JointsGroupName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointGroupKey"
+    },
+    "Vision.VNHumanHandPoseObservation.JointName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointKey"
+    },
+    "Vision.VNHumanHandPoseObservation.JointsGroupName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "rawValue": "VNRecognizedPointGroupKey"
+    },
+    "Vision.VNImageCropAndScaleOption": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Vision.VNImageOption": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNPointsClassification": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNRecognizedPointGroupKey": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNRecognizedPointKey": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "Vision.VNRequestFaceLandmarksConstellation": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Vision.VNRequestTextRecognitionLevel": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "Vision.VNRequestTrackingLevel": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "u64"
+      ],
+      "rawValue": "UInt"
+    },
+    "Vision.VNTrackOpticalFlowRequestComputationAccuracy": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'VNTrackOpticalFlowRequestComputationAccuracy' has been renamed to 'VNTrackOpticalFlowRequest.ComputationAccuracy'"
+    },
+    "Vision.VNVideoProcessingOption": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ],
+      "rawValue": "String"
+    },
+    "WebKit.WKMediaPlaybackState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "WebKit.WKWebView.FullscreenState": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "i64"
+      ],
+      "rawValue": "Int"
+    },
+    "_LocationEssentials.CLLocation": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "class",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "ptr"
+      ]
+    },
+    "_LocationEssentials.CLLocationCoordinate2D": {
+      "source": "apple-frameworks.json typeRemaps",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "f64",
+        "f64"
+      ]
+    },
+    "simd.simd_float2": {
+      "source": "SimdDatabase.xml",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "vec64"
+      ]
+    },
+    "simd.simd_float3": {
+      "source": "SimdDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 16,
+      "leaves": [
+        "vec128"
+      ]
+    },
+    "simd.simd_float4": {
+      "source": "SimdDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 16,
+      "leaves": [
+        "vec128"
+      ]
+    },
+    "simd.simd_float4x4": {
+      "source": "SimdDatabase.xml",
+      "kind": "value",
+      "size": 64,
+      "align": 16,
+      "leaves": [
+        "vec128",
+        "vec128",
+        "vec128",
+        "vec128"
+      ]
+    },
+    "simd.simd_quatf": {
+      "source": "SimdDatabase.xml",
+      "kind": "value",
+      "size": 16,
+      "align": 16,
+      "leaves": [
+        "vec128"
+      ]
+    }
+  }
+}

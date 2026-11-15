@@ -209,4 +209,9 @@
   <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.Types.UIKitTransitionBox.cs')">
     <DefineConstants>$(DefineConstants);UIKIT_TRANSITIONS</DefineConstants>
   </PropertyGroup>
+  <!-- UIKit raw-value typedefs (UIFont.Weight, UILayoutPriority, UIFont.TextStyle,
+       UIContentSizeCategory) on every route; the Swift source is behind `#if canImport(UIKit)`. -->
+  <PropertyGroup Condition="Exists('../output/SwiftBindingsTestLib.Types.UIKitRawValueBox.cs')">
+    <DefineConstants>$(DefineConstants);UIKIT_RAW_VALUES</DefineConstants>
+  </PropertyGroup>
 </Project>

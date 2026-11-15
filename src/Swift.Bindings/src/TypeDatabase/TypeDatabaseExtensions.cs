@@ -762,6 +762,14 @@ public static class TypeDatabaseExtensions
         {
             // Integer enums project as value types regardless of which candidate matched — the
             // raw-value marshalling is namespace-independent and uses the reflected identity.
+            // A clang typedef (c:@T@) is not one, though: Swift imports an NS_TYPED_ENUM or a
+            // swift_newtype as a struct over the typedef's raw value (a CGFloat, an NSString, a
+            // Float), and the platform binding's enum of the same name numbers its constants
+            // instead. Nothing here knows the raw value, so the enum is no proof of the
+            // representation — skip the referencing member rather than pass the wrong bytes.
+            // Registered or database entries for such types say what they are.
+            if (hit.Kind == AppleTypeSurfaceKind.Enum && IsClangTypedefUsr(usr))
+                return CreateAbsentAppleRecord(swiftTypeName, synthNamespace, synthName);
             if (hit.Kind == AppleTypeSurfaceKind.Enum)
                 return CreateExternalEnumRecord(swiftTypeName, hit);
 
@@ -841,6 +849,13 @@ public static class TypeDatabaseExtensions
 
         return null;
     }
+
+    /// <summary>
+    /// True when the USR names a clang typedef (<c>c:@T@…</c>, or its module-qualified form) rather
+    /// than the enum or struct it may alias.
+    /// </summary>
+    internal static bool IsClangTypedefUsr(string? usr)
+        => usr is not null && usr.StartsWith("c:", StringComparison.Ordinal) && usr.Contains("@T@", StringComparison.Ordinal);
 
     /// <summary>
     /// True when the USR is a clang-imported value type — an integer enum (<c>c:@E@</c>), a typedef

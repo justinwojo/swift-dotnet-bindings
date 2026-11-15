@@ -64,8 +64,8 @@
         <entity managedNameSpace="UIKit" managedTypeName="NSLineBreakStrategy">
             <typedeclaration kind="struct" name="NSParagraphStyle.LineBreakStrategy" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="UIKit" managedTypeName="UIFontTextStyle">
-            <typedeclaration kind="struct" name="UIFont.TextStyle" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="UIFont.TextStyle" module="UIKit" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <!-- NS_ENUM types (Int raw value) -->
         <entity managedNameSpace="UIKit" managedTypeName="UILineBreakMode">
@@ -236,13 +236,13 @@
         <entity managedNameSpace="UIKit" managedTypeName="NSDirectionalEdgeInsets">
             <typedeclaration kind="struct" name="NSDirectionalEdgeInsets" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="UIKit" managedTypeName="UIContentSizeCategory">
-            <typedeclaration kind="struct" name="UIContentSizeCategory" module="UIKit" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="UIContentSizeCategory" module="UIKit" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIFloatRange">
             <typedeclaration kind="struct" name="UIFloatRange" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="UIKit" managedTypeName="UIFontWeight">
+        <entity managedNameSpace="System" managedTypeName="Double">
             <typedeclaration kind="struct" name="UIFont.Weight" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIImageSymbolScale">
@@ -251,7 +251,7 @@
         <entity managedNameSpace="UIKit" managedTypeName="UIImageSymbolWeight">
             <typedeclaration kind="struct" name="UIImage.SymbolWeight" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="UIKit" managedTypeName="UILayoutPriority">
+        <entity managedNameSpace="System" managedTypeName="Single">
             <typedeclaration kind="struct" name="UILayoutPriority" module="UIKit" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIOffset">

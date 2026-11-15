@@ -365,15 +365,18 @@ public class TypeDatabaseExtensionsTests
     }
 
     [Fact]
-    public async Task TryGetTypeRecord_ObjCBoolFromFoundationDb_ReturnsNint()
+    public async Task TryGetTypeRecord_ObjCBoolFromFoundationDb_ReturnsOneByteBool()
     {
+        // ObjCBool is one byte on every Apple target Swift imports it for; an eight-byte carrier
+        // read seven bytes past a result and passed garbage in the upper bits of a parameter.
         var db = await CreateDbWithXmlAsync("FoundationDatabase.xml");
 
         var found = db.TryGetTypeRecord(
             SwiftTypeName.FromModuleQualifiedName("Foundation.ObjCBool"), out var record);
 
         Assert.True(found, "Foundation.ObjCBool should be found after loading FoundationDatabase");
-        Assert.Equal("nint", record!.CSharpTypeName.ToString());
+        Assert.Equal("bool", record!.CSharpTypeName.FullyQualifiedName);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
     }
 
     // --- Apple framework ObjC types are auto-bridged (Phase I1b) ---
@@ -864,7 +867,6 @@ public class TypeDatabaseExtensionsTests
     [Theory]
     [InlineData("Foundation.URLSession.ResponseDisposition", "Foundation", "NSUrlSessionResponseDisposition")]
     [InlineData("Foundation.URLSession.AuthChallengeDisposition", "Foundation", "NSUrlSessionAuthChallengeDisposition")]
-    [InlineData("Foundation.RunLoop.Mode", "Foundation", "NSRunLoopMode")]
     [InlineData("Foundation.NSData.WritingOptions", "Foundation", "NSDataWritingOptions")]
     [InlineData("Foundation.Operation.QueuePriority", "Foundation", "NSOperationQueuePriority")]
     [InlineData("Foundation.URLCredential.Persistence", "Foundation", "NSUrlCredentialPersistence")]
@@ -1716,8 +1718,6 @@ public class TypeDatabaseExtensionsTests
     [InlineData("UIKit.UISwipeGestureRecognizer.Direction", "UIKit.UISwipeGestureRecognizerDirection")]
     [InlineData("UIKit.UIStackView.Alignment", "UIKit.UIStackViewAlignment")]
     [InlineData("UIKit.UIView.AutoresizingMask", "UIKit.UIViewAutoresizing")]
-    [InlineData("UIKit.UIFont.Weight", "UIKit.UIFontWeight")]
-    [InlineData("UIKit.UIContentSizeCategory", "UIKit.UIContentSizeCategory")]
     [InlineData("UIKit.UIOffset", "UIKit.UIOffset")]
     public async Task TryGetTypeRecord_NewUIKitStruct_ResolvesCorrectly(
         string swiftType, string expectedCSharp)
@@ -1734,22 +1734,99 @@ public class TypeDatabaseExtensionsTests
         Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
     }
 
+    // --- UIKit typedefs over an open raw-value space project onto their raw carrier ---
+
+    [Theory]
+    [InlineData("UIKit.UIFont.Weight", SwiftScalarKind.Double, 8)]
+    [InlineData("UIKit.UILayoutPriority", SwiftScalarKind.Float, 4)]
+    public async Task LayoutOfARawValueTypedef_IsItsRawValue(string swiftType, SwiftScalarKind kind, int size)
+    {
+        // A transition lowers these by their layout, so a 4-byte int or an 8-byte pointer here
+        // would put the value in the wrong register or read past it.
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml", "UIKitDatabase.xml");
+        var result = new SwiftLayoutResolver([], typeDatabase).Resolve(new NamedTypeSpec(swiftType));
+
+        var layout = Assert.IsType<SwiftLeafLayout>(result.Layout);
+        Assert.Equal(size, layout.Size);
+        Assert.Equal(kind, Assert.Single(layout.Leaves).Kind);
+    }
+
+    [Fact]
+    public async Task LayoutOfAnOptionalRawValueTypedef_FollowsItsRawValue()
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml", "UIKitDatabase.xml");
+        var resolver = new SwiftLayoutResolver([], typeDatabase);
+
+        // A CGFloat uses every bit pattern, so nil takes a tag byte after it.
+        var weight = Assert.IsType<SwiftLeafLayout>(
+            resolver.Resolve(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("UIKit.UIFont.Weight"))).Layout);
+        Assert.Equal(9, weight.Size);
+
+        // The underivable carriers stay underivable inside an Optional.
+        var flag = resolver.Resolve(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.ObjCBool")));
+        Assert.Null(flag.Layout);
+        Assert.False(flag.IsIndirect);
+
+        // The standard library's Bool is one lowering everywhere, and nil folds into a spare pattern.
+        var stdlib = Assert.IsType<SwiftLeafLayout>(
+            resolver.Resolve(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Bool"))).Layout);
+        Assert.Equal(1, stdlib.Size);
+    }
+
+    [Theory]
+    // A Bool on iOS, tvOS and arm64 macOS, an Int8 on Mac Catalyst and x86_64 macOS (swiftc lowers
+    // it i1 on one and i8 on the other), so no one prediction is right.
+    [InlineData("Foundation.ObjCBool")]
+    // nint carries both an Int and a pointer (Selector wraps an OpaquePointer, which swiftc lowers ptr).
+    [InlineData("Foundation.Selector")]
+    public async Task LayoutOfATargetDependentPlatformValue_IsUnderivable(string swiftType)
+    {
+        var typeDatabase = await CreateDbWithXmlAsync("FoundationDatabase.xml", "UIKitDatabase.xml");
+        var result = new SwiftLayoutResolver([], typeDatabase).Resolve(new NamedTypeSpec(swiftType));
+
+        Assert.Null(result.Layout);
+        Assert.False(result.IsIndirect);
+    }
+
+    [Theory]
+    [InlineData("UIKit.UIFont.Weight", "double")]
+    [InlineData("UIKit.UILayoutPriority", "float")]
+    public async Task TryGetTypeRecord_UIKitRawValueTypedef_ResolvesToRawCarrier(string swiftType, string expectedCSharp)
+    {
+        // Swift imports these as structs over a CGFloat and a Float that any value inhabits
+        // (UIFont.Weight(rawValue: 0.15) is as valid as .bold); the platform binding's types of the
+        // same names are int enums of the named constants, which cannot carry them.
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
+
+        var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
+
+        Assert.True(found, $"{swiftType} should resolve from UIKitDatabase.xml");
+        Assert.Equal(expectedCSharp, record!.CSharpTypeName.FullyQualifiedName);
+        Assert.Equal(TypeRecordKind.Struct, record.Kind);
+        Assert.True(record.Flags.HasFlag(TypeRecordFlags.Frozen));
+        Assert.False(record.Flags.HasFlag(TypeRecordFlags.ObjCBridged));
+    }
+
     // --- UIKit NS_TYPED_ENUM string keys bridge to NSString ---
 
     [Theory]
     [InlineData("UIKit.UIApplication.LaunchOptionsKey")]
     [InlineData("UIKit.UIApplication.OpenURLOptionsKey")]
+    // NSString typedefs whose platform binding numbers the constants as an int enum instead.
+    [InlineData("UIKit.UIFont.TextStyle")]
+    [InlineData("UIKit.UIContentSizeCategory")]
+    [InlineData("Foundation.RunLoop.Mode")]
     public async Task TryGetTypeRecord_UIKitOptionKey_ResolvesToNSString(string swiftType)
     {
         // NS_TYPED_ENUM string keys: the importer surfaces each as a nested struct wrapping an
         // NSString, the same shape as Foundation's NSAttributedString.Key / FileAttributeKey.
         // Modeling them as value-type structs would leak a bogus wire type; unresolved, they cost
         // every member they key (a dictionary parameter or return) its binding.
-        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml");
+        var typeDatabase = await CreateDbWithXmlAsync("UIKitDatabase.xml", "FoundationDatabase.xml");
 
         var found = typeDatabase.TryGetTypeRecord(new NamedTypeSpec(swiftType), out var record);
 
-        Assert.True(found, $"{swiftType} should resolve from UIKitDatabase.xml");
+        Assert.True(found, $"{swiftType} should resolve from its database");
         Assert.NotNull(record);
         Assert.Equal("Foundation.NSString", record!.CSharpTypeName.FullyQualifiedName);
         Assert.Equal(TypeRecordKind.Class, record.Kind);
