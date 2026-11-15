@@ -24,7 +24,7 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class RuntimeIdentitySeedPolicyTests
 {
-    private static NegativeControlClass Probe => InterpreterNegativeControls.Find("SretSelfProbeTests")!;
+    private static NegativeControlClass Probe => InterpreterNegativeControls.Arm64.Find("SretSelfProbeTests")!;
 
     private static readonly IReadOnlyList<string> Inventory = ["SretSelfProbeTests", "StructTests", "ClosureTests"];
 
@@ -94,8 +94,49 @@ public class RuntimeIdentitySeedPolicyTests
 
     [Fact]
     public void Registry_IsNotEmpty()
-        // A Debug seed refuses an empty registry; this keeps the shipped registry seedable.
-        => Assert.NotEmpty(InterpreterNegativeControls.Classes);
+        // A Debug seed refuses an empty registry; this keeps every shipped architecture's set seedable.
+        => Assert.All(InterpreterNegativeControls.Sets, set => Assert.NotEmpty(set.Classes));
+
+    // ---- The x86_64 interpreter's set ----
+
+    private static readonly IReadOnlyList<string> X64Inventory = ["SretSelfProbeTests", "LoweredSignatureProbeTests", "StructTests"];
+
+    private static RuntimeIdentitySeedProof ProvenX64(IReadOnlyDictionary<string, IReadOnlyList<string>>? grades = null)
+        => new(RuntimeExecutionLane.Interpreter, X64Inventory,
+            grades ?? new Dictionary<string, IReadOnlyList<string>> { ["LoweredSignatureProbeTests"] = [], ["SretSelfProbeTests"] = [] });
+
+    [Fact]
+    public void X64DebugSeed_IsAllowedWithItsControlGradedAndItsExclusionChecked()
+        => Assert.Empty(RuntimeIdentitySeedPolicy.ProofRefusals("Debug", ProvenX64(), InterpreterNegativeControls.X64));
+
+    [Fact]
+    public void X64DebugSeed_RefusesAnExclusionTheRunDidNotCheck()
+    {
+        var refusal = Assert.Single(RuntimeIdentitySeedPolicy.ProofRefusals("Debug",
+            ProvenX64(new Dictionary<string, IReadOnlyList<string>> { ["LoweredSignatureProbeTests"] = [] }), InterpreterNegativeControls.X64));
+        Assert.Contains("SretSelfProbeTests is excluded on the X64 interpreter but the run did not check it", refusal);
+    }
+
+    [Fact]
+    public void X64DebugSeed_RefusesAnExclusionThatNoLongerMatchesTheApp()
+    {
+        var refusal = Assert.Single(RuntimeIdentitySeedPolicy.ProofRefusals("Debug",
+            ProvenX64(new Dictionary<string, IReadOnlyList<string>> { ["LoweredSignatureProbeTests"] = [], ["SretSelfProbeTests"] = ["SretSelfProbeTests.TestNew is not listed in the exclusion; add it"] }),
+            InterpreterNegativeControls.X64));
+        Assert.Contains("does not match the app", refusal);
+    }
+
+    [Fact]
+    public void X64DebugSeed_RefusesTheArm64ControlsGrade()
+        // The arm64 control's grade does not stand in for the x86_64 one: the set is the lane's own.
+        => Assert.Contains(RuntimeIdentitySeedPolicy.ProofRefusals("Debug",
+                new RuntimeIdentitySeedProof(RuntimeExecutionLane.Interpreter, X64Inventory,
+                    new Dictionary<string, IReadOnlyList<string>> { ["SretSelfProbeTests"] = [] }), InterpreterNegativeControls.X64),
+            r => r.Contains("LoweredSignatureProbeTests", StringComparison.Ordinal) && r.Contains("did not run", StringComparison.Ordinal));
+
+    [Fact]
+    public void ReleaseSeed_NeedsNoExclusionCheck()
+        => Assert.Empty(RuntimeIdentitySeedPolicy.ProofRefusals("Release", null, InterpreterNegativeControls.X64));
 
     // ---- Lowering ----
 
@@ -145,7 +186,11 @@ public class RuntimeIdentitySeedPolicyTests
     private const string DebugKey = "net11.0_simulator_iossimulator-arm64_coreclr_debug";
     private const string ReleaseKey = "net11.0_simulator_iossimulator-arm64_coreclr_release";
 
-    private delegate string Seeder(string path, string configuration, string jsonl, RuntimeIdentitySeedProof? proof, string? justification);
+    private const string X64DebugKey = "net11.0_maccatalyst_maccatalyst-x64_coreclr_debug";
+    private const string X64ReleaseKey = "net11.0_maccatalyst_maccatalyst-x64_coreclr_release";
+
+    private delegate string Seeder(string path, string configuration, string jsonl, RuntimeIdentitySeedProof? proof, string? justification,
+        string rid = "iossimulator-arm64");
     private static readonly Lazy<Seeder> Seed = new(CompileSeeder);
 
     /// <summary>Six passes and one skip the Release floor shares: with the four isolated control
@@ -165,7 +210,7 @@ public class RuntimeIdentitySeedPolicyTests
         try
         {
             var path = Path.Combine(directory, "runtime-identity-net11-baseline.json");
-            new RuntimeIdentityBaseline().WithPlatform(ReleaseKey, Entry(10, "A.b")).Save(path);
+            new RuntimeIdentityBaseline().WithPlatform(ReleaseKey, Entry(10, "A.b")).WithPlatform(X64ReleaseKey, Entry(10, "A.b")).Save(path);
             return action(path);
         }
         finally { Directory.Delete(directory, true); }
@@ -194,6 +239,32 @@ public class RuntimeIdentitySeedPolicyTests
             Assert.Equal(6, entry.PassCount);
             Assert.Null(entry.Justification);
             Assert.Equal("fixture", RuntimeIdentityBaseline.Load(path).GitSha);
+            return "";
+        });
+    }
+
+    [Fact]
+    public void ProductionSeed_WritesAProvenX64DebugFloorAgainstItsOwnSet()
+    {
+        // The x86_64 set keeps seven tests outside the suite (three isolated, four excluded), so three
+        // passes plus those meet the Release floor of ten, where the arm64 set's four would not.
+        WithBaseline(path =>
+        {
+            Assert.Equal("", Seed.Value(path, "Debug", Results(passes: 3), ProvenX64(), null, "maccatalyst-x64"));
+            Assert.Equal(3, RuntimeIdentityBaseline.Load(path).Platforms[X64DebugKey].PassCount);
+            return "";
+        });
+        Assert.Contains("below the Release floor's 10", WithBaseline(path => Seed.Value(path, "Debug", Results(passes: 3), Proven(), null)));
+    }
+
+    [Fact]
+    public void ProductionSeed_AnX64RunWithTheArm64ProofWritesNothing()
+    {
+        WithBaseline(path =>
+        {
+            var before = File.ReadAllText(path);
+            Assert.Contains("LoweredSignatureProbeTests", Seed.Value(path, "Debug", Results(), Proven(), null, "maccatalyst-x64"));
+            Assert.Equal(before, File.ReadAllText(path));
             return "";
         });
     }
@@ -306,15 +377,16 @@ public class RuntimeIdentitySeedPolicyTests
                     public static void Error(string text, params object?[] args) { }
                 }
                 {{production}}
-                public static string Run(string path, string configuration, string jsonl, RuntimeIdentitySeedProof? proof, string? justification) {
+                public static string Run(string path, string configuration, string jsonl, RuntimeIdentitySeedProof? proof, string? justification, string rid) {
                     var fixture = new SeedFixture {
                         IdentityFloorJustification = justification,
                         RuntimeLane = RuntimeTestLane.Create("net11.0", "net11.0", configuration, false, false, false),
                     };
                     var lane = fixture.RuntimeLane;
                     try {
-                        fixture.SeedNet11RuntimeBaseline("Simulator", lane.BaselineKey("simulator", "iossimulator-arm64", false),
-                            lane.ReleaseSiblingKey("simulator", "iossimulator-arm64", false), path, JsonlTestResults.Parse(jsonl),
+                        var platform = rid.StartsWith("maccatalyst", StringComparison.Ordinal) ? "maccatalyst" : "simulator";
+                        fixture.SeedNet11RuntimeBaseline("Simulator", lane.BaselineKey(platform, rid, false),
+                            lane.ReleaseSiblingKey(platform, rid, false), rid, path, JsonlTestResults.Parse(jsonl),
                             false, false, proof);
                         return "";
                     } catch (InvalidOperationException error) { return error.Message; }

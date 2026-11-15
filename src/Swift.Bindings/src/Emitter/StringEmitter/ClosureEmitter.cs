@@ -87,9 +87,7 @@ public static partial class ClosureEmitter
         // Swift adapter: cdecl_func(resultBuf, [args...], context) → reads result from buffer.
         // Without this, the callback signature mismatches the @convention(c) type, causing
         // the result buffer pointer to be interpreted as the context → crash in swift_cvw_initWithCopyImpl.
-        bool isIndirectReturn = useCdecl
-            && closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec)
-            && !closureTypeSpec.Throws;
+        bool isIndirectReturn = useCdecl && closureHandler.UsesCdeclIndirectReturn(closureTypeSpec);
 
         // Build parameter list for the callback (arguments + context as last param)
         var parameters = new List<string>();
@@ -424,6 +422,62 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// The C# expression that hands a closure's existential result to Swift as its container, or
+    /// null when <paramref name="returnType"/> is not an existential the callback converts. A
+    /// direct callback returns it; a @_cdecl callback whose adapter passes a result buffer writes it
+    /// there (<see cref="BuildCallbackIndirectReturnStatement"/>), so both lanes mint the same +1.
+    /// </summary>
+    internal static string? BuildCallbackExistentialReturnExpression(
+        TypeSpec returnType,
+        string resultExpr,
+        ClosureHandler closureHandler)
+    {
+        if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out _))
+            return $"{resultExpr}.GetExistentialContainer()";
+
+        if (closureHandler.NeedsProxyWrapping(returnType, out _))
+        {
+            if (closureHandler.ShouldUseGetOrCreate(returnType))
+            {
+                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
+                var qp = closureHandler.GetQualifiedProxyClassName(returnType);
+                // A closure return is +1-owned by Swift, so mint an independent reference rather
+                // than borrow the proxy's construction +1 (R0). After this callback returns the
+                // existential by value, there is no C# statement left to GC.KeepAlive the proxy,
+                // so a borrowed (GetOrCreate) container would let a GC finalize the proxy and
+                // release R0 before Swift retains the value. CreateOwnedExistential1 mints the +1
+                // Swift takes ownership of and is internally keep-alive-safe across the mint.
+                return qp != null
+                    ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr}, static __v => new {qp}(__v))"
+                    : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr})";
+            }
+            var ct = closureHandler.GetPInvokeExistentialType(returnType);
+            // EC2+ composition return (any P & Q…): ShouldUseGetOrCreate is EC1-only, so a composition
+            // existential falls here. Its only conformer is a Swift-vended proxy whose
+            // GetExistentialContainer() BORROWS the proxy's stored bytes — returning that borrowed alias
+            // at +1 would double-release the proxy's sole construction +1 (R0) once Swift's owned
+            // release and the proxy's release both fire. Mint an independent +1 via the always-mint
+            // composition sibling of CreateOwnedExistential1 (no boxable composition conformer exists,
+            // so there is no donate arm). Same owned-closure-return rationale as the EC1 branch above.
+            if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
+                ct != "Swift.Runtime.ExistentialContainer1")
+            {
+                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
+                return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({resultExpr})";
+            }
+            return $"((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer()";
+        }
+
+        if (closureHandler.IsExistentialParam(returnType))
+        {
+            var ct = closureHandler.GetPInvokeExistentialType(returnType);
+            return $"({ct}){resultExpr}";
+        }
+
+        return null;
+    }
+
+    /// <summary>
     /// Builds the return statement for a closure callback that marshals the result value
     /// from C# types to P/Invoke types. Shared between escaping and throwing callback emitters
     /// to ensure all return type cases are handled consistently.
@@ -442,47 +496,8 @@ public static partial class ClosureEmitter
         if (MarshallingHelpers.IsBoolType(returnType))
             return $"return (byte)({resultExpr} ? 1 : 0);";
 
-        if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out _))
-            return $"return {resultExpr}.GetExistentialContainer();";
-
-        if (closureHandler.NeedsProxyWrapping(returnType, out _))
-        {
-            if (closureHandler.ShouldUseGetOrCreate(returnType))
-            {
-                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
-                var qp = closureHandler.GetQualifiedProxyClassName(returnType);
-                // A closure return is +1-owned by Swift, so mint an independent reference rather
-                // than borrow the proxy's construction +1 (R0). After this callback returns the
-                // existential by value, there is no C# statement left to GC.KeepAlive the proxy,
-                // so a borrowed (GetOrCreate) container would let a GC finalize the proxy and
-                // release R0 before Swift retains the value. CreateOwnedExistential1 mints the +1
-                // Swift takes ownership of and is internally keep-alive-safe across the mint.
-                return qp != null
-                    ? $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr}, static __v => new {qp}(__v));"
-                    : $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{pt}>({resultExpr});";
-            }
-            var ct = closureHandler.GetPInvokeExistentialType(returnType);
-            // EC2+ composition return (any P & Q…): ShouldUseGetOrCreate is EC1-only, so a composition
-            // existential falls here. Its only conformer is a Swift-vended proxy whose
-            // GetExistentialContainer() BORROWS the proxy's stored bytes — returning that borrowed alias
-            // at +1 would double-release the proxy's sole construction +1 (R0) once Swift's owned
-            // release and the proxy's release both fire. Mint an independent +1 via the always-mint
-            // composition sibling of CreateOwnedExistential1 (no boxable composition conformer exists,
-            // so there is no donate arm). Same owned-closure-return rationale as the EC1 branch above.
-            if (ExistentialHandler.IsOwnedExistentialContainerType(ct) &&
-                ct != "Swift.Runtime.ExistentialContainer1")
-            {
-                var pt = ResolveClosureExistentialOrDegrade(closureHandler, returnType);
-                return $"return Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{pt}, {ct}>({resultExpr});";
-            }
-            return $"return ((Swift.Runtime.ISwiftExistentialConvertible<{ct}>){resultExpr}).GetExistentialContainer();";
-        }
-
-        if (closureHandler.IsExistentialParam(returnType))
-        {
-            var ct = closureHandler.GetPInvokeExistentialType(returnType);
-            return $"return ({ct}){resultExpr};";
-        }
+        if (BuildCallbackExistentialReturnExpression(returnType, resultExpr, closureHandler) is { } existentialResult)
+            return $"return {existentialResult};";
 
         if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && TypeDatabaseExtensions.IsPointerType(retNamedType))
             return $"return (void*){resultExpr};";
@@ -680,6 +695,15 @@ public static partial class ClosureEmitter
         var local = localPrefix;
         var spanLocal = $"{localPrefix}Span";
         var metadataLocal = $"{localPrefix}Metadata";
+
+        // Opaque protocol existential: the adapter sized the buffer as MemoryLayout<any P>, the
+        // layout of this container, and moves the value out, taking the +1 minted here.
+        if (closureHandler.IsCdeclIndirectExistentialReturn(returnType) &&
+            BuildCallbackExistentialReturnExpression(returnType, resultExpr, closureHandler) is { } existentialResult)
+        {
+            var container = closureHandler.GetPInvokeExistentialType(returnType);
+            return $"*({container}*)(void*){bufferExpr} = {existentialResult};";
+        }
 
         // Class type: write retained pointer to buffer
         if (closureHandler.IsClassType(returnType))
@@ -1358,9 +1382,7 @@ public static partial class ClosureEmitter
         // Cdecl closures with indirect return: prepend IntPtr (result buffer) and use void return.
         // Must match the @convention(c) type generated by GetSwiftConventionCType which inserts
         // UnsafeMutableRawPointer as the first param and returns Void for indirect return closures.
-        bool isIndirectReturn = useCdecl
-            && closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec)
-            && !closureTypeSpec.Throws;
+        bool isIndirectReturn = useCdecl && closureHandler.UsesCdeclIndirectReturn(closureTypeSpec);
 
         var types = new List<string>();
 

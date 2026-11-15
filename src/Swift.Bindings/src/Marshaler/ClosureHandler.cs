@@ -489,6 +489,50 @@ public partial class ClosureHandler
     }
 
     /// <summary>
+    /// Whether a @_cdecl closure adapter receives this closure's result through a buffer it passes
+    /// as the callback's first argument, the callback returning void: a non-throwing closure whose
+    /// return needs indirect marshalling (<see cref="RequiresIndirectReturnMarshalling"/>) or is an
+    /// opaque protocol existential (<see cref="IsCdeclIndirectExistentialReturn"/>). Every site that
+    /// lays out either side of that callback (the Swift @convention(c) type and adapter, the C#
+    /// callback and its function-pointer type) reads this one predicate, so the two sides agree.
+    /// </summary>
+    public bool UsesCdeclIndirectReturn(ClosureTypeSpec closureTypeSpec) =>
+        !closureTypeSpec.Throws &&
+        (RequiresIndirectReturnMarshalling(closureTypeSpec) || IsCdeclIndirectExistentialReturn(closureTypeSpec.ReturnType));
+
+    /// <summary>
+    /// A closure return a @_cdecl adapter can take through a result buffer as an opaque existential
+    /// container: a protocol or composition existential whose C# carrier is an
+    /// <c>ExistentialContainer1</c>..<c>8</c>, minted at +1 by the callback (a proxy-backed or an
+    /// unknown protocol). The buffer is <c>MemoryLayout&lt;any P&gt;</c>, which is that container's
+    /// layout (three inline words, the type metadata, one witness table per protocol), and the
+    /// adapter moves the value out of it, taking the callback's +1. Excluded: <c>any Error</c> and
+    /// other well-known protocols (their own carriers), <c>Any</c> and marker-only existentials
+    /// (no sound route), and class-bound or <c>@objc</c> existentials, whose Swift layout is a
+    /// single reference (plus witness tables), not an opaque container
+    /// (<see cref="ExistentialHandler.HasOpaqueContainerLayout"/>). Also excluded: a parameterized
+    /// existential (<c>any P&lt;T&gt;</c>), whose generic arguments put it on
+    /// <see cref="RequiresIndirectReturnMarshalling"/>'s generic-value callback, which marshals the
+    /// result through the return type's own metadata rather than this container write.
+    /// </summary>
+    public bool IsCdeclIndirectExistentialReturn(TypeSpec returnType)
+    {
+        if (returnType.IsEmptyTuple || !_existentialHandler.IsExistential(returnType))
+            return false;
+        if (returnType is NamedTypeSpec { ContainsGenericParameters: true } ||
+            returnType is ProtocolListTypeSpec { Protocols: var members } && members.Keys.Any(p => p.ContainsGenericParameters))
+            return false;
+        if (NeedsWellKnownProtocolWrapping(returnType, out _) || IsZeroWitnessExistentialParam(returnType))
+            return false;
+        if (!NeedsProxyWrapping(returnType, out _) && !IsExistentialParam(returnType))
+            return false;
+        var protocolList = _existentialHandler.ToProtocolListTypeSpec(returnType);
+        if (protocolList == null || !_existentialHandler.HasOpaqueContainerLayout(protocolList))
+            return false;
+        return ExistentialHandler.IsOwnedExistentialContainerType(GetPInvokeExistentialType(returnType));
+    }
+
+    /// <summary>
     /// Determines if a closure return type requires indirect return marshalling.
     /// Indirect return is needed for non-blittable types that cannot be returned
     /// directly from [UnmanagedCallersOnly] callbacks.

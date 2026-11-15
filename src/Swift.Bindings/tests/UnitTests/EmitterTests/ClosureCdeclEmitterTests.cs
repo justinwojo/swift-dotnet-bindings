@@ -1548,6 +1548,29 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void IsClosureCdeclCompatible_SetInputs_ReturnTrue()
+    {
+        // Set is one buffer reference in Swift, like Array and Dictionary, and crosses as the
+        // address of a typed temporary the callback copies through the set's metadata.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var set = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("Swift.String"));
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { set, new NamedTypeSpec("Swift.Optional", set) }),
+            TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(
+            new ClosureTypeSpec(set, TupleTypeSpec.Empty) { Throws = true }, closureHandler));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "handler", closureType, closureHandler, isOptional: false));
+        Assert.Contains("Swift.UnsafeMutablePointer<Swift.Set<Swift.String>>.allocate(capacity: 1)", swift);
+        Assert.Contains("__collection_0.initialize(to: p0)", swift);
+        Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
+        Assert.Contains("if let __value_1 = p1", swift);
+    }
+
+    [Fact]
     public void SwiftClosureAdapter_CollectionInputs_UseTypedInitializedTemporaries()
     {
         var closureHandler = new ClosureHandler(CreateTypeDatabase());
@@ -1871,19 +1894,178 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
-    public void IsClosureCdeclCompatible_ExistentialReturn_ReturnsFalse()
+    public void IsClosureCdeclCompatible_ProtocolExistentialReturn_TakesTheResultBuffer()
     {
-        // Fix 11A covers existential PARAMS only; existential returns are out of scope.
+        // `() -> any P`: the adapter passes a MemoryLayout<any P> buffer as the callback's first
+        // argument and moves the opaque container out of it, so the callback is C-convention.
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
         var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true });
 
-        var existentialReturn = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
-        var closureType = new ClosureTypeSpec(
-            TupleTypeSpec.Empty,
-            existentialReturn);
-        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        Assert.True(closureHandler.UsesCdeclIndirectReturn(closureType));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
 
+    [Fact]
+    public void IsClosureCdeclCompatible_CompositionExistentialReturn_TakesTheResultBuffer()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoProtocols(
+            "TestModule.ImageProcessing", "TestModule.DataCaching");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.ImageProcessing"),
+            new NamedTypeSpec("TestModule.DataCaching")
+        }));
+
+        Assert.True(closureHandler.UsesCdeclIndirectReturn(closureType));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Theory]
+    [InlineData(TypeRecordFlags.ClassBound)]
+    [InlineData(TypeRecordFlags.ObjCProtocol)]
+    public void IsClosureCdeclCompatible_ReferenceLayoutExistentialReturn_ReturnsFalse(TypeRecordFlags flags)
+    {
+        // A class-bound or @objc existential is a reference (plus witness tables), not the opaque
+        // container the buffer is sized and read as.
+        var typeDatabase = CreateTypeDatabase();
+        var module = new ModuleTypeDatabase("RefProtocols", "/tmp/RefProtocols.dylib");
+        module.RegisterType(SwiftTypeName.FromModuleQualifiedName("RefProtocols.Observer"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("RefProtocols", "IObserver"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("RefProtocols.Observer"),
+            MetadataAccessor = "$sMa",
+            Flags = flags,
+            Kind = TypeRecordKind.Protocol
+        });
+        typeDatabase.AddModuleDatabase(module);
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty,
+            new NamedTypeSpec("RefProtocols.Observer") { IsAny = true });
+
+        Assert.False(closureHandler.IsCdeclIndirectExistentialReturn(closureType.ReturnType));
         Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_ThrowingExistentialReturn_ReturnsFalse()
+    {
+        // A throwing closure has no result buffer on this lane, and an existential cannot come
+        // back in a C return register.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true }) { Throws = true };
+
+        Assert.False(closureHandler.UsesCdeclIndirectReturn(closureType));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_ParameterizedExistentialReturn_StaysOffTheExistentialBuffer()
+    {
+        // `any P<String>` is a bound generic: its callback is the generic-value one, which marshals
+        // through the return type's metadata, so the container write must not claim it.
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var parameterized = new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true };
+        parameterized.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var single = new ClosureTypeSpec(TupleTypeSpec.Empty, parameterized);
+        var composition = new ClosureTypeSpec(TupleTypeSpec.Empty, new ProtocolListTypeSpec(new[]
+        {
+            parameterized,
+            new NamedTypeSpec("TestModule.ImageProcessing")
+        }));
+
+        Assert.False(closureHandler.IsCdeclIndirectExistentialReturn(single.ReturnType));
+        Assert.False(closureHandler.IsCdeclIndirectExistentialReturn(composition.ReturnType));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(single, closureHandler));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(composition, closureHandler));
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ExistentialReturnWithInOutArgument_WritesBackBeforeTheResultMoves()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int32") { IsInOut = true } }),
+            new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true });
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "make", closureType, closureHandler, isOptional: false));
+        // The inout argument is written back to the caller's variable before the result is taken.
+        var writeBack = swift.IndexOf("p0 = __out_0", StringComparison.Ordinal);
+        var resultMove = swift.IndexOf("resultBuf.assumingMemoryBound", StringComparison.Ordinal);
+        Assert.True(writeBack > 0 && resultMove > writeBack, swift);
+        // A single-protocol existential is spelled with `any`, which Swift 6 requires.
+        Assert.Contains("-> (any TestModule.ImageProcessing) in", swift);
+        Assert.Contains("MemoryLayout<(any TestModule.ImageProcessing)>.size", swift);
+    }
+
+    [Fact]
+    public void IsClosureCdeclCompatible_AnyErrorAndAnyReturns_ReturnFalse()
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+
+        var anyError = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Error") { IsAny = true });
+        var any = new ClosureTypeSpec(TupleTypeSpec.Empty, new ProtocolListTypeSpec(new List<NamedTypeSpec>()));
+
+        Assert.False(closureHandler.IsCdeclIndirectExistentialReturn(anyError.ReturnType));
+        Assert.False(closureHandler.IsCdeclIndirectExistentialReturn(any.ReturnType));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(anyError, closureHandler));
+        Assert.False(ClosureEmitter.IsClosureCdeclCompatible(any, closureHandler));
+    }
+
+    [Fact]
+    public void SwiftClosureAdapter_ExistentialReturn_MovesTheContainerOutOfTheResultBuffer()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoProtocols(
+            "TestModule.ImageProcessing", "TestModule.DataCaching");
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty, new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("TestModule.ImageProcessing"),
+            new NamedTypeSpec("TestModule.DataCaching")
+        }));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "make", closureType, closureHandler, isOptional: false));
+
+        // Buffer first, context last, void return.
+        Assert.Contains("@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer?) -> Swift.Void", swift);
+        // The existential is parenthesized wherever it is named as a type value.
+        Assert.Matches(@"MemoryLayout<\(any [^>]+\)>\.size", swift);
+        Assert.Matches(@"assumingMemoryBound\(to: \(any [^)]+\)\.self\)\.move\(\)", swift);
+        Assert.Contains("resultBuf.deallocate()", swift);
+    }
+
+    [Fact]
+    public void Emit_ExistentialReturnClosure_CdeclCallbackWritesAnOwnedContainerToTheBuffer()
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule.ImageProcessing");
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl);
+        var closureType = new ClosureTypeSpec(TupleTypeSpec.Empty,
+            new NamedTypeSpec("TestModule.ImageProcessing") { IsAny = true });
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodDecl("apply", parentDecl, moduleDecl,
+            returnType: TupleTypeSpec.Empty, isAsync: false, throws: false,
+            methodType: MethodType.Instance);
+        method.CSSignature.Add(CreateArgument("make", closureType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.True(method.HasClosureCdeclWrapper);
+        // The reverse callback is C-convention: no Swift-convention managed entry point is left.
+        Assert.Contains("UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvCdecl) })", csOutput);
+        Assert.DoesNotContain("UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })", csOutput);
+        Assert.Matches(@"\*\((global::)?Swift\.Runtime\.ExistentialContainer1\*\)\(void\*\)resultBuffer = [^;]*CreateOwnedExistential1<", csOutput);
+        // The Swift adapter on the other side moves the container out of the buffer.
+        Assert.Contains("(any TestModule.ImageProcessing).self).move()", swiftOutput);
     }
 
     [Fact]

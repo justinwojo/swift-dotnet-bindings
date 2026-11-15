@@ -241,6 +241,46 @@ public func sbw_sretselfprobe_combine_cdecl(
     outResult.assumingMemoryBound(to: SretSelfProbe.self).initialize(to: result)
 }
 
+// MARK: - Swift struct-lowering probe (direct CallConvSwift lowered signature, non-fatal)
+
+/// A three-word `@frozen` struct the Swift convention passes by value in three registers (rdi, rsi,
+/// rdx on x86_64; x0, x1, x2 on arm64; verified by disassembly), where the C convention passes a
+/// 24-byte struct in memory (x86_64) or by reference (arm64). `LoweredSignatureProbeTests` passes it
+/// through a raw `CallConvSwift` P/Invoke: an engine that applies the Swift lowering gets the
+/// encoding of the three fields back; one that applies none (the x86_64 CoreCLR interpreter) leaves
+/// the registers holding whatever the caller had there, and the call still returns an integer, so
+/// the defect is observed by an assertion rather than a crash.
+@frozen
+public struct LoweredSignatureProbe {
+    public var a: Int
+    public var b: Int
+    public var c: Int
+
+    public init(a: Int, b: Int, c: Int) {
+        self.a = a
+        self.b = b
+        self.c = c
+    }
+}
+
+public func loweredSignatureProbeEncode(_ probe: LoweredSignatureProbe) -> Int {
+    probe.a &* 1_000_000 &+ probe.b &* 1_000 &+ probe.c
+}
+
+/// The same encoding from three integer arguments: the Swift convention places these exactly as C
+/// does, so the call works with or without Swift lowering. It pairs with the struct probe to show the
+/// engine does make the call and only the lowered struct is lost.
+public func loweredSignatureProbeEncodeScalars(_ a: Int, _ b: Int, _ c: Int) -> Int {
+    a &* 1_000_000 &+ b &* 1_000 &+ c
+}
+
+/// Plain C ABI control for `loweredSignatureProbeEncode`: the struct travels by address, so every
+/// engine places it.
+@_cdecl("sbw_loweredsignatureprobe_encode_cdecl")
+public func sbw_loweredsignatureprobe_encode_cdecl(_ probe: UnsafeRawPointer) -> Int {
+    loweredSignatureProbeEncode(probe.assumingMemoryBound(to: LoweredSignatureProbe.self).pointee)
+}
+
 // MARK: - Frozen struct with an unsizeable generic value-type stored field (fail-closed skip)
 
 /// `@frozen` struct carrying a `ClosedRange<Int>?` stored field. ClosedRange<Bound> is a frozen,

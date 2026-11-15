@@ -128,17 +128,17 @@ public class TransitionGuardTests : TestBase
     }
 
     /// <summary>
-    /// A member that hands Swift a Swift-convention callback: the closure argument of
-    /// <c>OwnershipCallbackFactory.init?(_:valid:)</c>, a failable initializer of a non-frozen struct,
-    /// which the <c>@_cdecl</c> wrapper declines, so its closure reaches Swift as a managed
-    /// <c>UnmanagedCallersOnly</c> function Swift calls with the context in the self register. Where
-    /// the engine cannot deliver that register to the callback, the member must throw before Swift
-    /// runs (the body is never called); where it can, Swift calls the body once with its value.
+    /// A member whose closure used to reach Swift as a Swift-convention callback:
+    /// <c>OwnershipCallbackFactory.init?(_:valid:)</c>, a failable initializer of a non-frozen struct.
+    /// It now takes the <c>@_cdecl</c> constructor wrapper, which adapts the closure onto a
+    /// C-convention callback, so no Swift-convention transition is left to guard: it runs on every
+    /// engine, the x86_64 interpreter included, and Swift calls the body once with its value. That
+    /// the guard still refuses a Swift-convention callback where the engine mishandles one is
+    /// <see cref="TestGuardRefusesExactlyWhatTheExecutingEngineMishandles"/>.
     /// </summary>
-    public void TestSwiftConventionCallbackMember_RefusesBeforeNativeOnlyWhereTheEngineMishandlesIt()
+    public void TestRecoveredCallbackMember_RunsOnEveryEngine()
     {
         var engine = Engine;
-        var refuses = (ExpectedRefusals(engine) & SwiftTransitionFacts.ReverseCallback) != 0;
         var calls = 0;
         var number = 0;
         Action<CallbackOwnedValue> body = value =>
@@ -148,35 +148,17 @@ public class TransitionGuardTests : TestBase
             value.Dispose();
         };
 
-        SwiftTransitionUnsupportedException? refusal = null;
-        OwnershipCallbackFactory? factory = null;
-        var created = false;
+        var created = OwnershipCallbackFactory.TryCreate(body, true, out var factory);
         try
         {
-            created = OwnershipCallbackFactory.TryCreate(body, true, out factory);
-        }
-        catch (SwiftTransitionUnsupportedException ex)
-        {
-            refusal = ex;
+            AssertTrue(created, $"{engine}: the initializer returned a value");
+            AssertEqual(76, factory!.Number, $"{engine}: the value Swift built");
+            AssertEqual(1, calls, $"{engine}: Swift called the body once");
+            AssertEqual(76, number, $"{engine}: the body received Swift's value");
         }
         finally
         {
             factory?.Dispose();
-        }
-
-        if (refuses)
-        {
-            AssertNotNull(refusal, $"{engine}: OwnershipCallbackFactory.TryCreate must refuse");
-            AssertTrue(refusal!.Member.Contains("OwnershipCallbackFactory.TryCreate", StringComparison.Ordinal), $"refusal names the member: {refusal.Member}");
-            AssertEqual(SwiftTransitionFacts.ReverseCallback, refusal.RefusedFacts, "refused for the Swift-convention callback alone");
-            AssertEqual(0, calls, "Swift did not run: the body was never called");
-        }
-        else
-        {
-            AssertNull(refusal, $"{engine}: OwnershipCallbackFactory.TryCreate must run");
-            AssertTrue(created, $"{engine}: the initializer returned a value");
-            AssertEqual(1, calls, $"{engine}: Swift called the body once");
-            AssertEqual(76, number, $"{engine}: the body received Swift's value");
         }
     }
 
