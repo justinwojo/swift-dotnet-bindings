@@ -855,7 +855,37 @@ public sealed class SwiftCallFactsBuilder
             facts = facts with { IsClassBound = true };
         if (RepresentationOf(spec, closures) is { } representation)
             facts = facts with { Representation = representation };
+        var objcClasses = ObjCClassesIn(spec);
+        if (!objcClasses.IsEmpty)
+            facts = facts with { ObjCClasses = objcClasses };
         return facts;
+    }
+
+    /// <summary>
+    /// The spellings of the types inside <paramref name="spec"/> whose declaration USR marks an
+    /// Objective-C class, in first-seen order: what a lowering of the spelling cannot recover.
+    /// </summary>
+    internal static ImmutableArray<string> ObjCClassesIn(TypeSpec spec)
+    {
+        var found = ImmutableArray.CreateBuilder<string>();
+        void Walk(TypeSpec current)
+        {
+            switch (current)
+            {
+                case NamedTypeSpec named:
+                    if (named.IsUsrObjCClass && !found.Contains(named.Name))
+                        found.Add(named.Name);
+                    foreach (var argument in named.GenericParameters)
+                        Walk(argument);
+                    break;
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                        Walk(element);
+                    break;
+            }
+        }
+        Walk(spec);
+        return found.ToImmutable();
     }
 
     /// <summary>
@@ -952,6 +982,13 @@ public sealed class SwiftCallFactsBuilder
                 .ToImmutableArray(),
         };
     }
+
+    /// <summary>
+    /// The generic signature a member of <paramref name="parent"/> is written in, with each
+    /// conformance requirement's target classified, as its call facts record it.
+    /// </summary>
+    internal SwiftGenericSignatureFacts ClassifiedGenericsOf(MethodDecl method, TypeDecl? parent) =>
+        ClassifyRequirements(GenericsOf(method, parent));
 
     private static readonly HashSet<string> MarkerProtocols = new(StringComparer.Ordinal)
     {
@@ -1080,6 +1117,11 @@ public sealed class SwiftCallFactsBuilder
 
         if (TryPeekRecord(name, out var record))
             return FromRecord(record, spelling);
+
+        // An Objective-C class of the SDK that no database lists (most of UIKit and AppKit): the
+        // declaration's USR says what it is, and an ObjC class is one object reference.
+        if (named.IsUsrObjCClass)
+            return new SwiftTypeFacts { Spelling = spelling, Category = SwiftTypeCategory.Class, IsClassBound = true };
 
         // Source the generator wrote may name a type the way the module it imports sees it.
         // The function's own module is the one the name means; another module is taken only

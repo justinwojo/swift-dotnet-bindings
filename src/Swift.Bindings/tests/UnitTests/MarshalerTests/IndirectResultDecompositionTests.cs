@@ -221,6 +221,50 @@ public class IndirectResultDecompositionTests
         Assert.True(MarshallingHelpers.IsTypeInherentlyIndirect(env));
     }
 
+    [Fact]
+    public void MethodRequiresIndirectResult_ResultOverTheParentsGenericParameters_ReturnsTrue()
+    {
+        // `struct Task<Value, Failure: Error> { func start() -> Result<Value, Failure> }`: a Result
+        // over unconstrained parameters is address-only, so Swift returns it through the
+        // indirect-result register. Declared as a direct pointer result, the call reads x0, which
+        // the callee never wrote.
+        var parent = CreateGenericNonFrozenStructParent();
+        var env = CreateMethodEnv(returnType: TypeSpecParser.Parse("Swift.Result<τ_0_0, τ_0_1>")!, parentDecl: parent);
+        env.MethodDecl.RawGenericSig = parent.RawGenericSig;
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+
+        // The same Result with a loadable success and an Error existential failure is a
+        // multi-payload enum the model does not lay out, so it is not claimed indirect here.
+        var loadable = CreateMethodEnv(returnType: TypeSpecParser.Parse("Swift.Result<Swift.Int, any Swift.Error>")!, parentDecl: parent);
+        loadable.MethodDecl.RawGenericSig = parent.RawGenericSig;
+        Assert.False(SwiftLayoutResolver.IsAddressOnlyResult(loadable.MethodDecl.CSSignature[0].SwiftTypeSpec, loadable.MethodDecl, parent, loadable.TypeDatabase));
+    }
+
+    [Fact]
+    public void IsAddressOnlyResult_AGenericParameterBoundToClasses_IsNotAddressOnly()
+    {
+        var parent = CreateGenericNonFrozenStructParent() with { RawGenericSig = "<τ_0_0, τ_0_1 where τ_0_0 : AnyObject>" };
+        var env = CreateMethodEnv(returnType: TypeSpecParser.Parse("Swift.Optional<τ_0_0>")!, parentDecl: parent);
+        env.MethodDecl.RawGenericSig = parent.RawGenericSig;
+        Assert.False(SwiftLayoutResolver.IsAddressOnlyResult(env.MethodDecl.CSSignature[0].SwiftTypeSpec, env.MethodDecl, parent, env.TypeDatabase));
+
+        var unbound = CreateMethodEnv(returnType: TypeSpecParser.Parse("Swift.Optional<τ_0_1>")!, parentDecl: parent);
+        unbound.MethodDecl.RawGenericSig = parent.RawGenericSig;
+        Assert.True(SwiftLayoutResolver.IsAddressOnlyResult(unbound.MethodDecl.CSSignature[0].SwiftTypeSpec, unbound.MethodDecl, parent, unbound.TypeDatabase));
+    }
+
+    private static StructDecl CreateGenericNonFrozenStructParent() => CreateNonFrozenStructParent() with
+    {
+        Name = "Task",
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Task"),
+        RawGenericSig = "<τ_0_0, τ_0_1 where τ_0_1 : Swift.Error>",
+        GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Value", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+            new("τ_0_1", "Failure", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()),
+        },
+    };
+
     private static NamedTypeSpec OptionalOfSelf()
     {
         var optional = new NamedTypeSpec("Swift.Optional");

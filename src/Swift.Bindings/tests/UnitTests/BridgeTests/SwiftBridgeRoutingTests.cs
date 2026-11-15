@@ -141,6 +141,61 @@ public sealed class SwiftBridgeRoutingTests
         Assert.DoesNotContain("CallConvSwift", rewritten);
     }
 
+    /// <summary>
+    /// A platform enum lives in the platform reference assembly, which the twin's convention checks do
+    /// not read, so the twin spells it as its underlying integer and the shim casts at the boundary:
+    /// the same eight bytes cross either way.
+    /// </summary>
+    [Fact]
+    public void PlatformEnum_CrossesTheTwinAsItsUnderlyingInteger()
+    {
+        const string entryPoint = "$s1M1CC1fySo14UIControlStateVADF";
+        var source = Source(Import(entryPoint,
+            "private static partial global::UIKit.UIControlState PInvoke_f(global::UIKit.UIControlState state, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var plan = Planned(Planner().PlanForward(
+            ClassMethod("UIKit.UIControl.State", "UIKit.UIControl.State"),
+            SwiftManagedSignature.Of(Method(source, "PInvoke_f"), SwiftManagedMarshalling.SourceGenerated),
+            entryPoint));
+        var routing = SwiftBridgeRouting.Plan(Set(plan, entryPoint), source, Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.True(route.IsBridged, route.Refusal);
+
+        var rewritten = routing.Rewrite(source);
+        Assert.Empty(CSharpSyntaxTree.ParseText(rewritten).GetDiagnostics());
+        var twinName = SwiftBridgeRouting.TwinName("PInvoke_f", plan.Symbol);
+        var twin = Method(rewritten, twinName);
+        Assert.Equal("ulong", twin.ReturnType.ToString());
+        Assert.Equal("(ulong state, nint __self)", twin.ParameterList.ToString());
+        Assert.DoesNotContain("UIKit", twin.ToString());
+
+        // The shim keeps the import's platform types and converts on each side of the twin call.
+        var shim = Method(rewritten, "PInvoke_f");
+        Assert.Equal("global::UIKit.UIControlState", shim.ReturnType.ToString());
+        Assert.Contains($"return (global::UIKit.UIControlState){twinName}((ulong)state, (nint)self.Value)", shim.Body!.ToString());
+    }
+
+    /// <summary>A platform enum passed by reference crosses as a pointer, so the twin keeps its declaration.</summary>
+    [Fact]
+    public void PlatformEnumByReference_KeepsItsDeclarationOnTheTwin()
+    {
+        const string entryPoint = "$s1M1CC1fyySo14UIControlStateVzF";
+        var source = Source(Import(entryPoint,
+            "private static partial void PInvoke_f(ref global::UIKit.UIControlState state, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+        var facts = ClassMethod(null, "UIKit.UIControl.State");
+        facts = facts with { Parameters = [facts.Parameters[0] with { Convention = SwiftParameterConvention.Inout }] };
+        var plan = Planned(Planner().PlanForward(
+            facts, SwiftManagedSignature.Of(Method(source, "PInvoke_f"), SwiftManagedMarshalling.SourceGenerated), entryPoint));
+        var routing = SwiftBridgeRouting.Plan(Set(plan, entryPoint), source, Library);
+
+        var route = Assert.Single(routing.Routes);
+        Assert.True(route.IsBridged, route.Refusal);
+        var rewritten = routing.Rewrite(source);
+        var twinName = SwiftBridgeRouting.TwinName("PInvoke_f", plan.Symbol);
+        Assert.Equal("(ref global::UIKit.UIControlState state, nint __self)", Method(rewritten, twinName).ParameterList.ToString());
+        Assert.Contains($"{twinName}(ref state, (nint)self.Value)", Method(rewritten, "PInvoke_f").Body!.ToString());
+    }
+
     [Fact]
     public void ParameterNamedLikeASwiftRegister_IsBridged_OnlyTheShimsOwnLocalsCollide()
     {

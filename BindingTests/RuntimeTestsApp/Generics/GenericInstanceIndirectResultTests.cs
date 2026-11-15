@@ -15,7 +15,7 @@ namespace RuntimeTestsApp.Generics;
 /// parameters. Swift always returns such a value through the indirect-result register. A binding
 /// that calls one directly, declaring a by-value result and passing no result buffer, compiles on
 /// both sides and then reads its own stack slot as the value, so every callable member here
-/// round-trips real fields, and every member with no sound route must declare that it throws.
+/// round-trips real fields.
 /// </summary>
 public class GenericInstanceIndirectResultTests : TestBase
 {
@@ -103,30 +103,105 @@ public class GenericInstanceIndirectResultTests : TestBase
         AssertCallable(typeof(IndirectRankedTable<IndirectRankSeven>.Cursor), "GetRanked");
     }
 
-    // ── No sound route: declared, marked and throwing ───────────────────
+    // ── Member generics: the direct import passes the result buffer ─────
 
-    public void TestMemberGenericOnGenericParentIsTombstoned()
+    // A member generic of its own has no static-dispatch wrapper, so its import is the direct
+    // Swift call. It passes the buffer the callee writes the result into. On iOS, Mac Catalyst and
+    // tvOS a native bridge carries that call. On macOS it stays a guarded direct transition,
+    // which must either return the value or refuse before Swift runs on an engine that
+    // mishandles one of its shapes.
+
+    private const SwiftTransitionFacts MemberGenericShapes = SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.LoweredSignature;
+
+    public void TestMemberGenericOnGenericParentReturnsItsValue()
     {
-        var with = typeof(IndirectTable<long>).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .SingleOrDefault(m => m.Name == "With");
-        AssertNotNull(with, "with(_:) is declared");
-        AssertEqual("SB0009", with?.GetCustomAttribute<ObsoleteAttribute>()?.DiagnosticId, "with(_:) carries the ABI-floor marker");
-        using var table = new IndirectTable<long>(tag: 1);
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-        AssertThrows<NotSupportedException>(() => table.With(5L), "with(_:) refuses the call");
-#pragma warning restore SB0009
+        using var table = new IndirectTable<long>(tag: 6);
+        for (int i = 0; i < 3; i++)
+        {
+            var request = ReturnedOrRefused(() => table.With(5L), MemberGenericShapes, ImportRoutes.BridgesRouted, "IndirectTable<T>.With");
+            if (request is null)
+                return;
+            using (request)
+            {
+                AssertEqual(6, request.Tag, $"with(_:) returns the table's tag (call {i})");
+                AssertEqual("with 5", request.Note, $"with(_:) returns the note it built from its argument (call {i})");
+            }
+        }
+        AssertEqual(6, table.Tag, "the receiver is untouched");
     }
 
-    public void TestMemberGenericOnPlainClassIsTombstoned()
+    public void TestMemberGenericOnPlainClassReturnsItsValue()
     {
-        var wrap = typeof(IndirectSource).GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
-            .SingleOrDefault(m => m.Name == "Wrap");
-        AssertNotNull(wrap, "wrap(_:tag:) is declared");
-        AssertEqual("SB0009", wrap?.GetCustomAttribute<ObsoleteAttribute>()?.DiagnosticId, "wrap(_:tag:) carries the ABI-floor marker");
         using var source = new IndirectSource();
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-        AssertThrows<NotSupportedException>(() => source.Wrap(5L, 2), "wrap(_:tag:) refuses the call");
-#pragma warning restore SB0009
+        var request = ReturnedOrRefused(() => source.Wrap(5L, 2), MemberGenericShapes, ImportRoutes.BridgesRouted, "IndirectSource.Wrap");
+        if (request is null)
+            return;
+        using (request)
+        {
+            AssertEqual(2, request.Tag, "wrap(_:tag:) returns the tag it was given");
+            AssertEqual("wrap 5", request.Note, "wrap(_:tag:) returns the note it built from its argument");
+        }
+        using var word = new SwiftString("text");
+        using var text = source.Wrap(word, 4);
+        AssertEqual("wrap text", text.Note, "wrap(_:tag:) works for a reference-counted generic argument");
+    }
+
+    public void TestFreeGenericFunctionReturnsItsValue()
+    {
+        var request = ReturnedOrRefused(() => Functions.MakeIndirectRequest(5L, 9), SwiftTransitionFacts.LoweredSignature,
+            ImportRoutes.BridgesRouted, "MakeIndirectRequest");
+        if (request is null)
+            return;
+        using (request)
+        {
+            AssertEqual(9, request.Tag, "makeIndirectRequest(_:tag:) returns the tag it was given");
+            AssertEqual("free 5", request.Note, "makeIndirectRequest(_:tag:) returns the note it built from its argument");
+        }
+    }
+
+    /// <summary>
+    /// The member generics no longer carry the ABI-floor tombstone (SB0009) that made every call
+    /// throw. Like any member generic called directly, they keep the generator's SB0001 marker.
+    /// </summary>
+    public void TestMemberGenericsAreNoLongerTombstoned()
+    {
+        AssertNotTombstoned(typeof(IndirectTable<long>), "With");
+        AssertNotTombstoned(typeof(IndirectSource), "Wrap");
+    }
+
+    private void AssertNotTombstoned(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)] System.Type type, string name)
+    {
+        var methods = type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly)
+            .Where(m => m.Name == name).ToArray();
+        AssertTrue(methods.Length > 0, $"{type.Name}.{name} is bound");
+        foreach (var method in methods)
+            AssertTrue(method.GetCustomAttribute<ObsoleteAttribute>()?.DiagnosticId != "SB0009",
+                $"{type.Name}.{name} carries no ABI-floor tombstone");
+    }
+
+    /// <summary>
+    /// Calls <paramref name="call"/> and returns its result, or, when the member keeps a guarded direct
+    /// transition this engine mishandles, asserts that it refused before Swift ran and returns null.
+    /// </summary>
+    private T? ReturnedOrRefused<T>(Func<T> call, SwiftTransitionFacts shapes, bool bridged, string member) where T : class
+    {
+        if (bridged || SwiftTransitionGuard.IsSupported(shapes))
+            return call();
+        SwiftTransitionUnsupportedException? refusal = null;
+        try
+        {
+            (call() as IDisposable)?.Dispose();
+        }
+        catch (SwiftTransitionUnsupportedException ex)
+        {
+            refusal = ex;
+        }
+        AssertNotNull(refusal, $"{member} must refuse on its guarded direct route");
+        AssertTrue(refusal!.Member.Contains(member, StringComparison.Ordinal) || refusal.Member.Contains(member.Replace("<T>", ""), StringComparison.Ordinal),
+            $"the refusal names the member: {refusal.Member}");
+        AssertEqual(shapes, refusal.Facts, "the refusal carries the transition's shapes");
+        return null;
     }
 
     private void AssertCallable(

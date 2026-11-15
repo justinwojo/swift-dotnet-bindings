@@ -83,6 +83,17 @@ internal static class SwiftTwinShim
                     var renamed = TrailingNames.Contains(parameter.Identifier.ValueText)
                         ? parameter.Identifier.ValueText + "Argument"
                         : null;
+                    // A platform enum passed by value lives in an assembly the twin's checks do not read,
+                    // so the twin takes its underlying integer, which is what crosses either way. One
+                    // passed by reference crosses as a pointer and keeps its declaration.
+                    if (parameter.Modifiers.Count == 0 && PlatformEnumUnderlying(parameter.Type) is { } underlying)
+                    {
+                        if (parameter.AttributeLists.Count > 0)
+                            return $"the platform enum {name} is marshalled";
+                        twinParameters.Add($"{underlying} {renamed ?? name}");
+                        arguments.Add($"({underlying}){name}");
+                        break;
+                    }
                     twinParameters.Add(Declaration(parameter, keepAttributes: true, renamed));
                     arguments.Add(Modifiers(parameter) is { Length: > 0 } modifiers ? $"{modifiers} {name}" : name!);
                     break;
@@ -176,7 +187,9 @@ internal static class SwiftTwinShim
             case SwiftResultKind.Scalar:
                 if (returnsVoid)
                     return $"the plan returns a {view.Result.ManagedType} but the import returns nothing";
-                twinReturn = returnType;
+                twinReturn = PlatformEnumUnderlying(method.ReturnType) ?? returnType;
+                if (twinReturn != returnType && returnLists.Count > 0)
+                    return $"the platform enum result {returnType} is marshalled";
                 break;
             case SwiftResultKind.Direct or SwiftResultKind.Indirect:
                 if (returnsVoid == resultLocal)
@@ -189,7 +202,7 @@ internal static class SwiftTwinShim
 
         var call = $"{twinName}({string.Join(", ", arguments)});";
         if (view.Result.Kind == SwiftResultKind.Scalar)
-            call = "return " + call;
+            call = twinReturn == returnType ? "return " + call : $"return ({returnType}){call}";
 
         var lines = new List<string>
         {
@@ -293,6 +306,20 @@ internal static class SwiftTwinShim
                 return $"parameter {parameter.Identifier.Text} has a modifier the shim does not reproduce";
         }
         return null;
+    }
+
+    /// <summary>
+    /// The underlying integer of a platform binding enum the carrier table passes as a scalar
+    /// (<see cref="SwiftManagedCarrierTable.PlatformEnums"/>), or null for any other type.
+    /// </summary>
+    private static string? PlatformEnumUnderlying(TypeSyntax? type)
+    {
+        if (type is null)
+            return null;
+        var name = type.ToString();
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+            name = name["global::".Length..];
+        return SwiftManagedCarrierTable.PlatformEnums.TryGetValue(name, out var underlying) ? underlying : null;
     }
 
     private static string? Claim(bool[] used, int index)

@@ -165,18 +165,39 @@ public class GenericStaticMemberTests : TestBase
 
     /// <summary>
     /// A pinned static returning the parent through the indirect result has no wrapper route (the
-    /// wrapper's unconditional conformance extension cannot name it), so it is declared and
-    /// tombstoned rather than dropped or called with the wrong convention.
+    /// wrapper's unconditional conformance extension cannot name it), and no native bridge models
+    /// the same-type requirement. Its direct import passes the result buffer, so it returns the
+    /// value wherever the engine runs a lowered signature, and refuses before Swift runs where the
+    /// engine does not.
     /// </summary>
-    public void TestPinnedExtensionStaticIndirectResultIsTombstoned()
+    public void TestPinnedExtensionStaticIndirectResultReturnsItsValue()
     {
-        var make = typeof(PinnedQuery<PinnedPayload<int>>).GetMethod(
-            "Make", BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly, new[] { typeof(nint) });
-        AssertNotNull(make, "make(tag:) is declared");
-        AssertEqual("SB0009", make?.GetCustomAttribute<ObsoleteAttribute>()?.DiagnosticId, "make(tag:) carries the ABI-floor marker");
-#pragma warning disable SB0009 // Tombstoned by the ABI floor — throwing is the behavior under test.
-        AssertThrows<NotSupportedException>(() => PinnedQuery<PinnedPayload<int>>.Make(3), "make(tag:) refuses the call");
-#pragma warning restore SB0009
+        // make(tag:) has an int convenience overload beside the native-int one, so each is checked.
+        var makes = typeof(PinnedQuery<PinnedPayload<int>>).GetMethods(BindingFlags.Public | BindingFlags.Static | BindingFlags.DeclaredOnly)
+            .Where(m => m.Name == "Make").ToArray();
+        AssertTrue(makes.Length > 0, "make(tag:) is bound");
+        foreach (var make in makes)
+            AssertNull(make.GetCustomAttribute<ObsoleteAttribute>()?.DiagnosticId, $"make(tag:) ({make.GetParameters()[0].ParameterType.Name}) carries no unsafe-call marker");
+        if (!SwiftTransitionGuard.IsSupported(SwiftTransitionFacts.LoweredSignature))
+        {
+            SwiftTransitionUnsupportedException? refusal = null;
+            try
+            {
+                PinnedQuery<PinnedPayload<int>>.Make(3).Dispose();
+            }
+            catch (SwiftTransitionUnsupportedException ex)
+            {
+                refusal = ex;
+            }
+            AssertNotNull(refusal, "make(tag:) refuses on an engine that mishandles a lowered signature");
+            AssertEqual(SwiftTransitionFacts.LoweredSignature, refusal?.Facts, "the refusal carries the transition's shape");
+            return;
+        }
+        for (int i = 0; i < 3; i++)
+        {
+            using var made = PinnedQuery<PinnedPayload<int>>.Make(3 + i);
+            AssertEqual(3 + i, made.Tag, $"make(tag:) returns the query it built (call {i})");
+        }
     }
 
     // ── Statics returning a type nested in the generic parent ───────────

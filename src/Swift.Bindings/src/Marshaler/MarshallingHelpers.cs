@@ -578,6 +578,15 @@ namespace BindingsGeneration
                 {
                     return true;
                 }
+                // A Swift-convention call returns an address-only bound generic (Result over a
+                // generic payload, a resilient generic struct) through the indirect-result
+                // register, never in x0/rax. Importing it as an IntPtr return leaves the callee
+                // writing through whatever that register held.
+                if (!isCdeclNonSetter &&
+                    SwiftLayoutResolver.IsAddressOnlyResult(returnType.SwiftTypeSpec, env.MethodDecl, env.ParentDecl as TypeDecl, env.TypeDatabase))
+                {
+                    return true;
+                }
                 return false;
             }
 

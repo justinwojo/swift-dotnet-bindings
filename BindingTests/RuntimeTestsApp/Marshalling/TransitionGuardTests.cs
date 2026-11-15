@@ -184,43 +184,51 @@ public class TransitionGuardTests : TestBase
     private const SwiftTransitionFacts StartShapes = SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.LoweredSignature;
 
     /// <summary>
-    /// A member no build routes: <c>PendingRequestTask.Start</c> returns a generic <c>Result</c>,
-    /// which no native bridge carries, so every build, iOS included, keeps its direct transition
-    /// with <c>self</c> in the self register and guards it. Where the engine mishandles that shape
-    /// the call must throw before Swift runs and name the member. Where it does not, the guard lets
-    /// the call through, but the call is not made here: the direct import declares the indirectly
-    /// returned generic result as a pointer, a known mismatch with the Swift signature that is
-    /// classified and left for its own fix.
+    /// A member of a generic struct that returns a generic <c>Result</c>: <c>PendingRequestTask.Start</c>.
+    /// Swift returns the address-only <c>Result</c> through the indirect-result register, and the
+    /// direct import passes the result buffer there, so a native bridge carries it on iOS, Mac
+    /// Catalyst and tvOS, where every engine runs it. The macOS build has no lowering evidence to
+    /// route it, so it keeps the guarded direct transition: where the engine mishandles one of its
+    /// shapes the call must throw before Swift runs and name the member; elsewhere it returns the
+    /// value the task was built with.
     /// </summary>
 #pragma warning disable SB0001
     [SupportedOSPlatform("ios16.0")]
     [SupportedOSPlatform("maccatalyst16.0")]
     [SupportedOSPlatform("macos13.0")]
     [SupportedOSPlatform("tvos16.0")]
-    public void TestUnroutedMember_RefusesBeforeNativeWhereTheEngineMishandlesItsShape()
+    public void TestGenericResultMember_ReturnsItsValueWhereverItIsNotRefused()
     {
         var engine = Engine;
-        if ((ExpectedRefusals(engine) & StartShapes) == 0)
+        var refused = ImportRoutes.BridgesRouted ? SwiftTransitionFacts.None : ExpectedRefusals(engine) & StartShapes;
+
+        using var task = new PendingRequestTask<nint, RequestTaskError>(42);
+        if (refused == SwiftTransitionFacts.None)
         {
-            AssertTrue(SwiftTransitionGuard.IsSupported(StartShapes), $"{engine}: the guard admits Start's shapes");
+            for (int i = 0; i < 3; i++)
+            {
+                using var result = task.Start();
+                AssertTrue(result.IsSuccess, $"{engine}: Start() returns .success (call {i})");
+                AssertEqual((nint)42, result.Success, $"{engine}: Start() returns the task's value (call {i})");
+            }
+            AssertEqual((nint)42, TestLibFunctions.PendingRequestTaskValue(task), "the task is untouched");
             return;
         }
 
-        using var task = new PendingRequestTask<nint, RequestTaskError>(42);
         SwiftTransitionUnsupportedException? refusal = null;
         try
         {
-            _ = task.Start();
+            using var _ = task.Start();
         }
         catch (SwiftTransitionUnsupportedException ex)
         {
             refusal = ex;
         }
-        AssertNotNull(refusal, $"{engine}: PendingRequestTask.Start must refuse");
+        AssertNotNull(refusal, $"{engine}: PendingRequestTask.Start must refuse on a direct route");
         AssertTrue(refusal!.Member.Contains("PendingRequestTask", StringComparison.Ordinal) && refusal.Member.Contains(".Start()", StringComparison.Ordinal),
             $"refusal names the member: {refusal.Member}");
         AssertEqual(StartShapes, refusal.Facts, "refusal carries the transition's shapes");
-        AssertEqual(ExpectedRefusals(engine) & StartShapes, refusal.RefusedFacts, "refusal names exactly what the engine mishandles");
+        AssertEqual(refused, refusal.RefusedFacts, "refusal names exactly what the engine mishandles");
         AssertEqual((nint)42, TestLibFunctions.PendingRequestTaskValue(task), "the task is untouched");
     }
 #pragma warning restore SB0001

@@ -10,10 +10,10 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Members returning a non-frozen value type built from generic parameters. Swift returns such a
-/// value through the indirect-result register for every member kind, and the direct P/Invoke
-/// declares it by value with no result buffer. An instance member on a generic parent reaches it
-/// through the static-dispatch wrapper, which now admits bound-generic arguments over the parent's
-/// parameters and results nested in the parent; a member with no Swift-side carrier is tombstoned.
+/// value through the indirect-result register for every member kind. An instance member on a
+/// generic parent reaches it through the static-dispatch wrapper, which admits bound-generic
+/// arguments over the parent's parameters and results nested in the parent; a member no
+/// Swift-side carrier takes passes the result buffer on its direct call.
 /// </summary>
 public class GenericInstanceIndirectResultTests
 {
@@ -84,27 +84,26 @@ public class GenericInstanceIndirectResultTests
             new MethodEnvironment(method, typeDb), parent, GenericDispatchKind.Method));
     }
 
-    // ── ABI floor for members no carrier took ──────────────────────────
+    // ── A member no carrier took passes the result buffer ──────────────
 
     [Fact]
-    public void MemberGenericResultWithoutCarrier_Tombstones()
+    public void MemberGenericResultWithoutCarrier_PassesTheResultBuffer()
     {
-        // `func with<U>(_:) -> Request<T>` on a generic parent: nothing Swift-side takes it, and
-        // the direct call would adopt its own stack slot as the result.
+        // `func with<U>(_:) -> Request<T>` on a generic parent: nothing Swift-side takes it, so
+        // the direct call must hand Swift the buffer it returns the address-only value through
+        // rather than read the value out of the return register.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateGenericParent(moduleDecl);
         var method = CreateMethod("with", parent, moduleDecl, BoundOverParent("TestModule.Request"));
         var env = new MethodEnvironment(method, typeDb);
 
-        Assert.True(WrapperValidation.HasResilientGenericResultDirectDispatch(env));
-        Assert.True(WrapperValidation.IsAbiFloorTombstoned(env));
-        var issue = WrapperValidation.GetNonBlittableCallConvSwiftIssue(env);
-        Assert.Equal(WrapperValidation.UncallableAbiDiagnosticId, issue?.DiagnosticId);
-        Assert.Contains("result buffer", issue!.Value.Message);
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+        Assert.False(WrapperValidation.HasResilientGenericResultDirectDispatch(env));
+        Assert.False(WrapperValidation.IsAbiFloorTombstoned(env));
     }
 
     [Fact]
-    public void FreeFunctionResultWithoutCarrier_Tombstones()
+    public void FreeFunctionResultWithoutCarrier_PassesTheResultBuffer()
     {
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateGenericParent(moduleDecl);
@@ -112,8 +111,10 @@ public class GenericInstanceIndirectResultTests
             new NamedTypeSpec("TestModule.Request", new NamedTypeSpec("τ_0_0")));
         method.ParentDecl = moduleDecl;
         method.MethodType = MethodType.Static;
+        var env = new MethodEnvironment(method, typeDb);
 
-        Assert.True(WrapperValidation.HasResilientGenericResultDirectDispatch(new MethodEnvironment(method, typeDb)));
+        Assert.True(MarshallingHelpers.MethodRequiresIndirectResult(env));
+        Assert.False(WrapperValidation.HasResilientGenericResultDirectDispatch(env));
     }
 
     [Fact]
@@ -204,11 +205,11 @@ public class GenericInstanceIndirectResultTests
     }
 
     [Fact]
-    public void UnprojectableBoundGenericValueResult_UnderTheFloor_EmitsTheTombstone()
+    public void ResilientBoundGenericValueResult_IsReadFromABufferSizedByItsMetadata()
     {
-        // The same unprojectable value result on a non-frozen type is covered by the ABI floor,
-        // which rolls the body back and throws under the member's marker. Reaching the return arm
-        // first must not stop that: the member keeps its declaration and its throwing body.
+        // The same value result on a non-frozen type is address-only, so the call allocates the
+        // buffer from the bound type's runtime size, passes it as the indirect result and reads
+        // the value from it, never from the address of the one-word return local.
         var (moduleDecl, typeDb) = CreateEnvironment();
         var parent = CreateGenericParent(moduleDecl);
         var method = CreateMethod("makeRequest", parent, moduleDecl, BoundOverParent("TestModule.Request"));
@@ -218,7 +219,7 @@ public class GenericInstanceIndirectResultTests
             "τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()));
 
         var env = (MethodEnvironment)new MethodHandler(new NullLogger<MethodHandler>()).Marshal(method, typeDb);
-        Assert.True(WrapperValidation.IsAbiFloorTombstoned(env));
+        Assert.False(WrapperValidation.IsAbiFloorTombstoned(env));
 
         var emitter = new WrapperEmitter(env, new SignatureHandler(env));
         var csText = new StringWriter();
@@ -226,8 +227,11 @@ public class GenericInstanceIndirectResultTests
             emitter.EmitMethod(new CSharpWriter(csText), new SwiftWriter(new StringWriter())));
 
         Assert.Null(exception);
-        Assert.Contains("throw new NotSupportedException(", csText.ToString());
-        Assert.DoesNotContain("new IntPtr(&result)", csText.ToString());
+        var cs = csText.ToString();
+        Assert.Contains("GetTypeMetadataOrThrow<TestModule.Request<T>>()", cs);
+        Assert.Contains("new SwiftIndirectResult(", cs);
+        Assert.DoesNotContain("throw new NotSupportedException(", cs);
+        Assert.DoesNotContain("new IntPtr(&result)", cs);
     }
 
     // ── Helpers ─────────────────────────────────────────────────────────

@@ -804,6 +804,34 @@ public class DirectOptionalAbiTests
             DirectOptionalAbi.TryGetCarrierTypeName(Optional(new NamedTypeSpec(innerName)), typeDb));
     }
 
+    [Theory]
+    [InlineData("Swift.Bool", "byte")]
+    [InlineData("Swift.Int8", "ushort")]
+    [InlineData("Swift.UInt8", "ushort")]
+    [InlineData("Swift.Int16", "uint")]
+    [InlineData("Swift.UInt16", "uint")]
+    public void Carrier_SubWordOptional_IsTheIntegerSwiftLowersItTo(string innerName, string expected)
+    {
+        // The payload and its tag byte make a 2-, 3- or 4-byte value that Swift lowers to i8, i16 or
+        // i32. A word-wide slot reads the result register's upper bytes, which the callee leaves
+        // undefined, so the slot is the integer Swift actually lowers it to.
+        var typeDb = CreateTypeDatabase();
+
+        Assert.Equal(expected, DirectOptionalAbi.TryGetCarrierTypeName(Optional(new NamedTypeSpec(innerName)), typeDb));
+    }
+
+    [Theory]
+    [InlineData("Swift.Int32")]
+    [InlineData("Swift.UInt32")]
+    [InlineData("Swift.Float")]
+    public void Carrier_FiveByteOptional_KeepsTheWordSlot(string innerName)
+    {
+        // Four payload bytes and a tag lower to i64, which the word slot already is.
+        var typeDb = CreateTypeDatabase();
+
+        Assert.Null(DirectOptionalAbi.TryGetCarrierTypeName(Optional(new NamedTypeSpec(innerName)), typeDb));
+    }
+
     [Fact]
     public void Carrier_SingleWordOptional_IsNull()
     {
