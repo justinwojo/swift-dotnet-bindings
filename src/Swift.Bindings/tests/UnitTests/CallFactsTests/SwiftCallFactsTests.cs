@@ -258,7 +258,29 @@ public class SwiftCallFactsTests
         Assert.Contains(facts.Unknowns, u => u.Contains("@convention(c)"));
     }
 
-    // ---- self ----
+    // ---- Objective-C classes no database records ----
+
+    [Fact]
+    public void AnObjectiveCClass_IsAClassReference_ByItsDeclarationUsr()
+    {
+        // UIFont is in no type database; the ABI descriptor's USR is what says it is a class.
+        const string font = """{ "kind": "TypeNominal", "name": "UIFont", "printedName": "UIKit.UIFont", "usr": "c:objc(cs)UIFont" }""";
+        const string optionalFont = """{ "kind": "TypeNominal", "name": "Optional", "printedName": "UIKit.UIFont?", "children": [ { "kind": "TypeNominal", "name": "UIFont", "printedName": "UIKit.UIFont", "usr": "c:objc(cs)UIFont" } ], "usr": "s:Sq" }""";
+        const string insets = """{ "kind": "TypeNominal", "name": "UIEdgeInsets", "printedName": "UIKit.UIEdgeInsets", "usr": "c:@S@UIEdgeInsets" }""";
+        const string symbol = "$s10TestModule6scaledySo6UIFontCSgAC_So12UIEdgeInsetsVtF";
+        var (_, table, _) = Parse(Func("scaled", "scaled(_:_:)", symbol, new[] { optionalFont, font, insets }));
+
+        var facts = Facts(table, symbol);
+        var parameter = facts.Parameters[0].Type;
+        Assert.Equal(SwiftTypeCategory.Class, parameter.Category);
+        Assert.True(parameter.IsClassBound);
+        Assert.Equal(new[] { "UIKit.UIFont" }, facts.Result.Type.ObjCClasses.ToArray());
+        // A C struct's USR does not make it a class.
+        Assert.NotEqual(SwiftTypeCategory.Class, facts.Parameters[1].Type.Category);
+        Assert.True(facts.Parameters[1].Type.ObjCClasses.IsDefaultOrEmpty);
+    }
+
+    // ---- self ----    // ---- self ----
 
     [Fact]
     public void ValueSelf_TakesItsMutationFromTheDeclaration()

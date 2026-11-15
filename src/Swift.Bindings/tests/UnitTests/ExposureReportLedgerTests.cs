@@ -86,8 +86,8 @@ public sealed class ExposureReportLedgerTests
 
         Assert.DoesNotContain(errors, e => e.Contains(StableTag, StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
         Assert.Contains(errors, e => e.Contains(StableDepth, StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
-        // The refused plan stays an exposure, so its row is still expected.
-        Assert.Contains(errors, e => e.Contains("PendingRequestTask", StringComparison.Ordinal) && e.Contains("0 rows", StringComparison.Ordinal));
+        // PendingRequestTask.Start returns an address-only Result the bridge carries, so it too must be bridged.
+        Assert.Contains(errors, e => e.Contains("PendingRequestTask", StringComparison.Ordinal) && e.Contains("not routed", StringComparison.Ordinal));
         // The returned closure is invoked through a Cdecl thunk, so no raw function-pointer call is expected.
         Assert.DoesNotContain(errors, e => e.Contains("ClassCallback", StringComparison.Ordinal));
     }

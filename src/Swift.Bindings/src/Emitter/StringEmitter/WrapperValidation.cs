@@ -2768,9 +2768,11 @@ public static class WrapperValidation
     ///
     /// <para>A non-frozen value type is address-only across a library-evolution boundary, so
     /// Swift returns it through the indirect-result register whatever its size, and for every
-    /// member kind: instance, static or free function. The direct P/Invoke declares a bound
-    /// generic's result by value and passes no result buffer, so the callee writes through an
-    /// unset register and the managed side adopts its own stack slot as the value. The
+    /// member kind: instance, static or free function. The direct P/Invoke passes a result buffer
+    /// for every result the layout resolver places as address-only
+    /// (<see cref="MarshallingHelpers.MethodRequiresIndirectResult"/>), so this fires only for one
+    /// it cannot place: declared by value with no result buffer, the callee would write through an
+    /// unset register and the managed side adopt its own stack slot as the value. The
     /// static-dispatch wrapper, the method-level generic wrapper and the ordinary wrappers all
     /// return such a value through a buffer they allocate, so nothing here fires once any
     /// Swift-side carrier took the member. What remains is a member none of them could take (a

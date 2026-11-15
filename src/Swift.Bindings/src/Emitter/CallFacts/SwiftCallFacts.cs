@@ -504,6 +504,27 @@ public sealed record SwiftTypeFacts
     /// </summary>
     public SwiftFunctionRepresentation? Representation { get; init; }
 
+    /// <summary>
+    /// The spellings of the Objective-C classes this type spells inside it (the payload of an
+    /// <c>Optional</c>, a tuple element), each one object reference. The declaration's USR is
+    /// what says a type is an Objective-C class, and the spelling does not carry it, so a lowering
+    /// that reads the spelling back takes them from here. Default when it spells none.
+    /// </summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+    public ImmutableArray<string> ObjCClasses { get; init; }
+
+    public bool Equals(SwiftTypeFacts? other) =>
+        other is not null
+        && Spelling == other.Spelling
+        && Category == other.Category
+        && IsFrozen == other.IsFrozen
+        && IsClassBound == other.IsClassBound
+        && HasClassDynamicSelf == other.HasClassDynamicSelf
+        && Representation == other.Representation
+        && ObjCClasses.AsSpan().SequenceEqual(other.ObjCClasses.AsSpan());
+
+    public override int GetHashCode() => HashCode.Combine(Spelling, Category, IsFrozen, IsClassBound, HasClassDynamicSelf, Representation);
+
     /// <summary>Creates a raw machine-word type.</summary>
     public static SwiftTypeFacts Word(string spelling) => new() { Spelling = spelling, Category = SwiftTypeCategory.MachineWord };
 }

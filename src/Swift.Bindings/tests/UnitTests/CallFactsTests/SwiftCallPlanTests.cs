@@ -311,6 +311,105 @@ public class SwiftCallPlanTests
     }
 
     [Fact]
+    public void TypeLevelWitnessTableArguments_AreUnread_WhenSelfCarriesTheConformances()
+    {
+        // A method of `struct Box<T: P, F: Error>` takes self's metadata only: Swift recovers T, F
+        // and T's P conformance from it. The managed declaration also passes each parameter's
+        // metadata and T's witness table, which the callee never reads.
+        var method = ClassMethod("Swift.Int", "Swift.Int");
+        var facts = method with
+        {
+            Self = method.Self with { Abstraction = SwiftSelfAbstraction.GenericParent },
+            Generics = new SwiftGenericSignatureFacts
+            {
+                Parameters = ["τ_0_0", "τ_0_1"],
+                Requirements =
+                [
+                    new SwiftGenericRequirementFacts("τ_0_0", "M.P", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol, IsInherited = true },
+                    new SwiftGenericRequirementFacts("τ_0_1", "Swift.Error", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol, IsInherited = true },
+                ],
+            },
+        };
+        var plan = Planned(Planner().PlanForward(facts,
+            Named("long", ("index", "long"), ("TMetadata", "nint"), ("FMetadata", "nint"), ("TPPWT", "nint"), ("self", "SwiftSelf")), "$s1M3BoxV1fyS2iF"));
+
+        var unread = plan.Body.Managed.Arguments.Where(a => a.Unread).ToArray();
+        Assert.Equal(3, unread.Length);
+        Assert.All(unread, a => Assert.Equal(SwiftCallPlanner.FulfilledWitnessTableReason, a.UnreadReason));
+        Assert.Equal(new int?[] { 1, 2, 3 }, unread.Select(a => a.Parameter).ToArray());
+
+        // A witness table for a requirement the member declares itself is passed and read: not explained.
+        var own = facts with
+        {
+            Generics = facts.Generics with
+            {
+                Requirements = [new SwiftGenericRequirementFacts("τ_0_0", "M.P", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol }],
+            },
+        };
+        Refused(Planner().PlanForward(own,
+            Named("long", ("index", "long"), ("TMetadata", "nint"), ("FMetadata", "nint"), ("TPPWT", "nint"), ("self", "SwiftSelf")), "$s1M3BoxV1fyS2iF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TypeLevelArguments_AreNotExplained_WhenTheMemberHasGenericParametersOfItsOwn(bool withWitnessTable)
+    {
+        // `Box<T: P, F: Error>.f<U>(_ x: Int)` takes (x, U's metadata, self). A managed declaration
+        // passing (x, TMetadata, FMetadata, UMetadata[, TPPWT], self) fits the prefix by role, but
+        // the callee reads T's metadata as U's and the member's own argument falls into the surplus.
+        var method = ClassMethod("Swift.Int", "Swift.Int");
+        var facts = method with
+        {
+            Self = method.Self with { Abstraction = SwiftSelfAbstraction.GenericParent },
+            Generics = new SwiftGenericSignatureFacts
+            {
+                Parameters = ["τ_0_0", "τ_0_1", "τ_1_0"],
+                OwnParameters = ["τ_1_0"],
+                Requirements =
+                [
+                    new SwiftGenericRequirementFacts("τ_0_0", "M.P", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol, IsInherited = true },
+                    new SwiftGenericRequirementFacts("τ_0_1", "Swift.Error", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol, IsInherited = true },
+                ],
+            },
+        };
+        var parameters = new List<(string, string)> { ("index", "long"), ("TMetadata", "nint"), ("FMetadata", "nint"), ("UMetadata", "nint") };
+        if (withWitnessTable)
+            parameters.Add(("TPPWT", "nint"));
+        parameters.Add(("self", "SwiftSelf"));
+
+        Refused(Planner().PlanForward(facts, Named("long", parameters.ToArray()), "$s1M3BoxV1fyS2iqd__lF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
+    }
+
+    [Fact]
+    public void TypeLevelWitnessTables_AreNotExplained_WhenAnExtensionAddsAConformance()
+    {
+        // `extension Box where T: Q { func query() -> Int }` on `class Box<T: P>` takes
+        // (T: Q's witness table, self). The managed (TPPWT, TQPWT, self) fits the prefix by role,
+        // and the surplus counts as Box's own P table, but the callee reads P's table as Q's.
+        var method = ClassMethod("Swift.Int");
+        var facts = method with
+        {
+            Self = method.Self with { Abstraction = SwiftSelfAbstraction.GenericParent },
+            Generics = new SwiftGenericSignatureFacts
+            {
+                Parameters = ["τ_0_0"],
+                Requirements =
+                [
+                    new SwiftGenericRequirementFacts("τ_0_0", "M.P", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol, IsInherited = true },
+                    new SwiftGenericRequirementFacts("τ_0_0", "M.Q", SwiftGenericRequirementKind.Conformance) { TargetKind = SwiftRequirementTargetKind.Protocol },
+                ],
+            },
+        };
+
+        Refused(Planner().PlanForward(facts,
+            Named("long", ("TPPWT", "nint"), ("TQPWT", "nint"), ("self", "SwiftSelf")), "$s1M3BoxCA2A1QRzlE5querySiyF"),
+            SwiftPlanRefusalKind.PrefixMismatch);
+    }
+
+    [Fact]
     public void AMetadataArgument_InTheCalleesWitnessTableSlot_IsRefused()
     {
         // `func f<T: P>(_ x: Int)` takes (x, T's metadata, T: P's witness table). A managed

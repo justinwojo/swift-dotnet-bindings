@@ -56,7 +56,7 @@ public sealed class SwiftLayoutValueLowering : ISwiftValueLowering
             var pieces = ImmutableArray.CreateBuilder<SwiftLoweredPiece>();
             foreach (var element in TupleLeaves(spec))
             {
-                var answer = FromLayout(_resolver.Resolve(element, type.Representation, generics, type.HasClassDynamicSelf), element.ToString(true));
+                var answer = FromLayout(_resolver.Resolve(element, type.Representation, generics, type.HasClassDynamicSelf, type.ObjCClasses), element.ToString(true));
                 if (answer.Outcome != SwiftLoweringOutcome.Direct)
                     return SwiftLoweringAnswer.UnknownBecause($"tuple '{type.Spelling}': element '{element.ToString(true)}' is {answer.Outcome.ToString().ToLowerInvariant()}: {answer.Reason}");
                 pieces.AddRange(answer.Layout);
@@ -64,7 +64,7 @@ public sealed class SwiftLayoutValueLowering : ISwiftValueLowering
             return SwiftLoweringAnswer.DirectLayout(pieces.ToImmutable(), $"tuple '{type.Spelling}' passes its elements one by one");
         }
 
-        return FromLayout(_resolver.Resolve(spec, type.Representation, generics, type.HasClassDynamicSelf), type.Spelling);
+        return FromLayout(_resolver.Resolve(spec, type.Representation, generics, type.HasClassDynamicSelf, type.ObjCClasses), type.Spelling);
     }
 
     private static IEnumerable<TypeSpec> TupleLeaves(TypeSpec spec)
@@ -151,9 +151,49 @@ public sealed class SwiftLayoutResolver
     private sealed record Scope(
         SwiftFunctionRepresentation? Functions,
         SwiftGenericSignatureFacts? Generics,
-        IReadOnlyDictionary<string, SwiftLayoutResult>? Bound)
+        IReadOnlyDictionary<string, SwiftLayoutResult>? Bound,
+        ImmutableArray<string> ObjCClasses = default)
     {
         public static readonly Scope Empty = new(null, null, null);
+
+        /// <summary>Whether the caller's facts record <paramref name="name"/> as an Objective-C class.</summary>
+        public bool IsObjCClass(string name) => !ObjCClasses.IsDefaultOrEmpty && ObjCClasses.Contains(name);
+    }
+
+    /// <summary>
+    /// Whether a Swift-convention call returns <paramref name="method"/>'s result
+    /// <paramref name="spec"/> through an indirect result because the type is address-only in the
+    /// member's generic context: a resilient type, a generic parameter not bound to classes, or a
+    /// standard-library container over one. This is the same derivation the call plan checks the
+    /// managed signature against, so a direct import shaped by it agrees with the plan.
+    /// </summary>
+    internal static bool IsAddressOnlyResult(TypeSpec spec, MethodDecl method, TypeDecl? parent, ITypeDatabase typeDatabase)
+    {
+        var module = ModuleOf(parent);
+        var (facts, resolver) = module is null
+            ? (new SwiftCallFactsBuilder(Array.Empty<ModuleDecl>(), typeDatabase), new SwiftLayoutResolver(Array.Empty<ModuleDecl>(), typeDatabase))
+            : ResolversByModule.GetValue(module, m => new ModuleResolvers(
+                new SwiftCallFactsBuilder(new[] { m }, typeDatabase), new SwiftLayoutResolver(new[] { m }, typeDatabase))).AsTuple();
+        var generics = facts.ClassifiedGenericsOf(method, parent);
+        return resolver.Resolve(spec, generics: generics.IsEmpty ? null : generics).IsIndirect;
+    }
+
+    private sealed record ModuleResolvers(SwiftCallFactsBuilder Facts, SwiftLayoutResolver Layout)
+    {
+        public (SwiftCallFactsBuilder, SwiftLayoutResolver) AsTuple() => (Facts, Layout);
+    }
+
+    // The emitter asks per member; index each module's declarations once.
+    private static readonly System.Runtime.CompilerServices.ConditionalWeakTable<ModuleDecl, ModuleResolvers> ResolversByModule = new();
+
+    private static ModuleDecl? ModuleOf(BaseDecl? decl)
+    {
+        for (var current = decl; current is not null; current = current.ParentDecl)
+        {
+            if (current is ModuleDecl module)
+                return module;
+        }
+        return null;
     }
 
     /// <summary>The layout of <paramref name="spec"/>.</summary>
@@ -167,8 +207,8 @@ public sealed class SwiftLayoutResolver
     /// instance, one reference. Otherwise <c>Self</c> is a generic parameter the signature must name.
     /// </param>
     public SwiftLayoutResult Resolve(TypeSpec spec, SwiftFunctionRepresentation? functions = null, SwiftGenericSignatureFacts? generics = null,
-        bool classDynamicSelf = false) =>
-        Resolve(spec, 0, new Scope(functions, generics, classDynamicSelf ? ClassDynamicSelf : null));
+        bool classDynamicSelf = false, ImmutableArray<string> objcClasses = default) =>
+        Resolve(spec, 0, new Scope(functions, generics, classDynamicSelf ? ClassDynamicSelf : null, objcClasses));
 
     private static readonly IReadOnlyDictionary<string, SwiftLayoutResult> ClassDynamicSelf = new Dictionary<string, SwiftLayoutResult>(StringComparer.Ordinal)
     {
@@ -278,6 +318,8 @@ public sealed class SwiftLayoutResolver
                     : SwiftLayoutResult.Unknown($"'{spelling}': {limit.Reason}");
             return SwiftLayoutResult.Of(SwiftLeafLayout.Sequence(new[] { boundLayout, boundLayout }), $"'{name}' is its lower and upper bounds");
         }
+        if (name is "Swift.Result" && named.GenericParameters.Count == 2)
+            return ResolveResult(named, depth, scope);
         if (Carrier(name) is { } carrier)
             return carrier;
         if (name is "AnyObject" or "Swift.AnyObject")
@@ -300,6 +342,8 @@ public sealed class SwiftLayoutResolver
                 _ => SwiftLayoutResult.Unknown($"'{name}' is declared in another module and is not in the carrier table"),
             };
         }
+        if (named.IsUsrObjCClass || scope.IsObjCClass(name))
+            return SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"'{name}' is an Objective-C class reference");
         return SwiftLayoutResult.Unknown($"'{spelling}' is not known to the module or the type database");
     }
 
@@ -454,6 +498,28 @@ public sealed class SwiftLayoutResolver
             return SwiftLayoutResult.Of(tagged with { Alignment = layout.Alignment }, "an Optional of a payload with no spare bit patterns appends a one-byte tag");
         }
         return SwiftLayoutResult.Unknown($"whether Optional<{wrapped.ToString(true)}> needs a tag byte is not derivable here");
+    }
+
+    /// <summary>
+    /// <c>Result&lt;Success, Failure&gt;</c>, the standard library's frozen two-payload enum. An
+    /// address-only payload makes the whole enum address-only, so it is passed and returned
+    /// indirectly. Over two loadable payloads its storage depends on where the payloads have spare
+    /// bits for the case tag, which this model does not derive.
+    /// </summary>
+    private SwiftLayoutResult ResolveResult(NamedTypeSpec named, int depth, Scope scope)
+    {
+        var spelling = named.ToString(true);
+        var success = Resolve(named.GenericParameters[0], depth + 1, scope);
+        var failure = Resolve(named.GenericParameters[1], depth + 1, scope);
+        if (success.IsIndirect)
+            return SwiftLayoutResult.Indirect($"'{spelling}' has an address-only Success payload: {success.Reason}");
+        if (failure.IsIndirect)
+            return SwiftLayoutResult.Indirect($"'{spelling}' has an address-only Failure payload: {failure.Reason}");
+        if (success.Layout is null)
+            return SwiftLayoutResult.Unknown($"'{spelling}' Success payload: {success.Reason}");
+        if (failure.Layout is null)
+            return SwiftLayoutResult.Unknown($"'{spelling}' Failure payload: {failure.Reason}");
+        return SwiftLayoutResult.Unknown($"'{spelling}' is a multi-payload enum over loadable payloads, whose tag placement this model does not derive");
     }
 
     private bool IsSpareTagEnum(TypeSpec wrapped) =>
@@ -652,6 +718,13 @@ public sealed class SwiftLayoutResolver
                 fields.AddRange(Enumerable.Repeat(SwiftLeafLayout.Scalar(SwiftScalarKind.Int16), 8));
                 return SwiftLayoutResult.Of(SwiftLeafLayout.Sequence(fields), "Decimal is a bitfield word and eight mantissa halves");
             }
+            // UIKit's imported C structs of CGFloats, and its NS_OPTIONS over NSUInteger.
+            case "UIKit.UIEdgeInsets" or "UIKit.NSDirectionalEdgeInsets":
+                return SwiftLayoutResult.Of(Words(SwiftScalarKind.Double, SwiftScalarKind.Double, SwiftScalarKind.Double, SwiftScalarKind.Double), $"'{name}' is four CGFloats");
+            case "UIKit.UIOffset" or "UIKit.UIFloatRange":
+                return SwiftLayoutResult.Of(Words(SwiftScalarKind.Double, SwiftScalarKind.Double), $"'{name}' is two CGFloats");
+            case "UIKit.UIControl.State" or "UIKit.UIRectEdge" or "UIKit.UIRectCorner":
+                return SwiftLayoutResult.Of(Words(SwiftScalarKind.Int64), $"'{name}' is an option set over its NSUInteger raw value");
             case "Foundation.Date" or "Foundation.UUID" or "Foundation.URL" or "Foundation.IndexPath" or "Foundation.Locale":
                 // Not @frozen in the SDK's Foundation, whatever the bundled database records.
                 return SwiftLayoutResult.Indirect($"'{name}' is resilient in the SDK's Foundation");

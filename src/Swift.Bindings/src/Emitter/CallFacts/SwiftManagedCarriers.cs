@@ -567,10 +567,45 @@ public static class SwiftManagedCarrierTable
     public static readonly ImmutableSortedDictionary<string, string> Enums =
         new Dictionary<string, string> { ["Swift.Runtime.TypeMetadataRequest"] = "int" }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
+    /// <summary>
+    /// The platform bindings' value types a transition carries by value: the UIKit types the
+    /// generator projects a Swift UIKit value onto, which Swift lowers the same way (a C struct of
+    /// <c>CGFloat</c>s is <c>NFloat</c>s, an NS_OPTIONS over <c>NSUInteger</c> a <c>ulong</c> enum).
+    /// A unit test checks each against the platform reference assembly, since no source of ours
+    /// declares them.
+    /// </summary>
+    public static readonly ImmutableSortedDictionary<string, (SwiftLeafLayout Layout, int ManagedSize)> PlatformEntries =
+        new Dictionary<string, (SwiftLeafLayout, int)>
+        {
+            ["UIKit.UIEdgeInsets"] = Doubles(4),
+            ["UIKit.NSDirectionalEdgeInsets"] = Doubles(4),
+            ["UIKit.UIOffset"] = Doubles(2),
+            ["UIKit.UIFloatRange"] = Doubles(2),
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+
+    /// <summary>The platform bindings' enums a transition carries, by full name → underlying C# keyword.</summary>
+    public static readonly ImmutableSortedDictionary<string, string> PlatformEnums =
+        new Dictionary<string, string>
+        {
+            ["UIKit.UIControlState"] = "ulong",
+            ["UIKit.UIRectEdge"] = "ulong",
+            ["UIKit.UIRectCorner"] = "ulong",
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Platform binding types that share a name with a Swift value but not its representation, so
+    /// no transition may carry one by value, with the reason.
+    /// </summary>
+    public static readonly ImmutableSortedDictionary<string, string> PlatformMismatches =
+        new Dictionary<string, string>
+        {
+            ["UIKit.UIFontWeight"] = "the platform binding's UIFontWeight is an int enum of weight ordinals, while Swift's UIFont.Weight is a CGFloat raw weight",
+        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
+
     /// <summary>The table entry a full name (with its generic arguments) names, if any.</summary>
     public static bool TryGet(string fullName, out SwiftLeafLayout layout, out int managedSize)
     {
-        if (Entries.TryGetValue(fullName, out var entry))
+        if (Entries.TryGetValue(fullName, out var entry) || PlatformEntries.TryGetValue(fullName, out entry))
         {
             (layout, managedSize) = entry;
             return true;
@@ -735,7 +770,10 @@ public sealed class SwiftManagedCarrierClassifier
         var (name, arity) = NameOf(type);
         foreach (var candidate in _index.Candidates(name, scope))
         {
-            if ((_index.TryGetEnum(candidate, out var underlying) || SwiftManagedCarrierTable.Enums.TryGetValue(candidate, out underlying!)) && arity == 0)
+            if (SwiftManagedCarrierTable.PlatformMismatches.TryGetValue(candidate, out var mismatch))
+                return SwiftManagedValue.Refuse(spelling, SwiftPlanRefusalKind.NonBlittable, mismatch);
+            if ((_index.TryGetEnum(candidate, out var underlying) || SwiftManagedCarrierTable.Enums.TryGetValue(candidate, out underlying!)
+                    || SwiftManagedCarrierTable.PlatformEnums.TryGetValue(candidate, out underlying!)) && arity == 0)
             {
                 var scalar = Scalar(underlying.Contains('.') ? underlying[(underlying.LastIndexOf('.') + 1)..] : underlying);
                 return scalar is { Kind: not (SwiftScalarKind.Bool or SwiftScalarKind.Float or SwiftScalarKind.Double) } s

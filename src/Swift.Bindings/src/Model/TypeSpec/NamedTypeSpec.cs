@@ -76,6 +76,15 @@ public class NamedTypeSpec : TypeSpec
         }
     }
 
+    /// <summary>
+    /// True when <see cref="Usr"/> records an Objective-C class (<c>c:objc(cs)Name</c>): a type the
+    /// SDK declares in Objective-C, which Swift holds as one object reference whatever module
+    /// imports it. An <c>@objc</c> Swift class carries a module marker
+    /// (<c>c:@M@Module@objc(cs)Name</c>) and is declared by that module instead.
+    /// </summary>
+    public bool IsUsrObjCClass =>
+        Usr is { } usr && usr.StartsWith("c:objc(cs)", System.StringComparison.Ordinal) && usr.Length > "c:objc(cs)".Length;
+
     protected override string LLToString(bool useFullName)
     {
         return useFullName ? Name : NameWithoutModule;

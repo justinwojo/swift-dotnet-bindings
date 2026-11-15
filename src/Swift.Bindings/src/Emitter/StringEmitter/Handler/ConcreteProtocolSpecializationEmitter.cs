@@ -1430,6 +1430,13 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // OptionalClassPointer) back into the projected C# type. Stays null for
         // constructors/void/string/generic-param/indirect-result paths.
         CdeclReturnMapping? directReturnMapping = null;
+        // A class-pointer return whose class is an Objective-C class (a platform binding's
+        // NSObject subclass, or a Swift class rooted in NSObject) projects to an NSObject wrapper,
+        // not an ISwiftObject, so it adopts the wrapper's +1 through the ObjC runtime. Its C# name
+        // comes from the record the resolver synthesizes for a platform class, which the plain
+        // database lookup behind ResolvePublicCSharpType never sees.
+        bool returnsObjCObject = false;
+        string? objcReturnType = null;
         if (isConstructor && !isClass)
         {
             // Struct constructors always return via result pointer
@@ -1451,6 +1458,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var (mapping, _) = CdeclReturnMapping.Classify(classifyReturnSpec, typeDatabase);
                 needsResultPtr = mapping.Kind == CdeclReturnKind.IndirectResult;
                 directReturnMapping = mapping;
+                returnsObjCObject = TryGetObjCObjectReturnType(classifyReturnSpec, typeDatabase, out objcReturnType);
             }
         }
 
@@ -1762,7 +1770,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 // for `initializeMemory(as:)` at the result-pointer path.
                 var returnTypeSpec = method.CSSignature.First().SwiftTypeSpec;
                 var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing, method);
-                csReturnType = ResolvePublicCSharpType(substitutedReturn, typeDatabase);
+                csReturnType = returnsObjCObject
+                    ? objcReturnType!
+                    : ResolvePublicCSharpType(substitutedReturn, typeDatabase);
             }
         }
 
@@ -2232,13 +2242,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     // MarshalFromSwiftObject<T>, which calls the PUBLIC static
                     // T.NewFromPayload — ownership-equivalent (both adopt the returned +1)
                     // and cross-module-safe. Mirrors the non-specialized member path.
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({resultLocalName});");
+                    csWriter.WriteLine(returnsObjCObject
+                        ? $"return {MarshallingHelpers.FormatObjCBridgeCall(csReturnType, resultLocalName, nonNull: true, ownsReference: true)};"
+                        : $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({resultLocalName});");
                     break;
                 case CdeclReturnKind.OptionalClassPointer:
                     // csReturnType is `MyClass?` — strip the `?` for the marshal type. Same
                     // cross-module rationale as ClassPointer above (NewFromPayload, not the
                     // private ctor); a null pointer projects to a null reference.
-                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
+                    csWriter.WriteLine(returnsObjCObject
+                        ? $"return {resultLocalName} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(csReturnType.TrimEnd('?'), resultLocalName, ownsReference: true)};"
+                        : $"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
                     break;
                 case CdeclReturnKind.OptionalErrorPointer:
                     // Optional<any Error> is a nullable owned error-box pointer, not an optional
@@ -3893,6 +3907,29 @@ public static partial class ConcreteProtocolSpecializationEmitter
             return false;
 
         return named.GenericParameters.All(g => IsKeyPathGenericArgResolvable(g, typeDatabase));
+    }
+
+    /// <summary>
+    /// Whether a class-pointer return (or an Optional of one) names an Objective-C class: a type
+    /// the resolver records as ObjC-bridged or ObjC-rooted, which C# sees as an NSObject wrapper.
+    /// <paramref name="csharpType"/> is that wrapper's global-qualified name, nullable for an
+    /// Optional return.
+    /// </summary>
+    internal static bool TryGetObjCObjectReturnType(TypeSpec returnSpec, ITypeDatabase typeDatabase, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? csharpType)
+    {
+        csharpType = null;
+        var isOptional = returnSpec is NamedTypeSpec { Name: "Swift.Optional" or "Optional", GenericParameters.Count: 1 };
+        var spec = isOptional ? ((NamedTypeSpec)returnSpec).GenericParameters[0] : returnSpec;
+        if (spec is not NamedTypeSpec { GenericParameters.Count: 0 } named
+            || !typeDatabase.TryGetTypeRecord(named, out var record)
+            || record.Kind == TypeRecordKind.Struct
+            || !(MarshallingHelpers.IsObjCBridged(record) || MarshallingHelpers.IsObjCRooted(record)))
+            return false;
+        var name = record.CSharpTypeName.FullyQualifiedName;
+        if (!name.StartsWith("global::", StringComparison.Ordinal))
+            name = "global::" + name;
+        csharpType = isOptional ? name + "?" : name;
+        return true;
     }
 
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)

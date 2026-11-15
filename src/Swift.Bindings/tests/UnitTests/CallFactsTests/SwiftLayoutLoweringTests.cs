@@ -115,9 +115,88 @@ public class SwiftLayoutLoweringTests
     [InlineData("CoreMedia.CMTime", "i64, i64, i64")]
     // An Error existential is one boxed reference, so its optional is one word.
     [InlineData("Swift.Optional<any Swift.Error>", "i64")]
+    // An Optional of a sub-word primitive appends its tag byte inside the same integer piece.
+    [InlineData("Swift.Optional<Swift.UInt16>", "i32")]
+    [InlineData("Swift.Optional<Swift.UInt8>", "i16")]
+    [InlineData("Swift.Optional<Swift.Bool>", "i8")]
+    // UIKit's imported C structs are CGFloat fields; its option sets are an NSUInteger raw value.
+    [InlineData("UIKit.UIEdgeInsets", "double, double, double, double")]
+    [InlineData("UIKit.NSDirectionalEdgeInsets", "double, double, double, double")]
+    [InlineData("UIKit.UIOffset", "double, double")]
+    [InlineData("UIKit.UIFloatRange", "double, double")]
+    [InlineData("UIKit.UIControl.State", "i64")]
+    [InlineData("UIKit.UIRectEdge", "i64")]
+    [InlineData("UIKit.UIRectCorner", "i64")]
     public void Resolver_CarriersLowerToTheirSwiftPieces(string spelling, string expected)
     {
         Assert.Equal(expected, Direct(Lowering().Lower(Type(spelling))));
+    }
+
+    [Fact]
+    public void Resolver_AnObjectiveCClass_IsOneReference_ByItsDeclarationUsr()
+    {
+        // UIFont is in no type database: only the USR the ABI descriptor records says it is a class.
+        var font = new NamedTypeSpec("UIKit.UIFont") { Usr = "c:objc(cs)UIFont" };
+        var resolved = Lowering().Resolver.Resolve(font);
+        Assert.NotNull(resolved.Layout);
+        Assert.Equal("ptr", string.Join(", ", SwiftAggregateLowering.Lower(resolved.Layout!).Select(p => p.IrType)));
+
+        // A Swift class exposed to Objective-C, and a C struct, are not Objective-C classes by USR.
+        Assert.False(new NamedTypeSpec("M.K") { Usr = "c:@M@M@objc(cs)K" }.IsUsrObjCClass);
+        Assert.False(new NamedTypeSpec("UIKit.UIEdgeInsets") { Usr = "c:@S@UIEdgeInsets" }.IsUsrObjCClass);
+        Assert.False(new NamedTypeSpec("M.K") { Usr = "c:objc(cs)" }.IsUsrObjCClass);
+
+        // Unknown without it.
+        Assert.Null(Lowering().Resolver.Resolve(new NamedTypeSpec("UIKit.UIFont")).Layout);
+    }
+
+    [Fact]
+    public void Resolver_AnObjectiveCClassInsideAType_IsOneReference_ByTheFactsThatRecordIt()
+    {
+        // The spelling the lowering reads back carries no USR, so the facts carry the class names.
+        var optional = Type("Swift.Optional<UIKit.UIFont>", SwiftTypeCategory.Enum);
+        Assert.Equal(SwiftLoweringOutcome.Unknown, Lowering().Lower(optional).Outcome);
+        Assert.Equal("i64", Direct(Lowering().Lower(optional with { ObjCClasses = ["UIKit.UIFont"] })));
+    }
+
+    [Fact]
+    public void Facts_RecordTheObjectiveCClassesASpecSpells()
+    {
+        var spec = (NamedTypeSpec)TypeSpecParser.Parse("Swift.Optional<(UIKit.UIFont, UIKit.UIColor, Swift.Int)>")!;
+        var tuple = (TupleTypeSpec)spec.GenericParameters[0];
+        ((NamedTypeSpec)tuple.Elements[0]).Usr = "c:objc(cs)UIFont";
+        ((NamedTypeSpec)tuple.Elements[1]).Usr = "c:objc(cs)UIColor";
+        ((NamedTypeSpec)tuple.Elements[2]).Usr = "s:Si";
+
+        Assert.Equal(new[] { "UIKit.UIFont", "UIKit.UIColor" }, SwiftCallFactsBuilder.ObjCClassesIn(spec).ToArray());
+        Assert.Empty(SwiftCallFactsBuilder.ObjCClassesIn(TypeSpecParser.Parse("Swift.Int")!));
+
+        // Facts built twice from the same spec are the same facts: the facts table treats
+        // unequal facts for one symbol as conflicting declarations.
+        SwiftTypeFacts Build() => Type("Swift.Optional<UIKit.UIFont>", SwiftTypeCategory.Enum) with { ObjCClasses = SwiftCallFactsBuilder.ObjCClassesIn(spec) };
+        Assert.Equal(Build(), Build());
+        Assert.Equal(Build().GetHashCode(), Build().GetHashCode());
+        Assert.NotEqual(Build(), Build() with { ObjCClasses = ["UIKit.UIColor"] });
+    }
+
+    [Fact]
+    public void Resolver_AResultOverAnAddressOnlyPayload_IsIndirect()
+    {
+        // `Result<Value, Failure>` over a struct's own unconstrained parameters is address-only, so
+        // Swift returns it through the indirect-result register.
+        var generics = new SwiftGenericSignatureFacts { Parameters = ImmutableArray.Create("τ_0_0", "τ_0_1") };
+        var result = Type("Swift.Result<τ_0_0, τ_0_1>", SwiftTypeCategory.Enum);
+
+        Assert.Equal(SwiftLoweringOutcome.Indirect, Lowering().Lower(result, generics, asResult: true).Outcome);
+
+        // A resilient payload makes it address-only too.
+        var db = Db(Record("Failure", TypeRecordKind.Struct, TypeRecordFlags.None));
+        Assert.Equal(SwiftLoweringOutcome.Indirect, Lowering(db).Lower(Type("Swift.Result<Swift.Int, M.Failure>", SwiftTypeCategory.Enum), null, asResult: true).Outcome);
+
+        // Over loadable payloads it is a multi-payload enum whose tag placement is not modeled: refused, not guessed.
+        var loadable = Lowering().Lower(Type("Swift.Result<Swift.Int, any Swift.Error>", SwiftTypeCategory.Enum), null, asResult: true);
+        Assert.Equal(SwiftLoweringOutcome.Unknown, loadable.Outcome);
+        Assert.Contains("multi-payload", loadable.Reason);
     }
 
     [Fact]

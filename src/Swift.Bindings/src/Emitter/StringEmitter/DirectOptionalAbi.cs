@@ -250,8 +250,32 @@ internal static class DirectOptionalAbi
         {
             DirectOptionalAbiWidth.WordAndTagByte => "global::Swift.Runtime.SwiftOptionalCarrier9",
             DirectOptionalAbiWidth.TwoIntegerWords => "global::Swift.Runtime.SwiftOptionalCarrier16",
+            DirectOptionalAbiWidth.SingleWord => SubWordCarrier(typeSpec),
             _ => null,
         };
+
+    /// <summary>
+    /// Optionals of the primitives narrower than four bytes, keyed by payload, with the unsigned
+    /// integer Swift lowers each to: <c>Bool?</c> folds nil into a spare value of its one byte
+    /// (<c>i8</c>), and the narrow integers append a tag byte, two bytes for <c>Int8?</c>
+    /// (<c>i16</c>) and three for <c>Int16?</c> (<c>i24</c>, which swiftcc widens to <c>i32</c>).
+    /// A pointer-sized slot puts such a value in the right register, but declares a word where the
+    /// callee reads a narrower integer, and the call plan that checks each register against the
+    /// callee's lowering refuses it. A five-byte Optional (<c>Int32?</c>, <c>Float?</c>) lowers to
+    /// <c>i64</c>, which the word slot already is.
+    /// </summary>
+    private static readonly Dictionary<string, string> s_subWordCarriers = new(StringComparer.Ordinal)
+    {
+        ["Swift.Bool"] = "byte", ["Bool"] = "byte",
+        ["Swift.Int8"] = "ushort", ["Int8"] = "ushort", ["Swift.UInt8"] = "ushort", ["UInt8"] = "ushort",
+        ["Swift.Int16"] = "uint", ["Int16"] = "uint", ["Swift.UInt16"] = "uint", ["UInt16"] = "uint",
+    };
+
+    private static string? SubWordCarrier(TypeSpec typeSpec)
+        => typeSpec is NamedTypeSpec { GenericParameters: [NamedTypeSpec inner] }
+           && s_subWordCarriers.TryGetValue(inner.Name, out var carrier)
+            ? carrier
+            : null;
 
     /// <summary>
     /// The carrier <paramref name="member"/> will actually emit for <paramref name="typeSpec"/>,

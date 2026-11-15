@@ -613,7 +613,7 @@ public sealed class SwiftCallPlanner
             string? why = null;
             if (kind != SwiftPlanKind.Reverse)
             {
-                why = UnreadReason(facts, managed, surplus);
+                why = UnreadReason(facts, managed, surplus, swiftOrdinary);
                 if (why is null)
                     return ArchitectureAttempt.Fail(SwiftPlanRefusalKind.PrefixMismatch,
                         $"the managed signature passes {surplus.Count} ordinary argument(s) past the {swiftOrdinary.Count} the callee takes "
@@ -665,15 +665,24 @@ public sealed class SwiftCallPlanner
         "the callee recovers its type's generic arguments from self: the managed declaration's trailing type-metadata arguments are not read";
 
     /// <summary>
+    /// The reason a self that carries its type's metadata makes trailing type-metadata and
+    /// type-level witness-table arguments benign.
+    /// </summary>
+    public const string FulfilledWitnessTableReason =
+        "the callee recovers its type's generic arguments and their conformances from self: the managed declaration's trailing type-metadata and witness-table arguments are not read";
+
+    /// <summary>
     /// Why the ordinary arguments the callee does not take are benign to pass, or null. Each must be a
     /// whole pointer-sized value, and the facts must show what the callee reads instead: a thin
     /// metatype self, which takes no register (the managed declaration passes it as a trailing
     /// <c>metatype</c>); or a self that carries the type's metadata (a class instance's isa, or the
     /// self-type metadata a generic value's member takes), which fulfils the type-level generic
-    /// arguments the managed declaration passes as <c>…Metadata</c>. The names only corroborate the
+    /// arguments the managed declaration passes as <c>…Metadata</c> and the witness tables of the
+    /// type's own conformance requirements, passed as <c>…PWT</c>. The names only corroborate the
     /// structure; neither is enough alone.
     /// </summary>
-    internal static string? UnreadReason(SwiftCallFacts facts, SwiftManagedSignature managed, IReadOnlyList<SwiftTwinArgument> surplus)
+    internal static string? UnreadReason(SwiftCallFacts facts, SwiftManagedSignature managed, IReadOnlyList<SwiftTwinArgument> surplus,
+        IReadOnlyList<SwiftPhysicalArgument> calleeOrdinary)
     {
         if (surplus.Count == 0)
             return null;
@@ -684,11 +693,29 @@ public sealed class SwiftCallPlanner
         if (facts.Self.Kind == SwiftCallSelfKind.ThinMetatype && surplus.Count == 1 && names[0] == "metatype")
             return ThinMetatypeReason;
         int typeLevel = facts.Generics.IsEmpty ? 0 : facts.Generics.Parameters.Length - facts.Generics.OwnParameters.Length;
-        if (facts.Self.Kind is SwiftCallSelfKind.Reference or SwiftCallSelfKind.Value
-            && typeLevel > 0 && surplus.Count <= typeLevel
-            && names.All(n => n.Length > "Metadata".Length && n.EndsWith("Metadata", StringComparison.Ordinal)))
+        if (facts.Self.Kind is not (SwiftCallSelfKind.Reference or SwiftCallSelfKind.Value) || typeLevel == 0)
+            return null;
+        // A callee that reads generic metadata or witness tables of its own in the prefix (the
+        // member's own parameters, or the conformances an extension's `where` clause adds) takes
+        // them from managed arguments the names cannot tell apart: a type-level argument passed
+        // ahead of them fills the callee's slot with the wrong parameter's metadata, or the wrong
+        // protocol's table, and the one the callee wanted falls into the surplus.
+        if (calleeOrdinary.Any(a => a.Role is SwiftPhysicalArgumentRole.GenericMetadata or SwiftPhysicalArgumentRole.WitnessTable
+                or SwiftPhysicalArgumentRole.WitnessSelfMetadata or SwiftPhysicalArgumentRole.WitnessSelfTable))
+            return null;
+        int metadata = names.Count(n => IsNamedFor(n, "Metadata"));
+        int tables = names.Count(n => IsNamedFor(n, "PWT"));
+        if (metadata + tables != names.Count || metadata > typeLevel)
+            return null;
+        if (tables == 0)
             return FulfilledMetadataReason;
-        return null;
+        // The type's own conformance requirements are stored in its metadata beside its
+        // arguments, so the self that fulfils the one fulfils the other.
+        int typeLevelTables = facts.Generics.Requirements.Count(r => r.IsInherited && r.PassesWitnessTable);
+        return tables <= typeLevelTables ? FulfilledWitnessTableReason : null;
+
+        static bool IsNamedFor(string name, string suffix) =>
+            name.Length > suffix.Length && name.EndsWith(suffix, StringComparison.Ordinal);
     }
 
     /// <summary>
