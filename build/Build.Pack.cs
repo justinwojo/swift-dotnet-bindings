@@ -211,6 +211,10 @@ partial class Build
             // to a dev sentinel — exactly the kind of quiet packaging lie this pack pipeline must
             // never produce.
             AssertProducedNupkgsCarryRealVersion(outputDir, Version!, appleVersion, SkipApple);
+
+            // Every shipped build of the runtime and the supplement, not only the compile-check one,
+            // refuses each known-unsafe direct Swift transition before native code (Build.PackedResidualGate.cs).
+            AssertPackedResidualGuards(outputDir, Version!, appleVersion, SkipApple);
         });
 
     // Opens the produced SDK and Templates nupkgs (and, unless skipped, the Apple supplement) and

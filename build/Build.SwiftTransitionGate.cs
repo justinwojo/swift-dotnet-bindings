@@ -31,7 +31,9 @@
 // plus any --transition-gate-reference-dir.
 //
 // Writes swift-transition-report.json (verdict, counts, violations), swift-transition-inventory.json
-// (every transition site with the rules it violates) and swift-transition-summary.txt.
+// (every transition site with the rules it violates) and swift-transition-summary.txt. It also runs the
+// residual-guard check on every assembly it scans and writes swift-transition-residual-guards.<name>.txt;
+// `nuke pack` runs that check over every packed copy (Build.PackedResidualGate.cs).
 //
 // The ledger cross-check (build/SwiftTransitionGate/LedgerCrossCheck.cs) joins the generator's
 // transition ledgers (one *.swift-transition-ledger.json per module, beside its C#) with the IL
@@ -156,6 +158,20 @@ partial class Build
                 }
             }
 
+            // The residual-guard check over every scanned assembly, so a packed or shipped package DLL
+            // gets the same account of its known-unsafe transitions as the compile-check tree.
+            var residualFailed = new List<string>();
+            foreach (var report in reports)
+            {
+                var ledger = defaultInput
+                    ? LedgeredAssemblies.Where(l => l.Assembly == Path.GetFileName(report.Path))
+                        .Select(l => (AbsolutePath?)l.LedgerDirectory).SingleOrDefault()
+                    : null;
+                if (!CheckResidualGuards((AbsolutePath)report.Path, report, ledger,
+                        HandWrittenResidualTypes(Path.GetFileName(report.Path)), output))
+                    residualFailed.Add(Path.GetFileName(report.Path));
+            }
+
             if (!reports.All(r => r.Passed))
             {
                 var totals = SwiftTransitionReport.CountByRule(reports.SelectMany(r => r.Violations));
@@ -164,10 +180,13 @@ partial class Build
                     "Swift transition gate: " + string.Join(", ", totals.Select(kv => $"{kv.Key}={kv.Value}")) +
                     $", inspection errors={errors}" +
                     (crossCheckPassed is null ? "" : $", ledger cross-check {(crossCheckPassed.Value ? "passed" : "FAILED")}") +
+                    $", residual guards {(residualFailed.Count == 0 ? "passed" : "FAILED for " + string.Join(", ", residualFailed))}" +
                     ". Each listed transition is one the .NET 11 interpreter can mis-place or crash on — see the lines above.");
             }
             if (crossCheckPassed == false)
                 throw new Exception("Swift transition gate: the transition ledger cross-check failed — see the lines above.");
+            if (residualFailed.Count > 0)
+                throw new Exception($"Swift transition gate: the residual-guard check failed for {string.Join(", ", residualFailed)} — see the lines above.");
             Log.Information("Swift transition gate: PASSED");
         });
 
