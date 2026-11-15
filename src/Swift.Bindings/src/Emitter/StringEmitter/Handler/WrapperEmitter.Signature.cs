@@ -421,44 +421,14 @@ namespace BindingsGeneration
             bool hasSafetyIssues = hasJitRisk
                 || (!_env.MethodDecl.IsAccessor && _env.MethodDecl.IsMissingExportedSymbol)
                 || returnsSilentTombstone;
-            if (issues.Count > 0)
-            {
-                var message = string.Join(". ", issues) + ".";
-                if (hasSafetyIssues)
-                {
-                    // The non-blittable condition carries its own id (SB0001 advisory / SB0009
-                    // uncallable-and-throwing) chosen alongside the sentence, so the marker and the
-                    // body agree. SB0002 covers a missing symbol or a silent-tombstone return (not
-                    // runtime-dependent — always relevant). A member with both takes the
-                    // non-blittable id: it is the broader condition.
-                    var diagnosticId = nonBlittableDiagnosticId ?? "SB0002";
-                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
-                        $"DiagnosticId = \"{diagnosticId}\", " +
-                        $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
-                    RecordSafetyMarked(diagnosticId, deprecationMsg != null, emittedName);
-                    // Such a member is either uncallable (its body throws) or reachable only through a
-                    // direct P/Invoke whose ABI we cannot vouch for. Either way the declaration stays: a
-                    // conformance that requires it must still compile (dropping it would be CS0535) and the
-                    // pinned public surface must not silently shrink. Hide it from IntelliSense so it does
-                    // not clutter completion for the majority case; the [Obsolete] message + wiki URL remain
-                    // the discovery path for anyone who reaches it deliberately.
-                    if (hasJitRisk)
-                    {
-                        csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
-                        editorBrowsableNeverEmitted = true;
-                    }
-                }
-                else
-                {
-                    // Deprecation-only — plain [Obsolete] without DiagnosticId
-                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");
-                }
-            }
-
-            // The three IntelliSense-hide conditions below are NOT mutually exclusive in the
-            // type system: EditorBrowsableAttribute is AllowMultiple=false, so emitting it twice
-            // on one method is CS0579 and the whole binding fails to compile. Emit it at most
-            // once — later conditions no-op if an earlier one already wrote the attribute.
+            // A member hidden for another reason gets that [EditorBrowsable(Never)] ahead of its
+            // marker, so one written right after an SB0001 marker is always the marker's own: when
+            // bridge routing later moves the member off its direct call, settling the marker removes
+            // exactly the attribute it brought (SwiftRouteMarkers). The three hide conditions are
+            // NOT mutually exclusive in the type system: EditorBrowsableAttribute is
+            // AllowMultiple=false, so emitting it twice on one method is CS0579 and the whole
+            // binding fails to compile. Emit it at most once — later conditions no-op if an earlier
+            // one already wrote the attribute.
 
             // Hide original method when a simplified throwing closure overload exists.
             // The post-processor emits the user-facing convenience overload (Action/Func params);
@@ -481,6 +451,40 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
                 editorBrowsableNeverEmitted = true;
+            }
+
+            if (issues.Count > 0)
+            {
+                var message = string.Join(". ", issues) + ".";
+                if (hasSafetyIssues)
+                {
+                    // The non-blittable condition carries its own id (SB0001 advisory / SB0009
+                    // uncallable-and-throwing) chosen alongside the sentence, so the marker and the
+                    // body agree. SB0002 covers a missing symbol or a silent-tombstone return (not
+                    // runtime-dependent — always relevant). A member with both takes the
+                    // non-blittable id: it is the broader condition.
+                    var diagnosticId = nonBlittableDiagnosticId ?? "SB0002";
+                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\", " +
+                        $"DiagnosticId = \"{diagnosticId}\", " +
+                        $"UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
+                    RecordSafetyMarked(diagnosticId, deprecationMsg != null, emittedName);
+                    // Such a member is either uncallable (its body throws) or reachable only through a
+                    // direct P/Invoke whose ABI we cannot vouch for. Either way the declaration stays: a
+                    // conformance that requires it must still compile (dropping it would be CS0535) and the
+                    // pinned public surface must not silently shrink. Hide it from IntelliSense so it does
+                    // not clutter completion for the majority case; the [Obsolete] message + wiki URL remain
+                    // the discovery path for anyone who reaches it deliberately.
+                    if (hasJitRisk && !editorBrowsableNeverEmitted)
+                    {
+                        csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+                        editorBrowsableNeverEmitted = true;
+                    }
+                }
+                else
+                {
+                    // Deprecation-only — plain [Obsolete] without DiagnosticId
+                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");
+                }
             }
         }
 

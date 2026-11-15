@@ -332,6 +332,16 @@ public sealed class SwiftLayoutResolver
 
         if (TryPeekRecord(name, out var record))
         {
+            if (record.Kind == TypeRecordKind.Struct && (record.Flags & TypeRecordFlags.Frozen) != 0
+                && ManagedPrimitiveScalar(record.CSharpTypeName.FullyQualifiedName) is { } primitive
+                && IsTargetIndependentPrimitive(primitive, record.CSharpTypeName.FullyQualifiedName))
+            {
+                // A platform value the database projects onto a C# primitive: an imported raw-value
+                // wrapper (UIFont.Weight over CGFloat, UILayoutPriority over Float) stores exactly that
+                // value. PlatformTypeAbiAuditTests holds every such entry to its SDK representation.
+                return SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(primitive),
+                    $"'{name}' is projected onto {record.CSharpTypeName.FullyQualifiedName}, the representation of its raw value");
+            }
             return record.Kind switch
             {
                 TypeRecordKind.Class => SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"'{name}' is a class reference"),
@@ -731,6 +741,31 @@ public sealed class SwiftLayoutResolver
         }
         return null;
     }
+
+    /// <summary>The scalar a C# primitive a type database projects a platform value onto is stored as.</summary>
+    internal static SwiftScalarKind? ManagedPrimitiveScalar(string managedName) => managedName switch
+    {
+        "System.Double" or "double" => SwiftScalarKind.Double,
+        "System.Single" or "float" => SwiftScalarKind.Float,
+        "System.Int64" or "System.UInt64" or "long" or "ulong" or "nint" or "nuint" => SwiftScalarKind.Int64,
+        "System.IntPtr" or "System.UIntPtr" => SwiftScalarKind.Pointer,
+        "System.Int32" or "System.UInt32" or "int" or "uint" => SwiftScalarKind.Int32,
+        "System.Int16" or "System.UInt16" or "short" or "ushort" => SwiftScalarKind.Int16,
+        "System.Byte" or "System.SByte" or "byte" or "sbyte" => SwiftScalarKind.Int8,
+        "System.Boolean" or "bool" => SwiftScalarKind.Bool,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Whether a platform value projected onto this C# primitive stores that primitive on every
+    /// target the model predicts for. A <c>bool</c> carrier (ObjCBool) is a Bool on iOS, tvOS and
+    /// arm64 macOS but an Int8 on Mac Catalyst and x86_64 macOS. A pointer-sized integer carrier is
+    /// an Int (URLError.Code) or a pointer (Selector over OpaquePointer), which C# does not tell apart.
+    /// Neither has one lowering, so both stay underivable here.
+    /// </summary>
+    private static bool IsTargetIndependentPrimitive(SwiftScalarKind primitive, string managedName) =>
+        primitive is not SwiftScalarKind.Bool and not SwiftScalarKind.Pointer
+        && managedName is not ("nint" or "nuint" or "System.IntPtr" or "System.UIntPtr");
 
     /// <summary>Whether a protocol is class-bound, directly or through a protocol it refines.</summary>
     private bool IsDeclaredTypeName(string name) => _types.ContainsKey(name) || TryPeekRecord(name, out _);

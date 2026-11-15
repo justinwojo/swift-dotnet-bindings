@@ -592,16 +592,6 @@ public static class SwiftManagedCarrierTable
             ["UIKit.UIRectCorner"] = "ulong",
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);
 
-    /// <summary>
-    /// Platform binding types that share a name with a Swift value but not its representation, so
-    /// no transition may carry one by value, with the reason.
-    /// </summary>
-    public static readonly ImmutableSortedDictionary<string, string> PlatformMismatches =
-        new Dictionary<string, string>
-        {
-            ["UIKit.UIFontWeight"] = "the platform binding's UIFontWeight is an int enum of weight ordinals, while Swift's UIFont.Weight is a CGFloat raw weight",
-        }.ToImmutableSortedDictionary(StringComparer.Ordinal);
-
     /// <summary>The table entry a full name (with its generic arguments) names, if any.</summary>
     public static bool TryGet(string fullName, out SwiftLeafLayout layout, out int managedSize)
     {
@@ -770,8 +760,6 @@ public sealed class SwiftManagedCarrierClassifier
         var (name, arity) = NameOf(type);
         foreach (var candidate in _index.Candidates(name, scope))
         {
-            if (SwiftManagedCarrierTable.PlatformMismatches.TryGetValue(candidate, out var mismatch))
-                return SwiftManagedValue.Refuse(spelling, SwiftPlanRefusalKind.NonBlittable, mismatch);
             if ((_index.TryGetEnum(candidate, out var underlying) || SwiftManagedCarrierTable.Enums.TryGetValue(candidate, out underlying!)
                     || SwiftManagedCarrierTable.PlatformEnums.TryGetValue(candidate, out underlying!)) && arity == 0)
             {

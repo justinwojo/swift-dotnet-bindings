@@ -2454,6 +2454,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
             && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridgeable)
             && !record.Flags.HasFlag(TypeRecordFlags.NonCopyable)
             && !TypeDatabaseExtensions.IsKnownAppleValueType(named)
+            // A platform value projected onto a C# primitive (ObjCBool onto bool, URLError.Code
+            // onto nint) has no ISwiftObject binding to size or marshal it.
+            && SwiftLayoutResolver.ManagedPrimitiveScalar(record.CSharpTypeName.FullyQualifiedName) is null
             && !ReportCollector.IsTypeSkipped(record.SwiftTypeName);
     }
 
@@ -2848,9 +2851,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (mapping.Kind == CdeclReturnKind.IndirectResult)
                 {
                     needsIndirectResult = true;
+                    // An Objective-C class (UIFont, or an NSString a typed-string constant
+                    // projects onto) is an NSObject on the managed side, not an ISwiftObject.
                     indirectReturnIsSwiftObject = effectiveReturnTypeSpec is NamedTypeSpec irNamed
                         && typeDatabase.TryGetTypeRecord(irNamed, out var irRecord)
-                        && (irRecord.Kind == TypeRecordKind.Class
+                        && ((irRecord.Kind == TypeRecordKind.Class && !irRecord.Flags.HasFlag(TypeRecordFlags.ObjCBridged))
                             || (irRecord.Kind == TypeRecordKind.Struct
                                 && (!irRecord.Flags.HasFlag(TypeRecordFlags.Frozen)
                                     || irRecord.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement))));

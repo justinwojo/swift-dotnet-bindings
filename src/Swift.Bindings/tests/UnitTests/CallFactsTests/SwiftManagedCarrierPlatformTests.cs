@@ -15,8 +15,8 @@ namespace BindingsGeneration.Tests;
 /// <summary>
 /// The platform bindings' types the managed carrier table lets a transition carry by value. No source
 /// of ours declares them, so each entry is checked against the installed iOS reference assembly: a
-/// struct entry must be exactly its NFloat fields, an enum entry must have the underlying type the
-/// table names, and a mismatch entry must still be an enum, not the CGFloat value Swift passes.
+/// struct entry must be exactly its NFloat fields, and an enum entry must have the underlying type the
+/// table names. Whether each agrees with the Swift value it carries is PlatformTypeAbiAuditTests' job.
 /// </summary>
 public class SwiftManagedCarrierPlatformTests
 {
@@ -62,12 +62,6 @@ public class SwiftManagedCarrierPlatformTests
             };
             Assert.Equal(underlying, keyword);
         }
-
-        foreach (var name in SwiftManagedCarrierTable.PlatformMismatches.Keys)
-        {
-            var type = Find(name);
-            Assert.True(type.IsEnum, $"{name} is still an enum, not the CGFloat-backed value Swift passes");
-        }
     }
 
     [Fact]
@@ -75,11 +69,8 @@ public class SwiftManagedCarrierPlatformTests
     {
         var structs = SwiftManagedCarrierTable.PlatformEntries.Keys;
         var enums = SwiftManagedCarrierTable.PlatformEnums.Keys;
-        var mismatches = SwiftManagedCarrierTable.PlatformMismatches.Keys;
 
         Assert.Empty(structs.Intersect(enums));
-        Assert.Empty(structs.Intersect(mismatches));
-        Assert.Empty(enums.Intersect(mismatches));
         Assert.Empty(structs.Intersect(SwiftManagedCarrierTable.Entries.Keys));
     }
 }

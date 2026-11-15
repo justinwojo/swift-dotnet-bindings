@@ -192,8 +192,8 @@
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionAuthChallengeDisposition">
             <typedeclaration kind="struct" name="URLSession.AuthChallengeDisposition" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="Foundation" managedTypeName="NSRunLoopMode">
-            <typedeclaration kind="struct" name="RunLoop.Mode" module="Foundation" mangledName="" frozen="true" requiresMemoryManagement="false" />
+        <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
+            <typedeclaration kind="class" name="RunLoop.Mode" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSString" objcBridged="true">
             <typedeclaration kind="class" name="FileAttributeKey" module="Foundation" mangledName="" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
@@ -212,7 +212,7 @@
         <entity managedNameSpace="" managedTypeName="nint">
             <typedeclaration kind="struct" name="Selector" module="Foundation" mangledName="$s10ObjectiveC8SelectorV" frozen="true" requiresMemoryManagement="false" />
         </entity>
-        <entity managedNameSpace="" managedTypeName="nint">
+        <entity managedNameSpace="System" managedTypeName="Boolean">
             <typedeclaration kind="struct" name="ObjCBool" module="Foundation" mangledName="$s10ObjectiveC0A4BoolV" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <!-- NSNotification.Name — String-backed typedef, bridges to NSString -->

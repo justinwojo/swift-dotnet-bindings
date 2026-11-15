@@ -100,17 +100,21 @@ internal sealed class SwiftTransitionGuards
         RegexOptions.Compiled);
 
     private readonly Dictionary<string, SwiftTransitionGuardSite> _sites;
+    private readonly Dictionary<string, SwiftRouteMarkerSettlement> _markers;
     private readonly string _namespace;
     private readonly Dictionary<string, int> _written = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _settled = new(StringComparer.Ordinal);
 
     private SwiftTransitionGuards(string @namespace, ImmutableArray<SwiftTransitionHazard> hazards,
-        Dictionary<string, SwiftTransitionGuardSite> sites, ImmutableArray<string> issues, int conservativeEdges)
+        Dictionary<string, SwiftTransitionGuardSite> sites, ImmutableArray<string> issues, int conservativeEdges,
+        Dictionary<string, SwiftRouteMarkerSettlement>? markers = null)
     {
         _namespace = @namespace;
         Hazards = hazards;
         _sites = sites;
         Issues = issues;
         ConservativeEdges = conservativeEdges;
+        _markers = markers ?? new(StringComparer.Ordinal);
     }
 
     /// <summary>Every guarded transition: those some guard names.</summary>
@@ -126,6 +130,15 @@ internal sealed class SwiftTransitionGuards
     public int ConservativeEdges { get; }
 
     public bool GuardsAny => _sites.Count > 0;
+
+    /// <summary>
+    /// The members whose SB0001 marker routing settled (<see cref="SwiftRouteMarkers"/>), by key: every
+    /// Swift call they make goes through a native bridge.
+    /// </summary>
+    public IReadOnlyCollection<SwiftRouteMarkerSettlement> SettledMarkers => _markers.Values;
+
+    /// <summary>Whether <see cref="Rewrite"/> changes anything: a guard to insert or a marker to settle.</summary>
+    public bool RewritesAny => _sites.Count > 0 || _markers.Count > 0;
 
     // ---- shapes ----
 
@@ -308,7 +321,8 @@ internal sealed class SwiftTransitionGuards
         var roots = trees.Select(t => t.GetRoot()).ToList();
         var enums = EnumsOf(roots);
         var discovered = roots.SelectMany(r => Discover(r, enums)).ToList();
-        if (discovered.Count == 0)
+        var settleable = sources.Any(SwiftRouteMarkers.MayApply);
+        if (discovered.Count == 0 && !settleable)
             return None(@namespace);
 
         var compilation = CSharpCompilation.Create(
@@ -316,6 +330,7 @@ internal sealed class SwiftTransitionGuards
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
         var graph = new CallGraph(compilation, trees);
         var issues = new List<string>();
+        var markers = settleable ? Settle(graph, roots) : new(StringComparer.Ordinal);
 
         // The functions whose bodies hold a transition.
         var reached = new Dictionary<SyntaxNode, SortedSet<string>>();
@@ -391,7 +406,130 @@ internal sealed class SwiftTransitionGuards
 
         return new SwiftTransitionGuards(@namespace,
             guarded.DistinctBy(h => h.Name).OrderBy(h => h.Name, StringComparer.Ordinal).ToImmutableArray(),
-            sites, issues.Distinct(StringComparer.Ordinal).ToImmutableArray(), graph.ConservativeEdges);
+            sites, issues.Distinct(StringComparer.Ordinal).ToImmutableArray(), graph.ConservativeEdges, markers);
+    }
+
+    /// <summary>
+    /// The members of a module's final C#, <paramref name="sources"/>, whose SB0001 marker routing
+    /// settled: what <see cref="Plan"/> finds, for C# whose guards are already written.
+    /// </summary>
+    public static IReadOnlyDictionary<string, SwiftRouteMarkerSettlement> SettleMarkers(IReadOnlyList<string> sources)
+    {
+        if (!sources.Any(SwiftRouteMarkers.MayApply))
+            return new Dictionary<string, SwiftRouteMarkerSettlement>(StringComparer.Ordinal);
+        var parseOptions = new CSharpParseOptions(LanguageVersion.Preview);
+        var trees = sources.Select(s => CSharpSyntaxTree.ParseText(s, parseOptions)).ToList();
+        var compilation = CSharpCompilation.Create(
+            "SwiftTransitionGuards", trees, References.Value,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));
+        return Settle(new CallGraph(compilation, trees), trees.Select(t => t.GetRoot()).ToList());
+    }
+
+    /// <summary>
+    /// The SB0001-marked members whose calls reach a bridge import and reach no direct
+    /// Swift-convention transition of any shape: an import other than a type metadata accessor, a call
+    /// through an <c>unmanaged[Swift]</c> pointer, or the address of a Swift-convention callback. Reach follows the same reverse call graph
+    /// as the guards, so an edge it follows conservatively can only keep a marker.
+    /// </summary>
+    private static Dictionary<string, SwiftRouteMarkerSettlement> Settle(CallGraph graph, IReadOnlyList<SyntaxNode> roots)
+    {
+        var settled = new Dictionary<string, SwiftRouteMarkerSettlement>(StringComparer.Ordinal);
+        var marked = roots.SelectMany(SwiftRouteMarkers.Marked).ToList();
+        if (marked.Count == 0)
+            return settled;
+
+        var discard = new List<string>();
+        var bridges = new Dictionary<SyntaxNode, SortedSet<string>>();
+        var direct = new HashSet<SyntaxNode>();
+        void Seed(SyntaxNode node, string? bridge)
+        {
+            if (CallGraph.FunctionOf(node, out _) is not { } function)
+                return;
+            if (bridge is null)
+            {
+                direct.Add(function);
+                return;
+            }
+            if (!bridges.TryGetValue(function, out var set))
+                bridges[function] = set = new SortedSet<string>(StringComparer.Ordinal);
+            set.Add(bridge);
+        }
+        foreach (var node in roots.SelectMany(r => r.DescendantNodes()))
+        {
+            switch (node)
+            {
+                case MethodDeclarationSyntax method:
+                {
+                    var attributes = method.AttributeLists.SelectMany(l => l.Attributes).ToList();
+                    var import = attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "LibraryImport") || SwiftTransitionSyntax.IsAttribute(a, "DllImport"));
+                    if (import is null)
+                    {
+                        if (attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "UnmanagedCallersOnly")) is { } uco && SwiftTransitionSyntax.NamesCallConvSwift(uco))
+                            foreach (var read in graph.CallbackAddressReads(method))
+                                Seed(read, null);
+                        break;
+                    }
+                    var entryArgument = import.ArgumentList?.Arguments.FirstOrDefault(a => a.NameEquals?.Name.Identifier.ValueText == "EntryPoint");
+                    var entryPoint = entryArgument?.Expression is LiteralExpressionSyntax literal ? literal.Token.ValueText : method.Identifier.ValueText;
+                    string? bridge;
+                    if (SwiftCallPlan.IsForwardBridgeSymbol(entryPoint))
+                        bridge = entryPoint;
+                    else if (attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "UnmanagedCallConv")) is { } callConv && SwiftTransitionSyntax.NamesCallConvSwift(callConv)
+                             && !SwiftRouteMarkers.IsMetadataAccessorSymbol(entryPoint))
+                        bridge = null;
+                    else
+                        break;
+                    var symbol = graph.SymbolOf(method);
+                    foreach (var reference in graph.ReferencesByName(method.Identifier.ValueText))
+                        if (graph.Resolves(reference, symbol, out _) == Edge.Call)
+                            Seed(reference, bridge);
+                    break;
+                }
+                case InvocationExpressionSyntax invocation when SwiftTransitionSyntax.SwiftFunctionPointerCalled(invocation) is not null:
+                    Seed(invocation, null);
+                    break;
+            }
+        }
+        if (bridges.Count == 0)
+            return settled;
+
+        var reachesDirect = Propagate(graph, direct.ToDictionary(n => n, _ => new SortedSet<string>(StringComparer.Ordinal) { "" }), discard);
+        var reachesBridge = Propagate(graph, bridges, discard);
+        foreach (var member in marked)
+        {
+            var functions = SwiftRouteMarkers.FunctionsOf(member).ToList();
+            if (functions.Count == 0 || functions.Any(reachesDirect.ContainsKey))
+                continue;
+            var reached = functions.SelectMany(f => reachesBridge.GetValueOrDefault(f) ?? []).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToImmutableArray();
+            if (reached.IsEmpty)
+                continue;
+            var site = Describe(member);
+            var display = member is BasePropertyDeclarationSyntax ? site.Display[..site.Display.LastIndexOf('.')] : site.Display;
+            settled.TryAdd(site.Key, new SwiftRouteMarkerSettlement(site.Key, display, site.Kind, site.Name, site.ContainingType, reached));
+        }
+        return settled;
+    }
+
+    /// <summary>Every function that reaches a seed, with the labels of the seeds it reaches.</summary>
+    private static Dictionary<SyntaxNode, SortedSet<string>> Propagate(CallGraph graph, Dictionary<SyntaxNode, SortedSet<string>> seeds, List<string> issues)
+    {
+        var reached = seeds.ToDictionary(kv => kv.Key, kv => new SortedSet<string>(kv.Value, StringComparer.Ordinal));
+        var queue = new Queue<SyntaxNode>(reached.Keys);
+        while (queue.Count > 0)
+        {
+            var callee = queue.Dequeue();
+            var labels = reached[callee];
+            foreach (var caller in graph.CallersOf(callee, issues))
+            {
+                if (!reached.TryGetValue(caller, out var set))
+                    reached[caller] = set = new SortedSet<string>(StringComparer.Ordinal);
+                var before = set.Count;
+                set.UnionWith(labels);
+                if (set.Count != before)
+                    queue.Enqueue(caller);
+            }
+        }
+        return reached;
     }
 
     /// <summary>Records the function that holds <paramref name="node"/>, or why none can be guarded.</summary>
@@ -417,7 +555,7 @@ internal sealed class SwiftTransitionGuards
     /// </summary>
     public string Rewrite(string source, TextEditJournal? journal = null, bool written = false)
     {
-        if (_sites.Count == 0)
+        if (!RewritesAny)
             return source;
         var root = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview)).GetRoot();
         var newline = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
@@ -430,6 +568,18 @@ internal sealed class SwiftTransitionGuards
             if (written)
                 _written[key] = _written.GetValueOrDefault(key) + 1;
             edits.AddRange(Insert(unit, source, GuardExpression(site), site.Display, newline));
+        }
+        if (_markers.Count > 0)
+        {
+            foreach (var member in SwiftRouteMarkers.Marked(root))
+            {
+                var key = KeyOf(member);
+                if (!_markers.TryGetValue(key, out var settlement) || SwiftRouteMarkers.Edit(member, source, settlement, newline) is not { } edit)
+                    continue;
+                if (written)
+                    _settled[key] = _settled.GetValueOrDefault(key) + 1;
+                edits.Add(edit);
+            }
         }
         if (edits.Count == 0)
             return source;
@@ -450,8 +600,8 @@ internal sealed class SwiftTransitionGuards
     /// <summary>Throws unless every guard was written exactly once across the files counted by <see cref="Rewrite"/>.</summary>
     public void VerifyWritten()
     {
-        var missing = _sites.Keys.Where(k => !_written.ContainsKey(k)).ToList();
-        var repeated = _written.Where(kv => kv.Value != 1).Select(kv => kv.Key).ToList();
+        var missing = _sites.Keys.Where(k => !_written.ContainsKey(k)).Concat(_markers.Keys.Where(k => !_settled.ContainsKey(k))).ToList();
+        var repeated = _written.Concat(_settled).Where(kv => kv.Value != 1).Select(kv => kv.Key).ToList();
         if (missing.Count > 0 || repeated.Count > 0)
             throw new InvalidOperationException(
                 $"The transition guards of {_namespace} were not each written once: " +

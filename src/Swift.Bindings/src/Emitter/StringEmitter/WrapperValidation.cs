@@ -1761,6 +1761,14 @@ public static class WrapperValidation
     }
 
     /// <summary>
+    /// Whether a type is a C typedef Swift imports under a nested name (<c>UIFont.Weight</c> is
+    /// <c>UIFontWeight</c>, recorded as the clang USR <c>c:@T@UIFontWeight</c>). C has a name for
+    /// it, so a <c>@_cdecl</c> signature may take it by value.
+    /// </summary>
+    public static bool IsImportedCTypedef(TypeSpec typeSpec) =>
+        typeSpec is NamedTypeSpec { Usr: var usr } && TypeDatabaseExtensions.IsClangTypedefUsr(usr);
+
+    /// <summary>
     /// Whether a nested Swift type (<c>Outer.Inner</c>) reaches the wrapper's C signature
     /// <em>by value</em>, which <c>@_cdecl</c> refuses with "type of the parameter cannot be
     /// represented in Objective-C".
@@ -1780,7 +1788,7 @@ public static class WrapperValidation
     /// </remarks>
     public static bool IsByValueNestedStructParam(ArgumentDecl arg, MethodEnvironment env)
     {
-        if (!IsNestedType(arg.SwiftTypeSpec))
+        if (!IsNestedType(arg.SwiftTypeSpec) || IsImportedCTypedef(arg.SwiftTypeSpec))
             return false;
         return CdeclParamMapper.Describe(arg, "p", env).Category == CdeclParamCategory.SystemFrozenStruct;
     }

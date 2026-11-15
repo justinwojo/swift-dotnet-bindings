@@ -246,12 +246,16 @@ namespace BindingsGeneration
                     throw new InvalidOperationException(
                         $"{moduleDecl.Name} reaches a direct Swift-convention transition that no guard can precede: " + string.Join("; ", guards.Issues));
                 wholeOutput = guards.Rewrite(wholeOutput);
+                if (guards.SettledMarkers.Count > 0)
+                    _logger.LogInformation(
+                        "{Count} member(s) of {Module} reach Swift only through native bridges, so routing drops their SB0001 marker: {Members}",
+                        guards.SettledMarkers.Count, moduleDecl.Name, string.Join(", ", guards.SettledMarkers.Select(m => m.Display).Order(StringComparer.Ordinal)));
 
                 // The bridge rewrite and the guards run after qualification, over the same text, so a
                 // file's journal is the passes composed.
                 string QualifyAndBridge(string source, TextEditJournal? journal)
                 {
-                    if (!routing.BridgesAny && !guards.GuardsAny)
+                    if (!routing.BridgesAny && !guards.RewritesAny)
                         return Qualify(source, journal);
                     var composed = journal is null ? null : new TextEditJournal();
                     var text = Qualify(source, composed);
@@ -261,7 +265,7 @@ namespace BindingsGeneration
                         text = routing.Rewrite(text, bridging);
                         composed = Then(composed, bridging);
                     }
-                    if (guards.GuardsAny)
+                    if (guards.RewritesAny)
                     {
                         var guarding = journal is null ? null : new TextEditJournal();
                         text = guards.Rewrite(text, guarding, written: true);

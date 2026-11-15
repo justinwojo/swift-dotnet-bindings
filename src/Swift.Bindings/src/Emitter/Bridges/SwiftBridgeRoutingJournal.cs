@@ -25,7 +25,7 @@ namespace BindingsGeneration;
 public sealed record SwiftBridgeRoutingJournal
 {
     /// <summary>The journal schema. Bump it on any change to the journal's shape.</summary>
-    public const int SchemaVersion = 1;
+    public const int SchemaVersion = 2;
 
     public required int Schema { get; init; }
 
@@ -37,6 +37,14 @@ public sealed record SwiftBridgeRoutingJournal
 
     /// <summary>Every rewrite in the module's C#, ordered by file, member and entry point.</summary>
     public required ImmutableArray<SwiftBridgeRewrite> Rewrites { get; init; }
+
+    /// <summary>
+    /// Every SB0001 marker the routing settled (<see cref="SwiftRouteMarkers"/>), one per member: the
+    /// marker as generation wrote it and the note that replaced it. The member is named by its display,
+    /// the entry point is the diagnostic id and the symbol the bridges it reaches. Absent from a journal
+    /// that settled none.
+    /// </summary>
+    public ImmutableArray<SwiftBridgeRewrite> Markers { get; init; } = [];
 
     /// <summary>The journal's file name for a module namespace.</summary>
     public static string FileName(string @namespace) => $"{@namespace}.swift-bridge-routing.json";
@@ -73,7 +81,7 @@ public sealed record SwiftBridgeRoutingJournal
     {
         var reverted = source;
         var unwritten = new List<(IGrouping<(string Original, string Replacement), SwiftBridgeRewrite> Group, int Expected)>();
-        foreach (var group in Rewrites.Where(r => r.File == file).GroupBy(r => (r.Original, r.Replacement)))
+        foreach (var group in AllEdits.Where(r => r.File == file).GroupBy(r => (r.Original, r.Replacement)))
         {
             var expected = group.Count();
             var rewritten = Occurrences(reverted, group.Key.Replacement);
@@ -91,6 +99,10 @@ public sealed record SwiftBridgeRoutingJournal
         }
         return reverted;
     }
+
+    /// <summary>Every edit the journal records: the import rewrites and the settled markers.</summary>
+    [JsonIgnore]
+    public IEnumerable<SwiftBridgeRewrite> AllEdits => Rewrites.Concat(Markers.IsDefault ? [] : Markers);
 
     private static InvalidDataException NotDescribed(string file, SwiftBridgeRewrite rewrite, string count) =>
         new($"{file} does not hold the bridge rewrite of {rewrite.Member} ({rewrite.EntryPoint}) the routing journal records " +

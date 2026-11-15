@@ -53,6 +53,57 @@ public static class SwiftTransitionGuardReport
         DirectSwiftSelfExposureCollector.RecomputeSummary(report);
     }
 
+    /// <summary>
+    /// Restates a wrapper requirement's count of members left on a marked direct call from the
+    /// surface summary it is reported with, once settled markers were withdrawn from it.
+    /// </summary>
+    internal static void RestateWrapperRequirement(WrapperRequirementSummary? requirement, DegradedSurfaceSummary? surface)
+    {
+        if (requirement is null || surface is null)
+            return;
+        WrapperRequirementEvaluator.Restate(
+            requirement,
+            wrappedMemberCount: requirement.WrappedMemberCount,
+            unwrappedMarkedMemberCount: surface.ByDiagnosticId.GetValueOrDefault(WrapperValidation.DirectCallConvSwiftDiagnosticId)
+                + surface.ByDiagnosticId.GetValueOrDefault("SB0009"));
+    }
+
+    /// <summary>
+    /// Removes the SB0001 rows of the members whose marker bridge routing settled
+    /// (<see cref="SwiftRouteMarkers"/>): the row says the member carries the marker, and the final C#
+    /// no longer does. A member is matched by its declaring type and name; a name some member of that
+    /// type still carries the marker under keeps its row.
+    /// </summary>
+    internal static bool WithdrawSettledMarkers(List<DegradedMemberItem> members, string outputDirectory)
+    {
+        if (!Directory.Exists(outputDirectory)
+            || !members.Any(m => m.DiagnosticId == WrapperValidation.DirectCallConvSwiftDiagnosticId))
+            return false;
+        var settled = new HashSet<(string Type, string Name)>();
+        var marked = new HashSet<(string Type, string Name)>();
+        foreach (var path in Directory.EnumerateFiles(outputDirectory, "*.cs").Order(StringComparer.Ordinal))
+        {
+            var (fileSettled, fileMarked) = SwiftRouteMarkers.MembersOf(File.ReadAllText(path));
+            settled.UnionWith(fileSettled);
+            marked.UnionWith(fileMarked);
+        }
+        settled.ExceptWith(marked);
+        if (settled.Count == 0)
+            return false;
+        return members.RemoveAll(item =>
+        {
+            if (item.DiagnosticId != WrapperValidation.DirectCallConvSwiftDiagnosticId || item.ContainingType is not { } containing)
+                return false;
+            var dot = containing.IndexOf('.');
+            if (dot >= 0)
+                return settled.Contains((containing[(dot + 1)..], item.Name));
+            // A module-level function: emission declares it in the module's function class.
+            return settled.Any(s => s.Name == item.Name
+                && (s.Type == containing || s.Type.StartsWith("Functions", StringComparison.Ordinal)
+                    || s.Type == "GlobalFunctions" || s.Type == containing + "Functions"));
+        }) > 0;
+    }
+
     private static IEnumerable<DegradedMemberItem> RowsOf(SwiftTransitionGuardDocument document, string outputDirectory)
     {
         var @namespace = document.Namespace;

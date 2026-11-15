@@ -1090,6 +1090,66 @@ public class BindingArtifactManifestTests
     }
 
     [Fact]
+    public void Store_WrapperRoundTrip_WithdrawsTheRowOfAMarkerRoutingSettled()
+    {
+        // The SDK's wrapper compile settles an SB0001 marker after generation recorded its row: the
+        // report follows the final file, and a member still marked keeps its row. The manifest keeps
+        // generation's row, so a wrapper compile that restores the marker reports it again.
+        using var temp = new TempDirectory();
+        File.WriteAllText(Path.Combine(temp.Path, "Demo.cs"), """
+            using System.Runtime.InteropServices;
+            namespace Demo;
+            public partial class Holder
+            {
+                // Routed through its native bridge SBSR_0123456789abcdef: Holder.Run() makes no direct Swift-convention call besides metadata accessors.
+                public void Run() { PInvoke_run(); }
+                [System.Obsolete("No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI.", DiagnosticId = "SB0001")]
+                public void Keep() { PInvoke_run(); }
+                [LibraryImport("Demo", EntryPoint = "SBSR_0123456789abcdef")]
+                private static partial void PInvoke_run();
+            }
+            """);
+        var report = NewReport();
+        foreach (var name in new[] { "Run", "Keep" })
+            report.DegradedMembers.Add(new DegradedMemberItem
+            {
+                Kind = BindingItemKind.Method,
+                Name = name,
+                ContainingType = "Demo.Holder",
+                DiagnosticId = "SB0001",
+            });
+        DirectSwiftSelfExposureCollector.RecomputeSummary(report);
+        var manifest = new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(report) };
+        BindingArtifactManifestStore.Write(manifest, temp.Path, NullLogger.Instance);
+
+        BindingArtifactManifestStore.ReadModifyWrite(
+            temp.Path,
+            "Demo",
+            value => value.Wrapper = new WrapperSection { Status = PhaseStatus.Success },
+            NullLogger.Instance);
+
+        var persisted = JsonConvert.DeserializeObject<BindingReport>(
+            File.ReadAllText(Path.Combine(temp.Path, BindingArtifactManifestStore.ReportFileName)),
+            new JsonSerializerSettings { Converters = new List<JsonConverter> { new StringEnumConverter() } })!;
+        Assert.Equal("Keep", Assert.Single(persisted.DegradedMembers, item => item.DiagnosticId == "SB0001").Name);
+        Assert.Equal(1, persisted.DegradedSurface!.ByDiagnosticId.GetValueOrDefault("SB0001"));
+        var stored = BindingArtifactManifestStore.TryRead(temp.Path)!;
+        Assert.Contains(stored.Generation!.DegradedMembers, item => item.DiagnosticId == "SB0001" && item.Name == "Run");
+
+        // A later wrapper compile routes less, and its journal restores the marker.
+        var path = Path.Combine(temp.Path, "Demo.cs");
+        File.WriteAllText(path, File.ReadAllText(path).Replace(
+            "// Routed through its native bridge SBSR_0123456789abcdef: Holder.Run() makes no direct Swift-convention call besides metadata accessors.",
+            "[System.Obsolete(\"No @_cdecl wrapper or native thunk available. P/Invoke calling convention may not match Swift ABI.\", DiagnosticId = \"SB0001\")]"));
+        BindingArtifactManifestStore.ReadModifyWrite(temp.Path, "Demo", _ => { }, NullLogger.Instance);
+        var restored = JsonConvert.DeserializeObject<BindingReport>(
+            File.ReadAllText(Path.Combine(temp.Path, BindingArtifactManifestStore.ReportFileName)),
+            new JsonSerializerSettings { Converters = new List<JsonConverter> { new StringEnumConverter() } })!;
+        Assert.Equal(["Keep", "Run"], restored.DegradedMembers.Where(item => item.DiagnosticId == "SB0001").Select(item => item.Name).Order().ToArray());
+        Assert.Equal(2, restored.DegradedSurface!.ByDiagnosticId.GetValueOrDefault("SB0001"));
+    }
+
+    [Fact]
     public void Store_StatusComplete_OnlyWhenGenerationPresent()
     {
         using var temp = new TempDirectory();
