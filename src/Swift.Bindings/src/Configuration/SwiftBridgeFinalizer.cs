@@ -2,7 +2,10 @@
 // Licensed under the MIT License.
 
 using System.Collections.Immutable;
+using System.Text;
 using System.Text.RegularExpressions;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.Extensions.Logging;
 
 namespace BindingsGeneration;
@@ -189,7 +192,7 @@ public static class SwiftBridgeFinalizer
         try
         {
             pristine = files.ToDictionary(f => f, f => journal?.Revert(f, current[f]) ?? current[f], StringComparer.Ordinal);
-            if (journal is not null && journal.Rewrites.Select(r => r.File).FirstOrDefault(f => !current.ContainsKey(f)) is { } missing)
+            if (journal is not null && journal.AllEdits.Select(r => r.File).FirstOrDefault(f => !current.ContainsKey(f)) is { } missing)
                 throw new InvalidDataException($"{missing}, which the journal records a rewrite in, is not among {@namespace}'s files");
         }
         catch (InvalidDataException ex)
@@ -238,10 +241,12 @@ public static class SwiftBridgeFinalizer
         var linked = assemblyPaths.ToDictionary(kv => kv.Key, kv => File.Exists(kv.Value) ? File.ReadAllText(kv.Value) : null);
         Dictionary<SwiftArchitecture, string?> desired;
         Dictionary<string, string> routed;
+        ImmutableArray<SwiftBridgeRewrite> markers = [];
         try
         {
             desired = SwiftBridgeRouting.Architectures.ToDictionary(a => a, a => routing.Assembly(a)?.Source);
             routed = files.ToDictionary(f => f, f => routing.Rewrite(pristine[f]), StringComparer.Ordinal);
+            (routed, markers) = SettleMarkers(files, routed);
         }
         catch (InvalidOperationException ex)
         {
@@ -250,6 +255,7 @@ public static class SwiftBridgeFinalizer
             routing = routing.Withdraw(ex.Message);
             desired = SwiftBridgeRouting.Architectures.ToDictionary(a => a, _ => (string?)null);
             routed = pristine;
+            markers = [];
         }
 
         // The guard class the routed C# compiles with: a transition routing moved onto a bridge refuses
@@ -263,6 +269,7 @@ public static class SwiftBridgeFinalizer
             Module = module,
             Library = request.Library,
             Rewrites = routing.Rewrites,
+            Markers = markers,
         };
         // The wrapper must define exactly the bridges the C# calls, as the bridges file now says: one
         // it lacks fails the call, and one it defines that nothing calls is an export no route
@@ -282,7 +289,7 @@ public static class SwiftBridgeFinalizer
                 logger.LogInformation(
                     "{Module}'s wrapper keeps {Count} bridge(s) of an earlier routing that its C# no longer calls; with no receipt to verify a relink against, they go when the wrapper is next compiled.",
                     module, leftover);
-            LogRouted(logger, module, routing, relinked: false);
+            LogRouted(logger, module, routing, markers, relinked: false);
             return changed ? Outcome.Rewritten : Outcome.Unchanged;
         }
 
@@ -292,7 +299,7 @@ public static class SwiftBridgeFinalizer
         if (failure is null)
         {
             WriteSidecars(directory, @namespace, routing, judged, masks, logger);
-            LogRouted(logger, module, routing, relinked: true);
+            LogRouted(logger, module, routing, markers, relinked: true);
             return Outcome.Relinked;
         }
 
@@ -308,10 +315,51 @@ public static class SwiftBridgeFinalizer
         // Generation's own C# guards every import it declares with that import's shapes.
         if (MasksOf(pristine, [], module, logger) is not { } pristineMasks)
             return Outcome.Failed;
-        Write(directory, @namespace, nextJournal with { Rewrites = [] }, journalPath, linked, assemblyPaths, pristine,
+        Write(directory, @namespace, nextJournal with { Rewrites = [], Markers = [] }, journalPath, linked, assemblyPaths, pristine,
             files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal), pristineMasks);
         WriteSidecars(directory, @namespace, withdrawn, judged, pristineMasks, logger);
         return Outcome.Withdrawn;
+    }
+
+    /// <summary>
+    /// <paramref name="routed"/> with the SB0001 marker of every member routing moved wholly onto
+    /// bridges settled (<see cref="SwiftRouteMarkers"/>), and the journal entry of each settlement:
+    /// the marker text as generation wrote it and the note that replaced it.
+    /// </summary>
+    internal static (Dictionary<string, string> Settled, ImmutableArray<SwiftBridgeRewrite> Markers) SettleMarkers(
+        IReadOnlyList<string> files, Dictionary<string, string> routed)
+    {
+        var settlements = SwiftTransitionGuards.SettleMarkers(files.Select(f => routed[f]).ToList());
+        if (settlements.Count == 0)
+            return (routed, []);
+        var settled = new Dictionary<string, string>(routed, StringComparer.Ordinal);
+        var entries = ImmutableArray.CreateBuilder<SwiftBridgeRewrite>();
+        foreach (var file in files)
+        {
+            var source = routed[file];
+            if (!source.Contains(WrapperValidation.DirectCallConvSwiftDiagnosticId, StringComparison.Ordinal))
+                continue;
+            var root = CSharpSyntaxTree.ParseText(source, new CSharpParseOptions(LanguageVersion.Preview)).GetRoot();
+            var newline = source.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n";
+            var edits = new List<(int Start, int Length, string Text, SwiftRouteMarkerSettlement Settlement)>();
+            foreach (var member in SwiftRouteMarkers.Marked(root))
+                if (settlements.TryGetValue(SwiftTransitionGuards.KeyOf(member), out var settlement)
+                    && SwiftRouteMarkers.Edit(member, source, settlement, newline) is { } edit)
+                    edits.Add((edit.Start, edit.Length, edit.Text, settlement));
+            if (edits.Count == 0)
+                continue;
+            var text = new StringBuilder(source.Length);
+            var position = 0;
+            foreach (var (start, length, replacement, settlement) in edits.OrderBy(e => e.Start))
+            {
+                text.Append(source, position, start - position).Append(replacement);
+                entries.Add(new SwiftBridgeRewrite(file, settlement.Display, WrapperValidation.DirectCallConvSwiftDiagnosticId,
+                    string.Join(",", settlement.Bridges), source.Substring(start, length), replacement));
+                position = start + length;
+            }
+            settled[file] = text.Append(source, position, source.Length - position).ToString();
+        }
+        return (settled, entries.ToImmutable());
     }
 
     /// <summary>
@@ -363,10 +411,13 @@ public static class SwiftBridgeFinalizer
         }
         var journalText = journal.ToJson();
         var onDisk = File.Exists(journalPath) ? File.ReadAllText(journalPath) : null;
-        var dropped = onDisk is null || onDisk == journalText ? [] : SwiftBridgeRoutingJournal.Parse(onDisk).Rewrites.Except(journal.Rewrites).ToList();
-        if (dropped.Count > 0)
+        var previous = onDisk is null || onDisk == journalText ? null : SwiftBridgeRoutingJournal.Parse(onDisk);
+        var dropped = previous is null ? [] : previous.Rewrites.Except(journal.Rewrites).ToList();
+        var droppedMarkers = previous is null || previous.Markers.IsDefault ? [] : previous.Markers.Except(journal.Markers).ToList();
+        if (dropped.Count > 0 || droppedMarkers.Count > 0)
         {
-            SwiftBridgeRoutingJournal.WriteAtomically(journalPath, (journal with { Rewrites = [.. journal.Rewrites, .. dropped] }).ToJson());
+            SwiftBridgeRoutingJournal.WriteAtomically(journalPath,
+                (journal with { Rewrites = [.. journal.Rewrites, .. dropped], Markers = [.. journal.Markers, .. droppedMarkers] }).ToJson());
             changed = true;
         }
         else if (onDisk != journalText)
@@ -393,7 +444,7 @@ public static class SwiftBridgeFinalizer
             SwiftBridgeRoutingJournal.WriteAtomically(Path.Combine(directory, file), text);
             changed = true;
         }
-        if (dropped.Count > 0)
+        if (dropped.Count > 0 || droppedMarkers.Count > 0)
             SwiftBridgeRoutingJournal.WriteAtomically(journalPath, journalText);
         if (masksText != masksOnDisk)
         {
@@ -466,7 +517,7 @@ public static class SwiftBridgeFinalizer
         return changed;
     }
 
-    private static void LogRouted(ILogger logger, string module, SwiftBridgeRouting routing, bool relinked)
+    private static void LogRouted(ILogger logger, string module, SwiftBridgeRouting routing, ImmutableArray<SwiftBridgeRewrite> markers, bool relinked)
     {
         var bridged = routing.Routes.Count(r => r.IsBridged);
         if (routing.Routes.IsEmpty)
@@ -475,5 +526,9 @@ public static class SwiftBridgeFinalizer
             logger.LogInformation(
                 "Bridge routing for {Module}: {Bridged} of {Routes} executable Swift-convention import(s) call their bridge through a twin ({Bridges} bridge(s)){Relinked}.",
                 module, bridged, routing.Routes.Length, routing.Bridged.Length, relinked ? "; the wrapper was relinked with them" : "");
+        if (!markers.IsEmpty)
+            logger.LogInformation(
+                "{Count} member(s) of {Module} reach Swift only through native bridges, so routing drops their SB0001 marker: {Members}",
+                markers.Length, module, string.Join(", ", markers.Select(m => m.Member).Order(StringComparer.Ordinal)));
     }
 }

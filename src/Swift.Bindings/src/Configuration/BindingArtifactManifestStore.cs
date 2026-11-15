@@ -155,6 +155,14 @@ public static class BindingArtifactManifestStore
         AtomicArtifactWriter.Write(manifestPath, manifestJson);
 
         var report = BindingReportProjection.Project(manifest);
+        // The SDK's wrapper compile settles SB0001 markers after generation recorded their rows. The
+        // manifest keeps generation's rows, so a later wrapper compile that routes less (the journal
+        // restores the marker) reports them again; the report follows the final files.
+        if (manifest.Generation is not null && SwiftTransitionGuardReport.WithdrawSettledMarkers(report.DegradedMembers, outputDirectory))
+        {
+            DirectSwiftSelfExposureCollector.RecomputeSummary(report);
+            SwiftTransitionGuardReport.RestateWrapperRequirement(report.WrapperRequirement, report.DegradedSurface);
+        }
         var reportPath = Path.Combine(outputDirectory, ReportFileName);
         var reportJson = JsonConvert.SerializeObject(report, SerializerSettings);
         AtomicArtifactWriter.Write(reportPath, reportJson);
