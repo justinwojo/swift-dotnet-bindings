@@ -49,6 +49,27 @@ public sealed record RuntimeIdentitySeedProof(
 /// </remarks>
 public static class RuntimeIdentitySeedPolicy
 {
+    /// <summary>
+    /// Why this run's proof does not qualify the lane's floor against its architecture's control set;
+    /// empty when it does. On top of <see cref="ProofRefusals(string, RuntimeIdentitySeedProof?, IReadOnlyList{NegativeControlClass})"/>,
+    /// every class the set excludes must have been checked against the app's inventory and found to match.
+    /// </summary>
+    public static IReadOnlyList<string> ProofRefusals(string buildConfiguration, RuntimeIdentitySeedProof? proof,
+        InterpreterControlSet controls)
+    {
+        var refusals = ProofRefusals(buildConfiguration, proof, controls.Classes).ToList();
+        if (buildConfiguration != "Debug")
+            return refusals;
+        foreach (var exclusion in controls.Excluded)
+        {
+            if (proof == null || !proof.ControlGrades.TryGetValue(exclusion.ClassName, out var problems))
+                refusals.Add($"{exclusion.ClassName} is excluded on the {controls.Architecture} interpreter but the run did not check it against the app");
+            else if (problems.Count > 0)
+                refusals.Add($"{exclusion.ClassName} is excluded on the {controls.Architecture} interpreter but does not match the app: {string.Join("; ", problems)}");
+        }
+        return refusals;
+    }
+
     /// <summary>Why this run's proof does not qualify the lane's floor; empty when it does.</summary>
     /// <param name="buildConfiguration">The configuration the lane built. Only Debug, the
     /// interpreter lane, needs run proof; Release floors keep the run-level preconditions.</param>
@@ -85,9 +106,11 @@ public static class RuntimeIdentitySeedPolicy
     /// <param name="seed">The entry the run would write.</param>
     /// <param name="previous">The lane's current Debug floor, or null when it has none.</param>
     /// <param name="release">The lane's Release floor, or null when it has none.</param>
-    /// <param name="isolatedControlTests">The tests the Debug lane runs as isolated negative controls.
-    /// They are outside the Debug count, while the Release lane runs and passes them as ordinary
-    /// tests, so they are added back before the two counts are compared.</param>
+    /// <param name="isolatedControlTests">The tests the Debug lane runs as isolated negative controls
+    /// or, for a class fatal on its engine, does not run at all
+    /// (<see cref="InterpreterControlSet.TestsOutsideSuite"/>). They are outside the Debug count,
+    /// while the Release lane runs and passes them as ordinary tests, so they are added back before
+    /// the two counts are compared.</param>
     public static IReadOnlyList<string> Lowerings(RuntimeIdentityBaseline.PlatformIdentities seed,
         RuntimeIdentityBaseline.PlatformIdentities? previous, RuntimeIdentityBaseline.PlatformIdentities? release,
         int isolatedControlTests)

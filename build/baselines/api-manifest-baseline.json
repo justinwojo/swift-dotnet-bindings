@@ -985,7 +985,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ApplyBoxableFactory(global::System.Func\u003CIBoxable\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib19applyBoxableFactoryys5Int32VAA0F0_pyXEF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_applyBoxableFactory_7F5EDECB"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -4775,7 +4775,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "CallThrowingWithSetParam(global::System.Func\u003CSwift.SwiftSet\u003CSwift.SwiftString\u003E, Swift.SwiftResult\u003CSwift.SwiftVoid, SwiftError\u003E\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib24callThrowingWithSetParamys5Int32VyShySSGKcF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_callThrowingWithSetParam_2AF890A0"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -7250,7 +7250,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "ConsumeProvidedNameableAgeable(global::System.Func\u003CIAgeableAndNameable\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib30consumeProvidedNameableAgeableySSAA0H0_AA0G0pyXEF"
+      "symbol": "SBW_SwiftBindingsTestLib_Free_consumeProvidedNameableAgeable_4CBB2B1F"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -16754,6 +16754,51 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.A",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_a|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.ANative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_a|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.B",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_b|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.BNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_b|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.C",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_c|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.CNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LoweredSignatureProbe_c|SBW_Set_SwiftBindingsTestLib_LoweredSignatureProbe_c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbe.LoweredSignatureProbe(nint,nint,nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_LoweredSignatureProbe_init_01B7A21D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbeEncode(SwiftBindingsTestLib.LoweredSignatureProbe)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_loweredSignatureProbeEncode_4ED98F8E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LoweredSignatureProbeEncodeScalars(nint,nint,nint)",
+      "symbol": "thunk_SwiftBindingsTestLib_57647e36"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "MacAuthenticator.MacAuthenticator(int)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_MacAuthenticator_init_BE081868"
     },
@@ -22375,7 +22420,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "OwnershipCallbackFactory.TryCreate(global::System.Action\u003CSwiftBindingsTestLib.CallbackOwnedValue\u003E,bool,out OwnershipCallbackFactory)",
-      "symbol": "$s20SwiftBindingsTestLib24OwnershipCallbackFactoryV_5validACSgyAA0F10OwnedValueVXE_SbtcfC"
+      "symbol": "SBW_SwiftBindingsTestLib_OwnershipCallbackFactory_init_7C8AEA13"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26099,6 +26144,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "Sbw_loweredsignatureprobe_encode_cdecl(System.IntPtr)",
+      "symbol": "thunk_SwiftBindingsTestLib_64974c43"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "Sbw_sretselfprobe_combine_cdecl(System.IntPtr,nint,nint,System.IntPtr)",
       "symbol": "thunk_SwiftBindingsTestLib_19f46468"
     },
@@ -26580,7 +26630,7 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SelfChainingBuilder.MakeForTagSets(int,global::System.Action\u003CSwift.SwiftSet\u003CSwift.SwiftString\u003E\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib19SelfChainingBuilderC14makeForTagSets3tag7performACXDs5Int32V_yShySSGctFZ"
+      "symbol": "SBW_SwiftBindingsTestLib_SelfChainingBuilder_makeForTagSets_A48878A3"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26610,17 +26660,17 @@
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SelfChainingBuilder.OnTagSet(Swift.DispatchQueue,global::System.Action\u003CSwift.SwiftSet\u003CSwift.SwiftString\u003E\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib19SelfChainingBuilderC8onTagSet0H07performACXDSo17OS_dispatch_queueC_yShySSGctF"
+      "symbol": "SBW_SwiftBindingsTestLib_SelfChainingBuilder_onTagSet_54EE98C4"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SelfChainingBuilder.OnTagSet(global::System.Action\u003CSwift.SwiftSet\u003CSwift.SwiftString\u003E\u003E)",
-      "symbol": "DBW_SelfChainingBuilder_onTagSet_54EE98C4_1"
+      "symbol": "SBW_SwiftBindingsTestLib_SelfChainingBuilder_onTagSet_C5B0A275"
     },
     {
       "module": "SwiftBindingsTestLib",
       "signature": "SelfChainingBuilder.OnTagSetIfTagged(int,global::System.Action\u003CSwift.SwiftSet\u003CSwift.SwiftString\u003E\u003E)",
-      "symbol": "$s20SwiftBindingsTestLib19SelfChainingBuilderC16onTagSetIfTagged_7performACXDSgs5Int32V_yShySSGctF"
+      "symbol": "SBW_SwiftBindingsTestLib_SelfChainingBuilder_onTagSetIfTagged_8DF489D9"
     },
     {
       "module": "SwiftBindingsTestLib",

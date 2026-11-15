@@ -19,8 +19,7 @@ public static class ConstructorWrapperEmitter
 {
     /// <summary>
     /// Pure query: determines whether a constructor should use a @_cdecl wrapper.
-    /// Guards: xcframework mode (wrapper lib exists), non-generic parent type,
-    /// no closure parameters (deferred to follow-up).
+    /// The guards are <see cref="EvaluateWrapperEligibility"/>'s.
     /// </summary>
     public static bool ShouldEmitWrapper(MethodEnvironment env)
         => EvaluateWrapperEligibility(env).IsWrappable;
@@ -46,13 +45,19 @@ public static class ConstructorWrapperEmitter
         if (memberReason != null)
             return WrapperEligibility.Reject(memberReason);
 
-        // Skip failable inits on non-frozen struct types.
-        // Non-frozen struct failable inits already work through CallConvSwift on Mono
-        // (the VWT operations in TryCreate are compatible). Routing them through @_cdecl
-        // can cause memory corruption because the Optional<T>.initialize(to:) in the
-        // Swift wrapper interacts poorly with the VWT-based tag/copy operations in TryCreate.
+        // A failable init on a non-frozen struct stays on its direct Swift-convention call unless
+        // it takes a closure. The two routes fill the same caller buffer the same way: the
+        // init's indirect result is an Optional<T> (`@out Optional<T>` in SIL), the C# factory
+        // allocates Optional<T>'s size and reads it through Optional<T>'s value witnesses on
+        // both routes, and the wrapper's `initialize(to:)` writes exactly that Optional<T>. A
+        // closure parameter is what differs: the direct route hands Swift a Swift-convention
+        // managed callback, which an engine that applies no Swift lowering (the x86_64 CoreCLR
+        // interpreter) cannot be called through, while the wrapper adapts the closure onto a
+        // C-convention callback. So an init with a closure takes the wrapper. The others keep
+        // the direct call, whose forward transition the Swift bridges already route.
         if (env.MethodDecl.IsFailable && env.ParentDecl is StructDecl failableStruct &&
-            !failableStruct.IsFrozen)
+            !failableStruct.IsFrozen &&
+            !env.MethodDecl.CSSignature.Skip(1).Any(env.ClosureHandler.IsClosure))
             return WrapperEligibility.Reject("failable_non_frozen_struct");
 
         // Generic parent type — allow constructors using protocol-based type erasure.

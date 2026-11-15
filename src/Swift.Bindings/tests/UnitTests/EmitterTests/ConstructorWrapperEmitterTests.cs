@@ -29,6 +29,46 @@ public class ConstructorWrapperEmitterTests
         Assert.False(ConstructorWrapperEmitter.ShouldEmitWrapper(env));
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void EvaluateWrapperEligibility_FailableNonFrozenStruct_TakesTheWrapperOnlyWithAClosure(
+        bool takesClosure, bool expectsWrapper)
+    {
+        // The direct route hands Swift a Swift-convention managed callback for a closure
+        // parameter, which an engine without Swift lowering cannot be called through; the
+        // wrapper adapts the closure onto a C-convention callback. Without a closure the init
+        // keeps its direct call, whose forward transition the Swift bridges route.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Factory");
+        typeDb.AsyncLibraryName = "TestModuleSwiftBindings";
+        var parentDecl = CreateStructDecl("Factory", moduleDecl);
+        parentDecl.IsFrozen = false;
+        var method = CreateMethod("init", isConstructor: true, parentDecl, moduleDecl);
+        method.IsFailable = true;
+        if (takesClosure)
+        {
+            var body = new ClosureTypeSpec(
+                new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }),
+                TupleTypeSpec.Empty);
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                SwiftTypeSpec = body,
+                Name = "body",
+                PrivateName = string.Empty,
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = moduleDecl
+            });
+        }
+
+        var eligibility = ConstructorWrapperEmitter.EvaluateWrapperEligibility(new MethodEnvironment(method, typeDb));
+
+        Assert.Equal(expectsWrapper, eligibility.IsWrappable);
+        if (!expectsWrapper)
+            Assert.Equal("failable_non_frozen_struct", eligibility.Reason);
+    }
+
     [Fact]
     public void ShouldEmitWrapper_NoAsyncLibraryName_ReturnsFalse()
     {

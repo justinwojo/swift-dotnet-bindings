@@ -389,6 +389,35 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// True when every non-marker protocol of the composition is a known Swift protocol that is
+    /// neither class-bound nor <c>@objc</c>, so the existential has the opaque container layout
+    /// (three inline words, type metadata, one witness table per protocol) its
+    /// <c>ExistentialContainer{N}</c> carrier mirrors. An unresolvable protocol is not known to have
+    /// that layout and answers false.
+    /// </summary>
+    public bool HasOpaqueContainerLayout(ProtocolListTypeSpec protocolList)
+    {
+        var nonMarker = GetNonMarkerProtocols(protocolList);
+        if (nonMarker.Count == 0)
+            return false;
+        foreach (var protocol in nonMarker)
+        {
+            try
+            {
+                if (!_typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(protocol), out var record) ||
+                    record.Kind != TypeRecordKind.Protocol ||
+                    (record.Flags & (TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCProtocol)) != 0)
+                    return false;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Returns true when the existential is a single <c>@objc</c> protocol's existential
     /// (<c>any P</c> where <c>P</c> is declared <c>@objc</c>). Such an existential's ABI is a
     /// single 8-byte Objective-C object pointer — no Swift witness-table word and no <c>…Mp</c>

@@ -33,7 +33,7 @@ public static partial class ClosureEmitter
         }
 
         // For indirect return closures: prepend result buffer as first param
-        if (closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws)
+        if (closureHandler.UsesCdeclIndirectReturn(closureTypeSpec))
         {
             paramTypes.Insert(0, "Swift.UnsafeMutableRawPointer");
         }
@@ -91,7 +91,7 @@ public static partial class ClosureEmitter
         ClosureHandler closureHandler)
     {
         // Indirect return uses void (result written to buffer)
-        if (closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws)
+        if (closureHandler.UsesCdeclIndirectReturn(closureTypeSpec))
             return "Swift.Void";
 
         if (closureTypeSpec.ReturnType.IsEmptyTuple)
@@ -172,7 +172,7 @@ public static partial class ClosureEmitter
         // through MethodWrapperEmitter stripped their first throwing closure.
         if (isThrowing && swiftWriter != null)
             SwiftErrorMintEmitter.EmitSwiftHelperIfNeeded(swiftWriter, moduleName ?? "SwiftBindings", ctx);
-        var isIndirectReturn = closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !isThrowing;
+        var isIndirectReturn = closureHandler.UsesCdeclIndirectReturn(closureTypeSpec);
         var closureSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(closureTypeSpec);
         var conventionCType = GetSwiftConventionCType(closureTypeSpec, closureHandler);
 
@@ -334,8 +334,7 @@ public static partial class ClosureEmitter
             }
             else if (closureHandler != null)
             {
-                if (arg is NamedTypeSpec collectionNamed &&
-                    collectionNamed.Name is "Swift.Array" or "Swift.Dictionary")
+                if (arg is NamedTypeSpec collectionNamed && IsTypedAddressCollection(collectionNamed))
                 {
                     typedAddressArgs.Add((argIndex, swiftType));
                 }
@@ -363,10 +362,8 @@ public static partial class ClosureEmitter
                              Name: "Swift.Optional",
                              GenericParameters.Count: 1
                          } optionalNamed &&
-                         optionalNamed.GenericParameters[0] is NamedTypeSpec
-                         {
-                             Name: "Swift.Array" or "Swift.Dictionary"
-                         } optionalInner)
+                         optionalNamed.GenericParameters[0] is NamedTypeSpec optionalInner &&
+                         IsTypedAddressCollection(optionalInner))
                 {
                     optionalCollectionArgs.Add((argIndex,
                         ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(optionalInner)));
@@ -709,8 +706,12 @@ public static partial class ClosureEmitter
         }
         else if (isIndirectReturn)
         {
-            // Indirect return: closure writes result to buffer, returns void
+            // Indirect return: closure writes result to buffer, returns void. An existential is
+            // spelled with `any` (Swift 6 requires it) and parenthesized so `(any P).self` names
+            // the existential type, not `any (P.self)`.
             var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
+            if (closureHandler!.IsCdeclIndirectExistentialReturn(closureTypeSpec.ReturnType))
+                returnSwiftType = $"({RenderModuleQualifiedSwiftClosureArgType(closureTypeSpec.ReturnType, closureHandler)})";
             lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) -> {returnSwiftType} in");
             if (!string.IsNullOrEmpty(observability))
                 lines.Add(observability.TrimEnd('\n'));
@@ -964,7 +965,7 @@ public static partial class ClosureEmitter
                 // UnsafeMutableRawPointer (C# allocated via NativeMemory.Alloc).
                 // Load the value from the pointer and deallocate the buffer.
                 // This handles throwing closure returns where the indirect return buffer
-                // path is not available (RequiresIndirectReturnMarshalling excludes throwing closures).
+                // path is not available (UsesCdeclIndirectReturn excludes throwing closures).
                 if (!IsSwiftPrimitive(named.Name) && !named.Name.Contains("Pointer") &&
                     named.Name != "Swift.OpaquePointer")
                 {
@@ -1067,11 +1068,10 @@ public static partial class ClosureEmitter
             if (named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer")
                 return true;
 
-            // Array and Dictionary callback inputs are passed as the address of a typed Swift
+            // Array, Dictionary and Set callback inputs are passed as the address of a typed Swift
             // temporary. The C# callback copies through collection metadata before the adapter's
             // defer destroys the temporary. Other collection families remain excluded.
-            if (named.ContainsGenericParameters &&
-                named.Name is "Swift.Array" or "Swift.Dictionary")
+            if (IsTypedAddressCollection(named))
                 return true;
 
             // The initializer reuse is intentionally limited to the two proven Result shapes:
@@ -1130,8 +1130,7 @@ public static partial class ClosureEmitter
                 // one-word boxed-error payload, shared with MethodClosureBridge.
                 if (MethodClosureBridge.IsAnyErrorExistential(inner))
                     return true;
-                if (inner is NamedTypeSpec { ContainsGenericParameters: true } innerCollection &&
-                    innerCollection.Name is "Swift.Array" or "Swift.Dictionary")
+                if (inner is NamedTypeSpec innerCollection && IsTypedAddressCollection(innerCollection))
                     return true;
                 // Optional<Class> and Optional<ObjC-bridged> — nil-pointer ABI
                 if (closureHandler.IsReferenceType(inner))
@@ -1164,6 +1163,15 @@ public static partial class ClosureEmitter
 
         return false;
     }
+
+    /// <summary>
+    /// The collection families a @_cdecl closure adapter hands the managed callback as the address of
+    /// a typed Swift temporary: Array, Dictionary and Set. Each is one buffer reference in Swift, not
+    /// C-representable by value, and the callback reads it through the borrowed collection marshal,
+    /// which copies through the collection's own metadata while the adapter's temporary is alive.
+    /// </summary>
+    internal static bool IsTypedAddressCollection(NamedTypeSpec named) =>
+        named.ContainsGenericParameters && named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
 
     /// <summary>
     /// The two Result callback-input families authorized for the ordinary closure adapter.
@@ -1202,16 +1210,20 @@ public static partial class ClosureEmitter
                 return false;
         }
 
-        // Existential returns are not yet supported by the cdecl bridge (Fix 11A covers
-        // parameters only). Block them here so IsCdeclCompatibleType can stay symmetric.
-        if (closureTypeSpec.ReturnType is ProtocolListTypeSpec ||
-            closureTypeSpec.ReturnType is NamedTypeSpec { IsAny: true })
+        // An existential return crosses only through the result buffer, as an opaque container
+        // (ClosureHandler.IsCdeclIndirectExistentialReturn); every other existential return (a
+        // throwing closure's, any Error, Any, a class-bound or @objc protocol) stays off the
+        // @_cdecl adapter so IsCdeclCompatibleType can stay symmetric.
+        if ((closureTypeSpec.ReturnType is ProtocolListTypeSpec ||
+             closureTypeSpec.ReturnType is NamedTypeSpec { IsAny: true }) &&
+            (closureTypeSpec.Throws ||
+             !closureHandler.IsCdeclIndirectExistentialReturn(closureTypeSpec.ReturnType)))
             return false;
 
         // Check return type — skip for closures using indirect return marshalling (non-throwing),
         // because the @convention(c) return type is Void (result written to buffer via first param).
         // The Swift adapter allocates a buffer, passes it to the C# callback, then loads the result.
-        var usesIndirectReturn = closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec) && !closureTypeSpec.Throws;
+        var usesIndirectReturn = closureHandler.UsesCdeclIndirectReturn(closureTypeSpec);
         if (!closureTypeSpec.ReturnType.IsEmptyTuple && !usesIndirectReturn && !IsCdeclCompatibleType(closureTypeSpec.ReturnType, closureHandler))
             return false;
 

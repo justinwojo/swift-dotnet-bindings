@@ -2091,18 +2091,24 @@ partial class Build
         // each alone in its own process after the suite, and are graded against their expected
         // outcomes rather than counted: a raw transition the interpreter mishandles can leave state
         // that a later class would inherit. Every other lane runs them as ordinary classes.
-        var negativeControls = RuntimeLane.ExecutionLane(suite.Device) == RuntimeExecutionLane.Interpreter
-            ? InterpreterNegativeControls.Classes.Where(c => eligibleClasses.Contains(c.ClassName)).ToList()
-            : [];
+        // The set is the interpreter architecture's: a class whose probes are fatal on that engine is
+        // excluded outright, and is checked against the inventory instead of run.
+        var interpreterControls = RuntimeLane.ExecutionLane(suite.Device) == RuntimeExecutionLane.Interpreter
+            ? InterpreterNegativeControls.For(suite.RuntimeIdentifier)
+            : null;
+        var negativeControls = interpreterControls?.Classes.Where(c => eligibleClasses.Contains(c.ClassName)).ToList() ?? [];
+        var exclusions = interpreterControls?.Excluded.Where(e => eligibleClasses.Contains(e.ClassName)).ToList() ?? [];
         var excludeClasses = new HashSet<string>();
-        foreach (var control in negativeControls)
+        foreach (var className in negativeControls.Select(c => c.ClassName).Concat(exclusions.Select(e => e.ClassName)))
         {
-            eligibleClasses.Remove(control.ClassName);
-            excludeClasses.Add(control.ClassName);
+            eligibleClasses.Remove(className);
+            excludeClasses.Add(className);
         }
         if (negativeControls.Count > 0)
             Log.Information("{Lane}: running {Classes} as isolated negative controls after the suite.",
                 suite.LaneLabel, string.Join(", ", negativeControls.Select(c => c.ClassName)));
+        foreach (var exclusion in exclusions)
+            Log.Information("{Lane}: not running {Class}: {Reason}.", suite.LaneLabel, exclusion.ClassName, exclusion.Reason);
 
         // Each resume excludes at least one class that started, so a budget of one relaunch per
         // eligible class (the .NET 11 lanes) always reaches the end of the inventory.
@@ -2123,8 +2129,8 @@ partial class Build
 
         try
         {
-            // A class filter that names only a negative control leaves no suite to run.
-            var suiteSelected = eligibleClasses.Count > 0 || negativeControls.Count == 0;
+            // A class filter that names only a negative control (or an excluded class) leaves no suite to run.
+            var suiteSelected = eligibleClasses.Count > 0 || (negativeControls.Count == 0 && exclusions.Count == 0);
             for (int attempt = 0; suiteSelected && CrashRecoveryBudget.CanAttempt(attempt, maxRetries, launchAbortCount); attempt++)
             {
                 if (attempt > 0)
@@ -2209,7 +2215,7 @@ partial class Build
                     failure.Result, attemptDirectory);
         }
 
-        var controls = RunNegativeControls(suite, inventory, negativeControls, attemptDirectory);
+        var controls = RunNegativeControls(suite, inventory, negativeControls, exclusions, attemptDirectory);
 
         // The controls' witnesses and rows join the lane-identity proof and the lane report, which
         // shows each class as it ran; they stay out of the suite's verdict below.
@@ -2217,6 +2223,15 @@ partial class Build
         laneResults.Merge(aggregated);
         laneResults.Merge(controls.Results);
         var laneClasses = eligibleClasses.Concat(negativeControls.Select(c => c.ClassName)).ToHashSet(StringComparer.Ordinal);
+
+        if (lastResult is null && controls.LastLaunch is null && exclusions.Count > 0)
+        {
+            // The filter named only a class this engine excludes: its inventory check is graded,
+            // and nothing ran, which the run says rather than passing on.
+            ThrowOnNegativeControlProblems(suite, controls);
+            throw new InvalidOperationException(
+                $"{suite.LaneLabel}: nothing ran: " + string.Join("; ", exclusions.Select(e => $"{e.ClassName} is not run on this engine ({e.Reason})")));
+        }
 
         if (lastResult is null)
         {
@@ -2252,15 +2267,26 @@ partial class Build
     /// written beside the lane report.
     /// </summary>
     NegativeControlRuns RunNegativeControls(RecoveringSuite suite, TestClassInventory inventory,
-        IReadOnlyList<NegativeControlClass> controls, string attemptDirectory)
+        IReadOnlyList<NegativeControlClass> controls, IReadOnlyList<NegativeControlExclusion> exclusions, string attemptDirectory)
     {
         var all = new JsonlTestResults();
         var problems = new List<string>();
         var grades = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
         var lines = new List<string>();
         LaunchResult? last = null;
-        if (controls.Count == 0)
+        if (controls.Count == 0 && exclusions.Count == 0)
             return new NegativeControlRuns(all, problems, grades, null, null);
+
+        foreach (var exclusion in exclusions)
+        {
+            var grade = InterpreterNegativeControls.GradeExclusion(exclusion, inventory.GetMethods(exclusion.ClassName));
+            problems.AddRange(grade);
+            grades[exclusion.ClassName] = grade;
+            lines.Add($"{exclusion.ClassName}: excluded, {exclusion.Tests.Count} test(s) not run ({exclusion.Reason})" +
+                      (grade.Count == 0 ? "" : $"; {grade.Count} problem(s)"));
+            foreach (var problem in grade)
+                lines.Add($"  PROBLEM {problem}");
+        }
 
         var attempts = new RuntimeTestAttempts(Path.Combine(attemptDirectory, "negative-controls"));
         var launch = 0;
@@ -2930,7 +2956,7 @@ partial class Build
         var path = BaselinesDir / RuntimeLane.IdentityBaselineFile;
         if (SeedRuntimeIdentityBaseline)
         {
-            SeedNet11RuntimeBaseline(platform, key, RuntimeLane.ReleaseSiblingKey(platformKey, rid, device), path,
+            SeedNet11RuntimeBaseline(platform, key, RuntimeLane.ReleaseSiblingKey(platformKey, rid, device), rid, path,
                 results, device, platformKey == "macos", seedProof);
             return;
         }
@@ -2965,7 +2991,7 @@ partial class Build
     /// The profile launcher copies the file back to the checkout once Nuke succeeds.
     /// </summary>
     /// <param name="releaseKey">The lane's Release floor, the reference a Debug floor is checked against.</param>
-    void SeedNet11RuntimeBaseline(string platform, string key, string releaseKey, string path, JsonlTestResults results,
+    void SeedNet11RuntimeBaseline(string platform, string key, string releaseKey, string rid, string path, JsonlTestResults results,
         bool device, bool macOS, RuntimeIdentitySeedProof? proof)
     {
         var configuration = RuntimeLane.BuildConfiguration(device, MonoAot);
@@ -2976,7 +3002,8 @@ partial class Build
                 $"Cannot seed {key} from a partial or unverified reused-app run; drop --class-filter and --skip-build.");
         if (results.CrashCount != 0 || results.FailCount != 0)
             throw new InvalidOperationException($"Cannot seed runtime identity baseline for {platform} from a failing run.");
-        if (RuntimeIdentitySeedPolicy.ProofRefusals(configuration, proof, InterpreterNegativeControls.Classes) is { Count: > 0 } unproven)
+        var interpreterControls = InterpreterNegativeControls.For(rid);
+        if (RuntimeIdentitySeedPolicy.ProofRefusals(configuration, proof, interpreterControls) is { Count: > 0 } unproven)
         {
             foreach (var reason in unproven)
                 Log.Error("Seed proof ({Key}): {Reason}", key, reason);
@@ -2994,7 +3021,7 @@ partial class Build
                 throw new InvalidOperationException(
                     $"Cannot seed {key}: a Debug floor is checked against its Release floor, and {releaseKey} has none; seed the Release lane first.");
             var lowerings = RuntimeIdentitySeedPolicy.Lowerings(entry, baseline.Platforms.GetValueOrDefault(key),
-                baseline.Platforms.GetValueOrDefault(releaseKey), InterpreterNegativeControls.Classes.Sum(c => c.Tests.Count));
+                baseline.Platforms.GetValueOrDefault(releaseKey), interpreterControls.TestsOutsideSuite);
             foreach (var lowering in lowerings)
                 Log.Warning("Floor lowering ({Key}): {Lowering}", key, lowering);
             if (lowerings.Count > 0 && justification == null)
