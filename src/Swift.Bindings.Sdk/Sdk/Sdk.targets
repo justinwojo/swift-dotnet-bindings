@@ -3422,6 +3422,16 @@ done; true"
         <LogicalName>ILLink.Descriptors.xml</LogicalName>
       </EmbeddedResource>
     </ItemGroup>
+
+    <!-- Embed each module's Swift transition manifest under its file name, which the locator
+         attribute in the module's *.SwiftTransitionManifest.g.cs (compiled with the *.cs above)
+         names with the manifest's SHA-256. The generator writes both whenever the module records a
+         Swift transition, and the wrapper compile rewrites them when it routes the module's imports
+         through bridges, before this assembly compiles. -->
+    <ItemGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
+      <_SwiftTransitionManifest Include="$(_SwiftBindingIntermediateDir)*.swift-transition-manifest.json" />
+      <EmbeddedResource Include="@(_SwiftTransitionManifest)" LogicalName="%(_SwiftTransitionManifest.Filename)%(_SwiftTransitionManifest.Extension)" />
+    </ItemGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->

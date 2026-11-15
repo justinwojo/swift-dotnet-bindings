@@ -60,5 +60,9 @@
              Link="Helpers\DirectSwiftSelfExposure.cs" />
     <Compile Include="..\src\Swift.Bindings\src\Reporting\GeneratedSwiftCallReader.cs"
              Link="Helpers\GeneratedSwiftCallReader.cs" />
+    <!-- The transition manifest format the pack gates read embedded manifests with
+         (SwiftTransitionGate/SwiftTransitionManifestReader.cs). Base class library only. -->
+    <Compile Include="..\src\Swift.Bindings\src\Emitter\CallFacts\SwiftTransitionManifestFormat.cs"
+             Link="Helpers\SwiftTransitionManifestFormat.cs" />
   </ItemGroup>
 </Project>

@@ -1003,9 +1003,19 @@ public class SwiftCallPlanTests
 
         AssertCurrent(product, products.Plans.ToJson());
         Assert.Equal(products.Plans.Plans.Select(p => p.Symbol), SwiftCallPlanSet.Read(product).Plans.Select(p => p.Symbol));
+        // The transition manifest the assembly embeds, and its locator attribute, beside the table.
+        var directory = Path.GetDirectoryName(Path.Combine(RepoRoot, table))!;
+        var manifest = Assert.IsType<SwiftTransitionManifestWriter.Manifest>(products.Manifest);
+        var stem = SwiftHandWrittenPlans.ManifestStem(products.Table);
+        AssertCurrent(Path.Combine(directory, SwiftTransitionManifestFormat.FileName(stem)), manifest.Text);
+        AssertCurrent(Path.Combine(directory, SwiftTransitionManifestFormat.AttributeFileName(stem)),
+            SwiftTransitionManifestFormat.AttributeSource([(manifest.Resource, manifest.Hash)]));
+        Assert.True(System.Text.Json.Nodes.JsonNode.DeepEquals(
+            System.Text.Json.Nodes.JsonNode.Parse(products.Plans.ToJson()),
+            System.Text.Json.Nodes.JsonNode.Parse(SwiftTransitionManifestFormat.Parse(System.Text.Encoding.UTF8.GetBytes(manifest.Text), manifest.Resource).Plans)),
+            "the manifest carries other plans than the plan product");
         if (products.Table.Bridges is { } bridges)
         {
-            var directory = Path.GetDirectoryName(Path.Combine(RepoRoot, table))!;
             AssertCurrent(Path.Combine(directory, bridges.Managed), Assert.IsType<string>(products.Managed));
             Assert.Equal(SwiftBridgeRouting.Architectures.Order(), products.Native.Keys.Order());
             foreach (var (architecture, source) in products.Native)

@@ -64,4 +64,10 @@ _SBSR_e16d2038b2c21336:
   popq %rbp
   retq
   .cfi_endproc
+/* The SHA-256 of the transition manifest these bridges were routed by. */
+.section __TEXT,__const
+.globl _SBTM_Swift_Runtime
+.no_dead_strip _SBTM_Swift_Runtime
+_SBTM_Swift_Runtime:
+  .asciz "sha256:4b6b1ec789916dddeac29d50b0183025644059946e0a8bc4f443453aa9fab390"
 .subsections_via_symbols

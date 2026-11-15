@@ -57,6 +57,15 @@
              Condition="Exists('../output/SwiftBindingsTestLibDependency.cs')" />
     <Compile Include="../output/SwiftBindingsTestLibDependency.Types.*.cs" />
   </ItemGroup>
+  <!-- Each module's Swift transition manifest, embedded under its file name, and its locator
+       attribute, as a generated binding project embeds them; the compile gate reads them back
+       from CompileCheck.dll. -->
+  <ItemGroup>
+    <Compile Include="../output/*.SwiftTransitionManifest.g.cs" />
+    <EmbeddedResource Include="../output/*.swift-transition-manifest.json">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
   <!-- NamespaceRootCaptureTrap.cs (picked up as a default compile item from this directory)
        declares types named after every namespace root the generated code names, inside the
        generated namespaces, so any root-namespace chain not spelled from global:: fails here. -->

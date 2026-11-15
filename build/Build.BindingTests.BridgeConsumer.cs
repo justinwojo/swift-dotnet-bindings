@@ -278,6 +278,13 @@ partial class Build
 
         var binding = BridgeConsumerBinding(family, BcfMode.Package, fixtureDir, "Release", oracle, appRids: []);
         AssertBridgeConsumerPackedWrapper(family, fixtureOut, binding.Plans);
+        // The packed binding's own transition evidence, read from the nupkg alone as `nuke pack` reads
+        // the runtime's: a valid manifest, the transition rules against its plans, and every packed
+        // wrapper slice holding its hash and exporting exactly its bridges; then the negative controls.
+        AssertPackageTransitionEvidence(fixtureOut / $"{BcfPackageId}.{BcfLaneVersion}.nupkg",
+            new PackageEvidenceSubject($"{BcfModule}.dll", NativeRoot: null, BcfWrapperModule, RoutesBridges: true),
+            new[] { nupkgDir / $"SwiftBindings.Runtime.{BcfLaneVersion}.nupkg", nupkgDir / $"SwiftBindings.Apple.{BcfLaneAppleVersion}.nupkg" }
+                .Where(r => File.Exists(r)).ToArray());
 
         var failures = new List<string>();
         foreach (var platform in family.Platforms)

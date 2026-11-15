@@ -22,7 +22,9 @@
 //
 // Standalone for now: the tree is red until the bridges land, so this target is not yet wired into
 // --compile-only or pack. R3 alone already is: the compile-only ledger cross-check step fails on any
-// R3 violation. It is policy, not baseline — no reseed and no --permissive arm.
+// R3 violation. It is policy, not baseline — no reseed and no --permissive arm. `nuke pack` runs
+// every rule over the packed Runtime and Apple assemblies, against the plans their transition
+// manifests embed (Build.PackageTransitionEvidence.cs); those two are clean today.
 //
 // Default input: the BindingTests compile-check assembly and the Swift.Runtime and
 // SwiftBindings.Apple assemblies built beside it (run `nuke binding-tests --compile-only` first).
@@ -331,6 +333,7 @@ partial class Build
             }
         }
         failed.AddRange(CheckRuntimeBridgeTwins(compileCheckOutput));
+        failed.AddRange(CheckCompiledTransitionEvidence(compileCheckOutput, routed));
         if (failed.Count > 0)
             throw new Exception($"Transition ledger cross-check ({platform}) FAILED for {string.Join(", ", failed)} — see the lines above.");
     }

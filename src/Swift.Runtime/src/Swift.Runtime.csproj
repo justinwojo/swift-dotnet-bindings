@@ -108,6 +108,15 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- The transition manifest of the runtime's hand-written transition table, which
+       `nuke swift-bridge-products` writes beside it with its locator attribute (a .g.cs the default
+       Compile glob takes). The resource name is the file name, which the attribute names. -->
+  <ItemGroup>
+    <EmbeddedResource Include="*.swift-transition-manifest.json">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- NuGet pack items: native runtime xcframework, .targets, and README -->
   <ItemGroup>
     <!-- Pack the whole framework xcframework recursively, preserving its directory tree

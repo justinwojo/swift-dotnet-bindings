@@ -178,6 +178,8 @@ partial class Build
                     .SetOutputDirectory(outputDir)
                     .EnableNoLogo()
                     .SetVerbosity(DotNetVerbosity.quiet)));
+                AssertPackageTransitionEvidence(outputDir / $"SwiftBindings.Apple.{appleVersion}.nupkg", AppleEvidenceSubject,
+                    outputDir / $"SwiftBindings.Runtime.{Version}.nupkg");
             }
 
             // The four packs are complete and the VersionScope is still alive: every source-controlled

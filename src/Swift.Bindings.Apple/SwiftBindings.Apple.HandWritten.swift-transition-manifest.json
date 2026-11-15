@@ -1,0 +1,91 @@
+{
+  "kind": "swift-transition-manifest",
+  "schema": 1,
+  "module": "SwiftBindings.Apple",
+  "origin": "hand-written",
+  "contract": {
+    "planVersion": 1,
+    "factsVersion": 4,
+    "collectorVersion": 1
+  },
+  "native": null,
+  "plans": {
+    "planVersion": 1,
+    "factsVersion": 4,
+    "module": "SwiftBindings.Apple",
+    "totals": {
+      "transitions": 6,
+      "planned": 0,
+      "refused": 0,
+      "notBridged": 6,
+      "plans": 0,
+      "executable": 0,
+      "bridged": 0,
+      "byTransition": {
+        "ForwardPInvoke/NotBridged": 6
+      },
+      "byPlanKind": {},
+      "byRefusal": {}
+    },
+    "coverage": [
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.Foundation.Data::PInvoke_CopyBytes",
+        "entryPoint": "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF",
+        "status": "NotBridged",
+        "factsId": "$s10Foundation4DataV9copyBytes2to5countySpys5UInt8VG_SitF",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      },
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.Foundation.Data::PInvoke_GetCount",
+        "entryPoint": "$s10Foundation4DataV5countSivg",
+        "status": "NotBridged",
+        "factsId": "$s10Foundation4DataV5countSivg",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      },
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.Foundation.Data::PInvoke_getMetadata",
+        "entryPoint": "$s10Foundation4DataVMa",
+        "status": "NotBridged",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      },
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.Foundation.URL::PInvoke_GetMetadata",
+        "entryPoint": "$s10Foundation3URLVMa",
+        "status": "NotBridged",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      },
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.Foundation.URLRequest::PInvoke_GetMetadata",
+        "entryPoint": "$s10Foundation10URLRequestVMa",
+        "status": "NotBridged",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      },
+      {
+        "transition": "ForwardPInvoke",
+        "member": "Swift.SwiftUI.Text::PInvoke_GetMetadata",
+        "entryPoint": "$s7SwiftUI4TextVMa",
+        "status": "NotBridged",
+        "reason": "primitive-only: every runtime places it identically (I1)",
+        "refusals": [],
+        "executable": false
+      }
+    ],
+    "plans": []
+  },
+  "guards": null
+}

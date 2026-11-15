@@ -115,9 +115,13 @@ public sealed class AppleTypesCsEmitter
         // Beside the C#, not among it: the project compiles only the emitted .cs files.
         var ledger = BuildTransitionLedger();
         ledger.Write(outputDir, LedgerModule, _logger);
-        SwiftCallPlanSet
-            .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(UnknownSwiftValueLowering.Instance)))
-            .Write(outputDir, LedgerModule, _logger);
+        var plans = SwiftCallPlanSet
+            .Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(UnknownSwiftValueLowering.Instance)));
+        plans.Write(outputDir, LedgerModule, _logger);
+        // The transition manifest the supplement embeds (its attribute file is among the emitted C#).
+        // The metadata accessors route through no bridge, so it names no native image.
+        SwiftTransitionManifestWriter.Write(outputDir, LedgerModule,
+            SwiftTransitionManifestWriter.Compose(LedgerModule, LedgerModule, library: null, plans.ToJson(), guards: null));
     }
 
     // Emits a single file with a `[ModuleInitializer]` that validates the Runtime

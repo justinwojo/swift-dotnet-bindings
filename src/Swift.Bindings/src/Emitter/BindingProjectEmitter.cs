@@ -558,6 +558,16 @@ namespace BindingsGeneration
                     <Compile Include="{resolvedNamespace}.Types.*.cs" />{wrappersCompile}{bridgeCompile}
                   </ItemGroup>
 
+                  <!-- The Swift transition manifest, embedded under its file name, and its locator
+                       attribute, which names that resource and its SHA-256. The generator writes both
+                       whenever the module records a Swift transition. -->
+                  <ItemGroup Condition="Exists('{SwiftTransitionManifestFormat.FileName(resolvedNamespace)}')">
+                    <Compile Include="{SwiftTransitionManifestFormat.AttributeFileName(resolvedNamespace)}" />
+                    <EmbeddedResource Include="{SwiftTransitionManifestFormat.FileName(resolvedNamespace)}">
+                      <LogicalName>{SwiftTransitionManifestFormat.FileName(resolvedNamespace)}</LogicalName>
+                    </EmbeddedResource>
+                  </ItemGroup>
+
                   <!-- ILLink trimmer descriptor — only emitted when the generator produced at
                        least one open-generic ISwiftObject in this module. ILC does not auto-
                        discover descriptors embedded in referenced assemblies, so TrimmerRootDescriptor

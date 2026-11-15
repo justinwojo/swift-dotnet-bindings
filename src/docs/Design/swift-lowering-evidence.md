@@ -378,6 +378,92 @@ collects a receipt fingerprints exactly what it did before.
 and consumes it as a package, SDK-direct and through a `ProjectReference`, on .NET 10 (Mono JIT on the
 simulator, NativeAOT and Mono full-AOT on a device) and the .NET 11 CoreCLR interpreter.
 
+## Shipped evidence: the transition manifest
+
+Routing decisions are made in the build tree: the call-plan sidecar, the guard sidecar and the
+receipt sit beside the generated C#. A package carries none of them, so without more a consumer of
+a packed binding, of `SwiftBindings.Runtime` or of `SwiftBindings.Apple` cannot check which
+transitions were routed or why. Each of those assemblies therefore embeds a *transition manifest*,
+and each native image that defines a bridge carries the manifest's hash.
+
+**The manifest.** One JSON file per module (`SwiftTransitionManifestFormat` in
+`src/Swift.Bindings/src/Emitter/CallFacts/`), schema 1:
+
+```json
+{
+  "kind": "swift-transition-manifest",
+  "schema": 1,
+  "module": "<Swift module, or the assembly of a hand-written table>",
+  "origin": "generated | hand-written",
+  "generator": "<generator version without build metadata; generated manifests only>",
+  "contract": { "planVersion": 1, "factsVersion": 4, "collectorVersion": 1 },
+  "native": { "library": "<wrapper or runtime library>", "symbol": "SBTM_<module>", "bridges": ["SBSR_…"] },
+  "plans": { … the module's call-plan sidecar … },
+  "guards": { … its transition-guard sidecar, when it has one … }
+}
+```
+
+`plans` and `guards` are the existing records (E1), not a second format: a reader writes them back
+out as sidecars and runs the transition gate's own rules over them. `native` is null when the module
+routes nothing through a bridge, and a manifest names a native symbol exactly when it lists bridges.
+`contract` must agree with the versions inside `plans`. A module with no Swift-convention transition
+writes no manifest. The file is indented UTF-8 JSON with LF line endings, and the same records
+always produce the same bytes.
+
+**Where it lives.**
+- *Managed.* The file is an embedded resource whose logical name is its file name
+  (`{stem}.swift-transition-manifest.json`). An assembly attribute locates and authenticates it:
+  `[assembly: AssemblyMetadata("SwiftBindings.TransitionManifest", "schema=1;resource=<name>;sha256=<hex>")]`,
+  written to `{stem}.SwiftTransitionManifest.g.cs`. An assembly that compiles several modules carries
+  one attribute per module.
+- *Native.* The bridge assembly of a routing module ends with an exported, `.no_dead_strip` data
+  symbol `SBTM_<module>` in `__TEXT,__const` holding `sha256:<hex>`, the same hash. A changed manifest
+  changes the bridge source, so a routing that relinks the wrapper links the new hash. Where the
+  finalizer does not relink (no receipt, or a failed relink that puts the earlier wrapper back), the
+  wrapper keeps the earlier hash and bridges, and the evidence checks report the mismatch.
+- *Producers.* Generation writes the manifest from the sidecars; the wrapper-compile finalizer
+  rewrites it with the sidecars it settles, so the SDK's build, package, SDK-direct and
+  `ProjectReference` modes all embed the routed records. The runtime's and the Apple supplement's
+  hand-written tables are produced by `swift-bridge-products` (stem `{Assembly}.HandWritten`), and the
+  Apple supplement also embeds the manifest of its generated type manifest.
+
+**The reader.** `SwiftTransitionManifestReader` and `MachOSymbols` (`build/SwiftTransitionGate/`)
+need only the base class library and `System.Reflection.Metadata`, so an MSBuild task can carry them.
+`Read(assembly)` returns a `TransitionEvidence` in one of four states:
+
+| State | Meaning |
+|---|---|
+| `PresentValid` | Every locator parses, names a schema the reader knows and an embedded resource with that hash; the manifests parse; the imported bridges are exactly the manifests' bridges, from the named library; every Swift-convention P/Invoke entry point is in a manifest's plans; no member failed inspection. The state says the manifests describe the assembly; whether its transitions satisfy the gate's rules (a Swift-convention reverse callback, R4, for example) is `PackageTransitionEvidence`'s check. |
+| `AbsentPrimitiveOnly` | No manifest, and no transition that needs one: no bridge import, no transition-gate rule hit, no Swift-convention reverse callback. |
+| `AbsentNonPrimitive` | No manifest, but the assembly imports a bridge or holds a transition the gate rules apply to. The problems name it. |
+| `TamperedOrMismatched` | A locator or resource is missing, malformed, unknown or does not hash to its locator, or the manifests disagree with the assembly. |
+
+`CheckNative(evidence, library, image)` checks one native image against it: every architecture slice
+of a library that a manifest routes through holds the manifest hash and exports exactly that
+manifest's bridges, and an image no manifest routes through exports no `SBSR_` or `SBTM_` symbol.
+
+**Where it is checked.**
+- `PackageTransitionEvidence.Check` reads a package alone: the evidence must be `PresentValid`, the
+  manifests' plans and guards are written to scratch sidecars, and the transition gate's rules
+  (R2–R5, R1 through the residual-guard check, the guard-record cross-check, routing and evidence
+  gaps, twin count) run against them. Every native slice is checked against every assembly.
+- `nuke pack` runs it on the `SwiftBindings.Runtime` and `SwiftBindings.Apple` nupkgs. The runtime's
+  linked-bridge check reads its plans from the packed manifest rather than from the build tree.
+- `binding-tests --bridge-consumer` runs it, controls included, on the binding package the SDK packs
+  in its `package` mode: a generated binding with default settings.
+- `binding-tests --compile-only`, and the ledger cross-check of the Mac Catalyst and tvOS runtime
+  lanes, read the compile check's binding, runtime and Apple assemblies, require a manifest for each
+  BindingTests module, and check every slice of each wrapper a manifest routes through.
+
+Both are policy: there is no baseline. Four controls run against the packed iOS assembly on every
+pack and must fail with the named reason: a tampered manifest byte, a removed manifest on an
+assembly that imports bridges, a renamed bridge twin (the runtime: R3), and a package with its
+routing fixture removed (no native image for the runtime; no routed bridge for Apple).
+
+What a consumer build does with the four states is not decided here: the planned policy is a build
+error on `AbsentNonPrimitive` and `TamperedOrMismatched`, while an absent manifest on a
+primitive-only binding stays accepted.
+
 ## Limits
 
 - Matching signatures do not establish aggregate byte offsets, metadata or witness-table
