@@ -298,6 +298,31 @@ public class TypeProjectionFactoryComplexTests
         Assert.IsType<ExistentialProjection>(projection);
     }
 
+    [Theory]
+    [InlineData("any TestModule.Shape.Type")]
+    [InlineData("Swift.Optional<any TestModule.Shape.Type>")]
+    public void Project_ExistentialMetatype_IsNotAnExistentialValue(string spelling)
+    {
+        // `any P.Type` parses with IsAny like `any P`, but swiftc carries it as the dynamic type's
+        // metadata and witness table, never as a five-word existential container. Projecting it as
+        // an existential gave the direct P/Invoke an ExistentialContainer1 the callee never fills.
+        var db = new MockTypeDatabase();
+        db.AddType("TestModule.Shape", new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Shape"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"),
+            MetadataAccessor = "",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol
+        });
+        var ctx = CreateContext(db);
+        // Positive control: the value form of the same protocol is an existential.
+        Assert.IsType<ExistentialProjection>(_factory.Project(TypeSpecParser.Parse("any TestModule.Shape")!, ctx));
+
+        // No projection: the member falls to the unsupported-metatype handling every other metatype gets.
+        Assert.Null(_factory.Project(TypeSpecParser.Parse(spelling)!, ctx));
+    }
+
     [Fact]
     public void Project_WellKnownProtocol_ReturnsAnyError()
     {

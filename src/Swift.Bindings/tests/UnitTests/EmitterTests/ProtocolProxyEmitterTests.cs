@@ -2136,27 +2136,47 @@ public class ProtocolProxyEmitterTests
     public void EmitProxyClass_WithAnyExistentialProperty_UsesObjectForAnyType()
     {
         // Swift "any" existential resolves to "object" via the ExistentialProjection
-        // 3-tier fallback: well-known → proxy → object.
+        // 3-tier fallback: well-known → proxy → object. The protocol is not in the
+        // type database, so neither a well-known mapping nor a proxy applies.
         var protocolDecl = CreateSimpleProtocol("AnyExistentialProtocol");
-        var anyExistential = new NamedTypeSpec("Swift.Any.Type") { IsAny = true };
-        protocolDecl.Properties.Add(new PropertyDecl
-        {
-            Name = "valueType",
-            SwiftTypeSpec = anyExistential,
-            IsStatic = false,
-            HasStorage = false,
-            Accessors = new List<AccessorDecl>
-            {
-                new GetAccessorDecl { Method = CreateMethodDecl("valueType_get") }
-            },
-            ParentDecl = null,
-            ModuleDecl = null
-        });
+        protocolDecl.Properties.Add(GetOnlyProperty("value",
+            new NamedTypeSpec("TestModule.UnregisteredProtocol") { IsAny = true }));
 
         var output = EmitProxyClass(protocolDecl);
 
-        Assert.Contains("public object ValueType", output);
+        Assert.Contains("public object Value", output);
     }
+
+    [Fact]
+    public void EmitProxyClass_WithExistentialMetatypeProperty_DoesNotMarshalAnExistentialContainer()
+    {
+        // `any Any.Type` parses with IsAny, but it is a metatype: one metadata pointer, not a
+        // five-word existential container. Read as an existential, the receiver's getter handed
+        // Swift an ExistentialContainer1 where it expects the metadata.
+        var protocolDecl = CreateSimpleProtocol("AnyExistentialProtocol");
+        protocolDecl.Properties.Add(GetOnlyProperty("valueType",
+            new NamedTypeSpec("Swift.Any.Type") { IsAny = true }));
+
+        var output = EmitProxyClass(protocolDecl);
+
+        // (The proxy's own conformance names ExistentialContainer1; only the property's marshalling is at issue.)
+        Assert.DoesNotContain("(ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>)result", output);
+        Assert.DoesNotContain("public object ValueType", output);
+    }
+
+    private PropertyDecl GetOnlyProperty(string name, TypeSpec type) => new()
+    {
+        Name = name,
+        SwiftTypeSpec = type,
+        IsStatic = false,
+        HasStorage = false,
+        Accessors = new List<AccessorDecl>
+        {
+            new GetAccessorDecl { Method = CreateMethodDecl($"{name}_get") }
+        },
+        ParentDecl = null,
+        ModuleDecl = null
+    };
 
     [Fact]
     public void EmitProxyClass_CrossModuleExistentialProperty_QualifiesInterfaceAndProxy()

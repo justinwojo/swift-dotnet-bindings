@@ -151,8 +151,9 @@ public class TypeProjectionFactory
             return CreateProjectionForTypeRecord(selfTypeRecord, typeNameOverride);
         }
 
-        // Route NamedTypeSpec.IsAny to existential
-        if (namedType.IsAny)
+        // Route NamedTypeSpec.IsAny to existential; an existential metatype (any P.Type) is a
+        // metatype, handled with the others below.
+        if (ExistentialHandler.IsExistentialValue(namedType))
         {
             var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector)
             { CurrentModuleName = context.CurrentModuleName };
@@ -173,7 +174,7 @@ public class TypeProjectionFactory
                 return null;
 
             var isExistentialInner = inner is ProtocolListTypeSpec ||
-                (inner is NamedTypeSpec innerNamed && innerNamed.IsAny);
+                (inner is NamedTypeSpec innerNamed && ExistentialHandler.IsExistentialValue(innerNamed));
 
             // Optional inner types always use IsParameter=false (return-style projection).
             // This matches the legacy GetIdiomaticCSharpType behavior where Optional<Dictionary<K,V>>

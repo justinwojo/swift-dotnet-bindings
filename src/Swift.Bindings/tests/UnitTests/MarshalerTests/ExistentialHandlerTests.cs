@@ -64,6 +64,21 @@ public class ExistentialHandlerTests
         Assert.False(_handler.IsExistential(namedType));
     }
 
+    [Theory]
+    [InlineData("any TestModule.Shape.Type")]
+    [InlineData("any TestModule.ClassBound.Type")]
+    public void IsExistential_ExistentialMetatype_ReturnsFalse(string spelling)
+    {
+        // An existential metatype is metadata plus witness tables, not an existential container.
+        var spec = Assert.IsType<NamedTypeSpec>(TypeSpecParser.Parse(spelling));
+        Assert.True(spec.IsAny);
+        Assert.False(_handler.IsExistential(spec));
+        Assert.Null(_handler.ToProtocolListTypeSpec(spec));
+        Assert.False(_handler.IsOptionalExistential(TypeSpecParser.Parse($"Swift.Optional<{spelling}>")!));
+        // The value form stays an existential.
+        Assert.True(_handler.IsExistential(TypeSpecParser.Parse(spelling[..^".Type".Length])!));
+    }
+
     [Fact]
     public void IsExistential_ArgumentDecl_WithProtocolList_ReturnsTrue()
     {

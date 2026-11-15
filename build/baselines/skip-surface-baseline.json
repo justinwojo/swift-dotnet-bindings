@@ -628,6 +628,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027SearchableTypeRegistry.allTypes\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027ShadowChoice.Something\u0027 \u2014 GenericEnumCaseConstructor (generic-enum payload-case constructor has no exported function symbol and no @_cdecl wrapper route; a direct mangled-symbol P/Invoke would throw EntryPointNotFoundException on first use.)",
       "count": 1
     },
@@ -1348,7 +1354,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "property \u0027SearchableTypeRegistry.types\u0027 \u2014 protocol-typed parameter/return not yet projected (Bound generic contains existential type argument \u0027any SwiftBindingsTestLib.SearchableItem.Type\u0027.)",
+      "reason": "property \u0027SearchableTypeRegistry.types\u0027 \u2014 type could not be resolved to a concrete projection (Property type resolved to AnyType (Swift.SwiftArray\u003CSwift.AnyType\u003E).)",
       "count": 1
     },
     {

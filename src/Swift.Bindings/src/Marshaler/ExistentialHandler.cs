@@ -206,13 +206,21 @@ public class ExistentialHandler
     /// <summary>
     /// Determines whether the specified type spec represents an existential type.
     /// This includes both protocol compositions (ProtocolListTypeSpec) and single-protocol
-    /// existentials (NamedTypeSpec with IsAny = true).
+    /// existentials (NamedTypeSpec with IsAny = true). An existential metatype (<c>any P.Type</c>)
+    /// also parses with IsAny but is not an existential value: swiftc passes and returns it as the
+    /// dynamic type's metadata and witness tables, not a boxed container, so it is a metatype here.
     /// </summary>
     /// <param name="typeSpec">The type specification.</param>
     /// <returns><c>true</c> if the type spec is an existential; otherwise, <c>false</c>.</returns>
     public bool IsExistential(TypeSpec typeSpec) =>
         typeSpec is ProtocolListTypeSpec ||
-        (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.IsAny);
+        (typeSpec is NamedTypeSpec namedTypeSpec && IsExistentialValue(namedTypeSpec));
+
+    /// <summary>
+    /// A single-protocol existential value: <c>any P</c>, not the existential metatype <c>any P.Type</c>.
+    /// </summary>
+    internal static bool IsExistentialValue(NamedTypeSpec namedTypeSpec) =>
+        namedTypeSpec.IsAny && !WrapperValidation.IsMetatypeType(namedTypeSpec);
 
     /// <summary>
     /// Gets the ProtocolListTypeSpec from an argument declaration.
@@ -242,7 +250,7 @@ public class ExistentialHandler
         if (typeSpec is ProtocolListTypeSpec protocolList)
             return protocolList;
 
-        if (typeSpec is NamedTypeSpec namedTypeSpec && namedTypeSpec.IsAny)
+        if (typeSpec is NamedTypeSpec namedTypeSpec && IsExistentialValue(namedTypeSpec))
         {
             // Single protocol existential: "any SomeProtocol" → ProtocolListTypeSpec with one protocol
             return new ProtocolListTypeSpec(new[] { namedTypeSpec });
@@ -458,7 +466,7 @@ public class ExistentialHandler
             var nonMarker = GetNonMarkerProtocols(protocolList);
             return nonMarker.Count == 1 && IsObjCProtocolNamed(nonMarker[0], typeDatabase);
         }
-        if (spec is NamedTypeSpec named && named.IsAny && !WrapperValidation.IsMetatypeType(named))
+        if (spec is NamedTypeSpec named && IsExistentialValue(named))
             return IsObjCProtocolNamed(named, typeDatabase);
         return false;
     }
