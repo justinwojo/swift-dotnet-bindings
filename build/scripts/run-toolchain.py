@@ -12,6 +12,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -141,16 +142,37 @@ def temporary_root(state):
 
 
 def prepare_temporary_directory(path, state, profile):
+    """Create or re-adopt the profile's external temporary directory and pin its SDK.
+
+    The directory lives under /private/tmp, whose daily cleaner deletes files nobody has touched
+    for three days, ownership marker included. A directory this user owns at mode 0700 can only
+    have been made by this user, and its name is keyed on the state path, so one whose marker
+    was reaped is re-adopted. A marker naming another state, a marker that is not a regular file,
+    a directory of another owner or with wider permissions, and any symlink are still refused.
+    The marker is rewritten on every run, so an active profile never lets it age out.
+    """
     if path.is_symlink():
         raise RuntimeError(f"Refusing a symlink temporary directory: {path}")
     marker = path / ".swift-bindings-profile-owner.json"
     owner = {"state": str(state.resolve())}
     if path.exists():
-        if marker.is_symlink() or not marker.is_file() or json.loads(marker.read_text()) != owner:
+        status = path.lstat()
+        if (not stat.S_ISDIR(status.st_mode) or status.st_uid != os.getuid()
+                or stat.S_IMODE(status.st_mode) != 0o700):
             raise RuntimeError(f"Refusing an unowned temporary directory: {path}")
+        if marker.is_symlink() or (marker.exists() and not marker.is_file()):
+            raise RuntimeError(f"Refusing an unowned temporary directory: {path}")
+        if marker.is_file():
+            try:
+                recorded = json.loads(marker.read_text())
+            except ValueError:
+                recorded = None
+            if recorded != owner:
+                raise RuntimeError(f"Refusing an unowned temporary directory: {path}")
     else:
         path.mkdir(mode=0o700, parents=True)
-        write_json(marker, owner)
+        path.chmod(0o700)
+    write_json(marker, owner)
     pin = path / "global.json"
     if pin.is_symlink():
         raise RuntimeError(f"Refusing a symlink temporary SDK pin: {pin}")

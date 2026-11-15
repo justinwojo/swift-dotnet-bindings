@@ -4,6 +4,7 @@
 import importlib.util
 import json
 import os
+import stat
 from pathlib import Path
 import subprocess
 import sys
@@ -334,13 +335,85 @@ class ToolchainIsolationTests(unittest.TestCase):
             profile.prepare_temporary_directory(scratch, self.state / "other", selected)
         self.assertEqual((scratch / "evidence.txt").read_text(), "retained")
         unowned = self.root / "unowned-tmp"
-        unowned.mkdir()
+        unowned.mkdir(mode=0o755)
+        unowned.chmod(0o755)  # mkdir's mode is masked: under umask 077 it would be a private, adoptable directory
         with self.assertRaisesRegex(RuntimeError, "unowned"):
             profile.prepare_temporary_directory(unowned, self.state, selected)
         link = self.root / "linked-tmp"
         link.symlink_to(scratch)
         with self.assertRaisesRegex(RuntimeError, "symlink"):
             profile.prepare_temporary_directory(link, self.state, selected)
+
+    def test_external_temporary_directory_whose_marker_was_reaped_is_readopted(self):
+        # macOS's daily /tmp cleaner deletes the marker once it is three days old; the directory
+        # (this user's, mode 0700, keyed on the state path) must still be usable afterwards.
+        scratch = self.root / "external-tmp"
+        selected = {"sdkVersion": "10.0.402", "workloadVersion": "10.0.402.1"}
+        profile.prepare_temporary_directory(scratch, self.state, selected)
+        self.assertEqual(stat.S_IMODE(scratch.lstat().st_mode), 0o700)
+        marker = scratch / ".swift-bindings-profile-owner.json"
+        (scratch / "evidence.txt").write_text("retained")
+        marker.unlink()
+        profile.prepare_temporary_directory(scratch, self.state, selected)
+        self.assertEqual(json.loads(marker.read_text()), {"state": str(self.state.resolve())})
+        self.assertEqual((scratch / "evidence.txt").read_text(), "retained")
+        # Re-adoption claims it for this state: another state is still refused afterwards.
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(scratch, self.state / "other", selected)
+
+    def test_external_temporary_directory_marker_is_refreshed_on_every_run(self):
+        scratch = self.root / "external-tmp"
+        selected = {"sdkVersion": "10.0.402", "workloadVersion": "10.0.402.1"}
+        profile.prepare_temporary_directory(scratch, self.state, selected)
+        marker = scratch / ".swift-bindings-profile-owner.json"
+        aged = marker.stat().st_mtime - 4 * 24 * 3600
+        os.utime(marker, (aged, aged))
+        profile.prepare_temporary_directory(scratch, self.state, selected)
+        self.assertGreater(marker.stat().st_mtime, aged + 3 * 24 * 3600)
+
+    def test_external_temporary_directory_without_marker_needs_private_mode_and_no_symlinks(self):
+        selected = {"sdkVersion": "10.0.402", "workloadVersion": "10.0.402.1"}
+        shared = self.root / "shared-tmp"
+        shared.mkdir(mode=0o755)
+        shared.chmod(0o755)
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(shared, self.state, selected)
+        self.assertFalse((shared / ".swift-bindings-profile-owner.json").exists())
+        # A matching marker does not excuse wider permissions either.
+        owned = self.root / "owned-tmp"
+        profile.prepare_temporary_directory(owned, self.state, selected)
+        owned.chmod(0o755)
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(owned, self.state, selected)
+        owned.chmod(0o700)
+        marker = owned / ".swift-bindings-profile-owner.json"
+        marker.unlink()
+        marker.symlink_to(self.source / "original.txt")
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(owned, self.state, selected)
+        self.assertEqual((self.source / "original.txt").read_text(), "original\n")
+        marker.unlink()
+        marker.mkdir()
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(owned, self.state, selected)
+        marker.rmdir()
+        marker.write_text("not json")
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(owned, self.state, selected)
+        not_a_directory = self.root / "file-tmp"
+        not_a_directory.write_text("file")
+        with self.assertRaisesRegex(RuntimeError, "unowned"):
+            profile.prepare_temporary_directory(not_a_directory, self.state, selected)
+
+    def test_external_temporary_directory_of_another_owner_is_refused(self):
+        scratch = self.root / "external-tmp"
+        selected = {"sdkVersion": "10.0.402", "workloadVersion": "10.0.402.1"}
+        profile.prepare_temporary_directory(scratch, self.state, selected)
+        (scratch / ".swift-bindings-profile-owner.json").unlink()
+        with patch.object(profile.os, "getuid", return_value=os.getuid() + 1):
+            with self.assertRaisesRegex(RuntimeError, "unowned"):
+                profile.prepare_temporary_directory(scratch, self.state, selected)
+        self.assertFalse((scratch / ".swift-bindings-profile-owner.json").exists())
 
     def test_external_temporary_directory_pins_sdk_and_updates_pin(self):
         scratch = self.root / "external-tmp"
