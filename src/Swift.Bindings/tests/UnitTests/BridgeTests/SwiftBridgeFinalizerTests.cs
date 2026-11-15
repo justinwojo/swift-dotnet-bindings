@@ -183,6 +183,18 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
             routing);
     }
 
+    /// <summary>
+    /// <paramref name="bridges"/> as the finalizer writes them: ending with the hash of the transition
+    /// manifest the settled sidecars on disk compose, which must also be the manifest on disk.
+    /// </summary>
+    private string? Hashed(string? bridges)
+    {
+        var manifest = SwiftTransitionManifestWriter.ComposeFromSidecars(_dir, "M", "M", Library);
+        var path = PathOf(SwiftTransitionManifestFormat.FileName("M"));
+        Assert.Equal(manifest?.Text, File.Exists(path) ? File.ReadAllText(path) : null);
+        return bridges is null ? null : SwiftTransitionManifestWriter.WithNativeHash(bridges, manifest);
+    }
+
     private Dictionary<string, string> Snapshot() =>
         Directory.GetFiles(_dir).ToDictionary(p => Path.GetFileName(p)!, p => File.ReadAllText(p), StringComparer.Ordinal);
 
@@ -212,7 +224,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Assert.Equal(expected.CSharp[SplitFile], Read(SplitFile));
         Assert.Equal(expected.Plans, Read(SwiftCallPlanSet.FileName("M")));
         Assert.Equal(expected.Ledger, Read(SwiftTransitionLedger.FileName("M")));
-        Assert.Equal(expected.Arm64, File.ReadAllText(AssemblyPath(SwiftArchitecture.Arm64)));
+        Assert.Equal(Hashed(expected.Arm64), File.ReadAllText(AssemblyPath(SwiftArchitecture.Arm64)));
         Assert.DoesNotContain("CallConvSwift", Read(MainFile) + Read(SplitFile));
 
         // The judgement claims exactly the slices the receipt holds: no x86_64 simulator.
@@ -258,7 +270,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Assert.Equal(MainSource, Read(MainFile));
         Assert.Equal(expected.CSharp[SplitFile], Read(SplitFile));
         Assert.Equal(expected.Plans, Read(SwiftCallPlanSet.FileName("M")));
-        Assert.Equal(expected.Arm64, File.ReadAllText(AssemblyPath(SwiftArchitecture.Arm64)));
+        Assert.Equal(Hashed(expected.Arm64), File.ReadAllText(AssemblyPath(SwiftArchitecture.Arm64)));
         Assert.Single(expected.Routing.Bridged);
         var self = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M")))).Coverage.Single(e => e.EntryPoint == SelfTarget);
         Assert.False(self.Executable);

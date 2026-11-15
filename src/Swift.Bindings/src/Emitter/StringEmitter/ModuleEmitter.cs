@@ -306,6 +306,23 @@ namespace BindingsGeneration
                     fragmentSet.Add(SwiftTransitionGuards.MasksFileName(@namespace), masks, [new FragmentInterval(fragment, 0, masks.Length)]);
                 }
 
+                // The transition manifest: the plan and guard sidecars just written, which the binding
+                // embeds so a packaged copy can be checked without this output directory. When the
+                // module routes through bridges, every bridge assembly carries the manifest hash. Its
+                // locator attribute is C# the binding compiles, owned by the module like the guards.
+                var wrapperLibrary = PInvokeEmitHelper.ResolveWrapperLibrary(_typeDatabase);
+                var manifest = SwiftTransitionManifestWriter.ComposeFromSidecars(_outputDirectory, @namespace, moduleDecl.Name, wrapperLibrary);
+                SwiftTransitionManifestWriter.Write(_outputDirectory, @namespace, manifest);
+                if (manifest is not null)
+                {
+                    var locator = File.ReadAllText(Path.Combine(_outputDirectory, SwiftTransitionManifestFormat.AttributeFileName(@namespace)));
+                    var fragment = new OutputFragment
+                    {
+                        Owner = moduleOwner, Plane = OutputPlane.CSharp, Text = locator, IsWholeScope = false, Depth = 0,
+                    };
+                    fragmentSet.Add(SwiftTransitionManifestFormat.AttributeFileName(@namespace), locator, [new FragmentInterval(fragment, 0, locator.Length)]);
+                }
+
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
                 // It records every emitted public member's post-collision C# signature → native
                 // entry symbol so the ratchet gate can detect a same-signature symbol retarget.
@@ -377,7 +394,7 @@ namespace BindingsGeneration
                 {
                     var bridgePath = Path.Combine(_outputDirectory, SwiftBridgeRouting.AssemblyFileName(@namespace, architecture));
                     if (routing.Assembly(architecture) is { } bridges)
-                        File.WriteAllText(bridgePath, bridges.Source);
+                        File.WriteAllText(bridgePath, SwiftTransitionManifestWriter.WithNativeHash(bridges.Source, manifest));
                     else if (File.Exists(bridgePath))
                         File.Delete(bridgePath);
                 }

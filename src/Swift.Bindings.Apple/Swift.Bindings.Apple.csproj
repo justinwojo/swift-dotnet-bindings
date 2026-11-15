@@ -134,6 +134,16 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- The transition manifest of the supplement's hand-written transition table, which
+       `nuke swift-bridge-products` writes beside it with its locator attribute (a .g.cs the default
+       Compile glob takes); the generated types' manifest is embedded by _EmbedAppleTypesTransitionManifest.
+       The resource name is the file name, which the attribute names. -->
+  <ItemGroup>
+    <EmbeddedResource Include="*.swift-transition-manifest.json">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- Apple-types generated sources. The emitter runs as a BeforeCompile step so
        the output lives in obj/ and never appears in git. manifest.json +
        sequential-layout-whitelist.json are the authoritative inputs; deleting a
@@ -188,7 +198,21 @@
           BeforeTargets="CoreCompile">
     <ItemGroup>
       <Compile Include="$(_AppleTypesGeneratedDir)\**\*.cs" Exclude="@(Compile)" />
-      <FileWrites Include="$(_AppleTypesGeneratedDir)\**\*.cs;$(_AppleTypesGeneratedDir)\*.swift-transition-ledger.json;$(_AppleTypesGeneratedDir)\*.swift-call-plans.json;$(_AppleTypesStampFile)" />
+      <FileWrites Include="$(_AppleTypesGeneratedDir)\**\*.cs;$(_AppleTypesGeneratedDir)\*.swift-transition-ledger.json;$(_AppleTypesGeneratedDir)\*.swift-call-plans.json;$(_AppleTypesGeneratedDir)\*.swift-transition-manifest.json;$(_AppleTypesStampFile)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- The generated types' transition manifest (its locator attribute is among the generated .cs).
+       Resources are collected for the compiler during PrepareResources, well before CoreCompile, so
+       the item is added ahead of that step rather than beside the generated sources. -->
+  <PropertyGroup>
+    <PrepareResourcesDependsOn>_EmbedAppleTypesTransitionManifest;$(PrepareResourcesDependsOn)</PrepareResourcesDependsOn>
+  </PropertyGroup>
+  <Target Name="_EmbedAppleTypesTransitionManifest"
+          DependsOnTargets="_ComputeAppleTypePaths;_GenerateAppleTypeSources">
+    <ItemGroup>
+      <_AppleTypesTransitionManifest Include="$(_AppleTypesGeneratedDir)\*.swift-transition-manifest.json" />
+      <EmbeddedResource Include="@(_AppleTypesTransitionManifest)" LogicalName="%(_AppleTypesTransitionManifest.Filename)%(_AppleTypesTransitionManifest.Extension)" />
     </ItemGroup>
   </Target>
 

@@ -72,13 +72,15 @@ partial class Build
 
     /// <summary>
     /// The sidecars a module's generation writes beside its C# that describe its Swift transitions:
-    /// its call facts, transition ledger, call plans and residual guards. A dependency's travel with
-    /// its C# into the BindingTests output, where the transition gates read them.
+    /// its call facts, transition ledger, call plans and residual guards, and the transition manifest
+    /// the binding embeds with its locator attribute. A dependency's travel with its C# into the
+    /// BindingTests output, where the compile check embeds the manifest and the transition gates read them.
     /// </summary>
     static string[] SwiftTransitionSidecarNames(string module) =>
     [
         $"{module}.swift-call-facts.json", $"{module}.swift-transition-ledger.json",
         $"{module}.swift-call-plans.json", $"{module}.swift-transition-guards.json",
+        BindingsGeneration.SwiftTransitionManifestFormat.FileName(module), BindingsGeneration.SwiftTransitionManifestFormat.AttributeFileName(module),
     ];
 
     /// <summary>The hand-written tables and the source directories of the assembly each belongs to.</summary>

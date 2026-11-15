@@ -75,16 +75,24 @@ partial class Build
     void AssertRuntimeNativePackage(AbsolutePath nupkgPath)
     {
         AssertRuntimeNativeExports(nupkgPath);
-        AssertRuntimeLinkedBridges(nupkgPath);
+        var evidence = AssertPackageTransitionEvidence(nupkgPath, RuntimeEvidenceSubject);
+        AssertRuntimeLinkedBridges(nupkgPath, evidence);
     }
 
-    void AssertRuntimeLinkedBridges(AbsolutePath nupkgPath)
+    /// <summary>
+    /// The linked check of the packed runtime's bridges, against the plans its packed assemblies embed
+    /// (<see cref="AssertPackageTransitionEvidence"/>), which must be one manifest across every
+    /// target framework.
+    /// </summary>
+    void AssertRuntimeLinkedBridges(AbsolutePath nupkgPath, IReadOnlyList<SwiftBindings.TransitionGate.TransitionEvidence> evidence)
     {
-        var plans = SwiftBridgeProductsDir / "Swift.Runtime.swift-call-plans.json";
-        if (!File.Exists(plans))
-            Assert.Fail($"Runtime linked-bridge gate: {plans} is missing; run `nuke swift-bridge-products`.");
+        var manifests = evidence.SelectMany(e => e.Manifests).GroupBy(m => m.Hash).ToList();
+        if (manifests.Count != 1)
+            Assert.Fail($"Runtime linked-bridge gate: the assemblies of {nupkgPath} embed {manifests.Count} different transition manifests; every target framework must embed the same one.");
         var scratch = (AbsolutePath)Path.Combine(Path.GetTempPath(), $"swift-runtime-linked-bridges-{Guid.NewGuid():N}");
         scratch.CreateDirectory();
+        var plans = scratch / "Swift.Runtime.swift-call-plans.json";
+        File.WriteAllText(plans, manifests[0].First().Manifest.Plans);
         try
         {
             var images = new List<string>();
@@ -105,8 +113,8 @@ partial class Build
             var arguments = new List<string> { $"\"{GeneratorDll}\"", $"--swift-call-plans \"{plans}\"", $"-o \"{scratch / "check"}\"" };
             arguments.AddRange(images.Select(i => $"--validate-linked-bridges \"{i}\""));
             RunGenerator(arguments, $"the linked-bridge check of {nupkgPath}");
-            Log.Information("Runtime linked-bridge gate OK — the SBSR_ bridges of {Slices} packed slice(s) validated against {Plans}",
-                images.Count, plans);
+            Log.Information("Runtime linked-bridge gate OK — the SBSR_ bridges of {Slices} packed slice(s) validated against the plans the packed assemblies embed",
+                images.Count);
         }
         finally
         {

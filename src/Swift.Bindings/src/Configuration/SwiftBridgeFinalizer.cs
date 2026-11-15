@@ -263,6 +263,11 @@ public static class SwiftBridgeFinalizer
         if (MasksOf(routed, routing.Rewrites, module, logger) is not { } masks)
             return Outcome.Failed;
 
+        // The sidecars and manifest the routed C# ships with; every bridge assembly carries the manifest hash.
+        var sidecars = Settle(directory, @namespace, routing, judged, masks, logger);
+        var manifest = ManifestOf(module, @namespace, request.Library, sidecars);
+        desired = desired.ToDictionary(kv => kv.Key, kv => kv.Value is null ? null : SwiftTransitionManifestWriter.WithNativeHash(kv.Value, manifest));
+
         var nextJournal = new SwiftBridgeRoutingJournal
         {
             Schema = SwiftBridgeRoutingJournal.SchemaVersion,
@@ -284,7 +289,7 @@ public static class SwiftBridgeFinalizer
         if (!relinks)
         {
             var changed = Write(directory, @namespace, nextJournal, journalPath, desired, assemblyPaths, routed, current, masks);
-            changed |= WriteSidecars(directory, @namespace, routing, judged, masks, logger);
+            changed |= WriteSidecars(directory, @namespace, sidecars, manifest, logger);
             if (linked.Values.SelectMany(Defined).Where(s => !needed.Contains(s)).Distinct(StringComparer.Ordinal).Count() is var leftover and > 0)
                 logger.LogInformation(
                     "{Module}'s wrapper keeps {Count} bridge(s) of an earlier routing that its C# no longer calls; with no receipt to verify a relink against, they go when the wrapper is next compiled.",
@@ -298,7 +303,7 @@ public static class SwiftBridgeFinalizer
         var failure = receipt is null ? "the receipt holds no evidence of the module" : relink(receipt);
         if (failure is null)
         {
-            WriteSidecars(directory, @namespace, routing, judged, masks, logger);
+            WriteSidecars(directory, @namespace, sidecars, manifest, logger);
             LogRouted(logger, module, routing, markers, relinked: true);
             return Outcome.Relinked;
         }
@@ -317,7 +322,8 @@ public static class SwiftBridgeFinalizer
             return Outcome.Failed;
         Write(directory, @namespace, nextJournal with { Rewrites = [], Markers = [] }, journalPath, linked, assemblyPaths, pristine,
             files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal), pristineMasks);
-        WriteSidecars(directory, @namespace, withdrawn, judged, pristineMasks, logger);
+        var withdrawnSidecars = Settle(directory, @namespace, withdrawn, judged, pristineMasks, logger);
+        WriteSidecars(directory, @namespace, withdrawnSidecars, ManifestOf(module, @namespace, request.Library, withdrawnSidecars), logger);
         return Outcome.Withdrawn;
     }
 
@@ -457,35 +463,26 @@ public static class SwiftBridgeFinalizer
     }
 
     /// <summary>
-    /// The plan sidecar judged and annotated with the routes, the ledger with the bridges, and the
-    /// guard sidecar with the shapes <paramref name="masks"/> leave, whose guarded members are logged.
-    /// Returns whether any changed.
+    /// The sidecars a routing settles, as text: the plan sidecar judged and annotated with the routes,
+    /// the ledger with the bridges, and the guard sidecar with the shapes <paramref name="masks"/>
+    /// leave. A ledger or guard sidecar that cannot be read is logged and left as it is on disk.
     /// </summary>
-    private static bool WriteSidecars(
+    private sealed record SettledSidecars(
+        string PlansPath, string Plans, string LedgerPath, string? Ledger, string GuardsPath, string? Guards, SwiftTransitionGuardDocument? Settled);
+
+    private static SettledSidecars Settle(
         string directory, string @namespace, SwiftBridgeRouting routing, SwiftCallPlanSet judged,
         IReadOnlyList<SwiftTransitionGuards.Mask> masks, ILogger logger)
     {
-        var changed = false;
         var plansPath = Path.Combine(directory, SwiftCallPlanSet.FileName(@namespace));
         var annotated = routing.Annotate(judged);
-        var plansText = annotated.ToJson();
-        if (!File.Exists(plansPath) || File.ReadAllText(plansPath) != plansText)
-        {
-            SwiftBridgeRoutingJournal.WriteAtomically(plansPath, plansText);
-            changed = true;
-        }
         var ledgerPath = Path.Combine(directory, SwiftTransitionLedger.FileName(@namespace));
+        string? ledger = null;
         if (File.Exists(ledgerPath))
         {
             try
             {
-                var ledger = File.ReadAllText(ledgerPath);
-                var bridged = SwiftTransitionLedger.WithBridges(ledger, routing.Routes);
-                if (bridged != ledger)
-                {
-                    SwiftBridgeRoutingJournal.WriteAtomically(ledgerPath, bridged);
-                    changed = true;
-                }
+                ledger = SwiftTransitionLedger.WithBridges(File.ReadAllText(ledgerPath), routing.Routes);
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException or InvalidOperationException)
             {
@@ -493,27 +490,45 @@ public static class SwiftBridgeFinalizer
             }
         }
         var guardsPath = Path.Combine(directory, SwiftTransitionGuards.SidecarFileName(@namespace));
+        string? guards = null;
+        SwiftTransitionGuardDocument? settled = null;
         if (File.Exists(guardsPath))
         {
-            var text = File.ReadAllText(guardsPath);
-            SwiftTransitionGuardDocument settled;
+            guards = File.ReadAllText(guardsPath);
             try
             {
-                settled = SwiftTransitionGuardDocument.Parse(text, guardsPath).Settle(masks, annotated);
+                settled = SwiftTransitionGuardDocument.Parse(guards, guardsPath).Settle(masks, annotated);
+                guards = settled.ToJson();
             }
             catch (Exception ex) when (ex is InvalidDataException or System.Text.Json.JsonException)
             {
                 logger.LogWarning("Could not record the routing in the transition guard sidecar {Sidecar}: {Message}", guardsPath, ex.Message);
-                return changed;
             }
-            var settledText = settled.ToJson();
-            if (settledText != text)
-            {
-                SwiftBridgeRoutingJournal.WriteAtomically(guardsPath, settledText);
-                changed = true;
-            }
-            settled.Log(logger);
         }
+        return new SettledSidecars(plansPath, annotated.ToJson(), ledgerPath, ledger, guardsPath, guards, settled);
+    }
+
+    /// <summary>
+    /// The transition manifest of the settled sidecars (<see cref="SwiftTransitionManifestWriter"/>):
+    /// what the assembly embeds and, when it routes through bridges, whose hash every bridge assembly carries.
+    /// </summary>
+    private static SwiftTransitionManifestWriter.Manifest? ManifestOf(string module, string @namespace, string library, SettledSidecars sidecars) =>
+        SwiftTransitionManifestWriter.Compose(module, @namespace, library, sidecars.Plans, sidecars.Guards);
+
+    /// <summary>Writes the settled sidecars and the manifest; only a file whose content changes is written. Returns whether any changed.</summary>
+    private static bool WriteSidecars(
+        string directory, string @namespace, SettledSidecars sidecars, SwiftTransitionManifestWriter.Manifest? manifest, ILogger logger)
+    {
+        var changed = false;
+        foreach (var (path, text) in new[] { (sidecars.PlansPath, (string?)sidecars.Plans), (sidecars.LedgerPath, sidecars.Ledger), (sidecars.GuardsPath, sidecars.Guards) })
+        {
+            if (text is null || (File.Exists(path) && File.ReadAllText(path) == text))
+                continue;
+            SwiftBridgeRoutingJournal.WriteAtomically(path, text);
+            changed = true;
+        }
+        sidecars.Settled?.Log(logger);
+        changed |= SwiftTransitionManifestWriter.Write(directory, @namespace, manifest, SwiftBridgeRoutingJournal.WriteAtomically);
         return changed;
     }
 
