@@ -182,8 +182,9 @@ public static partial class ClosureEmitter
                     {{argPrologue}}var swiftResult = del({{invokeArgsString}});
                     if (swiftResult.IsFailure)
                     {
-                        // Cooperative failure: the delegate produced a SwiftError.
-                        *errorOut = swiftResult.Failure;
+                        // Cooperative failure: SwiftResult.Failure lends the error (+0) and the
+                        // result keeps its own reference; *errorOut hands Swift an owned +1.
+                        *errorOut = new SwiftError((void*)global::Swift.Runtime.Arc.UnknownObjectRetain((global::System.IntPtr)swiftResult.Failure.Value));
                         {{defaultReturnStmt}}
                     }
 

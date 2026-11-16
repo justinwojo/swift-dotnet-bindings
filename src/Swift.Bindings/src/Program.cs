@@ -2480,6 +2480,8 @@ namespace BindingsGeneration
                     why = $"the relinked wrapper is not the one the receipt describes: {unverified}";
                 else if (!verified.Receipts.Single().Slices.Keys.SequenceEqual(expected.Slices.Keys, StringComparer.Ordinal))
                     why = $"the relinked wrapper ships [{string.Join(", ", verified.Receipts.Single().Slices.Keys)}], the receipt describes [{string.Join(", ", expected.Slices.Keys)}]";
+                else if (Environment.GetEnvironmentVariable(SwiftBridgeFinalizer.ForceRollbackVariable) == "1")
+                    why = $"{SwiftBridgeFinalizer.ForceRollbackVariable} refused a relink that verified";
 
                 try
                 {

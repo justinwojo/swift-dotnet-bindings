@@ -213,6 +213,11 @@ public class GenericClosureBridgeEmitterTests
         Assert.Contains("@_silgen_name", swResult);
         Assert.Contains("@_cdecl", swResult);
         Assert.Contains("SBW_CreateError", swResult);
+
+        // The callback's minted error is +1; the bridge takes that back when it throws, so the
+        // error is released once, when the Swift catch that receives it ends.
+        Assert.Contains("takeRetainedValue() as! Swift.Error", swResult);
+        Assert.DoesNotContain("to: Swift.Error.self", swResult);
     }
 
     [Fact]

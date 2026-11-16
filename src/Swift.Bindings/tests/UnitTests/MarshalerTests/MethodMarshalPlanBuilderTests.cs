@@ -1466,6 +1466,22 @@ public class MethodMarshalPlanBuilderTests
         Assert.Empty(plan.GenericInoutWritebackLines);
     }
 
+    [Fact]
+    public void InoutWriteback_GenericInout_CopiesOutOfTheSlotTheFinallyDestroys()
+    {
+        // The stack slot stays owned by the plan's finally, which value-witness-Destroys it. The
+        // write-back must therefore take an independent value. Constructing straight from the slot
+        // lets an Adopt wrapper (a non-frozen struct) make the stack buffer its own storage, which
+        // the finally then destroys under it.
+        var (env, wrapperSig, pInvokeSig) = CreateGenericMethodSetup(isInOut: true);
+        var plan = BuildPlan(env, wrapperSig, pInvokeSig);
+
+        var writeback = Assert.Single(plan.GenericInoutWritebackLines, l => !l.TrimStart().StartsWith("//"));
+        Assert.Contains("MarshalBorrowedValueFromSlot<T>", writeback);
+        Assert.Contains("TMetadata", writeback);
+        Assert.DoesNotContain("MarshalFromSwift<", writeback);
+    }
+
     #endregion
 
     #region FixedBlock Tests
@@ -1664,7 +1680,7 @@ public class MethodMarshalPlanBuilderTests
     }
 
     private static (MethodEnvironment env, Signature wrapperSig, Signature pInvokeSig)
-        CreateGenericMethodSetup()
+        CreateGenericMethodSetup(bool isInOut = false)
     {
         var moduleDecl = CreateModuleDecl();
         var classDecl = CreateClassDecl("Container", moduleDecl);
@@ -1684,7 +1700,7 @@ public class MethodMarshalPlanBuilderTests
                     Name = "item",
                     PrivateName = "_item",
                     SwiftTypeSpec = new NamedTypeSpec("T"),
-                    IsInOut = false,
+                    IsInOut = isInOut,
                     IsGeneric = true,
                     ParentDecl = null,
                     ModuleDecl = moduleDecl

@@ -33,6 +33,8 @@ internal class NativeThunkReceiver {
     public func addThrowing(_ delta: Int32) throws -> Int32 {
         callNativeThunkHook()
         nativeThunkCalls += 1
+        // A tracked class error, so a test can count the error box's release through the thunk.
+        if Int64(delta) == trackedRouteErrorSentinel { throw SyncCascadeTrackedClassError(code: 4242) }
         if delta < 0 { throw NativeThunkReachError.negative }
         return seed + delta
     }

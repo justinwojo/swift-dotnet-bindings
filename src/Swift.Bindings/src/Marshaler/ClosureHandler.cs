@@ -1046,7 +1046,7 @@ public partial class ClosureHandler
             return false;
 
         // (b2) Closure must throw — the generated Swift closure body unconditionally contains
-        // error propagation (`throw unsafeBitCast(err, to: Swift.Error.self)`), which is
+        // error propagation (it throws the error the C# callback minted), which is
         // invalid Swift for non-throwing closures.
         if (!closureTypeSpec.Throws)
             return false;

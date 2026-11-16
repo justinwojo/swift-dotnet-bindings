@@ -124,6 +124,7 @@ public class BufferPointerClosureTests : TestBase
             caught = true;
             message = ex.Message;
         }
+        Arc.UnknownObjectRelease(errorPtr);
         AssertTrue(caught, "closure FromFailure surfaces as SwiftException");
         AssertTrue(message?.Contains("forced") ?? false,
             $"SwiftException message describes BufferProviderError.forced; got: {message}");

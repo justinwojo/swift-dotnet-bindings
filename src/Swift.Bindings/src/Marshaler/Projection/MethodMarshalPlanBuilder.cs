@@ -243,6 +243,14 @@ internal class MethodMarshalPlanBuilder
 
     /// <summary>
     /// Builds generic inout writeback lines emitted after the P/Invoke call.
+    /// <para>
+    /// The stack slot Swift wrote the mutated value into stays owned by the emitted <c>finally</c>,
+    /// which value-witness-<c>Destroy</c>s it, so the write-back takes a <b>borrowed</b> copy: an
+    /// independent reference for a class, an independent buffer for a reference-backed wrapper.
+    /// Constructing straight from the slot would let an Adopt wrapper (a non-frozen struct) take the
+    /// stack buffer as its own storage and a class wrapper wrap the slot address as an instance, both
+    /// destroyed under the wrapper once the <c>finally</c> runs.
+    /// </para>
     /// </summary>
     private IReadOnlyList<string> BuildGenericInoutWritebackLines()
     {
@@ -251,10 +259,11 @@ internal class MethodMarshalPlanBuilder
         {
             var csName = NameProvider.GetMarshallingBaseName(argument);
             var csTypeParamName = _env.GenericTypeMapping[argument.SwiftTypeSpec.ToString()].TypeParameter;
+            var metadataName = NameProvider.GetMetadataName(csTypeParamName);
             var payloadName = NameProvider.GetPayloadName(csName);
 
-            lines.Add($"// Write back modified inout generic parameter");
-            lines.Add($"{csName} = SwiftMarshal.MarshalFromSwift<{csTypeParamName}>({payloadName});");
+            lines.Add($"// Write back modified inout generic parameter: copy out of the slot the finally destroys");
+            lines.Add($"{csName} = SwiftMarshal.MarshalBorrowedValueFromSlot<{csTypeParamName}>((void*){payloadName}, {metadataName});");
         }
         return lines;
     }

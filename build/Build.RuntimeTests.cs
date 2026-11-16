@@ -1447,6 +1447,13 @@ partial class Build
                 RunBuildXcframework(platformOverride: platform);
                 RunRegenerateMacOSBindings(strict: Strict, platformOverride: platform);
                 AssertAsyncWrapperBuilt(RunBuildAsyncWrapper(platformOverride: platform), "macOS");
+                // macOS regenerates without lowering evidence, so nothing is bridged: a member a bridge
+                // carries on the routed platforms keeps its @_cdecl wrapper or its direct import here.
+                // The compile check and the ledger and residual-guard cross-check prove on the binding
+                // this lane built that every such direct import is guarded, rather than inferring it
+                // from the routed platforms' gates.
+                RunCompileCheck(platform.Name);
+                RunTransitionLedgerCrossCheck(platform.Name);
             }
             else
             {

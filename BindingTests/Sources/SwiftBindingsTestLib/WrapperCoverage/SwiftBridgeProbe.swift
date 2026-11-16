@@ -8,8 +8,8 @@
 /// each one's bridge by symbol (`--swift-bridge-route`, listed in the build's
 /// `SwiftBridgeProbeRoutes`), so with lowering evidence every one reaches Swift through a native
 /// bridge that loads self, the error slot and the indirect result into their Swift registers, and
-/// the generation fails if one is not routed. A regeneration without evidence (Mac Catalyst, tvOS,
-/// macOS) asks for nothing, and they take the wrapper like any consumer's C-callback member.
+/// the generation fails if one is not routed. The macOS regeneration has no evidence and asks for
+/// nothing, so there they take the wrapper like any consumer's C-callback member.
 /// Between them they cover the register shapes a bridge moves:
 /// self with an error and a scalar result, self with an indirect result and ordinary arguments, and
 /// self with an owned class argument and result. The mapping callback lets a test interleave
@@ -24,8 +24,13 @@ public final class SwiftBridgeProbe {
 
     /// Adds the mapped delta to the running total and returns it. A negative mapped delta throws
     /// and leaves the total as it was, so a later call shows whether the receiver survived the error.
+    /// A mapped delta of -424242 throws a class error that holds a tracked reference instead, so a
+    /// test can count the error box's release through the bridge.
     public func accumulate(_ delta: Int64, through map: @convention(c) (Int64) -> Int64) throws -> Int64 {
         let mapped = map(delta)
+        if mapped == trackedRouteErrorSentinel {
+            throw SyncCascadeTrackedClassError(code: 4242)
+        }
         if mapped < 0 {
             throw SwiftBridgeProbeError.negative(mapped)
         }
@@ -46,6 +51,9 @@ public final class SwiftBridgeProbe {
         TrackedObject(objectId: Int32(truncatingIfNeeded: map(Int64(object.objectId))), label: object.label + "+")
     }
 }
+
+/// The mapped delta at which the route probes throw a tracked class error.
+let trackedRouteErrorSentinel: Int64 = -424_242
 
 public enum SwiftBridgeProbeError: Error {
     case negative(Int64)

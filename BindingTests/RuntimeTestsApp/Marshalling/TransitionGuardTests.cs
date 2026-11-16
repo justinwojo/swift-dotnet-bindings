@@ -214,4 +214,85 @@ public class TransitionGuardTests : TestBase
         AssertEqual((nint)42, TestLibFunctions.PendingRequestTaskValue(task), "the task is untouched");
     }
 #pragma warning restore SB0001
+
+    /// <summary>The shapes of the two direct-route controls: <c>FoundationRawValueBox.flipped(_:)</c>
+    /// (self register plus a lowered signature) and <c>PinnedQuery.make(tag:)</c> (a lowered signature).</summary>
+    private const SwiftTransitionFacts FlippedShapes = SwiftTransitionFacts.SelfRegister | SwiftTransitionFacts.LoweredSignature;
+    private const SwiftTransitionFacts MakeShapes = SwiftTransitionFacts.LoweredSignature;
+
+    /// <summary>
+    /// The direct-route positive control. Two members stay direct Swift-convention imports on every
+    /// platform, with or without lowering evidence: no native bridge models a one-byte ObjCBool or a
+    /// same-type requirement, and no wrapper can name them. Their route is pinned here, so a route
+    /// change cannot turn the control into a test of something else. NativeAOT refuses no shape, so
+    /// on a device both must return Swift's values with no refusal; this lane proves that from the
+    /// guard's own NativeAOT row (an engine that declares neither Mono nor CoreCLR and cannot
+    /// generate code identifies as NativeAOT and refuses nothing these members carry), and then runs
+    /// both members on its own engine: each returns its value where the engine handles its shapes
+    /// and refuses before Swift where it does not.
+    /// </summary>
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(FoundationRawValueBox_PInvoke))]
+    [System.Diagnostics.CodeAnalysis.DynamicDependency(System.Diagnostics.CodeAnalysis.DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(PinnedQuery_PInvoke))]
+    public void TestDirectRouteControl_RunsWhereverTheEngineHandlesItsShapes()
+    {
+        ImportRoutes.AssertRoute(typeof(FoundationRawValueBox_PInvoke), "flipped", ImportRoute.Direct);
+        ImportRoutes.AssertRoute(typeof(PinnedQuery_PInvoke), "make", ImportRoute.Direct);
+
+        var arch = RuntimeInformation.ProcessArchitecture;
+        AssertEqual(SwiftTransitionGuard.Engine.NativeAot,
+            SwiftTransitionGuard.Identify(declaresMonoRuntime: false, declaresCoreClrStubs: false, dynamicCodeSupported: false),
+            "an engine with neither runtime's types and no dynamic code is NativeAOT");
+        var nativeAot = SwiftTransitionGuard.UnsupportedFactsFor(SwiftTransitionGuard.Engine.NativeAot, compilesDynamicCode: false, arch);
+        AssertEqual(SwiftTransitionFacts.None, nativeAot & (FlippedShapes | MakeShapes), $"NativeAOT ({arch}) refuses neither control");
+
+        var engine = Engine;
+        var expected = ExpectedRefusals(engine);
+        if (engine == ExpectedEngine.NativeAot)
+            AssertEqual(SwiftTransitionFacts.None, expected & (FlippedShapes | MakeShapes), "this NativeAOT process refuses neither control");
+
+        using var token = new KeyedToken(3);
+        using var odd = new FoundationRawValueBox<KeyedToken, DirectTransitionFailure>(token);
+        if ((expected & FlippedShapes) == 0)
+        {
+            AssertFalse(odd.Flipped(true), $"{engine}: flipped(_:) returns Swift's byte");
+            AssertTrue(odd.Flipped(false), $"{engine}: flipped(_:) returns Swift's byte");
+        }
+        else
+        {
+            var refusal = CatchRefusal(() => odd.Flipped(true));
+            AssertNotNull(refusal, $"{engine}: flipped(_:) refuses before Swift");
+            AssertEqual(expected & FlippedShapes, refusal!.RefusedFacts, "refused for exactly what the engine mishandles");
+            AssertTrue(refusal.Member.Contains("FoundationRawValueBox", StringComparison.Ordinal), $"refusal names the member: {refusal.Member}");
+        }
+
+        if ((expected & MakeShapes) == 0)
+        {
+            for (int i = 0; i < 3; i++)
+            {
+                using var made = PinnedQuery<PinnedPayload<int>>.Make(40 + i);
+                AssertEqual(40 + i, made.Tag, $"{engine}: make(tag:) returns the query Swift built (call {i})");
+            }
+        }
+        else
+        {
+            var refusal = CatchRefusal(() => PinnedQuery<PinnedPayload<int>>.Make(40).Dispose());
+            AssertNotNull(refusal, $"{engine}: make(tag:) refuses before Swift");
+            AssertEqual(MakeShapes, refusal!.RefusedFacts, "refused for exactly what the engine mishandles");
+            AssertTrue(refusal.Member.Contains("PinnedQuery", StringComparison.Ordinal), $"refusal names the member: {refusal.Member}");
+        }
+        TestLogger.Info($"direct-route control on {engine} ({arch}): flipped {((expected & FlippedShapes) == 0 ? "ran" : "refused")}, make {((expected & MakeShapes) == 0 ? "ran" : "refused")}");
+    }
+
+    private static SwiftTransitionUnsupportedException? CatchRefusal(Action call)
+    {
+        try
+        {
+            call();
+        }
+        catch (SwiftTransitionUnsupportedException ex)
+        {
+            return ex;
+        }
+        return null;
+    }
 }

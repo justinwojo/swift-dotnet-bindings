@@ -370,7 +370,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
-            swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"            throw {SwiftErrorMintEmitter.TakeErrorExpression(errName)}");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"        return {resultBufName}");
             swiftWriter.WriteLine($"    {closeClosureAndCall}");
@@ -429,7 +429,7 @@ public static class GenericClosureBridgeEmitter
             swiftWriter.WriteLine($"        var {innerErrorName}: Swift.UnsafeMutableRawPointer? = nil");
             swiftWriter.WriteLine($"        {cdeclName}({string.Join(", ", cdeclCallArgsFull)})");
             swiftWriter.WriteLine($"        if let {errName} = {innerErrorName} {{");
-            swiftWriter.WriteLine($"            throw Swift.unsafeBitCast({errName}, to: Swift.Error.self)");
+            swiftWriter.WriteLine($"            throw {SwiftErrorMintEmitter.TakeErrorExpression(errName)}");
             swiftWriter.WriteLine($"        }}");
             swiftWriter.WriteLine($"    {closeClosureAndCall}");
 
