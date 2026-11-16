@@ -32,7 +32,10 @@ partial class Build
     Target SwiftLoweringOracle => _ => _
         .DependsOn(Compile)
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
-        .After(NativeThunkProbe)
+        // Ordering only: threads the bridge targets into the standalone sinks' total order for Nuke
+        // --strict (Net11PackageConsumerTests → this → SwiftBridgeProducts → SwiftBridgeGate →
+        // SwiftTransitionGate).
+        .After(NativeThunkProbe, Net11PackageConsumerTests)
         .Executes(RunSwiftLoweringOracle);
 
     void RunSwiftLoweringOracle()

@@ -123,6 +123,8 @@ partial class Build
 
     Target SwiftBridgeProducts => _ => _
         .DependsOn(Compile)
+        // Ordering only, for Nuke --strict's total order (see SwiftLoweringOracle).
+        .After(SwiftLoweringOracle)
         .Description("Write the plan sidecars of the hand-written transition tables under build/baselines/swift-call-plans/, " +
                      "and the managed shims and native bridge assemblies of a table that routes through bridges (the runtime's). " +
                      "A runtime whose bridge assemblies change needs src/Swift.Runtime/swift/build-runtime.sh rerun.")

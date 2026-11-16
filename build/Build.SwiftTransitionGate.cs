@@ -87,8 +87,10 @@ partial class Build
     Target SwiftTransitionGate => _ => _
         .Description("Scan compiled binding assemblies for managed↔Swift transitions the .NET 11 interpreter " +
                      "mishandles (rules R1, R2, R4, R5); writes a JSON report, a site inventory and a summary.")
-        // Ordering only: keep standalone sinks totally ordered for Nuke --strict.
-        .After(Net11PackageConsumerTests)
+        // Ordering only: keep standalone sinks totally ordered for Nuke --strict. Without the
+        // SwiftBridgeGate edge the bridge targets and this gate are co-equal and every --strict
+        // plan is rejected ("Incomplete target definition order").
+        .After(Net11PackageConsumerTests, SwiftBridgeGate)
         .Executes(() =>
         {
             var defaultInput = TransitionGateAssembly.Length == 0;
