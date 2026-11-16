@@ -1,8 +1,8 @@
 {
-  "git_sha": "9d0f7d2f0",
+  "git_sha": "cf4275b2",
   "platforms": {
     "simulator": {
-      "pass_count": 4471,
+      "pass_count": 4548,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -365,7 +365,7 @@
       "known_fails": []
     },
     "macos": {
-      "pass_count": 3552,
+      "pass_count": 3613,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -446,17 +446,12 @@
           "class": "SuppressedProxyChannelTests",
           "method": "TestRunIndirectBoxableConsumerFailFastsByDesign",
           "reason": "Category A indirect-return suppressed-arg callback FailFasts (process abort) by design \u2014 not invocation-testable; covered structurally by CatchFreeUcoValidatorTests."
-        },
-        {
-          "class": "SwiftBridgeTests",
-          "method": "TestProbeMembersAreRoutedThroughNativeBridges",
-          "reason": "lowering evidence is applied to the iOS regeneration only"
         }
       ],
       "known_fails": []
     },
     "maccatalyst": {
-      "pass_count": 3573,
+      "pass_count": 3626,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -562,7 +557,7 @@
       "known_fails": []
     },
     "tvos_simulator": {
-      "pass_count": 3645,
+      "pass_count": 3695,
       "skips": [
         {
           "class": "AsyncClosureTests",
