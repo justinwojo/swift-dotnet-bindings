@@ -2341,35 +2341,33 @@ namespace BindingsGeneration
             // The receipt is written only for a wrapper the build will ship, once that wrapper is complete
             // on disk. A build interrupted before this point has already removed the previous receipt;
             // one interrupted after it leaves a receipt of the wrapper that is on disk.
-            SwiftLoweringEvidence? receipt = null;
-            if (lowering != null && hasWrapperXcfw && outcome.ExitCode == 0
-                && lowering.Commit(loweringReceiptPath!, unmergedExtraArchs, logger))
-            {
-                receipt = lowering.Receipt(unmergedExtraArchs, out _);
-            }
-
-            // Route what the receipt authorizes through bridges, relinking the wrapper when it lacks one,
-            // or undo an earlier routing that is no longer asked for.
             var routingFailed = false;
-            if (hasWrapperXcfw && outcome.ExitCode == 0 && SwiftBridgeFinalizer.Applies(outputDirectory, routeBridges))
+            if (hasWrapperXcfw && outcome.ExitCode == 0)
             {
-                var finalization = SwiftBridgeFinalizer.Finalize(
-                    new SwiftBridgeFinalizer.Request(
-                        outputDirectory, moduleName, wrapperModuleName, routeBridges, receipt,
-                        scope =>
+                routingFailed = !CommitReceiptAndRouteBridges(
+                    new WrapperRoutingRequest(
+                        outputDirectory, moduleName, routeBridges, lowering, loweringReceiptPath, loweringPlatform,
+                        outcome, unmergedExtraArchs,
+                        verification =>
                         {
-                            var expectation = SwiftToolchainProbe.Expect(scope, out var why);
-                            return (expectation, why);
-                        }),
-                    RelinkWithBridges,
-                    () => XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
-                        outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet),
-                    logger);
-                routingFailed = finalization == SwiftBridgeFinalizer.Outcome.Failed;
-                // The binding report describes the final C#: re-settle it over what routing wrote.
-                if (finalization is SwiftBridgeFinalizer.Outcome.Rewritten or SwiftBridgeFinalizer.Outcome.Relinked or SwiftBridgeFinalizer.Outcome.Withdrawn
-                    && BindingArtifactManifestStore.TryRead(outputDirectory) is not null)
-                    BindingArtifactManifestStore.ReadModifyWrite(outputDirectory, moduleName, _ => { }, logger);
+                            lowering = verification;
+                            SwiftWrapperCompilationResult? relinked = null;
+                            Exception? relinkException = null;
+                            IReadOnlyList<string> relinkUnmerged = Array.Empty<string>();
+                            try
+                            {
+                                relinked = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileForArch, logger, out relinkUnmerged);
+                            }
+                            catch (Exception ex)
+                            {
+                                relinkException = ex;
+                            }
+                            return new WrapperRecompile(relinked, relinkException, relinkUnmerged,
+                                autoMatchSource ? Array.Empty<string>() : relinkUnmerged);
+                        },
+                        () => XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                            outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet)),
+                    ref compilationResult, logger);
                 hasWrapperXcfw = !routingFailed
                     && compilationResult?.XCFrameworkPath != null
                     && Directory.Exists(compilationResult.XCFrameworkPath);
@@ -2380,12 +2378,81 @@ namespace BindingsGeneration
                 compilationResult?.SliceCount ?? 0, logger, contractualUnmet);
 
             return reconciliationFailure != null || routingFailed ? 1 : outcome.ExitCode;
+        }
+
+        /// <summary>A wrapper compiled again for its bridges: the result, its failure, and the architectures it did not fold.</summary>
+        internal readonly record struct WrapperRecompile(
+            SwiftWrapperCompilationResult? Result, Exception? Error,
+            IReadOnlyList<string> Unmerged, IReadOnlyList<string> ContractualUnmet);
+
+        /// <summary>
+        /// What <see cref="CommitReceiptAndRouteBridges"/> needs of a wrapper build that succeeded:
+        /// the collection its compile passes fed (null when none was collected) and where its receipt
+        /// goes, the build's outcome, and how to compile the same wrapper again, every pass fed the
+        /// verification it is given, once its bridges are written. <paramref name="BeforeRelink"/>
+        /// withdraws whatever records the wrapper as present before it is set aside.
+        /// </summary>
+        internal sealed record WrapperRoutingRequest(
+            string OutputDirectory,
+            string ModuleName,
+            bool RouteBridges,
+            SwiftWrapperLoweringEvidence? Lowering,
+            string? ReceiptPath,
+            string LoweringPlatform,
+            WrapperBuildOutcome Outcome,
+            IReadOnlyList<string> UnmergedExtraArchs,
+            Func<SwiftWrapperLoweringEvidence, WrapperRecompile> Recompile,
+            Action BeforeRelink);
+
+        /// <summary>
+        /// Commits the lowering receipt of a wrapper the build ships, then routes what that receipt
+        /// authorizes through bridges, relinking the wrapper with them and verifying every slice of the
+        /// relink against the receipt, or withdraws an earlier routing that is no longer asked for. The
+        /// <c>--compile-wrapper-only</c> path and the Apple-framework generation path both finish here, so
+        /// their receipts and routing follow one set of evidence rules. Call it only for a wrapper that
+        /// compiled and is on disk. <paramref name="compilationResult"/> becomes the relinked wrapper,
+        /// or null when the first wrapper could not be put back. Returns false when routing failed.
+        /// </summary>
+        internal static bool CommitReceiptAndRouteBridges(
+            WrapperRoutingRequest request, ref SwiftWrapperCompilationResult? compilationResult, ILogger logger)
+        {
+            var current = compilationResult;
+            var wrapperModuleName = $"{request.ModuleName}SwiftBindings";
+            SwiftLoweringEvidence? receipt = null;
+            if (request.Lowering != null && request.ReceiptPath != null
+                && request.Lowering.Commit(request.ReceiptPath, request.UnmergedExtraArchs, logger))
+            {
+                receipt = request.Lowering.Receipt(request.UnmergedExtraArchs, out _);
+            }
+
+            var routingFailed = false;
+            if (SwiftBridgeFinalizer.Applies(request.OutputDirectory, request.RouteBridges))
+            {
+                var finalization = SwiftBridgeFinalizer.Finalize(
+                    new SwiftBridgeFinalizer.Request(
+                        request.OutputDirectory, request.ModuleName, wrapperModuleName, request.RouteBridges, receipt,
+                        scope =>
+                        {
+                            var expectation = SwiftToolchainProbe.Expect(scope, out var why);
+                            return (expectation, why);
+                        }),
+                    RelinkWithBridges,
+                    request.BeforeRelink,
+                    logger);
+                routingFailed = finalization == SwiftBridgeFinalizer.Outcome.Failed;
+                // The binding report describes the final C#: re-settle it over what routing wrote.
+                if (finalization is SwiftBridgeFinalizer.Outcome.Rewritten or SwiftBridgeFinalizer.Outcome.Relinked or SwiftBridgeFinalizer.Outcome.Withdrawn
+                    && BindingArtifactManifestStore.TryRead(request.OutputDirectory) is not null)
+                    BindingArtifactManifestStore.ReadModifyWrite(request.OutputDirectory, request.ModuleName, _ => { }, logger);
+            }
+            compilationResult = current;
+            return !routingFailed;
 
             // Compiles the wrapper again, now with its bridges, verifying every slice against the receipt
             // the first compile collected; on any difference the first compile's wrapper is put back.
             string? RelinkWithBridges(SwiftLoweringReceipt expected)
             {
-                var wrapperPath = compilationResult!.XCFrameworkPath!;
+                var wrapperPath = current!.XCFrameworkPath!;
                 var setAside = wrapperPath + ".routing-backup";
                 try
                 {
@@ -2398,29 +2465,18 @@ namespace BindingsGeneration
                     return $"the wrapper could not be set aside: {ex.Message}";
                 }
 
-                var verification = SwiftWrapperLoweringEvidence.ForVerification(expected, loweringPlatform);
-                lowering = verification;
-                SwiftWrapperCompilationResult? relinked = null;
-                Exception? relinkException = null;
-                IReadOnlyList<string> relinkUnmerged = Array.Empty<string>();
-                try
-                {
-                    relinked = CompileWrapperForArchitectures(primaryArch, extraArchs, CompileForArch, logger, out relinkUnmerged);
-                }
-                catch (Exception ex)
-                {
-                    relinkException = ex;
-                }
-                var relinkOutcome = WrapperBuildOutcome.From(relinked, relinkException, autoMatchSource ? Array.Empty<string>() : relinkUnmerged);
+                var verification = SwiftWrapperLoweringEvidence.ForVerification(expected, request.LoweringPlatform);
+                var relink = request.Recompile(verification);
+                var relinkOutcome = WrapperBuildOutcome.From(relink.Result, relink.Error, relink.ContractualUnmet);
 
                 string? why = null;
-                if (relinkOutcome.ExitCode != 0 || relinked?.XCFrameworkPath is null || !Directory.Exists(relinked.XCFrameworkPath))
-                    why = $"the relink failed{(relinkException is null ? "" : ": " + relinkException.Message)}";
-                else if (!relinkUnmerged.SequenceEqual(unmergedExtraArchs, StringComparer.Ordinal))
-                    why = $"the relink folded other architectures (unmerged [{string.Join(", ", relinkUnmerged)}], first compile [{string.Join(", ", unmergedExtraArchs)}])";
-                else if (!relinkOutcome.StrippedSymbols.SetEquals(outcome.StrippedSymbols))
+                if (relinkOutcome.ExitCode != 0 || relink.Result?.XCFrameworkPath is null || !Directory.Exists(relink.Result.XCFrameworkPath))
+                    why = $"the relink failed{(relink.Error is null ? "" : ": " + relink.Error.Message)}";
+                else if (!relink.Unmerged.SequenceEqual(request.UnmergedExtraArchs, StringComparer.Ordinal))
+                    why = $"the relink folded other architectures (unmerged [{string.Join(", ", relink.Unmerged)}], first compile [{string.Join(", ", request.UnmergedExtraArchs)}])";
+                else if (!relinkOutcome.StrippedSymbols.SetEquals(request.Outcome.StrippedSymbols))
                     why = "the relink stripped other wrapper symbols than the first compile";
-                else if (verification.Receipt(relinkUnmerged, out var unverified) is not { } verified)
+                else if (verification.Receipt(relink.Unmerged, out var unverified) is not { } verified)
                     why = $"the relinked wrapper is not the one the receipt describes: {unverified}";
                 else if (!verified.Receipts.Single().Slices.Keys.SequenceEqual(expected.Slices.Keys, StringComparer.Ordinal))
                     why = $"the relinked wrapper ships [{string.Join(", ", verified.Receipts.Single().Slices.Keys)}], the receipt describes [{string.Join(", ", expected.Slices.Keys)}]";
@@ -2429,7 +2485,7 @@ namespace BindingsGeneration
                 {
                     if (why is null)
                     {
-                        compilationResult = relinked;
+                        current = relink.Result;
                         Directory.Delete(setAside, true);
                         return null;
                     }
@@ -2446,7 +2502,7 @@ namespace BindingsGeneration
                         return null;
                     }
                     logger.LogError("The wrapper the receipt describes could not be put back from {SetAside}: {Message}", setAside, ex.Message);
-                    compilationResult = null;
+                    current = null;
                 }
                 return why;
             }

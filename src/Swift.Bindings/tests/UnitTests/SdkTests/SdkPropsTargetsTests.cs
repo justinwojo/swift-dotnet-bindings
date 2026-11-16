@@ -679,7 +679,8 @@ namespace BindingsGeneration.Tests
                 .Single(e => e.Name.LocalName == "_SwiftWrapperCmd" && e.Value.Contains("--route-swift-bridges", StringComparison.Ordinal));
             Assert.Equal("'$(_SwiftRouteBridges)' == 'true'", (string?)route.Attribute("Condition"));
             Assert.EndsWith("--route-swift-bridges", route.Value);
-            Assert.Equal(1, TargetsContent.Split("--route-swift-bridges").Length - 1);
+            // Once here, and once for the Apple-framework generator run, which compiles its wrapper inline.
+            Assert.Equal(2, TargetsContent.Split("--route-swift-bridges").Length - 1);
 
             // The flag follows the receipt it routes from.
             var commands = compile.Descendants().Where(e => e.Name.LocalName == "_SwiftWrapperCmd").ToList();
@@ -709,7 +710,8 @@ namespace BindingsGeneration.Tests
                 .Single(e => e.Name.LocalName == "_SwiftWrapperCmd" && e.Value.Contains("--collect-swift-lowering-evidence", StringComparison.Ordinal));
             Assert.Equal("'$(_SwiftCollectLoweringEvidence)' == 'true'", (string?)collect.Attribute("Condition"));
             Assert.EndsWith($"--collect-swift-lowering-evidence \"{receipt}\"", collect.Value);
-            Assert.Equal(1, TargetsContent.Split("--collect-swift-lowering-evidence").Length - 1);
+            // Once here, and once for the Apple-framework generator run, which compiles its wrapper inline.
+            Assert.Equal(2, TargetsContent.Split("--collect-swift-lowering-evidence").Length - 1);
 
             // Regeneration replaces the wrapper source, so the receipt of the old one goes first.
             var generate = Target("_GenerateSwiftBindings").Elements().ToList();
@@ -723,6 +725,70 @@ namespace BindingsGeneration.Tests
                 .Single(e => e.Name.LocalName == "Delete" && (string?)e.Attribute("Files") == receipt);
             Assert.Contains("'$(_SwiftWrapperSkip)' != 'true'", (string?)compileDelete.Attribute("Condition"));
             Assert.Contains("'$(_SwiftCollectLoweringEvidence)' != 'true'", (string?)compileDelete.Attribute("Condition"));
+        }
+
+        /// <summary>
+        /// An Apple framework's wrapper compiles inside its generator run, so that run collects the
+        /// receipt and routes from it, under the same properties as the wrapper pass of a framework bound
+        /// from an xcframework; an ObjC framework, which has no Swift wrapper, does neither. The receipt
+        /// of the previous wrapper is removed before the run, and a run that collected it already built
+        /// every slice, so the SDK adds no second slice over it.
+        /// </summary>
+        [Fact]
+        public void Targets_AppleFrameworkGeneration_CollectsTheReceipt_AndRoutesFromIt()
+        {
+            var targets = XDocument.Parse(TargetsContent).Descendants()
+                .Where(e => e.Name.LocalName == "Target").ToList();
+            XElement Target(string name) => targets.Single(t => (string?)t.Attribute("Name") == name);
+            const string receipt = "$(_SwiftLoweringReceipt)";
+
+            var generate = Target("_GenerateSwiftBindingsAppleFramework");
+            var groups = generate.Elements().Where(e => e.Name.LocalName == "PropertyGroup").ToList();
+            var swift = groups.Single(g => ((string?)g.Attribute("Condition") ?? "").Contains("'$(_SwiftAppleFrameworkType)' == 'Swift'", StringComparison.Ordinal));
+            var objc = groups.Single(g => ((string?)g.Attribute("Condition") ?? "").Contains("'$(_SwiftAppleFrameworkType)' == 'ObjC'", StringComparison.Ordinal));
+            var commands = swift.Elements().Where(e => e.Name.LocalName == "_SwiftGenCmd").ToList();
+            var collect = commands.Single(e => e.Value.Contains("--collect-swift-lowering-evidence", StringComparison.Ordinal));
+            var route = commands.Single(e => e.Value.Contains("--route-swift-bridges", StringComparison.Ordinal));
+            Assert.Equal("'$(_SwiftCollectLoweringEvidence)' == 'true'", (string?)collect.Attribute("Condition"));
+            Assert.EndsWith($"--collect-swift-lowering-evidence \"{receipt}\"", collect.Value);
+            Assert.Equal("'$(_SwiftRouteBridges)' == 'true'", (string?)route.Attribute("Condition"));
+            Assert.True(commands.IndexOf(collect) < commands.IndexOf(route));
+            Assert.DoesNotContain("--skip-wrapper-compilation", swift.ToString());
+            Assert.DoesNotContain("lowering", objc.ToString());
+            Assert.DoesNotContain("route-swift-bridges", objc.ToString());
+
+            var elements = generate.Elements().ToList();
+            var delete = elements.Single(e => e.Name.LocalName == "Delete" && (string?)e.Attribute("Files") == receipt);
+            Assert.Contains("'$(_SwiftBindingUpToDate)' != 'true'", (string?)delete.Attribute("Condition"));
+            var generatorExec = elements.Single(e => e.Name.LocalName == "Exec" && (string?)e.Attribute("Command") == "$(_SwiftGenCmd)");
+            Assert.True(elements.IndexOf(delete) < elements.IndexOf(generatorExec), "the receipt is removed before the generator runs");
+
+            // A wrapper that already ships the other slice gets none added; the other-slice properties
+            // the SwiftUI bridge's second slice reads are still computed.
+            var second = Target("_CompileAppleFrameworkSecondWrapperSlice");
+            // (SdkTargetsBehaviorTests.AppleFrameworkSecondSlice_IsAddedOnlyWhenNoSliceOfThatKindShips
+            // evaluates the decision against shipped slices.)
+            var needs = second.Descendants().Single(e => e.Name.LocalName == "_AFW_NeedsSecondSlice"
+                && ((string?)e.Attribute("Condition") ?? "").Contains("_AFW_OtherSliceDirs", StringComparison.Ordinal));
+            Assert.Equal("'$(_AFW_HasFirstSlice)' == 'true'", (string?)needs.Parent!.Attribute("Condition"));
+            var otherSdkPath = second.Elements().Single(e => e.Name.LocalName == "Exec"
+                && ((string?)e.Attribute("Command") ?? "").Contains("--show-sdk-path", StringComparison.Ordinal));
+            Assert.Equal("'$(_AFW_HasFirstSlice)' == 'true'", (string?)otherSdkPath.Attribute("Condition"));
+        }
+
+        [Fact]
+        public void Targets_AppleFrameworkFingerprint_JoinsTheToolchain_WhenASwiftFrameworkCollectsAReceipt()
+        {
+            var fingerprint = XDocument.Parse(TargetsContent).Descendants()
+                .Single(e => e.Name.LocalName == "Exec" && (string?)e.Attribute("Condition") == "'$(_SwiftBindingTargetKind)' == 'AppleFramework'"
+                    && ((string?)e.Attribute("Command") ?? "").Contains("shasum", StringComparison.Ordinal));
+            var command = (string)fingerprint.Attribute("Command")!;
+            var guardStart = command.IndexOf("if [ -n \"$(_SwiftFingerprintToolchain)\" ] && [ \"$(_SwiftAppleFrameworkType)\" = Swift ]", StringComparison.Ordinal);
+            Assert.True(guardStart >= 0, "the toolchain lines are guarded on a collected receipt of a Swift framework");
+            var guarded = command[guardStart..command.IndexOf("fi;", guardStart, StringComparison.Ordinal)];
+            Assert.Contains("xcrun swiftc --version", guarded);
+            Assert.Contains("--show-sdk-build-version", guarded);
+            Assert.Contains("route-bridges $(_SwiftRouteBridges)", guarded);
         }
 
         [Fact]

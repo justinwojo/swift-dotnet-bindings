@@ -2113,7 +2113,7 @@ namespace BindingsGeneration
                 {
                     lowering.Verify(targetTriple, SwiftWrapperLoweringEvidence.SliceSources(
                         swiftFiles, wrapperModuleName, targetTriple, originalModuleName, frameworkSearchPath,
-                        transitiveScanSearchPaths ?? additionalFrameworkSearchPaths));
+                        transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, sdkPath));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
@@ -2125,7 +2125,7 @@ namespace BindingsGeneration
                 CollectLoweringEvidence(
                     lowering, sharedFrontendArgs, frontendArgs, swiftFiles, wrapperModuleName, targetTriple, frameworkSearchPath,
                     originalModuleName, transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, strippedSymbols,
-                    compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs);
+                    compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs, sdkPath);
             }
         }
 
@@ -2154,7 +2154,8 @@ namespace BindingsGeneration
             TimeSpan wrapperCompileTime,
             ICommandRunner commandRunner,
             ILogger logger,
-            int timeoutMs)
+            int timeoutMs,
+            string sdkPath)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
             // One source file writes its IR module to a file. swiftc refuses -o for several primary
@@ -2195,7 +2196,7 @@ namespace BindingsGeneration
                 var irTime = clock.Elapsed;
 
                 var sources = SwiftWrapperLoweringEvidence.SliceSources(
-                    swiftFiles, wrapperModuleName, targetTriple, boundModuleName, frameworkSearchPath, dependencySearchPaths);
+                    swiftFiles, wrapperModuleName, targetTriple, boundModuleName, frameworkSearchPath, dependencySearchPaths, sdkPath);
                 SwiftLoweringProbe.Result? probe = null;
                 if (!string.IsNullOrEmpty(boundModuleName))
                 {
@@ -2206,7 +2207,7 @@ namespace BindingsGeneration
                         new SwiftLoweringProbe.Request(
                             probed, boundModuleName, frameworkSearchPath, dependencySearchPaths, swiftFiles,
                             sharedFrontendArgs, wrapperModuleName + "LoweringProbe", targetTriple,
-                            Path.GetDirectoryName(swiftFiles[0])!),
+                            Path.GetDirectoryName(swiftFiles[0])!, lowering.BoundDescriptor),
                         commandRunner, logger, timeoutMs);
                     if (probe.Source is not null)
                         sources.Add(probe.Source);

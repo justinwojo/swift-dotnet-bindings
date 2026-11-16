@@ -287,13 +287,6 @@ public static class BindingsGeneratorCommand
         // bridge gate, the plan sidecars of the hand-written transition tables, and the linked check
         // of an image's bridges. Out-of-tree from binding generation, so
         // they run before --platform validation, like the Apple-types modes.
-        if (!string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) && !compileWrapperOnly)
-        {
-            // The receipt describes a compiled wrapper, so only the wrapper compile collects it.
-            logger.LogError("Error: --collect-swift-lowering-evidence requires --compile-wrapper-only.");
-            context.ExitCode = 1;
-            return;
-        }
         if (routeSwiftBridges && string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence))
         {
             // Routing is authorized only by the receipt the same compile collects.
@@ -592,6 +585,31 @@ public static class BindingsGeneratorCommand
                 "and have no effect in -a/-d/-t direct mode.");
             context.ExitCode = 1;
             return;
+        }
+
+        // The receipt describes a compiled wrapper, so only a wrapper compile collects it: the
+        // --compile-wrapper-only pass (returned above) or the Apple-framework path, which compiles its
+        // wrapper inline after generation.
+        if (!string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence))
+        {
+            if (!CollectsLoweringEvidenceInline(hasXcframework, libraryName, skipWrapperCompilation))
+            {
+                logger.LogError("Error: --collect-swift-lowering-evidence requires --compile-wrapper-only, or an Apple framework (-a/-d/-t with an @rpath or /System/Library/ -l) whose wrapper this run compiles.");
+                context.ExitCode = 1;
+                return;
+            }
+            try
+            {
+                // Removed before generation, so a run that fails or is interrupted leaves no receipt
+                // of an earlier wrapper.
+                SwiftWrapperLoweringEvidence.Discard(collectSwiftLoweringEvidence);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogError("Error: the previous lowering receipt '{Path}' could not be removed: {Message}", collectSwiftLoweringEvidence, ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
         }
 
         ManagedReferenceContext references;
@@ -1995,7 +2013,9 @@ public static class BindingsGeneratorCommand
             // lost: the SDK's _AFW_OtherIsFatSim path packs the sim second slice and fat-folds
             // them in there. This keeps auto and explicit `arm64,x86_64` device-first producing
             // the same wrapper (arm64 device + fat sim) without the generator attempting an
-            // impossible compile.
+            // impossible compile. (A run that collects the lowering receipt compiles the simulator
+            // slice itself, so it folds them there instead; see below.)
+            var allDirectExtraArchs = directExtraArchs;
             var directSliceNaturalArchs = BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(directSlice);
             var droppedExtras = directExtraArchs
                 .Where(a => !directSliceNaturalArchs.Any(n => string.Equals(n, a, StringComparison.OrdinalIgnoreCase)))
@@ -2005,6 +2025,52 @@ public static class BindingsGeneratorCommand
                 directExtraArchs = directExtraArchs
                     .Where(a => directSliceNaturalArchs.Any(n => string.Equals(n, a, StringComparison.OrdinalIgnoreCase)))
                     .ToList();
+            }
+
+            // The lowering receipt (--collect-swift-lowering-evidence) is read from the IR of the
+            // wrapper this run compiles, as the --compile-wrapper-only pass reads it for a framework
+            // the SDK binds from an xcframework. It must describe every slice the wrapper ships, so
+            // on a platform with a simulator this run compiles both the simulator and the device
+            // slice itself, each against its own SDK's copy of the framework, with x86_64 folded
+            // into the simulator slice; the SDK's second-slice step then finds the slice present.
+            // Apple frameworks ship no ABI descriptor, so every slice's probe reads the one this run
+            // bound (-a).
+            var collectsLowering = !string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence);
+            var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
+            (XCFrameworkResolution Sim, Func<string, XCFrameworkResolution?> SimFor, XCFrameworkResolution? Device)? bothSlices = null;
+            if (collectsLowering && platformInfo.HasSimulatorVariant)
+            {
+                bothSlices = ResolveAppleFrameworkSlices(
+                    directModuleName, swiftAbiPath!, tbdPath!, directSlice, platformInfo, logger, out var unresolved);
+                if (bothSlices is null)
+                {
+                    logger.LogWarning(
+                        "Lowering evidence is not collected for {Module}: its wrapper's slices cannot all be resolved ({Reason}); its bridge plans stay guarded.",
+                        directModuleName, unresolved);
+                    collectsLowering = false;
+                }
+            }
+            SwiftWrapperLoweringEvidence? directLowering = null;
+            if (collectsLowering)
+            {
+                try
+                {
+                    directLowering = SwiftWrapperLoweringEvidence.Begin(
+                        collectSwiftLoweringEvidence!, outputDirectory, directModuleName, loweringPlatform, logger,
+                        boundDescriptor: new SwiftLoweringProbe.ExplicitDescriptor(swiftAbiPath!, swiftInterface));
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogError("Error: the previous lowering receipt '{Path}' could not be removed: {Message}", collectSwiftLoweringEvidence, ex.Message);
+                    context.ExitCode = 1;
+                    return;
+                }
+            }
+            // Both slices compiled here fold every extra arch the simulator slice takes here too,
+            // instead of deferring it to the SDK's second slice.
+            var wrapperExtraArchs = bothSlices is not null ? allDirectExtraArchs : directExtraArchs;
+            if (droppedExtras.Count > 0 && bothSlices is null)
+            {
                 logger.LogInformation(
                     "Apple direct: arches [{Deferred}] are not native to active compile slice '{Slice}' " +
                     "and are covered by the SDK's fat-sim second-slice path; skipping generator compile.",
@@ -2014,8 +2080,30 @@ public static class BindingsGeneratorCommand
             // Compiles the wrapper for ONE requested CPU arch. The shared
             // CompileWrapperForArchitectures folds extra arches via lipo (aside→merge→restore);
             // null primary keeps the historical default-slice arch (no WithArchitecture rename).
-            SwiftWrapperCompilationResult? CompileDirectForArch(string? requestedArch) =>
-                SwiftWrapperCompiler.CompileSlice(
+            var firstDirectPass = true;
+            SwiftWrapperCompilationResult? CompileDirectForArch(string? requestedArch)
+            {
+                var loweringPass = directLowering?.BeginPass(requestedArch);
+                var isFirstPass = firstDirectPass;
+                firstDirectPass = false;
+                if (bothSlices is { } slices)
+                {
+                    var arch = string.IsNullOrEmpty(requestedArch) ? slices.Sim.SelectedArchitecture : requestedArch;
+                    var sim = slices.SimFor(arch)
+                        ?? throw new InvalidOperationException($"the {arch} simulator slice of {directModuleName} cannot be resolved");
+                    var passArchs = wrapperExtraArchs.Prepend(string.IsNullOrEmpty(directPrimaryArch) ? slices.Sim.SelectedArchitecture : directPrimaryArch);
+                    var device = slices.Device is { } d && CompilesDeviceSlice(arch, isFirstPass, d.SelectedArchitecture, passArchs) ? d : null;
+                    return SwiftWrapperCompiler.CompileAll(
+                        outputDirectory, directModuleName, sim, device, logger,
+                        internalTypeNames: internalTypeNames,
+                        skipThunkCompilation: skipThunkCompilation,
+                        platformInfo: platformInfo,
+                        moduleNameForCollision: moduleNameForCollision,
+                        nestedTypesInCollidingClass: nestedTypesInCollidingClass,
+                        swiftInterfacePath: sim.SwiftInterfacePath,
+                        lowering: loweringPass);
+                }
+                return SwiftWrapperCompiler.CompileSlice(
                     outputDirectory, directModuleName,
                     frameworkSearchPath!, tbdPath,
                     string.IsNullOrEmpty(requestedArch) ? directSlice : directSlice.WithArchitecture(requestedArch),
@@ -2024,7 +2112,9 @@ public static class BindingsGeneratorCommand
                     moduleNameForCollision: moduleNameForCollision,
                     nestedTypesInCollidingClass: nestedTypesInCollidingClass,
                     swiftInterfacePath: swiftInterface,
-                    skipThunkCompilation: skipThunkCompilation);
+                    skipThunkCompilation: skipThunkCompilation,
+                    lowering: loweringPass);
+            }
 
             // ResolveDeploymentTarget reads <frameworkDir>/Info.plist for MinimumOSVersion;
             // Apple system frameworks ship one. dylibPath argument is the TBD path — the
@@ -2037,7 +2127,7 @@ public static class BindingsGeneratorCommand
             try
             {
                 directResult = BindingsGenerator.CompileWrapperForArchitectures(
-                    directPrimaryArch, directExtraArchs, CompileDirectForArch, logger,
+                    directPrimaryArch, wrapperExtraArchs, CompileDirectForArch, logger,
                     out directUnmergedExtraArchs);
             }
             catch (Exception ex)
@@ -2104,6 +2194,48 @@ public static class BindingsGeneratorCommand
                 directModuleName,
                 m => m.Wrapper = WrapperSection.From(directOutcome, directCoGated),
                 logger);
+
+            // Commit the receipt and route what it authorizes, exactly as the --compile-wrapper-only
+            // pass does. Direct mode records the wrapper in no metadata file, so nothing is withdrawn
+            // before a relink.
+            if (directResult?.XCFrameworkPath is { } directWrapperPath && Directory.Exists(directWrapperPath))
+            {
+                var routed = BindingsGenerator.CommitReceiptAndRouteBridges(
+                    new BindingsGenerator.WrapperRoutingRequest(
+                        outputDirectory, directModuleName, routeSwiftBridges, directLowering, collectSwiftLoweringEvidence,
+                        loweringPlatform, directOutcome, directUnmergedExtraArchs,
+                        verification =>
+                        {
+                            directLowering = verification;
+                            firstDirectPass = true;
+                            SwiftWrapperCompilationResult? relinked = null;
+                            Exception? relinkException = null;
+                            IReadOnlyList<string> relinkUnmerged = Array.Empty<string>();
+                            try
+                            {
+                                relinked = BindingsGenerator.CompileWrapperForArchitectures(
+                                    directPrimaryArch, wrapperExtraArchs, CompileDirectForArch, logger, out relinkUnmerged);
+                            }
+                            catch (Exception ex)
+                            {
+                                relinkException = ex;
+                            }
+                            return new BindingsGenerator.WrapperRecompile(relinked, relinkException, relinkUnmerged,
+                                autoMatchSourceDirect ? Array.Empty<string>() : relinkUnmerged);
+                        },
+                        () => { }),
+                    ref directResult, logger);
+                compilationResult = directResult;
+                if (!routed)
+                {
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperCompileFailure, "SWIFTBIND129",
+                        RecoveryStage.SwiftCompile,
+                        "The wrapper's bridges could not be routed; see the SWIFTBIND129 diagnostics above.");
+                    context.ExitCode = 1;
+                    return;
+                }
+            }
 
             // SwiftUI bridge primary slice (Apple direct mode). The xcframework path
             // builds the bridge via the SDK's --compile-bridge-only target, but Apple
@@ -2787,6 +2919,14 @@ public static class BindingsGeneratorCommand
     /// Pulled out as a small helper so the gate is unit-testable in isolation from the
     /// rest of the CLI execution path.
     /// </summary>
+    /// <summary>
+    /// Whether a generation run (not <c>--compile-wrapper-only</c>) may collect the lowering receipt: an
+    /// Apple framework whose wrapper the run compiles inline. Every other generation run leaves its
+    /// wrapper to a later <c>--compile-wrapper-only</c> pass, which collects the receipt.
+    /// </summary>
+    internal static bool CollectsLoweringEvidenceInline(bool hasXcframework, string? libraryName, bool skipWrapperCompilation) =>
+        IsSystemFrameworkTarget(hasXcframework, libraryName) && !skipWrapperCompilation;
+
     internal static bool IsSystemFrameworkTarget(bool hasXcframework, string? libraryName)
     {
         if (hasXcframework || string.IsNullOrEmpty(libraryName))
@@ -3344,6 +3484,60 @@ public static class BindingsGeneratorCommand
                 logger, out primaryArch, out extraArchs)
             ? DirectWrapperArchOutcome.Decided
             : DirectWrapperArchOutcome.UnsatisfiableRequest;
+    }
+
+    /// <summary>
+    /// Whether the compile pass for <paramref name="passArch"/> also builds the device slice, whose
+    /// architecture is <paramref name="deviceArch"/>. The device slice is built once: on the pass of its
+    /// own architecture, or on the first pass when none of <paramref name="passArchs"/> is its
+    /// architecture (a simulator-only request such as <c>x86_64</c>). The wrapper ships a device slice
+    /// either way, so the receipt must describe it.
+    /// </summary>
+    internal static bool CompilesDeviceSlice(string passArch, bool isFirstPass, string deviceArch, IEnumerable<string> passArchs) =>
+        string.Equals(passArch, deviceArch, StringComparison.OrdinalIgnoreCase)
+        || (isFirstPass && !passArchs.Contains(deviceArch, StringComparer.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// Both wrapper slices of an Apple framework on a platform with a simulator, resolved in each
+    /// slice's own SDK from the framework as the run was handed it (<paramref name="tbdPath"/>, in the
+    /// SDK of <paramref name="givenSlice"/>): the simulator slice for its default architecture, the
+    /// simulator slice for any other architecture, and the device slice. Null, with
+    /// <paramref name="why"/>, when any of them cannot be resolved.
+    /// </summary>
+    internal static (XCFrameworkResolution Sim, Func<string, XCFrameworkResolution?> SimFor, XCFrameworkResolution? Device)?
+        ResolveAppleFrameworkSlices(
+            string moduleName, string abiJsonPath, string tbdPath, SliceVariant givenSlice, PlatformInfo platformInfo,
+            ILogger logger, out string? why, Func<string, string?>? sdkRootOf = null)
+    {
+        sdkRootOf ??= sdk =>
+        {
+            var (exitCode, stdout, _) = new SystemCommandRunner().Run("xcrun", $"--sdk {sdk} --show-sdk-path");
+            return exitCode == 0 && !string.IsNullOrWhiteSpace(stdout) ? stdout.Trim() : null;
+        };
+        why = null;
+        var simSlice = platformInfo.GetSlice(true);
+        var deviceSlice = platformInfo.DeviceSlice;
+        if (sdkRootOf(givenSlice.SdkName) is not { } givenSdk
+            || sdkRootOf(simSlice.SdkName) is not { } simSdk
+            || sdkRootOf(deviceSlice.SdkName) is not { } deviceSdk)
+        {
+            why = "an SDK path could not be resolved (xcrun --show-sdk-path)";
+            return null;
+        }
+        if (AppleFrameworkSlices.Resolve(moduleName, abiJsonPath, tbdPath, givenSdk, simSlice, simSdk, out why) is not { } sim)
+            return null;
+        if (AppleFrameworkSlices.Resolve(moduleName, abiJsonPath, tbdPath, givenSdk, deviceSlice, deviceSdk, out why) is not { } device)
+            return null;
+        XCFrameworkResolution? SimFor(string arch)
+        {
+            if (string.Equals(arch, sim.SelectedArchitecture, StringComparison.OrdinalIgnoreCase))
+                return sim;
+            var resolved = AppleFrameworkSlices.Resolve(moduleName, abiJsonPath, tbdPath, givenSdk, simSlice.WithArchitecture(arch), simSdk, out var archWhy);
+            if (resolved is null)
+                logger.LogWarning("The {Arch} simulator slice of {Module} cannot be resolved: {Reason}", arch, moduleName, archWhy);
+            return resolved;
+        }
+        return (sim, SimFor, device);
     }
 
     /// <summary>

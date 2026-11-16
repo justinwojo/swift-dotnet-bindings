@@ -30,9 +30,10 @@ public sealed class SwiftWrapperLoweringEvidence
 
     private SwiftWrapperLoweringEvidence(
         string artifact, string platform, string compiler, IEnumerable<string> targets, Func<string, string?> sdkIdentity,
-        SwiftLoweringReceipt? verifying = null)
+        SwiftLoweringReceipt? verifying = null, SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
     {
         Artifact = artifact;
+        BoundDescriptor = boundDescriptor;
         Platform = platform;
         Compiler = compiler;
         Targets = targets.ToImmutableSortedSet(StringComparer.Ordinal);
@@ -75,6 +76,12 @@ public sealed class SwiftWrapperLoweringEvidence
     public ImmutableSortedSet<string> Targets { get; }
 
     /// <summary>
+    /// The bound module's descriptor, given to every slice's probe, when its framework ships none (an
+    /// Apple SDK framework); null when the probe reads the one the framework ships.
+    /// </summary>
+    public SwiftLoweringProbe.ExplicitDescriptor? BoundDescriptor { get; }
+
+    /// <summary>
     /// Why a target the wrapper's IR did not show is unobserved, when the post-processor did not strip it
     /// and no probe asked for it (a wrapper of no bound module has no interface to probe).
     /// </summary>
@@ -102,7 +109,8 @@ public sealed class SwiftWrapperLoweringEvidence
     /// </summary>
     public static SwiftWrapperLoweringEvidence? Begin(
         string receiptPath, string outputDirectory, string moduleName, string platform, ILogger logger,
-        Func<string?>? compilerProbe = null, Func<string, string?>? sdkIdentity = null)
+        Func<string?>? compilerProbe = null, Func<string, string?>? sdkIdentity = null,
+        SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
     {
         Discard(receiptPath);
         var compiler = (compilerProbe ?? SwiftToolchainProbe.Compiler)();
@@ -118,7 +126,7 @@ public sealed class SwiftWrapperLoweringEvidence
                 moduleName, compiler, string.Join(", ", SwiftLoweringQualification.Families));
             return null;
         }
-        return ForOutput(outputDirectory, moduleName, platform, compiler, logger, sdkIdentity);
+        return ForOutput(outputDirectory, moduleName, platform, compiler, logger, sdkIdentity, boundDescriptor);
     }
 
     /// <summary>
@@ -165,7 +173,7 @@ public sealed class SwiftWrapperLoweringEvidence
     /// </summary>
     public static SwiftWrapperLoweringEvidence? ForOutput(
         string outputDirectory, string moduleName, string platform, string compiler, ILogger logger,
-        Func<string, string?>? sdkIdentity = null)
+        Func<string, string?>? sdkIdentity = null, SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
     {
         try
         {
@@ -200,7 +208,7 @@ public sealed class SwiftWrapperLoweringEvidence
             return null;
         }
         return new SwiftWrapperLoweringEvidence(moduleName, platform, compiler, SwiftLoweringEvidenceCollector.Targets(own),
-            sdkIdentity ?? SwiftToolchainProbe.SdkIdentity);
+            sdkIdentity ?? SwiftToolchainProbe.SdkIdentity, boundDescriptor: boundDescriptor);
     }
 
     /// <summary>Starts one compile pass: the wrapper for one requested architecture (null for the default).</summary>
@@ -274,6 +282,9 @@ public sealed class SwiftWrapperLoweringEvidence
 
         /// <summary>Whether this pass verifies a relinked wrapper (<see cref="Verify"/>) rather than observes one.</summary>
         public bool Verifies => _owner.Verifies;
+
+        /// <summary>The bound module's descriptor given to the slice's probe, when its framework ships none.</summary>
+        public SwiftLoweringProbe.ExplicitDescriptor? BoundDescriptor => _owner.BoundDescriptor;
 
         /// <summary>
         /// Records what <paramref name="modules"/>, the IR of the wrapper compiled for
@@ -361,14 +372,15 @@ public sealed class SwiftWrapperLoweringEvidence
     /// </summary>
     public static List<SwiftEvidenceSource> SliceSources(
         IReadOnlyList<string> wrapperFiles, string wrapperModuleName, string compiledTriple,
-        string? boundModuleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths)
+        string? boundModuleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths,
+        string? sdkRoot = null)
     {
         var sources = new List<SwiftEvidenceSource>
         {
             new(SwiftEvidenceSource.WrapperRole, wrapperModuleName, SwiftEvidenceSource.DigestOf(wrapperFiles), WrapperFlags(compiledTriple)),
         };
         if (!string.IsNullOrEmpty(boundModuleName))
-            sources.AddRange(InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths));
+            sources.AddRange(InterfaceSources(boundModuleName, frameworkSearchPath, dependencySearchPaths, sdkRoot));
         return sources;
     }
 
@@ -377,17 +389,20 @@ public sealed class SwiftWrapperLoweringEvidence
     /// then every other framework in <paramref name="frameworkSearchPath"/> (a slice may ship peer
     /// frameworks beside the bound one) and in <paramref name="dependencySearchPaths"/>, the first of
     /// each name, as swiftc's search order finds it. Each is digested over its <c>Modules</c>,
-    /// <c>Headers</c> and <c>PrivateHeaders</c> files, which are what swiftc reads to import it. Platform
-    /// paths the SDK owns are left out: the slice's SDK identity covers them.
+    /// <c>Headers</c> and <c>PrivateHeaders</c> files, which are what swiftc reads to import it. A
+    /// framework inside <paramref name="sdkRoot"/>, the SDK the slice compiles against, is left out (an
+    /// Apple framework, bound or imported): the slice's SDK identity covers it, and its name still takes
+    /// its place in the search order, so a later framework of the same name is not recorded either.
     /// </summary>
     public static IReadOnlyList<SwiftEvidenceSource> InterfaceSources(
-        string moduleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths)
+        string moduleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths,
+        string? sdkRoot = null)
     {
         var sources = new List<SwiftEvidenceSource>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         void Add(string name, string frameworkDirectory)
         {
-            if (!seen.Add(name))
+            if (!seen.Add(name) || IsInside(frameworkDirectory, sdkRoot))
                 return;
             var files = new[] { "Modules", "Headers", "PrivateHeaders" }
                 .Select(d => Path.Combine(frameworkDirectory, d))
@@ -408,5 +423,41 @@ public sealed class SwiftWrapperLoweringEvidence
                 Add(Path.GetFileNameWithoutExtension(framework), framework);
         }
         return sources;
+    }
+
+    /// <summary>Whether <paramref name="path"/> is <paramref name="root"/> or lies inside it, symbolic links resolved.</summary>
+    internal static bool IsInside(string path, string? root)
+    {
+        if (string.IsNullOrEmpty(root))
+            return false;
+        var (p, r) = (RealPath(path), RealPath(root));
+        return p == r || p.StartsWith(r + Path.DirectorySeparatorChar, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// <paramref name="path"/> made absolute with every component's symbolic link resolved, as
+    /// realpath(3) would: an SDK is often reached through the platform's unversioned link
+    /// (iPhoneSimulator.sdk) as well as through its versioned directory.
+    /// </summary>
+    internal static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var real = Path.GetPathRoot(full)!;
+        foreach (var part in full.Substring(real.Length).Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            var next = Path.Combine(real, part);
+            try
+            {
+                var info = new FileInfo(next);
+                real = info.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is { } target
+                    ? RealPath(target.FullName)
+                    : next;
+            }
+            catch (IOException)
+            {
+                real = next;
+            }
+        }
+        return Path.TrimEndingDirectorySeparator(real);
     }
 }

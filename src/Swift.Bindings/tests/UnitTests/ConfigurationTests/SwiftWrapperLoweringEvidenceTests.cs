@@ -525,6 +525,48 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         Assert.Equal(SwiftWrapperLoweringEvidence.InterfaceSources("Dep", first, null)[0], before[2]);
     }
 
+    /// <summary>
+    /// An Apple framework, bound or imported, sits in the SDK the slice compiles against, whose identity
+    /// the receipt already records; its interface is not digested again, whether the SDK is reached
+    /// through its versioned directory or the platform's unversioned link. A framework outside the SDK
+    /// still is, and an SDK framework still shadows a later framework of its name.
+    /// </summary>
+    [Fact]
+    public void InterfaceSources_LeaveOutTheFrameworksTheSdkOwns()
+    {
+        var sdk = Path.Combine(_dir, "Platforms", "iPhoneSimulator26.2.sdk");
+        var frameworks = Path.Combine(sdk, "System", "Library", "Frameworks");
+        var deps = Path.Combine(_dir, "deps");
+        WriteFramework(frameworks, "AppleKit", "public func f()");
+        WriteFramework(frameworks, "AppleBase", "public struct B {}");
+        WriteFramework(deps, "AppleBase", "public struct ShadowedBase {}");
+        WriteFramework(deps, "Dep", "public struct D {}");
+        var link = Path.Combine(_dir, "Platforms", "iPhoneSimulator.sdk");
+        Directory.CreateSymbolicLink(link, "iPhoneSimulator26.2.sdk");
+        var linkedFrameworks = Path.Combine(link, "System", "Library", "Frameworks");
+
+        var sources = SwiftWrapperLoweringEvidence.InterfaceSources("AppleKit", frameworks, [deps], sdk);
+
+        Assert.Equal(new[] { "Dep" }, sources.Select(s => s.Name));
+        Assert.Equal(sources, SwiftWrapperLoweringEvidence.InterfaceSources("AppleKit", linkedFrameworks, [deps], sdk));
+        Assert.Equal(sources, SwiftWrapperLoweringEvidence.InterfaceSources("AppleKit", frameworks, [deps], link));
+        // Without the SDK named, every framework is digested, as for a framework bound from an xcframework.
+        Assert.Equal(new[] { "AppleKit", "AppleBase", "Dep" },
+            SwiftWrapperLoweringEvidence.InterfaceSources("AppleKit", frameworks, [deps]).Select(s => s.Name));
+        Assert.False(SwiftWrapperLoweringEvidence.IsInside(Path.Combine(_dir, "Platforms", "iPhoneSimulator26.2.sdk-other"), sdk));
+    }
+
+    [Fact]
+    public void ACollection_GivesEveryPassTheBoundDescriptorItWasGiven()
+    {
+        var descriptor = new SwiftLoweringProbe.ExplicitDescriptor(Path.Combine(_dir, "AppleKit.abi.json"), Path.Combine(_dir, "AppleKit.swiftinterface"));
+        var collection = SwiftWrapperLoweringEvidence.ForOutput(_dir, Artifact, "ios", Compiler, NullLogger.Instance, Sdk, descriptor)!;
+
+        Assert.Equal(descriptor, collection.BeginPass(null).BoundDescriptor);
+        Assert.Equal(descriptor, collection.BeginPass("x86_64").BoundDescriptor);
+        Assert.Null(Collection().BeginPass(null).BoundDescriptor);
+    }
+
     private static string WriteFramework(string searchPath, string name, string declaration)
     {
         var modules = Path.Combine(searchPath, name + ".framework", "Modules", name + ".swiftmodule");
