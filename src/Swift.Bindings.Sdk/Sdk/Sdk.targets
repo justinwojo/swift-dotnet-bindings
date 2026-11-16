@@ -4497,8 +4497,9 @@ TARGETSEOF"
        runs (SwiftBindings.Runtime's buildTransitive check, SWIFTBIND132), so a package its
        consumers would refuse is never written. Each lib/ assembly that can make a Swift transition
        must be primitive-only or carry a valid transition manifest whose rules hold, and every
-       framework slice in the package of a library the manifests route bridges through must hold
-       the manifest hash and export exactly those bridges. A missing slice is a refusal here (a
+       framework slice of a library the manifests route bridges through, among those its target
+       framework's consumers link (runtimes/<rid>/ of the same platform), must hold the manifest
+       hash and export exactly those bridges. A missing slice is a refusal here (a
        package must carry its natives). A refused package is deleted.
 
        The usual cause is a wrapper that kept the bridges or manifest hash of an earlier routing:

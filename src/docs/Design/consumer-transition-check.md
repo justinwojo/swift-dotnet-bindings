@@ -85,8 +85,11 @@ ignores case. A suppression that matches nothing is logged.
 `SwiftBindings.Sdk` runs the same engine after `Pack` (`_SwiftBindingsCheckPackedTransitions`,
 task `SwiftTransitionPackageCheck`). It reads the package it just wrote, as a consumer would receive
 it, and checks every `lib/` assembly with Swift transitions. Here a routed library must be in the
-package: every framework slice must hold the manifest hash and export exactly its bridges. A refused
-package is deleted and the build fails with `error SWIFTBIND133`.
+package: every framework slice must hold the manifest hash and export exactly its bridges. An
+assembly is checked against the slices a consumer of its target framework links: those under a
+`runtimes/<rid>/` of its own platform, and any under no Apple RID. A binding for iOS and tvOS ships
+one wrapper per platform, and the two manifests differ wherever the platforms' routing does. A
+refused package is deleted and the build fails with `error SWIFTBIND133`.
 
 The usual cause is a wrapper that kept an earlier routing. The wrapper-compile finalizer does not
 relink when there is no lowering receipt, or when a relink fails (SWIFTBIND129) and it restores the

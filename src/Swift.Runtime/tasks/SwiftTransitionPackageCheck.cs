@@ -22,8 +22,12 @@ namespace SwiftBindings.Tasks;
 /// The check reads the package alone, as a consumer would receive it: every <c>lib/</c> assembly
 /// that can make a Swift transition is checked against the plans its own manifests embed
 /// (<see cref="ConsumerTransitionCheck.Check"/>), and every framework slice of a routed library in
-/// the package against the manifest hash and bridges. The referenced assemblies (the runtime) come
-/// from the packing project's own resolved references, for carrier types.
+/// the package against the manifest hash and bridges. A <c>lib/&lt;tfm&gt;/</c> assembly of an Apple
+/// platform is paired with the slices a consumer of that target framework links: those under a
+/// <c>runtimes/&lt;rid&gt;/</c> of the same platform, and any not under a platform's RID. A binding that
+/// targets several platforms ships one wrapper per platform, and their manifests differ wherever the
+/// platforms' routing does. The referenced assemblies (the runtime) come from the packing project's
+/// own resolved references, for carrier types.
 /// </remarks>
 public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
 {
@@ -68,7 +72,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             var assemblies = Directory.Exists(lib)
                 ? Directory.GetFiles(lib, "*.dll", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList()
                 : new List<string>();
-            var natives = new PackageImages(root);
+            var packaged = new Lazy<List<(PackagedNative Native, string? Platform)>>(() => ReadFrameworks(root));
             var refused = new List<string>();
             var verified = 0;
             foreach (var path in assemblies)
@@ -79,6 +83,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 var shown = Path.GetRelativePath(root, path).Replace('\\', '/');
                 var assembly = new PackagedAssembly(shown, image,
                     new[] { Path.GetDirectoryName(path)! }.Concat(references).ToArray());
+                var natives = new PlatformImages(packaged, TargetFrameworkPlatform(shown));
                 var result = ConsumerTransitionCheck.Check(assembly, natives, requireNativeImages: true,
                     Path.Combine(ScratchDirectory, "plans", $"{refused.Count + verified}"));
                 if (result.Verdict != ConsumerTransitionVerdict.Refused)
@@ -115,19 +120,55 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
         }
     }
 
-    /// <summary>The framework slices of a library in the package, read when a manifest routes through it.</summary>
-    private sealed class PackageImages(string root) : IReadOnlyList<PackagedNative>
-    {
-        // ConsumerTransitionCheck asks only for the libraries the manifests route through, so the
-        // package's frameworks are read on first use, once.
-        private readonly Lazy<List<PackagedNative>> all = new(() =>
-            Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
-                .Select(d => Path.GetFileNameWithoutExtension(d)).Distinct(StringComparer.Ordinal)
-                .SelectMany(framework => ConsumerTransitionCheck.FrameworkBinaries(root, framework)
-                    .Select(p => new PackagedNative(framework, Path.GetRelativePath(root, p), File.ReadAllBytes(p))))
-                .ToList());
+    /// <summary>Every framework binary in the package, with the Apple platform of the <c>runtimes/&lt;rid&gt;/</c> it is under, if any.</summary>
+    private static List<(PackagedNative Native, string? Platform)> ReadFrameworks(string root) =>
+        Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
+            .Select(d => Path.GetFileNameWithoutExtension(d)).Distinct(StringComparer.Ordinal)
+            .SelectMany(framework => ConsumerTransitionCheck.FrameworkBinaries(root, framework)
+                .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
+                .Select(shown => (new PackagedNative(framework, shown, File.ReadAllBytes(Path.Combine(root, shown))), RuntimePlatform(shown))))
+            .ToList();
 
-        private List<PackagedNative> All => all.Value;
+    /// <summary>The Apple platform of a <c>lib/&lt;tfm&gt;/</c> path, as the SDK reads it from the target framework; null for any other.</summary>
+    internal static string? TargetFrameworkPlatform(string packagePath)
+    {
+        var parts = packagePath.Split('/');
+        if (parts.Length < 3 || !parts[0].Equals("lib", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var dash = parts[1].IndexOf('-');
+        var platform = dash < 0 ? "" : new string(parts[1][(dash + 1)..].TakeWhile(char.IsLetter).ToArray()).ToLowerInvariant();
+        return platform is "ios" or "tvos" or "maccatalyst" or "macos" ? platform : null;
+    }
+
+    /// <summary>The Apple platform of a <c>runtimes/&lt;rid&gt;/</c> path; null for a path under no Apple RID.</summary>
+    internal static string? RuntimePlatform(string packagePath)
+    {
+        var parts = packagePath.Split('/');
+        if (parts.Length < 3 || !parts[0].Equals("runtimes", StringComparison.OrdinalIgnoreCase))
+            return null;
+        var dash = parts[1].IndexOf('-');
+        return (dash < 0 ? parts[1] : parts[1][..dash]).ToLowerInvariant() switch
+        {
+            "ios" or "iossimulator" => "ios",
+            "tvos" or "tvossimulator" => "tvos",
+            "maccatalyst" => "maccatalyst",
+            "osx" => "macos",
+            _ => null,
+        };
+    }
+
+    /// <summary>
+    /// The framework slices a consumer of one platform's target framework links: those of its own
+    /// platform's RIDs and those under no Apple RID. Read when a manifest routes through a library,
+    /// once per package.
+    /// </summary>
+    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, string? Platform)>> packaged, string? platform) : IReadOnlyList<PackagedNative>
+    {
+        private readonly Lazy<List<PackagedNative>> scoped = new(() => packaged.Value
+            .Where(n => platform is null || n.Platform is null || n.Platform == platform)
+            .Select(n => n.Native).ToList());
+
+        private List<PackagedNative> All => scoped.Value;
 
         public PackagedNative this[int index] => All[index];
         public int Count => All.Count;

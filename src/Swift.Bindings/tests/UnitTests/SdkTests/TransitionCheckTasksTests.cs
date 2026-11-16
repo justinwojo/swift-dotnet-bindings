@@ -9,7 +9,9 @@ using System.IO;
 using System.IO.Compression;
 using System.Linq;
 using System.Security;
+using System.Text;
 using System.Text.Json;
+using SwiftBindings.TransitionGate;
 using Xunit;
 using static BindingsGeneration.Tests.SwiftTransitionManifestTests;
 
@@ -245,6 +247,41 @@ public sealed class TransitionCheckTasksTests : IDisposable
         (exit, output) = Pack(complete);
         Assert.True(exit == 0, output);
         Assert.True(File.Exists(complete));
+    }
+
+    [Fact]
+    public void Pack_EachTargetFramework_IsCheckedAgainstItsOwnPlatformsNatives()
+    {
+        // A multi-platform binding ships one wrapper per platform under runtimes/<rid>/native/, and
+        // two platforms' manifests hash differently when their routing differs. A consumer of one
+        // target framework links only its own platform's natives, so the pack check pairs them the
+        // same way: here the tvOS slices hold another manifest's hash.
+        var hash = SwiftTransitionManifestReader.Read(RuntimeDll, new SwiftTransitionScanOptions { ReferenceDirectories = [AppContext.BaseDirectory] }).Manifests.Single().Hash;
+        var other = SwiftTransitionManifestFormat.Hash("another platform's manifest");
+        (string, byte[])[] Natives(string rid, bool otherManifest) => RuntimeSlices.Select((p, i) => (
+            $"runtimes/{rid}/native/SwiftBindingsRuntime.xcframework/{i}/SwiftBindingsRuntime.framework/SwiftBindingsRuntime",
+            otherManifest ? Replace(File.ReadAllBytes(p), Encoding.ASCII.GetBytes(hash), Encoding.ASCII.GetBytes(other)) : File.ReadAllBytes(p))).ToArray();
+        var ios = ("lib/net10.0-ios26.0/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+        var tvos = ("lib/net10.0-tvos26.0/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+
+        var scoped = Package("Scoped.1.0.0.nupkg", [ios, .. Natives("ios-arm64", false), .. Natives("tvos-arm64", true)]);
+        var (exit, output) = Pack(scoped);
+        Assert.True(exit == 0, output);
+        Assert.True(File.Exists(scoped));
+
+        // The tvOS assembly is still held to the tvOS natives.
+        var mismatched = Package("Mismatched.1.0.0.nupkg", [ios, tvos, .. Natives("ios-arm64", false), .. Natives("tvos-arm64", true)]);
+        (exit, output) = Pack(mismatched);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-tvos26.0/Swift.Runtime.dll would be refused", output);
+        Assert.Contains("runtimes/tvos-arm64/native/", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+
+        // An assembly with none of its platform's natives is refused, not passed vacuously.
+        var missing = Package("Missing.1.0.0.nupkg", [tvos, .. Natives("ios-arm64", false)]);
+        (exit, output) = Pack(missing);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("no image of SwiftBindingsRuntime was found", output);
     }
 
     // ---- fixtures -------------------------------------------------------------------------------
