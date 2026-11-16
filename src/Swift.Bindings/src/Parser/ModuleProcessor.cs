@@ -1864,6 +1864,8 @@ namespace BindingsGeneration
             // class existential with its own descriptor).
             if (protocolDecl.IsObjC)
                 flags |= TypeRecordFlags.ObjCProtocol;
+            if (protocolDecl.IsMarker)
+                flags |= TypeRecordFlags.MarkerProtocol;
 
             // Check if this protocol inherits from Codable (Decodable/Encodable), either
             // directly or transitively through inherited protocols already in the type database.
