@@ -301,8 +301,32 @@ paying it where nothing reads the result is waste. Measured on one simulator sli
 
 So it roughly doubles the wrapper's swiftc time. The probe adds little: on BindingTests it wrote 89
 calls and took 1.2 s, in two compiles, under Xcode 27.2. A build that finds the wrapper up
-to date skips all of it, so an incremental build pays nothing. The direct generator path (a wrapper compiled
-inline during generation) and Apple-framework mode do not collect, and so do not route from a receipt.
+to date skips all of it, so an incremental build pays nothing.
+
+**Apple-framework mode.** An Apple SDK framework's wrapper compiles inside the generator run
+(`_GenerateSwiftBindingsAppleFramework`), so that run collects the receipt and routes from it, under
+the same properties and by the same commit-and-route step as `--compile-wrapper-only`
+(`BindingsGenerator.CommitReceiptAndRouteBridges`). The rules differ in three places:
+- **Every slice in one run.** A receipt covers exactly the slices the wrapper ships, so the run
+  compiles every one itself: the simulator slice for each architecture of
+  `--target-architectures`, and the device slice. The framework is handed over as it sits in one
+  SDK; each slice finds it at the same place in its own SDK (`AppleFrameworkSlices`), with the
+  module interface for its triple. A device SDK ships its frameworks' interfaces for `arm64e`
+  alone, which swiftc reads for an `arm64` compile. The SDK adds no second slice over a wrapper that
+  already ships it. A framework some slice's SDK lacks is compiled as before, without a receipt,
+  and logged.
+- **The probe reads the digester's descriptor.** An SDK framework ships no `.abi.json`, so the probe
+  reads the one the generator bound (`-a`) in place of the framework's own, for every slice.
+- **The SDK's frameworks are not sources.** An `interface` source is recorded only for a framework
+  outside the slice's SDK. The SDK's own frameworks are covered by its identity (name, version and
+  build), which the receipt already records, so digesting each of the hundreds a compile could import
+  would buy nothing.
+
+The fingerprint of a Swift Apple framework that collects joins the compiler line and every Apple
+SDK's version and build, as a framework bound from an xcframework does. The generator run deletes
+the previous receipt first; the SDK deletes it before a regeneration too. Only the plain direct
+generator path (a third-party framework given with `-a`/`-d`/`-t`, outside an SDK) does not
+collect, and so does not route from a receipt.
 
 The wrapper's IR alone shows 32 of the 128 plan targets on BindingTests. With the probe, the receipt
 shows 113, measured under Xcode 27.2, and every one agrees with the oracle record of both compiler
@@ -371,7 +395,9 @@ routed C# on disk.
 
 **Fingerprint.** A build that collects adds whether it routes, and every file under each framework's
 `Modules/` (the descriptors the probe reads and the private interfaces), to its fingerprint. So a
-changed descriptor recompiles the wrapper and collects a new receipt. A build that neither reads nor
+changed descriptor recompiles the wrapper and collects a new receipt. An Apple SDK framework has no
+such directory to hash; its fingerprint joins the compiler line and each Apple SDK's version and
+build instead (see "Apple-framework mode"). A build that neither reads nor
 collects a receipt fingerprints exactly what it did before.
 
 **Where it is proven.** `nuke binding-tests --bridge-consumer` binds a fixture with default settings

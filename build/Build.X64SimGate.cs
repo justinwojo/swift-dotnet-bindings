@@ -31,8 +31,12 @@
 //           and arm64-apple-ios-simulator swiftinterface slices (checked at
 //           gate execution time; we fail fast if the user's Xcode dropped one).
 //   Leg C — same StoreKit binding, but device-first (SwiftPlatformTarget=device)
-//           so the wrapper SIMULATOR slice is produced by the SDK's
-//           _CompileAppleFrameworkSecondWrapperSlice second-slice compile.
+//           with lowering-evidence collection off, so the wrapper SIMULATOR
+//           slice is produced by the SDK's
+//           _CompileAppleFrameworkSecondWrapperSlice second-slice compile. (A
+//           binding that collects compiles every slice in its generator run,
+//           for one receipt over all of them; Legs B and D take that path and
+//           assert the receipt covers each slice the wrapper ships.)
 //   Leg D — SwiftUI-bridge-producing Apple framework (TipKit), device-first.
 //           TipKit's binding emits a TipKitBridge.xcframework alongside the
 //           wrapper, so this is the only leg that exercises the BRIDGE
@@ -50,6 +54,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
+using System.Text.RegularExpressions;
 using Nuke.Common;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
@@ -276,6 +282,13 @@ partial class Build
                     .SetVerbosity(DotNetVerbosity.quiet));
             }
 
+            // 6c. The collecting legs (B, D) compiled every wrapper slice in their
+            //     generator run and wrote one receipt over all of them; the leg that
+            //     opts out (C) wrote none and built its simulator slice in the SDK.
+            AssertAppleFrameworkReceipts(storeKitBindingsDir, "StoreKit", expectReceipts: true);
+            AssertAppleFrameworkReceipts(tipKitDeviceFirstBindingsDir, "TipKit", expectReceipts: true);
+            AssertAppleFrameworkReceipts(storeKitDeviceFirstBindingsDir, "StoreKit device-first", expectReceipts: false);
+
             // 7. Leg A — third-party iOS-sim + tvOS-sim consumer apps. Build only
             //    (no run — Apple Silicon cannot host x86_64 iOS/tvOS simulators).
             Log.Information("  [8/9] Consuming packed third-party binding under iossimulator-x64 + tvossimulator-x64 (Leg A)");
@@ -441,8 +454,11 @@ partial class Build
         File.WriteAllText(bindingsDir / "NuGet.config", X64SimNuGetConfig(nupkgDir));
     }
 
-    // Leg C variant: SwiftPlatformTarget=device + explicit SwiftTargetArchitectures=arm64,x86_64.
-    // Device-first makes the wrapper first-slice the arm64-only device slice, so the SDK's
+    // Leg C variant: SwiftPlatformTarget=device + explicit SwiftTargetArchitectures=arm64,x86_64,
+    // with SwiftCollectLoweringEvidence=false: a collecting binding builds every slice in its
+    // generator run, so only a binding that does not collect still reaches the SDK's second-slice
+    // compile, which this leg certifies. Device-first makes the wrapper first-slice the arm64-only
+    // device slice, so the SDK's
     // _CompileAppleFrameworkSecondWrapperSlice produces the SIM slice as the "second" slice;
     // the H1 fix requires that second-slice compile to emit a fat arm64+x86_64 sim binary.
     // Adding the explicit arch list also exercises the M1 fix: ResolveAppleFrameworkAutoArchBasis
@@ -459,6 +475,7 @@ partial class Build
                 <PackageVersion>{X64SimGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
                 <SwiftPlatformTarget>device</SwiftPlatformTarget>
+                <SwiftCollectLoweringEvidence>false</SwiftCollectLoweringEvidence>
                 <SwiftTargetArchitectures>arm64,x86_64</SwiftTargetArchitectures>
                 <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
                 <NoWarn>$(NoWarn);CS0649;CS0114;CA1416</NoWarn>
@@ -470,6 +487,51 @@ partial class Build
             """;
         File.WriteAllText(bindingsDir / "X64SimStoreKitDeviceFirstBindings.csproj", csproj);
         File.WriteAllText(bindingsDir / "NuGet.config", X64SimNuGetConfig(nupkgDir));
+    }
+
+    static readonly Regex X64SimReceiptSlice = new(@"^(?<arch>[a-z0-9_]+)-apple-(?<os>[a-z]+?)[0-9.]*(?<env>-simulator)?$");
+
+    // The lowering receipts an Apple-framework binding project wrote, one per target framework.
+    // A collecting project's receipt must hold exactly the slices its wrapper ships: the device
+    // arm64 slice and both simulator architectures, for iOS and for tvOS. A project that does not
+    // collect must have written none.
+    static void AssertAppleFrameworkReceipts(AbsolutePath projectDir, string tag, bool expectReceipts)
+    {
+        var receipts = Directory.GetFiles(projectDir, "swift-lowering-receipt.json", SearchOption.AllDirectories);
+        if (!expectReceipts)
+        {
+            if (receipts.Length != 0)
+                Assert.Fail($"X64SimGate ({tag}): a binding that does not collect wrote a lowering receipt: {string.Join(", ", receipts)}");
+            Log.Information("    {Tag}: no lowering receipt, as configured", tag);
+            return;
+        }
+        var expected = new[] { "ios", "tvos" }.ToDictionary(
+            os => os,
+            os => new SortedSet<string>(StringComparer.Ordinal) { $"arm64-apple-{os}", $"arm64-apple-{os}-simulator", $"x86_64-apple-{os}-simulator" });
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var receipt in receipts)
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(receipt));
+            var entries = document.RootElement.GetProperty("receipts");
+            if (entries.GetArrayLength() != 1)
+                Assert.Fail($"X64SimGate ({tag}): {receipt} holds {entries.GetArrayLength()} receipts, not the wrapper's one");
+            var slices = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (var slice in entries[0].GetProperty("slices").EnumerateObject())
+            {
+                var match = X64SimReceiptSlice.Match(slice.Name);
+                if (!match.Success)
+                    Assert.Fail($"X64SimGate ({tag}): {receipt} records an unrecognized slice '{slice.Name}'");
+                slices.Add($"{match.Groups["arch"].Value}-apple-{match.Groups["os"].Value}{match.Groups["env"].Value}");
+            }
+            var os = expected.Keys.FirstOrDefault(o => expected[o].SetEquals(slices));
+            if (os is null)
+                Assert.Fail($"X64SimGate ({tag}): {receipt} covers [{string.Join(", ", slices)}], not every slice the wrapper ships");
+            if (!seen.Add(os!))
+                Assert.Fail($"X64SimGate ({tag}): two receipts cover the {os} slices");
+            Log.Information("    {Tag}: {Receipt} covers {Slices}", tag, receipt, string.Join(", ", slices));
+        }
+        if (seen.Count != expected.Count)
+            Assert.Fail($"X64SimGate ({tag}): lowering receipts for [{string.Join(", ", seen)}] only; expected iOS and tvOS");
     }
 
     // Leg D: a TipKit Apple-framework binding, device-first. TipKit exposes

@@ -5973,6 +5973,61 @@ namespace BindingsGeneration.Tests
             throw new InvalidOperationException("Cannot find repo root.");
         }
 
+        // ── Apple-framework second wrapper slice: a generator run that compiled both slices (it
+        //    collected the lowering receipt) names the simulator slice after its primary
+        //    architecture, so the SDK must not add a slice of its own over it. ──
+
+        [Theory]
+        [InlineData("device", "ios", new[] { "ios-arm64", "ios-x86_64-simulator" }, false)]
+        [InlineData("device", "ios", new[] { "ios-arm64", "ios-arm64-simulator" }, false)]
+        [InlineData("device", "tvos", new[] { "tvos-arm64", "tvos-x86_64-simulator" }, false)]
+        [InlineData("device", "ios", new[] { "ios-arm64" }, true)]
+        [InlineData("device", "ios", new[] { "ios-arm64", "tvos-arm64-simulator" }, true)]
+        [InlineData("simulator", "ios", new[] { "ios-arm64-simulator", "ios-arm64" }, false)]
+        [InlineData("simulator", "ios", new[] { "ios-x86_64-simulator", "ios-arm64" }, false)]
+        [InlineData("simulator", "ios", new[] { "ios-x86_64-simulator" }, true)]
+        public void AppleFrameworkSecondSlice_IsAddedOnlyWhenNoSliceOfThatKindShips(
+            string platformTarget, string platform, string[] slices, bool expected)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var sdk = System.Xml.Linq.XDocument.Load(Path.Combine(FindRepoRoot(),
+                "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets"));
+            var second = Assert.Single(sdk.Descendants("Target"),
+                t => (string?)t.Attribute("Name") == "_CompileAppleFrameworkSecondWrapperSlice");
+            // The slice-id properties with their own and their group's conditions, then the
+            // decision exactly as the target declares it.
+            var ids = second.Descendants("_AFW_OtherSliceGlob").First().Parent!;
+            var idGroup = new System.Xml.Linq.XElement("PropertyGroup", ids.Attribute("Condition"),
+                ids.Elements().Where(e => e.Name.LocalName is "_AFW_OtherSliceId" or "_AFW_OtherSliceGlob"));
+            var decision = Assert.Single(second.Elements("PropertyGroup"),
+                g => g.Elements("_AFW_NeedsSecondSlice").Any(e => e.Attribute("Condition") is not null));
+
+            var xcf = Path.Combine(_tempDir, "Wrapper.xcframework");
+            foreach (var slice in slices)
+            {
+                var binary = Path.Combine(xcf, slice, "Wrapper.framework", "Wrapper");
+                Directory.CreateDirectory(Path.GetDirectoryName(binary)!);
+                File.WriteAllText(binary, slice);
+            }
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(_tempDir, "Directory.Build.targets"), "<Project />");
+            var host = Path.Combine(_tempDir, "Slices.proj");
+            new System.Xml.Linq.XDocument(new System.Xml.Linq.XElement("Project",
+                new System.Xml.Linq.XElement("Target", new System.Xml.Linq.XAttribute("Name", "Probe"),
+                    new System.Xml.Linq.XElement("PropertyGroup",
+                        new System.Xml.Linq.XElement("_AFW_NeedsSecondSlice", "false")),
+                    idGroup, new System.Xml.Linq.XElement(decision),
+                    new System.Xml.Linq.XElement("Message",
+                        new System.Xml.Linq.XAttribute("Importance", "high"),
+                        new System.Xml.Linq.XAttribute("Text", "NEEDS_SECOND_SLICE=$(_AFW_NeedsSecondSlice) found=$(_AFW_OtherSliceDirs)"))))).Save(host);
+            var result = RunDotnet($"msbuild \"{host}\" -t:Probe -nologo -v:n"
+                + $" -p:_AFW_HasFirstSlice=true -p:_AFW_XCF=\"{xcf}\" -p:SwiftPlatformTarget={platformTarget}"
+                + $" -p:_SwiftBindingDeviceSliceId={platform}-arm64 -p:_SwiftBindingSimulatorSliceId={platform}-arm64-simulator");
+            var text = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, text);
+            Assert.True(text.Contains($"NEEDS_SECOND_SLICE={(expected ? "true" : "false")} ", StringComparison.Ordinal), text);
+        }
+
         // ── Helpers ──
 
         /// <summary>

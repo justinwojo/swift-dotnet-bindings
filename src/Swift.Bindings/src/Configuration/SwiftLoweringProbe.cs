@@ -96,6 +96,10 @@ public static class SwiftLoweringProbe
     /// <param name="ProbeModuleName">The module the probe is compiled as.</param>
     /// <param name="CompiledTriple">The exact target the wrapper was compiled for.</param>
     /// <param name="WorkDirectory">Where the probe's source and IR are written, and deleted from afterwards.</param>
+    /// <param name="BoundDescriptor">
+    /// The bound module's descriptor when its framework ships none (an Apple SDK framework, whose
+    /// descriptor the build dumps with <c>swift-api-digester</c>); null to read the one the framework ships.
+    /// </param>
     public sealed record Request(
         IReadOnlyCollection<string> Targets,
         string ModuleName,
@@ -105,7 +109,16 @@ public static class SwiftLoweringProbe
         string FrontendArgs,
         string ProbeModuleName,
         string CompiledTriple,
-        string WorkDirectory);
+        string WorkDirectory,
+        ExplicitDescriptor? BoundDescriptor = null);
+
+    /// <summary>
+    /// A module descriptor given to the probe rather than read from its framework: the ABI descriptor
+    /// (<c>.abi.json</c>) and the module interface whose imports the probe repeats. It only tells the
+    /// probe which calls to write; what counts is still the declaration swiftc emits for each call,
+    /// compiled against the slice's own SDK and frameworks.
+    /// </summary>
+    public sealed record ExplicitDescriptor(string AbiJsonPath, string? InterfacePath);
 
     /// <summary>What one slice's probe showed.</summary>
     /// <param name="Modules">The probe's IR, its declarations alone: what it defines is its own code, never a library's lowering.</param>
@@ -149,7 +162,8 @@ public static class SwiftLoweringProbe
         using var index = new AbiDescriptorIndex();
         try
         {
-            var descriptors = Descriptors(request.ModuleName, request.FrameworkSearchPath, request.DependencySearchPaths, request.CompiledTriple);
+            var descriptors = Descriptors(request.ModuleName, request.FrameworkSearchPath, request.DependencySearchPaths, request.CompiledTriple,
+                request.BoundDescriptor is { } given && File.Exists(given.AbiJsonPath) ? given.AbiJsonPath : null);
             var boundDescriptor = descriptors[0].Path;
             foreach (var (module, path) in descriptors)
             {
@@ -170,7 +184,9 @@ public static class SwiftLoweringProbe
             var resolved = targets.Where(t => index.Find(t) is not null).ToList();
             var imports = new List<string>(WrapperImports(request.WrapperSources));
             if (boundDescriptor is not null)
-                imports.AddRange(InterfaceImports(Path.ChangeExtension(Path.ChangeExtension(boundDescriptor, null), ".swiftinterface")));
+                imports.AddRange(InterfaceImports(boundDescriptor == request.BoundDescriptor?.AbiJsonPath
+                    ? request.BoundDescriptor.InterfacePath
+                    : Path.ChangeExtension(Path.ChangeExtension(boundDescriptor, null), ".swiftinterface")));
             var plan = Plan(targets, index, Demangle(resolved, runner, timeoutMs), request.ModuleName, imports,
                 boundDescriptor is null ? NoDescriptorReason(request.ModuleName) : NotDeclaredReason);
             foreach (var (target, why) in plan.Unprobed)
@@ -418,8 +434,10 @@ public static class SwiftLoweringProbe
                 unprobed[target] = why;
             }
         }
-        var ordered = new List<string> { boundModule };
-        foreach (var module in imports.Concat(modules.Order(StringComparer.Ordinal)))
+        // A module imported through its umbrella (an implementation detail of it) is imported as the
+        // wrapper imports it; its declarations keep their own module's name.
+        var ordered = new List<string> { AppleFrameworkRegistry.MapModuleToCompileImport(boundModule) };
+        foreach (var module in imports.Concat(modules.Order(StringComparer.Ordinal)).Select(AppleFrameworkRegistry.MapModuleToCompileImport))
         {
             if (!ordered.Contains(module, StringComparer.Ordinal))
                 ordered.Add(module);
@@ -483,7 +501,7 @@ public static class SwiftLoweringProbe
     }
 
     /// <summary>The modules a module interface imports, other than the compiler's own underscored ones.</summary>
-    private static IReadOnlyList<string> InterfaceImports(string interfacePath)
+    private static IReadOnlyList<string> InterfaceImports(string? interfacePath)
     {
         var modules = new List<string>();
         if (File.Exists(interfacePath))
@@ -545,11 +563,12 @@ public static class SwiftLoweringProbe
     /// <paramref name="dependencySearchPaths"/>, the first of each name, as swiftc's search order finds it.
     /// </summary>
     internal static IReadOnlyList<(string Module, string? Path)> Descriptors(
-        string moduleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths, string compiledTriple)
+        string moduleName, string frameworkSearchPath, IEnumerable<string>? dependencySearchPaths, string compiledTriple,
+        string? boundDescriptor = null)
     {
         var descriptors = new List<(string, string?)>
         {
-            (moduleName, DescriptorOf(Path.Combine(frameworkSearchPath, moduleName + ".framework"), moduleName, compiledTriple)),
+            (moduleName, boundDescriptor ?? DescriptorOf(Path.Combine(frameworkSearchPath, moduleName + ".framework"), moduleName, compiledTriple)),
         };
         var seen = new HashSet<string>(StringComparer.Ordinal) { moduleName };
         foreach (var path in (dependencySearchPaths ?? []).Prepend(frameworkSearchPath))
@@ -626,6 +645,8 @@ public static class SwiftLoweringProbe
 
         private static readonly Regex GenericParameter = new(@"τ_(\d+)_(\d+)", RegexOptions.Compiled);
         private static readonly Regex ProbeParameter = new(@"\bT_\d+_\d+\b", RegexOptions.Compiled);
+        // A bare identifier: not a qualified type's member (Swift.Int) nor a part of a longer name.
+        private static readonly Regex SourceName = new(@"(?<![\w.])[A-Za-z_]\w*", RegexOptions.Compiled);
         private static readonly Regex DynamicSelf = new(@"(?<![\w.])Self(?!\w)", RegexOptions.Compiled);
 
         public static bool TryWrite(
@@ -652,7 +673,8 @@ public static class SwiftLoweringProbe
             else if (HasAttribute(node, "Transparent"))
                 inlining = Transparent;
 
-            var signature = GenericSignature(node, ancestors);
+            var names = SourceNames(node, ancestors);
+            var signature = GenericSignature(node, ancestors, names);
             if (signature.Contains("each ", StringComparison.Ordinal) || signature.Contains("repeat ", StringComparison.Ordinal))
             {
                 why = UnsupportedReason("a parameter pack has no call form here");
@@ -661,7 +683,7 @@ public static class SwiftLoweringProbe
             var (parameters, requirements) = SplitSignature(signature);
             var known = parameters.ToHashSet(StringComparer.Ordinal);
             var types = ancestors.Where(a => Kind(a) == "TypeDecl").ToList();
-            var receiver = Receiver(types, out var isProtocol);
+            var receiver = Receiver(types, names, out var isProtocol);
             var parsed = demangled is null ? default : Demangled.Parse(demangled);
 
             var prelude = new List<string>();
@@ -672,9 +694,9 @@ public static class SwiftLoweringProbe
                 {
                     var name = Str(node, "name") ?? string.Empty;
                     var nodeParameters = Children(node).Skip(1).ToList();
-                    if (!TryArguments(node, nodeParameters, parsed.Parameters, receiver, isProtocol, known, prelude, out var arguments, out why))
+                    if (!TryArguments(node, nodeParameters, parsed.Parameters, receiver, isProtocol, known, names, prelude, out var arguments, out why))
                         return false;
-                    var result = ResultType(Children(node).FirstOrDefault(), parsed.Result, receiver, isProtocol);
+                    var result = ResultType(Children(node).FirstOrDefault(), parsed.Result, receiver, isProtocol, names);
                     string expression;
                     if (name.Length > 0 && !char.IsLetter(name[0]) && name[0] != '_')
                     {
@@ -703,7 +725,7 @@ public static class SwiftLoweringProbe
                         why = UnsupportedReason("its initializer belongs to no type the probe can name");
                         return false;
                     }
-                    if (!TryArguments(node, Children(node).Skip(1).ToList(), parsed.Parameters, receiver, isProtocol, known, prelude, out var arguments, out why))
+                    if (!TryArguments(node, Children(node).Skip(1).ToList(), parsed.Parameters, receiver, isProtocol, known, names, prelude, out var arguments, out why))
                         return false;
                     statement = $"_ = try await {receiver}({string.Join(", ", arguments)})";
                     break;
@@ -722,9 +744,9 @@ public static class SwiftLoweringProbe
                         return false;
                     }
                     var owners = ancestors.Take(ancestors.Length - 1).Where(a => Kind(a) == "TypeDecl").ToList();
-                    receiver = Receiver(owners, out isProtocol);
+                    receiver = Receiver(owners, names, out isProtocol);
                     var isStatic = Bool(storage, "static");
-                    var value = ResultType(Children(storage).FirstOrDefault(), null, receiver, isProtocol);
+                    var value = ResultType(Children(storage).FirstOrDefault(), null, receiver, isProtocol, names);
                     string reference;
                     if (Kind(storage) == "Subscript")
                     {
@@ -733,7 +755,7 @@ public static class SwiftLoweringProbe
                             why = UnsupportedReason("its subscript belongs to no type the probe can name");
                             return false;
                         }
-                        if (!TryArguments(storage, Children(storage).Skip(1).ToList(), parsed.Parameters, receiver, isProtocol, known, prelude, out var arguments, out why))
+                        if (!TryArguments(storage, Children(storage).Skip(1).ToList(), parsed.Parameters, receiver, isProtocol, known, names, prelude, out var arguments, out why))
                             return false;
                         reference = isStatic ? $"{receiver}[{string.Join(", ", arguments)}]" : $"recv[{string.Join(", ", arguments)}]";
                     }
@@ -814,7 +836,8 @@ public static class SwiftLoweringProbe
 
         private static bool TryArguments(
             JsonElement owner, IReadOnlyList<JsonElement> parameters, IReadOnlyList<Demangled.Parameter>? demangled,
-            string? receiver, bool isProtocol, HashSet<string> known, List<string> prelude, out List<string> arguments, out string why)
+            string? receiver, bool isProtocol, HashSet<string> known, IReadOnlyDictionary<string, string> names,
+            List<string> prelude, out List<string> arguments, out string why)
         {
             arguments = new List<string>();
             why = string.Empty;
@@ -838,7 +861,7 @@ public static class SwiftLoweringProbe
                 // The descriptor drops a function type's convention and isolation, which the demangling keeps.
                 var type = info is not null && (info.Type.Contains("@convention(", StringComparison.Ordinal) || info.Type.Contains("@isolated(", StringComparison.Ordinal))
                     ? Demangled.Spell(info.Type, known)
-                    : Spell(Str(parameter, "printedName"));
+                    : Spell(Str(parameter, "printedName"), names);
                 if (type is null)
                 {
                     why = UnsupportedReason("a parameter type cannot be spelled");
@@ -926,7 +949,7 @@ public static class SwiftLoweringProbe
         /// from its module with each type's own generic parameters, or the generic <c>Self</c>
         /// parameter of a protocol. Null for a global.
         /// </summary>
-        private static string? Receiver(IReadOnlyList<JsonElement> types, out bool isProtocol)
+        private static string? Receiver(IReadOnlyList<JsonElement> types, IReadOnlyDictionary<string, string> names, out bool isProtocol)
         {
             isProtocol = false;
             if (types.Count == 0)
@@ -940,7 +963,7 @@ public static class SwiftLoweringProbe
             var seen = new HashSet<string>(StringComparer.Ordinal);
             foreach (var type in types)
             {
-                var (own, _) = SplitSignature(Fix(Str(type, "genericSig") ?? string.Empty));
+                var (own, _) = SplitSignature(Fix(Str(type, "genericSig") ?? string.Empty, names));
                 var added = own.Where(seen.Add).ToList();
                 parts.Add(Identifier(Str(type, "name") ?? string.Empty) + (added.Count > 0 ? $"<{string.Join(", ", added)}>" : string.Empty));
             }
@@ -948,14 +971,14 @@ public static class SwiftLoweringProbe
         }
 
         /// <summary>The generic signature in force for <paramref name="node"/>: its own, or its nearest ancestor's.</summary>
-        private static string GenericSignature(JsonElement node, ImmutableArray<JsonElement> ancestors)
+        private static string GenericSignature(JsonElement node, ImmutableArray<JsonElement> ancestors, IReadOnlyDictionary<string, string> names)
         {
             if (Str(node, "genericSig") is { Length: > 0 } own)
-                return Fix(own);
+                return Fix(own, names);
             for (var i = ancestors.Length - 1; i >= 0; i--)
             {
                 if (Str(ancestors[i], "genericSig") is { Length: > 0 } inherited)
-                    return Fix(inherited);
+                    return Fix(inherited, names);
             }
             return string.Empty;
         }
@@ -972,14 +995,14 @@ public static class SwiftLoweringProbe
             return (ProbeParameter.Matches(head).Select(m => m.Value).Distinct(StringComparer.Ordinal).ToList(), requirements);
         }
 
-        private static string? ResultType(JsonElement result, string? demangledResult, string? receiver, bool isProtocol)
+        private static string? ResultType(JsonElement result, string? demangledResult, string? receiver, bool isProtocol, IReadOnlyDictionary<string, string> names)
         {
             if (result.ValueKind != JsonValueKind.Object)
                 return null;
             // The descriptor drops a function type's convention; an opaque type cannot annotate a binding.
             if (demangledResult is not null && demangledResult.Contains("@convention(", StringComparison.Ordinal))
                 return null;
-            var type = Spell(Str(result, "printedName"));
+            var type = Spell(Str(result, "printedName"), names);
             if (type is null || type.Contains("some ", StringComparison.Ordinal))
                 return null;
             return SubstituteSelf(type, receiver, isProtocol);
@@ -995,11 +1018,11 @@ public static class SwiftLoweringProbe
         }
 
         /// <summary>A descriptor type as Swift source, its generic parameters renamed for the probe.</summary>
-        private static string? Spell(string? printedName)
+        private static string? Spell(string? printedName, IReadOnlyDictionary<string, string> names)
         {
             if (string.IsNullOrWhiteSpace(printedName))
                 return null;
-            var type = Fix(printedName.Trim());
+            var type = Fix(printedName.Trim(), names);
             foreach (var prefix in new[] { "inout ", "__owned ", "__shared ", "sending ", "borrowing ", "consuming " })
             {
                 if (type.StartsWith(prefix, StringComparison.Ordinal))
@@ -1008,7 +1031,53 @@ public static class SwiftLoweringProbe
             return type;
         }
 
-        private static string Fix(string text) => GenericParameter.Replace(text, "T_$1_$2");
+        /// <summary>
+        /// <paramref name="text"/> with its generic parameters given the probe's names, <c>T_depth_index</c>:
+        /// a canonical parameter (<c>τ_0_0</c>) by its own numbers, and a source-named one (as the SDK's
+        /// digester prints them) by <paramref name="names"/>.
+        /// </summary>
+        private static string Fix(string text, IReadOnlyDictionary<string, string> names)
+        {
+            var canonical = GenericParameter.Replace(text, "T_$1_$2");
+            return names.Count == 0 ? canonical : SourceName.Replace(canonical, m => names.GetValueOrDefault(m.Value, m.Value));
+        }
+
+        /// <summary>
+        /// The canonical name of each generic parameter a descriptor gives by its source name. swiftc's
+        /// own descriptor prints <c>τ_depth_index</c>; the SDK's digester prints a parameter as it was
+        /// declared (<c>&lt;Value where Value : P&gt;</c>), and a member of a generic type repeats its
+        /// type's parameters before its own. Each context, outermost first, that introduces a name not
+        /// seen before is the next depth, and its new names are indexed in order. Empty for a canonical
+        /// descriptor.
+        /// </summary>
+        internal static IReadOnlyDictionary<string, string> SourceNames(JsonElement node, ImmutableArray<JsonElement> ancestors)
+        {
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            var depth = 0;
+            foreach (var context in ancestors.Append(node))
+            {
+                if (context.ValueKind != JsonValueKind.Object || Str(context, "genericSig") is not { Length: > 2 } signature)
+                    continue;
+                if (signature.Contains('τ', StringComparison.Ordinal))
+                    return new Dictionary<string, string>();
+                var inner = signature[1..^1];
+                var where = inner.IndexOf(" where ", StringComparison.Ordinal);
+                var added = 0;
+                foreach (var part in (where < 0 ? inner : inner[..where]).Split(','))
+                {
+                    var name = part.Trim();
+                    if (name.StartsWith("each ", StringComparison.Ordinal))
+                        name = name["each ".Length..].Trim();
+                    if (name.IndexOf(':') is var colon and >= 0)
+                        name = name[..colon].Trim();
+                    if (name.Length > 0 && !names.ContainsKey(name))
+                        names[name] = $"T_{depth}_{added++}";
+                }
+                if (added > 0)
+                    depth++;
+            }
+            return names;
+        }
 
         private static string Identifier(string name) => Keywords.Contains(name) ? $"`{name}`" : name;
 

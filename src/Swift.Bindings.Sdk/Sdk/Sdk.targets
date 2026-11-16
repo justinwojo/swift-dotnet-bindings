@@ -770,6 +770,13 @@ done; true"
         if [ -n &quot;%24db&quot; ] &amp;&amp; [ -f &quot;%24db&quot; ]; then shasum -a 256 &quot;%24db&quot;; fi; \
       done; \
       if [ -f &quot;$(_SwiftManagedReferencesFile)&quot; ]; then shasum -a 256 &quot;$(_SwiftManagedReferencesFile)&quot;; fi ; \
+      if [ -n &quot;$(_SwiftFingerprintToolchain)&quot; ] &amp;&amp; [ &quot;$(_SwiftAppleFrameworkType)&quot; = Swift ]; then \
+        echo &quot;swiftc %24(xcrun swiftc --version 2>/dev/null | head -1)&quot;; \
+        for sdk in iphoneos iphonesimulator appletvos appletvsimulator macosx; do \
+          echo &quot;sdk %24sdk %24(xcrun --sdk %24sdk --show-sdk-version 2>/dev/null) %24(xcrun --sdk %24sdk --show-sdk-build-version 2>/dev/null)&quot;; \
+        done; \
+        echo &quot;collect-lowering $(_SwiftCollectLoweringEvidence) route-bridges $(_SwiftRouteBridges)&quot;; \
+      fi; \
       echo &quot;$(TargetFramework) $(_SwiftAppleFrameworkSdkPath) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) $(_SwiftAppleFrameworkModule) $(_SwiftAppleFrameworkType) %(SwiftAppleFrameworkTarget.LibraryPath) $(_SwiftEffectiveMinDeploymentVersion) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(SwiftAppleFrameworkPlatformVersion) $(SwiftAppleSupplementPrototypeDir) %(SwiftAppleFrameworkTarget.NamespacePattern) $(SwiftAppleSupplementVersion)&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
@@ -905,6 +912,13 @@ done; true"
            and emits qualified type names rooted at the wrong namespace. -->
       <_SwiftGenCmd Condition="'@(_SwiftModuleDatabaseFile)' != ''">$(_SwiftGenCmd) @(_SwiftModuleDatabaseFile->' --module-database "%(Identity)"', '')</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
+      <!-- The module's swiftc lowering receipt and its bridge routing. An Apple framework's wrapper
+           compiles inline in this generator run (there is no _CompileSwiftWrapper pass), so the run
+           collects the receipt from the IR of that wrapper, compiling every slice the wrapper ships
+           itself, and routes what the receipt authorizes, under the same rules as the wrapper pass
+           of a framework bound from an xcframework. -->
+      <_SwiftGenCmd Condition="'$(_SwiftCollectLoweringEvidence)' == 'true'">$(_SwiftGenCmd) --collect-swift-lowering-evidence "$(_SwiftLoweringReceipt)"</_SwiftGenCmd>
+      <_SwiftGenCmd Condition="'$(_SwiftRouteBridges)' == 'true'">$(_SwiftGenCmd) --route-swift-bridges</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
 
@@ -940,6 +954,11 @@ done; true"
       <_SwiftGenCmd>$(_SwiftGenCmd) --apple-version $(SwiftAppleSupplementVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
     </PropertyGroup>
+
+    <!-- Regeneration replaces the wrapper, so a receipt of the previous one no longer describes it;
+         a collecting run writes the next one once its wrapper is complete. -->
+    <Delete Files="$(_SwiftLoweringReceipt)"
+            Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true' AND Exists('$(_SwiftLoweringReceipt)')" />
 
     <Exec Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(_SwiftBindingUpToDate)' != 'true'"
           Command="$(_SwiftGenCmd)" ConsoleToMSBuild="true"
@@ -1128,12 +1147,13 @@ done; true"
            below (the SWIFTBIND043 guard) — flipping this gate to false on a corrupt
            first slice would silently skip the merge and leave the malformed
            xcframework at the canonical path for a downstream step to consume. -->
-      <_AFW_NeedsSecondSlice Condition="Exists('$(_AFW_XCF)')">true</_AFW_NeedsSecondSlice>
+      <_AFW_HasFirstSlice>false</_AFW_HasFirstSlice>
+      <_AFW_HasFirstSlice Condition="Exists('$(_AFW_XCF)')">true</_AFW_HasFirstSlice>
     </PropertyGroup>
 
     <!-- Determine which slice we already have and which we need.
          Default SwiftPlatformTarget for iOS/tvOS is 'simulator', so we need 'device'. -->
-    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+    <PropertyGroup Condition="'$(_AFW_HasFirstSlice)' == 'true'">
       <!-- Compute the "other" SDK and target triple -->
       <_AFW_OtherSdk Condition="'$(_SwiftBindingPlatform)' == 'ios'">iphoneos</_AFW_OtherSdk>
       <_AFW_OtherSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos'">appletvos</_AFW_OtherSdk>
@@ -1169,10 +1189,23 @@ done; true"
       <!-- The slice directory name in the xcframework -->
       <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' == 'simulator'">$(_SwiftBindingDeviceSliceId)</_AFW_OtherSliceId>
       <_AFW_OtherSliceId Condition="'$(SwiftPlatformTarget)' != 'simulator'">$(_SwiftBindingSimulatorSliceId)</_AFW_OtherSliceId>
+      <!-- The slice directories that already hold the other slice, of any architecture: the
+           generator names a simulator slice after its primary architecture (ios-x86_64-simulator
+           for an x86_64 pin), which _ResyncWrapperSliceIds settles only later. -->
+      <_AFW_OtherSliceGlob>$(_AFW_OtherSliceId)</_AFW_OtherSliceGlob>
+      <_AFW_OtherSliceGlob Condition="'$(SwiftPlatformTarget)' != 'simulator'">$(_SwiftBindingSimulatorSliceId.Replace('-arm64-simulator', '-*-simulator'))</_AFW_OtherSliceGlob>
+    </PropertyGroup>
+    <!-- A generator run that collected the lowering receipt compiled both slices itself (the
+         receipt must describe every slice the wrapper ships), so there is nothing to add. The
+         other-slice properties above stay set: the SwiftUI bridge's second slice reads them.
+         (A wildcard item would keep its pattern as a literal when nothing matches.) -->
+    <PropertyGroup Condition="'$(_AFW_HasFirstSlice)' == 'true'">
+      <_AFW_OtherSliceDirs Condition="Exists('$(_AFW_XCF)')">$([System.IO.Directory]::GetDirectories('$(_AFW_XCF)', '$(_AFW_OtherSliceGlob)'))</_AFW_OtherSliceDirs>
+      <_AFW_NeedsSecondSlice Condition="'$(_AFW_OtherSliceDirs)' == ''">true</_AFW_NeedsSecondSlice>
     </PropertyGroup>
 
     <!-- Resolve the SDK path for the other slice -->
-    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+    <Exec Condition="'$(_AFW_HasFirstSlice)' == 'true'"
           Command="xcrun --sdk $(_AFW_OtherSdk) --show-sdk-path 2>/dev/null"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_OtherSdkPath" />

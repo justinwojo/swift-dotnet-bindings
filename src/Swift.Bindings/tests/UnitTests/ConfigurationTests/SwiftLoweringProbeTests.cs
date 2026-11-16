@@ -87,6 +87,27 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Null(SwiftLoweringProbe.Descriptors("Missing", bound, null, "arm64-apple-ios15.0-simulator")[0].Path);
     }
 
+    /// <summary>
+    /// An Apple SDK framework ships no ABI descriptor; the build dumps one (swift-api-digester) and hands
+    /// it to the probe, which reads it for the bound module in place of the framework's.
+    /// </summary>
+    [Fact]
+    public void Descriptors_ReadAGivenBoundDescriptor_InPlaceOfTheFrameworks()
+    {
+        var bound = Path.Combine(_dir, "slice");
+        WriteDescriptor(bound, "Lib", Root());
+        WriteDescriptor(bound, "Peer", Root());
+        var given = Path.Combine(_dir, "Lib.abi.json");
+        File.WriteAllText(given, Root().ToJsonString());
+
+        var descriptors = SwiftLoweringProbe.Descriptors("Lib", bound, null, "arm64-apple-ios15.0-simulator", given);
+
+        Assert.Equal(new[] { "Lib", "Peer" }, descriptors.Select(d => d.Module));
+        Assert.Equal(given, descriptors[0].Path);
+        Assert.StartsWith(bound, descriptors[1].Path);
+        Assert.Equal(given, SwiftLoweringProbe.Descriptors("Missing", bound, null, "arm64-apple-ios15.0-simulator", given)[0].Path);
+    }
+
     // ---- which targets get a call, and why the others do not ----
 
     private const string Scale = "$s3Lib7AccountC5scaleys5Int32VAEF";
@@ -314,6 +335,65 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Equal(result, parsedResult);
         Assert.Equal(constOf.Length > 0, parameters.Any(p => p.Const));
         Assert.Equal(variadicOf.Length > 0, parameters.Any(p => p.Variadic));
+    }
+
+    /// <summary>
+    /// The SDK's digester prints a generic parameter as it was declared, not as <c>τ_depth_index</c>,
+    /// and repeats a generic type's parameters in its members' signatures. The probe gives each the name
+    /// it would have had in swiftc's own descriptor, so a call's parameters, requirements, receiver and
+    /// types agree, as they do for a canonical descriptor.
+    /// </summary>
+    [Fact]
+    public void Plan_ADescriptorThatNamesGenericParametersAsDeclared_IsWrittenWithTheProbesNames()
+    {
+        const string wrapped = "$s3Lib4WrapC5valuexvg";
+        const string map = "$s3Lib4WrapC3map_2toqd__qd___xmtSQRd__lF";
+        var box = WithSignature(TypeDecl("Wrap", "Class", ["Final"],
+            new JsonObject
+            {
+                ["kind"] = "Var", ["name"] = "value", ["printedName"] = "value", ["declKind"] = "Var", ["moduleName"] = "Lib",
+                ["children"] = Array([Type("Value")]),
+                ["accessors"] = Array(
+                [
+                    new JsonObject { ["kind"] = "Accessor", ["name"] = "Get", ["printedName"] = "Get()", ["accessorKind"] = "get", ["declKind"] = "Accessor", ["mangledName"] = wrapped, ["children"] = Array([Type("Value")]) },
+                ]),
+            },
+            WithSignature(Function("map(_:to:)", map, [], "Output", "Output", "Value.Type"),
+                "<Value, Output where Value : Swift.Sendable, Output : Swift.Equatable>")),
+            "<Value where Value : Swift.Sendable>");
+        using var index = new AbiDescriptorIndex();
+        index.LoadText(Root(box).ToJsonString());
+
+        var plan = SwiftLoweringProbe.Plan([wrapped, map], index, new Dictionary<string, string>(), "Lib", [], SwiftLoweringProbe.NotDeclaredReason);
+
+        Assert.Empty(plan.Unprobed);
+        var getter = plan.Calls.Single(c => c.Target == wrapped).Text;
+        Assert.Contains("<T_0_0>(_: T_0_0.Type) async throws where T_0_0 : Swift.Sendable {", getter);
+        Assert.Contains("var recv: Lib.Wrap<T_0_0>", getter);
+        Assert.Contains("let _: T_0_0 = try await recv.value", getter);
+        var method = plan.Calls.Single(c => c.Target == map).Text;
+        Assert.Contains("<T_0_0, T_1_0>(_: T_0_0.Type, _: T_1_0.Type) async throws where T_0_0 : Swift.Sendable, T_1_0 : Swift.Equatable {", method);
+        Assert.Contains("as T_1_0", method);
+        Assert.Contains("as T_0_0.Type", method);
+        Assert.DoesNotMatch(@"\b(Value|Output)\b", getter + method);
+    }
+
+    /// <summary>
+    /// A module that is an implementation detail of its umbrella cannot be imported by name; the probe
+    /// imports it through the umbrella, as the wrapper does, and still names its declarations by their
+    /// own module.
+    /// </summary>
+    [Fact]
+    public void Plan_AModuleImportedThroughItsUmbrella_IsImportedAsTheWrapperImportsIt()
+    {
+        using var index = new AbiDescriptorIndex();
+        index.LoadText(Descriptor().ToJsonString());
+
+        var plan = SwiftLoweringProbe.Plan([Scale], index, new Dictionary<string, string>(), "RealityFoundation",
+            ["RealityKit", "RealityFoundation", "Foundation"], SwiftLoweringProbe.NotDeclaredReason);
+
+        Assert.Equal(new[] { "RealityKit", "Foundation", "Lib" }, plan.Imports);
+        Assert.Contains("Lib.Account", Assert.Single(plan.Calls).Text);
     }
 
     [Theory]
@@ -575,6 +655,40 @@ public sealed class SwiftLoweringProbeTests : IDisposable
             var file = System.Text.RegularExpressions.Regex.Match(arguments, "\"([^\"]+\\.swift)\"$").Groups[1].Value;
             return (1, "", $"{file}:3:8: error: no such module 'ProbeKit'");
         }
+    }
+
+    /// <summary>
+    /// A framework that ships its interface but no descriptor, as an Apple SDK framework does: without a
+    /// descriptor the probe writes nothing, and with the one the build dumped it shows the target as the
+    /// library defines it, importing what the given interface imports.
+    /// </summary>
+    [SkippableFact]
+    public void Run_AFrameworkWithoutADescriptor_IsProbedThroughTheGivenOne()
+    {
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var search = Path.Combine(_dir, "sdk", "Frameworks");
+        var modules = Path.Combine(search, "ProbeKit.framework", "Modules", "ProbeKit.swiftmodule");
+        Directory.CreateDirectory(modules);
+        var shippedInterface = Path.Combine(_fixture.Value.SearchPath, "ProbeKit.framework", "Modules", "ProbeKit.swiftmodule", "arm64-apple-ios-simulator.swiftinterface");
+        var interfacePath = Path.Combine(modules, "arm64-apple-ios-simulator.swiftinterface");
+        File.Copy(shippedInterface, interfacePath);
+        var work = Path.Combine(_dir, "work");
+        Directory.CreateDirectory(work);
+        var target = Symbol(null, "global(_:)");
+        SwiftLoweringProbe.Result Run(SwiftLoweringProbe.ExplicitDescriptor? descriptor) =>
+            SwiftLoweringProbe.Run(
+                new SwiftLoweringProbe.Request([target], "ProbeKit", search, null, [],
+                    _fixture.Value.FrontendArgs.Replace(_fixture.Value.SearchPath, search, StringComparison.Ordinal),
+                    "ProbeKitLoweringProbe", SwiftOracleTarget.SimulatorArm64.Triple, work, descriptor),
+                new SystemCommandRunner(), NullLogger.Instance, 300_000);
+
+        var without = Run(null);
+        Assert.Equal(0, without.Compiles);
+        Assert.Equal(SwiftLoweringProbe.NoDescriptorReason("ProbeKit"), without.Unseen[target]);
+
+        var with = Run(new SwiftLoweringProbe.ExplicitDescriptor(_fixture.Value.Module.AbiJsonPath, interfacePath));
+        Assert.True(with.Unseen.IsEmpty, string.Join("\n", with.Unseen.Select(u => $"{u.Key}: {u.Value}")));
+        Assert.Equal(Defined(target), Shown(with, target));
     }
 
     [Fact]
