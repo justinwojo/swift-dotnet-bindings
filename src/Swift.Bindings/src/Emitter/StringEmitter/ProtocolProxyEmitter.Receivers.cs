@@ -2600,6 +2600,54 @@ public partial class ProtocolProxyEmitter
         _emissionContext.RecordClassBoundExistentialRegistration(libraryName, record.ProtocolDescriptorSymbol!);
     }
 
+    /// <summary>
+    /// Records this proxy for <c>Swift.Runtime.SwiftProtocolRegistry</c>: its interface, whether its
+    /// existential uses the class-bound layout (the same decision <see cref="EmitConstructors"/>
+    /// makes), and the protocol descriptor the runtime looks a conformance up by. The runtime needs
+    /// the descriptor of every protocol a refining protocol's proxy can be passed as, so a protocol
+    /// whose descriptor or library cannot be resolved is still registered, without one: a value
+    /// retargeted to it is then refused before any native call rather than passed with another
+    /// protocol's witness table.
+    /// </summary>
+    private void RecordProtocolProxyRegistration(ProtocolDecl protocolDecl, string interfaceName, string proxyClassName)
+    {
+        if (_emissionContext.IsImplicitFallback || protocolDecl.AssociatedTypes.Count > 0)
+            return;
+        var moduleName = protocolDecl.ModuleDecl?.Name ?? protocolDecl.SwiftTypeName?.Module;
+        if (string.IsNullOrEmpty(moduleName) || !string.Equals(moduleName, _moduleName, StringComparison.Ordinal))
+            return;
+
+        TypeRecord? record = null;
+        if (protocolDecl.SwiftTypeName != null
+            && _typeDatabase.TryGetTypeRecord(protocolDecl.SwiftTypeName, out var found)
+            && found.Kind == TypeRecordKind.Protocol)
+            record = found;
+        var isObjC = record != null && (record.Flags & TypeRecordFlags.ObjCProtocol) != 0;
+
+        string? libraryName = null;
+        string? descriptorSymbol = null;
+        if (!isObjC && !string.IsNullOrEmpty(record?.ProtocolDescriptorSymbol))
+        {
+            try
+            {
+                libraryName = _typeDatabase.GetLibraryPath(moduleName);
+                descriptorSymbol = record!.ProtocolDescriptorSymbol;
+            }
+            catch
+            {
+                libraryName = null;
+            }
+        }
+
+        _emissionContext.RecordProtocolProxyRegistration(new ProtocolProxyRegistration(
+            InterfaceName: interfaceName,
+            ProxyClassName: proxyClassName,
+            IsClassBound: IsProtocolClassBound(protocolDecl) || _useObjCBase,
+            IsObjC: isObjC,
+            LibraryName: libraryName,
+            DescriptorSymbol: libraryName == null ? null : descriptorSymbol));
+    }
+
     private void EmitConstructors(CSharpWriter writer, ProtocolDecl protocolDecl, string interfaceName)
     {
         var proxyClassName = GetProxyClassName(protocolDecl);

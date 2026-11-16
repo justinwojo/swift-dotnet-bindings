@@ -46,3 +46,17 @@ public final class DependencyVendedObjCThing: NSObject, DependencyVendedObjC {
 
     public func vendedValue() -> Int32 { value }
 }
+
+/// Refines the opaque protocol; the main library takes it back as its base.
+public protocol DependencyVendedOpaqueRefined: DependencyVendedOpaque {
+    func vendedExtra() -> Int32
+}
+
+public struct DependencyVendedOpaqueValue: DependencyVendedOpaqueRefined {
+    public let value: Int32
+
+    public init(value: Int32) { self.value = value }
+
+    public func vendedValue() -> Int32 { value }
+    public func vendedExtra() -> Int32 { value + 1000 }
+}

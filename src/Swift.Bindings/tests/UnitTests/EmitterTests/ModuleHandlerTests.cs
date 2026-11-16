@@ -1688,7 +1688,8 @@ public class ModuleHandlerTests
         Action<ModuleDecl> customizeModule = null,
         NamespacePatternResolver namespaceResolver = null,
         Action<ModuleEmissionContext> preEmitHook = null,
-        Action<TypeDatabase> registerExtraTypes = null)
+        Action<TypeDatabase> registerExtraTypes = null,
+        Action<ModuleTypeDatabase> registerModuleTypes = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1705,6 +1706,7 @@ public class ModuleHandlerTests
 
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase(moduleName, "/fake/path");
+        registerModuleTypes?.Invoke(module);
         typeDatabase.AddModuleDatabase(module);
         registerExtraTypes?.Invoke(typeDatabase);
 
@@ -2732,6 +2734,83 @@ public class ModuleHandlerTests
     #endregion
 
     #region Binding-internal references to consumer markers
+
+    /// <summary>
+    /// A refined protocol's proxy is assignable to the interface of every protocol it refines, and
+    /// the runtime can only rebuild its container with the requested protocol's witness table when
+    /// the module initializer registered each emitted proxy with its interface, its existential
+    /// layout and its protocol descriptor (Swift.Runtime's SwiftProtocolRegistry).
+    /// </summary>
+    [Fact]
+    public void Emit_ProtocolProxies_RegisterInterfaceLayoutAndDescriptorFromTheModuleInitializer()
+    {
+        ProtocolDecl Protocol(ModuleDecl module, string name, bool classBound, params string[] inherited) => new()
+        {
+            Name = name,
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}"),
+            MangledName = $"$s10TestModule{name.Length}{name}P",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            GenericSignature = null,
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = inherited.Select(i => new NamedTypeSpec(i)).ToList(),
+            IsClassBound = classBound,
+            HasSelfRequirement = false,
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = module,
+            ModuleDecl = module,
+        };
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            customizeModule: module =>
+            {
+                foreach (var protocol in new[]
+                {
+                    Protocol(module, "Base", classBound: false),
+                    Protocol(module, "Refined", classBound: false, "TestModule.Base"),
+                    Protocol(module, "Bound", classBound: true),
+                })
+                {
+                    module.Protocols.Add(protocol);
+                    module.Types.Add(protocol);
+                }
+            },
+            registerModuleTypes: module =>
+            {
+                foreach (var (name, flags) in new[]
+                {
+                    ("Base", TypeRecordFlags.None),
+                    ("Refined", TypeRecordFlags.None),
+                    ("Bound", TypeRecordFlags.ClassBound),
+                })
+                {
+                    var swiftName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}");
+                    module.RegisterType(swiftName, new TypeRecord
+                    {
+                        CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", $"I{name}"),
+                        SwiftTypeName = swiftName,
+                        Kind = TypeRecordKind.Protocol,
+                        Flags = flags,
+                        MetadataAccessor = string.Empty,
+                        ProtocolDescriptorSymbol = $"$s10TestModule{name.Length}{name}Mp",
+                    });
+                }
+            });
+
+        var registrations = csOutput.Split('\n')
+            .Where(line => line.Contains("SwiftProtocolRegistry.Register"))
+            .Select(line => line.Trim())
+            .ToList();
+        Assert.Contains(registrations, line =>
+            line.Contains("typeof(global::TestModule.IBase), typeof(global::TestModule.SwiftInterop.BaseProxy), false, \"/fake/path\", \"$s10TestModule4BaseMp\")"));
+        Assert.Contains(registrations, line =>
+            line.Contains("typeof(global::TestModule.IRefined), typeof(global::TestModule.SwiftInterop.RefinedProxy), false, \"/fake/path\", \"$s10TestModule7RefinedMp\")"));
+        Assert.Contains(registrations, line =>
+            line.Contains("typeof(global::TestModule.IBound), typeof(global::TestModule.SwiftInterop.BoundProxy), true, \"/fake/path\", \"$s10TestModule5BoundMp\")"));
+        // Registration is managed-only and best-effort, like the initializer's other registrations.
+        Assert.All(registrations, line => Assert.StartsWith("try {", line));
+    }
 
     [Theory]
     [InlineData("SB0004")]

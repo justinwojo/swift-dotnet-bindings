@@ -156,6 +156,7 @@
       "SwiftObjectRegistry",
       "SwiftOptionalCarrier16",
       "SwiftOptionalCarrier9",
+      "SwiftProtocolRegistry",
       "SwiftProxyImplCollectedEventArgs",
       "SwiftProxyImplCollectedException",
       "SwiftReverseContext",

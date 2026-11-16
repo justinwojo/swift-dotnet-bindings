@@ -1519,6 +1519,26 @@ public sealed class ModuleEmissionContext
             _classBoundExistentialRegistrations.Add((libraryName, protocolDescriptorSymbol));
     }
 
+    // ==================== Protocol Proxy Registry ====================
+
+    private readonly List<ProtocolProxyRegistration> _protocolProxyRegistrations = new();
+    private readonly HashSet<string> _protocolProxyRegistrationNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// One entry per protocol proxy this module emits, registered with
+    /// <c>Swift.Runtime.SwiftProtocolRegistry</c> by the module initializer. The runtime uses it to
+    /// give a refining protocol's proxy the witness table of the protocol a call site asks for
+    /// (a refined <c>IR : IP</c> proxy passed as <c>IP</c>).
+    /// </summary>
+    public IReadOnlyList<ProtocolProxyRegistration> ProtocolProxyRegistrations => _protocolProxyRegistrations;
+
+    /// <summary>Records a protocol proxy for registry registration, once per proxy class.</summary>
+    public void RecordProtocolProxyRegistration(ProtocolProxyRegistration registration)
+    {
+        if (_protocolProxyRegistrationNames.Add(registration.ProxyClassName))
+            _protocolProxyRegistrations.Add(registration);
+    }
+
     // ==================== Protocol Proxy Sub-Namespace ====================
 
     private readonly List<string> _deferredProxyClasses = new();
@@ -3055,3 +3075,18 @@ public class ForeignExtensionMemberInfo
 /// Records whether an EveryProtocol conformance was emitted or skipped, and why.
 /// </summary>
 public readonly record struct ProtocolConformanceDecision(bool Emitted, string? SkipReason);
+
+/// <summary>
+/// A protocol proxy the module initializer registers with <c>Swift.Runtime.SwiftProtocolRegistry</c>.
+/// <see cref="InterfaceName"/> is relative to the module's namespace and <see cref="ProxyClassName"/>
+/// to its <c>SwiftInterop</c> sub-namespace. An Objective-C protocol has no descriptor: its existential
+/// is the object alone, so no witness table is ever retargeted for it.
+/// </summary>
+public sealed record ProtocolProxyRegistration(
+    string InterfaceName,
+    string ProxyClassName,
+    bool IsClassBound,
+    bool IsObjC,
+    string? LibraryName,
+    string? DescriptorSymbol);
+

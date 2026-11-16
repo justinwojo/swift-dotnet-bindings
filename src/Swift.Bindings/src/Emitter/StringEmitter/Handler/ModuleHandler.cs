@@ -716,6 +716,26 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterClassBoundExistentialMetadata(\"{libraryName}\", \"{descriptorSymbol}\"); }} catch {{ }}");
             }
+            // Register every emitted protocol proxy with its interface, layout and descriptor, so a
+            // refining protocol's proxy passed as a protocol it refines carries that protocol's
+            // witness table (SwiftProtocolRegistry.Retarget). Registration is managed-only; the
+            // descriptor loads when a retarget first needs it.
+            var proxyNamespace = emissionCtx?.ResolvedNamespace;
+            if (!string.IsNullOrEmpty(proxyNamespace))
+            {
+                foreach (var registration in emissionCtx!.ProtocolProxyRegistrations)
+                {
+                    var interfaceType = $"global::{proxyNamespace}.{registration.InterfaceName}";
+                    var proxyType = $"global::{proxyNamespace}.SwiftInterop.{registration.ProxyClassName}";
+                    var call = registration.IsObjC
+                        ? $"global::Swift.Runtime.SwiftProtocolRegistry.RegisterObjC(typeof({interfaceType}), typeof({proxyType}))"
+                        : $"global::Swift.Runtime.SwiftProtocolRegistry.Register(typeof({interfaceType}), typeof({proxyType}), " +
+                          $"{(registration.IsClassBound ? "true" : "false")}, " +
+                          $"{(registration.LibraryName == null ? "null" : $"\"{registration.LibraryName}\"")}, " +
+                          $"{(registration.DescriptorSymbol == null ? "null" : $"\"{registration.DescriptorSymbol}\"")})";
+                    csWriter.WriteLines($"        try {{ {call}; }} catch {{ }}");
+                }
+            }
             csWriter.WriteLines($$"""
                     }
                 """);

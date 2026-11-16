@@ -1181,7 +1181,9 @@ public static class ExistentialContainerFactory
         {
             ownsContainer = false;
             keepAlive = convertible;
-            return convertible.GetExistentialContainer();
+            // A refining protocol's proxy passed as TProtocol holds the refined protocol's witness
+            // table; hand Swift TProtocol's (see SwiftProtocolRegistry).
+            return SwiftProtocolRegistry.Retarget<TProtocol>(convertible, convertible.GetExistentialContainer());
         }
 
         if (value is IExistentialBoxable boxable)
@@ -1330,7 +1332,9 @@ public static class ExistentialContainerFactory
         {
             ownsContainer = false;
             keepAlive = convertible;
-            return convertible.GetExistentialContainer();
+            // A refining protocol's proxy passed as TProtocol holds the refined protocol's witness
+            // table; hand Swift TProtocol's (see SwiftProtocolRegistry).
+            return SwiftProtocolRegistry.Retarget<TProtocol>(convertible, convertible.GetExistentialContainer());
         }
 
         if (value is IExistentialBoxable boxable)
@@ -1484,7 +1488,9 @@ public static class ExistentialContainerFactory
         {
             ownsContainer = false;
             keepAlive = convertible;
-            return convertible.GetExistentialContainer();
+            // A refining protocol's proxy passed as TProtocol holds the refined protocol's witness
+            // table; hand Swift TProtocol's (see SwiftProtocolRegistry).
+            return SwiftProtocolRegistry.Retarget<TProtocol>(convertible, convertible.GetExistentialContainer());
         }
 
         if (value is IExistentialBoxable boxable)

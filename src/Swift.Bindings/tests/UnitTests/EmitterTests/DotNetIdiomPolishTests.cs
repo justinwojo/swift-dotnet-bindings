@@ -563,16 +563,20 @@ public class DotNetIdiomPolishTests
         var swiftInteropIdx = csOutput.IndexOf("namespace TestModule.SwiftInterop");
         Assert.True(swiftInteropIdx >= 0, "SwiftInterop namespace not found in output");
 
-        var proxyIdx = csOutput.IndexOf("FetchableProxy");
+        // The declaration is what has to live in SwiftInterop; the module initializer, which
+        // registers the proxy with the runtime, names it fully qualified from the main namespace.
+        var proxyIdx = csOutput.IndexOf("class FetchableProxy");
         Assert.True(proxyIdx >= 0, "FetchableProxy not found in output");
 
         // Proxy must appear AFTER the SwiftInterop namespace declaration
         Assert.True(proxyIdx > swiftInteropIdx,
             "FetchableProxy should be inside SwiftInterop namespace, not in main namespace");
 
-        // The main namespace block (before SwiftInterop) should NOT contain the proxy
+        // The main namespace block (before SwiftInterop) should NOT declare the proxy, and may
+        // reference it only fully qualified.
         var mainNamespaceContent = csOutput[..swiftInteropIdx];
-        Assert.DoesNotContain("FetchableProxy", mainNamespaceContent);
+        Assert.DoesNotContain("class FetchableProxy", mainNamespaceContent);
+        Assert.DoesNotMatch(@"(?<!SwiftInterop\.)\bFetchableProxy\b", mainNamespaceContent);
 
         // The using directive enables unqualified proxy references from the main namespace
         Assert.Contains("using TestModule.SwiftInterop;", csOutput);

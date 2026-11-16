@@ -38,3 +38,14 @@ public final class CrossModuleExistentialVendor {
         vended?.vendedValue() ?? -1
     }
 }
+
+// MARK: - Another module's refined opaque protocol, taken back as its base
+
+public func crossModuleMakeOpaqueRefined(seed: Int32) -> any DependencyVendedOpaqueRefined {
+    DependencyVendedOpaqueValue(value: seed)
+}
+
+/// The base requirement of an opaque existential handed back in.
+public func crossModuleOpaqueValueOf(_ vended: any DependencyVendedOpaque) -> Int32 {
+    vended.vendedValue()
+}

@@ -46,6 +46,8 @@ public class CrossModuleOptionalExistentialTests : TestBase
             // Its own requirement only: the proxy of a refined protocol does not dispatch the
             // requirements it inherits.
             AssertEqual(1009, refined!.GetVendedExtra(), "the refined protocol's own requirement");
+            // Passed as its base it must carry the base protocol's witness table, not its own.
+            AssertEqual(9, vendor.ValueOf(refined), "the refined existential goes back in as its base");
             AssertNull(empty.GetRefined(), "an unseeded vendor vends nil");
             (refined as IDisposable)?.Dispose();
         }
@@ -62,6 +64,17 @@ public class CrossModuleOptionalExistentialTests : TestBase
             AssertEqual(11, objc!.GetVendedValue(), "the @objc existential answers");
             AssertNull(empty.GetObjc(), "an unseeded vendor vends nil");
             (objc as IDisposable)?.Dispose();
+        }
+    }
+
+    public void TestOpaqueRefinedPassedAsItsBase()
+    {
+        for (var i = 0; i < 3; i++)
+        {
+            var refined = TestLibFunctions.CrossModuleMakeOpaqueRefined(17);
+            AssertEqual(1017, refined.GetVendedExtra(), "the refined protocol's own requirement");
+            AssertEqual(17, TestLibFunctions.CrossModuleOpaqueValueOf(refined), "the refined existential goes back in as its base");
+            (refined as IDisposable)?.Dispose();
         }
     }
 

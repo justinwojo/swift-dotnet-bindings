@@ -252,7 +252,10 @@ namespace BindingsGeneration
                 // requiring the caller to construct the hidden {Protocol}Proxy manually.
                 // The interface check uses the unqualified type name so cross-module dependency
                 // protocols (e.g., "OtherModule.IFoo") are recognized along with same-module ones.
-                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && IsExistentialInterfacePublicType(publicType) =>
+                // A known proxy class settles it outright: a protocol whose interface name does not
+                // read as `I` + uppercase (`_Foo` → `I_Foo`) must not fall to the borrowed cast below,
+                // which reads the value's own container and so ignores which protocol it is passed as.
+                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType)) =>
                     NarrowToClassCarrier(
                         existentialType,
                         existentialType.ProxyClassName != null
@@ -362,6 +365,11 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsExistentialInterfacePublicType(string publicType)
         {
+            // Judge the interface's own name: a constrained generic interface (`Mod.IP<Swift.Int>`)
+            // carries dotted type arguments the last-dot split would otherwise land inside.
+            var genericStart = publicType.IndexOf('<');
+            if (genericStart > 0)
+                publicType = publicType[..genericStart];
             var lastDot = publicType.LastIndexOf('.');
             var unqualified = lastDot < 0 ? publicType : publicType[(lastDot + 1)..];
             return unqualified.Length > 1 && unqualified[0] == 'I' && char.IsUpper(unqualified[1]);

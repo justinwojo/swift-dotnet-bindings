@@ -288,6 +288,8 @@ public partial class ProtocolProxyEmitter
         var interfaceNameWithGenerics = GetInterfaceNameWithGenerics(protocolDecl);
         var constraints = GetProxyClassConstraints(protocolDecl);
 
+        RecordProtocolProxyRegistration(protocolDecl, interfaceNameWithGenerics, proxyClassName);
+
         // Suppress SB0003/SB0004 warnings from the proxy's own references to the interface.
         // SB0004 marks the interface as obsolete, and the proxy implements it.
         // SB0003 marks non-dispatchable members, which the proxy itself declares.
