@@ -35,46 +35,86 @@ partial class Build
 
     void RunNativeThunkProbe()
     {
-        var architecture = RuntimeInformation.ProcessArchitecture switch
+        // Every architecture the host can run: arm64 natively, x86_64 natively or under Rosetta.
+        var architectures = RuntimeInformation.ProcessArchitecture switch
         {
-            Architecture.Arm64 => "arm64",
-            Architecture.X64 => "x86_64",
+            Architecture.Arm64 => new[] { "arm64", "x86_64" },
+            Architecture.X64 => new[] { "x86_64" },
             var other => throw new PlatformNotSupportedException(
                 $"NativeThunkProbe supports arm64 and x86_64 macOS hosts, not {other}."),
         };
-        var target = $"{architecture}-apple-macos13.0";
-        var moduleSuffix = $"{architecture}-apple-macos";
-        var generatedArchitecture = architecture == "arm64" ? "arm64" : "x86_64";
+        if (RuntimeInformation.ProcessArchitecture == Architecture.Arm64
+            && RunNativeThunkProbeProcess("arch", ["-x86_64", "/usr/bin/true"], RootDirectory).ExitCode != 0)
+            throw new Exception(
+                "NativeThunkProbe runs its x86_64 leg under Rosetta on an arm64 host; install it " +
+                "(softwareupdate --install-rosetta) and rerun.");
 
-        var scratch = NativeThunkProbeScratch;
-        if (Directory.Exists(scratch))
-            scratch.DeleteDirectory();
-        scratch.CreateDirectory();
+        if (Directory.Exists(NativeThunkProbeScratch))
+            NativeThunkProbeScratch.DeleteDirectory();
+        NativeThunkProbeScratch.CreateDirectory();
 
-        var evidence = scratch / "evidence";
-        evidence.CreateDirectory();
+        // Compile both committed sentinels on every host before any leg runs: a cheap
+        // syntax/assembler check of the architecture a leg may not link.
+        var armSentinelText = File.ReadAllText(NativeThunkProbeAssets / "sentinel-arm64.S");
+        if (armSentinelText.Split('\n')
+            .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal))
+            .Any(line => Regex.IsMatch(line, @"\bx18\b", RegexOptions.CultureInvariant)))
+            throw new Exception("NativeThunkProbe ARM64 sentinel must never read or write platform register x18.");
+        foreach (var sentinelArchitecture in new[] { "arm64", "x86_64" })
+            XcRunTool(
+                $"clang -c \"{NativeThunkProbeAssets / $"sentinel-{sentinelArchitecture}.S"}\" " +
+                $"-o \"{NativeThunkProbeScratch / $"sentinel-{sentinelArchitecture}.o"}\" " +
+                $"-target {sentinelArchitecture}-apple-macos13.0");
+
         var sdkPath = XcRun.GetSdkPath("macosx");
         var fixtureSource = BindingTestsDir / "Sources" / NativeThunkProbeModule / "Internal" /
             "NativeThunkReach.swift";
+        var evidence = NativeThunkProbeScratch / "evidence";
+        evidence.CreateDirectory();
 
-        Log.Information("=== NativeThunkProbe: building isolated {Arch} host fixture ===", architecture);
+        // Build the one-file fixture with the production module name, once per architecture.
+        // CompileModuleSlice gives the generator the same library-evolution interface, ABI JSON,
+        // TBD, and Mach-O shape as a real BindingTests slice without mutating BindingTests/.build or
+        // BindingTests/output. The slices merge into one universal macOS framework, the shape the
+        // generator binds (it refuses a macOS slice without arm64), and the generated binding's
+        // per-architecture thunk assembly is then linked and run by each leg.
+        Log.Information("=== NativeThunkProbe: building the isolated arm64 + x86_64 host fixture ===");
+        var fixtureFramework = NativeThunkProbeScratch / $"{NativeThunkProbeModule}.framework";
+        var fixtureModuleDir = fixtureFramework / "Modules" / $"{NativeThunkProbeModule}.swiftmodule";
+        foreach (var architecture in new[] { "arm64", "x86_64" })
+        {
+            var slice = NativeThunkProbeScratch / "slices" / architecture / $"{NativeThunkProbeModule}.framework";
+            CompileModuleSlice(
+                NativeThunkProbeModule,
+                $"{architecture}-apple-macos13.0",
+                sdkPath,
+                $"{architecture}-apple-macos",
+                "13.0",
+                "MacOSX",
+                slice,
+                new[] { fixtureSource.ToString() },
+                frameworkSearchPaths: null);
+            if (architecture == "arm64")
+            {
+                FileSystemTasks_CopyDirectory(slice, fixtureFramework);
+                continue;
+            }
+            foreach (var file in Directory.GetFiles(slice / "Modules" / $"{NativeThunkProbeModule}.swiftmodule", $"{architecture}-apple-macos.*"))
+                File.Copy(file, fixtureModuleDir / Path.GetFileName(file), overwrite: true);
+        }
+        var fixtureBinary = fixtureFramework / NativeThunkProbeModule;
+        RunRequiredNativeThunkProbeProcess(
+            "xcrun",
+            [
+                "lipo", "-create",
+                NativeThunkProbeScratch / "slices" / "arm64" / $"{NativeThunkProbeModule}.framework" / NativeThunkProbeModule,
+                NativeThunkProbeScratch / "slices" / "x86_64" / $"{NativeThunkProbeModule}.framework" / NativeThunkProbeModule,
+                "-output", fixtureBinary,
+            ],
+            NativeThunkProbeScratch,
+            "universal fixture merge");
 
-        // Build the one-file fixture with the production module name. CompileModuleSlice gives the
-        // generator the same library-evolution interface, ABI JSON, TBD, and Mach-O shape as a real
-        // BindingTests slice without mutating BindingTests/.build or BindingTests/output.
-        var fixtureFramework = scratch / $"{NativeThunkProbeModule}.framework";
-        CompileModuleSlice(
-            NativeThunkProbeModule,
-            target,
-            sdkPath,
-            moduleSuffix,
-            "13.0",
-            "MacOSX",
-            fixtureFramework,
-            new[] { fixtureSource.ToString() },
-            frameworkSearchPaths: null);
-
-        var fixtureXcframework = scratch / $"{NativeThunkProbeModule}.xcframework";
+        var fixtureXcframework = NativeThunkProbeScratch / $"{NativeThunkProbeModule}.xcframework";
         XcodeBuild.ExecuteCreateXcframework(new CreateXcframeworkSettings()
             .AddFrameworkPath(fixtureFramework)
             .SetOutputPath(fixtureXcframework));
@@ -82,12 +122,79 @@ partial class Build
         // Preserve the compiler-facing contract before generating or assembling any thunk. The
         // public interface is also the visibility control: the @usableFromInline parent remains
         // internal to Swift source even though its ABI is available to the binding importer.
-        var fixtureModuleDir = fixtureFramework / "Modules" / $"{NativeThunkProbeModule}.swiftmodule";
-        var publicInterface = fixtureModuleDir / $"{moduleSuffix}.swiftinterface";
-        var tbd = fixtureModuleDir / $"{NativeThunkProbeModule}.tbd";
         File.Copy(fixtureSource, evidence / "NativeThunkReach.swift", overwrite: true);
-        File.Copy(publicInterface, evidence / "module.swiftinterface", overwrite: true);
-        File.Copy(tbd, evidence / "module.tbd", overwrite: true);
+        File.Copy(fixtureModuleDir / "arm64-apple-macos.swiftinterface", evidence / "module.swiftinterface", overwrite: true);
+        File.Copy(fixtureModuleDir / $"{NativeThunkProbeModule}.tbd", evidence / "module.tbd", overwrite: true);
+
+        // Emit only. The legs own assembly/link validation and intentionally do not build or run
+        // any .NET app.
+        var generated = NativeThunkProbeScratch / "generated";
+        generated.CreateDirectory();
+        var generator = RunNativeThunkProbeProcess(
+            "dotnet",
+            [
+                GeneratorDll.ToString(),
+                "--xcframework", fixtureXcframework.ToString(),
+                "-o", generated.ToString(),
+                "--platform", "macos",
+                "--async-library", NativeThunkProbeWrapper,
+                "--skip-wrapper-compilation",
+                "--skip-thunk-compilation",
+                "--no-verify-csharp",
+            ],
+            NativeThunkProbeScratch);
+        File.WriteAllText(evidence / "generator.txt", generator.CombinedOutput);
+        if (generator.ExitCode != 0)
+            throw new Exception(
+                $"NativeThunkProbe generator exited {generator.ExitCode}. See {evidence / "generator.txt"}.");
+
+        var generatedCs = Directory.GetFiles(generated, "*.cs")
+            .FirstOrDefault(path => File.ReadAllText(path).Contains(
+                "class NativeThunkReceiver", StringComparison.Ordinal))
+            ?? throw new FileNotFoundException(
+                "NativeThunkProbe did not emit NativeThunkReceiver generated C#.");
+        var generatedText = File.ReadAllText(generatedCs);
+        if (!generatedText.Contains("public virtual int Add", StringComparison.Ordinal))
+            throw new Exception(
+                "NativeThunkProbe requires the generated concrete NativeThunkReceiver.Add member.");
+        File.Copy(generatedCs, evidence / "NativeThunkReceiver.generated.cs", overwrite: true);
+
+        var thunkSymbol = GeneratedNativeThunkSymbol(generatedText, "add");
+        var throwingThunkSymbol = GeneratedNativeThunkSymbol(generatedText, "addThrowing");
+
+        foreach (var architecture in architectures)
+            RunNativeThunkProbeLeg(
+                architecture, sdkPath, fixtureSource, fixtureFramework, generated, generatedCs,
+                thunkSymbol, throwingThunkSymbol);
+    }
+
+    /// <summary>
+    /// One architecture: link the emitted thunks into a wrapper, then run a non-throwing and a
+    /// throwing thunk through the register sentinel, unwind from inside each thunk's target, and
+    /// run the clobbering control.
+    /// </summary>
+    void RunNativeThunkProbeLeg(
+        string architecture,
+        string sdkPath,
+        AbsolutePath fixtureSource,
+        AbsolutePath fixtureFramework,
+        AbsolutePath generated,
+        string generatedCs,
+        string thunkSymbol,
+        string throwingThunkSymbol)
+    {
+        var target = $"{architecture}-apple-macos13.0";
+        var moduleSuffix = $"{architecture}-apple-macos";
+        // x86_64 on an arm64 host runs under Rosetta.
+        var runUnder = RuntimeInformation.ProcessArchitecture == Architecture.Arm64 && architecture == "x86_64"
+            ? "arch"
+            : null;
+
+        var scratch = NativeThunkProbeScratch / architecture;
+        scratch.CreateDirectory();
+        var evidence = scratch / "evidence";
+        evidence.CreateDirectory();
+        Log.Information("=== NativeThunkProbe: {Arch} leg ===", architecture);
 
         var silGen = evidence / "fixture.silgen";
         var optimizedSil = evidence / "fixture.optimized.sil";
@@ -120,68 +227,16 @@ partial class Build
             scratch,
             "optimized IR capture");
 
-        // Emit only. This target owns assembly/link validation below and intentionally does not
-        // build or run any .NET app.
-        var generated = scratch / "generated";
-        generated.CreateDirectory();
-        var generator = RunNativeThunkProbeProcess(
-            "dotnet",
-            [
-                GeneratorDll.ToString(),
-                "--xcframework", fixtureXcframework.ToString(),
-                "-o", generated.ToString(),
-                "--platform", "macos",
-                "--async-library", NativeThunkProbeWrapper,
-                "--skip-wrapper-compilation",
-                "--skip-thunk-compilation",
-                "--no-verify-csharp",
-            ],
-            scratch);
-        File.WriteAllText(evidence / "generator.txt", generator.CombinedOutput);
-        if (generator.ExitCode != 0)
-            throw new Exception(
-                $"NativeThunkProbe generator exited {generator.ExitCode}. See {evidence / "generator.txt"}.");
-
-        var generatedCs = Directory.GetFiles(generated, "*.cs")
-            .FirstOrDefault(path => File.ReadAllText(path).Contains(
-                "class NativeThunkReceiver", StringComparison.Ordinal))
-            ?? throw new FileNotFoundException(
-                "NativeThunkProbe did not emit NativeThunkReceiver generated C#.");
-        var generatedText = File.ReadAllText(generatedCs);
-        if (!generatedText.Contains("public virtual int Add", StringComparison.Ordinal))
-            throw new Exception(
-                "NativeThunkProbe requires the generated concrete NativeThunkReceiver.Add member.");
-
-        var thunkMatches = Regex.Matches(
-            generatedText,
-            "LibraryImport\\(\"SwiftBindings\", EntryPoint = \"(thunk_SwiftBindingsTestLib_[0-9a-f]{8})\"\\)\\][\\s\\S]{0,320}?PInvoke_add_",
-            RegexOptions.CultureInvariant);
-        if (thunkMatches.Count != 1)
-            throw new Exception(
-                $"NativeThunkProbe expected one generated Add native-thunk import, found {thunkMatches.Count}.");
-        var thunkSymbol = thunkMatches[0].Groups[1].Value;
-
-        var thunkAssembly = generated / $"{NativeThunkProbeModule}.{generatedArchitecture}.s";
+        var thunkAssembly = generated / $"{NativeThunkProbeModule}.{architecture}.s";
         if (!File.Exists(thunkAssembly))
             throw new FileNotFoundException(
                 $"NativeThunkProbe expected generated assembly {thunkAssembly}.");
         var assemblyText = File.ReadAllText(thunkAssembly);
-        if (!assemblyText.Contains($"_{thunkSymbol}", StringComparison.Ordinal))
-            throw new Exception($"Generated assembly does not define {thunkSymbol}.");
+        foreach (var symbol in new[] { thunkSymbol, throwingThunkSymbol })
+            if (!assemblyText.Contains($"_{symbol}", StringComparison.Ordinal))
+                throw new Exception($"Generated assembly does not define {symbol}.");
 
-        // Compile both committed sentinels on every host. Only the native architecture is linked
-        // and run; the cross-architecture object is a cheap syntax/assembler check.
-        var armSentinelObject = scratch / "sentinel-arm64.o";
-        var x64SentinelObject = scratch / "sentinel-x86_64.o";
-        var armSentinelText = File.ReadAllText(NativeThunkProbeAssets / "sentinel-arm64.S");
-        if (armSentinelText.Split('\n')
-            .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal))
-            .Any(line => Regex.IsMatch(line, @"\bx18\b", RegexOptions.CultureInvariant)))
-            throw new Exception("NativeThunkProbe ARM64 sentinel must never read or write platform register x18.");
-        XcRunTool(
-            $"clang -c \"{NativeThunkProbeAssets / "sentinel-arm64.S"}\" -o \"{armSentinelObject}\" -target arm64-apple-macos13.0");
-        XcRunTool(
-            $"clang -c \"{NativeThunkProbeAssets / "sentinel-x86_64.S"}\" -o \"{x64SentinelObject}\" -target x86_64-apple-macos13.0");
+        var sentinelObject = NativeThunkProbeScratch / $"sentinel-{architecture}.o";
 
         var thunkObject = scratch / "generated-thunk.o";
         var badObject = scratch / "bad-control.o";
@@ -202,14 +257,13 @@ partial class Build
             .SetTarget(target)
             .SetSdk(sdkPath)
             .SetModuleName(NativeThunkProbeWrapper)
-            .AddFrameworkSearchPath(scratch)
+            .AddFrameworkSearchPath(fixtureFramework.Parent)
             .AddExtraArgument("-framework").AddExtraArgument(NativeThunkProbeModule)
             .SetInstallName($"@rpath/lib{NativeThunkProbeWrapper}.dylib")
             .SetOutputPath(wrapperDylib)
             .AddSourceFile(wrapperSource.ToString())
             .AddSourceFile(thunkObject.ToString()));
 
-        var sentinelObject = architecture == "arm64" ? armSentinelObject : x64SentinelObject;
         var probeExecutable = scratch / "native-thunk-probe";
         XcRunTool(
             $"clang -Wall -Wextra -Werror \"{NativeThunkProbeAssets / "probe.c"}\" \"{sentinelObject}\" \"{badObject}\" -o \"{probeExecutable}\" -target {target}");
@@ -220,6 +274,7 @@ partial class Build
         File.WriteAllText(evidence / "exports.txt", exports.CombinedOutput);
         if (exports.ExitCode != 0
             || !exports.CombinedOutput.Contains($"_{thunkSymbol}", StringComparison.Ordinal)
+            || !exports.CombinedOutput.Contains($"_{throwingThunkSymbol}", StringComparison.Ordinal)
             || !exports.CombinedOutput.Contains("_bt_native_thunk_create", StringComparison.Ordinal))
             throw new Exception("NativeThunkProbe export evidence is incomplete.");
 
@@ -234,8 +289,7 @@ partial class Build
         var abiJson = fixtureFramework / "Modules" / $"{NativeThunkProbeModule}.swiftmodule" /
             $"{moduleSuffix}.abi.json";
         File.Copy(abiJson, evidence / "abi.json", overwrite: true);
-        File.Copy(generatedCs, evidence / "NativeThunkReceiver.generated.cs", overwrite: true);
-        File.Copy(thunkAssembly, evidence / $"generated-thunk-{generatedArchitecture}.s", overwrite: true);
+        File.Copy(thunkAssembly, evidence / $"generated-thunk-{architecture}.s", overwrite: true);
 
         var swiftVersion = RunRequiredNativeThunkProbeProcess(
             "xcrun", ["swiftc", "--version"], scratch, "Swift version capture");
@@ -261,6 +315,7 @@ partial class Build
             $"sdk={sdkPath}{Environment.NewLine}" +
             $"minimum_os=13.0{Environment.NewLine}" +
             $"thunk={thunkSymbol}{Environment.NewLine}" +
+            $"throwing_thunk={throwingThunkSymbol}{Environment.NewLine}" +
             $"generated_csharp={generatedCs}{Environment.NewLine}" +
             $"generated_assembly={thunkAssembly}{Environment.NewLine}" +
             $"swift_fixture_options=-parse-as-library -module-name {NativeThunkProbeModule} " +
@@ -278,32 +333,30 @@ partial class Build
             NativeThunkProbeAssets / "bad-control.S",
             generatedCs,
             thunkAssembly,
-            armSentinelObject,
-            x64SentinelObject,
+            sentinelObject,
             thunkObject,
             badObject,
             fixtureBinary,
             wrapperDylib,
             probeExecutable);
 
-        // Dynamic proof: good calls preserve every platform callee-saved register covered by the
-        // sentinel and retain Swift override dispatch. Then run the bad x20/r13-clobber control
-        // under the same sentinel while pretending it must be clean; it must turn red (exit 1).
-        var good = RunNativeThunkProbeProcess(
-            probeExecutable,
-            [fixtureBinary, wrapperDylib, thunkSymbol, "good"],
-            scratch);
+        // Dynamic proof: a non-throwing and a throwing thunk preserve every callee-saved register
+        // the sentinel covers, on success and on the error path, keep Swift override dispatch,
+        // and unwind: a walk from inside each thunk's target crosses the thunk into the sentinel
+        // with the sentinel's own stack pointer and registers, and reaches main. Then run the bad
+        // x20/r13-clobber control under the same sentinel while pretending it must be clean; it
+        // must turn red (exit 1).
+        var good = RunNativeThunkProbeExecutable(
+            runUnder, probeExecutable, [fixtureBinary, wrapperDylib, thunkSymbol, throwingThunkSymbol, "good"], scratch);
         File.WriteAllText(
             evidence / "good-run.txt",
             $"exit_code={good.ExitCode}{Environment.NewLine}{good.CombinedOutput}");
         if (good.ExitCode != 0)
             throw new Exception(
-                $"NativeThunkProbe good run exited {good.ExitCode}. See {evidence / "good-run.txt"}.");
+                $"NativeThunkProbe {architecture} good run exited {good.ExitCode}. See {evidence / "good-run.txt"}.");
 
-        var bad = RunNativeThunkProbeProcess(
-            probeExecutable,
-            [fixtureBinary, wrapperDylib, thunkSymbol, "bad-control"],
-            scratch);
+        var bad = RunNativeThunkProbeExecutable(
+            runUnder, probeExecutable, [fixtureBinary, wrapperDylib, thunkSymbol, throwingThunkSymbol, "bad-control"], scratch);
         File.WriteAllText(
             evidence / "bad-control-run.txt",
             $"exit_code={bad.ExitCode}{Environment.NewLine}{bad.CombinedOutput}");
@@ -311,14 +364,36 @@ partial class Build
         if (bad.ExitCode == 0
             || !bad.CombinedOutput.Contains(expectedBadMask, StringComparison.Ordinal))
             throw new Exception(
-                $"NativeThunkProbe bad nonvolatile-register control did not fail with {expectedBadMask}; " +
+                $"NativeThunkProbe {architecture} bad nonvolatile-register control did not fail with {expectedBadMask}; " +
                 "sentinel is ineffective or reports the wrong register.");
 
         Log.Information(
-            "=== NativeThunkProbe PASS: {Thunk}; good ABI clean, bad control red; evidence {Evidence} ===",
+            "=== NativeThunkProbe {Arch} PASS: {Thunk}, {ThrowingThunk}; registers clean, unwind crosses both, bad control red; evidence {Evidence} ===",
+            architecture,
             thunkSymbol,
+            throwingThunkSymbol,
             evidence);
     }
+
+    /// <summary>The one native-thunk import the generated C# declares for the named Swift member.</summary>
+    static string GeneratedNativeThunkSymbol(string generatedText, string swiftName)
+    {
+        var matches = Regex.Matches(
+            generatedText,
+            "LibraryImport\\(\"SwiftBindings\", EntryPoint = \"(thunk_SwiftBindingsTestLib_[0-9a-f]{8})\"\\)\\][\\s\\S]{0,320}?PInvoke_" +
+                Regex.Escape(swiftName) + "_",
+            RegexOptions.CultureInvariant);
+        if (matches.Count != 1)
+            throw new Exception(
+                $"NativeThunkProbe expected one generated {swiftName} native-thunk import, found {matches.Count}.");
+        return matches[0].Groups[1].Value;
+    }
+
+    static NativeThunkProbeProcessResult RunNativeThunkProbeExecutable(
+        string? runUnder, string executable, IEnumerable<string> arguments, string workingDirectory) =>
+        runUnder is null
+            ? RunNativeThunkProbeProcess(executable, arguments, workingDirectory)
+            : RunNativeThunkProbeProcess(runUnder, new[] { "-x86_64", executable }.Concat(arguments), workingDirectory);
 
     static NativeThunkProbeProcessResult RunNativeThunkProbeProcess(
         string executable,

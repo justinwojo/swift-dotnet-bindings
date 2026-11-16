@@ -464,16 +464,26 @@ namespace BindingsGeneration
                 // Thunk blocks start with ".globl _thunk_..."
                 if (lines[i].TrimStart().StartsWith(".globl _thunk_", StringComparison.Ordinal))
                 {
-                    // Collect the full thunk block. Two forms exist:
-                    // 1. Tail-call: .globl + .p2align + label + "b <symbol>" (no ret)
-                    // 2. Multi-instruction: .globl + .p2align + label + ... + "ret"
-                    // Block ends at "ret", or at the next ".globl" / end-of-file for tail-call thunks.
+                    // Collect the full thunk block. Every thunk the generator writes closes its CFI
+                    // with ".cfi_endproc", after the "ret" of a framed thunk and after the branch of
+                    // a tail-call one, so the block ends there: stopping at "ret" would leave the
+                    // ".cfi_endproc" behind with no ".cfi_startproc", which the assembler rejects.
+                    // An older file without CFI ends at "ret", or at the next ".globl" / end-of-file
+                    // for a tail-call thunk.
                     int blockStart = i;
                     int blockEnd = i;
+                    bool hasCfi = false;
                     for (int j = i + 1; j < lines.Length; j++)
                     {
                         var trimmed = lines[j].TrimStart();
-                        if (trimmed.StartsWith("ret", StringComparison.Ordinal))
+                        if (trimmed.StartsWith(".cfi_startproc", StringComparison.Ordinal))
+                            hasCfi = true;
+                        if (trimmed.StartsWith(".cfi_endproc", StringComparison.Ordinal))
+                        {
+                            blockEnd = j;
+                            break;
+                        }
+                        if (!hasCfi && trimmed.StartsWith("ret", StringComparison.Ordinal))
                         {
                             blockEnd = j;
                             break;

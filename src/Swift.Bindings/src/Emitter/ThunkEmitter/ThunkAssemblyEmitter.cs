@@ -69,7 +69,7 @@ public static class ThunkAssemblyEmitter
     }
 
     /// <summary>
-    /// Emits the assembly file footer (currently empty, reserved for future use).
+    /// Emits the assembly file footer (<see cref="ThunkTargetArch.EmitFileFooter"/>).
     /// </summary>
     /// <returns>Assembly footer text.</returns>
     public static string EmitFileFooter()

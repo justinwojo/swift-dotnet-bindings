@@ -1320,6 +1320,13 @@ partial class Build
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
 
+                // Native frame gate: run the linked check over every slice of both wrappers, holding
+                // every exported bridge to its plan and every native thunk to the canonical frame and
+                // its unwind information at entry, each call and exit, with full PC coverage. An
+                // unwinder stopping in a function the table misdescribes stops or corrupts the walk.
+                // Fail-closed and unconditional: a soundness property, not a baseline.
+                RunNativeFrameGate();
+
                 // Call-convention attribute gate: read the compiled bindings, Apple supplement and
                 // runtime, and fail on any P/Invoke whose [UnmanagedCallConv] names CallConvCdecl (the
                 // platform default). The Mono AOT compiler decodes each attribute and aborts once an

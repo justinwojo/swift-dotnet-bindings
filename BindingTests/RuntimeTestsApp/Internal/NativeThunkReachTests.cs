@@ -40,7 +40,11 @@ public class NativeThunkReachTests : TestBase
         IntPtr function,
         IntPtr self,
         int delta,
-        int* result);
+        int* result,
+        IntPtr* errorOut);
+
+    [DllImport("/usr/lib/swift/libswiftCore.dylib", EntryPoint = "swift_errorRelease", CallingConvention = CallingConvention.Cdecl)]
+    private static extern void SwiftErrorRelease(IntPtr error);
 
     [DllImport("/usr/lib/libSystem.B.dylib", EntryPoint = "dlsym", CallingConvention = CallingConvention.Cdecl)]
     private static extern unsafe IntPtr Dlsym(IntPtr handle, byte* symbol);
@@ -48,7 +52,7 @@ public class NativeThunkReachTests : TestBase
     [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(NativeThunkReceiver))]
     public unsafe void TestRetainedNativeThunkUnderGcPressure()
     {
-        var thunkSymbol = GetGeneratedAddThunkSymbol();
+        var thunkSymbol = GetGeneratedThunkSymbol("add");
 
         // Load the exact wrapper named by the generated LibraryImport. dlsym on that image proves
         // the entry point is exported, rather than merely trusting source text or waiting for an
@@ -86,13 +90,13 @@ public class NativeThunkReachTests : TestBase
                 .NewFromPayload(childPointer);
 
             var baseSentinelResult = 0;
-            var baseMask = CallThroughSentinel(thunkPointer, basePointer, delta: 5, &baseSentinelResult);
+            var baseMask = CallThroughSentinel(thunkPointer, basePointer, delta: 5, &baseSentinelResult, null);
             AssertEqual(0UL, baseMask,
                 "base thunk must preserve every sentinel-covered callee-saved register and stack/frame state");
             AssertEqual(22, baseSentinelResult, "base sentinel call must return 17 + 5");
 
             var childSentinelResult = 0;
-            var childMask = CallThroughSentinel(thunkPointer, childPointer, delta: 5, &childSentinelResult);
+            var childMask = CallThroughSentinel(thunkPointer, childPointer, delta: 5, &childSentinelResult, null);
             AssertEqual(0UL, childMask,
                 "override thunk must preserve every sentinel-covered callee-saved register and stack/frame state");
             AssertEqual(122, childSentinelResult,
@@ -146,24 +150,93 @@ public class NativeThunkReachTests : TestBase
         TestLogger.Info($"Native thunk {thunkSymbol}: 1004 exact calls, clean register sentinels, 2 exact deinits.");
     }
 
-    private static string GetGeneratedAddThunkSymbol()
+    /// <summary>
+    /// The generated native thunk of a throwing member: on success and on the error path it must
+    /// preserve every sentinel-covered callee-saved register, store the error slot exactly when
+    /// Swift threw, and keep override dispatch; the managed binding must surface the throw.
+    /// </summary>
+    [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(NativeThunkReceiver))]
+    public unsafe void TestThrowingNativeThunk()
     {
+        var thunkSymbol = GetGeneratedThunkSymbol("addThrowing");
+        var wrapperHandle = SwiftFrameworkResolver.ResolveSwiftFramework(
+            WrapperLibrary,
+            typeof(NativeThunkReceiver).Assembly,
+            searchPath: null);
+        NativeThunkReceiver? baseReceiver = null;
+        NativeThunkReceiver? childReceiver = null;
+        var deinitsBefore = DeinitCount();
+
+        try
+        {
+            AssertTrue(wrapperHandle != IntPtr.Zero, "native-thunk wrapper must load");
+            var thunkPointer = ResolveExport(wrapperHandle, thunkSymbol);
+            AssertTrue(thunkPointer != IntPtr.Zero,
+                $"generated thunk {thunkSymbol} must be exported and dlsym-resolvable");
+            var callsBefore = CallCount();
+
+            var basePointer = CreateReceiver(child: 0);
+            baseReceiver = (NativeThunkReceiver)SwiftObjectHelper<NativeThunkReceiver>.NewFromPayload(basePointer);
+            var childPointer = CreateReceiver(child: 1);
+            childReceiver = (NativeThunkReceiver)SwiftObjectHelper<NativeThunkReceiver>.NewFromPayload(childPointer);
+
+            var result = 0;
+            var error = (IntPtr)0xdead;
+            var mask = CallThroughSentinel(thunkPointer, basePointer, delta: 5, &result, &error);
+            AssertEqual(0UL, mask, "throwing thunk must preserve callee-saved state on success");
+            AssertEqual(22, result, "throwing thunk success must return 17 + 5");
+            AssertEqual(IntPtr.Zero, error, "throwing thunk must clear the error slot on success");
+
+            result = 0;
+            error = (IntPtr)0xdead;
+            mask = CallThroughSentinel(thunkPointer, childPointer, delta: 5, &result, &error);
+            AssertEqual(0UL, mask, "override throwing thunk must preserve callee-saved state");
+            AssertEqual(122, result, "throwing thunk must dispatch through the override");
+            AssertEqual(IntPtr.Zero, error, "override success must clear the error slot");
+
+            error = IntPtr.Zero;
+            mask = CallThroughSentinel(thunkPointer, basePointer, delta: -1, &result, &error);
+            AssertEqual(0UL, mask, "throwing thunk must preserve callee-saved state on the error path");
+            AssertTrue(error != IntPtr.Zero, "throwing thunk must store the thrown error");
+            if (error != IntPtr.Zero)
+                SwiftErrorRelease(error);
+
+            AssertEqual(22, baseReceiver.AddThrowing(delta: 5), "binding success must return 17 + 5");
+            AssertEqual(122, childReceiver.AddThrowing(delta: 5), "binding must dispatch through the override");
+            AssertThrows<SwiftException>(() => baseReceiver.AddThrowing(delta: -1),
+                "binding must surface the Swift throw");
+            AssertEqual(22, baseReceiver.AddThrowing(delta: 5), "a call after the throw must succeed");
+            AssertEqual(callsBefore + 7, CallCount(), "every call must reach Swift exactly once");
+        }
+        finally
+        {
+            childReceiver?.Dispose();
+            baseReceiver?.Dispose();
+            NativeLibrary.Free(wrapperHandle);
+        }
+
+        AssertEqual(deinitsBefore + 2, DeinitCount(), "both receivers must deinit exactly once after Dispose");
+    }
+
+    private static string GetGeneratedThunkSymbol(string swiftName)
+    {
+        var prefix = $"PInvoke_{swiftName}_";
         var candidates = typeof(NativeThunkReceiver)
             .GetMethods(BindingFlags.Static | BindingFlags.NonPublic)
             .Select(method => (Method: method, Import: method.GetCustomAttribute<LibraryImportAttribute>()))
-            .Where(candidate => candidate.Method.Name.StartsWith("PInvoke_add_", StringComparison.Ordinal)
+            .Where(candidate => candidate.Method.Name.StartsWith(prefix, StringComparison.Ordinal)
                 && candidate.Import?.EntryPoint?.StartsWith("thunk_SwiftBindingsTestLib_", StringComparison.Ordinal) == true)
             .ToArray();
 
         if (candidates.Length != 1)
             throw new InvalidOperationException(
-                $"Expected one generated native-thunk import for NativeThunkReceiver.Add; found {candidates.Length}.");
+                $"Expected one generated native-thunk import for NativeThunkReceiver.{swiftName}; found {candidates.Length}.");
 
         var import = candidates[0].Import
             ?? throw new InvalidOperationException("Generated native-thunk import attribute is missing.");
         if (!string.Equals(import.LibraryName, WrapperLibrary, StringComparison.Ordinal))
             throw new InvalidOperationException(
-                $"NativeThunkReceiver.Add imports {import.LibraryName}, expected {WrapperLibrary}.");
+                $"NativeThunkReceiver.{swiftName} imports {import.LibraryName}, expected {WrapperLibrary}.");
 
         return import.EntryPoint!;
     }

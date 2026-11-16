@@ -1151,6 +1151,64 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        /// <summary>
+        /// Every emitted thunk opens and closes its CFI, the framed ones after their <c>ret</c>. The
+        /// device filter must remove a thunk's whole CFI block: stopping at <c>ret</c> leaves an
+        /// orphaned <c>.cfi_endproc</c> the assembler rejects, which fails the device slice.
+        /// </summary>
+        [Theory]
+        [InlineData(ThunkArch.Arm64, true)]
+        [InlineData(ThunkArch.Arm64, false)]
+        [InlineData(ThunkArch.X86_64, true)]
+        [InlineData(ThunkArch.X86_64, false)]
+        public void FilterThunkAssembly_RemovesAFramedThunkWithItsWholeCfiBlock(ThunkArch arch, bool simOnlyFirst)
+        {
+            var dir = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var target = ThunkTargetArch.For(arch);
+                // The sim-only member is a throwing instance method (full frame, ends at ret plus
+                // .cfi_endproc); the device member is a plain tail call.
+                var simOnlyMangled = "$s6Module4CardC10simulatoryyKF";
+                var deviceMangled = "$s6Module4CardC6deviceyyF";
+                var simOnly = new ThunkDescriptor(
+                    ThunkAssemblyEmitter.GenerateThunkSymbol("Module", simOnlyMangled), "_" + simOnlyMangled,
+                    ReturnLowering: null, SelfLowering: null, ParameterCount: 0, FloatParameterCount: 0,
+                    IsInstanceMethod: true, IsStaticMethod: false, IsConstructor: false, Throws: true,
+                    MetadataAccessorSymbol: null);
+                var device = new ThunkDescriptor(
+                    ThunkAssemblyEmitter.GenerateThunkSymbol("Module", deviceMangled), "_" + deviceMangled,
+                    ReturnLowering: null, SelfLowering: null, ParameterCount: 1, FloatParameterCount: 0,
+                    IsInstanceMethod: false, IsStaticMethod: false, IsConstructor: false, Throws: false,
+                    MetadataAccessorSymbol: null);
+
+                var sb = new System.Text.StringBuilder();
+                target.EmitFileHeader(sb, "Module");
+                foreach (var d in simOnlyFirst ? new[] { simOnly, device } : new[] { device, simOnly })
+                    sb.Append(ThunkAssemblyEmitter.EmitThunk(d, target));
+
+                var asmFile = Path.Combine(dir, $"Module.{target.ArchTag}.s");
+                File.WriteAllText(asmFile, sb.ToString());
+                var outDir = Path.Combine(dir, "out");
+                Directory.CreateDirectory(outDir);
+
+                var result = SimulatorOnlyMemberDetector.FilterThunkAssembly(
+                    asmFile, MakeResult(("Card.simulator", simOnlyMangled)), outDir);
+
+                Assert.NotNull(result);
+                Assert.Equal(1, result!.Value.RemovedCount);
+                var filtered = File.ReadAllLines(result.Value.FilteredPath).Select(l => l.Trim()).ToList();
+                Assert.DoesNotContain(filtered, l => l.Contains(simOnly.ThunkSymbol, StringComparison.Ordinal));
+                Assert.Contains(filtered, l => l.Contains(device.ThunkSymbol, StringComparison.Ordinal));
+
+                // Exactly one CFI block remains, opened and closed in order.
+                var cfi = filtered.Where(l => l is ".cfi_startproc" or ".cfi_endproc").ToList();
+                Assert.Equal(new[] { ".cfi_startproc", ".cfi_endproc" }, cfi);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         [Fact]
         public void FilterThunkAssembly_NoOp_WhenEmptyResult()
         {

@@ -101,6 +101,12 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         sb.AppendLine($"_{thunkSymbol}:");
     }
 
+    /// <summary>The thunks' line layout, shared with <see cref="CanonicalFrame"/>.</summary>
+    private static CanonicalFrame.Style Style => CanonicalFrame.Style.Thunk;
+
+    /// <summary>The callee-saved registers the full frame writes: the sret stash, swifterror, swiftself.</summary>
+    private static readonly string[] FullFrameSaved = { "rbx", "r12", "r13" };
+
     /// <inheritdoc/>
     public override void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor)
     {
@@ -114,13 +120,11 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         if (descriptor.ReturnZeroExtendFromBytes > 0
             || ThunkAssemblyEmitter.BoolReturnRegisters(descriptor).Count > 0)
         {
-            sb.AppendLine("    pushq   %rbp");
-            sb.AppendLine("    movq    %rsp, %rbp");
+            CanonicalFrame.X86Prologue(sb, Style, []);
             sb.AppendLine($"    callq   {descriptor.SwiftSymbol}");
             EmitReturnZeroExtension(sb, descriptor);
             EmitBoolReturnNormalization(sb, descriptor);
-            sb.AppendLine("    popq    %rbp");
-            sb.AppendLine("    retq");
+            CanonicalFrame.X86Epilogue(sb, Style, []);
             return;
         }
 
@@ -134,18 +138,24 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         // (ClassifyThunk routes here only with no self/error/metatype, and a >16-byte DIRECT return
         // needs a register-capture bridge and goes through the full frame, so an sret here is always
         // the indirect case.)
+        // The jump forms build no frame; their CFI restates the entry rule, so the linked image
+        // describes them with a frameless encoding rather than none.
         if (descriptor.ReturnLowering is { IsIndirect: true })
         {
+            CanonicalFrame.X86FramelessBegin(sb, Style);
             sb.AppendLine("    movq    %rdi, %rax");
             for (int i = 0; i < descriptor.ParameterCount; i++)
                 sb.AppendLine($"    movq    %{IntArgReg(i + 1)}, %{IntArgReg(i)}");
             sb.AppendLine($"    jmp     {descriptor.SwiftSymbol}");
+            CanonicalFrame.End(sb, Style);
             return;
         }
 
         // No bridging needed: the signature has no self, error, metatype, or return buffer, so the
         // cdecl and swiftcc argument/return layouts coincide and we jump straight to the Swift symbol.
+        CanonicalFrame.X86FramelessBegin(sb, Style);
         sb.AppendLine($"    jmp     {descriptor.SwiftSymbol}");
+        CanonicalFrame.End(sb, Style);
     }
 
     /// <inheritdoc/>
@@ -184,16 +194,12 @@ public sealed class SysVThunkTarget : ThunkTargetArch
             ? 0
             : descriptor.ParameterCount + (needsSelfBridge ? 1 : 0) + sretOffset;
 
-        // Prologue. Always preserve the callee-saved registers this template clobbers:
-        // %rbx (stashes the sret buffer), %r12 (swifterror), %r13 (swiftself/metatype).
-        // After `push %rbp` the stack is 16-byte aligned; three 8-byte pushes leave it
-        // misaligned by 8, so a single 8-byte local slot both realigns it for the call and
-        // holds the error-out pointer across the call.
-        sb.AppendLine("    pushq   %rbp");
-        sb.AppendLine("    movq    %rsp, %rbp");
-        sb.AppendLine("    pushq   %rbx");
-        sb.AppendLine("    pushq   %r12");
-        sb.AppendLine("    pushq   %r13");
+        // Prologue: the canonical frame (CanonicalFrame), preserving the callee-saved registers
+        // this template clobbers: %rbx (stashes the sret buffer), %r12 (swifterror), %r13
+        // (swiftself/metatype). After `push %rbp` the stack is 16-byte aligned; three 8-byte
+        // pushes leave it misaligned by 8, so a single 8-byte local slot both realigns it for the
+        // call and holds the error-out pointer across the call.
+        CanonicalFrame.X86Prologue(sb, Style, FullFrameSaved);
         sb.AppendLine("    subq    $8, %rsp");
         const string errorSlot = "-32(%rbp)";
 
@@ -265,13 +271,8 @@ public sealed class SysVThunkTarget : ThunkTargetArch
         if (cdeclUsesSret)
             sb.AppendLine("    movq    %rbx, %rax");
 
-        // Epilogue.
-        sb.AppendLine("    addq    $8, %rsp");
-        sb.AppendLine("    popq    %r13");
-        sb.AppendLine("    popq    %r12");
-        sb.AppendLine("    popq    %rbx");
-        sb.AppendLine("    popq    %rbp");
-        sb.AppendLine("    retq");
+        // Epilogue: rsp resets from the frame pointer, which drops the error slot.
+        CanonicalFrame.X86Epilogue(sb, Style, FullFrameSaved);
     }
 
     /// <summary>

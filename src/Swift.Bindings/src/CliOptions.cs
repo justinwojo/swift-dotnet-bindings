@@ -433,6 +433,15 @@ public class CliOptions
         AllowMultipleArgumentsPerToken = false,
     };
 
+    public Option<string[]> ThunkAssemblies { get; } = new(
+        aliases: new[] { "--thunk-assembly" },
+        description: "A generated native thunk assembly file ({Module}.arm64.s or {Module}.x86_64.s). Repeatable. With --swift-bridges, " +
+                     "every thunk it defines is assembled for each platform the gate validates and held to the same frame and unwind " +
+                     "checks as the bridges.")
+    {
+        AllowMultipleArgumentsPerToken = false,
+    };
+
     public Option<string[]> ValidateLinkedBridges { get; } = new(
         aliases: new[] { "--validate-linked-bridges" },
         description: "A linked Mach-O image (a framework binary, thin or fat) whose SBSR_ bridges to validate. Repeatable. " +
@@ -621,6 +630,7 @@ public class CliOptions
             SwiftCallPlans,
             SwiftRoutedCallPlans,
             ValidateLinkedBridges,
+            ThunkAssemblies,
             SwiftLoweringEvidence,
             SwiftLoweringQualification,
             SwiftBridgeRoutes,

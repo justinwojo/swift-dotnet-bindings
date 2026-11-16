@@ -1,28 +1,65 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// uint64_t bt_native_thunk_sentinel(void *fn, void *self, int32_t delta, int32_t *result).
-// Low ten bits: x19-x28; bit 10: frame/stack; bits 12-19: low d8-d15.
+// uint64_t bt_native_thunk_sentinel(void *fn, void *self, int32_t delta, int32_t *result,
+//                                   void *errorOut).
+// Calls fn(delta, self, errorOut) with every callee-saved register set to a known value and
+// returns a mask of what the callee failed to preserve. Low ten bits: x19-x28; bit 10: frame
+// pointer or stack pointer; bits 12-19: low d8-d15. A non-throwing thunk ignores errorOut.
+//
+// The sentinel builds the canonical frame (frame record at the top, CFA = fp + 16, the saved pairs
+// below it) and describes it with CFI, so an unwinder walking out of the callee reaches the
+// sentinel's frame and through it the caller. bt_native_thunk_sentinel_sp records sp at the call:
+// the native-thunk probe compares it, and the callee-saved values an unwind recovers for this
+// frame, with what an unwind from inside the thunk's target reports.
 // x18 is the platform register and is never read or written.
 .text
 .p2align 2
 .globl _bt_native_thunk_sentinel
+.private_extern _bt_native_thunk_sentinel_sp
 _bt_native_thunk_sentinel:
-    sub sp, sp, #192
-    stp x19, x20, [sp, #0]
-    stp x21, x22, [sp, #16]
-    stp x23, x24, [sp, #32]
-    stp x25, x26, [sp, #48]
-    stp x27, x28, [sp, #64]
-    stp x29, x30, [sp, #80]
-    stp d8, d9, [sp, #96]
-    stp d10, d11, [sp, #112]
-    stp d12, d13, [sp, #128]
-    stp d14, d15, [sp, #144]
-    str x3, [sp, #160]
+    .cfi_startproc
+    stp x29, x30, [sp, #-16]!
+    mov x29, sp
+    .cfi_def_cfa w29, 16
+    .cfi_offset w30, -8
+    .cfi_offset w29, -16
+    stp x20, x19, [sp, #-16]!
+    stp x22, x21, [sp, #-16]!
+    stp x24, x23, [sp, #-16]!
+    stp x26, x25, [sp, #-16]!
+    stp x28, x27, [sp, #-16]!
+    stp d9, d8, [sp, #-16]!
+    stp d11, d10, [sp, #-16]!
+    stp d13, d12, [sp, #-16]!
+    stp d15, d14, [sp, #-16]!
+    .cfi_offset w19, -24
+    .cfi_offset w20, -32
+    .cfi_offset w21, -40
+    .cfi_offset w22, -48
+    .cfi_offset w23, -56
+    .cfi_offset w24, -64
+    .cfi_offset w25, -72
+    .cfi_offset w26, -80
+    .cfi_offset w27, -88
+    .cfi_offset w28, -96
+    .cfi_offset d8, -104
+    .cfi_offset d9, -112
+    .cfi_offset d10, -120
+    .cfi_offset d11, -128
+    .cfi_offset d12, -136
+    .cfi_offset d13, -144
+    .cfi_offset d14, -152
+    .cfi_offset d15, -160
+    sub sp, sp, #16
+    str x3, [sp]
     mov x16, x0
     mov w0, w2
-    mov x29, sp
+    mov x2, x4
+    adrp x9, _bt_native_thunk_sentinel_sp@PAGE
+    add x9, x9, _bt_native_thunk_sentinel_sp@PAGEOFF
+    mov x10, sp
+    str x10, [x9]
     mov x19, #275
     mov x20, #276
     mov x21, #277
@@ -50,7 +87,7 @@ _bt_native_thunk_sentinel:
     mov x9, #527
     fmov d15, x9
     blr x16
-    ldr x9, [sp, #160]
+    ldr x9, [sp]
     str w0, [x9]
     mov x0, #0
     cmp x19, #275
@@ -83,7 +120,8 @@ _bt_native_thunk_sentinel:
     cmp x28, #284
     cset x9, ne
     orr x0, x0, x9, lsl #9
-    mov x9, sp
+    // The frame pointer must still be the sentinel's: sp + 160 (nine pairs and the local slot).
+    add x9, sp, #160
     cmp x29, x9
     cset x9, ne
     orr x0, x0, x9, lsl #10
@@ -119,15 +157,18 @@ _bt_native_thunk_sentinel:
     cmp x9, #527
     cset x9, ne
     orr x0, x0, x9, lsl #19
-    ldp d8, d9, [sp, #96]
-    ldp d10, d11, [sp, #112]
-    ldp d12, d13, [sp, #128]
-    ldp d14, d15, [sp, #144]
-    ldp x19, x20, [sp, #0]
-    ldp x21, x22, [sp, #16]
-    ldp x23, x24, [sp, #32]
-    ldp x25, x26, [sp, #48]
-    ldp x27, x28, [sp, #64]
-    ldp x29, x30, [sp, #80]
-    add sp, sp, #192
+    add sp, sp, #16
+    ldp d15, d14, [sp], #16
+    ldp d13, d12, [sp], #16
+    ldp d11, d10, [sp], #16
+    ldp d9, d8, [sp], #16
+    ldp x28, x27, [sp], #16
+    ldp x26, x25, [sp], #16
+    ldp x24, x23, [sp], #16
+    ldp x22, x21, [sp], #16
+    ldp x20, x19, [sp], #16
+    ldp x29, x30, [sp], #16
     ret
+    .cfi_endproc
+
+.zerofill __DATA,__bss,_bt_native_thunk_sentinel_sp,8,3
