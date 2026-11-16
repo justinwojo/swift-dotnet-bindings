@@ -397,7 +397,19 @@ namespace BindingsGeneration
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
                 // (IEquatable<Derived> is a different interface from IEquatable<Base>).
                 // Root classes always emit equality if Equatable.
-                if (!isDerived || interfaces.Any(i => i.StartsWith("IEquatable<")))
+                bool emitsOwnEquality = !isDerived || interfaces.Any(i => i.StartsWith("IEquatable<"));
+                // A `==` declared without Equatable is the type's whole equality surface. C#
+                // requires Equals/GetHashCode beside it (CS0660/CS0661), and they must agree with
+                // it: a root class answers Equals through that `==` (as the struct path does)
+                // instead of handle identity, and a derived class, which inherits its root's
+                // Equals and would otherwise declare none, gets its own. An ObjC-rooted derived
+                // class keeps NSObject's isEqual:/hash pair, which Swift's own Hashable uses.
+                bool operatorOwnsObjectEquality = operatorHandler.DefinesEquality
+                    && !equatableWriter.ImplementsEquatable
+                    && (!emitsOwnEquality || operatorHandler.DefinesHomogeneousEquality);
+                if (operatorOwnsObjectEquality)
+                    operatorHandler.EmitObjectEqualityOverrides(csWriter, typeNameWithGenerics, keepInheritedEquality: classDecl.IsObjCRooted);
+                else if (emitsOwnEquality)
                     equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
@@ -1321,6 +1333,9 @@ namespace BindingsGeneration
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
         private readonly bool _implementsHashable;
+
+        /// <summary>Whether the class's Swift Equatable conformance drives its C# equality.</summary>
+        public bool ImplementsEquatable => _implementsEquatable;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
         private readonly SwiftWriter? _swiftWriter;
@@ -1445,11 +1460,16 @@ namespace BindingsGeneration
                 equalityOperator?.AvailabilityAnnotations, _classDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
+            // Compare through the Equatable witness, not `l == r`: a subclass that declares its own
+            // `==` while inheriting the conformance (from NSObject or a Swift base) would otherwise
+            // resolve statically to that operator, and Equals would disagree with GetHashCode,
+            // which hashes through the inherited Hashable witness, and with Swift's Set.
             _swiftWriter.WriteLines($$"""
             public func {{symbolName}}(_ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer) -> Swift.UInt8 {
                 let l = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
                 let r = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}
-                return (l == r) ? 1 : 0
+                func witnessEquals<T: Swift.Equatable>(_ a: T, _ b: T) -> Swift.Bool { a == b }
+                return witnessEquals(l, r) ? 1 : 0
             }
             """);
 
