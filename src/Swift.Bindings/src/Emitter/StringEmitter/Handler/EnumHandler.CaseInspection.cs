@@ -204,6 +204,12 @@ namespace BindingsGeneration
                     return;
                 }
 
+                if (TryFindBridgeableValuePayload(typeSpec, typeDatabase, out var bridgeableValueType))
+                {
+                    RefuseBridgeableValueTryGet(enumDecl, caseName, capitalizedName, bridgeableValueType);
+                    return;
+                }
+
                 // Skip when the resolved payload type contains AnyType in any position —
                 // direct AnyType cannot round-trip (AnyType.GetTypeMetadata and MarshalToSwift
                 // both throw; SwiftSafeHandle<AnyType> would NativeMemory.Free stack memory on
@@ -348,6 +354,7 @@ namespace BindingsGeneration
                         AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.CaseInspection:FoundationData");
                         EmitPayloadMarshalWithDeclaration(csWriter, typeSpec, "__value_raw", "enumCopy", typeDatabase, marshalGenericParams, enumDecl.ModuleDecl, emissionCtx);
                         csWriter.WriteLine("value = __value_raw.ToByteArray();");
+                        EmitDataPayloadRelease(csWriter, "enumCopy", "__value");
                     }
                     else
                     {
@@ -429,6 +436,12 @@ namespace BindingsGeneration
                         BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
                         SkipReason.AbsentFrameworkType,
                         $"Tuple associated value '{absentTupleType}' is an Apple-framework type absent from the .NET binding surface; the case cannot be reconstructed.");
+                    return;
+                }
+
+                if (TryFindBridgeableValuePayload(element, typeDatabase, out var bridgeableTupleType))
+                {
+                    RefuseBridgeableValueTryGet(enumDecl, caseName, capitalizedName, bridgeableTupleType);
                     return;
                 }
 
@@ -606,6 +619,41 @@ namespace BindingsGeneration
             // Emit the tuple metadata accessor helper
             var metadataGenericParams = enumDecl.IsGeneric ? enumDecl.GenericParameters : null;
             EmitTupleMetadataAccessor(csWriter, capitalizedName, parameters, typeDatabase, metadataGenericParams, enumDecl.ModuleDecl);
+        }
+
+        /// <summary>
+        /// Finds an Objective-C-bridgeable Swift value (<c>URL</c>, <c>URLRequest</c>,
+        /// <c>IndexPath</c>, <c>Decimal</c>, <c>Locale</c>, <c>Calendar</c>, <c>CharacterSet</c>)
+        /// stored directly in a payload, or through <c>Optional</c>. In the enum's memory such a
+        /// value is the Swift struct, not the Objective-C object it bridges to (a <c>URL</c> is two
+        /// words whose first is its Swift storage object), so a TryGet that reads it as the
+        /// Objective-C object sends that object messages it does not implement. The case factory
+        /// bridges through a Swift wrapper; extraction has no such bridge. Collections of these
+        /// values are not matched: Swift's native collection storage is itself an Objective-C
+        /// collection that bridges each element on access.
+        /// </summary>
+        private static bool TryFindBridgeableValuePayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, out string typeName)
+        {
+            typeName = string.Empty;
+            if (typeSpec is not NamedTypeSpec named)
+                return false;
+            if (named.Name is "Swift.Optional" or "Optional" && named.GenericParameters.Count == 1)
+                return TryFindBridgeableValuePayload(named.GenericParameters[0], typeDatabase, out typeName);
+            if (named.ContainsGenericParameters)
+                return false;
+            if (!typeDatabase.TryGetTypeRecord(named, out var record) || !MarshallingHelpers.IsObjCBridgeable(record))
+                return false;
+            typeName = named.Name;
+            return true;
+        }
+
+        private void RefuseBridgeableValueTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, string bridgeableType)
+        {
+            _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{bridgeableType}', an Objective-C-bridgeable Swift value. Skipping TryGet method.");
+            ReportCollector.RecordMemberSkipped(
+                BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                SkipReason.UnsupportedType,
+                $"Associated value '{bridgeableType}' is stored as its Swift value, not as the Objective-C object it bridges to, and the payload has no bridging read; the case factory still constructs it.");
         }
     }
 }

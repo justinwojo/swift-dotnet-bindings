@@ -47,6 +47,25 @@ public struct ForeignExtensionSummary {
     }
 }
 
+/// Objective-C-rooted class built fresh by the foreign-extension members below, so the extension
+/// wrapper's own local is the only thing holding it when the wrapper returns. It counts itself
+/// in the shared allocation registry (`LifetimeTracker`), so a test can see both a reference
+/// that was dropped too early and one that was never dropped.
+public final class ForeignExtensionMintedObject: NSObject {
+    public let token: Int32
+    private let trackedSerial: Int64
+
+    public init(token: Int32) {
+        self.token = token
+        self.trackedSerial = recordTrackedAllocation(category: "ForeignExtensionMintedObject", tag: token)
+        super.init()
+    }
+
+    deinit {
+        recordTrackedDeallocation(serial: trackedSerial)
+    }
+}
+
 extension NSObject {
     /// Bug (a) sub-case a-2: a SimpleEnum parameter on a foreign-type extension method
     /// (CoreStore-adjacent shape). Pre-fix, `ForeignTypeExtensionEmitter` treated any
@@ -120,5 +139,15 @@ extension NSObject {
     /// answer rather than merely failing to compile.
     public func scoredWithSelfLabel(self: Int32) -> Int32 {
         return self * 5 + 1
+    }
+
+    /// An Objective-C-rooted class built inside the member: the caller receives an object nothing
+    /// else holds, on the method arm and on the property arm.
+    public func mintObject(token: Int32) -> ForeignExtensionMintedObject {
+        return ForeignExtensionMintedObject(token: token * 2)
+    }
+
+    public var mintedObject: ForeignExtensionMintedObject {
+        return ForeignExtensionMintedObject(token: 21)
     }
 }

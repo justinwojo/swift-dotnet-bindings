@@ -508,8 +508,9 @@ public static class ExtensionMarshallingHelper
     /// </param>
     /// <param name="objCResultOwned">
     /// The native call returns an Objective-C result at +1, as a direct call to the Swift member does
-    /// (its result is <c>@owned</c>); the reader adopts that reference. A wrapper that hands the
-    /// object back through <c>passUnretained</c> returns it at +0.
+    /// (its result is <c>@owned</c>), and as a <c>@_cdecl</c> wrapper that hands the object back
+    /// through <c>passRetained</c> does; the reader adopts that reference. Only a native call that
+    /// returns a borrowed (+0) object leaves this false.
     /// </param>
     public static void EmitReturnValueMarshalling(
         CSharpWriter csWriter,

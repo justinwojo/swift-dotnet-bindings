@@ -1070,6 +1070,245 @@ public class EnumHandlerOutputTests
             "the generated heap copy is freed in the arm that allocates it");
     }
 
+    // A TryGet copies the enum (+1 on every reference in the payload) and never destroys the copy,
+    // so each payload read has to consume that +1 exactly once. The runtime collection and Optional
+    // carriers copy on construction, so the read must also release the slot it read from.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_BoundGenericPayload_ConsumesTheEnumCopysReference(bool asTupleElement)
+    {
+        var typeDatabase = CreateTypeDatabaseWithArray();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var listCase = CreateCase("list");
+        var arrayOfInt = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"));
+        listCase.AssociatedValues.Add(asTupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { arrayOfInt, new NamedTypeSpec("Swift.Int") })
+            : arrayOfInt);
+        enumDecl.Cases.Add(listCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetList");
+        Assert.Matches(@"MarshalFromSwiftObjectConsuming<[\w.:]*SwiftArray<", body);
+        Assert.DoesNotMatch(@"MarshalFromSwift<[\w.:]*SwiftArray<", body);
+    }
+
+    [Fact]
+    public void Emit_ObjCClassPayload_AdoptsTheEnumCopysReference()
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCClass();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var objectCase = CreateCase("object");
+        objectCase.AssociatedValues.Add(new NamedTypeSpec("Foundation.NSObject"));
+        enumDecl.Cases.Add(objectCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetObject");
+        Assert.Matches(@"GetINativeObject<[\w.:]*NSObject>\(\*\(IntPtr\*\)\(enumCopy\), true\)", body);
+        Assert.DoesNotContain("GetNSObject", body);
+        Assert.DoesNotContain("MarshalFromSwift<", body);
+    }
+
+    // An optional Objective-C object is one nullable pointer holding the enum copy's +1. Carried
+    // through SwiftOptional<IntPtr> (a trivial optional, whose destroy releases nothing) and read
+    // with the non-owning GetNSObject, that +1 leaked on every read; the wrapper adopts it instead.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_OptionalObjCClassPayload_AdoptsTheEnumCopysReference(bool asTupleElement)
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCClass(withOptional: true);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var objectCase = CreateCase("maybe");
+        var optionalObject = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Foundation.NSObject"));
+        objectCase.AssociatedValues.Add(asTupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), optionalObject })
+            : optionalObject);
+        enumDecl.Cases.Add(objectCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetMaybe");
+        Assert.Matches(@"GetINativeObject<[\w.:]*NSObject>\(_\w+_raw, true\)", body);
+        Assert.Contains("== IntPtr.Zero ?", body);
+        Assert.Contains(asTupleElement ? "enumCopy + (int)offset1" : "*(IntPtr*)(enumCopy)", body);
+        Assert.DoesNotContain("GetNSObject", body);
+        Assert.DoesNotContain("SwiftOptional", body);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_DataPayload_ReleasesTheStorageAfterCopyingTheBytesOut(bool asTupleElement)
+    {
+        var typeDatabase = CreateTypeDatabaseWithData();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var bytesCase = CreateCase("bytes");
+        var data = new NamedTypeSpec("Foundation.Data");
+        bytesCase.AssociatedValues.Add(asTupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), data })
+            : data);
+        enumDecl.Cases.Add(bytesCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetBytes");
+        var toBytes = body.IndexOf(".ToByteArray()", StringComparison.Ordinal);
+        Assert.True(toBytes >= 0, "the bytes are copied out");
+        var destroy = body.IndexOf("ValueWitnessTable->Destroy(", toBytes, StringComparison.Ordinal);
+        Assert.True(destroy > toBytes, "the Data payload is destroyed after its bytes are copied out");
+        Assert.Contains(asTupleElement ? "enumCopy + (int)offset1" : "(void*)(enumCopy)", body.Substring(destroy));
+    }
+
+    // A URL (or another Objective-C-bridgeable Swift value) is stored in the payload as the Swift
+    // struct, whose first word is not an NSURL. Reading it as one is a type confusion, so the
+    // accessor is refused and reported; the factory, which bridges in Swift, stays.
+    [Theory]
+    [InlineData("direct")]
+    [InlineData("optional")]
+    [InlineData("tuple")]
+    public void Emit_ObjCBridgeableValuePayload_RefusesTryGetAndReportsIt(string shape)
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgeableUrl();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var linkCase = CreateCase("link");
+        var url = new NamedTypeSpec("Foundation.URL");
+        linkCase.AssociatedValues.Add(shape switch
+        {
+            "optional" => new NamedTypeSpec("Swift.Optional", url),
+            "tuple" => new TupleTypeSpec(new List<TypeSpec> { url, new NamedTypeSpec("Swift.Int") }),
+            _ => url,
+        });
+        enumDecl.Cases.Add(linkCase);
+        var codeCase = CreateCase("code");
+        codeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(codeCase);
+
+        ReportCollector.Start(moduleDecl);
+        BindingReport? report;
+        string csOutput;
+        try
+        {
+            (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+            report = ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.DoesNotContain("TryGetLink", csOutput);
+        Assert.Contains("TryGetCode", csOutput);
+        Assert.NotNull(report);
+        Assert.Contains(report!.SkippedItems, i => i.Name == "TryGetLink" && i.Reason == SkipReason.UnsupportedType);
+    }
+
+    // A collection of bridgeable values is Swift's own collection storage, which is an Objective-C
+    // collection. The conversion copies the elements out and adopts the enum copy's +1 on the
+    // collection itself, so a second release after it would free storage the enum still owns.
+    [Fact]
+    public void Emit_ObjCBridgedCollectionPayload_ConversionAdoptsTheCollectionReference()
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgeableUrl();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var linksCase = CreateCase("links");
+        linksCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.URL")));
+        enumDecl.Cases.Add(linksCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetLinks");
+        Assert.Matches(@"ArrayFromHandleFunc<[\w.:]+>\(_\w+_raw, .*, true\)", body);
+        Assert.DoesNotContain("UnknownObjectRelease", body);
+    }
+
+    private static string TryGetBody(string csOutput, string methodName)
+    {
+        var start = csOutput.IndexOf($"public bool {methodName}(", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"{methodName} is emitted");
+        var end = csOutput.IndexOf("return true;", start, StringComparison.Ordinal);
+        return csOutput.Substring(start, end - start);
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithArray()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.NIntType,
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
+                MetadataAccessor = "$sSiMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftArray"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Array"),
+                MetadataAccessor = "$sSaMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib"));
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithObjCClass(bool withOptional = false)
+    {
+        var typeDatabase = CreateTypeDatabase(withOptional);
+        var foundation = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundation.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.NSObject"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSObject"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.NSObject"),
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class
+            });
+        typeDatabase.AddModuleDatabase(foundation);
+        return typeDatabase;
+    }
+
+    private static TypeDatabase CreateTypeDatabaseWithObjCBridgeableUrl()
+    {
+        var typeDatabase = CreateTypeDatabaseWithArray();
+        var foundation = new ModuleTypeDatabase("Foundation", "/System/Library/Frameworks/Foundation.framework/Foundation");
+        foundation.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL"),
+                MetadataAccessor = "$s10Foundation3URLVMa",
+                NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+                Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(foundation);
+        return typeDatabase;
+    }
+
     [Fact]
     public void Emit_EnumWithAbsentApplePayload_WithdrawsTryGetAndReportsRow()
     {
@@ -2113,10 +2352,23 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("static partial class Direction", csOutput);
     }
 
-    private static TypeDatabase CreateTypeDatabase()
+    private static TypeDatabase CreateTypeDatabase(bool withOptional = false)
     {
         var typeDatabase = new TypeDatabase();
         var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        if (withOptional)
+        {
+            swiftModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                    MetadataAccessor = "$sSqMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
         swiftModule.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
             new TypeRecord

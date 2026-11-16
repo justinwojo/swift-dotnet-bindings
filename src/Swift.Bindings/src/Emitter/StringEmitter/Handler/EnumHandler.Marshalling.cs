@@ -53,6 +53,65 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The read of a bound-generic payload out of the TryGet enum copy. The copy holds every
+        /// reference in the payload at +1 and is never value-witness destroyed, so the read has to
+        /// consume the slot. The runtime carriers these projections name (<c>SwiftArray</c>,
+        /// <c>SwiftDictionary</c>, <c>SwiftSet</c>, <c>SwiftOptional</c>, <c>SwiftResult</c>)
+        /// declare Copy semantics: their <c>NewFromPayload</c> takes a +1 of its own, which left
+        /// the copy's reference with no owner. <c>MarshalFromSwiftObjectConsuming</c> builds the
+        /// carrier and then destroys the slot's own reference.
+        /// </summary>
+        private static string ReadBoundGenericPayload(ITypeProjection projection, string containerType, string slotExpr)
+            => projection is ArrayProjection or DictionaryProjection or SetProjection or OptionalProjection or ResultProjection
+                ? $"SwiftMarshal.MarshalFromSwiftObjectConsuming<{containerType}>((void*)({slotExpr}))"
+                : $"SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({slotExpr}))";
+
+        /// <summary>
+        /// The read of an Objective-C class payload out of the TryGet enum copy. The copy holds
+        /// the object at +1, which nothing else releases, so the managed wrapper adopts it
+        /// (<c>owns: true</c>) rather than retaining it again.
+        /// </summary>
+        private static bool IsObjCClassPayload(TypeRecord record)
+            => record.Kind == TypeRecordKind.Class && MarshallingHelpers.IsObjCBridged(record)
+               && !MarshallingHelpers.IsObjCBridgeable(record);
+
+        /// <summary>
+        /// Reads an <c>Optional</c> Objective-C class payload (<c>NSObject?</c>) out of the TryGet
+        /// enum copy. The optional is a single nullable object pointer, and the copy holds the
+        /// object at +1. The bound-generic read would carry it through <c>SwiftOptional&lt;IntPtr&gt;</c>,
+        /// whose metadata is a trivial pointer optional, so its consuming destroy releases nothing,
+        /// and the non-owning <c>GetNSObject</c> then took a reference of its own: the copy's +1
+        /// leaked on every read. The wrapper adopts it instead, exactly like the non-optional arm.
+        /// </summary>
+        private static bool TryEmitOptionalObjCClassPayload(CSharpWriter csWriter, TypeSpec typeSpec, string varName, string slotExpr, bool declareVar,
+            ITypeDatabase typeDatabase, BoundGenericsHandler boundGenericsHandler, IReadOnlyList<GenericArgumentDecl>? genericParams, ModuleDecl? moduleDecl)
+        {
+            if (typeSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+                || optional.GenericParameters[0] is not NamedTypeSpec inner)
+                return false;
+            if (!IsObjCClassPayload(typeDatabase.GetTypeRecordOrAnyType(inner)))
+                return false;
+
+            var innerType = GetPublicCSharpTypeNameForEnumCase(inner, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
+            var bareName = NameProvider.StripVerbatimPrefix(varName);
+            csWriter.WriteLine($"IntPtr _{bareName}_raw = *(IntPtr*)({slotExpr});");
+            var adopt = MarshallingHelpers.FormatObjCBridgeCall(innerType, $"_{bareName}_raw", nonNull: true, ownsReference: true);
+            csWriter.WriteLine($"{(declareVar ? "var " : string.Empty)}{varName} = _{bareName}_raw == IntPtr.Zero ? ({innerType}?)null : {adopt};");
+            return true;
+        }
+
+        /// <summary>
+        /// Releases a <c>Foundation.Data</c> payload once its bytes have been copied out. The
+        /// managed <c>Data</c> view takes no reference (Inline semantics), so the enum copy's +1 on
+        /// the storage is still outstanding; this is the consuming seam that releases it.
+        /// </summary>
+        private static void EmitDataPayloadRelease(CSharpWriter csWriter, string slotExpr, string bareName)
+        {
+            csWriter.WriteLine($"var _{bareName}_dataMeta = SwiftObjectHelper<Swift.Foundation.Data>.GetTypeMetadata();");
+            csWriter.WriteLine($"_{bareName}_dataMeta.ValueWitnessTable->Destroy((void*)({slotExpr}), _{bareName}_dataMeta);");
+        }
+
+        /// <summary>
         /// Emits a cached tuple metadata accessor for a specific enum case.
         /// This generates the tuple type metadata once and caches it for efficiency.
         /// </summary>
@@ -378,6 +437,7 @@ namespace BindingsGeneration
                 AppleSupplementReferences.Record("Foundation.Data", "EnumHandler.Marshalling:OffsetFoundationData");
                 csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<Swift.Foundation.Data>(new IntPtr({sourcePtr} + (int){offsetVar}));");
                 csWriter.WriteLine($"{varName} = _{bareName}_raw.ToByteArray();");
+                EmitDataPayloadRelease(csWriter, $"{sourcePtr} + (int){offsetVar}", bareName);
                 return;
             }
 
@@ -388,6 +448,9 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"{varName} = {DateProjection.SwiftEpoch}.AddSeconds(_{bareName}_raw);");
                 return;
             }
+
+            if (TryEmitOptionalObjCClassPayload(csWriter, typeSpec, varName, $"{sourcePtr} + (int){offsetVar}", declareVar: false, typeDatabase, boundGenericsHandler, genericParams, moduleDecl))
+                return;
 
             // For bound generics, check if public type differs (needs conversion after marshal).
             // Skip closures — delegate* can't be used as generic type arguments in MarshalFromSwift<T>.
@@ -414,7 +477,7 @@ namespace BindingsGeneration
                     if (projection != null)
                     {
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr} + (int){offsetVar}));");
+                        csWriter.WriteLine($"var _{bareName}_raw = {ReadBoundGenericPayload(projection, containerType, $"{sourcePtr} + (int){offsetVar}")};");
                         var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
                         var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)
@@ -463,6 +526,12 @@ namespace BindingsGeneration
             // does NOT "dissolve with the stack frame"). Wrapping the buffer address via SwiftClassHandle
             // would instead ARC-release a bogus pointer on dispose.
             var fallbackRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            if (IsObjCClassPayload(fallbackRecord))
+            {
+                // The enum copy's +1 on the object is the wrapper's to adopt (see IsObjCClassPayload).
+                csWriter.WriteLine($"{varName} = {MarshallingHelpers.FormatObjCBridgeCall(csharpType, $"*(IntPtr*)({sourcePtr} + (int){offsetVar})", nonNull: true, ownsReference: true)};");
+                return;
+            }
             if (IsSwiftClassPayload(fallbackRecord))
             {
                 csWriter.WriteLine($"var _{bareName}_classPtr = *(IntPtr*)({sourcePtr} + (int){offsetVar});");
@@ -582,6 +651,9 @@ namespace BindingsGeneration
                 }
             }
 
+            if (TryEmitOptionalObjCClassPayload(csWriter, typeSpec, varName, sourcePtr, declareVar: false, typeDatabase, boundGenericsHandler, genericParams, moduleDecl))
+                return;
+
             // For bound generics, check if public type differs (needs conversion after marshal)
             if (typeSpec is NamedTypeSpec namedMarshal && namedMarshal.ContainsGenericParameters
                 && !ContainsClosureTypeSpec(namedMarshal))
@@ -617,6 +689,9 @@ namespace BindingsGeneration
                             {
                                 csWriter.WriteLine($"IntPtr _{bareName}_raw = *(IntPtr*){sourcePtr};");
                                 csWriter.WriteLine($"{varName} = {objcContainerConv};");
+                                // The conversion adopts the enum copy's +1 on the collection
+                                // (ArrayFromHandleFunc releaseHandle / GetINativeObject owns), so
+                                // nothing is released here.
                                 return;
                             }
                         }
@@ -639,12 +714,13 @@ namespace BindingsGeneration
                                 var innerPublicType = optProj.InnerProjection.PublicType;
                                 csWriter.WriteLine($"IntPtr _{bareName}_raw = *(IntPtr*){sourcePtr};");
                                 csWriter.WriteLine($"{varName} = _{bareName}_raw == IntPtr.Zero ? ({innerPublicType}?)null : {innerContainerConv};");
+                                // As above: the conversion adopts the copy's +1 on the collection.
                                 return;
                             }
                         }
 
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"var _{bareName}_raw = {ReadBoundGenericPayload(projection, containerType, sourcePtr)};");
                         var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
                         var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)
@@ -702,6 +778,12 @@ namespace BindingsGeneration
             // No extra Arc retain — a second retain over-retains by +1 per extraction and the payload
             // never deallocs (issue #40 — enum-payload over-retain leak).
             var marshalRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
+            if (IsObjCClassPayload(marshalRecord))
+            {
+                // The enum copy's +1 on the object is the wrapper's to adopt (see IsObjCClassPayload).
+                csWriter.WriteLine($"{varName} = {MarshallingHelpers.FormatObjCBridgeCall(csharpType, $"*(IntPtr*)({sourcePtr})", nonNull: true, ownsReference: true)};");
+                return;
+            }
             if (IsSwiftClassPayload(marshalRecord))
             {
                 csWriter.WriteLine($"var _{bareName}_classPtr = *(IntPtr*)({sourcePtr});");
@@ -759,6 +841,9 @@ namespace BindingsGeneration
             // Get the C# type name for this typeSpec
             string csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
+            if (TryEmitOptionalObjCClassPayload(csWriter, typeSpec, varName, sourcePtr, declareVar: true, typeDatabase, boundGenericsHandler, genericParams, moduleDecl))
+                return;
+
             // For bound generics, check if public type differs (needs conversion after marshal)
             if (typeSpec is NamedTypeSpec namedDecl && namedDecl.ContainsGenericParameters
                 && !ContainsClosureTypeSpec(namedDecl))
@@ -783,7 +868,7 @@ namespace BindingsGeneration
                     if (projection != null)
                     {
                         var containerType = projection.ContainerTypeName;
-                        csWriter.WriteLine($"var _{bareName}_raw = SwiftMarshal.MarshalFromSwift<{containerType}>(new IntPtr({sourcePtr}));");
+                        csWriter.WriteLine($"var _{bareName}_raw = {ReadBoundGenericPayload(projection, containerType, sourcePtr)};");
                         var containerConv = projection.GetReturnContainerConversion($"_{bareName}_raw");
                         var elemConv = projection.GetReturnElementConversion($"_{bareName}_raw");
                         if (containerConv != null)

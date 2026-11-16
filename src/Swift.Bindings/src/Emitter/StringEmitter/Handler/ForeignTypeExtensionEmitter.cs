@@ -1048,22 +1048,22 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
-    /// Hands a class the wrapper is holding in <c>result</c> back to C# as an opaque pointer, at
-    /// the reference count the receiving side expects.
+    /// Hands a class the wrapper is holding in <c>result</c> back to C# as an opaque pointer, at +1.
     ///
-    /// <para>An imported ObjC class goes back at +0: the C# side builds its wrapper through the
-    /// ObjC bridge, which takes its own retain, and the object is still alive in the caller's
-    /// autorelease pool while that happens.</para>
-    ///
-    /// <para>A Swift class goes back at +1. The C# side marshals it into a managed peer that adopts
-    /// the reference, so <c>result</c> — which by then is the wrapper's own local and the only
-    /// thing keeping the object alive — must hand its ownership across rather than let the object
-    /// go away when this function returns.</para>
+    /// <para>The extension member returns its result <c>@owned</c>, and by the time this line runs
+    /// <c>result</c> is the wrapper's own local and may be the only thing keeping the object alive
+    /// (a member that builds a fresh object). Swift releases that local as the function returns, so
+    /// the wrapper must hand its ownership across rather than lend it. This holds for a Swift class
+    /// (the managed peer adopts the reference) and for an Objective-C class alike: the C# side reads
+    /// an Objective-C result with <c>GetINativeObject(handle, owns: true)</c>, which takes the +1 over
+    /// instead of retaining again. There is no autorelease pool to lean on here; a Swift-declared
+    /// member never autoreleases its result.</para>
     /// </summary>
     private static string FormatOpaqueClassReturn(ReturnKind returnCategory)
-        => returnCategory == ReturnKind.SwiftClass
-            ? "Swift.Unmanaged.passRetained(result).toOpaque()"
-            : "Swift.Unmanaged.passUnretained(result).toOpaque()";
+    {
+        System.Diagnostics.Debug.Assert(returnCategory is ReturnKind.SwiftClass or ReturnKind.ObjCClass);
+        return "Swift.Unmanaged.passRetained(result).toOpaque()";
+    }
 
     /// <summary>
     /// The C# identifier one Swift parameter is emitted under. The public signature, the native
@@ -1170,7 +1170,10 @@ public static class ForeignTypeExtensionEmitter
         var csharpType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
         bool returnNeedsEnumCast = member.ReturnCategory == ReturnKind.Primitive && member.ReturnTypeSpec != null &&
             ExtensionMarshallingHelper.TryGetSimpleEnumLowering(member.ReturnTypeSpec, typeDatabase, out _, out _, out _);
-        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, bodyScope, returnNeedsEnumCast);
+        // The wrapper hands every class result back at +1 (FormatOpaqueClassReturn), so the reader
+        // adopts an Objective-C result rather than retaining it again.
+        EmitReturnValueMarshalling(csWriter, member.ReturnCategory, nativeCall, csharpType, bodyScope, returnNeedsEnumCast,
+            objCResultOwned: true);
     }
 
     /// <summary>

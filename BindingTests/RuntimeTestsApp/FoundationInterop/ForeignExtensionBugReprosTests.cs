@@ -61,4 +61,28 @@ public class ForeignExtensionBugReprosTests : TestBase
         using var fromProperty = obj.GetReceiptStamp();
         AssertEqual(7, fromProperty.Code, "a class returned from an extension property survives the call");
     }
+
+    public void TestObjCClassReturnIsHandedOverExactlyOnce()
+    {
+        // An Objective-C-rooted class built inside a foreign-type extension member is held only by
+        // the emitted wrapper's own local when the wrapper returns. Handed back at +0 it was freed
+        // before C# saw it; handed back at +1 the reader has to adopt that reference rather than
+        // retain it again, or the object never goes away. The allocation registry sees both: the
+        // object must be alive while the managed peer is, and gone once the peer is released.
+        LifetimeTracker.Reset();
+
+        var tokens = LifetimeTracker.RunIsolated(() =>
+        {
+            using var receiver = new Foundation.NSObject();
+            using var fromMethod = receiver.MintObject(4);
+            using var fromProperty = receiver.GetMintedObject();
+            var live = LifetimeTracker.GetStats().live;
+            return (fromMethod.Token, fromProperty.Token, live);
+        });
+
+        AssertEqual(8, tokens.Item1, "an Objective-C class returned from an extension method survives the call");
+        AssertEqual(21, tokens.Item2, "an Objective-C class returned from an extension property survives the call");
+        AssertEqual(2, tokens.Item3, "both returned objects are alive while their managed peers are");
+        LifetimeTracker.AssertNoLeaks("Objective-C class returned from a foreign-type extension");
+    }
 }

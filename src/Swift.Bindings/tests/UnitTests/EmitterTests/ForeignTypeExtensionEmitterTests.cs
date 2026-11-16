@@ -351,6 +351,45 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Contains("self_: __self_", result);
     }
 
+    // An Objective-C class built inside the extension member is held only by the wrapper's own
+    // `result` local, which Swift releases when the wrapper returns. Handing it back through
+    // passUnretained returned a pointer to a freed object; it has to cross at +1, and the C# side
+    // has to adopt that reference rather than retain it again.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ObjCClassReturn_CrossesAtPlusOneAndIsAdoptedByTheReader(bool asProperty)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+
+        var member = asProperty
+            ? CreateExtMethod("snapshotView", "public var snapshotView: UIKit.UIView { get }")
+            : CreateExtMethod("makeSnapshot", "public func makeSnapshot() -> UIKit.UIView");
+        member.IsProperty = asProperty;
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { member }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+
+        var swiftOutput = new StringWriter();
+        ForeignTypeExtensionEmitter.EmitSwiftWrappers(new SwiftWriter(swiftOutput), ctx);
+        var swift = swiftOutput.ToString();
+        Assert.Contains("Swift.Unmanaged.passRetained(result).toOpaque()", swift);
+        Assert.DoesNotContain("passUnretained(result)", swift);
+
+        var csOutput = new StringWriter();
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(new CSharpWriter(csOutput), typeDatabase, "TestModule", ctx);
+        var cs = csOutput.ToString();
+        Assert.Matches(@"GetINativeObject<UIKit\.UIView>\(\w+, true\)", cs);
+        Assert.DoesNotContain("GetNSObject<UIKit.UIView>", cs);
+    }
+
     [Fact]
     public void EmitSwiftWrappers_NoProcessedMembers_NoOutput()
     {
