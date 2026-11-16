@@ -1523,6 +1523,36 @@ public class OperatorHandlerOutputTests
         Assert.Equal(originalSymbol, methodDecl.MangledName);
     }
 
+    /// <summary>
+    /// A frozen struct's operator goes through the <c>@_cdecl</c> wrapper, which takes the result
+    /// buffer as its first ordinary C argument. The C import must pass it as a pointer:
+    /// <c>SwiftIndirectResult</c> is the Swift convention's indirect-result register carrier, and on
+    /// a C import the package's transition check refuses it (SWIFTBIND133 rule R2).
+    /// </summary>
+    [Fact]
+    public void EmitOperator_CdeclWrapperStructReturn_PassesTheResultBufferAsAPointer()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.Point");
+
+        var csOutput = new StringWriter();
+        var swiftOutput = new StringWriter();
+        Assert.True(new OperatorHandler(new NullLogger<OperatorHandler>()).EmitOperator(
+            new CSharpWriter(csOutput), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(swiftOutput), emissionContext: new ModuleEmissionContext()));
+        var cs = csOutput.ToString();
+
+        Assert.Contains("@_cdecl", swiftOutput.ToString());
+        Assert.DoesNotContain("SwiftIndirectResult", cs);
+        Assert.Matches(@"partial void PInvoke_op_Addition\(IntPtr \w+, IntPtr \w+, IntPtr \w+\);", cs);
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.Point>(", cs);
+        var report = AbiContractChecker.Validate(cs, "TestModule", NullLogger<OperatorHandlerOutputTests>.Instance);
+        Assert.DoesNotContain(report.Violations, v => v.RuleId == AbiContractChecker.SwiftSpecialOutsideSwiftRuleId);
+    }
+
     // NOTE: the PInvokeHelperContext branch in OperatorHandler.EmitOperatorPInvoke
     // (OperatorHandler.cs:638) carries the same CallingConvention selection as the
     // direct path covered by EmitOperator_ClassParentNoCdeclWrapper_UsesCallConvSwift.

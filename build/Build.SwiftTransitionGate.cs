@@ -21,8 +21,8 @@
 // C#, or the directory --transition-gate-plan-source names.
 //
 // Standalone for now: the tree is red until the bridges land, so this target is not yet wired into
-// --compile-only or pack. R3 alone already is: the compile-only ledger cross-check step fails on any
-// R3 violation. It is policy, not baseline — no reseed and no --permissive arm. `nuke pack` runs
+// --compile-only or pack. R2 and R3 already are: the compile-only ledger cross-check step fails on
+// any R2 or R3 violation. It is policy, not baseline — no reseed and no --permissive arm. `nuke pack` runs
 // every rule over the packed Runtime and Apple assemblies, against the plans their transition
 // manifests embed (Build.PackageTransitionEvidence.cs); those two are clean today.
 //
@@ -310,6 +310,16 @@ partial class Build
                 Log.Error("  R3 {Member} -> {EntryPoint}: {Reason}", violation.Member, violation.EntryPoint, violation.Reason);
             if (twins.Count > 0)
                 failed.Add($"{name} (R3)");
+
+            // R2 too: a Swift register carrier on a C-convention import is never right (a @_cdecl
+            // wrapper takes self and the result buffer as ordinary arguments), and a package that
+            // carries one is deleted by its own pack-time check (SWIFTBIND133).
+            var carriers = report.Violations.Where(v => v.Rule == TransitionRule.R2).ToList();
+            Log.Information("[{Assembly}] R2 violations: {Violations}", Path.GetFileNameWithoutExtension(name), carriers.Count);
+            foreach (var violation in carriers)
+                Log.Error("  R2 {Member} -> {EntryPoint}: {Reason}", violation.Member, violation.EntryPoint, violation.Reason);
+            if (carriers.Count > 0)
+                failed.Add($"{name} (R2)");
             if (routed && name == "CompileCheck.dll")
                 failed.AddRange(CheckRoutedAssemblyControl(platform, assembly, report));
 

@@ -649,8 +649,10 @@ public static class ConstrainedExtensionEmitter
                 break;
 
             case CEReturnShape.NonFrozenStruct:
-                // Indirect-result shape: allocate VWT-sized buffer, pass SwiftIndirectResult
-                // to the @_cdecl wrapper, then marshal the value out. Must match the existing
+                // Indirect-result shape: allocate VWT-sized buffer, pass its address as the
+                // @_cdecl wrapper's ordinary first argument (a C-convention P/Invoke must not
+                // carry SwiftIndirectResult, which only the Swift convention places in the
+                // indirect-result register), then marshal the value out. Must match the existing
                 // PropertyHandler emission so MarshalFromSwift<T> sees the same layout.
                 //
                 // Ownership: for non-frozen structs / classes projected as ISwiftObject,
@@ -670,8 +672,8 @@ public static class ConstrainedExtensionEmitter
                         IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
                         try
                         {
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
-                            NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
+                            var resultPtr = (IntPtr)buffer;
+                            NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
                             return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
                         }
                         catch
@@ -705,8 +707,8 @@ public static class ConstrainedExtensionEmitter
                     unsafe
                     {
                         byte* buffer = stackalloc byte[16];
-                        var indirectResult = new SwiftIndirectResult((void*)buffer);
-                        NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
+                        var resultPtr = (IntPtr)buffer;
+                        NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
                         return *(System.Guid*)buffer;
                     }
                     """);
@@ -726,8 +728,8 @@ public static class ConstrainedExtensionEmitter
                     unsafe
                     {
                         byte* buffer = stackalloc byte[16];
-                        var indirectResult = new SwiftIndirectResult((void*)buffer);
-                        NativeMethods.{{symbolName}}({{CallArgs("indirectResult")}});
+                        var resultPtr = (IntPtr)buffer;
+                        NativeMethods.{{symbolName}}({{CallArgs("resultPtr")}});
                         return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                     }
                     """);
@@ -766,7 +768,7 @@ public static class ConstrainedExtensionEmitter
                 case CEReturnShape.NonFrozenStruct:
                 case CEReturnShape.FoundationUUID:
                 case CEReturnShape.FoundationData:
-                    pinvokeParams.Add("SwiftIndirectResult indirectResult");
+                    pinvokeParams.Add("IntPtr resultPtr");
                     if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "void";
                     break;
@@ -1565,7 +1567,7 @@ public static class ConstrainedExtensionEmitter
             case CEReturnShape.NonFrozenStruct:
                 {
                     var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
-                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    var pinvokeArg = isStatic ? "resultPtr" : $"resultPtr{selfArg}";
                     csWriter.WriteLines($$"""
                         unsafe
                         {
@@ -1573,7 +1575,7 @@ public static class ConstrainedExtensionEmitter
                             IntPtr buffer = (IntPtr)System.Runtime.InteropServices.NativeMemory.Alloc(metadata.Size);
                             try
                             {
-                                var indirectResult = new SwiftIndirectResult((void*)buffer);
+                                var resultPtr = (IntPtr)buffer;
                                 NativeMethods.{{symbolName}}({{pinvokeArg}});
                                 return SwiftMarshal.MarshalFromSwift<{{csharpReturnType}}>(buffer);
                             }
@@ -1598,7 +1600,7 @@ public static class ConstrainedExtensionEmitter
             case CEReturnShape.FoundationUUID:
                 {
                     var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
-                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    var pinvokeArg = isStatic ? "resultPtr" : $"resultPtr{selfArg}";
                     // stackalloc a 16-byte indirect-result buffer; the Guid is value-copied out
                     // before the frame exits (Guid is frozen, no ARC/ownership in the buffer), so
                     // the former Alloc/Free container is replaced by an equivalent stack reclaim.
@@ -1606,7 +1608,7 @@ public static class ConstrainedExtensionEmitter
                         unsafe
                         {
                             byte* buffer = stackalloc byte[16];
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            var resultPtr = (IntPtr)buffer;
                             NativeMethods.{{symbolName}}({{pinvokeArg}});
                             return *(System.Guid*)buffer;
                         }
@@ -1617,7 +1619,7 @@ public static class ConstrainedExtensionEmitter
             case CEReturnShape.FoundationData:
                 {
                     var selfArg = isStatic ? "" : ", " + pinvokeSelfArg;
-                    var pinvokeArg = isStatic ? "indirectResult" : $"indirectResult{selfArg}";
+                    var pinvokeArg = isStatic ? "resultPtr" : $"resultPtr{selfArg}";
                     // stackalloc the 16-byte container; the Data value is copied out and
                     // ToByteArray() copies the underlying bytes via Swift's CopyBytes P/Invoke
                     // before return (the copied-out value carries the _object pointer
@@ -1627,7 +1629,7 @@ public static class ConstrainedExtensionEmitter
                         unsafe
                         {
                             byte* buffer = stackalloc byte[16];
-                            var indirectResult = new SwiftIndirectResult((void*)buffer);
+                            var resultPtr = (IntPtr)buffer;
                             NativeMethods.{{symbolName}}({{pinvokeArg}});
                             return (*(Swift.Foundation.Data*)(void*)buffer).ToByteArray();
                         }
@@ -1678,7 +1680,7 @@ public static class ConstrainedExtensionEmitter
                 case CEReturnShape.NonFrozenStruct:
                 case CEReturnShape.FoundationUUID:
                 case CEReturnShape.FoundationData:
-                    pinvokeParams.Add("SwiftIndirectResult indirectResult");
+                    pinvokeParams.Add("IntPtr resultPtr");
                     if (!capturedIsStatic) pinvokeParams.Add("IntPtr _self");
                     pinvokeReturnType = "void";
                     break;

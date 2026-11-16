@@ -16,6 +16,8 @@
 //   SWIFTBIND094 (CC-004): CallConvCdecl targeting mangled Swift symbol
 //   SWIFTBIND097 (CC-005): CallConvSwift class member whose self register is left unset
 //                          (non-recoverable: thrown as SelfRegisterContractException)
+//   SWIFTBIND098 (CC-006): Swift special type (SwiftSelf, SwiftError, SwiftIndirectResult) on a
+//                          P/Invoke that is not CallConvSwift
 //
 // WHAT THIS CHECKER CAN AND CANNOT SEE. It reads emitted text, so it reasons about
 // symbol/convention/library pairing — never about Swift's declared signature. Two
@@ -376,6 +378,7 @@ public static class AbiContractChecker
             violations.AddRange(CheckCC003_CdeclTargetsWrongLib(pinvoke, hasWrapperLibrary));
             violations.AddRange(CheckCC004_CdeclMangledSymbol(pinvoke));
             violations.AddRange(CheckCC005_SelfRegisterOmitted(pinvoke));
+            violations.AddRange(CheckCC006_SwiftSpecialOutsideSwiftConvention(pinvoke));
             violations.AddRange(CheckTjThunkCrossModule(pinvoke, staticallyMergedModules));
         }
 
@@ -511,6 +514,8 @@ public static class AbiContractChecker
             foreach (var v in CheckCC004_CdeclMangledSymbol(info))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
             foreach (var v in CheckCC005_SelfRegisterOmitted(info))
+                attributed.Add(new AbiAttributedViolation(v, info.Owner));
+            foreach (var v in CheckCC006_SwiftSpecialOutsideSwiftConvention(info))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
             foreach (var v in CheckTjThunkCrossModule(info, staticallyMergedModules))
                 attributed.Add(new AbiAttributedViolation(v, info.Owner));
@@ -675,6 +680,77 @@ public static class AbiContractChecker
                 $"Report this as a generator bug.",
             AffectedElements = ImmutableArray.Create($"declared convention: {pinvoke.CallingConvention}"),
         });
+    }
+
+    /// <summary>
+    /// The Swift special types the runtime places in a dedicated register (self, error, indirect
+    /// result) only under <c>CallConvSwift</c>. Matched on the bare type name, so a qualified or
+    /// generic spelling (<c>global::Swift.Runtime.SwiftSelf&lt;T&gt;</c>) is caught too. A pointer to
+    /// one (<c>SwiftError*</c>) is an ordinary pointer under any convention and is not matched.
+    /// </summary>
+    private static readonly HashSet<string> SwiftSpecialCarrierTypes = new(StringComparer.Ordinal)
+    {
+        "SwiftSelf", "SwiftError", "SwiftIndirectResult",
+    };
+
+    /// <summary>
+    /// CC-006: a P/Invoke that is not <c>CallConvSwift</c> declares a Swift special type
+    /// (<c>SwiftSelf</c>, <c>SwiftSelf&lt;T&gt;</c>, <c>SwiftError</c>, <c>SwiftIndirectResult</c>).
+    /// </summary>
+    /// <remarks>
+    /// Those types mean "put this in the Swift self, error or indirect-result register", which only the
+    /// Swift convention has. Under the C convention there is no such register: a marshaller either
+    /// rejects the signature when the call is first bound or passes the value as an ordinary argument,
+    /// so whether the wrapper sees its argument where it reads it depends on the runtime. Every
+    /// <c>@_cdecl</c> wrapper takes those values as ordinary pointer arguments, and the declaration has to
+    /// say so (<c>IntPtr</c> or a pointer). Judged from the C# signature alone.
+    /// </remarks>
+    internal static ImmutableArray<AbiCheckViolation> CheckCC006_SwiftSpecialOutsideSwiftConvention(PInvokeInfo pinvoke)
+    {
+        if (pinvoke.CallingConvention == "CallConvSwift")
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        var special = pinvoke.Parameters
+            .Where(p => IsSwiftSpecialCarrier(p.CSharpType))
+            .Select(p => $"{p.CSharpType} {p.Name}")
+            .ToList();
+        if (IsSwiftSpecialCarrier(pinvoke.ReturnType))
+            special.Add($"return {pinvoke.ReturnType}");
+
+        if (special.Count == 0)
+            return ImmutableArray<AbiCheckViolation>.Empty;
+
+        return ImmutableArray.Create(new AbiCheckViolation
+        {
+            DiagnosticCode = SwiftSpecialOutsideSwiftDiagnosticCode,
+            RuleId = SwiftSpecialOutsideSwiftRuleId,
+            MethodName = pinvoke.MethodName,
+            EntryPoint = pinvoke.EntryPoint,
+            Explanation = $"'{pinvoke.MethodName}' binds '{pinvoke.EntryPoint}' under {pinvoke.CallingConvention}, " +
+                $"but declares a Swift special type, which names a register only the Swift calling convention has. " +
+                $"Runtimes reject the signature or pass the value as an ordinary argument; the wrapper must " +
+                $"declare it as a pointer. Report this as a generator bug.",
+            AffectedElements = special.ToImmutableArray(),
+        });
+    }
+
+    /// <summary>The diagnostic CC-006 reports under.</summary>
+    internal const string SwiftSpecialOutsideSwiftDiagnosticCode = "SWIFTBIND098";
+
+    /// <summary>The rule identifier of <see cref="CheckCC006_SwiftSpecialOutsideSwiftConvention"/>.</summary>
+    internal const string SwiftSpecialOutsideSwiftRuleId = "CC-006";
+
+    private static bool IsSwiftSpecialCarrier(string? type)
+    {
+        if (string.IsNullOrWhiteSpace(type))
+            return false;
+        var bare = StripTypeModifiers(type);
+        if (bare.EndsWith("*", StringComparison.Ordinal))
+            return false;
+        var lastDot = Math.Max(bare.LastIndexOf('.'), bare.LastIndexOf(':'));
+        if (lastDot >= 0)
+            bare = bare[(lastDot + 1)..];
+        return SwiftSpecialCarrierTypes.Contains(bare);
     }
 
     /// <summary>The diagnostic CC-005 reports under; also the code of <see cref="SelfRegisterContractException"/>.</summary>

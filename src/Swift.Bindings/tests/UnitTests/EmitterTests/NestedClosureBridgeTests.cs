@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -1180,8 +1181,11 @@ public class NestedClosureBridgeTests
     }
 
     [Fact]
-    public void TryEmit_PInvokeHasSwiftSelfForInstanceMethod()
+    public void TryEmit_InstanceMethod_PassesSelfAsAPlainArgumentOfTheCImport()
     {
+        // The wrapper is @_cdecl and takes self as its last ordinary argument, so the C import
+        // must pass it as an IntPtr. SwiftSelf is a Swift-convention register carrier: on a C
+        // import the package's transition check refuses it (SWIFTBIND133 R2).
         var (method, typeDatabase) = CreateMethodWithNestedClosure();
         var env = new MethodEnvironment(method, typeDatabase);
         var csOutput = new StringWriter();
@@ -1191,7 +1195,11 @@ public class NestedClosureBridgeTests
         NestedClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        Assert.Contains("SwiftSelf", cs);
+        Assert.DoesNotContain("SwiftSelf", cs);
+        Assert.Matches(@"PInvoke_NCB_\w+\([^)]*IntPtr self_\);", cs);
+        Assert.Contains("Payload.DangerousGetHandle())", cs);
+        var report = AbiContractChecker.Validate(cs, "TestModule", NullLogger<NestedClosureBridgeTests>.Instance);
+        Assert.DoesNotContain(report.Violations, v => v.RuleId == AbiContractChecker.SwiftSpecialOutsideSwiftRuleId);
     }
 
     [Fact]

@@ -10,7 +10,7 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// Tests for AbiContractChecker — post-generation ABI contract validation.
-/// Verifies CC-001, CC-002, CC-003, CC-004, and Tj thunk cross-module checks,
+/// Verifies CC-001, CC-002, CC-003, CC-004, CC-006, and Tj thunk cross-module checks,
 /// including the 4 checker refinements.
 /// </summary>
 public class AbiContractCheckerTests
@@ -318,6 +318,64 @@ public class AbiContractCheckerTests
         Assert.Single(cc003);
         Assert.Equal("SWIFTBIND093", cc003[0].DiagnosticCode);
         Assert.Contains("TestModule", cc003[0].AffectedElements[0]);
+    }
+
+    #endregion
+
+    #region CC-006: Swift special type outside the Swift convention
+
+    [Theory]
+    [InlineData("SwiftIndirectResult indirectResult, IntPtr _self")]
+    [InlineData("global::Swift.Runtime.SwiftIndirectResult indirectResult")]
+    [InlineData("IntPtr a, SwiftSelf self")]
+    [InlineData("SwiftSelf<global::Swift.Runtime.UInt128> self")]
+    [InlineData("IntPtr a, SwiftError error")]
+    public void CC006_SwiftSpecialOnCConventionPInvoke_DetectsViolation(string parameters)
+    {
+        // A C-convention P/Invoke has no self, error or indirect-result register to put these in.
+        // The @_cdecl wrapper reads the value as an ordinary argument, so the declaration must
+        // carry a pointer; a Swift special type there is a signature runtimes may refuse to bind.
+        foreach (var csOutput in new[]
+                 {
+                     BuildPInvoke("CallConvCdecl", "TestModuleSwiftBindings", "SBW_CEGet_TestModule_x", "void",
+                         "SBW_CEGet_TestModule_x", parameters),
+                     BuildDefaultConventionPInvoke("TestModuleSwiftBindings", "SBW_CEGet_TestModule_x", "void",
+                         "SBW_CEGet_TestModule_x", parameters),
+                 })
+        {
+            var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger, "TestModuleSwiftBindings");
+
+            var cc006 = Assert.Single(result.Violations, v => v.RuleId == "CC-006");
+            Assert.Equal("SWIFTBIND098", cc006.DiagnosticCode);
+            Assert.Equal("SBW_CEGet_TestModule_x", cc006.EntryPoint);
+        }
+    }
+
+    [Theory]
+    [InlineData("IntPtr resultPtr, IntPtr _self")]
+    [InlineData("SwiftError* error, IntPtr a")]
+    [InlineData("void* resultPtr")]
+    public void CC006_PointerCarriersOnCConventionPInvoke_NoViolation(string parameters)
+    {
+        // Discrimination control: a pointer, including a pointer to SwiftError, is an ordinary
+        // argument under any convention.
+        var csOutput = BuildDefaultConventionPInvoke("TestModuleSwiftBindings", "SBW_TestModule_x", "void",
+            "SBW_TestModule_x", parameters);
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger, "TestModuleSwiftBindings");
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-006");
+    }
+
+    [Fact]
+    public void CC006_SwiftSpecialsOnSwiftConventionPInvoke_NoViolation()
+    {
+        var csOutput = BuildPInvoke("CallConvSwift", "TestModule", "$s10TestModule5MyFoo3barSiAA0C0CHF", "void",
+            "PInvoke_bar_ABC123", "SwiftIndirectResult result, SwiftSelf self, SwiftError* error");
+
+        var result = AbiContractChecker.Validate(csOutput, "TestModule", TestLogger);
+
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-006");
     }
 
     #endregion
@@ -1532,6 +1590,22 @@ public partial class D
     /// <summary>
     /// Build a synthetic P/Invoke declaration block for testing.
     /// </summary>
+    /// <summary>A P/Invoke with no [UnmanagedCallConv]: the platform default (C), as the generator writes it.</summary>
+    private static string BuildDefaultConventionPInvoke(
+        string library,
+        string entryPoint,
+        string returnType,
+        string methodName,
+        string parameters)
+    {
+        return $@"
+public sealed partial class TestClass
+{{
+    [LibraryImport(""{library}"", EntryPoint = ""{entryPoint}"")]
+    internal static partial {returnType} {methodName}({parameters});
+}}";
+    }
+
     private static string BuildPInvoke(
         string callConv,
         string library,

@@ -552,13 +552,15 @@ public class ConstrainedExtensionEmitterTests
                 )
             });
 
-        // C# extension method allocates a VWT-sized buffer and PInvokes via
-        // SwiftIndirectResult (the resilient-struct return shape).
+        // C# extension method allocates a VWT-sized buffer and passes its address as the
+        // @_cdecl wrapper's ordinary first argument (the resilient-struct return shape). The
+        // P/Invoke is C-convention, so it must not carry SwiftIndirectResult.
         Assert.Contains("public static TestModule.SigBlob GetSignature(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         Assert.Contains("SwiftObjectHelper<TestModule.SigBlob>.GetTypeMetadata()", csOutput);
-        Assert.Contains("var indirectResult = new SwiftIndirectResult", csOutput);
+        Assert.Contains("var resultPtr = (IntPtr)buffer;", csOutput);
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.SigBlob>(buffer)", csOutput);
-        Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
+        Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
 
         // Swift wrapper writes the value into the caller-provided buffer via
         // initializeMemory(as:repeating:count:) — the resilient-struct shape.
@@ -587,7 +589,7 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("public static System.DateTimeOffset GetSignedDate(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         // P/Invoke takes only _self and returns double — Date is NOT routed through indirect-result.
         Assert.Contains("partial double SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signedDate_instance(IntPtr _self)", csOutput);
-        Assert.DoesNotContain("SwiftIndirectResult indirectResult, IntPtr _self", csOutput.Replace("\r", "")); // sanity: not the indirect shape
+        Assert.DoesNotContain("IntPtr resultPtr, IntPtr _self", csOutput.Replace("\r", "")); // sanity: not the indirect shape
         // Epoch arithmetic mirrors DateProjection.GetReturnPlan(Direct).
         Assert.Contains("AddSeconds(seconds)", csOutput);
         Assert.Contains("new System.DateTimeOffset(2001, 1, 1, 0, 0, 0, System.TimeSpan.Zero)", csOutput);
@@ -609,7 +611,8 @@ public class ConstrainedExtensionEmitterTests
             returnTypeName: "Foundation.UUID");
 
         Assert.Contains("public static System.Guid GetDeviceVerificationNonce(this Wrapper<TestModule.ConcreteA> self)", csOutput);
-        Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
+        Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
         // Finding 56c: the fixed 16-byte scratch buffer is stackalloc'd, not heap-allocated.
         // The Guid value is copied out (*(System.Guid*)buffer) before the frame exits, so the
         // former NativeMemory.Alloc(16)/Free pair (which only reclaimed the container) is gone
@@ -636,7 +639,8 @@ public class ConstrainedExtensionEmitterTests
             returnTypeName: "Foundation.Data");
 
         Assert.Contains("public static byte[] GetHeaderData(this Wrapper<TestModule.ConcreteA> self)", csOutput);
-        Assert.Contains("(SwiftIndirectResult indirectResult, IntPtr _self)", csOutput);
+        Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
         // Finding 56c: the 16-byte scratch buffer is stackalloc'd; ToByteArray() copies the
         // underlying bytes out before return, so the per-call heap alloc/free is removed.
         Assert.Contains("stackalloc byte[16]", csOutput);
@@ -1341,6 +1345,41 @@ public class ConstrainedExtensionEmitterTests
         // the Swift wrapper's initializeMemory(as:) line.
         Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.ConcreteA>(buffer)", csOutput);
         Assert.Contains("resultPtr.initializeMemory(as: TestModule.ConcreteA.self, repeating: result, count: 1)", swiftOutput);
+    }
+
+    [Theory]
+    [InlineData("TestModule.ConcreteA")]
+    [InlineData("Foundation.UUID")]
+    [InlineData("Foundation.Data")]
+    public void EmitConstrainedExtensions_IndirectResultProperty_PInvokeCarriesNoSwiftSpecialType(string returnTypeName)
+    {
+        // The getter wrapper is @_cdecl, so the result buffer is its ordinary first argument. A
+        // SwiftIndirectResult on the C-convention P/Invoke names a register that convention does
+        // not have; the post-generation ABI check (CC-006) and the pack-time transition check
+        // (rule R2) both refuse it.
+        var (csOutput, _) = EmitForGenericEnumWithProperty("value", returnTypeName);
+
+        Assert.Contains("(IntPtr resultPtr, IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+        var result = AbiContractChecker.Validate(csOutput, "TestModule",
+            NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-006");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmitConstrainedExtensions_IndirectResultMethod_PInvokeCarriesNoSwiftSpecialType(bool isStatic)
+    {
+        var (csOutput, _) = EmitForGenericEnumWithMethod(
+            "make", new NamedTypeSpec("TestModule.ConcreteA"), isStatic);
+
+        Assert.Contains("SwiftMarshal.MarshalFromSwift<TestModule.ConcreteA>(buffer)", csOutput);
+        Assert.Contains(isStatic ? "(IntPtr resultPtr)" : "(IntPtr resultPtr, IntPtr _self)", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+        var result = AbiContractChecker.Validate(csOutput, "TestModule",
+            NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        Assert.DoesNotContain(result.Violations, v => v.RuleId == "CC-006");
     }
 
     // ==================== Method test helpers ====================

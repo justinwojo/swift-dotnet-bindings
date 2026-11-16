@@ -837,8 +837,8 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits the @_cdecl operator call with pointer marshalling for struct params and
-        /// SwiftIndirectResult for struct returns. Bool returns use direct return.
+        /// Emits the @_cdecl operator call with pointer marshalling for struct params and a
+        /// result-buffer pointer for struct returns. Bool returns use direct return.
         /// </summary>
         private void EmitCdeclOperatorCall(CSharpWriter csWriter, string symbol, string returnType, string[] paramNames, PInvokeHelperContext? pinvokeHelperContext, MethodEnvironment methodEnv, string? paramTypeName = null)
         {
@@ -871,7 +871,9 @@ namespace BindingsGeneration
             }
             else
             {
-                // Struct return: use SwiftIndirectResult
+                // Struct return: the @_cdecl wrapper takes the result buffer as its first ordinary
+                // argument, so it travels as an IntPtr. SwiftIndirectResult is the Swift
+                // convention's indirect-result register carrier and is invalid on a C import.
                 var cdeclReturnMetadataName = bodyScope.ReturnMetadata;
                 var cdeclIndirectResultName = bodyScope.SwiftIndirectResult;
                 csWriter.WriteLine("void* _cdeclBuf = null;");
@@ -880,11 +882,11 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine($"var {cdeclReturnMetadataName} = TypeMetadata.GetTypeMetadataOrThrow<{returnType}>();");
                 csWriter.WriteLine($"_cdeclBuf = NativeMemory.Alloc((nuint){cdeclReturnMetadataName}.Size);");
-                csWriter.WriteLine($"var {cdeclIndirectResultName} = new SwiftIndirectResult(_cdeclBuf);");
+                csWriter.WriteLine($"var {cdeclIndirectResultName} = (IntPtr)_cdeclBuf;");
 
                 var ptrArgs = string.Join(", ", paramNames.Select(n => $"(IntPtr){bodyScope.LocalComposed($"{n}Bytes")}"));
                 csWriter.WriteLine($"{pinvokeName}({cdeclIndirectResultName}, {ptrArgs});");
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>(new IntPtr({cdeclIndirectResultName}.Value));");
+                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{returnType}>({cdeclIndirectResultName});");
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -985,13 +987,13 @@ namespace BindingsGeneration
                 var returnArg = methodDecl.CSSignature.FirstOrDefault();
                 bool returnsBool = returnArg != null && MarshallingHelpers.IsBoolType(returnArg.SwiftTypeSpec);
 
-                // Struct returns → void (result via SwiftIndirectResult), Bool returns → bool
+                // Struct returns → void (result through a leading buffer pointer), Bool returns → bool
                 returnType = returnsBool ? pInvokeSignature.ReturnType : "void";
 
                 // Build pointer parameter list
                 var paramParts = new List<string>();
                 if (!returnsBool)
-                    paramParts.Add("SwiftIndirectResult swiftIndirectResult");
+                    paramParts.Add("IntPtr swiftIndirectResult");
                 foreach (var p in pInvokeSignature.Parameters)
                     paramParts.Add($"IntPtr {p.Name}");
                 parametersString = string.Join(", ", paramParts);

@@ -488,8 +488,8 @@ public static class NestedClosureBridge
             swiftParams.Add($"    _ {closureCsName}Context: Swift.UnsafeMutableRawPointer?");
         }
 
-        // SwiftSelf last — instance methods only. Matches the C# P/Invoke signature
-        // (which appends SwiftSelf self_) and the CallConvCdecl convention on both sides.
+        // Self last — instance methods only. Matches the C# P/Invoke signature, which appends
+        // a plain IntPtr self_: the wrapper is @_cdecl, so self is an ordinary C argument.
         if (isInstance)
         {
             swiftParams.Add($"    _ {synth.SelfParam}: Swift.UnsafeMutableRawPointer");
@@ -519,8 +519,8 @@ public static class NestedClosureBridge
         }
 
         // Emit wrapper header as a free @_cdecl function. Using @_cdecl (not @_silgen_name inside
-        // `extension`) keeps the symbol on the C cdecl ABI so the C# P/Invoke's CallConvCdecl +
-        // explicit SwiftSelf parameter lines up with a regular Swift cdecl argument list.
+        // `extension`) keeps the symbol on the C cdecl ABI so the C# P/Invoke's C convention +
+        // trailing IntPtr self parameter lines up with a regular Swift cdecl argument list.
         swiftWriter.WriteLine($"@_cdecl(\"{silgenName}\")");
         swiftWriter.WriteLine($"public func _sb_{silgenName}(");
         swiftWriter.WriteLine(string.Join(",\n", swiftParams));
@@ -1252,7 +1252,8 @@ public static class NestedClosureBridge
             pinvokeParams.Add($"IntPtr {csName}Context");
         }
 
-        // SwiftSelf last — instance methods only. A constructor has no receiver to pass.
+        // Self last — instance methods only. A constructor has no receiver to pass. It is a plain
+        // IntPtr: SwiftSelf is a Swift-convention register carrier and is invalid on this C import.
         bool isInstance = !method.IsConstructor && method.MethodType != MethodType.Static;
         if (isInstance)
         {
@@ -1264,7 +1265,7 @@ public static class NestedClosureBridge
             foreach (var (_, csName, _, _) in passableNonClosureParams)
                 pinvokeReserved.Add(csName);
             var selfPInvokeName = new SyntheticNameScope(pinvokeReserved).Reserve("self_");
-            pinvokeParams.Add($"SwiftSelf {selfPInvokeName}");
+            pinvokeParams.Add($"IntPtr {selfPInvokeName}");
         }
 
         // Return type
@@ -1458,13 +1459,13 @@ public static class NestedClosureBridge
             callArgs.Add($"GCHandle.ToIntPtr(__gcHandle_{nc.Index})");
         }
 
-        // SwiftSelf — instance methods only; a constructor has no receiver yet.
+        // Self — instance methods only; a constructor has no receiver yet.
         if (!isStatic && !isCtor)
         {
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
             var selfExpr = isObjCRooted
-                ? "new SwiftSelf((void*)Handle)"
-                : "new SwiftSelf((void*)Payload.DangerousGetHandle())";
+                ? "(global::System.IntPtr)Handle"
+                : "Payload.DangerousGetHandle()";
             callArgs.Add(selfExpr);
         }
 
