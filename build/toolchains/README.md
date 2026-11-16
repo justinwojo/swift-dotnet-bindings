@@ -98,7 +98,7 @@ the 27.2 pair passes the NativeAOT gates.
 
 The workflows read every pin from these manifests. A `toolchains` job runs
 `build/scripts/ci/toolchain_ci.py resolve` and publishes each profile's SDK, workload set,
-Xcode path, hosted runner label and simulator configuration as a job output. Other jobs
+Xcode path, hosted runner label and simulator configurations as a job output. Other jobs
 take their runner and SDK from that output. `build/scripts/ci/test_toolchain_ci.py` (part of
 `nuke test`) fails if a workflow or action hard-codes an SDK, workload, runtime, Xcode
 version, Xcode path or macOS runner label, or if a release profile stops gating publish.
@@ -115,19 +115,24 @@ band, at or below the manifest SDK. Profiled runs never read it; the launcher wr
 exact pin into its own workspace.
 
 Per pull request, the `net10-xcode26` jobs run as before and `net11-xcode27` runs the strict
-compile gate and a CoreCLR simulator canary (`CORECLR_CANARY_CLASSES` in `ci.yml`, Release
-until the interpreter bridge lands; `CORECLR_CANARY_CONFIGURATION` is the switch). A release
-runs `nuke test`, the strict compile gate and the full simulator suite on all three
-profiles, and publish needs every one. Packing runs once, on `net10-xcode26`.
+compile gate and the full iOS simulator suite in each of its simulator configurations
+(`SIMULATOR_CONFIGURATIONS` in `toolchain_ci.py`): Debug, the CoreCLR interpreter, then Release,
+ReadyToRun. Each is graded against its own floor in `runtime-identity-net11-baseline.json`, and
+the Debug run also proves the interpreter ran every class and grades its negative controls. A
+separate `net11-tvos-debug` job runs the tvOS simulator Debug suite. A release runs `nuke test`,
+the strict compile gate and the full simulator suite (in every configuration) on all three
+profiles, plus `net11-tvos-debug`, and publish needs every one. Packing runs once, on
+`net10-xcode26`.
 
 Every job that runs simulator tests builds first and boots last. A booted simulator slows
 builds on the 3-core hosted runners two- to three-fold, so the compile gate and
-`binding-tests --build-only` both run before the simulator is created. Only then is the app
+`binding-tests --build-only` (iOS, or `--tvos`) both run before the simulator is created. Only then is the app
 installed and run, with `--skip-build`. That run checks the app's build receipt and is graded
 like a fresh build. `test_toolchain_ci.py` fails if a simulator job builds after its boot.
 The run step's budget covers install and test only: `--timeout` plus
-`PREBUILT_OVERHEAD` per attempt in `build/scripts/ci/ci_ios_test.py`. The build has its own
-step timeout.
+`PREBUILT_OVERHEAD` per attempt in `build/scripts/ci/ci_ios_test.py`, plus
+`INTERPRETER_CONTROLS_OVERHEAD` on the net11 Debug lane, whose negative controls launch the app
+again after the suite. The build has its own step timeout.
 
 `toolchain_ci.py` can be run locally. Use `--developer-dir` where the Xcode path differs from
 the hosted `/Applications/Xcode_<version>.app`:

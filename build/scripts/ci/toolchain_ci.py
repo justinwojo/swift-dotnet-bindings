@@ -40,11 +40,12 @@ HOSTED_RUNNERS = {26: "macos-26", 27: "xcode-27"}
 # Microsoft's official install script, the one actions/setup-dotnet wraps. It installs into an
 # explicit directory, which setup-dotnet cannot do for a runtime-only install.
 DOTNET_INSTALL_SCRIPT = "https://builds.dotnet.microsoft.com/dotnet/scripts/v1/dotnet-install.sh"
-# Build configuration of each framework's full simulator suite in the release gates. net10 is
-# Mono JIT, which the harness builds Debug. net11 is CoreCLR: Release is the lane with a seeded
-# .NET 11 identity floor, and Debug runs the interpreter, which cannot call Swift until the
-# interpreter bridge lands. Moving net11 to Debug needs that lane's floor seeded first.
-SIMULATOR_CONFIGURATIONS = {"net10.0": "Debug", "net11.0": "Release"}
+# Build configurations of each framework's full iOS simulator suite in CI and the release gates,
+# each graded against its own runtime-identity floor. net10 is Mono JIT, which the harness builds
+# Debug. net11 is CoreCLR and runs both: Debug is the CoreCLR interpreter (what a consumer's Debug
+# build runs, floor key ..._coreclr_debug, with its negative controls and per-class lane proof) and
+# Release is ReadyToRun (..._coreclr_release). Debug runs first: it is the lane a consumer meets.
+SIMULATOR_CONFIGURATIONS = {"net10.0": ("Debug",), "net11.0": ("Debug", "Release")}
 VERSION = re.compile(r"\d+(\.\d+){1,3}(-[0-9A-Za-z.]+)?")
 
 
@@ -83,7 +84,8 @@ def resolve(name):
         "managed_framework": framework,
         "ios_tfm": f"{framework}-ios",
         "runner": HOSTED_RUNNERS[major],
-        "simulator_configuration": SIMULATOR_CONFIGURATIONS[framework],
+        # Space-separated, like host_runtimes, so a workflow step can loop over it.
+        "simulator_configurations": " ".join(SIMULATOR_CONFIGURATIONS[framework]),
     }
 
 

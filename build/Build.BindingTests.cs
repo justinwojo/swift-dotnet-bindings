@@ -1436,7 +1436,7 @@ partial class Build
 
     /// <summary>
     /// Why <c>--build-only</c> cannot honour the other flags, or null. It is the first half of an
-    /// iOS Simulator run, so anything that would not build that app, or whose app a later
+    /// iOS or tvOS Simulator run, so anything that would not build that app, or whose app a later
     /// <c>--skip-build</c> run refuses (the opt-in smoke builds), is a contradiction rather than
     /// something to ignore.
     /// </summary>
@@ -1445,9 +1445,9 @@ partial class Build
         if (SkipBuild)
             return "and --skip-build contradict each other: run --build-only first, then --skip-build.";
         if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || BridgeConsumer)
-            return "builds the iOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
-        if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
-            return "is iOS Simulator only; drop the other platform flags.";
+            return "builds the iOS or tvOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
+        if (Device || Macos || MacosX64 || Catalyst || CatalystX64)
+            return "builds the iOS and tvOS Simulator apps only; drop the other platform flags.";
         if (AbiGrid || SeedRuntimeIdentityBaseline)
             return "runs no tests, so --abi-grid and --seed-runtime-identity-baseline belong on the --skip-build run.";
         if (GetActiveSmokeFlags().Count > 0)

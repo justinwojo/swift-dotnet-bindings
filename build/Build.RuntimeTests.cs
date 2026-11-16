@@ -155,7 +155,7 @@ partial class Build
     [Parameter("Skip all builds, just install + run")] readonly bool SkipBuild;
     // Splits a simulator run into its two halves so CI can build before it boots a simulator: a
     // booted simulator slows builds on the hosted runners two- to three-fold.
-    [Parameter("iOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build.")]
+    [Parameter("iOS and tvOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build.")]
     readonly bool BuildOnly;
     [Parameter("Pre-booted simulator or device UDID. With --device it identifies the physical device; simulator legs then resolve their own booted simulator.")]
     readonly string? DeviceUdid;
@@ -1780,8 +1780,18 @@ partial class Build
                 Log.Information("--- Steps 1-2: Skipped (--skip-build) ---");
             }
 
+            var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
+                $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
+            StampOrCheckRuntimeApp(appPath);
+            if (BuildOnly)
+            {
+                Log.Information("--build-only: {App} is built and its receipt recorded; " +
+                    "install and run it with --tvos --skip-build.", appPath);
+                return;
+            }
+
             // Step 3: Install + run on tvOS simulator
-            RunOnTvOSSimulator();
+            RunOnTvOSSimulator(appPath);
     }
 
     // ============================================================
@@ -1948,7 +1958,7 @@ partial class Build
     // the recovery plumbing in one place.
     // ============================================================
 
-    void RunOnTvOSSimulator()
+    void RunOnTvOSSimulator(AbsolutePath appPath)
     {
         Log.Information("--- Running on tvOS Simulator ---");
 
@@ -1982,10 +1992,6 @@ partial class Build
             : null;
         if (storeKitConfiguration is not null)
             RunStoreKitSandboxNativeControl(storeKitConfiguration, device.Udid);
-
-        var appPath = BindingTestsDir / "RuntimeTestsApp.tvOS" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
-            $"{BtFramework}-tvos" / "tvossimulator-arm64" / "RuntimeTestsApp.tvOS.app";
-        StampOrCheckRuntimeApp(appPath);
 
         var crashLogsBefore = 0;
         RunRecoveringSuite(new RecoveringSuite(

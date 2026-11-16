@@ -95,6 +95,14 @@ class ManagedTargetTests(unittest.TestCase):
 
 
 class RunTestsAcceptanceTests(unittest.TestCase):
+    def setUp(self):
+        # The budgets below depend on the resolved framework; a profile launcher's
+        # SWIFT_BINDINGS_MANAGED_FRAMEWORK must not leak in from the invoking shell.
+        environment = patch.dict(ci_ios_test.os.environ)
+        environment.start()
+        self.addCleanup(environment.stop)
+        ci_ios_test.os.environ.pop("SWIFT_BINDINGS_MANAGED_FRAMEWORK", None)
+
     def _run(self, side_effect, max_test_retries=1):
         calls = []
 
@@ -217,6 +225,19 @@ class RunTestsAcceptanceTests(unittest.TestCase):
                 self.assertEqual(run.call_args.kwargs["timeout"], 420 + overhead)
                 self.assertEqual("--skip-build" in run.call_args.args[0], prebuilt)
         self.assertLess(ci_ios_test.PREBUILT_OVERHEAD, ci_ios_test.BUILD_OVERHEAD)
+
+    def test_interpreter_lane_budgets_its_negative_control_launches(self):
+        success = subprocess.CompletedProcess(["dotnet"], 0, stdout="TEST SUCCESS\n", stderr="")
+        lanes = ((None, "Debug", 0), ("net11.0", "Release", 0),
+                 ("net11.0", "Debug", ci_ios_test.INTERPRETER_CONTROLS_OVERHEAD))
+        for framework, configuration, extra in lanes:
+            with self.subTest(framework=framework, configuration=configuration), \
+                    patch.object(ci_ios_test.subprocess, "run", return_value=success) as run, \
+                    contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(ci_ios_test.run_tests(
+                    "/fixture/BindingTests", "sim", timeout=420, prebuilt_app=True,
+                    binding_test_framework=framework, binding_test_configuration=configuration), 0)
+                self.assertEqual(run.call_args.kwargs["timeout"], 420 + ci_ios_test.PREBUILT_OVERHEAD + extra)
 
     def test_prebuilt_retry_reuses_the_build_and_never_deletes_it(self):
         startup_failure = subprocess.CompletedProcess(["dotnet"], 1, stdout=EXHAUSTED_LAUNCH, stderr="")
