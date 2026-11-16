@@ -176,7 +176,7 @@ public class EnumPayloadOwnershipTests : TestBase
                 using (value)
                 {
                     // The payload is typed NSObject; its Objective-C class is the Swift subclass.
-                    if (!value.Class.Name.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal))
+                    if (value.Class.Name?.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal) != true)
                         mismatches++;
                 }
             }
@@ -202,7 +202,7 @@ public class EnumPayloadOwnershipTests : TestBase
                 }
                 using (value)
                 {
-                    if (!value.Class.Name.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal))
+                    if (value.Class.Name?.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal) != true)
                         mismatches++;
                 }
             }
@@ -230,7 +230,7 @@ public class EnumPayloadOwnershipTests : TestBase
                     mismatches++;
                 foreach (var element in objects)
                 {
-                    if (element is null || !element.Class.Name.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal))
+                    if (element?.Class.Name?.EndsWith("EnumPayloadTrackedObject", StringComparison.Ordinal) != true)
                         mismatches++;
                     element?.Dispose();
                 }
