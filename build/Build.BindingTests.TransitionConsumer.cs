@@ -20,6 +20,11 @@
 // <SwiftBindingsTransitionSuppress> item builds with the warning instead of the error, and the same
 // unsafe package consumed by a macOS app (CoreCLR, an engine the check leaves alone) builds with no
 // diagnostic and no check at all.
+// The iOS family also builds the three consumers for the device (ios-arm64), Debug and Release,
+// whatever platforms the run names: the default device engine, Mono full-AOT on .NET 10 and CoreCLR
+// on .NET 11 (the interpreter in Debug, ReadyToRun in Release). The device builds are unsigned and
+// never installed, so they need no phone; the fresh binding's verdict proves the check read its
+// device slice.
 //
 // Each accepted build must show the check ran: its cache under obj/ lists the fixture with the
 // expected verdict, so a check that silently stopped running cannot pass as one that accepted.
@@ -43,7 +48,7 @@ partial class Build
 
     /// <summary>One consumer build of the leg and what it must produce.</summary>
     sealed record TcCase(string Name, string PackageId, string Assembly, string Platform, string Rid, string Configuration,
-        TcExpect Expect, bool Suppress = false);
+        TcExpect Expect, bool Suppress = false, bool Device = false);
 
     enum TcExpect { Verified, PrimitiveOnly, Refused, Suppressed, NotChecked }
 
@@ -135,32 +140,39 @@ partial class Build
     /// </summary>
     IEnumerable<string> RunTransitionCheckConsumers(BcfFamily family, AbsolutePath nupkgDir, AbsolutePath bindingFeed, AbsolutePath fixtureFeed)
     {
-        var platform = family.Platforms.FirstOrDefault(p => !p.OnDevice);
-        if (platform is null)
-        {
-            Log.Information("bridge-consumer [transition] {Platform}: no simulator or Mac platform in this run; the device lanes are not built here.", family.Platform);
-            return [];
-        }
-        var rid = platform.Runs[0].Rid;
         var cases = new List<TcCase>();
-        foreach (var configuration in new[] { "Debug", "Release" })
+        void AddConsumers(string prefix, string tfmPlatform, string rid, bool device)
         {
-            cases.Add(new($"fresh-{configuration}", BcfPackageId, BcfModule, platform.TfmPlatform, rid, configuration, TcExpect.Verified));
-            cases.Add(new($"unsafe-{configuration}", TcLegacyPackageId, TcLegacyPackageId, platform.TfmPlatform, rid, configuration, TcExpect.Refused));
-            cases.Add(new($"primitive-{configuration}", TcPrimitivePackageId, TcPrimitivePackageId, platform.TfmPlatform, rid, configuration, TcExpect.PrimitiveOnly));
+            foreach (var configuration in new[] { "Debug", "Release" })
+            {
+                cases.Add(new($"{prefix}fresh-{configuration}", BcfPackageId, BcfModule, tfmPlatform, rid, configuration, TcExpect.Verified, Device: device));
+                cases.Add(new($"{prefix}unsafe-{configuration}", TcLegacyPackageId, TcLegacyPackageId, tfmPlatform, rid, configuration, TcExpect.Refused, Device: device));
+                cases.Add(new($"{prefix}primitive-{configuration}", TcPrimitivePackageId, TcPrimitivePackageId, tfmPlatform, rid, configuration, TcExpect.PrimitiveOnly, Device: device));
+            }
         }
+        var platform = family.Platforms.FirstOrDefault(p => !p.OnDevice);
+        if (platform is not null)
+        {
+            var rid = platform.Runs[0].Rid;
+            AddConsumers("", platform.TfmPlatform, rid, device: false);
+            if (family.Platform == "ios")
+            {
+                cases.Add(new("unsafe-suppressed-Debug", TcLegacyPackageId, TcLegacyPackageId, platform.TfmPlatform, rid, "Debug", TcExpect.Suppressed, Suppress: true));
+                // macOS runs CoreCLR's JIT on both .NET 10 and .NET 11, which the check leaves alone.
+                cases.Add(new("unsafe-macos-Debug", TcLegacyPackageId, TcLegacyPackageId, "macos", "osx-arm64", "Debug", TcExpect.NotChecked));
+            }
+        }
+        // The device consumers are build-only and unsigned, so they run whether or not the run names
+        // --device: Mono full-AOT on .NET 10, the CoreCLR interpreter (Debug) and ReadyToRun (Release)
+        // on .NET 11. NativeAOT, the one engine the check leaves alone on a device, is a publish.
         if (family.Platform == "ios")
-        {
-            cases.Add(new("unsafe-suppressed-Debug", TcLegacyPackageId, TcLegacyPackageId, platform.TfmPlatform, rid, "Debug", TcExpect.Suppressed, Suppress: true));
-            // macOS runs CoreCLR's JIT on both .NET 10 and .NET 11, which the check leaves alone.
-            cases.Add(new("unsafe-macos-Debug", TcLegacyPackageId, TcLegacyPackageId, "macos", "osx-arm64", "Debug", TcExpect.NotChecked));
-        }
+            AddConsumers("device-", "ios", "ios-arm64", device: true);
 
         var failures = new List<string>();
         var report = new List<string>();
         foreach (var c in cases)
         {
-            var label = $"[transition] {family.Platform} {c.Name} ({RuntimeLane.Framework}, {c.Rid})";
+            var label = $"[transition] {family.Platform} {c.Name} ({RuntimeLane.Framework}, {c.Rid}{(c.Device ? $", {TransitionDeviceEngine(c.Configuration)}" : "")})";
             var appDir = family.Root / "transition" / c.Name;
             if (Directory.Exists(appDir)) appDir.DeleteDirectory();
             appDir.CreateDirectory();
@@ -186,6 +198,10 @@ partial class Build
         return failures;
     }
 
+    /// <summary>The engine a device consumer of this lane builds for, as the check names it.</summary>
+    string TransitionDeviceEngine(string configuration)
+        => !RuntimeLane.IsNet11 ? "Mono full-AOT" : configuration == "Debug" ? "CoreCLR interpreter" : "CoreCLR ReadyToRun";
+
     void WriteTransitionCheckApp(AbsolutePath appDir, TcCase c, AbsolutePath nupkgDir, AbsolutePath bindingFeed, AbsolutePath fixtureFeed)
     {
         // macOS 14 is the .NET 11 macOS SDK's floor (and above the .NET 10 one).
@@ -206,6 +222,7 @@ partial class Build
                 <!-- The check runs before CoreCompile and keys on the configuration and engine, not on
                      code generation; LLVM would only add many minutes to each Mono Release build. -->
                 <MtouchUseLlvm>false</MtouchUseLlvm>
+                {(c.Device ? "<!-- Built, never installed: no signing identity or provisioning profile is needed. -->\n<EnableCodeSigning>false</EnableCodeSigning>" : "")}
                 <NoWarn>$(NoWarn);CA1416;CA1422</NoWarn>
               </PropertyGroup>
               <ItemGroup>

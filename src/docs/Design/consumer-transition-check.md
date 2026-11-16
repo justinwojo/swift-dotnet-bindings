@@ -104,5 +104,7 @@ mismatch for a `ProjectReference` whose wrapper is among the app's native refere
   of the run, Debug and Release, against the binding the `package` mode packs (accepted and
   verified), a manifestless first-party fixture with an untyped `SwiftSelf` import (SWIFTBIND132),
   and a manifestless primitive-only fixture (accepted). The iOS family also builds the unsafe
-  fixture with its suppression (warning) and from a macOS app (not checked). Each accepted build
+  fixture with its suppression (warning) and from a macOS app (not checked), and builds the three
+  consumers for the device, unsigned and never installed: Mono full-AOT on .NET 10, the CoreCLR
+  interpreter (Debug) and ReadyToRun (Release) on .NET 11. Each accepted build
   must show the verdict the check recorded, so a check that stopped running cannot pass.
