@@ -5,13 +5,17 @@ import Foundation
 
 // MARK: - Foundation raw-value types on every route
 //
-// RunLoop.Mode is an NSString typedef Swift imports as a struct over its string, and ObjCBool one
-// byte. The platform binding's NSRunLoopMode is an int enum of the constants, and the old ObjCBool
-// carrier an eight-byte nint, so a binding passed an int where Swift reads an object and read seven
-// bytes past a one-byte result. They project onto NSString and bool.
+// RunLoop.Mode is an NSString typedef Swift imports as a struct over its string; the binding carries
+// it as NSString. ObjCBool is one byte, a Bool on iOS, tvOS and arm64 macOS and an Int8 on Mac
+// Catalyst and x86_64 macOS; the binding carries it as bool.
 //
-// The plain struct reaches Swift through @_cdecl wrappers; the generic box through direct
-// Swift-convention transitions that a native bridge carries.
+// The plain struct reaches Swift through @_cdecl wrappers. A wrapper cannot be generic over the
+// box's parameters, so its members take three routes:
+// - `echoMode` is a direct Swift-convention import that a native bridge carries.
+// - `flipped` is a direct import with no bridge: ObjCBool has no layout every target shares, so the
+//   bridge plan is refused and the member is guarded on the engines that need a bridge.
+// - `name(ofMode:)` is bound through a wrapper specialized for the concrete arguments the fixture
+//   exercises (KeyedToken, DirectTransitionFailure), as an extension method.
 
 public struct FoundationRawValues {
     public init() {}

@@ -136,6 +136,16 @@ public static class NativeThunkEmitter
         if (methodDecl.IsConstructor && env.ParentDecl is StructDecl)
             return false;
 
+        // A frozen struct with a Bool field must not cross the thunk's P/Invoke by value: its
+        // managed carrier is a by-value struct holding a C# bool, and Mono's AOT compiler leaves
+        // the managed-to-native wrapper of that signature uncompiled, so every call fails at run
+        // time in aot-only mode (the arm64 simulator, arm64 Mac Catalyst and the device). The
+        // @_cdecl wrapper moves the value through memory (an IntPtr in, a result buffer out),
+        // which every runtime handles. A struct the thunk forwards by address already crosses as
+        // a pointer and stays here.
+        if (CarriesBoolFieldStructByValue(env))
+            return false;
+
         // Failable constructors (init?) return Optional<Self>. For a value type that is address-only
         // (tag + payload buffer); for a class it is a single nullable pointer returned directly. The
         // thunk bridges neither Optional shape, so failable inits route to the @_cdecl wrapper (the
@@ -766,6 +776,29 @@ public static class NativeThunkEmitter
             return false;
         return TypeLowering.LowerParameterType(argument.SwiftTypeSpec, typeDb) is { IsIndirect: true };
     }
+
+    /// <summary>
+    /// Whether the thunk's P/Invoke would pass or return a frozen struct with a Bool field by
+    /// value (see the gate in <see cref="ShouldEmitThunk"/>). The return counts whatever its
+    /// size, since the managed declaration returns the struct itself even when the thunk bridges
+    /// an indirect result; an argument counts unless <see cref="ForwardsParameterByAddress"/>
+    /// already hands the thunk its address.
+    /// </summary>
+    private static bool CarriesBoolFieldStructByValue(MethodEnvironment env)
+    {
+        if (IsBoolFieldFrozenStruct(ThunkReturnSpec(env), env.TypeDatabase))
+            return true;
+        return env.MethodDecl.CSSignature.Skip(1).Any(a =>
+            IsBoolFieldFrozenStruct(a.SwiftTypeSpec, env.TypeDatabase)
+            && !ForwardsParameterByAddress(a, env.TypeDatabase));
+    }
+
+    private static bool IsBoolFieldFrozenStruct(TypeSpec spec, ITypeDatabase typeDb)
+        => !spec.IsEmptyTuple
+           && typeDb.TryGetTypeRecord(spec, out var record)
+           && record.Kind == TypeRecordKind.Struct
+           && MarshallingHelpers.IsTypeFrozen(record)
+           && record.Flags.HasFlag(TypeRecordFlags.HasBoolFields);
 
     /// <summary>
     /// Checks if the return type can be lowered for thunk codegen.
