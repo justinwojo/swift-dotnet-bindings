@@ -1738,10 +1738,14 @@ public static class WrapperValidation
     }
 
     /// <summary>
-    /// Per-param check: is this argument a nested frozen struct?
+    /// Per-param check: is this argument a nested frozen struct with no C representation?
     /// Nested type: the name after stripping the module prefix still contains a dot.
     /// e.g. "ModuleName.NestedOuter.Inner" -> "NestedOuter.Inner" (has dot = nested)
     /// vs   "ModuleName.Point" -> "Point" (no dot = top-level)
+    /// A nested platform value projected onto a primitive (URLError.Code) is not one: every
+    /// @_cdecl wrapper's parameter lowering (<see cref="CdeclParamMapper"/>) carries it as that
+    /// primitive. Refusing it here would leave the member on a Swift-convention wrapper that takes
+    /// the value by address while the managed side passes the primitive.
     /// </summary>
     public static bool IsNestedFrozenStructParam(ArgumentDecl arg, ITypeDatabase typeDatabase)
     {
@@ -1752,6 +1756,8 @@ public static class WrapperValidation
         if (typeRecord.Kind != TypeRecordKind.Struct)
             return false;
         if (!MarshallingHelpers.IsTypeFrozen(typeRecord))
+            return false;
+        if (CdeclParamMapper.PrimitiveCarriedPlatformValue(namedSpec, typeRecord) is not null)
             return false;
         var name = namedSpec.Name;
         var dotIndex = name.IndexOf('.');
@@ -2612,6 +2618,30 @@ public static class WrapperValidation
     /// direction — a member that throws is a bug report, whereas a member that answers with stack
     /// garbage is a data-corruption incident that reaches production looking like it worked.</para>
     /// </summary>
+    internal static bool HasAddressOnlyPlatformValueDirectDispatch(MethodEnvironment env)
+        => AnyDirectAbiSlot(env, (spec, isInOut) => !isInOut && IsValueCarriedResilientPlatformValue(spec, env.TypeDatabase));
+
+    /// <summary>
+    /// Whether <paramref name="spec"/> is a platform value the SDK declares resilient
+    /// (<see cref="SwiftLayoutResolver.IsResilientPlatformValue"/>) but the type database
+    /// projects onto a by-value carrier (a frozen record: Date onto double, UUID onto Guid,
+    /// URLError.Code onto nint). Swift passes and returns such a value through memory, so a direct
+    /// Swift-convention call that hands it over in a register gives Swift the value where it reads an
+    /// address, and reads a returned one from a register Swift never wrote.
+    /// </summary>
+    internal static bool IsValueCarriedResilientPlatformValue(TypeSpec? spec, ITypeDatabase typeDatabase)
+        => spec is NamedTypeSpec named
+           && SwiftLayoutResolver.IsResilientPlatformValue(named.Name)
+           && typeDatabase.TryGetTypeRecord(named, out var record)
+           && record.Kind == TypeRecordKind.Struct
+           && MarshallingHelpers.IsTypeFrozen(record);
+
+    internal const string AddressOnlyPlatformValueMessage =
+        "This member passes or returns a platform value type the SDK declares resilient, which Swift "
+        + "moves through memory, and no Swift wrapper could be generated to carry it; the direct P/Invoke "
+        + "would hand Swift the value where it reads an address. It is declared for source and "
+        + "conformance compatibility only and throws NotSupportedException when called";
+
     internal static bool HasTruncatedLargeOptionalDirectDispatch(MethodEnvironment env)
         => AnyDirectAbiSlot(env, (spec, isInOut) =>
                DirectOptionalAbi.HasNoSoundDirectCallPath(env.MethodDecl, spec, env.TypeDatabase, isInOut, env.ParentDecl));
@@ -2762,7 +2792,8 @@ public static class WrapperValidation
     /// <see cref="GetNonBlittableCallConvSwiftIssue"/>.</para>
     /// </summary>
     internal static bool IsAbiFloorTombstoned(MethodEnvironment env)
-        => HasTruncatedLargeOptionalDirectDispatch(env)
+        => HasAddressOnlyPlatformValueDirectDispatch(env)
+           || HasTruncatedLargeOptionalDirectDispatch(env)
            || HasForeignObjectRenderedDirectDispatch(env)
            || IsUncallableInternalDirectDispatch(env)
            || HasWitnessTableArityMismatch(env)
@@ -3087,6 +3118,9 @@ public static class WrapperValidation
         // these members and stamps them with a sentence about reading past the first word. Their
         // slot is exactly the right width; nothing is truncated. That marker would send a consumer
         // hunting for a truncation that does not exist.
+        if (!env.MethodDecl.IsAccessor && HasAddressOnlyPlatformValueDirectDispatch(env))
+            return (UncallableAbiDiagnosticId, AddressOnlyPlatformValueMessage);
+
         if (!env.MethodDecl.IsAccessor && HasForeignObjectRenderedDirectDispatch(env))
         {
             return (UncallableAbiDiagnosticId,

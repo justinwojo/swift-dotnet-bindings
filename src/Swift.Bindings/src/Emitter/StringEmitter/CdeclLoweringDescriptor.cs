@@ -40,6 +40,7 @@ internal enum CdeclParamCategory
     ComplexEnum,
     NonFrozenStruct,
     SystemFrozenStruct,
+    PrimitiveCarriedPlatformValue,
     ObjCBridgedValueStruct,
     CustomFrozenStruct,
     RawBufferPointer,

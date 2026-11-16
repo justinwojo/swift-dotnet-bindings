@@ -40,7 +40,7 @@ public sealed record AppleTypedEnumAdapter(string ProjectedType, string CarrierT
 /// the @_cdecl boundary as ObjC object pointers (IntPtr), not Swift struct bytes.
 ///
 /// Parameter direction: extract .Handle from the .NET iOS binding object (e.g., NSUrl.Handle).
-/// Return direction: wrap IntPtr with GetNSObject&lt;T&gt;() (same as ObjCBridgedProjection).
+/// Return direction: adopt the +1 reference a Swift result carries (same as ObjCBridgedProjection).
 ///
 /// An optional <see cref="AppleTypedEnumAdapter"/> covers the variant whose .NET projection is a C#
 /// enum rather than an NSObject subclass (an Apple NS_STRING_ENUM / NS_TYPED_ENUM). The ABI is
@@ -133,7 +133,12 @@ public class ObjCBridgeableProjection : ITypeProjection
     }
 
     public MarshalPlan GetReturnPlan(string resultName, ReturnStrategy strategy)
-        => new MarshalPlan { PInvokeExpression = BridgeReadExpression(resultName, nonNull: true) };
+        => new MarshalPlan
+        {
+            PInvokeExpression = BridgeReadExpression(
+                MarshallingHelpers.ReturnedObjectPointer(resultName, strategy), nonNull: true, ownsReference: true),
+            RequiresUnsafe = strategy == ReturnStrategy.IndirectResult
+        };
 
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;

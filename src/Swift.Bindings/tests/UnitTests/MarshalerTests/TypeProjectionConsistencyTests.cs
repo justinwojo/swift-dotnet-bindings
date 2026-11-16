@@ -445,12 +445,12 @@ public class TypeProjectionConsistencyTests
     }
 
     [Fact]
-    public void SignatureAgreement_ObjCBridged_ReturnUsesGetNSObject()
+    public void SignatureAgreement_ObjCBridged_ReturnAdoptsTheObject()
     {
         var proj = new ObjCBridgedProjection("UIImage");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("GetNSObject<UIImage>", plan.PInvokeExpression);
+        Assert.Contains("GetINativeObject<UIImage>(result, true)", plan.PInvokeExpression);
     }
 
     [Fact]

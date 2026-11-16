@@ -26,7 +26,9 @@ namespace BindingsGeneration.Tests;
 /// generator's own type database and read from the platform reference assembly, then compared leaf
 /// by leaf in register class and size: a carrier of another width or class reads or writes the
 /// wrong bytes on every route that passes the value. A projection that differs on purpose is listed
-/// in <see cref="DesignedConversions"/> with the boundary conversion that makes it correct.
+/// in <see cref="DesignedConversions"/> with the boundary conversion that makes it correct. A
+/// projection the test cannot compare is listed in <c>build/baselines/platform-type-abi-exclusions.json</c>
+/// under the reason it cannot be, and an unlisted one fails the test.
 /// </summary>
 public class PlatformTypeAbiAuditTests
 {
@@ -99,7 +101,7 @@ public class PlatformTypeAbiAuditTests
         return names;
     }
 
-    private sealed record SwiftSide(string? Unprobed, string[] Leaves, int Size);
+    private sealed record SwiftSide(string? Unprobed, string[] Leaves, int Size, bool? AddressOnly = null);
 
     private static Dictionary<string, SwiftSide> LoadAuditTable()
     {
@@ -109,7 +111,8 @@ public class PlatformTypeAbiAuditTests
         {
             rows[row.Name] = row.Value.TryGetProperty("unprobed", out var unprobed)
                 ? new SwiftSide(unprobed.GetString(), Array.Empty<string>(), 0)
-                : new SwiftSide(null, row.Value.GetProperty("leaves").EnumerateArray().Select(l => l.GetString()!).ToArray(), row.Value.GetProperty("size").GetInt32());
+                : new SwiftSide(null, row.Value.GetProperty("leaves").EnumerateArray().Select(l => l.GetString()!).ToArray(), row.Value.GetProperty("size").GetInt32(),
+                    row.Value.TryGetProperty("addressOnly", out var addressOnly) ? addressOnly.GetBoolean() : null);
         }
         return rows;
     }
@@ -124,6 +127,48 @@ public class PlatformTypeAbiAuditTests
         Assert.True(missing.Count == 0 && stale.Count == 0,
             "build/baselines/platform-type-abi.json is out of date; rerun build/scripts/platform-type-abi-probe.py. "
             + $"Not recorded: {string.Join(", ", missing)}. No longer projected: {string.Join(", ", stale)}.");
+    }
+
+    /// <summary>
+    /// A platform value the SDK declares without <c>@frozen</c> is address-only to every client: Swift
+    /// takes it <c>@in_guaranteed</c> and returns it indirectly, whatever its size. When a bundled
+    /// database still calls it frozen and projects it onto a by-value managed carrier, each
+    /// Swift-convention route would put the value in a register where Swift reads an address, so the
+    /// generator has to know it is resilient (<c>SwiftLayoutResolver.ResilientPlatformValues</c>) and
+    /// route it through memory. This holds that list to the conventions the probe read from SIL, in
+    /// both directions.
+    /// </summary>
+    [Fact]
+    public async Task EveryAddressOnlyValueCarriedByValue_IsKnownResilient()
+    {
+        var database = new TypeDatabase();
+        foreach (var xml in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Swift"), "*Database.xml").OrderBy(p => p, StringComparer.Ordinal))
+            await database.LoadModuleDatabaseFromFile(xml);
+
+        var table = LoadAuditTable();
+        var unknown = new List<string>();
+        var checkedRows = 0;
+        foreach (var (name, swift) in table)
+        {
+            if (swift.AddressOnly != true || !database.TryGetTypeRecord(new NamedTypeSpec(name), out var record))
+                continue;
+            checkedRows++;
+            var carrier = CarrierName(record);
+            var carriedByValue = record.Kind == TypeRecordKind.Struct && MarshallingHelpers.IsTypeFrozen(record)
+                && !carrier.StartsWith("Swift.", StringComparison.Ordinal);
+            if (carriedByValue && !SwiftLayoutResolver.ResilientPlatformValues.Contains(name))
+                unknown.Add($"{name} (carried as {carrier})");
+        }
+        Assert.True(checkedRows > 0, "no address-only row resolved to a record, so nothing was checked; rerun build/scripts/platform-type-abi-probe.py");
+        Assert.True(unknown.Count == 0,
+            "These platform values are address-only in the SDK but a database projects them frozen onto a by-value carrier, and "
+            + "SwiftLayoutResolver.ResilientPlatformValues does not list them, so a Swift-convention route passes them in a register:\n"
+            + string.Join("\n", unknown));
+
+        var stale = SwiftLayoutResolver.ResilientPlatformValues
+            .Where(n => !table.TryGetValue(n, out var row) || row.AddressOnly != true).ToList();
+        Assert.True(stale.Count == 0,
+            "SwiftLayoutResolver.ResilientPlatformValues lists values the SDK does not pass by address: " + string.Join(", ", stale));
     }
 
     /// <summary>
@@ -174,10 +219,16 @@ public class PlatformTypeAbiAuditTests
     {
         var references = ManagedReferenceContext.Resolve(PlatformInfoFactory.Create(ApplePlatform.iOS));
         Skip.IfNot(references.IsAvailable, "the iOS reference pack is not installed");
+        // The generator resolves registry-described enums against the platform surface it binds to.
+        using var referenceScope = AppleTypeSurfaceIndex.UseReferenceContext(references);
 
         var paths = references.ReferencePaths.GroupBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase).Select(g => g.First()).ToList();
-        using var context = new MetadataLoadContext(new PathAssemblyResolver(paths), "System.Runtime");
-        var assemblies = paths.Select(p => { try { return context.LoadFromAssemblyPath(p); } catch (BadImageFormatException) { return null; } })
+        // The runtime's own carriers (Swift.CGPoint, Swift.DispatchQueue, ...) are read from the
+        // Swift.Runtime assembly the generator ships beside.
+        var runtimeAssembly = Path.Combine(AppContext.BaseDirectory, "Swift.Runtime.dll");
+        Assert.True(File.Exists(runtimeAssembly), $"{runtimeAssembly} is missing, so the runtime's carriers cannot be compared");
+        using var context = new MetadataLoadContext(new PathAssemblyResolver(paths.Append(runtimeAssembly)), "System.Runtime");
+        var assemblies = paths.Append(runtimeAssembly).Select(p => { try { return context.LoadFromAssemblyPath(p); } catch (BadImageFormatException) { return null; } })
             .Where(a => a is not null).Select(a => a!).ToList();
         Type? Find(string fullName) => assemblies.Select(a => a.GetType(fullName)).FirstOrDefault(t => t is not null);
 
@@ -186,35 +237,74 @@ public class PlatformTypeAbiAuditTests
             await database.LoadModuleDatabaseFromFile(xml);
 
         var table = LoadAuditTable();
+        var exclusions = LoadExclusions();
+        var excluded = new HashSet<string>(StringComparer.Ordinal);
         var mismatches = new List<string>();
         var staleConversions = new List<string>();
-        var notCompared = new List<string>();
+        var unclassified = new List<string>();
+        var compared = 0;
+
+        // A row this test cannot compare must be listed in the exclusion ledger under the reason it
+        // has; anything else is a carrier nobody has accounted for.
+        bool Exclude(string name, ExclusionCategory category, string detail)
+        {
+            if (exclusions.TryGetValue(name, out var entry) && entry.Category == category)
+            {
+                excluded.Add(name);
+                _output.WriteLine($"not compared {name} [{category}]: {entry.Reason}");
+            }
+            else
+            {
+                unclassified.Add(exclusions.TryGetValue(name, out var other)
+                    ? $"{name}: {detail}, but the ledger lists it as {other.Category}"
+                    : $"{name}: {detail}");
+            }
+            return true;
+        }
+
         foreach (var (name, source) in ProjectionEntries())
         {
             if (!table.TryGetValue(name, out var swift))
                 continue; // AuditTable_RecordsExactlyTheProjections reports it
             if (swift.Unprobed is not null)
             {
-                notCompared.Add($"{name}: no Swift type of that spelling ({swift.Unprobed})");
+                Exclude(name, ExclusionCategory.NoSwiftSpelling, $"no Swift type of that spelling ({swift.Unprobed})");
                 continue;
             }
-            if (!database.TryGetTypeRecord(new NamedTypeSpec(name), out var record))
+            string carrier;
+            string[]? managed;
+            if (database.TryGetTypeRecord(new NamedTypeSpec(name), out var record))
             {
-                notCompared.Add($"{name}: the generator resolves no record");
-                continue;
+                carrier = CarrierName(record);
+                if (carrier.StartsWith("Swift.", StringComparison.Ordinal) && swift.Leaves.Any(l => l.StartsWith("opaque", StringComparison.Ordinal)))
+                {
+                    Exclude(name, ExclusionCategory.OpaquePayload, $"the runtime's {carrier} holds an opaque Swift payload");
+                    continue;
+                }
+                managed = ManagedLeaves(carrier, record, Find);
+                if (managed is null)
+                {
+                    Exclude(name, ExclusionCategory.NotInReferenceAssembly, $"{carrier} is in neither the iOS reference assembly nor Swift.Runtime");
+                    continue;
+                }
             }
-            var carrier = CarrierName(record);
-            if (carrier.StartsWith("Swift.", StringComparison.Ordinal))
+            else if (exclusions.TryGetValue(name, out var alias) && alias.Category == ExclusionCategory.AliasCarrier && alias.Carrier is { } aliasCarrier)
             {
-                notCompared.Add($"{name}: carried by the runtime's own {carrier}");
-                continue;
+                carrier = aliasCarrier;
+                managed = Find(carrier) is { } aliasType ? FlattenAll(aliasType) : null;
+                excluded.Add(name);
+                if (managed is null)
+                {
+                    unclassified.Add($"{name}: the ledger's alias carrier {carrier} is in neither the iOS reference assembly nor Swift.Runtime");
+                    continue;
+                }
             }
-            var managed = ManagedLeaves(carrier, record, Find);
-            if (managed is null)
+            else
             {
-                notCompared.Add($"{name}: {carrier} is not in the iOS reference assembly");
+                Exclude(name, ExclusionCategory.NotProjected, "the generator resolves no record");
                 continue;
             }
+            compared++;
             var swiftClasses = swift.Leaves.Select(SwiftClass).ToArray();
             var agrees = swiftClasses.SequenceEqual(managed);
             var line = $"{name} ({source}): Swift [{string.Join(",", swift.Leaves)}] ({swift.Size} bytes) vs {carrier} [{string.Join(",", managed)}]";
@@ -229,14 +319,69 @@ public class PlatformTypeAbiAuditTests
                 mismatches.Add(line);
             }
         }
-        foreach (var line in notCompared)
-            _output.WriteLine("not compared " + line);
 
+        Assert.True(compared > 0, "no projection resolved to a carrier, so nothing was compared");
         Assert.True(mismatches.Count == 0,
             "These projections carry a managed value of another representation than the Swift value, so every route that "
             + "passes one reads or writes the wrong bytes:\n" + string.Join("\n", mismatches));
         Assert.True(staleConversions.Count == 0,
             "These designed conversions now match the Swift representation; drop them from DesignedConversions:\n" + string.Join("\n", staleConversions));
+        Assert.True(unclassified.Count == 0,
+            "These projections cannot be compared and build/baselines/platform-type-abi-exclusions.json does not list them under "
+            + "that reason. Give each a carrier the test can compare, or classify it in the ledger with the reason no route "
+            + "passes it wrongly:\n" + string.Join("\n", unclassified));
+        var stale = exclusions.Keys.Where(n => !excluded.Contains(n)).ToList();
+        Assert.True(stale.Count == 0,
+            "build/baselines/platform-type-abi-exclusions.json lists rows this test now compares or no longer sees; drop them:\n"
+            + string.Join("\n", stale));
+    }
+
+    internal enum ExclusionCategory
+    {
+        /// <summary>The SDK declares no Swift type of the projected spelling on the probed platform.</summary>
+        NoSwiftSpelling,
+        /// <summary>The runtime carrier holds the Swift value's bytes opaquely and moves them by value witnesses.</summary>
+        OpaquePayload,
+        /// <summary>The managed carrier exists in neither the iOS reference assembly nor Swift.Runtime.</summary>
+        NotInReferenceAssembly,
+        /// <summary>No record and no carrier: the generator binds no member that passes the type.</summary>
+        NotProjected,
+        /// <summary>No record, but the generator resolves the name to a recorded carrier, which is compared.</summary>
+        AliasCarrier,
+    }
+
+    internal sealed record Exclusion(ExclusionCategory Category, string Reason, string? Carrier);
+
+    internal static Dictionary<string, Exclusion> LoadExclusions()
+    {
+        using var ledger = JsonDocument.Parse(File.ReadAllText(Path.Combine(RepoRoot, "build", "baselines", "platform-type-abi-exclusions.json")));
+        var rows = new Dictionary<string, Exclusion>(StringComparer.Ordinal);
+        foreach (var row in ledger.RootElement.GetProperty("rows").EnumerateObject())
+        {
+            var category = Enum.Parse<ExclusionCategory>(row.Value.GetProperty("category").GetString()!);
+            var reason = row.Value.GetProperty("reason").GetString();
+            if (string.IsNullOrWhiteSpace(reason))
+                throw new InvalidOperationException($"platform-type-abi-exclusions.json: {row.Name} has no reason");
+            var carrier = row.Value.TryGetProperty("carrier", out var c) ? c.GetString() : null;
+            if ((category == ExclusionCategory.AliasCarrier) != (carrier is not null))
+                throw new InvalidOperationException($"platform-type-abi-exclusions.json: {row.Name} must record a carrier exactly when it is an AliasCarrier");
+            rows[row.Name] = new Exclusion(category, reason, carrier);
+        }
+        return rows;
+    }
+
+    /// <summary>
+    /// The ledger is closed in both directions: dropping any one row turns the carrier test red, so a
+    /// newly unresolvable carrier cannot pass unclassified.
+    /// </summary>
+    [Fact]
+    public void ExclusionLedger_EveryRowHasACategoryAndReason()
+    {
+        var exclusions = LoadExclusions();
+        Assert.NotEmpty(exclusions);
+        var table = LoadAuditTable();
+        var unknown = exclusions.Keys.Where(n => !table.ContainsKey(n)).ToList();
+        Assert.True(unknown.Count == 0, "platform-type-abi-exclusions.json lists names the audit table does not record: " + string.Join(", ", unknown));
     }
 
     /// <summary>
@@ -272,6 +417,11 @@ public class PlatformTypeAbiAuditTests
         var type = find(carrier);
         if (type is null)
             return record.Kind == TypeRecordKind.Class ? new[] { "I8" } : null;
+        return FlattenAll(type);
+    }
+
+    private static string[] FlattenAll(Type type)
+    {
         var leaves = new List<string>();
         Flatten(type, leaves, 0);
         return leaves.ToArray();

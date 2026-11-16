@@ -31,7 +31,7 @@ public class WrapperEmitterReturnTests
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
         // ObjCBridgeable: URL return uses GetNSObject (IntPtr → NSUrl)
-        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        Assert.Contains("GetINativeObject<Foundation.NSUrl>(result, true)", csOutput);
         Assert.Contains("Foundation.NSUrl", csOutput);
     }
 
@@ -80,8 +80,8 @@ public class WrapperEmitterReturnTests
 
         var (csOutput, _) = EmitMethod(method, typeDatabase);
 
-        // ObjCBridgeable: indirect URL return also uses GetNSObject
-        Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
+        // ObjCBridgeable: the URL comes back as its bridged NSURL at +1, which the wrapper adopts
+        Assert.Contains("GetINativeObject<Foundation.NSUrl>(result, true)", csOutput);
         Assert.Contains("Foundation.NSUrl", csOutput);
     }
 

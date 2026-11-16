@@ -358,6 +358,7 @@ namespace BindingsGeneration
                 // Emit operators
                 var operatorHandler = new OperatorHandler(_logger);
                 var emittedOperatorSymbols = new HashSet<string>();
+                var emittedOperators = new List<OperatorDecl>();
                 foreach (var operatorDecl in classDecl.Operators)
                 {
                     if (OperatorHandler.IsSupportedOperator(operatorDecl.OperatorSymbol))
@@ -374,6 +375,7 @@ namespace BindingsGeneration
                         if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
+                            emittedOperators.Add(operatorDecl);
                         }
                     }
                     else
@@ -383,7 +385,7 @@ namespace BindingsGeneration
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-                operatorHandler.ValidateAndEmitPairs(csWriter, classDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols, env.TypeDatabase, isReferenceType: true);
+                operatorHandler.ValidateAndEmitPairs(csWriter, emittedOperators, typeNameWithGenerics, emittedOperatorSymbols, env.TypeDatabase, isReferenceType: true);
 
                 bool hasEquality = emittedOperatorSymbols.Contains("==");
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");

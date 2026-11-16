@@ -6,7 +6,8 @@ namespace BindingsGeneration;
 /// <summary>
 /// Projection for ObjC bridged types (UIImage, NSObject subclasses, etc.).
 /// Parameter direction: extract .Handle from the .NET iOS binding object.
-/// Return direction: wrap IntPtr with GetNSObject&lt;T&gt;().
+/// Return direction: adopt the +1 reference a Swift result carries (see
+/// <see cref="MarshallingHelpers.ReturnedObjectPointer"/>).
 /// </summary>
 public class ObjCBridgedProjection : ITypeProjection
 {
@@ -37,7 +38,9 @@ public class ObjCBridgedProjection : ITypeProjection
     {
         return new MarshalPlan
         {
-            PInvokeExpression = MarshallingHelpers.FormatObjCBridgeCall(_csharpTypeName, resultName, nonNull: true)
+            PInvokeExpression = MarshallingHelpers.FormatObjCBridgeCall(
+                _csharpTypeName, MarshallingHelpers.ReturnedObjectPointer(resultName, strategy), nonNull: true, ownsReference: true),
+            RequiresUnsafe = strategy == ReturnStrategy.IndirectResult
         };
     }
 

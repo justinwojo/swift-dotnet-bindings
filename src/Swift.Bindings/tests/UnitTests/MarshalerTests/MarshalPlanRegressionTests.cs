@@ -167,12 +167,12 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void ObjCBridged_ReturnPlan_GetNSObject()
+    public void ObjCBridged_ReturnPlan_AdoptsTheOwnedResult()
     {
         var proj = new ObjCBridgedProjection("UIImage");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Contains("GetNSObject<UIImage>(result)", plan.PInvokeExpression);
+        Assert.Contains("GetINativeObject<UIImage>(result, true)", plan.PInvokeExpression);
     }
 
     #endregion

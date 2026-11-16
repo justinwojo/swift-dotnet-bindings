@@ -17,6 +17,12 @@
 #
 # Rerun it after adding or changing a projection entry, or when moving to a new SDK, and commit
 # the table with the change that needs it.
+#
+# Each value type also records how a client module compiled with library evolution passes it,
+# read from SIL: a type Swift passes @in_guaranteed is address-only to its clients (a resilient,
+# non-frozen struct or enum), so every route hands Swift a pointer to it, never the value in
+# registers, whatever its size. The bundled databases may only mark such a type frozen when it is
+# not address-only.
 
 import argparse
 import glob
@@ -158,6 +164,43 @@ def leaves_of(row):
     return [f"opaque{row['size']}"]
 
 
+def sil_address_only(work, names, env, sdk, flags):
+    """Whether a library-evolution client passes each type @in_guaranteed (address-only), from SIL.
+
+    A generic type has no convention until it is specialized; it is left out, and the audit
+    reads its absence as unproven."""
+    modules = sorted({swift_expression(n).split(".")[0] for n in names} - {"Foundation", "CoreGraphics"})
+    header = ["import Foundation", "import CoreGraphics"] + [f"import {m}" for m in modules]
+    source = os.path.join(work, "convention.swift")
+    skipped = set()
+    while True:
+        lines = header + [f"public func __abiProbe{i}(_ value: {swift_expression(n)}) {{}}"
+                          for i, n in enumerate(names) if n not in skipped]
+        with open(source, "w") as f:
+            f.write("\n".join(lines) + "\n")
+        sil = subprocess.run(["xcrun", "swiftc", "-target", TARGET, "-sdk", sdk, *flags, "-parse-as-library",
+                              "-enable-library-evolution", "-module-name", "AbiProbe", "-emit-sil", "-Onone", source],
+                             env=env, capture_output=True, text=True)
+        if sil.returncode == 0:
+            break
+        failed = set()
+        for line, message in re.findall(r"^.*convention\.swift:(\d+):\d+: error: (.*)$", sil.stderr, re.M):
+            match = re.search(r"__abiProbe(\d+)\(", lines[int(line) - 1])
+            if match is None or "requires arguments in <...>" not in message:
+                sys.exit(f"convention probe failed to compile:\n{line}: {message}")
+            failed.add(names[int(match.group(1))])
+        if not failed:
+            sys.exit("convention probe failed without a located error")
+        skipped |= failed
+    found = {}
+    for index, convention in re.findall(r"^sil (?:\[[^\]]*\] )*@\$s8AbiProbe\d+__abiProbe(\d+)\S* : \$@convention\(thin\) \((@\w+ )?", sil.stdout, re.M):
+        found[names[int(index)]] = convention.strip() == "@in_guaranteed"
+    missing = [n for n in names if n not in found and n not in skipped]
+    if missing:
+        sys.exit(f"the convention probe found no SIL function for: {', '.join(missing)}")
+    return found
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--xcode", default="/Applications/Xcode-26.3.0.app")
@@ -197,6 +240,7 @@ def main():
                 sys.exit(f"probe failed without a located error:\n{result.stderr[-4000:]}")
             absent.update(failed)
         output = subprocess.check_output([binary], text=True)
+        address_only = sil_address_only(work, [n for n in sorted(entries) if n not in absent], env, sdk, flags)
 
     rows = {}
     for line in output.splitlines():
@@ -212,6 +256,8 @@ def main():
                   "leaves": leaves_of(row)}
         if "rawValue" in row:
             record["rawValue"] = row["rawValue"]
+        if row["kind"] == "value" and name in address_only:
+            record["addressOnly"] = address_only[name]
         types[name] = record
     with open(args.output, "w") as f:
         json.dump({"target": TARGET, "sdk": f"macosx{sdk_version}",

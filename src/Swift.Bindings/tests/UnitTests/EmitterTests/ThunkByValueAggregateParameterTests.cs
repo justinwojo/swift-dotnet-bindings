@@ -46,6 +46,52 @@ public class ThunkByValueAggregateParameterTests
         Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
     }
 
+    // ---- Frozen structs with a Bool field: never by value through a thunk's P/Invoke ----
+
+    [Theory]
+    [InlineData("b,b,i4", 8)]          // one INTEGER eightbyte holding two Bools and an Int32
+    [InlineData("i4,b", 8)]
+    [InlineData("b,i8", 16)]
+    [InlineData("b,f8,b", 24)]         // swiftcc returns it indirectly; the managed side still returns the struct
+    public void BoolFieldFrozenStruct_ReturnedByValue_IsNotThunked(string layout, int size)
+    {
+        // Mono's AOT compiler leaves the managed-to-native wrapper of a P/Invoke returning such a
+        // struct uncompiled, so the thunk route fails at run time on every aot-only Mono lane.
+        var db = CreateTypeDatabase(("TestModule.Flags", layout, size, TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields));
+        var env = FreeFunctionEnv(db, "Swift.Int", returnType: "TestModule.Flags");
+
+        Assert.False(NativeThunkEmitter.ShouldEmitThunk(env));
+    }
+
+    [Fact]
+    public void BoolFieldFrozenStruct_PassedByValue_IsNotThunked()
+    {
+        var db = CreateTypeDatabase(("TestModule.Flags", "b,b,i4", 8, TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields));
+
+        Assert.False(NativeThunkEmitter.ShouldEmitThunk(FreeFunctionEnv(db, "TestModule.Flags")));
+    }
+
+    [Fact]
+    public void SameLayoutWithoutBoolFields_StaysOnTheThunk()
+    {
+        // Control: the gate keys on the Bool field, not on a one-eightbyte struct crossing by value.
+        var db = CreateTypeDatabase(("TestModule.Plain", "i4,i4", 8, TypeRecordFlags.Frozen));
+
+        Assert.True(NativeThunkEmitter.ShouldEmitThunk(FreeFunctionEnv(db, "TestModule.Plain")));
+        Assert.True(NativeThunkEmitter.ShouldEmitThunk(FreeFunctionEnv(db, "Swift.Int", returnType: "TestModule.Plain")));
+    }
+
+    [Fact]
+    public void BoolFieldFrozenStruct_ForwardedByAddress_StaysOnTheThunk()
+    {
+        // Wider than swiftcc's direct budget, so the managed side hands the thunk a pointer, not the struct.
+        var db = CreateTypeDatabase(("TestModule.BigFlags", "b,i8,i8,i8,i8", 40, TypeRecordFlags.Frozen | TypeRecordFlags.HasBoolFields));
+        var env = FreeFunctionEnv(db, "TestModule.BigFlags");
+
+        Assert.True(NativeThunkEmitter.ForwardsParameterByAddress(env.MethodDecl.CSSignature[1], db));
+        Assert.True(NativeThunkEmitter.ShouldEmitThunk(env));
+    }
+
     // ---- Shapes swiftcc passes indirectly: thunked, and forwarded by address ----
 
     [Theory]
@@ -158,11 +204,13 @@ public class ThunkByValueAggregateParameterTests
 
     // ---- Harness ----
 
-    private static MethodEnvironment FreeFunctionEnv(TypeDatabase db, string paramType)
+    private static MethodEnvironment FreeFunctionEnv(TypeDatabase db, string paramType, string? returnType = null)
     {
         db.AsyncLibraryName = "TestModuleSwiftBindings";
         var module = CreateModuleDecl("TestModule");
         var method = CreateFreeFunction("consume", module, Arg("a", paramType, module));
+        if (returnType != null)
+            method.CSSignature[0] = method.CSSignature[0] with { SwiftTypeSpec = new NamedTypeSpec(returnType) };
         return new MethodEnvironment(method, db);
     }
 

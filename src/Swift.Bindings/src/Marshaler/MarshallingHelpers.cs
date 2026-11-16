@@ -1235,6 +1235,17 @@ namespace BindingsGeneration
         /// <param name="publicType">The C# public type name (e.g., "UIKit.UIImage", "CoreText.CTFont").</param>
         /// <param name="resultExpr">The expression holding the IntPtr result.</param>
         /// <param name="nonNull">If true, appends ! for non-null assertion.</param>
+        /// <summary>
+        /// The object pointer of an Objective-C result a Swift member returned, as a C# expression.
+        /// Swift returns a result <c>@owned</c>: a native call hands the object back at +1, a
+        /// <c>@_cdecl</c> wrapper hands it back through <c>passRetained</c>, and a wrapper that returns
+        /// through a result buffer leaves the +1 in the buffer, whose first word is the object (a
+        /// struct over one NSString, such as <c>RunLoop.Mode</c>, is laid out as that string). The
+        /// reader has to take that reference over (<c>ownsReference: true</c>) exactly once.
+        /// </summary>
+        public static string ReturnedObjectPointer(string resultName, ReturnStrategy strategy)
+            => strategy == ReturnStrategy.IndirectResult ? $"*(global::System.IntPtr*)({resultName})" : resultName;
+
         public static string FormatObjCBridgeCall(string publicType, string resultExpr, bool nonNull = false, bool ownsReference = false)
         {
             var suffix = nonNull ? "!" : "";
