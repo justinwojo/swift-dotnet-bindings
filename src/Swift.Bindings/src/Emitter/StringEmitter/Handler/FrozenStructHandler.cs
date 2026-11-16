@@ -355,6 +355,7 @@ namespace BindingsGeneration
                 // CallConvSwift (which crashes on NativeAOT with non-blittable SafeHandle params).
                 var operatorHandler = new OperatorHandler(_logger);
                 var emittedOperatorSymbols = new HashSet<string>();
+                var emittedOperators = new List<OperatorDecl>();
                 bool hasEquatableConformance = structDecl.Conformances.Any(c => c.Protocol.Name == "Equatable");
                 bool hasCdeclWrapperSupport = context.GetEmissionContext() != null &&
                     env.TypeDatabase.AsyncLibraryName != null &&
@@ -380,6 +381,7 @@ namespace BindingsGeneration
                         if (emitted)
                         {
                             emittedOperatorSymbols.Add(operatorDecl.OperatorSymbol);
+                            emittedOperators.Add(operatorDecl);
                         }
                     }
                     else
@@ -389,7 +391,7 @@ namespace BindingsGeneration
                 }
                 // Handle paired operators (e.g., if == is defined but != is not)
                 // Use typeNameWithGenerics to ensure generic types have proper type parameters in operator signatures
-                operatorHandler.ValidateAndEmitPairs(csWriter, structDecl.Operators, typeNameWithGenerics, emittedOperatorSymbols, env.TypeDatabase, isProjectedAsClass);
+                operatorHandler.ValidateAndEmitPairs(csWriter, emittedOperators, typeNameWithGenerics, emittedOperatorSymbols, env.TypeDatabase, isProjectedAsClass);
 
                 bool hasEquality = emittedOperatorSymbols.Contains("==");
                 bool hasInequality = emittedOperatorSymbols.Contains("!=");

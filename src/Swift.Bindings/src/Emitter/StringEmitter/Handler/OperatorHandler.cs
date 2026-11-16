@@ -259,6 +259,14 @@ namespace BindingsGeneration
                 // Check if this operator should use a @_cdecl wrapper.
                 // Needed when struct has non-blittable fields (Bool), float/double fields, or is > 16 bytes.
                 bool usesCdeclWrapper = ShouldEmitOperatorWrapper(operatorDecl, typeDatabase, swiftWriter, methodEnv);
+                if (usesCdeclWrapper && !OperatorWrapperCarriesSignature(operatorDecl, parentDecl))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' takes an operand other than its parent type or returns a generic type; the @_cdecl operator wrapper cannot carry it — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
+                        "The @_cdecl operator wrapper reads every operand as the parent type and names the result without its generic arguments, so an operand of another type, or a generic result such as an Optional, cannot cross it.");
+                    RollbackOperator();
+                    return false;
+                }
                 if (usesCdeclWrapper && swiftWriter != null && emissionContext != null)
                 {
                     var cdeclSymbol = EmitOperatorSwiftWrapper(swiftWriter, operatorDecl, parentDecl, emissionContext);
@@ -287,6 +295,33 @@ namespace BindingsGeneration
                     _logger.LogWarning($"Operator '{symbol}' uses typed throws, which needs a @_cdecl wrapper to box its error — skipping.");
                     ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
                         "Typed-throws operator: the error register holds the raw typed value, which only a @_cdecl wrapper can box, and this operator's parent has no operator wrapper.");
+                    RollbackOperator();
+                    return false;
+                }
+
+                // A resilient platform value (Date, UUID, URLError.Code) projected onto a by-value
+                // carrier: Swift passes and returns it through memory, and an operator off the
+                // @_cdecl wrapper has no frame to move it there, so the call would hand Swift the
+                // value where it reads an address.
+                if (!usesCdeclWrapper && methodDecl.CSSignature.Any(a => WrapperValidation.IsValueCarriedResilientPlatformValue(a.SwiftTypeSpec, typeDatabase)))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' passes a resilient platform value by value with no @_cdecl wrapper — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.NonBlittableCallConvSwift,
+                        "The operator passes or returns a platform value type the SDK declares resilient, which Swift moves through memory, and its parent has no operator wrapper to do that.");
+                    RollbackOperator();
+                    return false;
+                }
+
+                // An Optional wider than one word (Int?, Double?, String?) takes a by-value carrier
+                // on a direct call, and only the ordinary member emitter converts to and from it.
+                // The operator body passes the operand and returns the result as they are, so the
+                // call does not compile, and the error cannot be pinned on the operator, so it
+                // would fail the whole module.
+                if (!usesCdeclWrapper && methodDecl.CSSignature.Any(a => DirectOptionalAbi.ExceedsDirectSlot(a.SwiftTypeSpec, typeDatabase, parentDecl)))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' passes or returns an Optional wider than one word with no @_cdecl wrapper — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.NonBlittableCallConvSwift,
+                        "The operator passes or returns an Optional wider than one machine word, which a direct call carries in a by-value carrier the operator body does not convert, and its parent has no operator wrapper.");
                     RollbackOperator();
                     return false;
                 }
@@ -1151,16 +1186,17 @@ namespace BindingsGeneration
         /// Validates operators and emits any missing paired operators.
         /// </summary>
         /// <param name="csWriter">The C# code writer.</param>
-        /// <param name="operators">The list of operator declarations.</param>
+        /// <param name="emittedOperators">The operators this type actually emitted. A partner is synthesized
+        /// from one of these only: an overload of the same symbol that was refused would give the partner
+        /// operands no emitted operator takes.</param>
         /// <param name="typeName">The name of the containing type.</param>
-        public void ValidateAndEmitPairs(CSharpWriter csWriter, List<OperatorDecl> operators, string typeName, ISet<string> emittedSymbols, ITypeDatabase? typeDatabase = null, bool isReferenceType = false)
+        public void ValidateAndEmitPairs(CSharpWriter csWriter, IReadOnlyList<OperatorDecl> emittedOperators, string typeName, ISet<string> emittedSymbols, ITypeDatabase? typeDatabase = null, bool isReferenceType = false)
         {
             var definedSymbols = new HashSet<string>(emittedSymbols);
 
-            foreach (var op in operators)
+            foreach (var op in emittedOperators)
             {
                 var symbol = op.OperatorSymbol;
-                // Only synthesize from operators that were actually emitted.
                 if (!definedSymbols.Contains(symbol)) continue;
 
                 var pairedSymbol = GetRequiredPairedOperator(symbol);
@@ -1292,6 +1328,35 @@ namespace BindingsGeneration
             // for static operator functions, even on simple blittable structs (Int32/UInt32).
             // Using @_cdecl wrappers universally avoids this and is safe for both runtimes.
             return true;
+        }
+
+        /// <summary>
+        /// Whether the @_cdecl operator wrapper can express <paramref name="operatorDecl"/>'s signature.
+        ///
+        /// <para>Both halves of that wrapper are written for an operator over its own type: the
+        /// Swift side loads every operand as the parent type and names a non-Bool result by its bare
+        /// name, and the C# side copies each operand into a buffer the size of the parent. An operand
+        /// of any other type therefore either fails the wrapper's Swift compile, which no
+        /// verify-recover round can pin on the operator, or, when the parent also declares the
+        /// homogeneous overload, compiles into a call of that other overload on the bytes of a value
+        /// of the wrong type. A generic result such as an Optional loses its arguments and fails the
+        /// same way.</para>
+        /// </summary>
+        internal static bool OperatorWrapperCarriesSignature(OperatorDecl operatorDecl, TypeDecl parentDecl)
+        {
+            var signature = operatorDecl.UnderlyingMethod.CSSignature;
+            if (signature.Count == 0) return true;
+
+            bool IsParentType(TypeSpec? spec)
+                => spec is { IsDynamicSelf: true }
+                   || (spec is NamedTypeSpec named
+                       && string.Equals(named.Name, parentDecl.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal));
+
+            if (signature.Skip(1).Any(operand => !IsParentType(operand.SwiftTypeSpec)))
+                return false;
+
+            var result = signature[0].SwiftTypeSpec;
+            return !(result is NamedTypeSpec { ContainsGenericParameters: true } && !IsParentType(result));
         }
 
         /// <summary>
