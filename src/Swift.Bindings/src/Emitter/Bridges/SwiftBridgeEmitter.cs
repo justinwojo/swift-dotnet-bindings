@@ -162,25 +162,10 @@ public static class SwiftBridgeEmitter
         s.Append(".globl _").Append(plan.Symbol).Append('\n');
         s.Append(".p2align 2\n");
         s.Append('_').Append(plan.Symbol).Append(":\n");
-        s.Append("  .cfi_startproc\n");
-        s.Append("  stp x29, x30, [sp, #-16]!\n");
-        s.Append("  mov x29, sp\n");
-        s.Append("  .cfi_def_cfa w29, 16\n");
-        s.Append("  .cfi_offset w30, -8\n");
-        s.Append("  .cfi_offset w29, -16\n");
         var pairs = new List<(string First, string Second)>();
         for (int i = 2; i < frame.SavedRegisters.Length; i += 2)
             pairs.Add((frame.SavedRegisters[i], frame.SavedRegisters[i + 1]));
-        foreach (var (first, second) in pairs)
-            s.Append("  stp ").Append(first).Append(", ").Append(second).Append(", [sp, #-16]!\n");
-        // Pair j (from 1) sits at CFA - 16(j+1): its first register at the lower address. The
-        // compact format reads the pairs from the frame record down, the second register first.
-        for (int j = 0; j < pairs.Count; j++)
-        {
-            int baseOffset = 16 * (j + 2);
-            s.Append("  .cfi_offset w").Append(pairs[j].Second[1..]).Append(", -").Append(Hex(baseOffset - 8)).Append('\n');
-            s.Append("  .cfi_offset w").Append(pairs[j].First[1..]).Append(", -").Append(Hex(baseOffset)).Append('\n');
-        }
+        CanonicalFrame.Arm64Prologue(s, CanonicalFrame.Style.Bridge, pairs);
         if (frame.LocalBytes > 0)
             s.Append("  sub sp, sp, #").Append(Hex(frame.LocalBytes)).Append('\n');
 
@@ -238,11 +223,7 @@ public static class SwiftBridgeEmitter
         }
         if (frame.LocalBytes > 0)
             s.Append("  add sp, sp, #").Append(Hex(frame.LocalBytes)).Append('\n');
-        for (int j = pairs.Count - 1; j >= 0; j--)
-            s.Append("  ldp ").Append(pairs[j].First).Append(", ").Append(pairs[j].Second).Append(", [sp], #16\n");
-        s.Append("  ldp x29, x30, [sp], #16\n");
-        s.Append("  ret\n");
-        s.Append("  .cfi_endproc\n");
+        CanonicalFrame.Arm64Epilogue(s, CanonicalFrame.Style.Bridge, pairs);
         return s.ToString();
     }
 
@@ -264,18 +245,7 @@ public static class SwiftBridgeEmitter
         s.Append(".globl _").Append(plan.Symbol).Append('\n');
         s.Append(".p2align 4, 0x90\n");
         s.Append('_').Append(plan.Symbol).Append(":\n");
-        s.Append("  .cfi_startproc\n");
-        s.Append("  pushq %rbp\n");
-        s.Append("  .cfi_def_cfa_offset 16\n");
-        s.Append("  .cfi_offset %rbp, -16\n");
-        s.Append("  movq %rsp, %rbp\n");
-        s.Append("  .cfi_def_cfa_register %rbp\n");
-        foreach (var register in saved)
-            s.Append("  pushq %").Append(register).Append('\n');
-        // The k-th push (from 1) is at CFA - 16 - 8k. The compact format reads the saved registers
-        // from the lowest address up, in the order the CFI names them: the last push first.
-        for (int k = saved.Count; k >= 1; k--)
-            s.Append("  .cfi_offset %").Append(saved[k - 1]).Append(", -").Append(Hex(16 + 8 * k)).Append('\n');
+        CanonicalFrame.X86Prologue(s, CanonicalFrame.Style.Bridge, saved);
         if (frame.LocalBytes > 0)
             s.Append("  subq $").Append(Hex(frame.LocalBytes)).Append(", %rsp\n");
 
@@ -331,15 +301,7 @@ public static class SwiftBridgeEmitter
                 }
                 break;
         }
-        if (saved.Count > 0)
-            s.Append("  leaq -").Append(Hex(8 * saved.Count)).Append("(%rbp), %rsp\n");
-        else
-            s.Append("  movq %rbp, %rsp\n");
-        for (int k = saved.Count - 1; k >= 0; k--)
-            s.Append("  popq %").Append(saved[k]).Append('\n');
-        s.Append("  popq %rbp\n");
-        s.Append("  retq\n");
-        s.Append("  .cfi_endproc\n");
+        CanonicalFrame.X86Epilogue(s, CanonicalFrame.Style.Bridge, saved);
         return s.ToString();
     }
 

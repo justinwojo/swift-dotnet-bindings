@@ -62,8 +62,13 @@ public abstract class ThunkTargetArch
     /// <summary>Emits the assembly file header (section/alignment directives + comment).</summary>
     public abstract void EmitFileHeader(StringBuilder sb, string moduleName);
 
-    /// <summary>Emits the assembly file footer (currently empty, reserved for future use).</summary>
-    public virtual string EmitFileFooter() => string.Empty;
+    /// <summary>
+    /// Emits the assembly file footer: <c>.subsections_via_symbols</c>, which lets the linker treat
+    /// each thunk as its own atom. Without it the whole section is one atom, and the linker ends the
+    /// image's unwind table at the start of the last function instead of its end, so the unwinder
+    /// finds no entry for the file's last thunk.
+    /// </summary>
+    public virtual string EmitFileFooter() => "\n.subsections_via_symbols\n";
 
     /// <summary>Emits the symbol declaration (<c>.globl</c>, alignment, label) for a thunk.</summary>
     public abstract void EmitSymbolDecl(StringBuilder sb, string thunkSymbol);

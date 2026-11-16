@@ -102,6 +102,7 @@ public static class BindingsGeneratorCommand
         var swiftCallPlans = parseResult.GetValueForOption(options.SwiftCallPlans) ?? Array.Empty<string>();
         var swiftRoutedCallPlans = parseResult.GetValueForOption(options.SwiftRoutedCallPlans) ?? Array.Empty<string>();
         var validateLinkedBridges = parseResult.GetValueForOption(options.ValidateLinkedBridges) ?? Array.Empty<string>();
+        var thunkAssemblies = parseResult.GetValueForOption(options.ThunkAssemblies) ?? Array.Empty<string>();
         var swiftLoweringEvidence = parseResult.GetValueForOption(options.SwiftLoweringEvidence);
         var swiftLoweringQualification = parseResult.GetValueForOption(options.SwiftLoweringQualification);
         var swiftBridgeRoutes = parseResult.GetValueForOption(options.SwiftBridgeRoutes) ?? Array.Empty<string>();
@@ -309,6 +310,12 @@ public static class BindingsGeneratorCommand
             context.ExitCode = 1;
             return;
         }
+        if (thunkAssemblies.Length > 0 && !swiftBridges)
+        {
+            logger.LogError("Error: --thunk-assembly applies to --swift-bridges only.");
+            context.ExitCode = 1;
+            return;
+        }
         if (swiftBridges || emitHandWrittenPlans || validateLinkedBridges.Length > 0)
         {
             if (string.IsNullOrWhiteSpace(outputDirectory))
@@ -329,7 +336,7 @@ public static class BindingsGeneratorCommand
             }
             var qualification = string.IsNullOrWhiteSpace(swiftLoweringQualification) ? null : swiftLoweringQualification;
             context.ExitCode = swiftBridges
-                ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, qualification, outputDirectory!, logger)
+                ? SwiftBridgeGate.Run(swiftCallPlans, swiftRoutedCallPlans, qualification, outputDirectory!, logger, thunkAssemblies)
                 : validateLinkedBridges.Length > 0
                 ? SwiftBridgeLinkedCheck.Run(validateLinkedBridges, swiftCallPlans, outputDirectory!, logger, (platformStr ?? "ios").ToLowerInvariant())
                 : SwiftHandWrittenPlans.Run(transitionFacts ?? string.Empty, planSources, outputDirectory!, qualification, logger);

@@ -301,7 +301,46 @@ public static class SwiftLoweringOracle
         // As the generator does: a dependency's protocols are what the module's own refine.
         decl.DependencyProtocols = decls.ToDictionary(d => d.Name, d => d.Protocols.ToList(), StringComparer.Ordinal);
         decls.Add(decl);
+        return Judge(module, triple, decl, decls, db);
+    }
 
+    /// <summary>
+    /// <see cref="Compare"/> in the shape an SDK consumer of a binding-backed dependency generates in:
+    /// each dependency reaches the generator only as the module database its binding published, read
+    /// back from the XML, with none of its declarations. The layout resolver sees the module's own
+    /// declarations and the dependencies' type records alone.
+    /// </summary>
+    public static SwiftOracleReport CompareWithPublishedDependencies(
+        SwiftOracleModule module, string triple, IEnumerable<SwiftOracleModule> dependencies, string outputDirectory)
+    {
+        var db = LoadTypeDatabase();
+        // Each dependency is published in order, against the databases published before it, as its
+        // own binding was generated against its dependencies' bindings.
+        var publishedBefore = new List<string>();
+        foreach (var dependency in dependencies)
+        {
+            var published = LoadTypeDatabase();
+            foreach (var earlier in publishedBefore)
+                published.LoadModuleDatabaseFromFile(earlier).GetAwaiter().GetResult();
+            var demangling = DemanglingResults.FromTbd(dependency.TbdPath, NullLoggerFactory.Instance);
+            var parser = new SwiftABIParser(dependency.AbiJsonPath, published, demangling, NullLogger.Instance, SwiftInterfaceFacts.Empty);
+            var (_, moduleTypes, _) = parser.ParseModule();
+            var moduleDatabase = new ModuleProcessor(
+                dependency.Name, dependency.Name + ".dylib", dependency.Name, moduleTypes, published, NullLogger.Instance)
+                .FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase;
+            var directory = Path.Combine(outputDirectory, "published-" + dependency.Name);
+            Directory.CreateDirectory(directory);
+            var xml = ModuleDatabaseEmitter.Emit(moduleDatabase, directory, NullLogger.Instance)
+                ?? throw new InvalidOperationException($"{dependency.Name} published no module database");
+            db.LoadModuleDatabaseFromFile(xml).GetAwaiter().GetResult();
+            publishedBefore.Add(xml);
+        }
+        var decl = ParseModule(module, db);
+        return Judge(module, triple, decl, new List<ModuleDecl> { decl }, db);
+    }
+
+    private static SwiftOracleReport Judge(SwiftOracleModule module, string triple, ModuleDecl decl, List<ModuleDecl> decls, TypeDatabase db)
+    {
         var table = SwiftCallFactsTable.Build(decl, db);
         var lowering = new SwiftLayoutValueLowering(decls, db);
         var entries = ImmutableArray.CreateBuilder<SwiftOracleEntry>();
@@ -457,7 +496,7 @@ public static class SwiftLoweringOracle
 
     // ---- the generator's inputs ----
 
-    private static ModuleDecl ParseModule(SwiftOracleModule module, TypeDatabase db)
+    internal static ModuleDecl ParseModule(SwiftOracleModule module, TypeDatabase db)
     {
         var demangling = DemanglingResults.FromTbd(module.TbdPath, NullLoggerFactory.Instance);
         var parser = new SwiftABIParser(module.AbiJsonPath, db, demangling, NullLogger.Instance, SwiftInterfaceFacts.Empty);
@@ -466,8 +505,24 @@ public static class SwiftLoweringOracle
         return decl;
     }
 
+    /// <summary>
+    /// Parses the module and registers its types in <paramref name="db"/>, as the generator does
+    /// before it emits, so the type handlers can resolve the module's own types.
+    /// </summary>
+    internal static ModuleDecl ParseAndRegisterModule(SwiftOracleModule module, TypeDatabase db)
+    {
+        var demangling = DemanglingResults.FromTbd(module.TbdPath, NullLoggerFactory.Instance);
+        var parser = new SwiftABIParser(module.AbiJsonPath, db, demangling, NullLogger.Instance, SwiftInterfaceFacts.Empty);
+        var (decl, moduleTypes, _) = parser.ParseModule();
+        decl.ExportedSymbols = demangling.AllSymbols;
+        var processor = new ModuleProcessor(
+            module.Name, module.Name + ".dylib", module.Name, moduleTypes, db, NullLogger.Instance);
+        db.AddModuleDatabase(processor.FinalizeTypeProcessingAndCreateModuleDatabase().ModuleDatabase);
+        return decl;
+    }
+
     /// <summary>A type database with the built-in module databases an iOS generation loads.</summary>
-    private static TypeDatabase LoadTypeDatabase()
+    internal static TypeDatabase LoadTypeDatabase()
     {
         var db = new TypeDatabase();
         var directory = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift");

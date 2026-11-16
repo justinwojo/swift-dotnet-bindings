@@ -449,14 +449,21 @@ public sealed class SwiftBridgeTests : IDisposable
             new(0x4018, "ldp", ["x29", "x30", "[sp]", "#0x10"]),
             new(0x401c, "ret", []),
         };
+        var entry = new SwiftCfaRow(0x4000, "sp", 0, ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal));
         var row = new SwiftCfaRow(0x400c, "x29", 16,
             ImmutableSortedDictionary.CreateRange(StringComparer.Ordinal, new Dictionary<string, int> { ["x29"] = -16, ["x30"] = -8, ["x19"] = -32 }));
-        var fde = new SwiftFde(0x18, 0x4000, 0x4020, [row]);
+        var fde = new SwiftFde(0x18, 0x4000, 0x4020, [entry, row]);
         Assert.Empty(SwiftBridgeValidator.Check("_seed", SwiftArchitecture.Arm64, 0x4000, instructions, 0x03000018, [fde], null));
         var missing = SwiftBridgeValidator.Check("_seed", SwiftArchitecture.Arm64, 0x4000, instructions, 0x03000018, [], null);
         Assert.Contains(missing, f => f.Check == "unwind" && f.Detail.Contains("does not have"));
         var elsewhere = SwiftBridgeValidator.Check("_seed", SwiftArchitecture.Arm64, 0x4000, instructions, 0x03000018, [fde with { Start = 0x5000, End = 0x5020 }], null);
         Assert.Contains(elsewhere, f => f.Check == "unwind" && f.Detail.Contains("covers"));
+        // An FDE that ends before the function does leaves its tail uncovered.
+        var short_ = SwiftBridgeValidator.Check("_seed", SwiftArchitecture.Arm64, 0x4000, instructions, 0x03000018, [fde with { End = 0x4018 }], null);
+        Assert.Contains(short_, f => f.Check == "unwind" && f.Detail.Contains("at 4018") && f.Detail.Contains("covers"));
+        // An FDE with no row at entry says nothing there.
+        var noEntryRow = SwiftBridgeValidator.Check("_seed", SwiftArchitecture.Arm64, 0x4000, instructions, 0x03000018, [fde with { Rows = [row] }], null);
+        Assert.Contains(noEntryRow, f => f.Check == "unwind" && f.Detail.Contains("no row in effect at 4000"));
     }
 
     [SkippableFact]
@@ -578,16 +585,34 @@ public sealed class SwiftBridgeTests : IDisposable
     }
 
     [Fact]
-    public void NoEntry_AnEmptyEncoding_AndAFramelessMode_AreNoClaim()
+    public void NoEntry_AnEmptyEncoding_AndAnUndefinedMode_AreNoClaim()
     {
         Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.Arm64, 0, null, [], 0, out var none));
         Assert.Contains("no unwind entry", none);
         Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.Arm64, 0, 0, [], 0, out var empty));
         Assert.Contains("empty", empty);
-        Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.Arm64, 0, 0x02000000, [], 0, out var frameless));
-        Assert.Contains("not a frame-based", frameless);
         Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.Arm64, 0, 0x04000040, [], 0, out var undefined));
         Assert.Contains("does not define", undefined);
+        // A frameless encoding that saves registers is not one the generator writes: it fails closed.
+        Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.Arm64, 0, 0x02001001, [], 0, out var framelessSaving));
+        Assert.Contains("frameless one that saves registers", framelessSaving);
+        Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.X86_64, 0, 0x02010401, [], 0, out var x86FramelessSaving));
+        Assert.Contains("frameless one that saves registers", x86FramelessSaving);
+        Assert.Null(SwiftBridgeValidator.Claim(SwiftArchitecture.X86_64, 0, 0x03000000, [], 0, out var indirect));
+        Assert.Contains("not an rbp-frame or frameless", indirect);
+    }
+
+    [Theory]
+    [InlineData(SwiftArchitecture.Arm64, 0x02000000u, "sp", 0)]
+    [InlineData(SwiftArchitecture.Arm64, 0x02002000u, "sp", 32)]
+    [InlineData(SwiftArchitecture.X86_64, 0x02010000u, "rsp", 8)]
+    [InlineData(SwiftArchitecture.X86_64, 0x02030000u, "rsp", 24)]
+    public void FramelessEncodings_DecodeAsLibunwindReadsThem(SwiftArchitecture architecture, uint encoding, string register, int offset)
+    {
+        var claim = SwiftBridgeValidator.Claim(architecture, 0, encoding, [], 0, out var error);
+        Assert.Null(error);
+        Assert.Equal((register, offset), (claim!.CfaRegister, claim.CfaOffset));
+        Assert.Empty(claim.Saved);
     }
 
     // ---- reading the tools' output ----

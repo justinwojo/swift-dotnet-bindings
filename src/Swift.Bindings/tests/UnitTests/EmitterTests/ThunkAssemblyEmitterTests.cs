@@ -20,11 +20,14 @@ namespace BindingsGeneration.Tests
             Assert.Contains("TestModule", header);
         }
 
-        [Fact]
-        public void EmitFileFooter_ReturnsEmpty()
+        [Theory]
+        [InlineData(ThunkArch.Arm64)]
+        [InlineData(ThunkArch.X86_64)]
+        public void EmitFileFooter_GivesEachThunkItsOwnAtom(ThunkArch arch)
         {
-            var footer = ThunkAssemblyEmitter.EmitFileFooter();
-            Assert.Equal(string.Empty, footer);
+            // Without it the linker ends the unwind table at the start of the file's last thunk
+            // (ThunkFrameTests links every shape and checks each one's coverage).
+            Assert.Contains(".subsections_via_symbols", ThunkTargetArch.For(arch).EmitFileFooter());
         }
 
         #endregion
@@ -161,9 +164,10 @@ namespace BindingsGeneration.Tests
             Assert.Contains("str     x1, [x19, #8]", asm);
             Assert.Contains("str     x2, [x19, #16]", asm);
             Assert.Contains("str     x3, [x19, #24]", asm);
-            // Must have prologue/epilogue
-            Assert.Contains("stp     x20, x19, [sp, #-32]!", asm);
-            Assert.Contains("ldp     x20, x19, [sp], #32", asm);
+            // The canonical frame: the frame record, then (x20, x19) saved below it and restored.
+            Assert.Contains("stp     x29, x30, [sp, #-16]!", asm);
+            Assert.Contains("stp     x20, x19, [sp, #-16]!", asm);
+            Assert.Contains("ldp     x20, x19, [sp], #16", asm);
             Assert.Contains("ret", asm);
         }
 
@@ -679,12 +683,9 @@ namespace BindingsGeneration.Tests
             // Must capture swifterror after call
             Assert.Contains("str     x21, [x19]", asm);
             Assert.Contains("bl      _$s4Test6divideyS2i_SitKF", asm);
-            // x21 is callee-saved in AAPCS64 — must save/restore
-            Assert.Contains("str     x21, [sp, #32]", asm);
-            Assert.Contains("ldr     x21, [sp, #32]", asm);
-            // Throwing frame is 48 bytes (non-throwing is 32)
-            Assert.Contains("[sp, #-48]!", asm);
-            Assert.Contains("[sp], #48", asm);
+            // x21 is callee-saved in AAPCS64 — saved with x22 as one pair and restored
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);
+            Assert.Contains("ldp     x22, x21, [sp], #16", asm);
         }
 
         [Fact]
@@ -720,8 +721,8 @@ namespace BindingsGeneration.Tests
             Assert.Contains("mov     x19, x2", asm);
             Assert.Contains("str     x21, [x19]", asm);
             // x21 save/restore
-            Assert.Contains("str     x21, [sp, #32]", asm);
-            Assert.Contains("ldr     x21, [sp, #32]", asm);
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);
+            Assert.Contains("ldp     x22, x21, [sp], #16", asm);
         }
 
         [Fact]
@@ -758,12 +759,13 @@ namespace BindingsGeneration.Tests
             Assert.Contains("mov     x21, xzr", asm);
             // Must store return values to buffer
             Assert.Contains("str     x0, [x19]", asm);
-            // Error out pointer saved on stack (since x19 is used for return buffer)
-            // After call, error stored via stack-restored pointer
-            Assert.Contains("str     x21, [x9]", asm);
+            // The error-out pointer is held in x22 (x19 holds the return buffer), and
+            // swifterror is written through it after the call
+            Assert.Contains("mov     x22, x", asm);
+            Assert.Contains("str     x21, [x22]", asm);
             // x21 save/restore
-            Assert.Contains("str     x21, [sp, #32]", asm);
-            Assert.Contains("ldr     x21, [sp, #32]", asm);
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);
+            Assert.Contains("ldp     x22, x21, [sp], #16", asm);
         }
 
         #endregion

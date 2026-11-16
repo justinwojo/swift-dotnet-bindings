@@ -2689,10 +2689,8 @@ namespace BindingsGeneration.Tests
             Assert.Contains("mov     x21, xzr", asm);
             Assert.Contains("str     x21, [x19]", asm);
             // x21 is callee-saved in AAPCS64 (x19-x28 range) — must save/restore
-            Assert.Contains("str     x21, [sp, #32]", asm);  // save in prologue
-            Assert.Contains("ldr     x21, [sp, #32]", asm);  // restore in epilogue
-            // Frame must be 48 bytes for throwing (vs 32 for non-throwing)
-            Assert.Contains("[sp, #-48]!", asm);
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);  // save in prologue
+            Assert.Contains("ldp     x22, x21, [sp], #16", asm);    // restore in epilogue
         }
 
         [Fact]
@@ -2736,9 +2734,8 @@ namespace BindingsGeneration.Tests
             // Error out: mov x19, x2
             Assert.Contains("mov     x19, x2", asm);
             // x21 save/restore for throwing
-            Assert.Contains("str     x21, [sp, #32]", asm);
-            Assert.Contains("ldr     x21, [sp, #32]", asm);
-            Assert.Contains("[sp, #-48]!", asm);
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);
+            Assert.Contains("ldp     x22, x21, [sp], #16", asm);
         }
 
         [Fact]
@@ -2787,9 +2784,8 @@ namespace BindingsGeneration.Tests
             Assert.True(result);
             var asm = asmBuilder.ToString();
 
-            // Throwing frame (48 bytes) and x21 swifterror save.
-            Assert.Contains("[sp, #-48]!", asm);
-            Assert.Contains("str     x21, [sp, #32]", asm);
+            // Throwing frame: x21 (swifterror) saved with x22 as one pair.
+            Assert.Contains("stp     x22, x21, [sp, #-16]!", asm);
             // Error-out captured from the LEADING register x0 — never a trailing x2.
             Assert.Contains("mov     x19, x0", asm);
             Assert.DoesNotContain("mov     x19, x2", asm);

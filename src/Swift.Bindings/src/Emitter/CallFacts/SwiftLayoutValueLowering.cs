@@ -347,6 +347,19 @@ public sealed class SwiftLayoutResolver
                 TypeRecordKind.Class => SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"'{name}' is a class reference"),
                 TypeRecordKind.Struct or TypeRecordKind.Enum when (record.Flags & TypeRecordFlags.Frozen) == 0 =>
                     SwiftLayoutResult.Indirect($"'{name}' is resilient to its clients"),
+                // Another module's protocol, known from the records its binding published: those
+                // record class-boundness transitively, and @objc and @_marker for a protocol
+                // declared so, which is all the existential's layout depends on. Only a Swift
+                // protocol that is not a marker has a witness table; one refining an @objc or
+                // marker protocol is neither and has its own.
+                TypeRecordKind.Protocol when (record.Flags & TypeRecordFlags.ObjCProtocol) != 0 =>
+                    SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"the @objc existential '{name}' is one object reference"),
+                TypeRecordKind.Protocol when (record.Flags & (TypeRecordFlags.MarkerProtocol | TypeRecordFlags.ClassBound)) == (TypeRecordFlags.MarkerProtocol | TypeRecordFlags.ClassBound) =>
+                    SwiftLayoutResult.Of(SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), $"the class-bound marker existential '{name}' is one reference"),
+                TypeRecordKind.Protocol when (record.Flags & TypeRecordFlags.ClassBound) != 0 =>
+                    SwiftLayoutResult.Of(
+                        SwiftLeafLayout.Sequence(new[] { SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer), SwiftLeafLayout.Scalar(SwiftScalarKind.Pointer) }),
+                        $"the class-bound existential '{name}' is a reference and 1 witness table(s)"),
                 TypeRecordKind.Protocol or TypeRecordKind.Existential when (record.Flags & TypeRecordFlags.ClassBound) == 0 =>
                     SwiftLayoutResult.Indirect($"the existential '{name}' is address-only"),
                 _ => SwiftLayoutResult.Unknown($"'{name}' is declared in another module and is not in the carrier table"),

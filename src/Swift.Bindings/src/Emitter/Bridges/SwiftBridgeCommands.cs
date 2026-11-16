@@ -300,8 +300,15 @@ public static class SwiftBridgeGate
             yield return "no routed generation calls any transition through a bridge: the routing check checked nothing";
     }
 
-    public static int Run(IReadOnlyList<string> planFiles, IReadOnlyList<string> routedPlanFiles, string? qualificationPath, string outputDirectory, ILogger logger)
+    public static int Run(IReadOnlyList<string> planFiles, IReadOnlyList<string> routedPlanFiles, string? qualificationPath, string outputDirectory, ILogger logger,
+        IReadOnlyList<string>? thunkAssemblies = null)
     {
+        thunkAssemblies ??= [];
+        foreach (var missingThunks in thunkAssemblies.Where(f => !File.Exists(f)))
+        {
+            logger.LogError("--thunk-assembly {Path} does not exist", missingThunks);
+            return 1;
+        }
         var routedCount = routedPlanFiles.Count;
         var allPlanFiles = planFiles.Concat(routedPlanFiles).ToList();
         if (allPlanFiles.Count == 0 || allPlanFiles.Any(f => !File.Exists(f)))
@@ -392,16 +399,66 @@ public static class SwiftBridgeGate
             }
         }
 
+        // The native thunks: the same frame and unwind checks, with no plan, assembled for the same platforms.
+        var thunkFrames = 0;
+        foreach (var file in thunkAssemblies)
+        {
+            var architecture = ThunkAssemblyArchitecture(file);
+            if (architecture is null)
+            {
+                failures.Add($"{file}: not a thunk assembly of a known architecture ({{Module}}.arm64.s or {{Module}}.x86_64.s)");
+                continue;
+            }
+            var source = File.ReadAllText(file);
+            var thunks = ThunkSymbols(source);
+            if (thunks.Count == 0)
+            {
+                failures.Add($"{file}: defines no native thunk; a thunk check over no thunks checks nothing");
+                continue;
+            }
+            var name = architecture.Value.ToString().ToLowerInvariant();
+            foreach (var toolchain in toolchains)
+            {
+                var (triple, _) = toolchain.TargetOf(architecture.Value);
+                var scratch = Path.Combine(outputDirectory, toolchain.Platform, "thunks", Path.GetFileNameWithoutExtension(file));
+                var validation = SwiftBridgeValidator.ValidateSource(source, architecture.Value, new Dictionary<string, SwiftFrame>(), toolchain, scratch, thunks);
+                thunkFrames += validation.Functions.Length;
+                var line = $"{Path.GetFileName(file)} ({triple}): {thunks.Count} thunk(s), {validation.Failures.Length} validation failure(s)";
+                report.AppendLine(line);
+                logger.LogInformation("{Line}", line);
+                failures.AddRange(validation.Failures.Select(f => $"{Path.GetFileName(file)} ({triple}): {f}"));
+            }
+        }
+
         report.AppendLine(failures.Count == 0 ? "green" : $"{failures.Count} failure(s):");
         foreach (var failure in failures)
             report.AppendLine("  " + failure);
         File.WriteAllText(Path.Combine(outputDirectory, "bridge-gate.txt"), report.ToString());
         foreach (var failure in failures)
             logger.LogError("{Failure}", failure);
-        logger.LogInformation("Swift bridge gate: {Executable} executable plan(s), {Frames} bridge frame(s) validated, {Failures} failure(s); report {Report}",
-            executable.Count, frames, failures.Count, Path.Combine(outputDirectory, "bridge-gate.txt"));
+        logger.LogInformation("Swift bridge gate: {Executable} executable plan(s), {Frames} bridge frame(s) and {Thunks} thunk frame(s) validated, {Failures} failure(s); report {Report}",
+            executable.Count, frames, thunkFrames, failures.Count, Path.Combine(outputDirectory, "bridge-gate.txt"));
         return failures.Count == 0 ? 0 : 1;
     }
+
+    /// <summary>The architecture of a generated thunk assembly file, from its name (<c>{Module}.arm64.s</c>, <c>{Module}.x86_64.s</c>).</summary>
+    public static SwiftArchitecture? ThunkAssemblyArchitecture(string path)
+    {
+        var name = Path.GetFileName(path);
+        return name.EndsWith(".arm64.s", StringComparison.Ordinal) ? SwiftArchitecture.Arm64
+            : name.EndsWith(".x86_64.s", StringComparison.Ordinal) ? SwiftArchitecture.X86_64
+            : null;
+    }
+
+    /// <summary>The native thunks a thunk assembly defines: each <c>.globl _thunk_…</c> symbol, underscore included.</summary>
+    public static IReadOnlyList<string> ThunkSymbols(string source) =>
+        source.Split('\n')
+            .Select(l => l.Trim())
+            .Where(l => l.StartsWith(".globl _" + SwiftBridgeLinkedCheck.ThunkPrefix, StringComparison.Ordinal))
+            .Select(l => l[".globl ".Length..].Trim())
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
 
     /// <summary>
     /// The platforms the gate assembles and validates the bridges for: every platform whose slices
@@ -459,27 +516,47 @@ public static class SwiftBridgeLinkedCheck
         return routed.ToImmutable();
     }
 
+    /// <summary>The prefix of the native thunks' symbols (<c>thunk_&lt;Module&gt;_&lt;hash&gt;</c>).</summary>
+    public const string ThunkPrefix = "thunk_";
+
     /// <summary>The findings of one architecture of an image: <paramref name="thinImage"/> is that architecture alone.</summary>
-    public static IEnumerable<string> Check(
-        string thinImage, SwiftArchitecture architecture, IReadOnlyDictionary<string, SwiftCallPlan> routed, SwiftBridgeToolchain toolchain)
+    public static IReadOnlyList<string> Check(
+        string thinImage, SwiftArchitecture architecture, IReadOnlyDictionary<string, SwiftCallPlan> routed, SwiftBridgeToolchain toolchain) =>
+        Check(thinImage, architecture, routed, toolchain, out _);
+
+    /// <summary>
+    /// The findings of one architecture of an image: <paramref name="thinImage"/> is that architecture
+    /// alone. Every SBSR_ bridge the image exports must be routed and every routed one exported, each
+    /// held to its plan; every native thunk it exports is held to the same frame and unwind checks,
+    /// with no plan. <paramref name="validated"/> is the number of functions checked.
+    /// </summary>
+    public static IReadOnlyList<string> Check(
+        string thinImage, SwiftArchitecture architecture, IReadOnlyDictionary<string, SwiftCallPlan> routed, SwiftBridgeToolchain toolchain,
+        out int validated)
     {
-        var exported = SwiftBridgeValidator.DefinedSymbols(toolchain.Run("nm", "--defined-only", "-g", thinImage).Output).Keys
+        var findings = new List<string>();
+        var defined = SwiftBridgeValidator.DefinedSymbols(toolchain.Run("nm", "--defined-only", "-g", thinImage).Output).Keys.ToList();
+        var exported = defined
             .Where(s => s.StartsWith("_" + BridgePrefix, StringComparison.Ordinal))
             .Select(s => s[1..])
             .ToHashSet(StringComparer.Ordinal);
+        var thunks = defined.Where(s => s.StartsWith("_" + ThunkPrefix, StringComparison.Ordinal)).ToList();
         foreach (var missing in routed.Keys.Where(s => !exported.Contains(s)))
-            yield return $"{architecture}: {missing} is routed through but the image does not export it";
+            findings.Add($"{architecture}: {missing} is routed through but the image does not export it");
         foreach (var stale in exported.Where(s => !routed.ContainsKey(s)).Order(StringComparer.Ordinal))
-            yield return $"{architecture}: the image exports {stale}, which no sidecar routes through";
+            findings.Add($"{architecture}: the image exports {stale}, which no sidecar routes through");
 
         var frames = routed.ToDictionary(
             r => "_" + r.Key,
             r => r.Value.Body.Architectures.Single(a => a.Architecture == architecture).Frame,
             StringComparer.Ordinal);
-        var validation = SwiftBridgeValidator.ValidateImage(thinImage, architecture, frames, toolchain,
-            routed.Keys.Where(exported.Contains).Select(s => "_" + s));
-        foreach (var failure in validation.Failures)
-            yield return $"{architecture}: {failure}";
+        var functions = routed.Keys.Where(exported.Contains).Select(s => "_" + s).Concat(thunks).ToList();
+        validated = functions.Count;
+        if (functions.Count == 0)
+            return findings;
+        var validation = SwiftBridgeValidator.ValidateImage(thinImage, architecture, frames, toolchain, functions);
+        findings.AddRange(validation.Failures.Select(f => $"{architecture}: {f}"));
+        return findings;
     }
 
     /// <param name="platform">The platform lane the images were built for (<c>--platform</c>; iOS by default).</param>
@@ -504,15 +581,11 @@ public static class SwiftBridgeLinkedCheck
             return 1;
         }
         var routed = Routed(planFiles.Select(f => SwiftCallPlanSet.From(SwiftCallPlanSet.Read(f))));
-        if (routed.Count == 0)
-        {
-            logger.LogError("no sidecar routes any transition through a bridge: a linked check over no bridges checks nothing");
-            return 1;
-        }
 
         Directory.CreateDirectory(outputDirectory);
         var failures = new List<string>();
         var checkedPairs = 0;
+        var validatedFunctions = 0;
         foreach (var image in images)
         {
             var (code, archsOutput, error) = toolchain.Run("lipo", "-archs", image);
@@ -541,17 +614,21 @@ public static class SwiftBridgeLinkedCheck
                         continue;
                     }
                 }
-                var findings = Check(thin, architecture.Value, routed, toolchain).ToList();
+                var findings = Check(thin, architecture.Value, routed, toolchain, out var validated);
                 failures.AddRange(findings.Select(f => $"{image}: {f}"));
                 checkedPairs++;
-                logger.LogInformation("{Image} {Architecture}: {Bridges} linked bridge(s), {Failures} failure(s)",
-                    image, name, routed.Count, findings.Count);
+                validatedFunctions += validated;
+                logger.LogInformation("{Image} {Architecture}: {Bridges} routed bridge(s), {Functions} function(s) validated (bridges and thunks), {Failures} failure(s)",
+                    image, name, routed.Count, validated, findings.Count);
             }
         }
+        // A check that validated nothing (no routed bridge and no thunk in any image) checks nothing.
+        if (checkedPairs > 0 && validatedFunctions == 0)
+            failures.Add("no sidecar routes any transition through a bridge and no image exports a native thunk: a linked check over no functions checks nothing");
         foreach (var failure in failures)
             logger.LogError("{Failure}", failure);
-        logger.LogInformation("Linked bridge check: {Bridges} bridge(s) over {Pairs} image/architecture pair(s), {Failures} failure(s)",
-            routed.Count, checkedPairs, failures.Count);
+        logger.LogInformation("Linked bridge check: {Bridges} bridge(s), {Functions} function(s) validated over {Pairs} image/architecture pair(s), {Failures} failure(s)",
+            routed.Count, validatedFunctions, checkedPairs, failures.Count);
         return failures.Count == 0 && checkedPairs > 0 ? 0 : 1;
     }
 }

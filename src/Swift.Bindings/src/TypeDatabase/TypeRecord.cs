@@ -132,6 +132,10 @@ public enum TypeRecordFlags
     // sibling `{Enum}Extensions.GetConstant`/`GetValue`. Set alongside ObjCBridgeable to steer the
     // projection to that converter instead of `.Handle`/`GetNSObject<T>`.
     AppleTypedEnum = 1 << 20,
+    // This flag indicates a protocol is declared @_marker. A marker protocol has no witness table,
+    // so a class-bound marker existential is one reference, like AnyObject. Published so a
+    // consumer of another module's binding sizes that existential without its declaration.
+    MarkerProtocol = 1 << 21,
 }
 
 /// <summary>

@@ -958,9 +958,10 @@ namespace BindingsGeneration
 
             foreach (var genericParameter in _env.MethodDecl.GenericParameters)
             {
-                // A class member that takes the class metatype as self recovers the class's own
-                // generic arguments from it; only a method's own generic parameters are passed.
-                if (MarshallingHelpers.IsGenericParameterFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName))
+                // A member whose self (the class metatype or instance) or parent metadata argument
+                // carries the parent's generic arguments takes no metadata for them; only a
+                // method's own generic parameters are passed.
+                if (MarshallingHelpers.IsGenericParameterMetadataFulfilledBySelf(_env, genericParameter.TypeName))
                     continue;
                 var metadataName = NameProvider.GetMetadataName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter);
                 AddParameter("IntPtr", metadataName);
@@ -1041,9 +1042,10 @@ namespace BindingsGeneration
                         admit = true;
                     if (!admit)
                         continue;
-                    // The class metatype in the self register carries the witness tables the
-                    // class declares; only an extension-added conformance is passed.
-                    if (MarshallingHelpers.IsConformanceFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
+                    // The class metatype or instance in the self register, or a generic struct's
+                    // or enum's parent metadata argument, carries the witness tables the parent
+                    // declares; only an extension-added conformance is passed.
+                    if (MarshallingHelpers.IsConformanceFulfilledBySelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
                         continue;
 
                     var pwtName = NameProvider.GetProtocolWitnessTableName(_env.GenericTypeMapping[genericParameter.TypeName].TypeParameter, conformance.ConformanceTarget.Name);

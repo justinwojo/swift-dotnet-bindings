@@ -26,6 +26,24 @@ public sealed record SwiftBridgeValidation(SwiftArchitecture Architecture, Immut
 /// <summary>A saved register's location: its offset from the CFA.</summary>
 public sealed record SwiftFrameState(int StackPointer, int? FramePointer, ImmutableSortedDictionary<string, int> Saved);
 
+/// <summary>Where in a function the unwind rule is checked: its entry, a call, or its exit (a return or a tail branch).</summary>
+public enum SwiftFramePointKind
+{
+    Entry,
+    Call,
+    Exit,
+}
+
+/// <summary>
+/// The frame at one point of a function: sp and the frame pointer as CFA offsets (the frame pointer
+/// null while the function has not set it, or after it reloads the caller's), the first save of each
+/// callee-saved register, which register's caller value each stack slot holds, and which tracked
+/// registers no longer hold the caller's value.
+/// </summary>
+public sealed record SwiftFramePoint(
+    SwiftFramePointKind Kind, ulong Address, int StackPointer, int? FramePointer,
+    ImmutableSortedDictionary<string, int> Saved, ImmutableDictionary<int, string> Stack, ImmutableHashSet<string> Changed);
+
 /// <summary>What an image's unwind information claims for one function at its call site.</summary>
 /// <param name="CfaRegister">The register the CFA is computed from (<c>x29</c>, <c>sp</c>, <c>rbp</c>, <c>rsp</c>).</param>
 /// <param name="CfaOffset">What is added to it.</param>
@@ -46,11 +64,12 @@ public sealed record SwiftInstruction(ulong Address, string Mnemonic, ImmutableA
 }
 
 /// <summary>
-/// The unwind validator of the native bridges. For every bridge in an assembled object it checks,
-/// from the instructions alone, the frame the code actually builds, and holds three things to it:
-/// the unwind information the linker wrote (the compact encoding, or the DWARF row it defers to),
-/// the frame the plan says the bridge has, and the platform's rules (<c>sp</c> 16-aligned at the
-/// call, every callee-saved register the bridge writes saved first and restored on return).
+/// The unwind validator of the functions the generator writes in assembly: the native bridges and
+/// the native thunks. For every function it checks, from the instructions alone, the frame the code
+/// actually builds, and holds three things to it: the unwind information the linker wrote (the
+/// compact encoding, or the DWARF row it defers to), the frame the plan says a bridge has, and the
+/// platform's rules (<c>sp</c> 16-aligned and the frame pointer at CFA-16 at every call, every
+/// callee-saved register the function writes saved first and restored on return).
 /// </summary>
 /// <remarks>
 /// <para>
@@ -62,7 +81,17 @@ public sealed record SwiftInstruction(ulong Address, string Mnemonic, ImmutableA
 /// and compared with what the encoding decodes to.
 /// </para>
 /// <para>
-/// It also checks that every symbol the object leaves undefined is a weak reference, so a bridge
+/// The unwind information is checked at every point an unwinder can stop in the function with the
+/// function's own frame live: at entry, at each call (the return address the callee unwinds to), and
+/// at exit (the return, or the tail branch of a thunk that builds no frame). At each point the rule
+/// must compute the CFA the code has there and restore every callee-saved register the function has
+/// changed from a slot that holds the caller's value. A rule on the frame pointer is checked only
+/// where the function has set it, since compact unwind describes the body and not the prologue or
+/// epilogue. Every instruction up to the exit must be covered by the function's unwind entry: the
+/// unwind table must not end, or another function's entry begin, inside it.
+/// </para>
+/// <para>
+/// It also checks that every symbol the object leaves undefined is a weak reference, so a function
 /// whose target the running OS lacks never stops its image from loading (R6a).
 /// </para>
 /// </remarks>
@@ -133,7 +162,9 @@ public static class SwiftBridgeValidator
         var failures = new List<SwiftBridgeFinding>();
         var triple = toolchain.TargetOf(architecture).Triple;
         var symbols = DefinedSymbols(toolchain.Run("nm", "--defined-only", imagePath).Output);
-        var unwind = UnwindEntries(toolchain.Run("llvm-objdump", "--unwind-info", imagePath).Output);
+        var unwindOutput = toolchain.Run("llvm-objdump", "--unwind-info", imagePath).Output;
+        var unwind = UnwindEntries(unwindOutput);
+        var tableEnd = UnwindTableEnd(unwindOutput);
         var fdes = Fdes(toolchain.Run("llvm-dwarfdump", "--eh-frame", imagePath).Output, architecture);
         var code = Disassembly(toolchain.Run("llvm-objdump", "-d", "--no-show-raw-insn", "--triple=" + triple, imagePath).Output);
 
@@ -150,22 +181,39 @@ public static class SwiftBridgeValidator
                 continue;
             }
             failures.AddRange(Check(function, architecture, address, instructions,
-                EntryFor(unwind, address), fdes, frames.TryGetValue(function, out var frame) ? frame : null));
+                pc => tableEnd is { } end && pc >= end ? null : EntryFor(unwind, pc), fdes,
+                frames.TryGetValue(function, out var frame) ? frame : null));
         }
         return new(architecture, wanted, failures.ToImmutableArray());
     }
 
     /// <summary>
     /// The checks of one function: <paramref name="encoding"/> is its compact unwind entry (null when
-    /// the image has none), <paramref name="fdes"/> the image's FDEs, <paramref name="planned"/> the frame
-    /// its plan describes (null when there is no plan to hold it to).
+    /// the image has none), the same at every instruction; <paramref name="fdes"/> the image's FDEs,
+    /// <paramref name="planned"/> the frame its plan describes (null when there is no plan to hold it to).
     /// </summary>
     public static ImmutableArray<SwiftBridgeFinding> Check(
         string function, SwiftArchitecture architecture, ulong address, IReadOnlyList<SwiftInstruction> instructions,
-        uint? encoding, IReadOnlyList<SwiftFde> fdes, SwiftFrame? planned)
+        uint? encoding, IReadOnlyList<SwiftFde> fdes, SwiftFrame? planned) =>
+        Check(function, architecture, address, instructions, _ => encoding, fdes, planned);
+
+    /// <summary>
+    /// The checks of one function: <paramref name="encodingAt"/> gives the compact unwind entry the
+    /// unwinder finds for a pc (null where the table has none), <paramref name="fdes"/> the image's
+    /// FDEs, <paramref name="planned"/> the frame its plan describes (null when there is no plan to
+    /// hold it to).
+    /// </summary>
+    public static ImmutableArray<SwiftBridgeFinding> Check(
+        string function, SwiftArchitecture architecture, ulong address, IReadOnlyList<SwiftInstruction> instructions,
+        Func<ulong, uint?> encodingAt, IReadOnlyList<SwiftFde> fdes, SwiftFrame? planned)
     {
         var failures = new List<SwiftBridgeFinding>();
-        void Fail(string check, string detail) => failures.Add(new SwiftBridgeFinding(function, check, detail));
+        var reported = new HashSet<(string, string)>();
+        void Fail(string check, string detail)
+        {
+            if (reported.Add((check, detail)))
+                failures.Add(new SwiftBridgeFinding(function, check, detail));
+        }
 
         var execution = Execute(architecture, instructions);
         if (execution.Error is { } error)
@@ -173,16 +221,27 @@ public static class SwiftBridgeValidator
             Fail("frame", error);
             return failures.ToImmutableArray();
         }
-        var atCall = execution.AtCall!;
+        var calls = execution.Points.Where(p => p.Kind == SwiftFramePointKind.Call).ToList();
+        var exit = execution.Points.Single(p => p.Kind == SwiftFramePointKind.Exit);
+        if (planned is not null && calls.Count == 0)
+        {
+            Fail("frame", "the bridge returns without calling anything");
+            return failures.ToImmutableArray();
+        }
 
-        // The platform's rules.
-        if (atCall.StackPointer % 16 != 0)
-            Fail("alignment", $"sp is CFA{atCall.StackPointer:+0;-0} at the call, not 16-aligned");
-        if (atCall.FramePointer != -16)
-            Fail("frame", $"the frame pointer is {(atCall.FramePointer is { } fp ? $"CFA{fp:+0;-0}" : "not set")} at the call; a bridge's frame record puts it at CFA-16");
+        // The platform's rules. A function that calls builds the canonical frame: the frame record
+        // at the top, so the frame pointer is CFA-16 at every call.
+        foreach (var call in calls)
+        {
+            if (call.StackPointer % 16 != 0)
+                Fail("alignment", $"sp is CFA{call.StackPointer:+0;-0} at the call at {call.Address:x}, not 16-aligned");
+            if (call.FramePointer != -16)
+                Fail("frame", $"the frame pointer is {(call.FramePointer is { } fp ? $"CFA{fp:+0;-0}" : "not set")} at the call at {call.Address:x}; the canonical frame record puts it at CFA-16");
+        }
         foreach (var clobber in execution.Clobbers)
             Fail("callee-saved", clobber);
-        foreach (var (register, offset) in atCall.Saved.Where(s => CalleeSaved(architecture).Contains(s.Key) || s.Key is "x29" or "x30" or "rbp"))
+        var savedSet = (calls.Count > 0 ? calls[0] : exit).Saved;
+        foreach (var (register, offset) in savedSet.Where(s => CalleeSaved(architecture).Contains(s.Key) || s.Key is "x29" or "x30" or "rbp"))
         {
             if (!execution.Restored.TryGetValue(register, out var from))
                 Fail("callee-saved", $"{register} is saved at CFA{offset:+0;-0} but not restored before return");
@@ -192,37 +251,86 @@ public static class SwiftBridgeValidator
         if (execution.StackPointerAtReturn != EntryStackPointer(architecture))
             Fail("callee-saved", $"sp is CFA{execution.StackPointerAtReturn:+0;-0} at return, not CFA{EntryStackPointer(architecture):+0;-0}");
 
-        // The unwind information.
-        var claim = Claim(architecture, address, encoding, fdes, execution.CallAddress, out var unwindError);
-        if (claim is null)
-            Fail("unwind", unwindError!);
-        else
+        // Coverage: every instruction up to the exit is under the function's own unwind entry, and
+        // that entry yields a rule there.
+        var entryEncoding = encodingAt(address);
+        foreach (var instruction in instructions.TakeWhile(i => i.Address <= exit.Address))
         {
-            int? cfaAt = claim.CfaRegister switch
+            var here = encodingAt(instruction.Address);
+            if (here != entryEncoding)
             {
-                "x29" or "rbp" => atCall.FramePointer is { } fp ? -fp : null,
-                "sp" or "rsp" => -atCall.StackPointer,
-                _ => null,
-            };
-            if (cfaAt != claim.CfaOffset)
-                Fail("unwind", $"{claim.Source} computes the CFA as {claim.CfaRegister}{claim.CfaOffset:+0;-0}; the code puts the CFA at {claim.CfaRegister}{(cfaAt is { } a ? a.ToString("+0;-0", CultureInfo.InvariantCulture) : "?")}");
-            foreach (var (register, offset) in claim.Saved)
-            {
-                if (!atCall.Saved.TryGetValue(register, out var actual))
-                    Fail("unwind", $"{claim.Source} restores {register} from CFA{offset:+0;-0}, where the code saves nothing of it");
-                else if (actual != offset)
-                    Fail("unwind", $"{claim.Source} restores {register} from CFA{offset:+0;-0}; the code saves it at CFA{actual:+0;-0}");
+                Fail("unwind", here is null
+                    ? $"the unwind table ends before {instruction.Address:x}: the code from there has no unwind entry"
+                    : $"the code at {instruction.Address:x} falls under another unwind entry ({here:x8}, not {entryEncoding:x8})");
+                break;
             }
-            foreach (var (register, offset) in atCall.Saved)
+            if (Claim(architecture, address, here, fdes, instruction.Address, out var uncovered) is null)
             {
-                if (!claim.Saved.ContainsKey(register) && register != ReturnAddress(architecture))
-                    Fail("unwind", $"the code saves {register} at CFA{offset:+0;-0}; {claim.Source} does not restore it");
+                Fail("unwind", instruction.Address == address ? uncovered! : $"at {instruction.Address:x}: {uncovered}");
+                break;
             }
         }
+
+        // The unwind information, at entry, at every call and at exit.
+        int compared = 0;
+        SwiftUnwindClaim? anyClaim = null;
+        foreach (var point in execution.Points)
+        {
+            var claim = Claim(architecture, address, encodingAt(point.Address), fdes, point.Address, out _);
+            if (claim is null)
+                continue;
+            anyClaim ??= claim;
+            int? cfaAt = claim.CfaRegister switch
+            {
+                "x29" or "rbp" => point.FramePointer is { } fp ? -fp : null,
+                "sp" or "rsp" => -point.StackPointer,
+                _ => null,
+            };
+            // A rule on the frame pointer says nothing where the function has not set it.
+            if (cfaAt is null && claim.CfaRegister is "x29" or "rbp")
+                continue;
+            compared++;
+            var where = point.Kind switch
+            {
+                SwiftFramePointKind.Entry => $"at entry ({point.Address:x})",
+                SwiftFramePointKind.Call => $"at the call at {point.Address:x}",
+                _ => $"at exit ({point.Address:x})",
+            };
+            if (cfaAt != claim.CfaOffset)
+            {
+                Fail("unwind", $"{claim.Source} computes the CFA as {claim.CfaRegister}{claim.CfaOffset:+0;-0} {where}; the code puts the CFA at {claim.CfaRegister}{(cfaAt is { } a ? a.ToString("+0;-0", CultureInfo.InvariantCulture) : "?")}");
+                continue;
+            }
+            foreach (var (register, offset) in claim.Saved)
+            {
+                if (point.Stack.TryGetValue(offset, out var held) && held == register)
+                    continue;
+                if (point.Saved.TryGetValue(register, out var actual) && actual != offset)
+                    Fail("unwind", $"{claim.Source} restores {register} from CFA{offset:+0;-0} {where}; the code saves it at CFA{actual:+0;-0}");
+                else
+                    Fail("unwind", $"{claim.Source} restores {register} from CFA{offset:+0;-0} {where}, where the code holds nothing of it");
+            }
+            foreach (var register in point.Changed.Order(StringComparer.Ordinal))
+            {
+                if (!claim.Saved.ContainsKey(register))
+                    Fail("unwind", $"the code has changed {register} {where}; {claim.Source} does not restore it");
+            }
+            if (point.Kind == SwiftFramePointKind.Call)
+            {
+                foreach (var (register, offset) in point.Saved)
+                {
+                    if (!claim.Saved.ContainsKey(register) && register != ReturnAddress(architecture))
+                        Fail("unwind", $"the code saves {register} at CFA{offset:+0;-0}; {claim.Source} does not restore it");
+                }
+            }
+        }
+        if (anyClaim is not null && compared == 0)
+            Fail("unwind", $"{anyClaim.Source} computes the CFA from {anyClaim.CfaRegister}, which the code never sets");
 
         // The plan.
         if (planned is not null)
         {
+            var atCall = execution.AtCall!;
             var actualSaved = atCall.Saved.Keys.Where(r => r != ReturnAddress(architecture)).ToHashSet(StringComparer.Ordinal);
             var plannedSaved = planned.SavedRegisters.Where(r => r != ReturnAddress(architecture)).ToHashSet(StringComparer.Ordinal);
             if (architecture == SwiftArchitecture.X86_64)
@@ -295,11 +403,28 @@ public static class SwiftBridgeValidator
             return new SwiftUnwindClaim(row.CfaRegister, row.CfaOffset, row.Saved, $"the DWARF row at {row.Pc:x}");
         }
 
+        // Frameless: the CFA is sp plus a fixed size. A frameless encoding that also saves registers
+        // is not one the generator writes, and fails closed.
+        if (mode == 0x02000000)
+        {
+            bool savesRegisters = architecture == SwiftArchitecture.Arm64
+                ? (value & 0x00000FFF) != 0
+                : (value & 0x0000FFFF) != 0;
+            if (savesRegisters)
+            {
+                error = $"the encoding {value:x8} is a frameless one that saves registers, which the validator does not model";
+                return null;
+            }
+            return architecture == SwiftArchitecture.Arm64
+                ? new SwiftUnwindClaim("sp", (int)((value >> 12) & 0xFFF) * 16, ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal), $"the compact encoding {value:x8}")
+                : new SwiftUnwindClaim("rsp", (int)((value >> 16) & 0xFF) * 8, ImmutableSortedDictionary<string, int>.Empty.WithComparers(StringComparer.Ordinal), $"the compact encoding {value:x8}");
+        }
+
         if (architecture == SwiftArchitecture.Arm64)
         {
             if (mode != 0x04000000)
             {
-                error = $"the encoding {value:x8} is not a frame-based one";
+                error = $"the encoding {value:x8} is not a frame-based or frameless one";
                 return null;
             }
             var saved = new SortedDictionary<string, int>(StringComparer.Ordinal) { ["x29"] = -16, ["x30"] = -8 };
@@ -328,7 +453,7 @@ public static class SwiftBridgeValidator
         {
             if (mode != 0x01000000)
             {
-                error = $"the encoding {value:x8} is not an rbp-frame one";
+                error = $"the encoding {value:x8} is not an rbp-frame or frameless one";
                 return null;
             }
             int frameOffset = (int)((value >> 16) & 0xFF);
@@ -364,20 +489,22 @@ public static class SwiftBridgeValidator
     // ---- the actual frame ----
 
     /// <summary>
-    /// The frame a function builds, from its instructions: the state at its first call, what it writes
-    /// and restores, sp at return, and <paramref name="Clobbers"/>, each way the caller's value of a
-    /// callee-saved register (or the return address) is lost: written before a copy of it was saved,
-    /// or not holding it again at return.
+    /// The frame a function builds, from its instructions: the state at its first call (null when it
+    /// calls nothing), what it writes and restores, sp at return, <paramref name="Clobbers"/>, each way
+    /// the caller's value of a callee-saved register (or the return address) is lost: written before a
+    /// copy of it was saved, or not holding it again at return, and <paramref name="Points"/>, the frame
+    /// at entry, at each call and at exit.
     /// </summary>
     public sealed record Execution(
         SwiftFrameState? AtCall, ulong CallAddress, ImmutableHashSet<string> Written,
         ImmutableDictionary<string, int> Restored, int StackPointerAtReturn, string? Error,
-        ImmutableArray<string> Clobbers);
+        ImmutableArray<string> Clobbers, ImmutableArray<SwiftFramePoint> Points);
 
     /// <summary>
     /// Executes the function symbolically from its entry, tracking sp and the frame pointer as CFA
-    /// offsets and every save of a callee-saved register, to its first call and on to its return.
-    /// Any write of sp or the frame pointer outside the forms a bridge uses fails closed. Each
+    /// offsets and every save of a callee-saved register, through its calls to its exit: a return, or
+    /// an unconditional tail branch. The code is straight-line; a conditional branch fails closed, as
+    /// does any write of sp or the frame pointer outside the forms the generator writes. Each
     /// callee-saved register is followed in order: whether it still holds the caller's value, and
     /// which stack slots hold a copy of that value.
     /// </summary>
@@ -396,10 +523,11 @@ public static class SwiftBridgeValidator
         var written = ImmutableHashSet.CreateBuilder<string>(StringComparer.Ordinal);
         var restored = ImmutableDictionary.CreateBuilder<string, int>(StringComparer.Ordinal);
         var clobbers = new List<string>();
+        var points = ImmutableArray.CreateBuilder<SwiftFramePoint>();
         SwiftFrameState? atCall = null;
         ulong callAddress = 0;
         Execution Fail(SwiftInstruction at, string why) =>
-            new(null, 0, written.ToImmutable(), restored.ToImmutable(), sp, $"{why} at {at}", clobbers.ToImmutableArray());
+            new(null, 0, written.ToImmutable(), restored.ToImmutable(), sp, $"{why} at {at}", clobbers.ToImmutableArray(), points.ToImmutable());
 
         // The registers whose caller's value must survive: the callee-saved ones and, on arm64, the
         // return address. A stack slot names the register whose caller's value it holds; a copy of a
@@ -434,13 +562,19 @@ public static class SwiftBridgeValidator
             else
                 Write(register, at);
         }
-        Execution Returned(string? error)
+        void Point(SwiftFramePointKind kind, ulong at) => points.Add(new SwiftFramePoint(
+            kind, at, sp, fp, saved.ToImmutableSortedDictionary(StringComparer.Ordinal),
+            stack.ToImmutableDictionary(), changed.ToImmutableHashSet(StringComparer.Ordinal)));
+        Execution Returned(SwiftInstruction at)
         {
+            Point(SwiftFramePointKind.Exit, at.Address);
             foreach (var register in changed.Order(StringComparer.Ordinal))
                 clobbers.Add($"{register} does not hold the caller's value at return");
-            return new(atCall, callAddress, written.ToImmutable(), restored.ToImmutable(), sp, error, clobbers.ToImmutableArray());
+            return new(atCall, callAddress, written.ToImmutable(), restored.ToImmutable(), sp, null, clobbers.ToImmutableArray(), points.ToImmutable());
         }
 
+        if (instructions.Count > 0)
+            Point(SwiftFramePointKind.Entry, instructions[0].Address);
         SwiftInstruction? previous = null;
         foreach (var instruction in instructions)
         {
@@ -455,6 +589,7 @@ public static class SwiftBridgeValidator
             bool isReturn = arm ? m == "ret" : m is "retq" or "ret";
             if (isCall)
             {
+                Point(SwiftFramePointKind.Call, instruction.Address);
                 if (atCall is null)
                 {
                     atCall = new SwiftFrameState(sp, fp, saved.ToImmutableSortedDictionary(StringComparer.Ordinal));
@@ -465,14 +600,33 @@ public static class SwiftBridgeValidator
                     Write(ReturnAddress(architecture), instruction);
                 continue;
             }
-            if (isReturn)
-                return Returned(atCall is null ? "the function returns without calling anything" : null);
+            // An unconditional branch away is a tail call: the function's exit, which must leave the
+            // frame exactly as it found it. A conditional one is not modelled.
+            bool isTailBranch = arm ? m is "b" or "br" or "braa" or "braaz" or "brab" or "brabz" : m is "jmp" or "jmpq";
+            bool isConditional = arm
+                ? m.StartsWith("b.", StringComparison.Ordinal) || m.StartsWith("bc.", StringComparison.Ordinal)
+                    || m is "cbz" or "cbnz" or "tbz" or "tbnz"
+                : m.StartsWith('j') && !isTailBranch;
+            if (isReturn || isTailBranch)
+                return Returned(instruction);
+            if (isConditional)
+                return Fail(instruction, "a conditional branch, which the straight-line model does not follow,");
 
             if (arm)
             {
                 var regs = ops.Select(Arm64Register).ToList();
                 switch (m)
                 {
+                    case "stp" or "str" or "stur" when ops.Length >= 2 && ParseMemory(ops, out var memory) && memory.Base == "x29":
+                    {
+                        // A store into the frame, addressed from the frame pointer.
+                        if (memory.PreIndex || memory.PostIndex || fp is not { } record)
+                            return Fail(instruction, "an unmodelled store through the frame pointer");
+                        Save(regs[0]!, record + memory.Offset);
+                        if (m == "stp")
+                            Save(regs[1]!, record + memory.Offset + 8);
+                        continue;
+                    }
                     case "stp" or "str" or "stur" when ops.Length >= 2 && ParseMemory(ops, out var memory):
                     {
                         if (memory.Base != "sp")
@@ -500,6 +654,9 @@ public static class SwiftBridgeValidator
                         var destinations = m == "ldp" ? new[] { regs[0]!, regs[1]! } : new[] { regs[0]! };
                         for (int k = 0; k < destinations.Length; k++)
                             Load(destinations[k], at + 8 * k, instruction);
+                        // Reloading the frame pointer ends this function's frame record.
+                        if (destinations.Contains("x29"))
+                            fp = null;
                         if (memory.PostIndex)
                             sp += memory.PostOffset;
                         continue;
@@ -566,6 +723,12 @@ public static class SwiftBridgeValidator
                     case "movq" when regs.Count == 2 && regs[0] is { } stored && X86Memory(ops[1]) is { Base: "rsp" } memory:
                         Save(stored, sp + memory.Offset);
                         continue;
+                    case "movq" when regs.Count == 2 && regs[0] is { } stored && X86Memory(ops[1]) is { Base: "rbp" } memory:
+                        // A store into the frame, addressed from the frame pointer.
+                        if (fp is not { } rbpFrame)
+                            return Fail(instruction, "an unmodelled store through rbp");
+                        Save(stored, rbpFrame + memory.Offset);
+                        continue;
                 }
                 if (X86Destination(m, ops, regs) is { } destination)
                 {
@@ -575,7 +738,7 @@ public static class SwiftBridgeValidator
                 }
             }
         }
-        return new(atCall, callAddress, written.ToImmutable(), restored.ToImmutable(), sp, "the function does not return", clobbers.ToImmutableArray());
+        return new(atCall, callAddress, written.ToImmutable(), restored.ToImmutable(), sp, "the function does not return", clobbers.ToImmutableArray(), points.ToImmutable());
     }
 
     private readonly record struct Memory(string Base, int Offset, bool PreIndex, bool PostIndex, int PostOffset);
@@ -760,6 +923,19 @@ public static class SwiftBridgeValidator
             entries[ulong.Parse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture)] =
                 uint.Parse(match.Groups[2].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
         return entries;
+    }
+
+    /// <summary>
+    /// The end of the code <c>llvm-objdump --unwind-info</c> describes: the last top-level index, a
+    /// sentinel the linker writes past the last function, at and beyond which the unwinder finds no
+    /// entry. Null when the output lists no index.
+    /// </summary>
+    public static ulong? UnwindTableEnd(string objdumpOutput)
+    {
+        ulong? end = null;
+        foreach (Match match in Regex.Matches(objdumpOutput, @"\[\d+\]: function offset=0x([0-9a-f]+), 2nd level page offset="))
+            end = ulong.Parse(match.Groups[1].Value, NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+        return end;
     }
 
     /// <summary>The FDEs of <c>llvm-dwarfdump --eh-frame</c>, with their evaluated rows.</summary>

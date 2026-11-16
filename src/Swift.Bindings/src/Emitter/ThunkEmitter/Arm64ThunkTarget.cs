@@ -41,6 +41,9 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
         sb.AppendLine($"_{thunkSymbol}:");
     }
 
+    /// <summary>The thunks' line layout, shared with <see cref="CanonicalFrame"/>.</summary>
+    private static CanonicalFrame.Style Style => CanonicalFrame.Style.Thunk;
+
     /// <inheritdoc/>
     public override void EmitTailCall(StringBuilder sb, ThunkDescriptor descriptor)
     {
@@ -49,16 +52,18 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
         // swiftcc argument registers already coincide here, so the arguments pass through untouched.
         if (ThunkAssemblyEmitter.BoolReturnRegisters(descriptor).Count > 0)
         {
-            sb.AppendLine("    stp     x29, x30, [sp, #-16]!");
-            sb.AppendLine("    mov     x29, sp");
+            CanonicalFrame.Arm64Prologue(sb, Style, []);
             sb.AppendLine($"    bl      {descriptor.SwiftSymbol}");
             EmitBoolReturnNormalization(sb, descriptor);
-            sb.AppendLine("    ldp     x29, x30, [sp], #16");
-            sb.AppendLine("    ret");
+            CanonicalFrame.Arm64Epilogue(sb, Style, []);
             return;
         }
 
+        // No frame: the branch leaves sp and lr as the caller set them. The CFI still opens and
+        // closes, so the linked image describes the thunk with a frameless encoding rather than none.
+        CanonicalFrame.Begin(sb, Style);
         sb.AppendLine($"    b       {descriptor.SwiftSymbol}");
+        CanonicalFrame.End(sb, Style);
     }
 
     /// <inheritdoc/>
@@ -96,40 +101,27 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
                 : (needsSelfBridge ? 1 : 0) + descriptor.ParameterCount;
         }
 
-        // Prologue: save callee-saved registers x20, x19, plus frame pointer and link register.
-        // For throwing functions, also save x21 — it's callee-saved in AAPCS64 (x19-x28 range)
-        // and the thunk clobbers it for swifterror bridging. The P/Invoke wrapper expects x21
-        // preserved across the native call; corrupting it causes SIGSEGV in Mono's GC transition.
+        // The canonical frame (CanonicalFrame): the frame record at the top, CFA = fp + 16, and the
+        // callee-saved pairs the body writes below it. x19 holds the return buffer or the error-out
+        // pointer across the call and x20 carries self or the metatype, so (x20, x19) is always saved.
+        // A throwing thunk also writes x21, the swifterror register, which is callee-saved in AAPCS64:
+        // the P/Invoke caller expects it preserved across the native call (corrupting it crashes
+        // Mono's GC transition). The compact format saves x21 with x22 as one pair, so x22 holds the
+        // error-out pointer when x19 already holds the return buffer.
+        var pairs = new List<(string First, string Second)> { ("x20", "x19") };
         if (needsErrorBridge)
-        {
-            sb.AppendLine("    stp     x20, x19, [sp, #-48]!");
-            sb.AppendLine("    stp     x29, x30, [sp, #16]");
-            sb.AppendLine("    add     x29, sp, #16");
-            sb.AppendLine("    str     x21, [sp, #32]");
-        }
-        else
-        {
-            sb.AppendLine("    stp     x20, x19, [sp, #-32]!");
-            sb.AppendLine("    stp     x29, x30, [sp, #16]");
-            sb.AppendLine("    add     x29, sp, #16");
-        }
+            pairs.Add(("x22", "x21"));
+        CanonicalFrame.Arm64Prologue(sb, Style, pairs);
 
         // Save x8 (cdecl return buffer) to x19 if we need to bridge the return
         if (needsReturnBridge)
             sb.AppendLine("    mov     x19, x8");
 
-        // Save error out pointer to x19 (if no return bridge — otherwise we need
-        // a different strategy; use stack for error out when both are needed)
-        if (needsErrorBridge && !needsReturnBridge)
-        {
-            sb.AppendLine($"    mov     x19, x{errorOutRegIndex}");
-        }
-        else if (needsErrorBridge && needsReturnBridge)
-        {
-            // Both return bridge and error bridge: x19 holds return buffer,
-            // save error out pointer on stack
-            sb.AppendLine($"    str     x{errorOutRegIndex}, [sp, #-16]!");
-        }
+        // Hold the error-out pointer in a callee-saved register across the call: x19, or x22 when
+        // x19 holds the return buffer.
+        string? errorOutRegister = needsErrorBridge ? (needsReturnBridge ? "x22" : "x19") : null;
+        if (errorOutRegister is not null)
+            sb.AppendLine($"    mov     {errorOutRegister}, x{errorOutRegIndex}");
 
         // Handle self parameter (instance methods): self is the last integer register
         // parameter before error_out, at position x{ParameterCount}.
@@ -141,8 +133,8 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
             sb.AppendLine($"    mov     x20, x{descriptor.ParameterCount}");
         }
 
-        // Throwing constructor: the leading error-out pointer (captured to x19 above) pushed the
-        // value arguments up to x1.., so shift them back down to x0.. for swiftcc. Ascending order is
+        // Throwing constructor: the leading error-out pointer (captured above) pushed the value
+        // arguments up to x1.., so shift them back down to x0.. for swiftcc. Ascending order is
         // safe — each source register is read before the next move overwrites it. Float arguments
         // stay in d0.. and never shift (the error-out occupies an integer register).
         if (argShift > 0)
@@ -173,30 +165,10 @@ public sealed class Arm64ThunkTarget : ThunkTargetArch
             EmitReturnStore(sb, descriptor.ReturnLowering!);
 
         // Capture swifterror to the error out pointer
-        if (needsErrorBridge && !needsReturnBridge)
-        {
-            sb.AppendLine("    str     x21, [x19]");
-        }
-        else if (needsErrorBridge && needsReturnBridge)
-        {
-            // Restore error out pointer from stack and store error
-            sb.AppendLine("    ldr     x9, [sp], #16");
-            sb.AppendLine("    str     x21, [x9]");
-        }
+        if (errorOutRegister is not null)
+            sb.AppendLine($"    str     x21, [{errorOutRegister}]");
 
-        // Epilogue: restore callee-saved registers
-        if (needsErrorBridge)
-        {
-            sb.AppendLine("    ldr     x21, [sp, #32]");
-            sb.AppendLine("    ldp     x29, x30, [sp, #16]");
-            sb.AppendLine("    ldp     x20, x19, [sp], #48");
-        }
-        else
-        {
-            sb.AppendLine("    ldp     x29, x30, [sp, #16]");
-            sb.AppendLine("    ldp     x20, x19, [sp], #32");
-        }
-        sb.AppendLine("    ret");
+        CanonicalFrame.Arm64Epilogue(sb, Style, pairs);
     }
 
     /// <summary>

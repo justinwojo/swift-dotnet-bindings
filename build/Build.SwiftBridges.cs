@@ -96,6 +96,20 @@ partial class Build
             .Select(p => p.ToString())
             .ToArray();
 
+    /// <summary>
+    /// The native thunk assemblies of the current BindingTests regeneration, main module and dependency:
+    /// every <c>{Module}.{arch}.s</c> that defines a thunk (the bridge assemblies, <c>{Module}.Bridges.{arch}.s</c>,
+    /// are validated against their plans instead).
+    /// </summary>
+    string[] SwiftBridgeCorpusThunkFiles() =>
+        new[] { BtOutputDir, BtOutputDir / "dep-swift" }
+            .Where(d => Directory.Exists(d))
+            .SelectMany(d => Directory.GetFiles(d, "*.s"))
+            .Where(f => !Path.GetFileName(f).Contains(".Bridges.", StringComparison.Ordinal))
+            .Where(f => File.ReadLines(f).Any(l => l.TrimStart().StartsWith(".globl _thunk_", StringComparison.Ordinal)))
+            .Order(StringComparer.Ordinal)
+            .ToArray();
+
     /// <summary>Every plan sidecar the bridges are built from: the corpus's, then the products'.</summary>
     string[] SwiftBridgePlanFiles() =>
         SwiftBridgeCorpusPlanFiles()
@@ -148,6 +162,7 @@ partial class Build
         .OnlyWhenStatic(() => OperatingSystem.IsMacOS())
         .After(SwiftLoweringOracle, SwiftBridgeProducts)
         .Description("Emit and validate the native bridge of every plan (corpus and hand-written tables) on arm64 and x86_64, " +
+                     "and the frame and unwind information of every native thunk the corpus generated, " +
                      "assembled for every platform the sidecars claim.")
         .Executes(() =>
         {
@@ -167,6 +182,11 @@ partial class Build
             // The corpus was regenerated with this evidence, and a routing table's products were written
             // from it, so their routing must agree with it.
             arguments.AddRange(plans.Select(p => routed.Contains(p) ? $"--swift-routed-call-plans \"{p}\"" : $"--swift-call-plans \"{p}\""));
+            // The corpus's native thunks, held to the bridges' frame and unwind checks.
+            var thunkFiles = SwiftBridgeCorpusThunkFiles();
+            if (thunkFiles.Length == 0)
+                Assert.Fail($"{BtOutputDir} has no native thunk assembly: run `nuke binding-tests --compile-only` (or a `--catalyst` or `--tvos` leg) first");
+            arguments.AddRange(thunkFiles.Select(f => $"--thunk-assembly \"{f}\""));
             RunGenerator(arguments, "the Swift bridge gate");
             Log.Information("Swift bridge gate report: {Report}", SwiftBridgeGateScratch / "bridge-gate.txt");
         });
