@@ -675,31 +675,88 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// True when <paramref name="genericParameterName"/> is a generic parameter of the class
-        /// that <see cref="RequiresClassMetatypeSelf"/> passes as self. Swift recovers such a
-        /// parameter's metadata from the metatype in the self register, so the native function
-        /// takes no metadata argument for it. A method's own generic parameter is not recovered
-        /// that way and is still passed.
+        /// Where the native function a member's P/Invoke reaches finds its parent type's generic
+        /// arguments and the witness tables of the conformances the parent declares on them.
         /// </summary>
-        public static bool IsGenericParameterFulfilledByClassMetatypeSelf(
+        public enum ParentGenericContext
+        {
+            /// <summary>Each generic parameter's metadata and witness tables are arguments: every
+            /// lane where Swift source makes the call (a wrapper or native thunk), and every
+            /// member of a non-generic parent.</summary>
+            Arguments,
+
+            /// <summary>The class's thick metatype in the self register (<see cref="RequiresClassMetatypeSelf"/>).</summary>
+            ClassMetatypeSelf,
+
+            /// <summary>The class instance in the self register: its isa is the class's metadata.</summary>
+            ClassInstanceSelf,
+
+            /// <summary>One argument, the parent's own metadata, in the first metadata slot: the
+            /// polymorphic convention of an instance member of a generic struct or enum.</summary>
+            ParentMetadataArgument,
+        }
+
+        /// <summary>
+        /// Classifies how the native function a member's P/Invoke reaches recovers its parent's
+        /// generic context. Swift's polymorphic convention fulfils every generic requirement it
+        /// can from a source it already has, and passes only the rest. A direct call to an
+        /// instance member of a generic type has one: the class instance (whose isa carries the
+        /// class's generic arguments and declared witness tables), or, on a struct or enum, the
+        /// parent's metadata, which the callee takes in the first metadata slot and which carries
+        /// the same. Swift-convention members reached through Swift source (an <c>@_cdecl</c> or
+        /// method wrapper, a native thunk, a free-function wrapper) and protocol extension members
+        /// take every generic argument explicitly.
+        /// </summary>
+        public static ParentGenericContext GetParentGenericContext(MethodEnvironment env)
+        {
+            if (RequiresClassMetatypeSelf(env)) return ParentGenericContext.ClassMetatypeSelf;
+            var methodDecl = env.MethodDecl;
+            if (methodDecl.IsConstructor || methodDecl.MethodType == MethodType.Static)
+                return ParentGenericContext.Arguments;
+            if (methodDecl.UsesCdeclWrapper || methodDecl.UsesCdeclMethodWrapper || methodDecl.UsesNativeThunk
+                || methodDecl.UsesFreeFunctionWrapper || methodDecl.IsProtocolExtensionMethod)
+                return ParentGenericContext.Arguments;
+            if (env.ParentDecl is not TypeDecl { IsGeneric: true } || methodDecl.GenericParameters.Count == 0)
+                return ParentGenericContext.Arguments;
+            if (env.ParentDecl is ClassDecl) return ParentGenericContext.ClassInstanceSelf;
+            // The parent's metadata comes from the helper class's metadata accessor.
+            return env.PInvokeHelperContext is null
+                ? ParentGenericContext.Arguments
+                : ParentGenericContext.ParentMetadataArgument;
+        }
+
+        /// <summary>
+        /// True when the native function takes no metadata argument for
+        /// <paramref name="genericParameterName"/>, a generic parameter of the parent type, because
+        /// <see cref="GetParentGenericContext"/> already supplies it. Under
+        /// <see cref="ParentGenericContext.ParentMetadataArgument"/> the parent's first generic
+        /// parameter keeps its slot, which the call fills with the parent's metadata; the others
+        /// take none. A method's own generic parameter is always passed.
+        /// </summary>
+        public static bool IsGenericParameterMetadataFulfilledBySelf(
             MethodEnvironment env, string genericParameterName)
         {
-            if (!RequiresClassMetatypeSelf(env)) return false;
-            return env.ParentDecl is TypeDecl parent
-                && parent.GenericParameters.Any(p => string.Equals(p.TypeName, genericParameterName, StringComparison.Ordinal));
+            var context = GetParentGenericContext(env);
+            if (context == ParentGenericContext.Arguments) return false;
+            if (env.ParentDecl is not TypeDecl parent) return false;
+            var index = parent.GenericParameters.FindIndex(p =>
+                string.Equals(p.TypeName, genericParameterName, StringComparison.Ordinal));
+            if (index < 0) return false;
+            return context != ParentGenericContext.ParentMetadataArgument || index > 0;
         }
 
         /// <summary>
         /// True when the witness table for <paramref name="genericParameterName"/>'s conformance to
-        /// <paramref name="protocol"/> comes out of the class metatype in the self register — the
-        /// class itself declares that conformance on that parameter. A conformance a constrained
-        /// extension adds on top of the class's own signature is not stored in the class metadata,
-        /// so the native function still takes it as an argument.
+        /// <paramref name="protocol"/> comes from <see cref="GetParentGenericContext"/>: the parent
+        /// type itself declares that conformance on that parameter, so its metadata stores the
+        /// table. A conformance a constrained extension adds on top of the parent's own signature
+        /// is not stored there, so the native function still takes it as an argument, as it takes
+        /// every conformance of a method's own generic parameter.
         /// </summary>
-        public static bool IsConformanceFulfilledByClassMetatypeSelf(
+        public static bool IsConformanceFulfilledBySelf(
             MethodEnvironment env, string genericParameterName, SwiftTypeName protocol)
         {
-            if (!RequiresClassMetatypeSelf(env)) return false;
+            if (GetParentGenericContext(env) == ParentGenericContext.Arguments) return false;
             if (env.ParentDecl is not TypeDecl parent) return false;
             var declared = parent.GenericParameters.FirstOrDefault(p =>
                 string.Equals(p.TypeName, genericParameterName, StringComparison.Ordinal));

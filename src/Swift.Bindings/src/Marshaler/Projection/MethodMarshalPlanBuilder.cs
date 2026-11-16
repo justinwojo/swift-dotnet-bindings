@@ -303,8 +303,9 @@ internal class MethodMarshalPlanBuilder
             foreach (var conformance in conformances)
             {
                 // Lockstep with PInvokeSignatureBuilder.HandleProtocolConformance: a witness table
-                // the class metatype self already carries is not an argument, so no local for it.
-                if (MarshallingHelpers.IsConformanceFulfilledByClassMetatypeSelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
+                // self or the parent metadata argument already carries is not an argument, so no
+                // local for it.
+                if (MarshallingHelpers.IsConformanceFulfilledBySelf(_env, genericParameter.TypeName, conformance.ConformanceTarget))
                     continue;
 
                 bool resolvable = _isProtocolAvailable(conformance.ConformanceTarget);
@@ -1626,12 +1627,12 @@ internal class MethodMarshalPlanBuilder
                 // from PInvokeHelperContext to avoid duplicate TypeMetadata params.
                 metadataArgs = "";
 
-                // Swift's calling convention for non-constructor methods on a generic struct
+                // Swift's calling convention for instance members of a generic struct or enum
                 // expects the PARENT type's metadata in the first metadata slot, NOT the
                 // individual generic param's metadata. Substitute the first parent-generic-param
-                // metadata.Handle expression with _parentMetatype.Handle. Subsequent parent-generic
-                // metadata args (for parents with multiple generic params, e.g., BufferModeQuad)
-                // remain in the call list but are ignored by Swift since only x0 is read.
+                // metadata.Handle expression with _parentMetatype.Handle. The parent's other
+                // generic parameters have no slot (IsGenericParameterMetadataFulfilledBySelf):
+                // the method's own metadata follows directly, as Swift reads it.
                 if (RequiresParentMetadataInjection() && _env.ParentDecl is TypeDecl parentTypeDeclForCall)
                 {
                     var firstParentSwiftParam = parentTypeDeclForCall.GenericParameters[0].TypeName;
@@ -1798,30 +1799,13 @@ internal class MethodMarshalPlanBuilder
     }
 
     /// <summary>
-    /// True when this method needs the PARENT type's metadata injected into the first
-    /// metadata slot of the raw CallConvSwift call. Swift's calling convention for a
-    /// non-constructor method on a generic struct expects the parent metadata pointer
-    /// (not individual generic-param metadata). Methods routed through @_cdecl /
-    /// native-thunk wrappers handle this internally and don't need injection.
-    /// A static method on a generic struct or enum is the exception: its metatype self is thin,
-    /// so nothing fulfills the generic parameters from Self and Swift takes each parameter's own
-    /// metadata, which is what the call site already passes.
+    /// True when the raw Swift-convention call passes the PARENT type's metadata in the first
+    /// metadata slot: an instance member of a generic struct or enum called directly
+    /// (<see cref="MarshallingHelpers.ParentGenericContext.ParentMetadataArgument"/>). The
+    /// signature keeps only the parent's first generic parameter's slot for it.
     /// </summary>
-    private bool RequiresParentMetadataInjection()
-    {
-        if (_env.MethodDecl.IsConstructor) return false;
-        if (_env.MethodDecl.MethodType == MethodType.Static && _env.ParentDecl is StructDecl or EnumDecl) return false;
-        // A class static's metatype goes in the self register, not in a metadata slot.
-        if (MarshallingHelpers.RequiresClassMetatypeSelf(_env)) return false;
-        if (_env.MethodDecl.UsesCdeclWrapper || _env.MethodDecl.UsesCdeclMethodWrapper) return false;
-        if (_env.MethodDecl.UsesNativeThunk) return false;
-        if (_env.MethodDecl.UsesFreeFunctionWrapper) return false;
-        if (_env.MethodDecl.IsProtocolExtensionMethod) return false;
-        if (_env.PInvokeHelperContext == null) return false;
-        if (_env.ParentDecl is not TypeDecl { IsGeneric: true }) return false;
-        if (_env.MethodDecl.GenericParameters.Count == 0) return false;
-        return true;
-    }
+    private bool RequiresParentMetadataInjection() =>
+        MarshallingHelpers.GetParentGenericContext(_env) == MarshallingHelpers.ParentGenericContext.ParentMetadataArgument;
 
     /// <summary>
     /// True when the current accessor is a closed-static-factory getter (e.g.
