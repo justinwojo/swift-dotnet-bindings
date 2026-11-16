@@ -1,0 +1,582 @@
+{
+  "description": "Every platform-type projection build/baselines/platform-type-abi.json records that PlatformTypeAbiAuditTests.EveryProjectedCarrier_MatchesItsSwiftRepresentation does not compare leaf by leaf, with the reason. The test fails on a row it cannot compare that is not listed here under the same category, and on a listed row it no longer excludes that way. An AliasCarrier row has no type record: the generator resolves the name to the carrier recorded here, and the test compares that carrier.",
+  "rows": {
+    "ARKit.ARHitTestResult.ResultType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "ARKit.ARRaycastQuery": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "ARKit.ARRaycastQuery.Target": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "ARKit.ARRaycastQuery.TargetAlignment": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "AVFoundation.AVAudioChannelCount": {
+      "category": "AliasCarrier",
+      "carrier": "System.UInt32",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "AVFoundation.AVAudioFrameCount": {
+      "category": "AliasCarrier",
+      "carrier": "System.UInt32",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "AVFoundation.AVAudioFramePosition": {
+      "category": "AliasCarrier",
+      "carrier": "System.Int64",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "AVFoundation.AVAudioPacketCount": {
+      "category": "AliasCarrier",
+      "carrier": "System.UInt32",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "AVFoundation.AVCaptureSession.Preset": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "AVFoundation.AVMetadataObject.ObjectType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "AppKit.NSColor": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('NSColor' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "CoreData.NSAttributeType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreData.NSDeleteRule": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreData.NSFetchRequestResultType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreGraphics.CGColorRef": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CGColorRef' has been renamed to 'CGColor'), so no Swift declaration passes a value under this name."
+    },
+    "CoreGraphics.CGColorSpaceRef": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CGColorSpaceRef' has been renamed to 'CGColorSpace'), so no Swift declaration passes a value under this name."
+    },
+    "CoreGraphics.CGContextRef": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CGContextRef' has been renamed to 'CGContext'), so no Swift declaration passes a value under this name."
+    },
+    "CoreGraphics.CGImageRef": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CGImageRef' has been renamed to 'CGImage'), so no Swift declaration passes a value under this name."
+    },
+    "CoreLocation.CLLocationDegrees": {
+      "category": "AliasCarrier",
+      "carrier": "System.Double",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "CoreLocation.CLLocationDirection": {
+      "category": "AliasCarrier",
+      "carrier": "System.Double",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "CoreLocation.CLLocationDistance": {
+      "category": "AliasCarrier",
+      "carrier": "System.Double",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "CoreMotion.CMAcceleration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreMotion.CMCalibratedMagneticField": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreMotion.CMMagneticField": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreMotion.CMQuaternion": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreMotion.CMRotationMatrix": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreMotion.CMRotationRate": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Calendar.Identifier": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Data": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.Data, which holds the Swift value's 16 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.Date.ComponentsFormatStyle": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.DateComponents": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.DateComponents, which holds the Swift value's 283 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.DateInterval": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Decimal.FormatStyle.Currency": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.FileManager.SearchPathDirectory": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Host": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('Host' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "Foundation.IndexSet": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Locale.Currency": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.Locale.Currency, which holds the Swift value's 32 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.Locale.Language": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.Locale.Language, which holds the Swift value's 96 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.Locale.Region": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.Locale.Region, which holds the Swift value's 32 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.Measurement": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.Measurement, which holds the Swift value's 16 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.NSRange": {
+      "category": "AliasCarrier",
+      "carrier": "Foundation.NSRange",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "Foundation.Notification": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.Notification.Name": {
+      "category": "AliasCarrier",
+      "carrier": "Foundation.NSString",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "Foundation.PersonNameComponents": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.PersonNameComponents, which holds the Swift value's 8 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.SocketPort": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "Foundation.TimeZone": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.URL": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.URL, which holds the Swift value's 16 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.URLComponents": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.URLConnection": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "Foundation.URLError": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.URLQueryItem": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.URLRequest": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.Foundation.URLRequest, which holds the Swift value's 8 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.XMLParser": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Foundation.objc_AssociationPolicy": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "ManagedSettings.ActivityCategory": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.ManagedSettings.ActivityCategory, which holds the Swift value's 48 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "ManagedSettings.Application": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.ManagedSettings.Application, which holds the Swift value's 48 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "ManagedSettings.Token": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "ManagedSettings.WebDomain": {
+      "category": "OpaquePayload",
+      "reason": "Carried by Swift.ManagedSettings.WebDomain, which holds the Swift value's 48 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Matter.MTRNetworkCommissioningWiFiBand": {
+      "category": "NotInReferenceAssembly",
+      "reason": "The iOS platform assembly binds no type of this name, so a member that passes it does not compile and verify-recover removes it before any native call."
+    },
+    "Matter.MTRNetworkCommissioningWiFiSecurity": {
+      "category": "NotInReferenceAssembly",
+      "reason": "The iOS platform assembly binds no type of this name, so a member that passes it does not compile and verify-recover removes it before any native call."
+    },
+    "NaturalLanguage.NLTag": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Network.NWEndpoint.Port": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddIdentityDocumentType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddPassButtonStyle": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddPaymentPassError": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddPaymentPassStyle": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddSecureElementPassErrorCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKAddShareablePassConfigurationPrimaryAction": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAddressField": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKApplePayLaterAvailability": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKAutomaticPassPresentationSuppressionResult": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKBarcodeEventConfigurationDataType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKContactField": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKDisbursementErrorCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKDisbursementErrorKey": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKEncryptionScheme": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKIdentityButton.Label": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKIdentityButton.Style": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKIdentityError": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKIssuerProvisioningExtensionAuthorizationResult": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKMerchantCapability": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassKitErrorCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKPassLibrary.AuthorizationStatus": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassLibrary.Capability": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassLibraryAddPassesStatus": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassLibraryNotificationKey": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassLibraryNotificationName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPassType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPayLater": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKPayLaterAction": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKPayLaterDisplayStyle": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKPaymentAuthorizationStatus": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentErrorCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKPaymentErrorKey": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentMethodType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentNetwork": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentPassActivationState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentRequest.MerchantCategoryCode": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKPaymentSummaryItemType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKRadioTechnology": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKSecureElementPass.PassActivationState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKShareSecureElementPassErrorCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PassKit.PKShareSecureElementPassResult": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKShippingContactEditingMode": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKShippingType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKStoredValuePassBalance.BalanceType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKSuppressionRequestToken": {
+      "category": "AliasCarrier",
+      "carrier": "System.IntPtr",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "PassKit.PKVehicleConnectionErrorCode": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PassKit.PKVehicleConnectionSessionConnectionState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PhotosUI.PHPickerFilter": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PhotosUI.PHPickerResult": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "QuartzCore.CAAutoresizingMask": {
+      "category": "NotInReferenceAssembly",
+      "reason": "The SDK marks the type unavailable on iOS, so the generator binds no member that passes it there; the managed carrier exists only on the platforms that declare it."
+    },
+    "QuartzCore.CAContentsFormat": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "QuartzCore.CACornerCurve": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "QuartzCore.CADynamicRange": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CADynamicRange' has been renamed to 'CALayer.DynamicRange'), so no Swift declaration passes a value under this name."
+    },
+    "QuartzCore.CAScroll": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "QuartzCore.CAToneMapMode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('CAToneMapMode' has been renamed to 'CALayer.ToneMapMode'), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.NSUnderlineStyle": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "UIKit.UIDropOperation": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "UIKit.UINotificationFeedbackGenerator.FeedbackType": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNAnimalBodyPoseObservation.JointName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNAnimalBodyPoseObservation.JointsGroupName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNAspectRatio": {
+      "category": "AliasCarrier",
+      "carrier": "System.Single",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "Vision.VNConfidence": {
+      "category": "AliasCarrier",
+      "carrier": "System.Single",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "Vision.VNDegrees": {
+      "category": "AliasCarrier",
+      "carrier": "System.Single",
+      "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
+    },
+    "Vision.VNGenerateOpticalFlowRequestComputationAccuracy": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('VNGenerateOpticalFlowRequestComputationAccuracy' has been renamed to 'VNGenerateOpticalFlowRequest.ComputationAccuracy'), so no Swift declaration passes a value under this name."
+    },
+    "Vision.VNGeneratePersonSegmentationRequestQualityLevel": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('VNGeneratePersonSegmentationRequestQualityLevel' has been renamed to 'VNGeneratePersonSegmentationRequest.QualityLevel'), so no Swift declaration passes a value under this name."
+    },
+    "Vision.VNHumanBodyPose3DObservation.JointName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNHumanBodyPose3DObservation.JointsGroupName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNHumanBodyPose3DObservationHeightEstimation": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('VNHumanBodyPose3DObservationHeightEstimation' has been renamed to 'VNHumanBodyPose3DObservation.HeightEstimation'), so no Swift declaration passes a value under this name."
+    },
+    "Vision.VNHumanBodyPoseObservation.JointName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNHumanBodyPoseObservation.JointsGroupName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNHumanHandPoseObservation.JointName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNHumanHandPoseObservation.JointsGroupName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNImageOption": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNRecognizedPointGroupKey": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNRecognizedPointKey": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Vision.VNTrackOpticalFlowRequestComputationAccuracy": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('VNTrackOpticalFlowRequestComputationAccuracy' has been renamed to 'VNTrackOpticalFlowRequest.ComputationAccuracy'), so no Swift declaration passes a value under this name."
+    },
+    "Vision.VNVideoProcessingOption": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "WebKit.WKMediaPlaybackState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "_LocationEssentials.CLLocationCoordinate2D": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    }
+  }
+}
