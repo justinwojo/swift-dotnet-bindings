@@ -569,7 +569,7 @@ public static partial class CrossModuleExtensionEmitter
         var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
         EmitPayloadPinnedBody(csWriter, receiverScope.ReceiverName, isStatic, isObjCRooted,
-            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope));
+            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope, objCResultOwned: true));
     }
 
     /// <summary>
@@ -671,7 +671,7 @@ public static partial class CrossModuleExtensionEmitter
             var nativeCall = $"NativeMethods.{nativeMethodName}({GetSelfExpression(getterReceiver.ReceiverName, classDecl.IsObjCRooted)})";
 
             EmitPayloadPinnedBody(csWriter, getterReceiver.ReceiverName, isStatic: false, isObjCRooted: classDecl.IsObjCRooted,
-                () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType, getterScope));
+                () => EmitReturnValueMarshalling(csWriter, returnCategory.Value, nativeCall, csharpType, getterScope, objCResultOwned: true));
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

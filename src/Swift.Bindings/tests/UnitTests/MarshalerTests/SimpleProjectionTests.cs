@@ -262,11 +262,44 @@ public class SimpleProjectionTests
     }
 
     [Fact]
-    public void ObjCBridged_ReturnPlan_WrapsWithGetNSObject()
+    public void ObjCBridged_ReturnPlan_AdoptsTheOwnedResult()
     {
+        // Swift returns a result @owned, so the object arrives at +1 and the wrapper must take that
+        // reference over. GetNSObject<T>(ptr) would retain once more and leak a retain per call.
         var proj = new ObjCBridgedProjection("UIImage");
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIImage>(result)!", plan.PInvokeExpression);
+        Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<UIImage>(result, true)!", plan.PInvokeExpression);
+    }
+
+    [Theory]
+    [InlineData("resultPtr")]
+    [InlineData("new IntPtr(swiftIndirectResult.Value)")]
+    public void ObjCBridged_IndirectReturnPlan_ReadsTheObjectOutOfTheBuffer(string resultName)
+    {
+        // A wrapper that returns through a result buffer stores the object in the buffer's first
+        // word. The buffer's own address is not an object.
+        var proj = new ObjCBridgedProjection("Foundation.NSString");
+        var plan = proj.GetReturnPlan(resultName, ReturnStrategy.IndirectResult);
+        Assert.Equal($"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSString>(*(global::System.IntPtr*)({resultName}), true)!", plan.PInvokeExpression);
+        Assert.True(plan.RequiresUnsafe);
+    }
+
+    [Theory]
+    [InlineData(ReturnStrategy.Direct, "result")]
+    [InlineData(ReturnStrategy.IndirectResult, "*(global::System.IntPtr*)(result)")]
+    public void ObjCBridgeable_ReturnPlan_AdoptsTheOwnedResult(ReturnStrategy strategy, string pointer)
+    {
+        var proj = new ObjCBridgeableProjection("Foundation.NSUrl");
+        var plan = proj.GetReturnPlan("result", strategy);
+        Assert.Equal($"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSUrl>({pointer}, true)!", plan.PInvokeExpression);
+    }
+
+    [Fact]
+    public void ObjCBridgeable_TypedEnumReturnPlan_AdoptsTheCarrier()
+    {
+        var proj = new ObjCBridgeableProjection("Foundation.NSString", new AppleTypedEnumAdapter("Vision.VNBarcodeSymbology", "Foundation.NSString"));
+        var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
+        Assert.Equal("Vision.VNBarcodeSymbologyExtensions.GetValue(ObjCRuntime.Runtime.GetINativeObject<Foundation.NSString>(result, true)!)", plan.PInvokeExpression);
     }
 
     [Fact]

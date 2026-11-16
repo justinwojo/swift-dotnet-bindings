@@ -815,7 +815,8 @@ public static partial class CrossModuleExtensionEmitter
             {
                 var resultLocal = bodyScope.Mint("result");
                 csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
-                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true)};");
+                // The trampoline returns the object through passRetained.
+                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true, ownsReference: true)};");
                 break;
             }
             case ReturnKind.SwiftClass:

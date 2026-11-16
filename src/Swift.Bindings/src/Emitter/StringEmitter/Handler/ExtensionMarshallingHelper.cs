@@ -506,13 +506,19 @@ public static class ExtensionMarshallingHelper
     /// <see cref="SyntheticNameScope.Mint"/> is idempotent per spelling, so a caller that already
     /// minted the same local while building <paramref name="nativeCall"/> gets the same name here.
     /// </param>
+    /// <param name="objCResultOwned">
+    /// The native call returns an Objective-C result at +1, as a direct call to the Swift member does
+    /// (its result is <c>@owned</c>); the reader adopts that reference. A wrapper that hands the
+    /// object back through <c>passUnretained</c> returns it at +0.
+    /// </param>
     public static void EmitReturnValueMarshalling(
         CSharpWriter csWriter,
         ReturnKind returnCategory,
         string nativeCall,
         string csharpType,
         SyntheticNameScope bodyScope,
-        bool primitiveReturnNeedsEnumCast = false)
+        bool primitiveReturnNeedsEnumCast = false,
+        bool objCResultOwned = false)
     {
         switch (returnCategory)
         {
@@ -534,7 +540,7 @@ public static class ExtensionMarshallingHelper
             {
                 var resultLocal = bodyScope.Mint("result");
                 csWriter.WriteLine($"var {resultLocal} = {nativeCall};");
-                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true)};");
+                csWriter.WriteLine($"return {MarshallingHelpers.FormatObjCBridgeCall(csharpType, resultLocal, nonNull: true, ownsReference: objCResultOwned)};");
                 break;
             }
 

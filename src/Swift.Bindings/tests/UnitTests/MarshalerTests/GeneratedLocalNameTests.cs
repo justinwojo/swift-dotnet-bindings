@@ -496,6 +496,25 @@ public class GeneratedLocalNameTests
         Assert.Contains(holder, ReturnedExpression(body), StringComparison.Ordinal);
     }
 
+    [Theory]
+    [InlineData(true, "true")]
+    [InlineData(false, "false")]
+    public void ObjCClassReturnAdoptsTheReferenceOnlyWhenTheCallReturnsItOwned(bool owned, string ownsArgument)
+    {
+        // A direct call to the Swift member returns the object @owned (+1), which the reader must
+        // take over; a wrapper that hands it back through passUnretained returns it at +0, which
+        // the reader must retain. Either mismatch leaks or over-releases once per call.
+        var scope = ExtensionMarshallingHelper.BuildReceiverScope(Array.Empty<string>()).BodyScope;
+        var body = EmitReturn(w => ExtensionMarshallingHelper.EmitReturnValueMarshalling(
+            w, ExtensionMarshallingHelper.ReturnKind.ObjCClass, "NativeMethods.Call(self)", "Foundation.NSString", scope,
+            objCResultOwned: owned));
+
+        if (owned)
+            Assert.Contains($"GetINativeObject<Foundation.NSString>(result, {ownsArgument})", body, StringComparison.Ordinal);
+        else
+            Assert.Contains("GetNSObject<Foundation.NSString>(result)", body, StringComparison.Ordinal);
+    }
+
     [Fact]
     public void ResilientStructReturnWiresEachDeclaredLocalToItsOwnConsumers()
     {
