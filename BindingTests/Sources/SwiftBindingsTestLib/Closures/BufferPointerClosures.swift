@@ -65,8 +65,9 @@ public final class BufferProvider {
     /// Returns the bit pattern of a retained `BufferProviderError.forced` boxed as
     /// `Swift.Error`. Tests use this to construct a non-zero `SwiftError` via the
     /// public `SwiftError(void*)` ctor and feed it into a `FromFailure(...)` result
-    /// from a throwing closure. The retain is balanced by the throwing-method
-    /// machinery's `SBW_ReleaseError` once the error surfaces back to C#.
+    /// from a throwing closure. The caller owns the retain and releases it: a
+    /// cooperative failure only lends its error, and the callback hands Swift its
+    /// own reference.
     public static func makeRetainedTestErrorPtr() -> Int64 {
         let err: any Error = BufferProviderError.forced
         let raw = Unmanaged.passRetained(err as AnyObject).toOpaque()

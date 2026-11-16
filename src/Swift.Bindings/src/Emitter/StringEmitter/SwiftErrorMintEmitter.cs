@@ -13,10 +13,14 @@ namespace BindingsGeneration;
 /// the adapter expects in its <c>errorOut</c> slot. Pure C# cannot construct a
 /// Swift <c>Error</c> existential, so we emit a tiny <c>@_cdecl</c> helper —
 /// <c>SBW_CreateError_{module}</c> — that wraps the message in an <c>NSError</c>
-/// and returns the retained boxed reference as a raw pointer. Because a class-typed
-/// <c>Error</c> existential is represented as that single boxed reference, the
-/// adapter can <c>unsafeBitCast</c> the pointer straight to <c>Swift.Error</c> and
-/// throw it.
+/// and returns the retained boxed reference as a raw pointer. The adapter takes that
+/// <c>+1</c> back with <see cref="TakeErrorExpression"/> and throws it, so the error is
+/// released exactly once, when the Swift catch that receives it ends.
+/// </para>
+/// <para>
+/// The <c>errorOut</c> slot therefore always carries an owned <c>+1</c>. A cooperative
+/// failure, whose <c>SwiftResult.Failure</c> only lends its error, is retained by the
+/// callback before it is stored there (<c>ClosureEmitter.EmitThrowingClosureCallback</c>).
 /// </para>
 /// <para>
 /// Both the generic-closure bridge and the standard throwing-closure path emit the
@@ -29,6 +33,17 @@ public static class SwiftErrorMintEmitter
 {
     /// <summary>The Swift/C# symbol that mints a Swift error for a module.</summary>
     public static string SymbolFor(string moduleName) => $"SBW_CreateError_{moduleName}";
+
+    /// <summary>
+    /// The Swift expression an adapter throws for the error a C# callback stored in its
+    /// <c>errorOut</c> slot: it takes back the <c>+1</c> the error mint passed out and casts the
+    /// <c>NSError</c> to <c>Swift.Error</c>, which keeps the same object. Bit-casting the pointer
+    /// to <c>Swift.Error</c> instead throws a <c>+0</c> view that the throw retains again, so the
+    /// mint's <c>+1</c> is never released and every callback error leaks.
+    /// </summary>
+    /// <param name="errorPointer">A non-optional <c>UnsafeMutableRawPointer</c> expression holding the minted error.</param>
+    public static string TakeErrorExpression(string errorPointer)
+        => $"Swift.Unmanaged<Swift.AnyObject>.fromOpaque({errorPointer}).takeRetainedValue() as! Swift.Error";
 
     /// <summary>
     /// Emits the Swift <c>@_cdecl("SBW_CreateError_{module}")</c> helper. Idempotent

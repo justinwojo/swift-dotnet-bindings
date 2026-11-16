@@ -22,9 +22,13 @@ public final class CCallbackLedger {
     }
 
     /// Adds the mapped delta to the total and returns it. A negative mapped delta throws and leaves
-    /// the total as it was, so the next call shows whether the receiver survived the error.
+    /// the total as it was, so the next call shows whether the receiver survived the error. A mapped
+    /// delta of -424242 throws a class error that holds a tracked reference instead.
     public func accumulate(_ delta: Int64, through map: @convention(c) (Int64) -> Int64) throws -> Int64 {
         let mapped = map(delta)
+        if mapped == trackedRouteErrorSentinel {
+            throw SyncCascadeTrackedClassError(code: 4242)
+        }
         if mapped < 0 {
             throw CCallbackLedgerError.negative(mapped)
         }

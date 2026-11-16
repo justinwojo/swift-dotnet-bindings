@@ -369,6 +369,29 @@ public class ClosureEmitterDirectTests
         Assert.DoesNotContain("GetDelegateFromBoxedContext", result);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitThrowingClosureCallback_CooperativeFailure_HandsSwiftItsOwnRetain(bool useCdecl)
+    {
+        // SwiftResult.Failure lends its error: the result keeps its own reference. The error slot
+        // hands Swift an owned +1 under both conventions, so the callback retains a cooperative
+        // failure rather than passing the borrowed pointer through.
+        var typeDatabase = CreateTypeDatabaseWithSwiftInt();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, TupleTypeSpec.Empty) { Throws = true };
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitThrowingClosureCallback(
+            new CSharpWriter(output), "onComplete", "value", closureTypeSpec, closureHandler,
+            "$s10TestModule10onCompleteyyKcvs", "TestModule", useCdecl: useCdecl, useBoxedContext: false);
+
+        var result = output.ToString();
+        Assert.Contains("Arc.UnknownObjectRetain((global::System.IntPtr)swiftResult.Failure.Value)", result);
+        Assert.DoesNotContain("*errorOut = swiftResult.Failure;", result);
+    }
+
     [Fact]
     public void EmitThrowingClosureCallback_DefaultFlag_UsesRawContextExtraction()
     {
@@ -889,6 +912,28 @@ public class ClosureEmitterDirectTests
         Assert.Contains("__heap_0", result);
         Assert.DoesNotContain("defer", result);
         Assert.Contains("errorPtr", result);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SwiftClosureAdapter_Throwing_TakesBackTheMintedErrorsRetain(bool hasReturn)
+    {
+        // The C# callback stores an error the mint passed out at +1. The adapter must take that +1
+        // back when it throws; bit-casting the pointer to Swift.Error throws a +0 view that the
+        // throw retains again, so every callback error leaks.
+        var typeDatabase = CreateTypeDatabaseWithComplexEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(
+            TupleTypeSpec.Empty,
+            hasReturn ? new NamedTypeSpec("Swift.Int64") : TupleTypeSpec.Empty) { Throws = true };
+
+        var result = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false));
+
+        Assert.Contains("throw " + SwiftErrorMintEmitter.TakeErrorExpression("error"), result);
+        Assert.Contains("takeRetainedValue()", result);
+        Assert.DoesNotContain("unsafeBitCast(error", result);
     }
 
     [Fact]

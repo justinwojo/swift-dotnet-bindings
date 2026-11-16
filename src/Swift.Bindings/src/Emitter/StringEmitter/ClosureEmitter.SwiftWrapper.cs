@@ -134,7 +134,7 @@ public static partial class ClosureEmitter
     /// Writer for top-level wrapper-lib declarations. When non-null and the closure
     /// throws, the per-module <c>SBW_CreateError_{module}</c> @_cdecl helper is
     /// emitted here (idempotent) so the adapter's rethrow has a Swift error to
-    /// bit-cast. Pass null only from contexts that cannot emit top-level Swift.
+    /// take back. Pass null only from contexts that cannot emit top-level Swift.
     /// </param>
     /// <param name="ctx">Module emission context used to deduplicate the error-mint
     /// helper and register its wrapper symbol. Null disables dedup/registration
@@ -161,7 +161,7 @@ public static partial class ClosureEmitter
         // @_cdecl helper (idempotent per module) HERE — the single point every adapter
         // call site funnels through (method / constructor / property setter /
         // free-function wrapper / closure-cdecl wrapper) — so the adapter's rethrow
-        // always has an error to bit-cast regardless of which wrapper path generated
+        // always has an error to take back regardless of which wrapper path generated
         // it, and so the C#-side SBW_CreateError P/Invoke (WrapperEmitter.Marshalling
         // -> SwiftErrorMintEmitter.EmitPInvokeIfNeeded) never references an
         // unregistered wrapper symbol. The Swift wrapper pass runs before the C#
@@ -742,7 +742,7 @@ public static partial class ClosureEmitter
                 // is nothing to free on the error path.
                 lines.Add($"{indent}    let __rawCdeclResult = {cdeclVarName}({cdeclArgsStr})");
                 lines.Add($"{indent}    if let error = errorPtr {{");
-                lines.Add($"{indent}        throw Swift.unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}        throw {SwiftErrorMintEmitter.TakeErrorExpression("error")}");
                 lines.Add($"{indent}    }}");
                 var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__rawCdeclResult", closureHandler);
                 lines.Add($"{indent}    return {returnConversion}");
@@ -751,7 +751,7 @@ public static partial class ClosureEmitter
             {
                 lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
                 lines.Add($"{indent}    if let error = errorPtr {{");
-                lines.Add($"{indent}        throw Swift.unsafeBitCast(error, to: Swift.Error.self)");
+                lines.Add($"{indent}        throw {SwiftErrorMintEmitter.TakeErrorExpression("error")}");
                 lines.Add($"{indent}    }}");
             }
 
@@ -1349,7 +1349,7 @@ public static partial class ClosureEmitter
                 // Generate adapter code. GetSwiftClosureAdapterCode emits the per-module
                 // SBW_CreateError_{module} @_cdecl helper itself when the closure throws
                 // (single source of truth across every adapter call site), so the rethrow
-                // always has a Swift error to bit-cast.
+                // always has a Swift error to take back.
                 if (isEscaping)
                     ClosureContextHelperEmitter.EmitIfNeeded(swiftWriter, emissionContext);
                 adapterCode.AddRange(GetSwiftClosureAdapterCode(
