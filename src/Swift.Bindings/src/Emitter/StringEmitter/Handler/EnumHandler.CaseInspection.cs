@@ -147,7 +147,7 @@ namespace BindingsGeneration
         /// Emits a TryGet method for an enum case with associated values.
         /// The method extracts the associated value(s) if the enum is in the specified case.
         /// </summary>
-        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, string tagPropertyName, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null)
+        private void EmitTryGetMethod(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase, string typeNameWithGenerics, string tagPropertyName, Dictionary<string, string>? caseNameMap = null, ModuleEmissionContext? emissionCtx = null, SwiftWriter? swiftWriter = null)
         {
             var caseName = caseDecl.Name;
             var capitalizedName = NameProvider.GetCaseName(caseName, caseNameMap);
@@ -204,9 +204,16 @@ namespace BindingsGeneration
                     return;
                 }
 
-                if (TryFindBridgeableValuePayload(typeSpec, typeDatabase, out var bridgeableValueType))
+                if (TryFindUnownedExistentialPayload(typeSpec, typeDatabase, out var unownedExistential))
                 {
-                    RefuseBridgeableValueTryGet(enumDecl, caseName, capitalizedName, bridgeableValueType);
+                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedExistential);
+                    return;
+                }
+
+                if (TryClassifyBridgedPayload(typeSpec, typeDatabase, emissionCtx, enumDecl.ModuleDecl?.Name, out var bridgedPayload))
+                {
+                    if (!TryEmitBridgedPayloadTryGet(csWriter, swiftWriter, enumDecl, caseDecl, typeDatabase, capitalizedName, tagPropertyName, bridgedPayload, emissionCtx))
+                        RefuseBridgedPayloadTryGet(enumDecl, caseName, capitalizedName, bridgedPayload, inTuple: false);
                     return;
                 }
 
@@ -439,9 +446,15 @@ namespace BindingsGeneration
                     return;
                 }
 
-                if (TryFindBridgeableValuePayload(element, typeDatabase, out var bridgeableTupleType))
+                if (TryFindUnownedExistentialPayload(element, typeDatabase, out var unownedTupleExistential))
                 {
-                    RefuseBridgeableValueTryGet(enumDecl, caseName, capitalizedName, bridgeableTupleType);
+                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedTupleExistential);
+                    return;
+                }
+
+                if (TryClassifyBridgedPayload(element, typeDatabase, emissionCtx, enumDecl.ModuleDecl?.Name, out var bridgedTupleElement))
+                {
+                    RefuseBridgedPayloadTryGet(enumDecl, caseName, capitalizedName, bridgedTupleElement, inTuple: true);
                     return;
                 }
 
@@ -622,38 +635,250 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Finds an Objective-C-bridgeable Swift value (<c>URL</c>, <c>URLRequest</c>,
-        /// <c>IndexPath</c>, <c>Decimal</c>, <c>Locale</c>, <c>Calendar</c>, <c>CharacterSet</c>)
-        /// stored directly in a payload, or through <c>Optional</c>. In the enum's memory such a
-        /// value is the Swift struct, not the Objective-C object it bridges to (a <c>URL</c> is two
-        /// words whose first is its Swift storage object), so a TryGet that reads it as the
-        /// Objective-C object sends that object messages it does not implement. The case factory
-        /// bridges through a Swift wrapper; extraction has no such bridge. Collections of these
-        /// values are not matched: Swift's native collection storage is itself an Objective-C
-        /// collection that bridges each element on access.
+        /// Finds an existential payload that the read would hand out as a bare
+        /// <c>ExistentialContainerN</c>: one with witness tables, not <c>Swift.Error</c>, and with a
+        /// protocol the type database has no record for, so no proxy can own it. The TryGet copy
+        /// holds the boxed value at +1, and the container struct has no owner that could release
+        /// it, so every read would leak one reference. The arm order mirrors
+        /// <c>EmitPayloadMarshal</c>'s existential branch exactly.
         /// </summary>
-        private static bool TryFindBridgeableValuePayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, out string typeName)
+        private static bool TryFindUnownedExistentialPayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, out string displayType)
         {
-            typeName = string.Empty;
-            if (typeSpec is not NamedTypeSpec named)
+            displayType = string.Empty;
+            var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (!existentialHandler.IsExistential(typeSpec))
                 return false;
-            if (named.Name is "Swift.Optional" or "Optional" && named.GenericParameters.Count == 1)
-                return TryFindBridgeableValuePayload(named.GenericParameters[0], typeDatabase, out typeName);
-            if (named.ContainsGenericParameters)
+            var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
+            if (protocolList is null
+                || ExistentialHandler.IsZeroWitnessExistential(protocolList)
+                || existentialHandler.TryGetWellKnownProtocolType(protocolList, out _)
+                || existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 return false;
-            if (!typeDatabase.TryGetTypeRecord(named, out var record) || !MarshallingHelpers.IsObjCBridgeable(record))
-                return false;
-            typeName = named.Name;
+            displayType = typeSpec.ToString();
             return true;
         }
 
-        private void RefuseBridgeableValueTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, string bridgeableType)
+        private void RefuseUnownedExistentialTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, string existentialType)
         {
-            _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{bridgeableType}', an Objective-C-bridgeable Swift value. Skipping TryGet method.");
+            _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{existentialType}', an existential with no protocol record to own it. Skipping TryGet method.");
             ReportCollector.RecordMemberSkipped(
                 BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
                 SkipReason.UnsupportedType,
-                $"Associated value '{bridgeableType}' is stored as its Swift value, not as the Objective-C object it bridges to, and the payload has no bridging read; the case factory still constructs it.");
+                $"Associated value '{existentialType}' is an existential whose protocol has no binding record, so no proxy can own the reference a read takes; the case factory still constructs it.");
+        }
+
+        private enum BridgedPayloadKind
+        {
+            Value,
+            Collection,
+            /// <summary>Holds bridgeable values in a shape the payload bridge does not return
+            /// (<c>URL??</c>, <c>[[URL]?]</c> without a container bridge, <c>(URL, Int)?</c>, …).</summary>
+            Unsupported,
+        }
+
+        /// <summary>
+        /// A payload that holds Objective-C-bridgeable Swift values: the value itself
+        /// (<c>URL</c>, <c>IndexPath</c>, <c>Decimal</c>, …), or an <c>Array</c>, <c>Dictionary</c>
+        /// or <c>Set</c> of them, either one optionally wrapped in <c>Optional</c>.
+        /// <see cref="CoreProjection"/> is the non-optional projection, or null when it cannot
+        /// be projected (a generic enum's payload).
+        /// </summary>
+        private sealed record BridgedPayload(string DisplayType, BridgedPayloadKind Kind, bool IsOptional, ITypeProjection? CoreProjection);
+
+        /// <summary>
+        /// Finds a payload of Objective-C-bridgeable Swift values (see <see cref="BridgedPayload"/>).
+        /// In the enum's memory such a payload is Swift values, not the Objective-C objects they
+        /// bridge to: a <c>URL</c> is a word holding its Swift storage object, and an array of
+        /// URLs is native array storage whose <c>objectAtIndex:</c> hands back each element's
+        /// storage word unbridged (an <c>IndexPath</c> or <c>Decimal</c> element is not even an
+        /// object). Reading either straight out of the enum copy therefore sends Objective-C
+        /// messages to objects that do not implement them. Only Swift's bridge produces the
+        /// right object, so TryGet reaches these payloads through a Swift payload bridge or not
+        /// at all.
+        /// </summary>
+        private static bool TryClassifyBridgedPayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx, string? moduleName,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BridgedPayload? payload)
+        {
+            if (TryClassifyBridgeableShape(typeSpec, typeDatabase, emissionCtx, moduleName, out payload))
+                return true;
+            // Any other shape that still holds a bridgeable value would fall through to a read of
+            // the enum's storage, which is the same unbridged-word read in a deeper position.
+            if (ContainsObjCBridgeableValue(typeSpec, typeDatabase))
+            {
+                payload = new BridgedPayload(typeSpec.ToString(), BridgedPayloadKind.Unsupported, IsOptional: false, CoreProjection: null);
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// True when an Objective-C-bridgeable Swift value appears anywhere in
+        /// <paramref name="typeSpec"/>: the type itself, a generic argument at any depth, or a
+        /// tuple element.
+        /// </summary>
+        private static bool ContainsObjCBridgeableValue(TypeSpec typeSpec, ITypeDatabase typeDatabase) => typeSpec switch
+        {
+            TupleTypeSpec tuple => tuple.Elements.Any(e => ContainsObjCBridgeableValue(e, typeDatabase)),
+            NamedTypeSpec { GenericParameters.Count: > 0 } named => named.GenericParameters.Any(g => ContainsObjCBridgeableValue(g, typeDatabase)),
+            NamedTypeSpec named => !TypeSpecHelpers.IsGenericTypeParameter(named.Name)
+                && typeDatabase.TryGetTypeRecord(named, out var record) && MarshallingHelpers.IsObjCBridgeable(record),
+            _ => false,
+        };
+
+        private static bool TryClassifyBridgeableShape(TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx, string? moduleName,
+            [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out BridgedPayload? payload)
+        {
+            payload = null;
+            if (typeSpec is not NamedTypeSpec named)
+                return false;
+            var isOptional = false;
+            var core = named;
+            if (named.Name is "Swift.Optional" or "Optional" && named.GenericParameters.Count == 1)
+            {
+                if (named.GenericParameters[0] is not NamedTypeSpec inner)
+                    return false;
+                isOptional = true;
+                core = inner;
+            }
+
+            if (core.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set")
+            {
+                var projection = ProjectBridgedPayload(core, typeDatabase, emissionCtx, moduleName);
+                if (projection is not (ArrayProjection or DictionaryProjection or SetProjection) || !projection.UsesObjCContainerBridge)
+                    return false;
+                payload = new BridgedPayload($"{core.Name}<{string.Join(", ", core.GenericParameters)}>", BridgedPayloadKind.Collection, isOptional, projection);
+                return true;
+            }
+
+            if (core.ContainsGenericParameters || TypeSpecHelpers.IsGenericTypeParameter(core.Name))
+                return false;
+            if (!typeDatabase.TryGetTypeRecord(core, out var record) || !MarshallingHelpers.IsObjCBridgeable(record))
+                return false;
+            var valueProjection = ProjectBridgedPayload(core, typeDatabase, emissionCtx, moduleName) as ObjCBridgeableProjection;
+            payload = new BridgedPayload(core.Name, BridgedPayloadKind.Value, isOptional, valueProjection);
+            return true;
+        }
+
+        private static ITypeProjection? ProjectBridgedPayload(NamedTypeSpec core, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx, string? moduleName)
+        {
+            try
+            {
+                return new TypeProjectionFactory().Project(core, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase, IsParameter = false, GenericContext = GenericContext.Empty,
+                    EmissionContext = emissionCtx, CurrentModuleName = moduleName
+                });
+            }
+            catch (SuppressedProxyReferenceException)
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Emits TryGet for a single-value case whose payload is Objective-C-bridgeable through
+        /// the case's Swift payload bridge (<see cref="EnumCaseWrapperEmitter.EmitSwiftCasePayloadBridge"/>):
+        /// Swift matches the case on the live enum value and returns the payload bridged to its
+        /// Objective-C object at +1, which the projection's owning read adopts. No enum copy is
+        /// taken, so there is no copied reference to release. Returns false, having written
+        /// nothing, when the enum cannot carry a bridge.
+        /// </summary>
+        private bool TryEmitBridgedPayloadTryGet(CSharpWriter csWriter, SwiftWriter? swiftWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ITypeDatabase typeDatabase,
+            string capitalizedName, string tagPropertyName, BridgedPayload payload, ModuleEmissionContext? emissionCtx)
+        {
+            if (swiftWriter is null || swiftWriter.IsDiscarding || emissionCtx is null || payload.CoreProjection is not { } core
+                || enumDecl.ModuleDecl is not { } moduleDecl
+                || !EnumCaseWrapperEmitter.CanEmitCasePayloadBridge(enumDecl, typeDatabase))
+                return false;
+
+            const string rawName = "_value_raw";
+            var read = payload.Kind == BridgedPayloadKind.Value
+                ? ((ObjCBridgeableProjection)core).BridgeReadExpression(rawName, nonNull: true, ownsReference: true)
+                : core.GetReturnContainerConversion(rawName);
+            if (read is null)
+                return false;
+
+            var enumSwiftName = enumDecl.SwiftTypeName?.Name ?? enumDecl.Name;
+            var symbol = EnumCaseWrapperEmitter.GetCasePayloadBridgeSymbolName(moduleDecl.Name, enumSwiftName, caseDecl.Name, caseDecl.MangledName);
+            EnumCaseWrapperEmitter.EmitSwiftCasePayloadBridge(swiftWriter, enumDecl, caseDecl, symbol, payload.IsOptional, emissionCtx);
+
+            var outType = payload.IsOptional ? $"{core.PublicType}?" : core.PublicType;
+            var pinvokeName = $"PInvoke_payload_{EmitterUtility.DeterministicHash8(symbol)}";
+            var caseName = caseDecl.Name;
+
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine($"/// Attempts to extract the associated value(s) for the '{caseName}' case.");
+            csWriter.WriteLine("/// </summary>");
+            csWriter.WriteLine($"/// <param name=\"value\">When this method returns true, contains the associated value(s).</param>");
+            csWriter.WriteLine($"/// <returns>True if this enum is the '{caseName}' case; otherwise, false.</returns>");
+            csWriter.WriteLine($"public bool TryGet{capitalizedName}([MaybeNullWhen(false)] out {outType} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"if ({tagPropertyName} != CaseTag.{capitalizedName})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("value = default;");
+            csWriter.WriteLine("return false;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine($"IntPtr {rawName};");
+            csWriter.WriteLine("bool success = false;");
+            csWriter.WriteLine("_payload.DangerousAddRef(ref success);");
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"{rawName} = {pinvokeName}(_payload.DangerousGetHandle());");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (success)");
+            csWriter.Indent++;
+            csWriter.WriteLine("_payload.DangerousRelease();");
+            csWriter.Indent--;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            // The bridge returns nil only for another case, which the tag check ruled out, or
+            // for an optional payload that holds nil.
+            csWriter.WriteLine(payload.IsOptional
+                ? $"value = {rawName} == IntPtr.Zero ? ({core.PublicType}?)null : {read};"
+                : $"value = {read};");
+            csWriter.WriteLine("return true;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = typeDatabase.AsyncLibraryName!,
+                EntryPoint = symbol,
+                MethodName = pinvokeName,
+                ReturnType = "IntPtr",
+                ParametersString = "IntPtr enumPtr",
+                CallingConvention = PInvokeCallingConvention.Cdecl
+            });
+            csWriter.WriteLine();
+            return true;
+        }
+
+        private void RefuseBridgedPayloadTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, BridgedPayload payload, bool inTuple)
+        {
+            var what = payload.Kind switch
+            {
+                BridgedPayloadKind.Value => "an Objective-C-bridgeable Swift value",
+                BridgedPayloadKind.Collection => "a collection of Objective-C-bridgeable Swift values",
+                _ => "a type holding Objective-C-bridgeable Swift values",
+            };
+            _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{payload.DisplayType}', {what}. Skipping TryGet method.");
+            var why = inTuple
+                ? "and it is one element of a multi-value payload, which the case's payload bridge does not return"
+                : payload.Kind == BridgedPayloadKind.Unsupported
+                    ? "in a shape the case's payload bridge does not return (it takes one value or one collection, optionally wrapped once in Optional)"
+                    : "and this enum cannot carry a Swift payload bridge to bridge it";
+            ReportCollector.RecordMemberSkipped(
+                BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                SkipReason.UnsupportedType,
+                $"Associated value '{payload.DisplayType}' is stored as Swift values, not as the Objective-C objects they bridge to, {why}; the case factory still constructs it.");
         }
     }
 }

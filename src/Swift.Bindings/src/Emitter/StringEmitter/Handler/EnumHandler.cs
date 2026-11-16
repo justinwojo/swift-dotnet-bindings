@@ -456,7 +456,7 @@ namespace BindingsGeneration
             // Emit TryGet methods for cases with associated values
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
             {
-                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, context.GetEmissionContext());
+                EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, context.GetEmissionContext(), swiftWriter);
             }
 
             // Add a blank line between cases and other members
