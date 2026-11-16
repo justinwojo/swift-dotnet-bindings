@@ -276,6 +276,8 @@ partial class Build
         var routed = SwiftBridgeRoutedPlatforms.Contains(platform, StringComparer.Ordinal);
         if (routed)
             failed.AddRange(CheckRoutedEvidenceControl(platform));
+        else
+            failed.AddRange(CheckUnroutedEvidenceControl(platform));
         foreach (var (name, ledgerDirectory, handWritten) in LedgeredAssembliesFor(platform))
         {
             var assembly = compileCheckOutput / name;
@@ -336,6 +338,40 @@ partial class Build
         failed.AddRange(CheckCompiledTransitionEvidence(compileCheckOutput, routed));
         if (failed.Count > 0)
             throw new Exception($"Transition ledger cross-check ({platform}) FAILED for {string.Join(", ", failed)} — see the lines above.");
+    }
+
+    /// <summary>
+    /// The control that keeps the cross-check of an unrouted platform's output (macOS) from passing
+    /// over the wrong binding: the output was generated for <paramref name="platform"/>, and each
+    /// module's call plans were judged against no lowering evidence, so the residual-guard check is
+    /// what speaks for every Swift-convention import the binding kept.
+    /// </summary>
+    IEnumerable<string> CheckUnroutedEvidenceControl(string platform)
+    {
+        var stamp = BtOutputDir / TargetPlatformSidecarName;
+        var generatedFor = File.Exists(stamp) ? File.ReadAllText(stamp).Trim() : null;
+        if (generatedFor != platform)
+        {
+            Log.Error("  control: {Output} was generated for {Generated}, not {Platform}", BtOutputDir, generatedFor ?? "(unknown)", platform);
+            yield return $"control (output generated for {generatedFor ?? "an unknown platform"})";
+            yield break;
+        }
+        foreach (var module in new[] { ModuleName, DepModuleName })
+        {
+            var plans = BtOutputDir / $"{module}.swift-call-plans.json";
+            if (!File.Exists(plans))
+            {
+                Log.Error("  control: {Module} has no call-plan sidecar at {Path}", module, plans);
+                yield return $"control ({module}: no call plans)";
+                continue;
+            }
+            using var document = System.Text.Json.JsonDocument.Parse(File.ReadAllText(plans));
+            if (document.RootElement.TryGetProperty("evidenceScope", out var scope) && scope.ValueKind == System.Text.Json.JsonValueKind.Object)
+            {
+                Log.Error("  control: {Module}'s call plans for {Platform} were judged against lowering evidence, which this platform does not route", module, platform);
+                yield return $"control ({module}: evidence on an unrouted platform)";
+            }
+        }
     }
 
     /// <summary>

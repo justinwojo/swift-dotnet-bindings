@@ -48,6 +48,14 @@ public static class SwiftBridgeFinalizer
     /// <summary>The warning of a routing that could not be completed, whose module keeps its imports.</summary>
     public const string FailedCode = "SWIFTBIND129";
 
+    /// <summary>
+    /// Test-only: when this environment variable is <c>1</c>, a bridge relink that ran and verified is
+    /// still refused, so the build takes the rollback a real relink failure takes (the first wrapper
+    /// back in place, generation's own guarded imports, guards and sidecars). The
+    /// <c>--bridge-consumer</c> leg's rollback mode sets it to prove that rollback on a runtime lane.
+    /// </summary>
+    public const string ForceRollbackVariable = "SWIFT_BINDINGS_FORCE_BRIDGE_ROLLBACK";
+
     /// <summary>What a finalization did.</summary>
     public enum Outcome
     {
