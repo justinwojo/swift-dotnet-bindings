@@ -4456,4 +4456,57 @@ TARGETSEOF"
            Code="SWIFTBIND039"
            Text="Mixed-framework binding metadata names an ObjC companion ($(_SwiftBindingObjCProjectName)) but no built companion assembly was captured to embed in lib/. The mixed framework ships as a single package with the companion embedded, so packing without it would ship the Swift surface but not the ObjC types. Re-run binding generation so the companion csproj is emitted, and verify it restores+builds (_BuildMixedObjCCompanion)." />
   </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Pack-time transition check (SWIFTBIND133)                               -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Reads back the package `dotnet pack` just wrote, with the engine every consumer's build
+       runs (SwiftBindings.Runtime's buildTransitive check, SWIFTBIND132), so a package its
+       consumers would refuse is never written. Each lib/ assembly that can make a Swift transition
+       must be primitive-only or carry a valid transition manifest whose rules hold, and every
+       framework slice in the package of a library the manifests route bridges through must hold
+       the manifest hash and export exactly those bridges. A missing slice is a refusal here (a
+       package must carry its natives). A refused package is deleted.
+
+       The usual cause is a wrapper that kept the bridges or manifest hash of an earlier routing:
+       the wrapper-compile finalizer does not relink without a receipt to verify the relink
+       against, and after a failed relink (SWIFTBIND129) it keeps the wrapper the receipt was
+       collected from. A clean build of the binding fixes both.
+
+       The packed assemblies' references (the runtime, for carrier types) are the project's own
+       resolved references, per target framework. Pure ObjC bindings make no Swift transition. The
+       condition reads no @(SwiftFramework): auto-discovery fills it only inside a per-framework
+       build, and this target runs in the outer pack of a multi-framework binding (see Target 7c). -->
+  <PropertyGroup>
+    <_SwiftBindingsSdkTasksAssembly Condition="'$(_SwiftBindingsSdkTasksAssembly)' == ''">$(MSBuildThisFileDirectory)tasks/net10.0/SwiftBindings.Tasks.dll</_SwiftBindingsSdkTasksAssembly>
+  </PropertyGroup>
+  <UsingTask TaskName="SwiftBindings.Tasks.SwiftTransitionPackageCheck" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
+
+  <Target Name="_SwiftTransitionPackReferenceDirectories"
+          DependsOnTargets="ResolveAssemblyReferences"
+          Returns="@(_SwiftTransitionPackReferenceDirectory)">
+    <ItemGroup>
+      <_SwiftTransitionPackReferenceDirectory Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+    </ItemGroup>
+  </Target>
+
+  <Target Name="_SwiftBindingsCheckPackedTransitions"
+          AfterTargets="Pack"
+          Condition="'$(IsPackable)' == 'true' AND '$(SwiftFrameworkType)' != 'ObjC'">
+    <ItemGroup>
+      <_SwiftTransitionPackTfm Include="$(TargetFrameworks)" Condition="'$(TargetFrameworks)' != ''" />
+      <_SwiftTransitionPackTfm Include="$(TargetFramework)" Condition="'$(TargetFrameworks)' == ''" />
+    </ItemGroup>
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="_SwiftTransitionPackReferenceDirectories"
+             Properties="TargetFramework=%(_SwiftTransitionPackTfm.Identity)">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftTransitionPackReference" />
+    </MSBuild>
+    <Error Code="SWIFTBIND133"
+           Condition="!Exists('$(_SwiftBindingsSdkTasksAssembly)')"
+           Text="The Swift transition check task $(_SwiftBindingsSdkTasksAssembly) is missing, so the package cannot be checked before it ships. Restore SwiftBindings.Sdk again." />
+    <SwiftTransitionPackageCheck Packages="@(NuGetPackOutput)"
+                                 ReferenceDirectories="@(_SwiftTransitionPackReference)"
+                                 ScratchDirectory="$(BaseIntermediateOutputPath)swift-transition-pack-check" />
+  </Target>
 </Project>

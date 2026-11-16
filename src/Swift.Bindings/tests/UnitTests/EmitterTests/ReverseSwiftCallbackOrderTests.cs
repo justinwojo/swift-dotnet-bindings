@@ -134,44 +134,71 @@ public class ReverseSwiftCallbackOrderTests
         GeneratedBindingsOutputRequirement.SkipUnlessAvailable(corpus.Count > 0,
             $"Generated bindings corpus not found under {outputDir}");
 
-        int declared = 0, total = 0, throwing = 0;
+        int declared = 0, total = 0, otherCallbacks = 0;
         var violations = new List<string>();
         foreach (var file in corpus.OrderBy(f => f, System.StringComparer.Ordinal))
         {
             var text = File.ReadAllText(file);
-            declared += text.Split('\n').Count(line =>
-                line.Contains("UnmanagedCallersOnly", System.StringComparison.Ordinal) &&
-                line.Contains("CallConvSwift", System.StringComparison.Ordinal));
+            foreach (var line in text.Split('\n').Where(l => l.Contains("UnmanagedCallersOnly(", System.StringComparison.Ordinal)))
+            {
+                if (line.Contains("CallConvSwift", System.StringComparison.Ordinal))
+                    declared++;
+                else
+                    otherCallbacks++;
+            }
             foreach (Match match in SwiftUcoPattern.Matches(text))
             {
                 total++;
                 var types = ParameterTypes(SplitTopLevel(match.Groups["params"].Value)).ToList();
-                var name = match.Groups["name"].Value;
-                if (types.Contains("SwiftError*"))
-                    throwing++;
-                var problem = Check(types);
+                var problem = CorpusOrderProblem(types);
                 if (problem is not null)
-                    violations.Add($"{Path.GetFileName(file)} {name}({string.Join(", ", types)}): {problem}");
+                    violations.Add($"{Path.GetFileName(file)} {match.Groups["name"].Value}({string.Join(", ", types)}): {problem}");
             }
         }
 
-        // Every Swift-convention UCO attribute line must have been parsed into a signature, and the
-        // corpus must hold a throwing one, or the order check below would pass vacuously.
-        Assert.True(total > 0 && total == declared,
+        // The corpus may legitimately hold no Swift-convention callback: the generator moves every
+        // closure it can onto the @_cdecl lane, which every engine calls, and today that is all of
+        // them on both the .NET 10 and .NET 11 corpora. What must hold is that the scan read real
+        // callbacks, and that every Swift-convention one it finds was parsed and checked. Whether the
+        // signature pattern still matches what the Swift-lane emitters render is pinned on their own
+        // output (CorpusPattern_MatchesEverySwiftLaneEmitter), so a return of the lane cannot slip
+        // past this check unparsed.
+        Assert.True(declared + otherCallbacks > 0, "The corpus declares no UnmanagedCallersOnly callback at all; the scan read nothing.");
+        Assert.True(total == declared,
             $"Parsed {total} of the {declared} Swift-convention callbacks declared in the corpus; the signature pattern drifted.");
-        Assert.True(throwing > 0, "The corpus holds no throwing Swift-convention callback to check the error position on.");
         Assert.True(violations.Count == 0,
             $"Swift-convention callbacks out of the reverse order ({violations.Count}):\n  " + string.Join("\n  ", violations));
+    }
 
-        static string? Check(List<string> types)
-        {
-            if (types.Count(t => t == "SwiftSelf") != 1 || types[^1] != "SwiftSelf")
-                return "SwiftSelf must be the last parameter, exactly once";
-            int errors = types.Count(t => t == "SwiftError*");
-            if (errors > 1 || (errors == 1 && types[0] != "SwiftError*"))
-                return "SwiftError* must be the first parameter";
-            return null;
-        }
+    [Theory]
+    [MemberData(nameof(SwiftLaneEmitters))]
+    public void CorpusPattern_MatchesEverySwiftLaneEmitter(string shape)
+    {
+        var (callback, _) = Emit(shape, useCdecl: false);
+
+        var match = Assert.Single(SwiftUcoPattern.Matches(callback));
+        var types = ParameterTypes(SplitTopLevel(match.Groups["params"].Value)).ToList();
+        Assert.Null(CorpusOrderProblem(types));
+        Assert.Equal(shape == "throwing", types.Contains("SwiftError*"));
+        // A callback out of order must be one the corpus check reports.
+        Assert.NotNull(CorpusOrderProblem(types.Skip(1).Append(types[0]).ToList()));
+    }
+
+    [Fact]
+    public void CorpusPattern_IgnoresTheCdeclLane()
+    {
+        var (callback, _) = Emit("throwing", useCdecl: true);
+        Assert.Empty(SwiftUcoPattern.Matches(callback));
+    }
+
+    private static string? CorpusOrderProblem(List<string> types)
+    {
+        if (types.Count(t => t == "SwiftSelf") != 1 || types[^1] != "SwiftSelf")
+            return "SwiftSelf must be the last parameter, exactly once";
+        int errors = types.Count(t => t == "SwiftError*");
+        if (errors > 1 || (errors == 1 && types[0] != "SwiftError*"))
+            return "SwiftError* must be the first parameter";
+        return null;
     }
 
     // A Swift-convention UCO attribute, any further attribute lines, then the method's signature.

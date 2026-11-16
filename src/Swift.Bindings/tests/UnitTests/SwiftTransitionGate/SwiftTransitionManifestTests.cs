@@ -26,7 +26,7 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class SwiftTransitionManifestTests
 {
-    private const string Swift = "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]";
+    internal const string Swift = "[UnmanagedCallConv(CallConvs = new[] { typeof(CallConvSwift) })]";
 
     private const string Preamble = """
         using System;
@@ -37,11 +37,11 @@ public class SwiftTransitionManifestTests
 
         """;
 
-    private static readonly string RuntimeDll = Path.Combine(AppContext.BaseDirectory, "Swift.Runtime.dll");
+    internal static readonly string RuntimeDll = Path.Combine(AppContext.BaseDirectory, "Swift.Runtime.dll");
 
     private static string RuntimeXcframework => Path.Combine(SwiftCallPlanTests.RepoRoot, "src", "Swift.Runtime", "native", "SwiftBindingsRuntime.xcframework");
 
-    private static IEnumerable<string> RuntimeSlices =>
+    internal static IEnumerable<string> RuntimeSlices =>
         Directory.EnumerateFiles(RuntimeXcframework, "SwiftBindingsRuntime", SearchOption.AllDirectories)
             .Where(p => p.Contains(".framework", StringComparison.Ordinal))
             .Order(StringComparer.Ordinal);
@@ -158,7 +158,7 @@ public class SwiftTransitionManifestTests
 
     // ---- the reader's four states ---------------------------------------------------------------
 
-    private const string PrimitiveOnly = $$"""
+    internal const string PrimitiveOnly = $$"""
         public static class C
         {
             [DllImport("lib", EntryPoint = "prim")] {{Swift}}
@@ -240,6 +240,21 @@ public class SwiftTransitionManifestTests
         evidence = SwiftTransitionManifestReader.Read(unlocated, "Fixture.dll");
         Assert.Equal(TransitionEvidenceState.TamperedOrMismatched, evidence.State);
         Assert.Contains(evidence.Problems, p => p.Contains("has no locator attribute", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("../Fixture.swift-transition-manifest.json")]
+    [InlineData("/tmp/Fixture.swift-transition-manifest.json")]
+    [InlineData("Fixture.json")]
+    public void Reader_ResourceNameThatIsNotAFileName_IsReported(string resource)
+    {
+        // Readers write a manifest's records out under its resource name, so a path must not pass.
+        var text = Manifest("Fixture", Plans("Fixture", ("C::Prim", "prim")));
+        var image = Compile(PrimitiveOnly + Locator(resource, SwiftTransitionManifestFormat.Hash(text)), (resource, Encoding.UTF8.GetBytes(text)));
+        var evidence = SwiftTransitionManifestReader.Read(image, "Fixture.dll");
+        Assert.Equal(TransitionEvidenceState.TamperedOrMismatched, evidence.State);
+        Assert.Empty(evidence.Manifests);
+        Assert.Contains(evidence.Problems, p => p.Contains("which is not a file name", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -436,10 +451,10 @@ public class SwiftTransitionManifestTests
 
     // ---- fixtures -------------------------------------------------------------------------------
 
-    private static (int, int, int) Contract => (SwiftCallPlan.Version, SwiftCallFacts.CurrentVersion, SwiftLoweringContract.Current.CollectorVersion);
+    internal static (int, int, int) Contract => (SwiftCallPlan.Version, SwiftCallFacts.CurrentVersion, SwiftLoweringContract.Current.CollectorVersion);
 
     /// <summary>A call-plan document of <paramref name="module"/> recording each (member, entry point) as a primitive-only forward transition.</summary>
-    private static string Plans(string module, params (string Member, string EntryPoint)[] transitions) =>
+    internal static string Plans(string module, params (string Member, string EntryPoint)[] transitions) =>
         new JsonObject
         {
             ["planVersion"] = SwiftCallPlan.Version,
@@ -458,13 +473,13 @@ public class SwiftTransitionManifestTests
             ["plans"] = new JsonArray(),
         }.ToJsonString();
 
-    private static string Manifest(string module, string plans) =>
+    internal static string Manifest(string module, string plans) =>
         SwiftTransitionManifestFormat.Compose(module, SwiftTransitionManifestFormat.Generated, "test", Contract, null, plans, null);
 
-    private static string Locator(string resource, string hash) =>
+    internal static string Locator(string resource, string hash) =>
         "\n" + SwiftTransitionManifestFormat.AttributeSource([(resource, hash)]);
 
-    private static string Locator(string plans, out (string, byte[]) resource)
+    internal static string Locator(string plans, out (string, byte[]) resource)
     {
         var text = Manifest("Fixture", plans);
         resource = ("Fixture.swift-transition-manifest.json", Encoding.UTF8.GetBytes(text));
@@ -490,7 +505,9 @@ public class SwiftTransitionManifestTests
         }
     }
 
-    private static byte[] Compile(string body, params (string Name, byte[] Bytes)[] resources)
+    internal static byte[] Compile(string body, params (string Name, byte[] Bytes)[] resources) => Compile("Fixture", body, resources);
+
+    internal static byte[] Compile(string assemblyName, string body, params (string Name, byte[] Bytes)[] resources)
     {
         var frameworkDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
         var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? "")
@@ -502,7 +519,7 @@ public class SwiftTransitionManifestTests
         var locators = string.Join("\n", lines.Where(l => l.Contains("AssemblyMetadataAttribute", StringComparison.Ordinal)));
         var declarations = string.Join("\n", lines.Where(l => !l.Contains("AssemblyMetadataAttribute", StringComparison.Ordinal)));
         var options = new CSharpParseOptions(LanguageVersion.Latest);
-        var compilation = CSharpCompilation.Create("Fixture",
+        var compilation = CSharpCompilation.Create(assemblyName,
             [CSharpSyntaxTree.ParseText(Preamble + declarations, options), CSharpSyntaxTree.ParseText(locators, options)],
             references,
             new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true));

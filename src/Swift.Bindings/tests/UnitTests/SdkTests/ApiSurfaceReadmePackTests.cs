@@ -327,6 +327,8 @@ namespace BindingsGeneration.Tests
                     <Description>readme pack probe</Description>
                     <IsPackable>true</IsPackable>
                     {extraProperties}
+                    <!-- The source Sdk.targets has no packed tasks/ folder beside it; the pack check (SWIFTBIND133) runs from the copy beside the tests. -->
+                    <_SwiftBindingsSdkTasksAssembly>{System.IO.Path.Combine(AppContext.BaseDirectory, "SwiftBindings.Tasks.dll")}</_SwiftBindingsSdkTasksAssembly>
                   </PropertyGroup>
                   <Import Project="{sdkTargetsPath}" />
                   {ownReadmeItems}

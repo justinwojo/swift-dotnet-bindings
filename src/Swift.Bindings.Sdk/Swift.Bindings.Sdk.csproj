@@ -21,8 +21,9 @@
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <SuppressDependenciesWhenPacking>true</SuppressDependenciesWhenPacking>
 
-    <!-- Suppress warning about no lib/ref assemblies -->
-    <NoWarn>$(NoWarn);NU5128</NoWarn>
+    <!-- Suppress warning about no lib/ref assemblies, and NU5100 for the transition check's MSBuild
+         task assembly under Sdk/tasks/ (loaded by UsingTask, never a compile reference) -->
+    <NoWarn>$(NoWarn);NU5128;NU5100</NoWarn>
   </PropertyGroup>
 
   <!-- Pack Sdk.props and Sdk.targets into Sdk/ (MSBuild SDK convention) -->
@@ -38,6 +39,25 @@
     <None Include="../Swift.Runtime/src/build/SwiftBindings.MacFrameworkAnatomy.targets" Pack="true" PackagePath="Sdk/" />
     <None Include="../Swift.Runtime/src/build/deepen-mac-framework.sh" Pack="true" PackagePath="Sdk/" />
   </ItemGroup>
+
+  <!-- The transition check task Sdk.targets runs on the package a binding packs (SWIFTBIND133):
+       the same assembly SwiftBindings.Runtime ships for its consumer check, built here and packed
+       under Sdk/tasks/net10.0/ (Sdk.targets resolves it beside itself). This project does not build
+       (NoBuild), so the task project is restored and built explicitly. -->
+  <Target Name="_AddTransitionTasksToPackage" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="../Swift.Runtime/tasks/SwiftBindings.Tasks.csproj"
+             Targets="Restore"
+             Properties="Configuration=$(Configuration);_SwiftTasksRestore=true" />
+    <MSBuild Projects="../Swift.Runtime/tasks/SwiftBindings.Tasks.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration)">
+      <Output TaskParameter="TargetOutputs" ItemName="_TransitionTasksOutput" />
+    </MSBuild>
+    <Error Condition="!Exists('@(_TransitionTasksOutput)')" Text="The Swift transition check task was not built: @(_TransitionTasksOutput)." />
+    <ItemGroup>
+      <None Include="@(_TransitionTasksOutput)" Pack="true" PackagePath="Sdk/tasks/net10.0" Visible="false" />
+    </ItemGroup>
+  </Target>
 
   <!-- Pack the published generator into tools/ -->
   <!-- Also packs tools/apple-types-manifest/ — the Apple Swift-only type metadata manifest

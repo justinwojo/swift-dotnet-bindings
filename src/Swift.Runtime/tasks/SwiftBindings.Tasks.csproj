@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk" TreatAsLocalProperty="RuntimeIdentifier;RuntimeIdentifiers;SelfContained;PublishAot;PublishTrimmed;_IsPublishing;UseMonoRuntime">
+  <!-- The MSBuild tasks that read a compiled binding's Swift transition evidence: the consumer check
+       SwiftBindings.Runtime's buildTransitive targets run in every app that resolves the runtime,
+       and the pack check SwiftBindings.Sdk runs on the package it packs. Both link-compile the
+       transition gate's engine (build/SwiftTransitionGate/) and the manifest format, so the build,
+       the unit tests and the shipped tasks read evidence with one engine. net10.0 loads in the .NET
+       10 and .NET 11 SDKs' MSBuild; the engine needs only the base class library,
+       System.Reflection.Metadata and System.Text.Json, which the host provides. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <AssemblyName>SwiftBindings.Tasks</AssemblyName>
+    <RootNamespace>SwiftBindings.Tasks</RootNamespace>
+    <IsPackable>false</IsPackable>
+    <!-- The engine files are shared with the build project, whose warnings policy they follow. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <!-- A fixed output directory, so the in-tree apps that import the runtime targets from source
+         can name the task assembly at evaluation time (UsingTask). -->
+    <OutputPath>$(MSBuildThisFileDirectory)bin/$(Configuration)/</OutputPath>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <!-- An app built with -r, or published for NativeAOT, passes those as global properties to
+         every project it builds, this one included through Swift.Runtime's reference. The task
+         assembly is portable host code whatever the app is: clear them (TreatAsLocalProperty). -->
+    <RuntimeIdentifier></RuntimeIdentifier>
+    <RuntimeIdentifiers></RuntimeIdentifiers>
+    <SelfContained>false</SelfContained>
+    <PublishAot>false</PublishAot>
+    <PublishTrimmed>false</PublishTrimmed>
+    <_IsPublishing>false</_IsPublishing>
+    <UseMonoRuntime></UseMonoRuntime>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- MSBuild provides these at run time. -->
+    <PackageReference Include="Microsoft.Build.Utilities.Core" Version="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.Build.Framework" Version="17.11.48" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../../build/SwiftTransitionGate/*.cs" Link="Engine/%(Filename)%(Extension)" />
+    <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftTransitionManifestFormat.cs" Link="Engine/SwiftTransitionManifestFormat.cs" />
+  </ItemGroup>
+</Project>

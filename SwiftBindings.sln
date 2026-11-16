@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Swift.Analyzers.Tests", "sr
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwiftBindings.TestDiscovery", "src\SwiftBindings.TestDiscovery\SwiftBindings.TestDiscovery.csproj", "{C88D4FAD-4824-4497-BCEE-34DBA153096F}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "SwiftBindings.Tasks", "src\Swift.Runtime\tasks\SwiftBindings.Tasks.csproj", "{B049D3F4-7FBF-4B49-A756-40DB05D0885A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -113,6 +115,18 @@ Global
 		{C88D4FAD-4824-4497-BCEE-34DBA153096F}.Release|x64.Build.0 = Release|Any CPU
 		{C88D4FAD-4824-4497-BCEE-34DBA153096F}.Release|x86.ActiveCfg = Release|Any CPU
 		{C88D4FAD-4824-4497-BCEE-34DBA153096F}.Release|x86.Build.0 = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|x64.Build.0 = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Debug|x86.Build.0 = Debug|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|x64.ActiveCfg = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|x64.Build.0 = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|x86.ActiveCfg = Release|Any CPU
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -121,5 +135,6 @@ Global
 		{4713B5A4-5F74-4733-96C7-8699DD7ED057} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{AB90D9CB-3252-4F6B-B100-9DDE36EC6E57} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{C88D4FAD-4824-4497-BCEE-34DBA153096F} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
+		{B049D3F4-7FBF-4B49-A756-40DB05D0885A} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal

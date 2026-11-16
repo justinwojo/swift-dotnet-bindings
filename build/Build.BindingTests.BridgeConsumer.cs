@@ -81,8 +81,12 @@ partial class Build
     AbsolutePath BcfScratch => RootDirectory / "artifacts" / "bridge-consumer";
     AbsolutePath BcfReceipts => BcfScratch / "receipts";
 
-    /// <summary>How the app consumes the binding.</summary>
-    enum BcfMode { Package, Direct, ProjectReference }
+    /// <summary>
+    /// How the app consumes the binding. <see cref="Transition"/> is the consumer transition check's
+    /// leg (Build.BindingTests.TransitionConsumer.cs): build-only consumers of the binding the package
+    /// mode packed and of two manifestless fixtures.
+    /// </summary>
+    enum BcfMode { Package, Direct, ProjectReference, Transition }
 
     /// <summary>What must call a bridge on a lane: the managed code that made the Swift call.</summary>
     enum BcfCaller { Interpreter, App, MonoInterpreter, MonoJit }
@@ -132,7 +136,7 @@ partial class Build
     static IReadOnlyList<BcfMode> ParseBridgeConsumerModes(IReadOnlyList<string> requested)
     {
         if (requested.Count == 0)
-            return [BcfMode.Package, BcfMode.Direct, BcfMode.ProjectReference];
+            return [BcfMode.Package, BcfMode.Direct, BcfMode.ProjectReference, BcfMode.Transition];
         var modes = new List<BcfMode>();
         foreach (var name in requested.SelectMany(r => r.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
         {
@@ -141,9 +145,18 @@ partial class Build
                 "package" => BcfMode.Package,
                 "direct" => BcfMode.Direct,
                 "projectref" or "projectreference" => BcfMode.ProjectReference,
-                _ => throw new ArgumentException($"--bridge-consumer-modes: unknown mode '{name}'; expected package, direct or projectref."),
+                "transition" => BcfMode.Transition,
+                _ => throw new ArgumentException($"--bridge-consumer-modes: unknown mode '{name}'; expected package, direct, projectref or transition."),
             };
             if (!modes.Contains(mode)) modes.Add(mode);
+        }
+        // The transition leg consumes the binding the package mode packs, so it runs after it.
+        if (modes.Contains(BcfMode.Transition))
+        {
+            if (!modes.Contains(BcfMode.Package))
+                throw new ArgumentException("--bridge-consumer-modes: transition consumes the binding the package mode packs; name package too.");
+            modes.Remove(BcfMode.Transition);
+            modes.Add(BcfMode.Transition);
         }
         return modes;
     }
@@ -152,6 +165,7 @@ partial class Build
     {
         BcfMode.Package => "package",
         BcfMode.Direct => "direct",
+        BcfMode.Transition => "transition",
         _ => "projectref",
     };
 
@@ -212,6 +226,12 @@ partial class Build
             BuildLocalPackageFeed(nupkgDir, scope, "bridge-consumer", BcfLaneVersion, BcfLaneAppleVersion, BcfPackageId);
             AssertRuntimeNativePackage(nupkgDir / $"SwiftBindings.Runtime.{BcfLaneVersion}.nupkg");
             var element = BridgeConsumerElementRoute();
+            var transitionFeed = BcfScratch / "transition-packages";
+            if (modes.Contains(BcfMode.Transition))
+            {
+                EvictTransitionCheckFixtures();
+                PackTransitionCheckFixtures(BcfScratch / "transition-fixtures", nupkgDir, transitionFeed);
+            }
 
             foreach (var family in families)
             {
@@ -228,6 +248,7 @@ partial class Build
                     {
                         BcfMode.Package => RunBridgeConsumerPackage(family, nupkgDir, xcframework, oracle, element),
                         BcfMode.Direct => RunBridgeConsumerDirect(family, nupkgDir, xcframework, oracle, element),
+                        BcfMode.Transition => RunTransitionCheckConsumers(family, nupkgDir, family.Root / "package-output", transitionFeed),
                         _ => RunBridgeConsumerProjectReference(family, nupkgDir, xcframework, oracle, element),
                     });
             }
@@ -245,6 +266,7 @@ partial class Build
         finally
         {
             EvictThrowawayPackages(BcfLaneVersion, BcfLaneAppleVersion, BcfPackageId);
+            EvictTransitionCheckFixtures();
             if (Directory.Exists(nupkgDir)) nupkgDir.DeleteDirectory();
             // The scratch bindings and consumers are large (a NativeAOT publish is several hundred MB):
             // a passing run keeps only its receipts; a failing one keeps everything for the post-mortem.

@@ -97,6 +97,15 @@ public static class SwiftTransitionManifestReader
                 problems.Add($"the manifest {locator.Resource} has schema {locator.Schema}; this reader reads schema {SwiftTransitionManifestFormat.Schema}");
                 continue;
             }
+            // The resource name becomes a file name when the manifest's records are written out as
+            // sidecars, so it must be one: no directory part, and the manifest suffix.
+            if (locator.Resource != Path.GetFileName(locator.Resource) || locator.Resource.Contains('\\')
+                || !locator.Resource.EndsWith(SwiftTransitionManifestFormat.FileSuffix, StringComparison.Ordinal)
+                || locator.Resource.Length == SwiftTransitionManifestFormat.FileSuffix.Length)
+            {
+                problems.Add($"the locator names the manifest resource {locator.Resource}, which is not a file name ending in {SwiftTransitionManifestFormat.FileSuffix}");
+                continue;
+            }
             if (!resources.TryGetValue(locator.Resource, out var bytes))
             {
                 problems.Add($"the locator names the manifest resource {locator.Resource}, which the assembly does not embed");

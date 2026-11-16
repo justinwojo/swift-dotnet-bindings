@@ -538,6 +538,8 @@ namespace BindingsGeneration.Tests
                     <IsPackable>true</IsPackable>
                     <SwiftAutoDetectAppleFrameworkDependencies>true</SwiftAutoDetectAppleFrameworkDependencies>
                     <SwiftAppleSupplementVersion>26.2.1</SwiftAppleSupplementVersion>
+                    <!-- The source Sdk.targets has no packed tasks/ folder beside it; the pack check (SWIFTBIND133) runs from the copy beside the tests. -->
+                    <_SwiftBindingsSdkTasksAssembly>{System.IO.Path.Combine(AppContext.BaseDirectory, "SwiftBindings.Tasks.dll")}</_SwiftBindingsSdkTasksAssembly>
                   </PropertyGroup>
                   <Import Project="{sdkTargetsPath}" />
                   <PropertyGroup>

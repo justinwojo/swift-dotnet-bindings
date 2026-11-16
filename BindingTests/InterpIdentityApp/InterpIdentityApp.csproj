@@ -36,6 +36,12 @@
 
   <!-- ProjectReference does not import buildTransitive assets: take the runtime's final-app
        engine hook directly, as the in-tree test apps do. -->
+  <!-- The runtime targets' consumer transition check runs the task Swift.Runtime's ProjectReference
+       builds (src/Swift.Runtime/tasks); a package consumer gets it from the package. This app's own
+       generated C# is not a reference, so the check reads only what it references. -->
+  <PropertyGroup>
+    <_SwiftBindingsTasksAssembly>$(MSBuildThisFileDirectory)../../src/Swift.Runtime/tasks/bin/$(Configuration)/net10.0/SwiftBindings.Tasks.dll</_SwiftBindingsTasksAssembly>
+  </PropertyGroup>
   <Import Project="../../src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets" />
   <Import Project="$(IifBindingTargets)" Condition="Exists('$(IifBindingTargets)')" />
 

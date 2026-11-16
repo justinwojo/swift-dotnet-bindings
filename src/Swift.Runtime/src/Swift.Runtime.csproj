@@ -100,6 +100,26 @@
     </ItemGroup>
   </Target>
 
+  <!-- The MSBuild tasks the consumer transition check runs (buildTransitive/SwiftBindings.Runtime.targets,
+       SWIFTBIND132): built with the runtime, packed beside the targets under tasks/net10.0/. Not a
+       reference of the runtime assembly and not a package dependency. -->
+  <ItemGroup>
+    <ProjectReference Include="../tasks/SwiftBindings.Tasks.csproj"
+                      PrivateAssets="all"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="_AddTransitionTasksToPackage" BeforeTargets="_GetPackageFiles">
+    <MSBuild Projects="../tasks/SwiftBindings.Tasks.csproj"
+             Targets="Build"
+             Properties="Configuration=$(Configuration);TargetFramework=net10.0">
+      <Output TaskParameter="TargetOutputs" ItemName="_TransitionTasksOutput" />
+    </MSBuild>
+    <Error Condition="!Exists('@(_TransitionTasksOutput)')" Text="The Swift transition check task was not built: @(_TransitionTasksOutput)." />
+    <ItemGroup>
+      <None Include="@(_TransitionTasksOutput)" Pack="true" PackagePath="buildTransitive/tasks/net10.0" Visible="false" />
+    </ItemGroup>
+  </Target>
+
   <!-- Embedded linker descriptor: preserves core types for NativeAOT trimming.
        Automatically applied to consumer projects that reference this assembly. -->
   <ItemGroup>

@@ -133,22 +133,12 @@ partial class Build
         return nearest is null ? null : folders[nearest];
     }
 
-    /// <summary>
-    /// The binaries of every <c>{library}.framework</c> under <paramref name="root"/>: a shallow
-    /// bundle's at its root, a versioned (Mac) bundle's under <c>Versions/</c>.
-    /// </summary>
-    static IEnumerable<string> FrameworkBinaries(string root, string library) =>
-        Directory.GetFiles(root, library, SearchOption.AllDirectories)
-            .Where(p => p.Contains($"{Path.DirectorySeparatorChar}{library}.framework{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
-                        && !new FileInfo(p).Attributes.HasFlag(FileAttributes.ReparsePoint))
-            .Order(StringComparer.Ordinal);
-
     static List<PackagedNative> LoadPackagedNatives(AbsolutePath package, PackageEvidenceSubject subject)
     {
         var root = subject.NativeRoot is null ? package : package / subject.NativeRoot;
         if (!Directory.Exists(root))
             Assert.Fail($"Package transition evidence: the package holds no {subject.NativeRoot}.");
-        return FrameworkBinaries(root, subject.Library)
+        return ConsumerTransitionCheck.FrameworkBinaries(root, subject.Library)
             .Select(p => new PackagedNative(subject.Library, p, File.ReadAllBytes(p)))
             .ToList();
     }
@@ -294,7 +284,7 @@ partial class Build
             }
             foreach (var library in evidence.Routing.Select(m => m.Manifest.NativeLibrary!).Distinct(StringComparer.Ordinal))
             {
-                var slices = FrameworkBinaries(BtOutputDir, library).ToList();
+                var slices = ConsumerTransitionCheck.FrameworkBinaries(BtOutputDir, library).ToList();
                 if (slices.Count == 0)
                 {
                     Log.Error("  evidence: no framework slice of {Library}, which the manifests route through, under {Output}", library, BtOutputDir);

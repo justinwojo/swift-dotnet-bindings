@@ -454,15 +454,18 @@ manifest's bridges, and an image no manifest routes through exports no `SBSR_` o
 - `binding-tests --compile-only`, and the ledger cross-check of the Mac Catalyst and tvOS runtime
   lanes, read the compile check's binding, runtime and Apple assemblies, require a manifest for each
   BindingTests module, and check every slice of each wrapper a manifest routes through.
+- `SwiftBindings.Sdk` runs it after `Pack` on the binding package it wrote (SWIFTBIND133), and
+  `SwiftBindings.Runtime`'s buildTransitive targets run it in every consuming app on an affected
+  engine (SWIFTBIND132). Both are described in [consumer-transition-check.md](consumer-transition-check.md).
 
 Both are policy: there is no baseline. Four controls run against the packed iOS assembly on every
 pack and must fail with the named reason: a tampered manifest byte, a removed manifest on an
 assembly that imports bridges, a renamed bridge twin (the runtime: R3), and a package with its
 routing fixture removed (no native image for the runtime; no routed bridge for Apple).
 
-What a consumer build does with the four states is not decided here: the planned policy is a build
-error on `AbsentNonPrimitive` and `TamperedOrMismatched`, while an absent manifest on a
-primitive-only binding stays accepted.
+A consumer build refuses `AbsentNonPrimitive`, `TamperedOrMismatched`, and a `PresentValid`
+assembly whose rules fail, and accepts an absent manifest on a primitive-only binding
+([consumer-transition-check.md](consumer-transition-check.md)).
 
 ## Limits
 

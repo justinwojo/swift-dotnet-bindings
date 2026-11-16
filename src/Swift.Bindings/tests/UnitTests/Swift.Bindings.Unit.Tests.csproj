@@ -19,6 +19,11 @@
          generator's own Roslyn refs means they don't flow; the Microsoft.CodeAnalysis.CSharp
          package below (matching the generator's compile-time Roslyn) supplies them. -->
     <ProjectReference Include="../../../SwiftBindings.TestDiscovery/SwiftBindings.TestDiscovery.csproj" />
+    <!-- The MSBuild tasks the Runtime and SDK packages ship, run out of process by
+         TransitionCheckTasksTests through a fixture project; copied beside the tests, never
+         referenced (they link-compile the same SwiftTransitionGate sources as this project). -->
+    <ProjectReference Include="../../../Swift.Runtime/tasks/SwiftBindings.Tasks.csproj"
+                      ReferenceOutputAssembly="false" OutputItemType="Content" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

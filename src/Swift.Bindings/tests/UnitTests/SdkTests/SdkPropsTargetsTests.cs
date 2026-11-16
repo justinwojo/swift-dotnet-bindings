@@ -1077,6 +1077,20 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_PackedTransitionCheck_RunsInTheOuterPackOfAMultiFrameworkBinding()
+        {
+            // The pack check (SWIFTBIND133) runs after Pack, in the outer build of a multi-framework
+            // binding, where auto-discovery has not filled @(SwiftFramework). A condition on any item
+            // would skip it there and ship the package unchecked; it reads @(NuGetPackOutput) instead.
+            var target = XDocument.Parse(TargetsContent).Root!.Elements("Target")
+                .Single(e => (string?)e.Attribute("Name") == "_SwiftBindingsCheckPackedTransitions");
+            Assert.Equal("Pack", (string?)target.Attribute("AfterTargets"));
+            var condition = (string?)target.Attribute("Condition") ?? "";
+            Assert.DoesNotContain("@(", condition, StringComparison.Ordinal);
+            Assert.Contains("@(NuGetPackOutput)", (string?)target.Element("SwiftTransitionPackageCheck")?.Attribute("Packages"), StringComparison.Ordinal);
+        }
+
+        [Fact]
         public void Targets_BothFingerprints_HashSwiftRuntimeVersion()
         {
             // $(SwiftRuntimeVersion) now feeds the emitted RuntimeContract epoch (forwarded as

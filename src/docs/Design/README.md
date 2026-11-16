@@ -23,6 +23,7 @@ These docs are useful for contributors who need to understand the internals of t
 - [unsafe-mutable-raw-buffer-pointer.md](unsafe-mutable-raw-buffer-pointer.md) — `UnsafeMutableRawBufferPointer` ↔ `Span<byte>` projection
 - [wrapper-route-selection.md](wrapper-route-selection.md) — Per-member route choice (native thunk → `@_cdecl` wrapper → direct `CallConvSwift`), the eligibility guards, and the wrapper symbol namespace (unhashed accessor scheme, first-registration-wins registry, the two integrity gates)
 - [swift-lowering-evidence.md](swift-lowering-evidence.md) — Artifact-scoped swiftc lowering receipts (schema 2): what a receipt pins, how a bridge plan is judged, and SDK qualification vs a consumer build's authorization
+- [consumer-transition-check.md](consumer-transition-check.md) — The build-time check an app runs on its compiled Swift bindings (SWIFTBIND132), its per-package opt-out, and the SDK's pack check (SWIFTBIND133)
 - [direct-swiftself-exposure-reporting.md](direct-swiftself-exposure-reporting.md) — Final-file DirectSwiftSelfExposure contract, completeness receipt, and copy-ready Known Limitations text
 - [binding-variables.md](binding-variables.md) — Property/variable binding: accessor-method emission, wrapper strategy selection, async getters as methods; globals and `willSet`/`didSet` not emitted
 - [binding-typedatabase.md](binding-typedatabase.md) — Type database: flat XML layout, registration lifecycle, resolution cascade, ownership/supplement resolvers
