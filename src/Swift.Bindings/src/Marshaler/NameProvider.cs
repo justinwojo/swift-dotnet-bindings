@@ -70,7 +70,7 @@ public readonly record struct PublicMethodNameContext(
     // excluded: protocol-interface generic params derive from associated types via
     // MapAssociatedTypeToGenericParam, and the interface emission sites shape names without this
     // axis — deriving it here would rename a requirement the interface never renames (CS0535).
-    private static IReadOnlySet<string>? GetParentGenericParameterNames(TypeDecl? parent)
+    internal static IReadOnlySet<string>? GetParentGenericParameterNames(TypeDecl? parent)
     {
         if (parent == null || parent is ProtocolDecl || !parent.IsGeneric)
             return null;
@@ -1417,7 +1417,23 @@ public static class NameProvider
     /// Reserve the string overload for SYNTHESIZED property names with no declaration behind them.
     /// </summary>
     public static string GetPropertyName(PropertyDecl propertyDecl, string? containingTypeName = null)
-        => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(propertyDecl), containingTypeName);
+    {
+        var name = ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(propertyDecl), containingTypeName);
+        // C# forbids a member named like a type parameter of its declaring type (CS0102): a stored
+        // `var t: T` on `Box<T>` PascalCases to `T`. The method namer applies the same axis from the
+        // same parameter set; protocol parents carry none (see GetParentGenericParameterNames).
+        // The replacement must also miss every sibling property's name, or `t` and a declared
+        // `tValue` would both emit as `TValue` and the first-wins dedup would drop one of them.
+        var parent = propertyDecl.ParentDecl as TypeDecl;
+        var parentGenerics = PublicMethodNameContext.GetParentGenericParameterNames(parent);
+        if (parentGenerics == null || !parentGenerics.Contains(name))
+            return name;
+        var siblingNames = parent!.Properties
+            .Where(p => !ReferenceEquals(p, propertyDecl))
+            .Select(p => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(p), containingTypeName))
+            .ToHashSet(StringComparer.Ordinal);
+        return NameCollisionPolicy.ResolveMemberValueName(name, n => parentGenerics.Contains(n) || siblingNames.Contains(n));
+    }
 
     /// <summary>
     /// The property's PascalCase base name — explicit mapping, property-wrapper sanitization and

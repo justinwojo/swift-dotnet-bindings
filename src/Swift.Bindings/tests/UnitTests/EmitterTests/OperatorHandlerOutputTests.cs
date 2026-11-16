@@ -97,6 +97,184 @@ public class OperatorHandlerOutputTests
         Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Point right)", output);
     }
 
+    [Fact]
+    public void ValidateAndEmitPairs_TwoEqualityOverloads_EachGetsItsOwnInequality()
+    {
+        // C# pairs operators per operand list: `==(Point, Point)` and `==(Point, Other)` each need a
+        // `!=` over the same operands (CS0216 otherwise). Keying presence by symbol alone synthesized
+        // the first partner only and left the second overload unpaired.
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var homogeneous = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point");
+        var heterogeneous = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        handler.ValidateAndEmitPairs(new CSharpWriter(writer), new List<OperatorDecl> { homogeneous, heterogeneous }, "Point",
+            new HashSet<string> { "==" }, typeDatabase);
+
+        var output = writer.ToString();
+        Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Point right)", output);
+        Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Other right)", output);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_DeclaredPartnerForOneOverloadOnly_SynthesizesTheOtherOverloadsPartner()
+    {
+        // A declared `!=(Point, Point)` pairs the homogeneous `==` only; the heterogeneous `==` still
+        // needs its own synthesized `!=`, and the declared one must not be duplicated.
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var operators = new List<OperatorDecl>
+        {
+            CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point"),
+            CreateBinaryOperator("!=", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point"),
+            CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other"),
+        };
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        handler.ValidateAndEmitPairs(new CSharpWriter(writer), operators, "Point", new HashSet<string> { "==", "!=" }, typeDatabase);
+
+        var output = writer.ToString();
+        Assert.Contains("public static bool operator !=(TestModule.Point left, TestModule.Other right)", output);
+        Assert.DoesNotContain("operator !=(TestModule.Point left, TestModule.Point right)", output);
+        Assert.DoesNotContain("operator ==(", output);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_HeterogeneousRelationalWithoutAReversedOverload_SynthesizesNothing()
+    {
+        // `>(Point, Other)` from `<(Point, Other)` by swapping needs `<(Other, Point)`. Without it no
+        // body is correct (`right < left` does not resolve), so no partner is written and the source
+        // operator's own CS0216 withdraws it.
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("<", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        var emitted = new HashSet<string> { "<" };
+        handler.ValidateAndEmitPairs(new CSharpWriter(writer), new List<OperatorDecl> { op }, "Point", emitted, typeDatabase);
+
+        Assert.DoesNotContain("operator >", writer.ToString());
+        Assert.DoesNotContain(">", emitted);
+    }
+
+    [Fact]
+    public void ValidateAndEmitPairs_HeterogeneousRelationalWithAReversedOverload_SwapsThroughIt()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var operators = new List<OperatorDecl>
+        {
+            CreateBinaryOperator("<", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other"),
+            CreateBinaryOperator("<", parentType, moduleDecl, "Swift.Bool", "TestModule.Other", "TestModule.Point"),
+        };
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        handler.ValidateAndEmitPairs(new CSharpWriter(writer), operators, "Point", new HashSet<string> { "<" }, typeDatabase);
+
+        var output = writer.ToString();
+        Assert.Contains("public static bool operator >(TestModule.Point left, TestModule.Other right)", output);
+        Assert.Contains("public static bool operator >(TestModule.Other left, TestModule.Point right)", output);
+        Assert.Contains("return right < left;", output);
+    }
+
+    [Theory]
+    [InlineData("==")]
+    [InlineData("!=")]
+    public void SynthesizedEqualityPartner_OnAReferenceType_TestsANonParentOperandForNullThroughObject(string source)
+    {
+        // `==(Point, Other)` on a class: the guard `right is null` does not compile when the other
+        // operand is a value type (CS0037, as with a nint beside the parent). Only the parent operand,
+        // known to be a class, takes `is null` directly.
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator(source, parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+
+        var writer = new StringWriter();
+        handler.ValidateAndEmitPairs(new CSharpWriter(writer), new List<OperatorDecl> { op }, "TestModule.Point",
+            new HashSet<string> { source }, typeDatabase, isReferenceType: true);
+
+        var output = writer.ToString();
+        Assert.Contains("if (left is null)", output);
+        Assert.Contains("if ((object?)right is null)", output);
+        Assert.DoesNotMatch(@"(?<!\(object\?\))\bright is (not )?null", output);
+    }
+
+    [Fact]
+    public void ObjectEqualityOverrides_HomogeneousEqualityWithoutEquatable_EqualsCallsItAndHashIsConstant()
+    {
+        // A `==` that is a plain static function (no Equatable) still makes C# require Equals and
+        // GetHashCode overrides (CS0660/CS0661, errors under warnings-as-errors).
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var operators = new List<OperatorDecl>
+        {
+            CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point"),
+            CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other"),
+        };
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+
+        handler.ValidateAndEmitPairs(csWriter, operators, "Point", new HashSet<string> { "==" }, typeDatabase);
+        handler.EmitObjectEqualityOverrides(csWriter, "Point");
+
+        var output = writer.ToString();
+        Assert.True(handler.DefinesHomogeneousEquality);
+        Assert.Contains("public override bool Equals(object? obj)", output);
+        Assert.Contains("return obj is Point other && this == other;", output);
+        Assert.Contains("public override int GetHashCode()", output);
+        Assert.Contains("return 0;", output);
+    }
+
+    [Fact]
+    public void ObjectEqualityOverrides_OnlyHeterogeneousEquality_KeepsTheInheritedBehaviour()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Other");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point", new HashSet<string> { "==" }, typeDatabase);
+        handler.EmitObjectEqualityOverrides(csWriter, "Point");
+
+        var output = writer.ToString();
+        Assert.False(handler.DefinesHomogeneousEquality);
+        Assert.Contains("public override bool Equals(object? obj) => base.Equals(obj);", output);
+        Assert.Contains("public override int GetHashCode() => base.GetHashCode();", output);
+    }
+
+    [Fact]
+    public void ObjectEqualityOverrides_NoEqualityOperator_WritesNothing()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("<", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point", new HashSet<string> { "<" }, typeDatabase);
+        handler.EmitObjectEqualityOverrides(csWriter, "Point");
+
+        Assert.DoesNotContain("Equals", writer.ToString());
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithTwoStructs()
     {
         var typeDatabase = new TypeDatabase();

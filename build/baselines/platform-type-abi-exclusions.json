@@ -244,11 +244,11 @@
     },
     "Matter.MTRNetworkCommissioningWiFiBand": {
       "category": "NotInReferenceAssembly",
-      "reason": "The iOS platform assembly binds no type of this name, so a member that passes it does not compile and verify-recover removes it before any native call."
+      "reason": "No Apple platform reference assembly (iOS, Mac Catalyst or macOS) binds this Objective-C enum, so a member that passes it does not compile and verify-recover removes it before any native call."
     },
     "Matter.MTRNetworkCommissioningWiFiSecurity": {
       "category": "NotInReferenceAssembly",
-      "reason": "The iOS platform assembly binds no type of this name, so a member that passes it does not compile and verify-recover removes it before any native call."
+      "reason": "No Apple platform reference assembly (iOS, Mac Catalyst or macOS) binds this Objective-C enum, so a member that passes it does not compile and verify-recover removes it before any native call."
     },
     "NaturalLanguage.NLTag": {
       "category": "NotProjected",

@@ -53,3 +53,17 @@ public final class OperandShapeBox {
     public static func < (a: OperandShapeFrozen, b: OperandShapeFrozen) -> Bool { a.base < b.base }
     public static func == (a: OperandShapeFrozen, b: OperandShapeFrozen) -> Bool { a.base == b.base }
 }
+
+// Several overloads of one operator symbol over different operands. C# pairs operators per operand
+// list, so each `==` needs its own `!=` and each `<` its own `>`. The heterogeneous `<` pair is
+// declared in both directions, which is what a swapped `>` over either operand order calls.
+// OperandShapeOverloads is not Equatable: its `==` overloads are the whole equality surface.
+public struct OperandShapeOverloads {
+    public var base: Int
+    public init(base: Int) { self.base = base }
+    public static func == (a: OperandShapeOverloads, b: OperandShapeOverloads) -> Bool { a.base == b.base }
+    public static func == (a: OperandShapeOverloads, b: Int) -> Bool { a.base == b }
+    public static func < (a: OperandShapeOverloads, b: OperandShapeOverloads) -> Bool { a.base < b.base }
+    public static func < (a: OperandShapeOverloads, b: Int) -> Bool { a.base < b }
+    public static func < (a: Int, b: OperandShapeOverloads) -> Bool { a < b.base }
+}

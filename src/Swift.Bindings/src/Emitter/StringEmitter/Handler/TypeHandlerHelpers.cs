@@ -895,6 +895,12 @@ namespace BindingsGeneration
             _wrapperLibraryName = wrapperLibraryName;
         }
 
+        /// <summary>
+        /// Whether <see cref="WriteSwiftEquatableImplementation"/> writes the type's
+        /// <c>Equals</c>/<c>GetHashCode</c> overrides (the type is unconditionally Equatable).
+        /// </summary>
+        public bool ImplementsEquatable => _implementsEquatable;
+
         public void WriteSwiftEquatableImplementation()
         {
             if (_implementsEquatable)

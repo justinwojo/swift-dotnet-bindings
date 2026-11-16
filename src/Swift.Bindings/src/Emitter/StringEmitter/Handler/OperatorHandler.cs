@@ -505,15 +505,17 @@ namespace BindingsGeneration
                 // Without these, `obj == null` or `obj != null` would call .Payload on null and throw NRE.
                 if (isReferenceType && (csOperator == "==" || csOperator == "!="))
                 {
+                    var leftIsNull = NullTest(leftParam.Name, leftType, typeNameWithGenerics);
+                    var rightIsNull = NullTest(rightParam.Name, rightType, typeNameWithGenerics);
                     if (csOperator == "==")
                     {
-                        csWriter.WriteLine($"if ({leftParam.Name} is null) return {rightParam.Name} is null;");
-                        csWriter.WriteLine($"if ({rightParam.Name} is null) return false;");
+                        csWriter.WriteLine($"if ({leftIsNull}) return {rightIsNull};");
+                        csWriter.WriteLine($"if ({rightIsNull}) return false;");
                     }
                     else
                     {
-                        csWriter.WriteLine($"if ({leftParam.Name} is null) return {rightParam.Name} is not null;");
-                        csWriter.WriteLine($"if ({rightParam.Name} is null) return true;");
+                        csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
+                        csWriter.WriteLine($"if ({rightIsNull}) return true;");
                     }
                 }
 
@@ -1086,8 +1088,8 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine("if (left is null) return right is not null;");
-                    csWriter.WriteLine("if (right is null) return true;");
+                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName, negate: true)};");
+                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return true;");
                 }
                 csWriter.WriteLine("return !(left == right);");
                 csWriter.Indent--;
@@ -1101,8 +1103,8 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine("if (left is null) return right is null;");
-                    csWriter.WriteLine("if (right is null) return false;");
+                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName)};");
+                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return false;");
                 }
                 csWriter.WriteLine("return !(left != right);");
                 csWriter.Indent--;
@@ -1187,6 +1189,17 @@ namespace BindingsGeneration
         /// <summary>
         /// Validates operators and emits any missing paired operators.
         /// </summary>
+        /// <remarks>
+        /// C# pairs operators per operand list, not per symbol: <c>==(T, T)</c> and <c>==(T, int)</c>
+        /// each need their own <c>!=</c> with the same operands (CS0216 otherwise). Presence is
+        /// therefore keyed by symbol and both projected operand types, so every overload gets its own
+        /// partner. A relational partner is synthesized by swapping the operands of the source
+        /// operator, which needs the source symbol over the reversed operand list: for a homogeneous
+        /// operator that is the source itself, and for a heterogeneous <c>&lt;(A, B)</c> it is a declared
+        /// <c>&lt;(B, A)</c>. Without one no correct body exists, so nothing is synthesized and the
+        /// source operator's missing partner (CS0216, reported on the source) withdraws it through the
+        /// verify-recover loop, the same outcome as refusing it.
+        /// </remarks>
         /// <param name="csWriter">The C# code writer.</param>
         /// <param name="emittedOperators">The operators this type actually emitted. A partner is synthesized
         /// from one of these only: an overload of the same symbol that was refused would give the partner
@@ -1194,27 +1207,125 @@ namespace BindingsGeneration
         /// <param name="typeName">The name of the containing type.</param>
         public void ValidateAndEmitPairs(CSharpWriter csWriter, IReadOnlyList<OperatorDecl> emittedOperators, string typeName, ISet<string> emittedSymbols, ITypeDatabase? typeDatabase = null, bool isReferenceType = false)
         {
-            var definedSymbols = new HashSet<string>(emittedSymbols);
-
-            foreach (var op in emittedOperators)
+            var operands = emittedOperators
+                .Select(op => ResolveSynthesizedOperandTypes(op, typeName, typeDatabase))
+                .ToArray();
+            var defined = new HashSet<(string Symbol, string Left, string Right)>();
+            for (int i = 0; i < emittedOperators.Count; i++)
             {
+                if (emittedSymbols.Contains(emittedOperators[i].OperatorSymbol))
+                    defined.Add((emittedOperators[i].OperatorSymbol, operands[i].leftType, operands[i].rightType));
+            }
+
+            for (int i = 0; i < emittedOperators.Count; i++)
+            {
+                var op = emittedOperators[i];
                 var symbol = op.OperatorSymbol;
-                if (!definedSymbols.Contains(symbol)) continue;
+                var (leftType, rightType) = operands[i];
+                if (!emittedSymbols.Contains(symbol)) continue;
 
                 var pairedSymbol = GetRequiredPairedOperator(symbol);
-                if (pairedSymbol != null && !definedSymbols.Contains(pairedSymbol))
+                if (pairedSymbol == null || defined.Contains((pairedSymbol, leftType, rightType)))
+                    continue;
+
+                if (IsRelationalOperator(symbol) && leftType != rightType && !defined.Contains((symbol, rightType, leftType)))
                 {
-                    // Need to synthesize the paired operator
-                    _logger.LogInformation($"Synthesizing paired operator '{pairedSymbol}' from '{symbol}' for type '{typeName}'.");
-                    EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName, typeDatabase, isReferenceType);
-                    ReportCollector.RecordMemberSynthesized(BindingItemKind.Operator, pairedSymbol, op.ParentDecl);
-                    // Mark as defined to avoid duplicate synthesis
-                    definedSymbols.Add(pairedSymbol);
-                    emittedSymbols.Add(pairedSymbol);
-                    csWriter.WriteLine();
+                    _logger.LogWarning($"Operator '{symbol}({leftType}, {rightType})' on '{typeName}' has no '{pairedSymbol}' over the same operands and no '{symbol}({rightType}, {leftType})' to derive one from; no partner is synthesized.");
+                    continue;
                 }
+
+                _logger.LogInformation($"Synthesizing paired operator '{pairedSymbol}({leftType}, {rightType})' from '{symbol}' for type '{typeName}'.");
+                EmitSynthesizedPairedOperator(csWriter, op, pairedSymbol, typeName, typeDatabase, isReferenceType);
+                ReportCollector.RecordMemberSynthesized(BindingItemKind.Operator, pairedSymbol, op.ParentDecl);
+                defined.Add((pairedSymbol, leftType, rightType));
+                emittedSymbols.Add(pairedSymbol);
+                csWriter.WriteLine();
             }
+
+            DefinesEquality = defined.Any(d => d.Symbol is "==" or "!=");
+            DefinesHomogeneousEquality = defined.Any(d =>
+                d.Symbol == "==" && d.Left == d.Right && IsParentOperand(d.Left, typeName));
         }
+
+        /// <summary>
+        /// Whether the last <see cref="ValidateAndEmitPairs"/> left the type with a C# <c>==</c> or
+        /// <c>!=</c>, declared or synthesized.
+        /// </summary>
+        public bool DefinesEquality { get; private set; }
+
+        /// <summary>
+        /// Whether the last <see cref="ValidateAndEmitPairs"/> left the type with <c>==</c> over two
+        /// operands of the type itself.
+        /// </summary>
+        public bool DefinesHomogeneousEquality { get; private set; }
+
+        /// <summary>
+        /// A type that declares <c>operator ==</c> or <c>operator !=</c> must override
+        /// <see cref="object.Equals(object)"/> and <see cref="object.GetHashCode"/> (CS0660, CS0661,
+        /// errors under the warnings-as-errors build a consumer may use). A Swift <c>Equatable</c>
+        /// type gets both from its equality writer; this covers a type whose <c>==</c> is a plain
+        /// static function without the conformance. <c>Equals</c> calls the type's own <c>==</c>
+        /// when one takes two operands of the type, and the hash is then constant, as for an
+        /// <c>Equatable</c> type that is not <c>Hashable</c>: Swift gives no hash consistent with an
+        /// arbitrary <c>==</c>. Without such an <c>==</c> both keep the inherited behaviour.
+        /// Call after <see cref="ValidateAndEmitPairs"/>.
+        /// </summary>
+        public void EmitObjectEqualityOverrides(CSharpWriter csWriter, string typeName)
+        {
+            if (!DefinesEquality)
+                return;
+
+            if (DefinesHomogeneousEquality)
+            {
+                csWriter.WriteLine("public override bool Equals(object? obj)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine($"return obj is {typeName} other && this == other;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+                csWriter.WriteLine();
+                csWriter.WriteLine("public override int GetHashCode()");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                csWriter.WriteLine("return 0;");
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+            else
+            {
+                csWriter.WriteLine("public override bool Equals(object? obj) => base.Equals(obj);");
+                csWriter.WriteLine();
+                csWriter.WriteLine("public override int GetHashCode() => base.GetHashCode();");
+            }
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Whether a projected operand type names the containing type: the operator emitter renders
+        /// it either as the bare containing name or fully qualified.
+        /// </summary>
+        private static bool IsParentOperand(string operandType, string containingType)
+        {
+            const string GlobalPrefix = "global::";
+            var operand = operandType.StartsWith(GlobalPrefix, StringComparison.Ordinal) ? operandType.Substring(GlobalPrefix.Length) : operandType;
+            var containing = containingType.StartsWith(GlobalPrefix, StringComparison.Ordinal) ? containingType.Substring(GlobalPrefix.Length) : containingType;
+            return operand == containing || operand.EndsWith("." + containing, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// The null test of an equality operand on a reference type. The containing type's own operand
+        /// (<see cref="IsParentOperand"/>) is a class and takes <c>is null</c> directly; any other operand may be a value type (a
+        /// <c>nint</c> beside the parent in <c>==(T, Int)</c>), where <c>is null</c> does not compile
+        /// (CS0037), so it is tested through <c>object</c>, which is never null for a value type.
+        /// </summary>
+        private static string NullTest(string name, string operandType, string containingType, bool negate = false)
+        {
+            var pattern = negate ? "is not null" : "is null";
+            return IsParentOperand(operandType, containingType) ? $"{name} {pattern}" : $"(object?){name} {pattern}";
+        }
+
+        private static bool IsRelationalOperator(string symbol) =>
+            symbol is "<" or ">" or "<=" or ">=";
 
         /// <summary>
         /// Checks if the operators list contains an explicit equality operator.

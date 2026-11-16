@@ -93,4 +93,36 @@ public class OperatorOperandShapeTests : TestBase
         AssertEqual(1, frozenSignatures.Count(s => s.StartsWith("op_LessThan(", System.StringComparison.Ordinal)),
             $"only the homogeneous frozen `<` binds; found {string.Join("; ", frozenSignatures)}");
     }
+    public void TestEveryOverloadOfASymbolGetsItsOwnPartner()
+    {
+        // Two `==` and three `<` overloads over different operands: each needs a partner over its own
+        // operands, synthesized from that overload.
+        using var three = new OperandShapeOverloads(3);
+        using var otherThree = new OperandShapeOverloads(3);
+        using var five = new OperandShapeOverloads(5);
+
+        AssertTrue(three == otherThree, "the homogeneous `==` sees equal values");
+        AssertFalse(three != otherThree, "the homogeneous synthesized `!=` negates it");
+        AssertTrue(three != five, "the homogeneous synthesized `!=` sees different values");
+        AssertTrue(three == (nint)3, "the Int-operand `==` compares with the Int");
+        AssertFalse(three != (nint)3, "the Int-operand synthesized `!=` negates the Int-operand `==`");
+        AssertTrue(three != (nint)4, "the Int-operand synthesized `!=` sees a different Int");
+        AssertTrue(three.Equals((object)otherThree), "Equals(object) agrees with the homogeneous `==`");
+        AssertFalse(three.Equals((object)five), "Equals(object) agrees with the homogeneous `==` on different values");
+
+        AssertTrue(three < five, "the homogeneous `<`");
+        AssertTrue(five > three, "the homogeneous synthesized `>`");
+        AssertTrue(three < (nint)4, "the (value, Int) `<`");
+        AssertTrue(five > (nint)4, "the (value, Int) synthesized `>` swaps through the (Int, value) `<`");
+        AssertFalse(three > (nint)4, "the (value, Int) synthesized `>` is false for ordered operands");
+        AssertTrue((nint)4 < five, "the (Int, value) `<`");
+        AssertTrue((nint)4 > three, "the (Int, value) synthesized `>` swaps through the (value, Int) `<`");
+        AssertFalse((nint)4 > five, "the (Int, value) synthesized `>` is false for ordered operands");
+
+        var signatures = OperatorSignatures(typeof(OperandShapeOverloads));
+        AssertEqual(2, signatures.Count(s => s.StartsWith("op_Equality(", System.StringComparison.Ordinal)), $"both `==` bind; found {string.Join("; ", signatures)}");
+        AssertEqual(2, signatures.Count(s => s.StartsWith("op_Inequality(", System.StringComparison.Ordinal)), "each `==` has its `!=`");
+        AssertEqual(3, signatures.Count(s => s.StartsWith("op_LessThan(", System.StringComparison.Ordinal)), "all three `<` bind");
+        AssertEqual(3, signatures.Count(s => s.StartsWith("op_GreaterThan(", System.StringComparison.Ordinal)), "each `<` has its `>`");
+    }
 }
