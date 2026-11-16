@@ -735,12 +735,28 @@ public sealed class SwiftLayoutResolver
                 return SwiftLayoutResult.Of(Words(SwiftScalarKind.Double, SwiftScalarKind.Double), $"'{name}' is two CGFloats");
             case "UIKit.UIControl.State" or "UIKit.UIRectEdge" or "UIKit.UIRectCorner":
                 return SwiftLayoutResult.Of(Words(SwiftScalarKind.Int64), $"'{name}' is an option set over its NSUInteger raw value");
-            case "Foundation.Date" or "Foundation.UUID" or "Foundation.URL" or "Foundation.IndexPath" or "Foundation.Locale":
-                // Not @frozen in the SDK's Foundation, whatever the bundled database records.
-                return SwiftLayoutResult.Indirect($"'{name}' is resilient in the SDK's Foundation");
         }
+        if (IsResilientPlatformValue(name))
+            return SwiftLayoutResult.Indirect($"'{name}' is resilient in the SDK's Foundation");
         return null;
     }
+
+    /// <summary>
+    /// Platform value types the SDK declares without <c>@frozen</c>, so a client passes and returns
+    /// them through memory, never in registers, whatever their size. The bundled databases project
+    /// several of them onto a by-value managed carrier of the same storage (Date onto a double,
+    /// URLError.Code onto nint); that carrier is right for the bytes and wrong for the convention, so
+    /// every route has to move the value through memory or refuse it. PlatformTypeAbiAuditTests holds
+    /// this list to the SDK's own conventions, read from SIL.
+    /// </summary>
+    internal static bool IsResilientPlatformValue(string name) => ResilientPlatformValues.Contains(name);
+
+    /// <summary>The platform value types <see cref="IsResilientPlatformValue"/> answers yes for.</summary>
+    internal static readonly IReadOnlySet<string> ResilientPlatformValues = new HashSet<string>(StringComparer.Ordinal)
+    {
+        "Foundation.Date", "Foundation.UUID", "Foundation.URL", "Foundation.IndexPath", "Foundation.Locale",
+        "Foundation.URLError.Code",
+    };
 
     /// <summary>The scalar a C# primitive a type database projects a platform value onto is stored as.</summary>
     internal static SwiftScalarKind? ManagedPrimitiveScalar(string managedName) => managedName switch
@@ -760,8 +776,9 @@ public sealed class SwiftLayoutResolver
     /// Whether a platform value projected onto this C# primitive stores that primitive on every
     /// target the model predicts for. A <c>bool</c> carrier (ObjCBool) is a Bool on iOS, tvOS and
     /// arm64 macOS but an Int8 on Mac Catalyst and x86_64 macOS. A pointer-sized integer carrier is
-    /// an Int (URLError.Code) or a pointer (Selector over OpaquePointer), which C# does not tell apart.
-    /// Neither has one lowering, so both stay underivable here.
+    /// an Int or a pointer (Selector over OpaquePointer), which C# does not tell apart. Neither has
+    /// one lowering, so both stay underivable here. (URLError.Code, an nint carrier, never reaches
+    /// this question: it is resilient, so the carrier table answers indirect first.)
     /// </summary>
     private static bool IsTargetIndependentPrimitive(SwiftScalarKind primitive, string managedName) =>
         primitive is not SwiftScalarKind.Bool and not SwiftScalarKind.Pointer

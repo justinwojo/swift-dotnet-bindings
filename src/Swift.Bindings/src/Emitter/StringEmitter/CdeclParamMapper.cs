@@ -630,6 +630,21 @@ public static class CdeclParamMapper
                         $"{argLabel}{label}Val");
             }
 
+            // A platform value the database projects onto a C# primitive whose Swift name C cannot
+            // spell (a nested type such as URLError.Code over Int): it crosses as that primitive and
+            // is rebuilt from the same bits in the body. By value in the signature it is refused by
+            // @_cdecl, and the direct Swift-convention fallback would hand an address-only type
+            // (URLError.Code is resilient) its value where Swift reads a pointer.
+            // PlatformTypeAbiAuditTests holds the primitive to the type's stored representation.
+            if (PrimitiveCarriedPlatformValue(swiftTypeSpec, typeRecord) is { } carriedPrimitive)
+            {
+                var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(swiftTypeSpec);
+                return Simple(CdeclParamCategory.PrimitiveCarriedPlatformValue,
+                        $"_ {label}: {carriedPrimitive}",
+                        $"let {label}Val = Swift.unsafeBitCast({label}, to: {swiftType}.self)",
+                        $"{argLabel}{label}Val");
+            }
+
             // Frozen structs: system/Apple types pass by-value, custom types via UnsafeRawPointer.
             if (MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
@@ -862,6 +877,37 @@ public static class CdeclParamMapper
 
         return named.Name is "Swift.Optional" or "Swift.Array" or "Swift.Dictionary"
             or "Swift.Set" or "Swift.Result" or "Swift.ClosedRange";
+    }
+
+    /// <summary>
+    /// The Swift primitive a platform value crosses a <c>@_cdecl</c> signature as, when the
+    /// database projects it onto a C# primitive and its own name is a nested Swift type C cannot
+    /// spell (<c>URLError.Code</c> over <c>Int</c>); null for every other type. An imported C
+    /// typedef (<c>UIFont.Weight</c>) is C-representable under its own name and keeps it, and a
+    /// <c>bool</c> carrier is excluded because ObjCBool is not a Bool on every target.
+    /// </summary>
+    internal static string? PrimitiveCarriedPlatformValue(TypeSpec? typeSpec, TypeRecord typeRecord)
+    {
+        if (typeSpec is not NamedTypeSpec named || typeRecord.Kind != TypeRecordKind.Struct
+            || !MarshallingHelpers.IsTypeFrozen(typeRecord) || !IsSystemFrozenStruct(named)
+            || !WrapperValidation.IsNestedType(named) || WrapperValidation.IsImportedCTypedef(named))
+            return null;
+        return typeRecord.CSharpTypeName.FullyQualifiedName switch
+        {
+            "nint" or "System.IntPtr" => "Swift.Int",
+            "nuint" or "System.UIntPtr" => "Swift.UInt",
+            "long" or "System.Int64" => "Swift.Int64",
+            "ulong" or "System.UInt64" => "Swift.UInt64",
+            "int" or "System.Int32" => "Swift.Int32",
+            "uint" or "System.UInt32" => "Swift.UInt32",
+            "short" or "System.Int16" => "Swift.Int16",
+            "ushort" or "System.UInt16" => "Swift.UInt16",
+            "sbyte" or "System.SByte" => "Swift.Int8",
+            "byte" or "System.Byte" => "Swift.UInt8",
+            "double" or "System.Double" => "Swift.Double",
+            "float" or "System.Single" => "Swift.Float",
+            _ => null,
+        };
     }
 
     /// <summary>

@@ -1187,6 +1187,11 @@ namespace BindingsGeneration
             "of one register-sized slot. It is declared so that source and protocol conformances " +
             "referencing it still compile.";
 
+        internal const string AddressOnlyPlatformValueAbiMessage =
+            "This member has no ABI-correct call path: it passes or returns a platform value type the SDK " +
+            "declares resilient, which Swift moves through memory, and no Swift wrapper could be generated " +
+            "to carry it. It is declared so that source and protocol conformances referencing it still compile.";
+
         internal const string GenericValueIndirectResultAbiMessage =
             "This member has no ABI-correct call path: it returns a generic value type whose layout is not " +
             "visible outside its Swift module, which Swift returns through a result buffer the direct call " +
@@ -1236,7 +1241,18 @@ namespace BindingsGeneration
             string message;
             string skipDetail;
 
-            if (WrapperValidation.HasForeignObjectRenderedDirectDispatch(_env))
+            if (WrapperValidation.HasAddressOnlyPlatformValueDirectDispatch(_env))
+            {
+                message = AddressOnlyPlatformValueAbiMessage;
+                skipDetail =
+                    "The member passes or returns a platform value type the SDK declares resilient "
+                    + "(not @frozen), which Swift passes and returns through memory, and no @_cdecl wrapper "
+                    + "took it; the direct CallConvSwift P/Invoke it falls back to carries the value in a "
+                    + "register, where Swift reads an address. The member is emitted as a throwing tombstone "
+                    + "(declaration retained so conformances referencing it still compile) and carries the "
+                    + $"{WrapperValidation.UncallableAbiDiagnosticId} marker.";
+            }
+            else if (WrapperValidation.HasForeignObjectRenderedDirectDispatch(_env))
             {
                 message = ForeignObjectRenderedAbiMessage;
                 skipDetail =
