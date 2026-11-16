@@ -85,7 +85,8 @@ class WorkflowPinTests(unittest.TestCase):
         self.assertIn("fail-fast: false", gates)
         publish = job_block(text, "publish-release")
         needs = set(re.findall(r"^      - ([A-Za-z0-9_-]+)$", publish.split("steps:", 1)[0], re.M))
-        self.assertTrue({"profile-gates", "build-and-test", "bindingtests", "release-pack"} <= needs, needs)
+        self.assertTrue({"profile-gates", "net11-tvos-debug", "build-and-test", "bindingtests", "release-pack"} <= needs,
+                        needs)
         # The unprofiled lane's gates are the existing jobs; packing happens there, once.
         for job in ("build-and-test", "bindingtests", "release-pack"):
             self.assertIn(f"['{toolchain_ci.UNPROFILED_PROFILE}']", job_block(text, job))
@@ -93,35 +94,64 @@ class WorkflowPinTests(unittest.TestCase):
 
     def test_new_release_jobs_get_no_secrets_and_read_only_tokens(self):
         text = (GITHUB / "workflows" / "release.yml").read_text()
-        for job in ("toolchains", "profile-gates"):
+        for job in ("toolchains", "profile-gates", "net11-tvos-debug"):
             block = job_block(text, job)
             self.assertNotIn("secrets.", block)
             self.assertRegex(block, r"permissions:\n\s+contents: read\n")
         self.assertNotIn("pull_request_target", text)
 
-    def test_ci_runs_the_net11_compile_gate_and_coreclr_canary(self):
-        text = (GITHUB / "workflows" / "ci.yml").read_text()
-        job = job_block(text, "net11-coreclr")
+    def assert_runs_every_simulator_configuration(self, job, resolver_expression):
+        """A job reads its configurations from the resolver and builds, then runs, each one."""
+        self.assertIn(f"SIM_CONFIGURATIONS: ${{{{ {resolver_expression}.simulator_configurations }}}}", job)
+        self.assertNotIn("--class-filter", job)
+        steps = re.split(r"^      - name: ", job, flags=re.M)[1:]
+        build = [s for s in steps if "--build-only" in s]
+        run = [s for s in steps if "ci_ios_test.py" in s]
+        self.assertEqual((len(build), len(run)), (1, 1))
+        for step in (build[0], run[0]):
+            self.assertIn("for configuration in $SIM_CONFIGURATIONS; do", step)
+            self.assertIn('--binding-test-configuration "$configuration"', step)
+        # Each configuration runs even when an earlier one failed; the step still fails.
+        self.assertIn('|| failed="$failed $configuration"', run[0])
+        self.assertRegex(run[0], r'if \[ -n "\$failed" \]; then\n[^\n]*\n\s+exit 1')
+
+    def test_net11_runs_the_debug_interpreter_suite_and_release(self):
+        # The owner's ruling: a consumer's Debug build must work, so the Debug (CoreCLR
+        # interpreter) suite is a blocking, graded gate wherever net11 runs, and Release keeps its.
+        net11 = toolchain_ci.resolve("net11-xcode27")["simulator_configurations"].split()
+        self.assertEqual(net11[0], "Debug", "the Debug interpreter suite runs first")
+        self.assertIn("Release", net11)
+        self.assertEqual(toolchain_ci.resolve("net10-xcode27")["simulator_configurations"].split(), ["Debug"])
+
+        ci = (GITHUB / "workflows" / "ci.yml").read_text()
+        job = job_block(ci, "net11-coreclr")
         self.assertIn("['net11-xcode27']", job)
         self.assertIn("--strict --compile-only", job)
-        self.assertIn('--class-filter "$class"', job)
-        configuration = re.search(r"^  CORECLR_CANARY_CONFIGURATION:\s*(\S+)$", text, re.M)
-        self.assertIsNotNone(configuration)
-        self.assertIn(configuration.group(1), ("Release", "Debug"))
-        classes = re.search(r"^  CORECLR_CANARY_CLASSES:\s*>-\n((?:    .*\n)+)", text, re.M)
-        self.assertIsNotNone(classes)
-        names = classes.group(1).split()
-        self.assertGreaterEqual(len(names), 3)
-        sources = "\n".join(p.read_text() for p in (REPO / "BindingTests" / "RuntimeTestsApp").rglob("*.cs"))
-        for name in names:
-            with self.subTest(test_class=name):
-                self.assertRegex(sources, rf"\bpublic\s+(sealed\s+)?class\s+{re.escape(name)}\s*:\s*TestBase\b")
+        self.assertNotIn("continue-on-error", job)
+        self.assert_runs_every_simulator_configuration(job, "fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27']")
+        self.assertNotIn("CORECLR_CANARY", ci)
+
+        release = job_block((GITHUB / "workflows" / "release.yml").read_text(), "profile-gates")
+        self.assert_runs_every_simulator_configuration(
+            release, "fromJSON(needs.toolchains.outputs.profiles)[matrix.profile]")
+
+    def test_tvos_debug_runs_in_ci_and_gates_release(self):
+        for workflow in ("ci.yml", "release.yml"):
+            with self.subTest(workflow=workflow):
+                job = job_block((GITHUB / "workflows" / workflow).read_text(), "net11-tvos-debug")
+                self.assertIn("['net11-xcode27']", job)
+                self.assertNotIn("continue-on-error", job)
+                self.assertIn("simulator --platform tvOS", job)
+                self.assertRegex(job, r"binding-tests --tvos --build-only --strict\s+--binding-test-configuration Debug")
+                self.assertRegex(job, r"binding-tests --tvos --skip-build --binding-test-configuration Debug\s+"
+                                      r"--device-udid \"\$SIM_UDID\"")
 
     # Every job that runs the simulator suite. A booted simulator slows builds on the hosted
     # runner two- to three-fold, so each builds its app before it boots one and only installs
     # and runs after.
-    SIMULATOR_JOBS = (("ci.yml", "bindingtests"), ("ci.yml", "net11-coreclr"),
-                      ("release.yml", "bindingtests"), ("release.yml", "profile-gates"))
+    SIMULATOR_JOBS = (("ci.yml", "bindingtests"), ("ci.yml", "net11-coreclr"), ("ci.yml", "net11-tvos-debug"),
+                      ("release.yml", "bindingtests"), ("release.yml", "profile-gates"),
+                      ("release.yml", "net11-tvos-debug"))
 
     def test_simulator_jobs_build_before_booting_and_only_run_after(self):
         for workflow, job in self.SIMULATOR_JOBS:
@@ -132,7 +162,8 @@ class WorkflowPinTests(unittest.TestCase):
                 build = [i for i, step in enumerate(steps) if "--build-only" in step]
                 self.assertEqual(len(build), 1, "exactly one --build-only step")
                 self.assertLess(build[0], boot, "the app is built before the simulator boots")
-                self.assertIn("--skip-regen", steps[build[0]], "the app builds from the compile gate's bindings")
+                if any("--compile-only" in step for step in steps[:build[0]]):
+                    self.assertIn("--skip-regen", steps[build[0]], "the app builds from the compile gate's bindings")
                 runs = [step for step in steps[boot:] if NUKE_INVOCATION.search(step)]
                 self.assertTrue(runs, "the suite runs after the boot")
                 for step in runs:
@@ -266,7 +297,13 @@ class ProfileTests(unittest.TestCase):
                 self.assertEqual(resolved["developer_dir"], resolved["xcode_app"] + "/Contents/Developer")
                 self.assertIn(resolved["runner"], toolchain_ci.HOSTED_RUNNERS.values())
                 self.assertEqual(resolved["managed_framework"], profile.get("managedFramework", "net10.0"))
-                self.assertIn(resolved["simulator_configuration"], ("Debug", "Release"))
+                configurations = resolved["simulator_configurations"].split()
+                self.assertTrue(configurations)
+                self.assertEqual(len(configurations), len(set(configurations)))
+                self.assertLessEqual(set(configurations), {"Debug", "Release"})
+                if resolved["managed_framework"] == "net10.0":
+                    # Mono JIT; the harness refuses a .NET 10 Release simulator build.
+                    self.assertEqual(configurations, ["Debug"])
                 self.assertEqual(resolved["unprofiled"], name == toolchain_ci.UNPROFILED_PROFILE)
 
     def test_launch_global_json_matches_the_launcher(self):

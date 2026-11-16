@@ -228,15 +228,21 @@ def run_build(test_framework_dir: str, skip_regen: bool = True,
 BUILD_OVERHEAD = 900        # wrapper+bridge+app build (a cold CI dotnet build has been measured north of 9 min)
 INCREMENTAL_OVERHEAD = 120  # incremental rebuild after an attempt whose build completed
 PREBUILT_OVERHEAD = 180     # no build: Nuke start-up, build-receipt check, install, result retrieval
+# The .NET 11 Debug lane runs the CoreCLR interpreter, whose negative controls Nuke launches after
+# the suite, each alone in a fresh app process (InterpreterNegativeControls), and then resolves the
+# per-class lane witnesses. Those launches are outside the suite's own --timeout.
+INTERPRETER_CONTROLS_OVERHEAD = 180
 
 
-def attempt_overhead(attempt: int, build_completed: bool, prebuilt_app: bool) -> int:
+def attempt_overhead(attempt: int, build_completed: bool, prebuilt_app: bool,
+                     interpreter_lane: bool = False) -> int:
     """The non-test allowance for one attempt (see the constants above)."""
+    extra = INTERPRETER_CONTROLS_OVERHEAD if interpreter_lane else 0
     if prebuilt_app:
-        return PREBUILT_OVERHEAD
+        return PREBUILT_OVERHEAD + extra
     if attempt > 1 and build_completed:
-        return INCREMENTAL_OVERHEAD
-    return BUILD_OVERHEAD
+        return INCREMENTAL_OVERHEAD + extra
+    return BUILD_OVERHEAD + extra
 
 
 def run_tests(
@@ -291,6 +297,8 @@ def run_tests(
         "--timeout", str(timeout),
         "--device-udid", device_udid,
     ]
+    # net11 Debug is the interpreter lane (RuntimeLaneIdentity.Expected); net10 Debug is Mono.
+    interpreter_lane = framework == "net11.0" and binding_test_configuration == "Debug"
     if allow_unqualified_runtime:
         cmd.append("--allow-unqualified-runtime")
     if skip_regen:
@@ -306,7 +314,7 @@ def run_tests(
             # Determine if we need a full rebuild or incremental
             # If simulator launch message appeared, build completed — artifacts are fine
             build_completed = prebuilt_app or "Running on iOS Simulator" in last_output
-            retry_overhead = attempt_overhead(attempt, build_completed, prebuilt_app)
+            retry_overhead = attempt_overhead(attempt, build_completed, prebuilt_app, interpreter_lane)
 
             # Check if we have enough time for a retry
             min_retry_time = timeout + retry_overhead
@@ -343,7 +351,7 @@ def run_tests(
             gha_warning(f"Test retry attempt {attempt} after pre-test launcher failure")
 
         # Calculate subprocess timeout
-        overhead = attempt_overhead(attempt, attempt > 1 and build_completed, prebuilt_app)
+        overhead = attempt_overhead(attempt, attempt > 1 and build_completed, prebuilt_app, interpreter_lane)
         if deadline is not None:
             remaining = deadline - time.time()
             # Use the lesser of our standard timeout and remaining time (minus 30s safety margin)

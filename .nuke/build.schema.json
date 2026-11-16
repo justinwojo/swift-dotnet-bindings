@@ -201,7 +201,7 @@
         },
         "BuildOnly": {
           "type": "boolean",
-          "description": "iOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build"
+          "description": "iOS and tvOS Simulator only: regenerate (unless --skip-regen), build the app and inject its frameworks, then stop. A later --skip-build run installs and runs exactly that build"
         },
         "By": {
           "type": "string",

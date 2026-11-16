@@ -13,21 +13,6 @@ permissions:
   contents: read
   checks: write
 
-env:
-  # .NET 11 CoreCLR canary (net11-coreclr job). Release until the CoreCLR interpreter bridge
-  # lands: Debug runs the interpreter, which cannot yet call Swift. Flip to Debug then.
-  CORECLR_CANARY_CONFIGURATION: Release
-  # One class per risk the CoreCLR Swift calling convention carries, small enough to run in
-  # seconds once the app is built:
-  #   BlittableRoundTripTests     scalar and frozen-struct arguments/returns (the tier-1 smoke)
-  #   MixedRegisterReturnTests    swiftcc field-wise struct returns across GPR/FPR files
-  #   StringMarshallingTests      Swift String ownership and value-witness copies
-  #   SiblingMethodDispatchTests  reverse dispatch: Swift calling C# protocol implementations
-  #   ClosureTests                closures in both directions, UnmanagedCallersOnly trampolines
-  CORECLR_CANARY_CLASSES: >-
-    BlittableRoundTripTests MixedRegisterReturnTests StringMarshallingTests
-    SiblingMethodDispatchTests ClosureTests
-
 jobs:
   # Every SDK, workload set, Xcode and runner label below comes from build/toolchains/*.json.
   toolchains:
@@ -273,7 +258,13 @@ jobs:
             src/Swift.Bindings.Sdk/tools/swift-interface-parser
           key: ${{ steps.sip-cache.outputs.cache-primary-key }}
 
-  # net11-xcode27: the compile gate plus a CoreCLR runtime canary on the iOS simulator.
+  # net11-xcode27: the compile gate plus the full iOS simulator suite in each of the profile's
+  # simulator configurations (toolchain_ci.py SIMULATOR_CONFIGURATIONS): Debug, the CoreCLR
+  # interpreter a consumer's Debug build runs, then Release, ReadyToRun. Each run is graded against
+  # its own count-and-identity floor in runtime-identity-net11-baseline.json
+  # (net11.0_simulator_iossimulator-arm64_coreclr_debug / ..._coreclr_release). The Debug run also
+  # proves per class that the interpreter ran it (lane identity) and runs the interpreter's
+  # negative controls alone, each graded against its expected outcome; any miss fails the job.
   # Runs through the profile launcher, which pins the SDK, workload set and Xcode exactly.
   # Set the repository variable SKIP_XCODE27_CI to 'true' to pause it while the hosted image for
   # that Xcode is unavailable; the release workflow has no such switch.
@@ -282,11 +273,15 @@ jobs:
     needs: toolchains
     if: vars.SKIP_XCODE27_CI != 'true'
     runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].runner }}
-    timeout-minutes: 150
+    # Measured on the hosted runner before the Debug run was added: provisioning 2 min, compile gate
+    # 19-23 min, Release app build 8-9 min, boot 5 min. The Debug app build and run add their own
+    # steps; the step limits (45 + 10 + 10 + 50) plus a cold compile gate must fit.
+    timeout-minutes: 180
     env:
       # Not PROFILE: Nuke binds any environment variable named after one of its parameters, and
       # PROFILE is its own --profile (a parameters.<name>.json file).
       TOOLCHAIN_PROFILE: net11-xcode27
+      SIM_CONFIGURATIONS: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].simulator_configurations }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -306,14 +301,19 @@ jobs:
       # Everything that builds runs before the simulator boots: a booted simulator keeps the
       # 3-core hosted runner busy for its whole life, which made the compile gate about twice as
       # slow and the app build two to three times slower. Built from the bindings the compile
-      # gate generated.
-      - name: Build the simulator test app (${{ env.CORECLR_CANARY_CONFIGURATION }})
-        timeout-minutes: 25
-        run: >
-          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
-          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
-          -- binding-tests --sim --build-only --skip-regen
-          --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION"
+      # gate generated, one app per configuration, each under its own bin/coreclr/<configuration>
+      # tree with its own build receipt.
+      - name: Build the simulator test apps
+        timeout-minutes: 45
+        run: |
+          for configuration in $SIM_CONFIGURATIONS; do
+            echo "::group::$configuration"
+            bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE" \
+              --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
+              -- binding-tests --sim --build-only --skip-regen \
+              --binding-test-configuration "$configuration"
+            echo "::endgroup::"
+          done
 
       - name: Create and boot iOS Simulator
         timeout-minutes: 10
@@ -323,19 +323,108 @@ jobs:
         timeout-minutes: 10
         run: xcrun simctl bootstatus "$SIM_UDID" -b
 
-      # Every class installs and runs the app built above; --skip-build checks it is that build.
-      # A class name that matches nothing fails inside the app ("No test class matches").
-      - name: CoreCLR runtime canary (${{ env.CORECLR_CANARY_CONFIGURATION }})
-        timeout-minutes: 15
+      # Install and run only; --skip-build checks each app is the build above, so the run is graded.
+      # Every configuration runs even when an earlier one fails, so one red run reports both; the
+      # step fails if any did.
+      - name: Run iOS Simulator tests
+        timeout-minutes: 50
         run: |
-          for class in $CORECLR_CANARY_CLASSES; do
-            echo "::group::$class"
-            bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE" \
+          failed=""
+          for configuration in $SIM_CONFIGURATIONS; do
+            echo "::group::$configuration"
+            python3 build/scripts/ci/ci_ios_test.py \
+              --toolchain-profile "$TOOLCHAIN_PROFILE" \
               --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR" \
-              -- binding-tests --sim --device-udid "$SIM_UDID" --skip-build \
-              --binding-test-configuration "$CORECLR_CANARY_CONFIGURATION" --class-filter "$class"
+              --binding-test-configuration "$configuration" \
+              --device-udid "$SIM_UDID" --skip-prepare --prebuilt-app \
+              --timeout 420 --skip-regen \
+              --step-timeout 1260 || failed="$failed $configuration"
             echo "::endgroup::"
           done
+          if [ -n "$failed" ]; then
+            echo "::error::iOS Simulator suite failed in:$failed"
+            exit 1
+          fi
+
+      - name: Upload simulator diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sim-diagnostics-net11
+          path: |
+            /tmp/sim-diagnostics/
+            artifacts/toolchains/net11-xcode27/workspace/artifacts/runtime-lanes/
+          retention-days: 7
+          if-no-files-found: ignore
+
+      - name: Save SwiftInterfaceParser cache
+        if: always() && steps.toolchain.outputs.parser-cache-hit != 'true' && hashFiles(steps.toolchain.outputs.parser-binary) != ''
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ steps.toolchain.outputs.parser-cache-path }}
+          key: ${{ steps.toolchain.outputs.parser-cache-key }}
+
+  # net11-xcode27 on the tvOS simulator, Debug: the CoreCLR interpreter a consumer's Debug tvOS
+  # build runs, graded against net11.0_tvos_simulator_tvossimulator-arm64_coreclr_debug with the
+  # same per-class lane proof and negative controls as the iOS Debug run. Its own job, beside
+  # net11-coreclr rather than after it: the tvOS lane generates its own tvOS-flavoured bindings,
+  # so it shares nothing with the iOS compile gate and serialising it would add its whole length
+  # to that job. The tvOS Release (ReadyToRun) suite is not run here; it runs locally and
+  # keeps its own floor.
+  net11-tvos-debug:
+    name: BindingTests (.NET 11 tvOS Debug)
+    needs: toolchains
+    if: vars.SKIP_XCODE27_CI != 'true'
+    runs-on: ${{ fromJSON(needs.toolchains.outputs.profiles)['net11-xcode27'].runner }}
+    # The step limits (60 + 10 + 10 + 30) plus provisioning and a cold parser build.
+    timeout-minutes: 150
+    env:
+      TOOLCHAIN_PROFILE: net11-xcode27
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Toolchain profile
+        id: toolchain
+        uses: ./.github/actions/toolchain-profile
+        with:
+          profile: net11-xcode27
+
+      # Generates the tvOS bindings (strict: a non-zero generator exit fails), compile-checks them,
+      # runs the transition cross-check and builds the app, all before a simulator boots.
+      - name: Build the tvOS simulator test app (Debug)
+        timeout-minutes: 60
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --tvos --build-only --strict
+          --binding-test-configuration Debug
+
+      - name: Create and boot tvOS Simulator
+        timeout-minutes: 10
+        run: python3 -B build/scripts/ci/toolchain_ci.py simulator --platform tvOS --create ci-tvos --download-missing
+
+      - name: Wait for simulator boot
+        timeout-minutes: 10
+        run: xcrun simctl bootstatus "$SIM_UDID" -b
+
+      # Install and run only; --skip-build checks the app is the build above, so the run is graded.
+      - name: Run tvOS Simulator tests (Debug)
+        timeout-minutes: 30
+        run: >
+          bash build.sh --toolchain-profile "$TOOLCHAIN_PROFILE"
+          --dotnet-root "$SWIFT_BINDINGS_CI_DOTNET_ROOT" --developer-dir "$SWIFT_BINDINGS_CI_DEVELOPER_DIR"
+          -- binding-tests --tvos --skip-build --binding-test-configuration Debug
+          --device-udid "$SIM_UDID" --timeout 420
+
+      - name: Upload tvOS lane reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvos-diagnostics-net11
+          path: artifacts/toolchains/net11-xcode27/workspace/artifacts/runtime-lanes/
+          retention-days: 7
+          if-no-files-found: ignore
 
       - name: Save SwiftInterfaceParser cache
         if: always() && steps.toolchain.outputs.parser-cache-hit != 'true' && hashFiles(steps.toolchain.outputs.parser-binary) != ''
