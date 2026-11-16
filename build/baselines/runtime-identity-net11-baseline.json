@@ -1,8 +1,8 @@
 {
-  "git_sha": "187732c2",
+  "git_sha": "72d0ddc9b",
   "platforms": {
     "net11.0_macos_osx-arm64_coreclr_release": {
-      "pass_count": 3613,
+      "pass_count": 3682,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -88,7 +88,7 @@
       "known_fails": []
     },
     "net11.0_maccatalyst_maccatalyst-arm64_coreclr_release": {
-      "pass_count": 3630,
+      "pass_count": 3700,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -280,7 +280,7 @@
       "known_fails": []
     },
     "net11.0_device_ios-arm64_coreclr_release": {
-      "pass_count": 4294,
+      "pass_count": 4629,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -421,7 +421,7 @@
       "known_fails": []
     },
     "net11.0_device_ios-arm64_nativeaot_release": {
-      "pass_count": 4394,
+      "pass_count": 4628,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -532,7 +532,7 @@
       "known_fails": []
     },
     "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_release": {
-      "pass_count": 3699,
+      "pass_count": 3769,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -618,7 +618,7 @@
       "known_fails": []
     },
     "net11.0_simulator_iossimulator-arm64_coreclr_debug": {
-      "pass_count": 4548,
+      "pass_count": 4625,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -724,7 +724,7 @@
       "known_fails": []
     },
     "net11.0_maccatalyst_maccatalyst-arm64_coreclr_debug": {
-      "pass_count": 3626,
+      "pass_count": 3696,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -810,7 +810,7 @@
       "known_fails": []
     },
     "net11.0_tvos_simulator_tvossimulator-arm64_coreclr_debug": {
-      "pass_count": 3695,
+      "pass_count": 3765,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -896,7 +896,7 @@
       "known_fails": []
     },
     "net11.0_maccatalyst_maccatalyst-x64_coreclr_release": {
-      "pass_count": 3630,
+      "pass_count": 3700,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -982,7 +982,7 @@
       "known_fails": []
     },
     "net11.0_macos_osx-x64_coreclr_release": {
-      "pass_count": 3613,
+      "pass_count": 3682,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -1068,7 +1068,7 @@
       "known_fails": []
     },
     "net11.0_maccatalyst_maccatalyst-x64_coreclr_debug": {
-      "pass_count": 3623,
+      "pass_count": 3693,
       "skips": [
         {
           "class": "AsyncClosureTests",
@@ -1154,7 +1154,7 @@
       "known_fails": []
     },
     "net11.0_device_ios-arm64_coreclr_debug": {
-      "pass_count": 4548,
+      "pass_count": 4625,
       "skips": [
         {
           "class": "AsyncClosureTests",

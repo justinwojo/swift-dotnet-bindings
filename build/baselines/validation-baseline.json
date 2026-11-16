@@ -2137,13 +2137,13 @@
   },
   "runtime_tests": {
     "macos_x64": {
-      "pass": 3613,
+      "pass": 3682,
       "fail": 0,
       "skip": 16,
       "crash": 0
     },
     "maccatalyst_x64": {
-      "pass": 3626,
+      "pass": 3696,
       "fail": 0,
       "skip": 20,
       "crash": 0
