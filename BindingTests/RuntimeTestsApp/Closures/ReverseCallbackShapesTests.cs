@@ -72,9 +72,9 @@ public class ReverseCallbackShapesTests : TestBase
     /// so each test knows which lane it exercises.
     /// </summary>
     private static void AssertCallbackLane(
-        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicMethods)] Type declaringType,
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.NonPublicMethods)] System.Type declaringType,
         string prefix,
-        Type convention)
+        System.Type convention)
     {
         var callbacks = declaringType
             .GetMethods(BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)
@@ -82,7 +82,7 @@ public class ReverseCallbackShapesTests : TestBase
             .ToArray();
         if (callbacks.Length != 1)
             throw new AssertionException($"{declaringType.Name}.{prefix}: expected one callback, got {callbacks.Length}");
-        var conventions = callbacks[0].GetCustomAttribute<UnmanagedCallersOnlyAttribute>()?.CallConvs ?? Array.Empty<Type>();
+        var conventions = callbacks[0].GetCustomAttribute<UnmanagedCallersOnlyAttribute>()?.CallConvs ?? Array.Empty<System.Type>();
         if (conventions.Length != 1 || conventions[0] != convention)
             throw new AssertionException(
                 $"{callbacks[0].Name}: expected [UnmanagedCallersOnly] with {convention.Name}, got [{string.Join(", ", conventions.Select(c => c.Name))}]");
