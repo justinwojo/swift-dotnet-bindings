@@ -805,7 +805,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -849,7 +849,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -993,6 +993,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -1046,7 +1049,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1090,7 +1093,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1234,6 +1237,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -1287,7 +1293,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1331,7 +1337,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1475,6 +1481,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -1528,7 +1537,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1572,7 +1581,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1716,6 +1725,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -1769,7 +1781,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1813,7 +1825,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1957,6 +1969,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -2010,7 +2025,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2054,7 +2069,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2198,6 +2213,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -2251,7 +2269,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2295,7 +2313,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2439,6 +2457,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -2492,7 +2513,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2536,7 +2557,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2680,6 +2701,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -2745,7 +2769,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2789,7 +2813,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2933,6 +2957,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -2986,7 +3013,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3030,7 +3057,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3174,6 +3201,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -3227,7 +3257,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3271,7 +3301,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3415,6 +3445,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -3468,7 +3501,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3512,7 +3545,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3656,6 +3689,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -3709,7 +3745,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3753,7 +3789,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3897,6 +3933,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -3950,7 +3989,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3994,7 +4033,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4138,6 +4177,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -4191,7 +4233,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4235,7 +4277,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4379,6 +4421,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -4432,7 +4477,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4476,7 +4521,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4620,6 +4665,9 @@
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9longLabelSSSgyFZ": "swiftcc { i64, i64 } ()",
             "$s20SwiftBindingsTestLib23InternalOptionalAbiHostO9timestamp7forSeedSdSgs5Int32V_tFZ": "swiftcc { i64, i8 } (i32)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
+            "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8providerAA0eF4WideVSgycvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8validateyS2iKcvs": "swiftcc void (ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV9transformyS2icvs": "swiftcc void (ptr, ptr, ptr swiftself)",
@@ -4685,7 +4733,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4729,7 +4777,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4745,7 +4793,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4789,7 +4837,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4805,7 +4853,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4849,7 +4897,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4865,7 +4913,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4909,7 +4957,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4925,7 +4973,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4969,7 +5017,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4985,7 +5033,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5029,7 +5077,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5045,7 +5093,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5089,7 +5137,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5105,7 +5153,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5149,7 +5197,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5177,7 +5225,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5221,7 +5269,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5237,7 +5285,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5281,7 +5329,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5297,7 +5345,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5341,7 +5389,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5357,7 +5405,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5401,7 +5449,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5417,7 +5465,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5461,7 +5509,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5477,7 +5525,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5521,7 +5569,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b7f49147581fec3e08cf7be3ae6273771aa42cbab660014e54de43732b5a7b7d",
+              "digest": "sha256:a62aba62a33e16580d96d1856cf88411aa746fd207b3acc2fc994c1899c2c01c",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5537,7 +5585,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5581,7 +5629,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:b1d32c02deb211e98c496d135a114e59b1fe49334d809767415ff3b4f59a7b82",
+              "digest": "sha256:e0a11acb83d3cc2c78c6d576e1e492d0b1088cb58c172b807242211a71852b01",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5597,7 +5645,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:177d28d55065ffedbdf1f52770804688724182bb1018a1f137490a013f4125e9",
+              "digest": "sha256:f7b58813e52297fa239c8b2f2fe2a7cf0433ac2ebaea250c7eaae2dab569d157",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5641,7 +5689,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:159368a82bb10b917f558e7d0a37909c7394e883394fc2f72faaacab6061eb4b",
+              "digest": "sha256:9936de533de4c6ecd3f10baaaddc097059346d567937ef0fdee6904c3152b7b9",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
