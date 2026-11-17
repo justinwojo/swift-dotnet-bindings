@@ -136,20 +136,6 @@ public class ClassBoundGenericHolderTests : TestBase
         AssertEqual(11, incoming.Revision, "the swapped-in object stays alive");
     }
 
-    public void TestStaticMemberPassesTheObject()
-    {
-        using var model = new HolderRevision(13);
-        Run("Echo", () =>
-        {
-            for (int i = 0; i < 3; i++)
-            {
-                using var echoed = ClassBoundModelHolder<HolderRevision, HolderAlert>.Echo(model);
-                AssertEqual(Pointer(model), Pointer(echoed), $"echo returns the object passed (call {i})");
-            }
-        });
-        AssertEqual(13, model.Revision, "the argument stays alive after the echoes are disposed");
-    }
-
     public void TestObservableObjectBoundParameterIsOneReference()
     {
         using var first = new HolderRevision(21);

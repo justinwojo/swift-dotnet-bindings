@@ -105,7 +105,7 @@ public class ReverseCallbackShapesTests : TestBase
     public void TestResultCompletionBesideUrl_CompletesBeforeReturning()
     {
         ImportRoutes.AssertCdeclWrapper(typeof(ReverseCallbackLoader), "load");
-        AssertCallbackLane(typeof(ReverseCallbackLoader), "load_completion", typeof(CallConvCdecl));
+        AssertCallbackLane(typeof(ReverseCallbackLoader), "load_completion", typeof(System.Runtime.CompilerServices.CallConvCdecl));
         using var loader = new ReverseCallbackLoader();
         using var url = new NSUrl(Url);
 
@@ -138,8 +138,8 @@ public class ReverseCallbackShapesTests : TestBase
     {
         ImportRoutes.AssertCdeclWrapper(typeof(ReverseCallbackLoader), "loadLater");
         ImportRoutes.AssertCdeclWrapper(typeof(ReverseCallbackLoader), "loadNodeLater");
-        AssertCallbackLane(typeof(ReverseCallbackLoader), "loadLater_completion", typeof(CallConvCdecl));
-        AssertCallbackLane(typeof(ReverseCallbackLoader), "loadNodeLater_completion", typeof(CallConvCdecl));
+        AssertCallbackLane(typeof(ReverseCallbackLoader), "loadLater_completion", typeof(System.Runtime.CompilerServices.CallConvCdecl));
+        AssertCallbackLane(typeof(ReverseCallbackLoader), "loadNodeLater_completion", typeof(System.Runtime.CompilerServices.CallConvCdecl));
         using var loader = new ReverseCallbackLoader();
         using var url = new NSUrl(Url);
         using var nodeUrl = new NSUrl("https://example.com/nodes/beta");
