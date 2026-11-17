@@ -110,6 +110,9 @@ internal static class SwiftOverloadCallPinning
             return SwiftCallPinPlan.Unchanged;
 
         var siblings = VisibleSiblings(declaration);
+        var bound = BoundTypeParameters(declaration, callTarget, concreteArgType);
+        if (bound.Count > 0)
+            siblings.RemoveAll(sibling => PinsAnotherSpecialization(sibling, declaration, bound));
         if (siblings.Count == 0)
             return SwiftCallPinPlan.Unchanged;
         var declared = DeclaredParameters(callTarget, declaration);
@@ -265,13 +268,106 @@ internal static class SwiftOverloadCallPinning
             {
                 // An ancestor member is overridden only by a nearer `override` that repeats its
                 // whole signature; Swift also overloads on the result type and on generic
-                // constraints alone.
-                siblings.AddRange(sameName.Where(m => !nearer.Any(n => n.IsOverride && HasSameSignature(n, m))));
+                // constraints alone. An initializer's result is its own class, so an overriding
+                // one (a redeclared `required init` included) repeats everything but that.
+                siblings.AddRange(sameName.Where(m => !nearer.Any(n => n.IsOverride && (n.IsConstructor
+                    ? HasSameParameterList(n, m) && string.Equals(n.RawGenericSig, m.RawGenericSig, StringComparison.Ordinal)
+                    : HasSameSignature(n, m)))));
             }
             nearer.AddRange(sameName);
         }
         return siblings;
     }
+
+    /// <summary>
+    /// The concrete types the planned call puts in place of the declaring type's own generic
+    /// parameters: from a specialized copy's signature, or from what
+    /// <paramref name="concreteArgType"/> says the wrapper passes for a parameter typed with one. A
+    /// parameter bound two ways, or to anything but a plain named type, maps to null.
+    /// </summary>
+    private static Dictionary<string, string?> BoundTypeParameters(
+        MethodDecl declaration, MethodDecl callTarget, Func<ArgumentDecl, string?>? concreteArgType)
+    {
+        var bound = new Dictionary<string, string?>(StringComparer.Ordinal);
+        if (declaration.ParentDecl is not TypeDecl { GenericParameters.Count: > 0 } parent)
+            return bound;
+        var typeParameters = parent.GenericParameters.Select(p => p.TypeName).ToHashSet(StringComparer.Ordinal);
+
+        if (!ReferenceEquals(callTarget, declaration) && callTarget.CSSignature.Count == declaration.CSSignature.Count)
+        {
+            for (int i = 0; i < declaration.CSSignature.Count; i++)
+                Bind(declaration.CSSignature[i].SwiftTypeSpec, callTarget.CSSignature[i].SwiftTypeSpec, typeParameters, bound);
+        }
+        if (concreteArgType != null)
+        {
+            foreach (var arg in callTarget.CSSignature.Skip(1))
+            {
+                if (arg.SwiftTypeSpec is NamedTypeSpec { GenericParameters.Count: 0 } named && typeParameters.Contains(named.Name)
+                    && concreteArgType(arg) is { } concrete)
+                    Record(named.Name, IsPlainName(concrete) ? concrete : null, bound);
+            }
+        }
+        return bound;
+    }
+
+    /// <summary>
+    /// Records the concrete named type <paramref name="specialized"/> puts where
+    /// <paramref name="declared"/> has a bare type parameter.
+    /// </summary>
+    private static void Bind(TypeSpec declared, TypeSpec specialized, HashSet<string> typeParameters, Dictionary<string, string?> bound)
+    {
+        if (declared is not NamedTypeSpec named)
+            return;
+        if (named.GenericParameters.Count == 0 && typeParameters.Contains(named.Name))
+        {
+            var plain = specialized is NamedTypeSpec { GenericParameters.Count: 0 } other && IsPlainName(other.Name) ? other.Name : null;
+            Record(named.Name, plain, bound);
+            return;
+        }
+        if (specialized is NamedTypeSpec same
+            && string.Equals(named.Name, same.Name, StringComparison.Ordinal)
+            && named.GenericParameters.Count == same.GenericParameters.Count)
+        {
+            for (int i = 0; i < named.GenericParameters.Count; i++)
+                Bind(named.GenericParameters[i], same.GenericParameters[i], typeParameters, bound);
+        }
+    }
+
+    private static void Record(string parameter, string? concrete, Dictionary<string, string?> bound) =>
+        bound[parameter] = bound.TryGetValue(parameter, out var earlier) && !string.Equals(earlier, concrete, StringComparison.Ordinal)
+            ? null
+            : concrete;
+
+    private static bool IsPlainName(string type) =>
+        type.Length > 0 && !IsGenericName(type) && type.IndexOfAny(['<', '[', '(', '?', '!', ' ', '&']) < 0;
+
+    /// <summary>
+    /// Whether <paramref name="sibling"/>, a member of the same generic type, pins one of the type's
+    /// parameters to a concrete type (<c>extension Box where V == A</c>) that the planned call binds
+    /// to another. The wrapper calls that specialization, which such a member is not part of. Swift
+    /// prints a same-type requirement with the canonical type, never an alias, but may name the
+    /// module a type was first defined in, so only differing simple names count as different types.
+    /// </summary>
+    private static bool PinsAnotherSpecialization(MethodDecl sibling, MethodDecl declaration, Dictionary<string, string?> bound)
+    {
+        if (!ReferenceEquals(sibling.ParentDecl, declaration.ParentDecl))
+            return false;
+        foreach (var parameter in sibling.GenericParameters)
+        {
+            if (!bound.TryGetValue(parameter.TypeName, out var concrete) || concrete == null)
+                continue;
+            foreach (var pin in parameter.GenericConformances)
+            {
+                if (pin.Kind == ConformanceKind.ConcreteType && pin.Path.Length == 1
+                    && IsPlainName(pin.ConformanceTarget.ModuleQualifiedName)
+                    && !string.Equals(SimpleName(pin.ConformanceTarget.ModuleQualifiedName), SimpleName(concrete), StringComparison.Ordinal))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private static string SimpleName(string qualified) => qualified[(qualified.LastIndexOf('.') + 1)..];
 
     private static bool IsSameDeclaration(MethodDecl candidate, MethodDecl declaration) =>
         ReferenceEquals(candidate, declaration) ||

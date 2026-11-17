@@ -285,6 +285,133 @@ public class SwiftOverloadCallPinningTests
     }
 
     [Fact]
+    public void AncestorInitializerTheTargetOverrides_IsNotARival()
+    {
+        // Base declares required init(value:label: = computed()); Derived repeats it as an
+        // override. An initializer's result is its own class, so the two differ only in that, and
+        // Derived(value:) reaches Derived's own initializer.
+        var label = Arg("label", "Swift.String", hasDefault: true);
+        var target = Method("init", disfavored: false, Arg("value", "Swift.Int"), label) with
+        {
+            IsConstructor = true,
+            IsOverride = true,
+            CSSignature = WithResult("TestLib.Derived", Arg("value", "Swift.Int"), label),
+        };
+        var overridden = Method("init", disfavored: false) with
+        {
+            IsConstructor = true,
+            CSSignature = WithResult("TestLib.Base", Arg("value", "Swift.Int"), Arg("label", "Swift.String", hasDefault: true)),
+        };
+        var derived = Host(target);
+        derived.ResolvedSuperclass = Host(overridden);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.Same(SwiftCallPinPlan.Unchanged, plan);
+    }
+
+    [Fact]
+    public void AncestorInitializerWithAnotherParameterList_StillCompetes()
+    {
+        // Derived's override init(value:label: = computed()) does not hide Base's init(value:), which
+        // takes the reduced Derived(value:) call.
+        var label = Arg("label", "Swift.String", hasDefault: true);
+        var target = Method("init", disfavored: false, Arg("value", "Swift.Int"), label) with
+        {
+            IsConstructor = true,
+            IsOverride = true,
+            CSSignature = WithResult("TestLib.Derived", Arg("value", "Swift.Int"), label),
+        };
+        var inherited = Method("init", disfavored: false) with
+        {
+            IsConstructor = true,
+            CSSignature = WithResult("TestLib.Base", Arg("value", "Swift.Int")),
+        };
+        var derived = Host(target);
+        derived.ResolvedSuperclass = Host(inherited);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.True(plan.IsRefused);
+    }
+
+    [Theory]
+    [InlineData("TestLib.B", false)]
+    [InlineData("TestLib.A", true)]
+    [InlineData("OtherLib.A", true)]
+    public void SiblingPinningTheTypeParameter_CompetesOnlyForThatSpecialization(string specializedFor, bool refused)
+    {
+        // A copy specialized for B calls Box<B>(to:), which the `V == A` extension's initializer
+        // cannot take; the copy for A (however the pin spells A's module) meets it.
+        var target = PinnedBoxTarget();
+        var specialized = target with
+        {
+            MangledName = "SBW_CSM_init_" + specializedFor,
+            SpecializedFrom = target,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                target.CSSignature[0] with { SwiftTypeSpec = new NamedTypeSpec("TestLib.Box", new NamedTypeSpec(specializedFor)) },
+                target.CSSignature[1] with { SwiftTypeSpec = new NamedTypeSpec(specializedFor), IsGeneric = false },
+                target.CSSignature[2],
+            },
+        };
+
+        var plan = SwiftOverloadCallPinning.Plan(specialized, arg => arg.HasDefaultArg, typeDatabase: null);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
+    [InlineData("TestLib.B", false)]
+    [InlineData("TestLib.A", true)]
+    [InlineData(null, true)]
+    public void SiblingPinningTheTypeParameter_CompetesOnlyForTheConformerPassed(string? passed, bool refused)
+    {
+        // The concrete-specialization wrapper plans the generic declaration's own call and says what
+        // it passes for the type parameter, which binds it the same way.
+        var target = PinnedBoxTarget();
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, typeDatabase: null,
+            concreteArgType: arg => arg.Name == "to" ? passed : null);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    /// <summary>
+    /// <c>struct Box&lt;V: P&gt; { init(to: V, timing: Int = computed()) }</c> beside
+    /// <c>extension Box where V == A { init(to: V, mode: Int = computed(), timing: Int = computed()) }</c>;
+    /// returns the first initializer.
+    /// </summary>
+    private static MethodDecl PinnedBoxTarget()
+    {
+        var typeParameter = new GenericArgumentDecl("τ_0_0", "V",
+            new List<GenericParameterConformance> { new(["τ_0_0"], SwiftTypeName.FromModuleQualifiedName("TestLib.P"), ConformanceKind.Protocol) },
+            new List<GenericParameterConformance>());
+        var pinnedToA = typeParameter with
+        {
+            GenericConformances = new List<GenericParameterConformance> { new(["τ_0_0"], SwiftTypeName.FromModuleQualifiedName("TestLib.A"), ConformanceKind.ConcreteType) },
+        };
+        var timing = Arg("timing", "Swift.Int", hasDefault: true);
+        var target = Method("init", disfavored: false, Arg("to", "τ_0_0", generic: true), timing) with
+        {
+            IsConstructor = true,
+            GenericParameters = new List<GenericArgumentDecl> { typeParameter },
+            CSSignature = WithResult("TestLib.Box<τ_0_0>", Arg("to", "τ_0_0", generic: true), timing),
+        };
+        var extensionInit = Method("init", disfavored: false) with
+        {
+            IsConstructor = true,
+            GenericParameters = new List<GenericArgumentDecl> { pinnedToA },
+            CSSignature = WithResult("TestLib.Box<τ_0_0>", Arg("to", "τ_0_0", generic: true),
+                Arg("mode", "Swift.Int", hasDefault: true), Arg("timing", "Swift.Int", hasDefault: true)),
+        };
+        var box = Host(target, extensionInit);
+        box.GenericParameters = new List<GenericArgumentDecl> { typeParameter };
+        return target;
+    }
+
+    [Fact]
     public void StrippedDebugParameters_SharingALabelWithAPassedArgument_StillCountAsDefaults()
     {
         // f(file a: Int, b: Int = computed(), file: StaticString = #file, file: StaticString = #file)

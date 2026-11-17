@@ -97,6 +97,11 @@ partial class Build
             var assemblies = defaultInput
                 ? DefaultTransitionGateAssemblies
                 : TransitionGateAssembly.Select(p => Path.GetFullPath(p)).ToArray();
+            // The default run also scans a thunk-only binding, the one artifact shape the
+            // compile-check tree does not contain (Build.ThunkOnlyCensus.cs).
+            var thunkOnly = defaultInput && assemblies.All(File.Exists) ? BuildThunkOnlyCensusArtifact() : null;
+            if (thunkOnly is not null)
+                assemblies = assemblies.Append(thunkOnly.Assembly.ToString()).ToArray();
             foreach (var assembly in assemblies)
                 if (!File.Exists(assembly))
                     throw new Exception(defaultInput
@@ -122,7 +127,9 @@ partial class Build
                         .Concat(TransitionGateReferenceDir.Select(d => Path.GetFullPath(d)))
                         .Append(runtimeDirectory)
                         .ToArray(),
-                    PlanSource = planSource ?? (defaultInput ? DefaultPlanSource(Path.GetFileName(assembly)) : null),
+                    PlanSource = planSource ?? (thunkOnly is not null && assembly == thunkOnly.Assembly.ToString()
+                        ? new TransitionPlanSource(TransitionPlanSourceKind.CallPlanSidecars, thunkOnly.OutputDirectory)
+                        : defaultInput ? DefaultPlanSource(Path.GetFileName(assembly)) : null),
                 };
                 reports.Add(SwiftTransitionScanner.Scan(assembly, options));
             }
@@ -160,6 +167,16 @@ partial class Build
                     WriteLedgerCrossCheck(result, output, Path.GetFileNameWithoutExtension(name));
                     crossCheckPassed &= result.Passed;
                 }
+                if (thunkOnly is not null)
+                {
+                    var report = reports.SingleOrDefault(r => r.Path == thunkOnly.Assembly.ToString());
+                    if (report is not null)
+                    {
+                        var result = LedgerCrossCheck.CheckDirectory(report, thunkOnly.OutputDirectory, Array.Empty<string>());
+                        WriteLedgerCrossCheck(result, output, ThunkOnlyAssemblyName);
+                        crossCheckPassed &= result.Passed;
+                    }
+                }
             }
 
             // The residual-guard check over every scanned assembly, so a packed or shipped package DLL
@@ -167,7 +184,9 @@ partial class Build
             var residualFailed = new List<string>();
             foreach (var report in reports)
             {
-                var ledger = defaultInput
+                var ledger = thunkOnly is not null && report.Path == thunkOnly.Assembly.ToString()
+                    ? thunkOnly.OutputDirectory
+                    : defaultInput
                     ? LedgeredAssemblies.Where(l => l.Assembly == Path.GetFileName(report.Path))
                         .Select(l => (AbsolutePath?)l.LedgerDirectory).SingleOrDefault()
                     : null;
@@ -175,6 +194,11 @@ partial class Build
                         HandWrittenResidualTypes(Path.GetFileName(report.Path)), output))
                     residualFailed.Add(Path.GetFileName(report.Path));
             }
+
+            // Fail-closed when the thunk-only artifact stopped being scanned or stopped being thunk-only.
+            var censusFailures = thunkOnly is null ? new List<string>() : CheckThunkOnlyCensus(thunkOnly, reports);
+            foreach (var failure in censusFailures)
+                Log.Error("  thunk-only census: {Failure}", failure);
 
             if (!reports.All(r => r.Passed))
             {
@@ -185,12 +209,15 @@ partial class Build
                     $", inspection errors={errors}" +
                     (crossCheckPassed is null ? "" : $", ledger cross-check {(crossCheckPassed.Value ? "passed" : "FAILED")}") +
                     $", residual guards {(residualFailed.Count == 0 ? "passed" : "FAILED for " + string.Join(", ", residualFailed))}" +
+                    (thunkOnly is null ? "" : $", thunk-only census {(censusFailures.Count == 0 ? "passed" : "FAILED")}") +
                     ". Each listed transition is one the .NET 11 interpreter can mis-place or crash on — see the lines above.");
             }
             if (crossCheckPassed == false)
                 throw new Exception("Swift transition gate: the transition ledger cross-check failed — see the lines above.");
             if (residualFailed.Count > 0)
                 throw new Exception($"Swift transition gate: the residual-guard check failed for {string.Join(", ", residualFailed)} — see the lines above.");
+            if (censusFailures.Count > 0)
+                throw new Exception($"Swift transition gate: the thunk-only slice census failed ({censusFailures.Count}) — see the lines above.");
             Log.Information("Swift transition gate: PASSED");
         });
 

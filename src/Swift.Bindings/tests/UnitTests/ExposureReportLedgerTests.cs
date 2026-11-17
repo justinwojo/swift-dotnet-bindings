@@ -92,6 +92,34 @@ public sealed class ExposureReportLedgerTests
         Assert.DoesNotContain(errors, e => e.Contains("ClassCallback", StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void NamedDirectFixture_MustReachTheFinalArtifact_NotPassAsAValidZero()
+    {
+        // A complete receipt with zero rows agrees with a reader that found zero calls, so only the
+        // named direct fixture can tell that attribution stopped reaching the compiled binding.
+        var scan = new GeneratedSwiftCallScanResult
+        {
+            ScannedFileCount = 1,
+            InventoryHash = "current",
+            Observations = [],
+            UnresolvedSpecimens = [],
+        };
+        const string json = """
+            { "ModuleName":"SwiftBindingsTestLib", "ExposureReportingVersion":1,
+              "ExposureCompleteness":{"Version":1,"Status":"Complete","ScannedFileCount":1,
+                "ClassifiedCallCount":0,"UnresolvedCount":0,"InventoryHash":"current","UnresolvedSpecimens":[]},
+              "DegradedMembers":[], "DegradedSurface":{"Total":0,"ByDiagnosticId":{},
+                "Exposure":{"RowCount":0,"PublicMemberCount":0,"RootCount":0,"NativeCallCount":0}} }
+            """;
+
+        var errors = ExposureReportLedger.Evaluate(json, scan, "SwiftBindingsTestLib");
+
+        Assert.Contains(errors, e => e.Contains("named fixture SwiftBindingsTestLib.FoundationRawValueBox.Flipped", StringComparison.Ordinal)
+                                     && e.Contains("has 0 rows", StringComparison.Ordinal));
+        // Another module carries no named fixtures, so the same zero passes there.
+        Assert.Empty(ExposureReportLedger.Evaluate(json.Replace("SwiftBindingsTestLib", "Other", StringComparison.Ordinal), scan, "Other"));
+    }
+
     private static (GeneratedSwiftCallScanResult Scan, string Json) Fixture(string entryPoint = "$sRun")
     {
         var native = new DirectSwiftSelfNativeCall

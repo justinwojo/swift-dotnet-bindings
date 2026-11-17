@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "e1bf9b23",
+  "git_sha": "7383cf60",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -24714,6 +24714,81 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointA.EndpointTag",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedEndpointA_endpointTag"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointA.EndpointTagNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedEndpointA_endpointTag"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointA.PinnedEndpointA(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedEndpointA_init_1C63204C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointB.EndpointTag",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedEndpointB_endpointTag"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointB.EndpointTagNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedEndpointB_endpointTag"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedEndpointB.PinnedEndpointB(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedEndpointB_init_FE29F857"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.Initializer",
+      "symbol": "thunk_SwiftBindingsTestLib_6e88a846"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.Label",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedInitBase_label"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.PinnedInitBase(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedInitBase_init_48BFE6D1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.PinnedInitBase(nint,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedInitBase_init_F9509FD9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.StandardLabel",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedInitBase_standardLabel"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.Value",
+      "symbol": "thunk_SwiftBindingsTestLib_a8df833c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitBase.ValueNative",
+      "symbol": "thunk_SwiftBindingsTestLib_a8df833c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitDerived.PinnedInitDerived(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedInitDerived_init_EE48F7A7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedInitDerived.PinnedInitDerived(nint,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedInitDerived_init_C8EA8E24"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "PinnedPayload.PinnedPayload(nint)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_PinnedPayload_init_7DD933C4"
     },
@@ -24761,6 +24836,36 @@
       "module": "SwiftBindingsTestLib",
       "signature": "PinnedQuery.TagNative",
       "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedQuery_tag"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransition.PinnedTransition(TValue,nint)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_PinnedTransition_init_218AECE0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransition.Summary",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PinnedTransition_summary"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransitionDefaults.Mode",
+      "symbol": "thunk_SwiftBindingsTestLib_ba1aafe6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransitionDefaults.ModeNative",
+      "symbol": "thunk_SwiftBindingsTestLib_ba1aafe6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransitionDefaults.Timing",
+      "symbol": "thunk_SwiftBindingsTestLib_d988b3ef"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PinnedTransitionDefaults.TimingNative",
+      "symbol": "thunk_SwiftBindingsTestLib_d988b3ef"
     },
     {
       "module": "SwiftBindingsTestLib",

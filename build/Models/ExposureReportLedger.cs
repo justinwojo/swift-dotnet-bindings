@@ -134,7 +134,7 @@ public static class ExposureReportLedger
                 string.Equals(row.NativeCall?.EntryPoint, expected.Symbol, StringComparison.Ordinal)).ToList();
             if (matches.Count != 1)
             {
-                errors.Add($"named fixture {expected.Owner}.{expected.Member}.{expected.Accessor} has {matches.Count} rows for {expected.Symbol}, expected 1");
+                errors.Add($"named fixture {expected.Owner}.{expected.Member}{(expected.Accessor is null ? "" : "." + expected.Accessor)} has {matches.Count} rows for {expected.Symbol}, expected 1");
                 continue;
             }
 
@@ -184,11 +184,19 @@ public static class ExposureReportLedger
     }
 
     // Direct SwiftSelf imports the generation cannot bridge yet, each attributed to its owner and
-    // reason. The corpus has none left: the last one, PendingRequestTask.Start, returns an
-    // address-only Result that the bridge now carries through its result buffer. The final-file
-    // reader's positive attribution stays covered by GeneratedSwiftCallReaderTests and
-    // ExposureReportLedgerTests, and the bridged list below keeps the zero-row arm honest.
-    private static readonly FixtureExpectation[] BindingTestFixtures = [];
+    // reason. This is the gate's positive control in the final artifact: each must appear exactly
+    // once, so attribution that stops reaching the compiled binding (the reader and the collector
+    // agreeing on zero rows) fails here instead of passing as a valid zero.
+    // FoundationRawValueBox.flipped is a method of a generic struct taking an ObjCBool: no wrapper
+    // can specialize its parent and no bridge is planned for it, so it keeps its direct import and
+    // its interpreter and Mono guard. When a route reaches it, move it to the bridged or resolved
+    // list below and name another direct import here; while the corpus still holds one, this list
+    // must not go empty.
+    private static readonly FixtureExpectation[] BindingTestFixtures =
+    [
+        new("SwiftBindingsTestLib.FoundationRawValueBox", "Flipped", null, "generic_parent_type",
+            "$s20SwiftBindingsTestLib21FoundationRawValueBoxV7flippedy10ObjectiveC8ObjCBoolVAGF"),
+    ];
 
     // These were direct SwiftSelf exposures, attributed above until the generation routed them
     // through native bridges. A bridged transition calls a C-convention twin, so the final-file
