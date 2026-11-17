@@ -941,6 +941,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             {
                 if (!isSealed)
                     dispatchModifier = "virtual ";
+                if (WrapperEmitter.HidesRenamedAncestorProperty(classParent, propertyDecl, propertyName))
+                    dispatchModifier = "new " + dispatchModifier;
                 suppressHidingWarnings = inherited == ObjCInheritedMemberSurface.Disposition.Hide
                     || (propertyDecl.IsOverride && (classParent.IsObjCRooted || classParent.HasCrossModuleSwiftSuperclass))
                     || ObjCInheritedMemberSurface.InheritsUnknownObjCSurface(classParent);
@@ -1066,8 +1068,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
             }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, propertyDecl, propertyDecl.ParentDecl, emitObsolete: true);
-            // A hiding static override hides the ancestor's companion too.
-            var companionHiding = dispatchModifier == "new " ? "new " : string.Empty;
+            // A hiding static override hides the ancestor's companion too, and so does a companion
+            // that meets an ancestor's renamed property's companion on one name.
+            // An instance property's own `new` says nothing about its companion: the ancestor's
+            // renamed property may have had none (an `Int32` under an `Int`), and `new` on a member
+            // that hides nothing is CS0109.
+            var companionHiding = (propertyDecl.IsStatic && dispatchModifier == "new ")
+                || (propertyDecl.ParentDecl is ClassDecl hidingParent && !propertyDecl.IsStatic
+                    && WrapperEmitter.HidesRenamedAncestorProperty(hidingParent, propertyDecl, nativeCompanionName, nativeCompanion: true))
+                ? "new " : string.Empty;
             csWriter.WriteLine($"public {staticModifier}{companionHiding}{nativePropertyType} {nativeCompanionName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;

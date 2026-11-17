@@ -386,6 +386,14 @@ public class ProtocolExtensionDefaultsIndex
                         _ => Enumerable.Empty<PropertyDecl>()
                     };
                     var matchingProp = properties.FirstOrDefault(p => p.Name == property.Name && !p.IsStatic);
+                    // A class can witness the requirement with a property it inherits from a
+                    // same-module ancestor. That is a real implementation, not an invisible
+                    // default: the conformer's C# class reaches it through the inherited member,
+                    // or through InheritedRequirementForwarding when the ancestor renamed it.
+                    if (matchingProp == null && type is ClassDecl conformingClass
+                        && InheritedRequirementForwarding.FindInheritedWitness(conformingClass, property.Name) is { } inherited
+                        && !TypeSkipConditions.ClassAncestorWillBeSkipped(inherited.Ancestor))
+                        matchingProp = inherited.Witness;
                     if (matchingProp == null) continue;
 
                     // If we have a type database, also check emittability

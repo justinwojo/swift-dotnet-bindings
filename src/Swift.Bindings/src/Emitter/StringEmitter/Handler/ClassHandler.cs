@@ -463,6 +463,12 @@ namespace BindingsGeneration
                 // IAsyncEnumerator<T>. Interface adoption is added by GetImplementedInterfaces.
                 AsyncSequenceEmitter.TryEmitAsyncEnumerableBridge(csWriter, classDecl, env.TypeDatabase);
 
+                // An interface this class lists whose requirement it inherits under a renamed C# name
+                // (`handle` → `HandleValue` on an NSObject-rooted ancestor) is bridged here, as the
+                // declaring class bridges its own.
+                InheritedRequirementForwarding.EmitRenamedInheritedPropertyForwarding(
+                    csWriter, classDecl, interfaces, env.TypeDatabase, context.GetEmissionContext(), conductor.CompositionInterfaces);
+
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();

@@ -855,5 +855,30 @@ namespace BindingsGeneration
             // by hand. Inheriting and not redeclaring (the common case) is unaffected.
             return false;
         }
+
+        /// <summary>
+        /// Whether an instance property of <paramref name="classDecl"/>, emitted as
+        /// <paramref name="csharpName"/>, takes the C# name an ancestor gave a different Swift property.
+        /// Two Swift properties can only meet on one C# name through a rename (a <c>recordTag</c> on
+        /// class <c>RecordTag</c> becomes <c>RecordTagValue</c>, which a subclass's own
+        /// <c>recordTagValue</c> also projects to), so the subclass's member hides the ancestor's and
+        /// must say so: without <c>new</c> it is CS0114 against a virtual ancestor member, an error
+        /// that fails the whole binding. The two stay distinct members, as they are in Swift.
+        /// </summary>
+        /// <param name="nativeCompanion">Compare against the ancestors' native-width companions
+        /// (<see cref="PropertyDecl.EmittedNativeWidthCSharpName"/>) instead of their properties.</param>
+        internal static bool HidesRenamedAncestorProperty(ClassDecl classDecl, PropertyDecl propertyDecl, string csharpName,
+            bool nativeCompanion = false)
+        {
+            for (var ancestor = classDecl.ResolvedSuperclass; ancestor != null; ancestor = ancestor.ResolvedSuperclass)
+            {
+                if (TypeSkipConditions.ClassAncestorWillBeSkipped(ancestor))
+                    return false;
+                if (ancestor.Properties.Any(p => p.WasEmitted && !p.IsStatic && p.Name != propertyDecl.Name
+                        && (nativeCompanion ? p.EmittedNativeWidthCSharpName : p.EmittedCSharpName) == csharpName))
+                    return true;
+            }
+            return false;
+        }
     }
 }

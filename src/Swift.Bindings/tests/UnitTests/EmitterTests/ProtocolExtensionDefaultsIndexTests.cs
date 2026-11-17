@@ -375,6 +375,33 @@ public class ProtocolExtensionDefaultsIndexTests
         Assert.False(index.HasDirectMethodDefault("TestModule.Worker", "process()"));
     }
 
+    /// <summary>
+    /// A subclass that conforms with a property it inherits from a same-module base implements the
+    /// requirement: it is not an invisible default. Read as one, the interface member became a
+    /// throwing default and the subclass's real witness was unreachable through the interface.
+    /// </summary>
+    [Fact]
+    public void DetectPhantomDefaults_PropertyInheritedFromModuleAncestor_NotPhantomDefault()
+    {
+        var moduleDecl = CreateModuleDeclWithTypes("TestModule");
+        moduleDecl.Protocols.Add(CreateProtocolDeclWithProperties("Carrying", "TestModule", new[] { ("handle", false) }));
+
+        var baseClass = CreateClassDeclWithConformance("CarrierBase", moduleDecl, "Unrelated");
+        baseClass.Conformances.Clear();
+        baseClass.Properties.Add(CreateSimpleProperty("handle", baseClass, moduleDecl));
+        moduleDecl.Types.Add(baseClass);
+
+        var child = CreateClassDeclWithConformance("CarrierChild", moduleDecl, "Carrying");
+        child.SuperclassNames = new List<string> { "TestModule.CarrierBase" };
+        child.ResolvedSuperclass = baseClass;
+        moduleDecl.Types.Add(child);
+
+        var index = new ProtocolExtensionDefaultsIndex(new(), moduleDecl.Protocols);
+        index.DetectPhantomDefaults(moduleDecl);
+
+        Assert.False(index.HasDirectPropertyDefault("TestModule.Carrying", "handle"));
+    }
+
     [Fact]
     public void DetectPhantomDefaults_AllConformersHaveProperty_NotPhantomDefault()
     {

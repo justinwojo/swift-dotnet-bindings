@@ -1293,6 +1293,174 @@ public class ClassObjCRootedTests
         Assert.DoesNotMatch(@"\bstring Handle\b", output);
     }
 
+    /// <summary>
+    /// A subclass that lists an interface whose requirement it inherits from a base that renamed it
+    /// (<c>handle</c> → <c>HandleValue</c>) implements the interface member by forwarding, as the
+    /// declaring class would. Without it C# bound NSObject's <c>Handle</c> to the requirement
+    /// (CS0738) and the whole module failed.
+    /// </summary>
+    [Fact]
+    public void ObjCRooted_SubclassConformingThroughRenamedInheritedProperty_ForwardsTheInterfaceMember()
+    {
+        var parent = CreateNSObjectSubclass("HookBase");
+        parent.Properties.Add(StringProperty("handle"));
+        var child = CreateObjCRootedClassDecl("HookChild", superclassNames: new[] { "TestModule.HookBase" });
+        child.ResolvedSuperclass = parent;
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var requirement = StringProperty("handle");
+        var protocol = new ProtocolDecl
+        {
+            Name = "Hooking",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Hooking"),
+            MangledName = "$s10TestModule7HookingP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            Properties = new List<PropertyDecl> { requirement },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        requirement.ParentDecl = protocol;
+        requirement.ModuleDecl = moduleDecl;
+        moduleDecl.Protocols.Add(protocol);
+        foreach (var cls in new[] { parent, child })
+        {
+            cls.ModuleDecl = moduleDecl;
+            foreach (var prop in cls.Properties)
+                AttachProperty(prop, cls, moduleDecl);
+        }
+        AttachProperty(requirement, protocol, moduleDecl);
+        child.Conformances.Add(new TypeConformance(child.SwiftTypeName, protocol.SwiftTypeName, "$s10TestModule9HookChildCAA7HookingAAMc"));
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(CreateSwiftModuleWithString());
+
+        var csStringWriter = new StringWriter();
+        InheritedRequirementForwarding.EmitRenamedInheritedPropertyForwarding(
+            new CSharpWriter(csStringWriter), child, new[] { "IHooking" }, db, emissionCtx: null, compositionCollector: null);
+        var output = csStringWriter.ToString();
+
+        Assert.Contains("string IHooking.Handle", output);
+        // Addressed to the declaring class: a member of the subclass with the same C# name must not answer for it.
+        Assert.Contains("get => base.HandleValue;", output);
+        Assert.DoesNotContain("set =>", output);
+
+        // The class declaring the property bridges its own renames; nothing is forwarded twice.
+        var declaringWriter = new StringWriter();
+        var declared = StringProperty("handle");
+        AttachProperty(declared, child, moduleDecl);
+        child.Properties.Add(declared);
+        InheritedRequirementForwarding.EmitRenamedInheritedPropertyForwarding(
+            new CSharpWriter(declaringWriter), child, new[] { "IHooking" }, db, emissionCtx: null, compositionCollector: null);
+        Assert.Equal(string.Empty, declaringWriter.ToString());
+    }
+
+    /// <summary>
+    /// A witness declared further up is addressed through its declaring class: a class in between
+    /// whose unrelated member takes the same C# name would otherwise answer for it through <c>base</c>.
+    /// </summary>
+    [Fact]
+    public void InheritedWitnessFromAGrandparent_IsAddressedThroughTheDeclaringClass()
+    {
+        var grandparent = CreateNSObjectSubclass("HookRoot");
+        var middle = CreateObjCRootedClassDecl("HookMiddle", superclassNames: new[] { "TestModule.HookRoot" });
+        var child = CreateObjCRootedClassDecl("HookLeaf", superclassNames: new[] { "TestModule.HookMiddle" });
+        middle.ResolvedSuperclass = grandparent;
+        child.ResolvedSuperclass = middle;
+        var module = new ModuleTypeDatabase("TestModule", "TestModule.framework/TestModule");
+        module.RegisterType(grandparent.SwiftTypeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "HookRoot"),
+            SwiftTypeName = grandparent.SwiftTypeName,
+            MetadataAccessor = "$s10TestModule8HookRootCMa",
+            Kind = TypeRecordKind.Class,
+            Flags = TypeRecordFlags.None,
+        });
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(module);
+
+        Assert.Equal("((global::TestModule.HookRoot)this)", InheritedRequirementForwarding.AncestorReceiver(child, grandparent, db));
+        Assert.Equal("base", InheritedRequirementForwarding.AncestorReceiver(middle, grandparent, db));
+    }
+
+    /// <summary>
+    /// A subclass's own property that projects onto the C# name an ancestor gave a different Swift
+    /// property (<c>recordTag</c> on class <c>RecordTag</c> → <c>RecordTagValue</c>, and the subclass's
+    /// <c>recordTagValue</c>) hides it: without <c>new</c> the declaration is CS0114 against the virtual
+    /// ancestor member, a hiding warning in every consumer build and an error under warnings-as-errors.
+    /// </summary>
+    [Fact]
+    public void SubclassPropertyOnARenamedAncestorName_Hides()
+    {
+        var root = CreateNSObjectSubclass("RecordTag");
+        var renamed = StringProperty("recordTag");
+        root.Properties.Add(renamed);
+        var middle = CreateObjCRootedClassDecl("RecordTagMiddle", superclassNames: new[] { "TestModule.RecordTag" });
+        var leaf = CreateObjCRootedClassDecl("RecordTagLeaf", superclassNames: new[] { "TestModule.RecordTagMiddle" });
+        middle.ResolvedSuperclass = root;
+        leaf.ResolvedSuperclass = middle;
+        var own = StringProperty("recordTagValue");
+        leaf.Properties.Add(own);
+
+        Assert.False(WrapperEmitter.HidesRenamedAncestorProperty(leaf, own, "RecordTagValue"),
+            "An ancestor property that was not emitted leaves nothing to hide");
+
+        renamed.MarkEmitted();
+        renamed.MarkEmittedCSharpName("RecordTagValue");
+        renamed.MarkEmittedNativeWidthCSharpName("RecordTagValueNative");
+        Assert.True(WrapperEmitter.HidesRenamedAncestorProperty(leaf, own, "RecordTagValue"),
+            "The ancestor's renamed property is found past the class in between");
+        Assert.True(WrapperEmitter.HidesRenamedAncestorProperty(leaf, own, "RecordTagValueNative", nativeCompanion: true),
+            "A native-width companion meets the ancestor's companion on its own name");
+        Assert.False(WrapperEmitter.HidesRenamedAncestorProperty(leaf, own, "Other"));
+        Assert.False(WrapperEmitter.HidesRenamedAncestorProperty(leaf, StringProperty("recordTag"), "RecordTagValue"),
+            "A property of the ancestor's own Swift name overrides it rather than hiding it");
+    }
+
+    /// <summary>An inherited witness that kept its name implements the interface member through C# inheritance.</summary>
+    [Fact]
+    public void SubclassConformingThroughUnrenamedInheritedProperty_ForwardsNothing()
+    {
+        var parent = CreateNSObjectSubclass("TitleBase");
+        parent.Properties.Add(StringProperty("title"));
+        var child = CreateObjCRootedClassDecl("TitleChild", superclassNames: new[] { "TestModule.TitleBase" });
+        child.ResolvedSuperclass = parent;
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var requirement = StringProperty("title");
+        var protocol = new ProtocolDecl
+        {
+            Name = "Titled",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Titled"),
+            MangledName = "$s10TestModule6TitledP",
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            IsClassBound = true,
+            Properties = new List<PropertyDecl> { requirement },
+            Methods = new List<MethodDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        AttachProperty(requirement, protocol, moduleDecl);
+        moduleDecl.Protocols.Add(protocol);
+        child.ModuleDecl = parent.ModuleDecl = moduleDecl;
+        AttachProperty(parent.Properties[0], parent, moduleDecl);
+        child.Conformances.Add(new TypeConformance(child.SwiftTypeName, protocol.SwiftTypeName, "$s10TestModule10TitleChildCAA6TitledAAMc"));
+        var db = new TypeDatabase();
+        db.AddModuleDatabase(CreateSwiftModuleWithString());
+
+        var writer = new StringWriter();
+        InheritedRequirementForwarding.EmitRenamedInheritedPropertyForwarding(
+            new CSharpWriter(writer), child, new[] { "ITitled" }, db, emissionCtx: null, compositionCollector: null);
+
+        Assert.Equal(string.Empty, writer.ToString());
+    }
+
     // With no ancestor in this module, an override of a name NSObject does not declare virtual
     // overrides a declaration another module's binding renamed the same way.
     [Theory]
@@ -1320,6 +1488,17 @@ public class ClassObjCRootedTests
         var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
 
         Assert.DoesNotContain("void DangerousRelease(", output);
+    }
+
+    private static void AttachProperty(PropertyDecl property, BaseDecl parent, ModuleDecl moduleDecl)
+    {
+        property.ParentDecl = parent;
+        property.ModuleDecl = moduleDecl;
+        foreach (var accessor in property.Accessors)
+        {
+            accessor.Method.ParentDecl = parent;
+            accessor.Method.ModuleDecl = moduleDecl;
+        }
     }
 
     private static PropertyDecl StringProperty(string name)
