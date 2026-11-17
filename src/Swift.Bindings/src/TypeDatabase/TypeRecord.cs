@@ -280,6 +280,31 @@ public record TypeRecord
     public IReadOnlyList<SwiftTypeName>? ProtocolConformances { get; init; }
 
     /// <summary>
+    /// Every protocol this platform type conforms to anywhere in the platform SDKs, as
+    /// module-qualified names: what its own module declares, what any other SDK module adds
+    /// retroactively, every protocol those refine, and the implicit <c>Copyable</c> and
+    /// <c>Escapable</c>. The set is closed: a protocol outside it is one no SDK module makes the
+    /// type conform to, so only a module outside the SDK could add the conformance, and every such
+    /// module the generator loads records its additions in <see cref="ProtocolConformances"/>.
+    /// Read from a bundled database's <c>closedConformances</c> attribute, which
+    /// <c>ClosedConformanceSdkAuditTests</c> holds to the installed SDKs; null (the default) makes
+    /// no claim. Call pinning reads it to prove a foreign value type cannot bind a protocol-
+    /// constrained parameter, which a record's own <see cref="ProtocolConformances"/> cannot show:
+    /// that list says what one module declares, not what every importer adds.
+    /// </summary>
+    public IReadOnlySet<string>? ClosedConformances { get; init; }
+
+    /// <summary>
+    /// True when <see cref="ProtocolConformances"/> holds edges a module other than the type's own
+    /// recorded: an importer's <c>extension T: P</c> merged into the record, or a record such a
+    /// module wrote for a type it does not declare and the database filed under the type's module.
+    /// The list then still proves the conformances it names, but no longer shows which ones the
+    /// declaring module lacks. Set by <see cref="TypeDatabase"/> when it routes or merges such
+    /// records; never persisted, since every load re-derives it.
+    /// </summary>
+    public bool HasConformancesFromOtherModules { get; init; }
+
+    /// <summary>
     /// The inline byte size of this type when embedded as a field in a frozen struct Buffer.
     /// For XML-loaded types, this comes from the <c>inlineSize</c> attribute.
     /// For module types, this is computed from <see cref="SwiftTypeInfo"/> at parse time.

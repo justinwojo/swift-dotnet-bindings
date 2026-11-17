@@ -720,7 +720,219 @@ public class SwiftOverloadCallPinningTests
         Assert.Equal(refused, plan.IsRefused);
     }
 
-    private static TypeDatabase TestLibDatabase()
+    [Theory]
+    // The SDK makes URL no sequence, so the generic initializer cannot take one.
+    [InlineData("Foundation.URL", "Swift.Sequence", false)]
+    // A protocol URL does conform to leaves the generic initializer able to take it.
+    [InlineData("Foundation.URL", "Swift.Hashable", true)]
+    [InlineData("Foundation.URL", "Foundation.ReferenceConvertible", true)]
+    // Data is a sequence.
+    [InlineData("Foundation.Data", "Swift.Sequence", true)]
+    // No closed claim: a module importing Foundation may make it a sequence.
+    [InlineData("Foundation.UnclaimedValue", "Swift.Sequence", true)]
+    // Standard-library sequences, with no claim at all.
+    [InlineData("Swift.String", "Swift.Sequence", true)]
+    [InlineData("[Swift.Int]", "Swift.Sequence", true)]
+    // A class argument may bind the parameter to a superclass, which the claim does not cover.
+    [InlineData("Foundation.ClaimedClass", "Swift.Sequence", true)]
+    public void ProtocolConstrainedGenericSibling_IsARivalUnlessTheArgumentCannotConform(
+        string argumentType, string requirement, bool refused)
+    {
+        // init(input: <argument>, configuration: = Configuration()) beside init<S: <requirement>>(input:
+        // S, configuration: = Configuration()) where S.Element == Sample. The wrapper leaves the
+        // computed default out; Swift binds S only to the argument's own type, so the generic
+        // initializer takes the call unless that type provably lacks the requirement.
+        var types = ClosedConformanceDatabase(addedToUrl: null);
+        var (target, _) = SessionInitializers(argumentType, requirement);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
+    [InlineData(null, false)]
+    [InlineData("TestLib.Resource", false)]
+    [InlineData("Swift.Sequence", true)]
+    [InlineData("TestLib.SampleSequence", true)]
+    [InlineData("TestLib.UnrecordedProtocol", true)]
+    public void ClosedClaim_ConformancesALoadedModuleAdds_StillCount(string? added, bool refused)
+    {
+        // A module the generator loads (the bound one, a dependency binding) records each
+        // `extension URL: P` it declares on URL's record. Such a conformance, or one to a protocol
+        // refining Sequence, makes URL a sequence after all; one to a protocol whose refinements are
+        // not recorded leaves the answer unknown.
+        var types = ClosedConformanceDatabase(added);
+        var (target, _) = SessionInitializers("Foundation.URL", "Swift.Sequence");
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
+    [InlineData("TestLib.Resource", false)]
+    [InlineData("Foundation.ReferenceConvertible", true)]
+    public void ClosedClaim_RulesOutAnExistentialOfAnotherModule(string protocol, bool refused)
+    {
+        // retrieve(with: URL, options: = compute()) beside retrieve(with: any <protocol>, options:
+        // = compute()): URL converts to the existential only through a conformance.
+        var types = ClosedConformanceDatabase(addedToUrl: null);
+        var target = Method("retrieve", disfavored: false,
+            Arg("with", "Foundation.URL"), Arg("options", "Swift.Int", "compute()"));
+        var sibling = Method("retrieve", disfavored: false,
+            ArgOfSpec("with", "any " + protocol), Arg("options", "Swift.Int", "compute()"));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
+    [InlineData("any Swift.Hashable", false)]
+    [InlineData("τ_0_0", true)]
+    public void SameModuleClaim_ListAnotherModuleExtended_ProvesNoAbsence(string siblingType, bool generic)
+    {
+        // The stdlib stub records no conformances for String; a loaded module's `extension
+        // String: Resource` gives the record a list that is that module's, not the standard
+        // library's. It must not read as "String conforms to nothing in Swift", so the Hashable
+        // existential and the Hashable-constrained generic both still take the call.
+        var types = new TypeDatabase();
+        var swift = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
+        RegisterRecord(swift, "Swift.String", TypeRecordKind.Struct, null);
+        RegisterRecord(swift, "Swift.Hashable", TypeRecordKind.Protocol, []);
+        types.AddModuleDatabase(swift);
+        var testLib = new ModuleTypeDatabase("TestLib", "/tmp/TestLib.dylib");
+        RegisterRecord(testLib, "TestLib.Resource", TypeRecordKind.Protocol, []);
+        RegisterRecord(testLib, "Swift.String", TypeRecordKind.Struct, ["TestLib.Resource"]);
+        types.AddModuleDatabase(testLib);
+
+        var target = Method("store", disfavored: false,
+            Arg("value", "Swift.String"), Arg("options", "Swift.Int", "compute()"));
+        var sibling = Method("store", disfavored: false,
+            generic ? Arg("value", siblingType, generic: true) : ArgOfSpec("value", siblingType),
+            Arg("options", "Swift.Int", "compute()"));
+        if (generic)
+        {
+            sibling = sibling with
+            {
+                GenericParameters = new List<GenericArgumentDecl>
+                {
+                    new("τ_0_0", "T",
+                        new List<GenericParameterConformance> { new(["τ_0_0"], SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"), ConformanceKind.Protocol) },
+                        new List<GenericParameterConformance>()),
+                },
+            };
+        }
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.True(plan.IsRefused);
+    }
+
+    private static void RegisterRecord(ModuleTypeDatabase db, string name, TypeRecordKind kind, string[]? conformances)
+    {
+        var swiftName = SwiftTypeName.FromModuleQualifiedName(name);
+        db.RegisterType(swiftName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName(swiftName.Module, swiftName.Name),
+            SwiftTypeName = swiftName,
+            MetadataAccessor = string.Empty,
+            Flags = TypeRecordFlags.None,
+            Kind = kind,
+            ProtocolConformances = conformances?.Select(SwiftTypeName.FromModuleQualifiedName).ToList(),
+        });
+    }
+
+    [Fact]
+    public async Task BundledFoundationDatabase_KeepsTheUrlInitializerBesideAGenericSequenceOne()
+    {
+        // The same pair resolved through the generator's own Foundation database.
+        var types = new TypeDatabase();
+        var dbDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift");
+        await types.LoadModuleDatabaseFromFile(Path.Combine(dbDir, "SwiftDatabase.xml"));
+        await types.LoadModuleDatabaseFromFile(Path.Combine(dbDir, "FoundationDatabase.xml"));
+        var (target, _) = SessionInitializers("Foundation.URL", "Swift.Sequence");
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.False(plan.IsRefused, $"the default-omitting call was refused for {plan.WinningSibling}");
+    }
+
+    /// <summary>
+    /// <c>init(input: &lt;argumentType&gt;, configuration: Configuration = Configuration())</c> beside
+    /// <c>init&lt;S: &lt;requirement&gt;&gt;(input: S, configuration: Configuration = Configuration())
+    /// where S.Element == Sample</c>.
+    /// </summary>
+    private static (MethodDecl Target, MethodDecl Sibling) SessionInitializers(string argumentType, string requirement)
+    {
+        var target = Method("init", disfavored: false,
+            ArgOfSpec("input", argumentType), Arg("configuration", "TestLib.Configuration", "Configuration()")) with
+        {
+            IsConstructor = true,
+        };
+        var element = new GenericArgumentDecl("τ_0_0", "S",
+            new List<GenericParameterConformance>
+            {
+                new(["τ_0_0"], SwiftTypeName.FromModuleQualifiedName(requirement), ConformanceKind.Protocol),
+            },
+            new List<GenericParameterConformance>
+            {
+                new(["τ_0_0", "Element"], SwiftTypeName.FromModuleQualifiedName("TestLib.Sample"), ConformanceKind.ConcreteType),
+            });
+        var sibling = Method("init", disfavored: false,
+            Arg("input", "τ_0_0", generic: true), Arg("configuration", "TestLib.Configuration", "Configuration()")) with
+        {
+            IsConstructor = true,
+            GenericParameters = new List<GenericArgumentDecl> { element },
+        };
+        Host(target, sibling);
+        return (target, sibling);
+    }
+
+    /// <summary>
+    /// Foundation value types with closed conformance claims (URL's as the SDK records it, Data's
+    /// with the collection protocols), one without a claim, a class with one, and TestLib protocols.
+    /// <paramref name="addedToUrl"/> is a conformance a loaded module adds to URL.
+    /// </summary>
+    private static TypeDatabase ClosedConformanceDatabase(string? addedToUrl)
+    {
+        var types = TestLibDatabase(withFoundation: false);
+        var foundation = new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib");
+        void Register(string name, TypeRecordKind kind, TypeRecordFlags flags, string[]? closed, params string[]? conformances)
+        {
+            var swiftName = SwiftTypeName.FromModuleQualifiedName($"Foundation.{name}");
+            foundation.RegisterType(swiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", name),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = string.Empty,
+                Flags = flags,
+                Kind = kind,
+                ProtocolConformances = conformances?.Select(SwiftTypeName.FromModuleQualifiedName).ToList(),
+                ClosedConformances = closed?.ToHashSet(StringComparer.Ordinal),
+            });
+        }
+        string[] url =
+        [
+            "Swift.Copyable", "Swift.Escapable", "Swift.Equatable", "Swift.Hashable", "Swift.Sendable",
+            "Swift.SendableMetatype", "Swift.Encodable", "Swift.Decodable", "Swift.CustomStringConvertible",
+            "Swift.CustomDebugStringConvertible", "Swift._ObjectiveCBridgeable", "Foundation.ReferenceConvertible",
+        ];
+        Register("URL", TypeRecordKind.Struct, TypeRecordFlags.ObjCBridgeable, url, addedToUrl == null ? null : [addedToUrl]);
+        Register("Data", TypeRecordKind.Struct, TypeRecordFlags.ObjCBridgeable,
+            ["Swift.Copyable", "Swift.Escapable", "Swift.Sequence", "Swift.Collection", "Swift.Hashable"], null);
+        Register("UnclaimedValue", TypeRecordKind.Struct, TypeRecordFlags.None, null, "Swift.Hashable");
+        Register("ClaimedClass", TypeRecordKind.Class, TypeRecordFlags.None, ["Swift.Copyable", "Swift.Escapable"], null);
+        Register("ReferenceConvertible", TypeRecordKind.Protocol, TypeRecordFlags.None, null,
+            "Swift.Hashable", "Swift.CustomStringConvertible");
+        types.AddModuleDatabase(foundation);
+        return types;
+    }
+
+    private static TypeDatabase TestLibDatabase(bool withFoundation = true)
     {
         var types = new TypeDatabase();
         var testLib = new ModuleTypeDatabase("TestLib", "/tmp/TestLib.dylib");
@@ -744,7 +956,10 @@ public class SwiftOverloadCallPinningTests
         Register(testLib, "TestLib", "RefinedConformer", TypeRecordKind.Struct, "TestLib.RefinedResource");
         Register(testLib, "TestLib", "Unrecorded", TypeRecordKind.Struct, null);
         Register(testLib, "TestLib", "Box", TypeRecordKind.Class);
+        Register(testLib, "TestLib", "SampleSequence", TypeRecordKind.Protocol, "Swift.Sequence");
         types.AddModuleDatabase(testLib);
+        if (!withFoundation)
+            return types;
         var foundation = new ModuleTypeDatabase("Foundation", "/tmp/Foundation.dylib");
         Register(foundation, "Foundation", "URL", TypeRecordKind.Struct);
         types.AddModuleDatabase(foundation);

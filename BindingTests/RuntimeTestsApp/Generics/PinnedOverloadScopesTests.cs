@@ -40,4 +40,21 @@ public class PinnedOverloadScopesTests : TestBase
         AssertEqual("plain:5:40", transition.Summary,
             "PinnedTransition<PinnedEndpointB>(to:) runs the unconstrained initializer with its computed default");
     }
+
+    public void TestUrlShortInitializerBesideSequenceInitializerRunsUrlDeclaration()
+    {
+        using var url = Foundation.NSUrl.FromString("https://short.example.com/a")!;
+        using var session = new PinnedUrlOrSequenceSession(url);
+        AssertEqual("url:https://short.example.com/a:3", session.Summary,
+            "PinnedUrlOrSequenceSession(input:) with a URL runs the URL initializer with its default configuration");
+    }
+
+    public void TestUrlFullInitializerBesideSequenceInitializerRunsUrlDeclaration()
+    {
+        using var url = Foundation.NSUrl.FromString("https://full.example.com/b")!;
+        using var configuration = new PinnedUrlOrSequenceConfiguration((nint)9);
+        using var session = new PinnedUrlOrSequenceSession(url, configuration);
+        AssertEqual("url:https://full.example.com/b:9", session.Summary,
+            "PinnedUrlOrSequenceSession(input:configuration:) with a URL runs the URL initializer with the given configuration");
+    }
 }

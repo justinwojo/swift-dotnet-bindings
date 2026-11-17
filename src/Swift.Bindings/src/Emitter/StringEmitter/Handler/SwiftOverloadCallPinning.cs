@@ -59,7 +59,8 @@ internal sealed class SwiftCallPinPlan
 /// unless that is provably impossible: an argument label it does not have, or an argument no implicit
 /// conversion carries to its parameter's type (between distinct closed standard-library types, into a
 /// struct or enum other than its own, from a value type into a class, from an existential into a value
-/// type, from a struct or enum into a protocol of its own module it does not conform to, between
+/// type, from a struct or enum into a protocol it provably does not conform to, from a struct or
+/// enum into a type parameter whose required protocol it provably does not conform to, between
 /// function types of different arity, or between a function and a non-function). The target counts
 /// as winning only on rules that hold whatever else the solver weighs: it is synchronous where the
 /// sibling is async (wrappers call a synchronous target from a synchronous body); it is favored
@@ -517,7 +518,7 @@ internal static class SwiftOverloadCallPinning
 
             if (cursor < call.Count
                 && string.Equals(CdeclParamMapper.BuildSwiftCallArgLabel(param), call[cursor].Label, StringComparison.Ordinal)
-                && (variadic || !ProvablyRejects(param, call[cursor], kinds)))
+                && (variadic || !ProvablyRejects(param, sibling, call[cursor], kinds)))
             {
                 bound.Add(param);
                 cursor++;
@@ -592,8 +593,10 @@ internal static class SwiftOverloadCallPinning
     private static bool IsClosed(string head) =>
         ClosedIntegers.Contains(head) || ClosedFloats.Contains(head) || ClosedOthers.Contains(head);
 
-    private static bool ProvablyRejects(ArgumentDecl param, CallArg arg, NominalKinds kinds)
+    private static bool ProvablyRejects(ArgumentDecl param, MethodDecl sibling, CallArg arg, NominalKinds kinds)
     {
+        if (RejectsAsTypeParameter(param, sibling, arg, kinds))
+            return true;
         // An autoclosure parameter wraps an expression of any type that converts to its result.
         if (param.SwiftTypeSpec is ClosureTypeSpec { IsAutoClosure: true } autoclosure)
             return ProvablyRejects(autoclosure.ReturnType, IsGenericSpec(autoclosure.ReturnType), arg, kinds);
@@ -645,6 +648,39 @@ internal static class SwiftOverloadCallPinning
         {
             // A function converts to Any or an existential at most.
             return IsClosed(target.Name) || kinds.Of(target.Name) is TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Whether a parameter typed with a bare type parameter cannot take a value of a struct or enum
+    /// type that provably lacks one of the parameter's required protocols. Swift binds the
+    /// parameter to the argument's own type: neither an Optional, an <c>AnyHashable</c> nor the
+    /// Objective-C class a value bridges to is tried in its place (swiftc refuses
+    /// <c>f&lt;T: P&gt;(_: T)</c> with a <c>URL</c> when only <c>URL?</c>, <c>AnyHashable</c> or
+    /// <c>NSURL</c> conforms to <c>P</c>), and a struct or enum has no superclass. Only the
+    /// requirements the sibling's own signature records count; a literal argument may take any
+    /// type its literal protocol allows and is not judged here.
+    /// </summary>
+    private static bool RejectsAsTypeParameter(ArgumentDecl param, MethodDecl sibling, CallArg arg, NominalKinds kinds)
+    {
+        if (arg.Literal != null || arg.ValueType == null)
+            return false;
+        if (param.SwiftTypeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named || !IsGenericName(named.Name))
+            return false;
+        var head = SplitType(arg.ValueType).Head;
+        if (IsGenericName(head) || HasImplicitConversionsIn(head) || IsCGFloat(head) || head == "Swift.Double")
+            return false;
+        foreach (var parameter in sibling.GenericParameters)
+        {
+            if (!string.Equals(parameter.TypeName, named.Name, StringComparison.Ordinal))
+                continue;
+            foreach (var requirement in parameter.GenericConformances)
+            {
+                if (requirement.Kind == ConformanceKind.Protocol && requirement.Path.Length == 1
+                    && kinds.ProvablyLacksConformance(head, requirement.ConformanceTarget.ModuleQualifiedName))
+                    return true;
+            }
         }
         return false;
     }
@@ -766,18 +802,33 @@ internal static class SwiftOverloadCallPinning
 
         /// <summary>
         /// Whether a value of struct or enum <paramref name="typeHead"/> provably does not conform
-        /// to <paramref name="protocol"/>. Both must come from one module: only a module importing
-        /// it could add the conformance elsewhere, and a wrapper imports none. Its own conformances
-        /// list every one its module declares, extensions included, and a protocol refines only
-        /// what its module can see, so only refinements in that module are walked; one whose
-        /// refinements are not recorded leaves the answer unknown.
+        /// to <paramref name="protocol"/>, as the wrapper's module sees it: every module it loads
+        /// may add the conformance. Two records can show that.
+        ///
+        /// <para>A platform type whose database entry carries a closed claim
+        /// (<see cref="TypeRecord.ClosedConformances"/>): the claim covers every SDK module, and each
+        /// module the generator loads records the conformances it adds on the type's record, which
+        /// are walked through their recorded refinements. One whose refinements are not recorded
+        /// leaves the answer unknown. Objective-C bridging does not matter here: Swift converts a
+        /// value to its bridged class only when asked to with <c>as</c>.</para>
+        ///
+        /// <para>Otherwise the type and the protocol must come from one module, and the type's
+        /// conformance list must be that module's own: it then lists every one its module declares,
+        /// extensions included, and a protocol refines only what its module can see, so only
+        /// refinements in that module are walked; one whose refinements are not recorded leaves the
+        /// answer unknown. A list another module added to says nothing about what is missing.</para>
         /// </summary>
         public bool ProvablyLacksConformance(string typeHead, string protocol)
         {
+            if (Record(typeHead) is not { Kind: TypeRecordKind.Struct or TypeRecordKind.Enum } type)
+                return false;
+            if (type.ClosedConformances is { } closed)
+                return LacksBeyondClosedClaim(type, closed, protocol);
+
             var module = ModuleOf(protocol);
             if (module == null || ModuleOf(typeHead) != module)
                 return false;
-            if (Record(typeHead) is not { Kind: TypeRecordKind.Struct or TypeRecordKind.Enum, ProtocolConformances: { } direct } type
+            if (type is not { ProtocolConformances: { } direct, HasConformancesFromOtherModules: false }
                 || (type.Flags & (TypeRecordFlags.ObjCBridged | TypeRecordFlags.ObjCBridgeable)) != 0)
                 return false;
 
@@ -794,6 +845,32 @@ internal static class SwiftOverloadCallPinning
                 if (nameModule == null)
                     return false;
                 if (nameModule != module)
+                    continue;
+                if (Record(name) is not { Kind: TypeRecordKind.Protocol, ProtocolConformances: { } refined })
+                    return false;
+                foreach (var parent in refined)
+                    pending.Enqueue(parent);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// Whether <paramref name="protocol"/> is outside both the closed claim and everything the
+        /// conformances loaded modules added to <paramref name="type"/> refine. A protocol inside
+        /// the claim has its refinements there too, so the walk stops at it.
+        /// </summary>
+        private bool LacksBeyondClosedClaim(TypeRecord type, IReadOnlySet<string> closed, string protocol)
+        {
+            if (closed.Contains(protocol))
+                return false;
+            var seen = new HashSet<string>(closed, StringComparer.Ordinal);
+            var pending = new Queue<SwiftTypeName>(type.ProtocolConformances ?? []);
+            while (pending.Count > 0)
+            {
+                var name = pending.Dequeue().ModuleQualifiedName;
+                if (string.Equals(name, protocol, StringComparison.Ordinal))
+                    return false;
+                if (!seen.Add(name))
                     continue;
                 if (Record(name) is not { Kind: TypeRecordKind.Protocol, ProtocolConformances: { } refined })
                     return false;

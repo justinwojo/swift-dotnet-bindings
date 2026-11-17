@@ -82,6 +82,11 @@ member runs the declaration it names, with the default Swift supplies. The
 (listed under `suppressedAmbiguousOverloads` in `binding-emission-report.json`). The constrained
 initializer has no open-generic form, so it adds one `Unsupported` skip marker to the corpus.
 
+`PinnedUrlOrSequenceSession` reproduces the third: a `URL` initializer beside a generic one whose
+input must be a `Sequence` of samples. `PinnedUrlOrSequenceSession(NSUrl)` and the full form are
+additions, and `PinnedOverloadScopesTests` checks that both run the `URL` initializer. C# has no
+generic constructors, so the generic initializer adds one `Unsupported` skip marker.
+
 ## SwiftBindings.Runtime
 
 `nuke pack --version 0.21.0-dev` diffs the Runtime against `SwiftBindings.Runtime 0.20.2` from
@@ -142,7 +147,7 @@ generic `!0` properties such as `IntentParameter<T>.WrappedValue`.
 | RealityFoundation | `PhotogrammetrySession.Request.TryGetModelFile(…)` | A `URL` payload in a multi-value case: the extractor handed Objective-C an unbridged Swift storage word. Now skipped because the case's payload bridge does not return a multi-value payload. | all | unsafe-before (137e9592) |
 | RealityFoundation | `FromToByAction<Transform>` factories `FromRealityFoundationTransform(Transform)` and `(Transform, Transform)` | The default-omitting call `FromToByAction<Transform>(to:timing:isAdditive:)` is also taken by `init(to:by:mode:timing:isAdditive:)` from `extension FromToByAction where Value == Transform`, so the wrapper could run a different Swift initializer than the one it names. The full forms remain. | all | intended (25909710) |
 | RealityFoundation | `FromToByAction<JointTransforms>` factories `FromRealityFoundationJointTransforms(JointTransforms)` and `(JointTransforms, JointTransforms)`; `FromToByAction<BlendShapeWeights>` factories `FromRealityFoundationBlendShapeWeights(…)` ×2 | Declined for the same rival, which exists only where `Value == Transform` and so cannot take a call on these specializations. | all | regression, fixed on this branch: a sibling that pins a type parameter to another concrete type is not a rival of a specialization (`SwiftOverloadCallPinning.PinsAnotherSpecialization`, fixture `PinnedTransition`) |
-| RealityFoundation | `PhotogrammetrySession(NSUrl)` | The default-omitting form of `init(input: URL, configuration: = .init())` is declined because `init<S: Sequence>(input: S, configuration:) where S.Element == PhotogrammetrySample` is counted as a rival. `URL` is not such a sequence, so Swift resolves the call to the URL initializer. The full `PhotogrammetrySession(NSUrl, Configuration)` remains. | all | **regression, release blocker**: ruling the generic sibling out needs proof that `URL` does not conform to `Sequence`, which the pinning replay cannot see for a type from another module. Workaround: pass `new PhotogrammetrySession.Configuration()`. |
+| RealityFoundation | `PhotogrammetrySession(NSUrl)` | The default-omitting form of `init(input: URL, configuration: = .init())` is declined because `init<S: Sequence>(input: S, configuration:) where S.Element == PhotogrammetrySample` is counted as a rival. `URL` is not such a sequence, so Swift resolves the call to the URL initializer. The full `PhotogrammetrySession(NSUrl, Configuration)` remains. | all | regression, fixed on this branch: a generic sibling whose parameter takes the argument is not a rival when the argument's type provably lacks a protocol the parameter requires. `URL`'s record in `FoundationDatabase.xml` now carries a closed conformance claim, checked against the installed SDKs by `ClosedConformanceSdkAuditTests` (`SwiftOverloadCallPinning.RejectsAsTypeParameter`, fixture `PinnedUrlOrSequenceSession`). RealityFoundation itself was not regenerated with the fix. |
 | RealityKit | `ARView.LayerClass` | `class var layerClass: AnyClass`, an existential metatype returned as a five-word container. | all | unsafe-before (c0f36040) |
 | MusicKit | `ApplicationMusicPlayer.Queue` factories `FromSwiftSwiftArrayMusicKit{Album,Playlist,Song,Track}…(SwiftArray<…>)` and `FromMusicKitApplicationMusicPlayerQueueEntries(…)` | `ApplicationMusicPlayer.Queue` repeats `MusicPlayer.Queue`'s `required init(for:startingAt:)` and `init(_:startingAt:)` as overrides, but the pinning replay compared their result types (each initializer returns its own class) and kept the superclass initializer as a rival. | all | regression, fixed on this branch: an overriding initializer hides the one it overrides whatever its result type (fixture `PinnedInitDerived`) |
 | MusicKit | `MusicCatalogSearchSuggestionsRequest.Create(string)` | Became `new MusicCatalogSearchSuggestionsRequest(string)`: the default-omitting form of `init(term:includingTopResultsOfTypes:)` is now bound as a constructor. The full initializer is skipped (its parameter is `[any MusicCatalogSearchable.Type]`, c0f36040). | all | intended; source-breaking rename, noted in the release notes |
@@ -223,14 +228,14 @@ outside this repository.
 | BindingTests corpus | 3 | 0 | 2 | 0 | 1 | 0 | 0 |
 | SwiftBindings.Runtime | 0 | | | | | | |
 | SwiftBindings.Apple | 0 | | | | | | |
-| RealityFoundation | 21 | 12 | 2 | 0 | 2 | 4 | 1 |
+| RealityFoundation | 21 | 12 | 2 | 0 | 2 | 5 | 0 |
 | RealityKit | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | MusicKit | 6 | 0 | 0 | 0 | 1 | 5 | 0 |
 | AppIntents | 11 | 2 | 8 | 0 | 1 | 0 | 0 |
-| **All** | **42** | **15** | **12** | **0** | **5** | **9** | **1** |
+| **All** | **42** | **15** | **12** | **0** | **5** | **10** | **0** |
 
-The 9 fixed rows are public again; 33 members remain removed, reshaped or guarded. Release blockers
-remain: `PhotogrammetrySession(NSUrl)`, and the three packaging causes above (the RealityFoundation
+The 10 fixed rows are public again; 32 members remain removed, reshaped or guarded. Release
+blockers remain: the three packaging causes above (the RealityFoundation
 package refused at pack time and nine downstream test apps refused at build time).
 
 ## defect-closure-3: pending

@@ -514,6 +514,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027PinnedUrlOrSequenceSession.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027PlainPinnedQuery.tripled\u0027 \u2014 parameter or return type not yet supported (Constrained-extension method \u0027tripled\u0027 on generic type \u0027PlainPinnedQuery\u0027 is out of scope for ConstrainedExtensionEmitter (initial scope: zero-argument sync non-throwing public methods). Method has parameters, async/throws, or non-public visibility.)",
       "count": 1
     },

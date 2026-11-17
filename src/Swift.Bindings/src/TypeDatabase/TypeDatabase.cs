@@ -205,7 +205,7 @@ namespace BindingsGeneration
                 foreach (var (name, record) in pending)
                 {
                     if (!moduleDatabase.IsTypeProcessed(name))
-                        moduleDatabase.Register(name, record, ConflictPolicy.KeepExisting);
+                        moduleDatabase.Register(name, MarkConformancesFromOtherModule(record), ConflictPolicy.KeepExisting);
                     else
                         MergeAdditiveProtocolConformances(moduleDatabase, name, record);
                 }
@@ -234,7 +234,7 @@ namespace BindingsGeneration
                 if (_modules.TryGetValue(foreignModule, out var foreignDb))
                 {
                     if (!foreignDb.IsTypeProcessed(record.SwiftTypeName))
-                        foreignDb.Register(record.SwiftTypeName, record, ConflictPolicy.KeepExisting);
+                        foreignDb.Register(record.SwiftTypeName, MarkConformancesFromOtherModule(record), ConflictPolicy.KeepExisting);
                     else
                         MergeAdditiveProtocolConformances(foreignDb, record.SwiftTypeName, record);
                 }
@@ -251,6 +251,16 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// A record another module declared for this one's type: any conformance list it carries
+        /// holds that module's edges, so it proves conformances but not the type's absent ones. A
+        /// record with no list proves nothing either way and is kept as is.
+        /// </summary>
+        private static TypeRecord MarkConformancesFromOtherModule(TypeRecord record) =>
+            record.ProtocolConformances is null || record.HasConformancesFromOtherModules
+                ? record
+                : record with { HasConformancesFromOtherModules = true };
+
+        /// <summary>
         /// Merges additive <see cref="TypeRecord.ProtocolConformances"/> from <paramref name="incoming"/>
         /// into the existing canonical record for <paramref name="name"/> without overwriting any
         /// other field. Identity fields (C# type, frozen, kind, etc.) on the canonical record stay
@@ -263,7 +273,9 @@ namespace BindingsGeneration
         /// to verify `S.Element : SomeProtocol` bounds). A null canonical list means "unverifiable"
         /// — the filter fails closed for every protocol, so adopting just the incoming additive list
         /// is a strict improvement (the additive edge becomes verifiable; previously-unverifiable
-        /// stdlib edges remain unverifiable, same fail-closed posture as before).
+        /// stdlib edges remain unverifiable, same fail-closed posture as before). A record that gains
+        /// an edge is marked <see cref="TypeRecord.HasConformancesFromOtherModules"/>: its list now
+        /// proves conformances but no longer the declaring module's absent ones.
         /// </summary>
         internal static void MergeAdditiveProtocolConformances(
             ModuleTypeDatabase foreignDb,
@@ -278,7 +290,11 @@ namespace BindingsGeneration
             var existingList = existing.ProtocolConformances;
             if (existingList is null)
             {
-                foreignDb.Register(name, existing with { ProtocolConformances = new List<SwiftTypeName>(incomingList) }, ConflictPolicy.Overwrite);
+                foreignDb.Register(name, existing with
+                {
+                    ProtocolConformances = new List<SwiftTypeName>(incomingList),
+                    HasConformancesFromOtherModules = true,
+                }, ConflictPolicy.Overwrite);
                 return;
             }
 
@@ -296,7 +312,7 @@ namespace BindingsGeneration
             }
 
             if (merged is not null)
-                foreignDb.Register(name, existing with { ProtocolConformances = merged }, ConflictPolicy.Overwrite);
+                foreignDb.Register(name, existing with { ProtocolConformances = merged, HasConformancesFromOtherModules = true }, ConflictPolicy.Overwrite);
         }
 
         /// <summary>
@@ -315,7 +331,7 @@ namespace BindingsGeneration
             if (_modules.TryGetValue(swiftTypeName.Module, out var moduleDatabase))
             {
                 if (!moduleDatabase.IsTypeProcessed(swiftTypeName))
-                    moduleDatabase.Register(swiftTypeName, record, ConflictPolicy.KeepExisting);
+                    moduleDatabase.Register(swiftTypeName, MarkConformancesFromOtherModule(record), ConflictPolicy.KeepExisting);
                 else
                     MergeAdditiveProtocolConformances(moduleDatabase, swiftTypeName, record);
             }
@@ -502,6 +518,17 @@ namespace BindingsGeneration
                     }
                     protocolConformances = list;
                 }
+                // A closed claim is all or nothing: an entry that does not name a protocol
+                // module-qualified makes the whole attribute unusable rather than shrinking it, so
+                // a malformed list never reads as "conforms to nothing".
+                IReadOnlySet<string>? closedConformances = null;
+                string? closedConformancesAttr = typeDeclarationNode?.Attributes?["closedConformances"]?.Value;
+                if (!string.IsNullOrEmpty(closedConformancesAttr))
+                {
+                    var entries = closedConformancesAttr.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+                    if (entries.All(e => e.IndexOf('.') > 0 && !e.EndsWith('.') && e.IndexOfAny(['<', ' ', '&', ':']) < 0))
+                        closedConformances = new HashSet<string>(entries, StringComparer.Ordinal);
+                }
                 if (swiftTypeIdentifier == null || csharpTypeIdentifier == null)
                     throw new Exception("Invalid XML structure: Missing attributes.");
 
@@ -657,6 +684,7 @@ namespace BindingsGeneration
                     AbiFieldLayout = abiFieldLayout,
                     ProtocolDescriptorSymbol = protocolDescriptorSymbol,
                     ProtocolConformances = protocolConformances,
+                    ClosedConformances = closedConformances,
                     ObjCEnumCaseNames = objcEnumCaseNames,
                     EmittedClassMethods = emittedClassMethods,
                     RenamedMembers = renamedMembers,
