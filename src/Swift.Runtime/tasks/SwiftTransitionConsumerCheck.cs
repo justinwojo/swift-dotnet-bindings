@@ -81,6 +81,19 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
         public string? State { get; set; }
         public List<string> Problems { get; set; } = new();
         public List<string> Unverified { get; set; } = new();
+        public string Remedy { get; set; } = nameof(ConsumerTransitionRemedy.None);
+
+        /// <summary>Each recorded bridge withdrawal: its module, reason, and the members it restored with the engines they refuse on.</summary>
+        public List<CachedWithdrawal> Withdrawals { get; set; } = new();
+    }
+
+    private sealed class CachedWithdrawal
+    {
+        public string Module { get; set; } = "";
+        public string Library { get; set; } = "";
+        public string Reason { get; set; } = "";
+        public int Members { get; set; }
+        public string Refusals { get; set; } = "";
     }
 
     public override bool Execute()
@@ -195,6 +208,15 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
                 State = result.State.ToString(),
                 Problems = result.Problems.ToList(),
                 Unverified = result.UnverifiedLibraries.ToList(),
+                Remedy = result.Remedy.ToString(),
+                Withdrawals = result.Withdrawals.Select(w => new CachedWithdrawal
+                {
+                    Module = w.Module,
+                    Library = w.Library,
+                    Reason = w.Reason,
+                    Members = w.Transitions.Length,
+                    Refusals = w.Describe(),
+                }).ToList(),
             };
         }
         catch (Exception ex) when (ex is BadImageFormatException or InvalidDataException or IOException)
@@ -204,6 +226,7 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
                 Name = candidate.Name,
                 Verdict = nameof(ConsumerTransitionVerdict.Refused),
                 Problems = [$"its transitions could not be inspected: {ex.Message}"],
+                Remedy = nameof(ConsumerTransitionRemedy.Regenerate),
             };
         }
         finally
@@ -217,12 +240,18 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
     {
         foreach (var library in result.Unverified)
             Log.LogMessage(MessageImportance.Normal,
-                "{0} ({1}) routes Swift calls through bridges in {2}, which no native reference of this app provides; its hash and exports were not checked.",
+                result.Withdrawals.Any(w => w.Library == library)
+                    ? "{0} ({1}) records its bridges in {2} as withdrawn, and no native reference of this app provides {2}; that they are gone was not checked."
+                    : "{0} ({1}) routes Swift calls through bridges in {2}, which no native reference of this app provides; its hash and exports were not checked.",
                 Path.GetFileName(candidate.Path), candidate.Origin, library);
         if (result.Verdict != nameof(ConsumerTransitionVerdict.Refused))
         {
             Log.LogMessage(MessageImportance.Low, "{0} ({1}): {2}{3}.", Path.GetFileName(candidate.Path), candidate.Origin, result.Verdict,
                 result.State is null ? "" : $" ({result.State})");
+            foreach (var withdrawal in result.Withdrawals)
+                Log.LogMessage(MessageImportance.High,
+                    "{0} ({1}) is a partial binding: {2}'s bridges were withdrawn ({3}), so {4} member(s) keep their guarded direct import and throw before Swift runs on the engines named: {5}. This build runs on {6}.",
+                    Path.GetFileName(candidate.Path), candidate.Origin, withdrawal.Module, withdrawal.Reason, withdrawal.Members, withdrawal.Refusals, Engine);
             return;
         }
 
@@ -253,9 +282,7 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
         var named = string.Join("; ", result.Problems.Take(Named));
         var rest = count > Named ? $"; and {count - Named} more (listed below)" : "";
         var subject = $"{Path.GetFileName(candidate.Path)} ({candidate.Origin})";
-        var remedy = candidate.Origin.StartsWith("package ", StringComparison.Ordinal)
-            ? $"Update {candidate.SuppressionKey} to a version built with the current SwiftBindings.Sdk, or regenerate the binding with the current SDK."
-            : "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project).";
+        var remedy = Remedy(candidate, result);
         var lead = suppressed ? $"{subject} is allowed by <SwiftBindingsTransitionSuppress Include=\"{candidate.SuppressionKey}\" />, but " : $"{subject} ";
         var tail = suppressed
             ? "The suppression accepts the risk for this package only; remove it once the package is updated."
@@ -263,6 +290,29 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
         return $"{lead}{what}: {named}{rest}. This build runs on {engine}. "
                + "Affected engines: Mono (iOS and tvOS simulators, Mac Catalyst, device Mono AOT) and the .NET 11 CoreCLR interpreter (Debug, and whatever ReadyToRun leaves to it in Release); NativeAOT is not affected. "
                + $"{remedy} {tail}";
+    }
+
+    /// <summary>What SWIFTBIND132 tells the author to do, from what refused the assembly and where it comes from.</summary>
+    private static string Remedy(Candidate candidate, CachedResult result)
+    {
+        var package = candidate.Origin.StartsWith("package ", StringComparison.Ordinal);
+        var withdrawal = result.Withdrawals.FirstOrDefault();
+        var relink = withdrawal is null ? "" : $"{withdrawal.Module}'s bridges were withdrawn because {withdrawal.Reason}. ";
+        return result.Remedy switch
+        {
+            nameof(ConsumerTransitionRemedy.CleanRebuild) => relink + (package
+                ? $"Its native images keep the bridges or manifest hash of an earlier routing: update {candidate.SuppressionKey} to a version packed from a clean build of the binding."
+                : "Its native images keep the bridges or manifest hash of an earlier routing: rebuild the binding clean (delete its bin/ and obj/)."),
+            nameof(ConsumerTransitionRemedy.ReceiptMismatch) => relink
+                + "The relinked wrapper contradicts the lowering receipt the bridges were authorized by, so the restored imports cannot be shown safe. "
+                + (package ? $"Update {candidate.SuppressionKey} to a version whose wrapper builds reproducibly." : "Make the wrapper's inputs stable between its compiles, then rebuild the binding clean."),
+            nameof(ConsumerTransitionRemedy.WithdrawalIncoherent) => relink
+                + "The binding does not hold up as the withdrawal it records, which a clean rebuild does not fix: "
+                + (package ? $"update {candidate.SuppressionKey} to a version that routes its bridges." : "fix the relink failure so the binding routes its bridges."),
+            _ => package
+                ? $"Update {candidate.SuppressionKey} to a version built with the current SwiftBindings.Sdk, or regenerate the binding with the current SDK."
+                : "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project).",
+        };
     }
 
     /// <summary>

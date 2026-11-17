@@ -9,6 +9,7 @@ using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using BindingsGeneration;
 
 namespace SwiftBindings.TransitionGate;
 
@@ -61,6 +62,28 @@ public sealed record TwinPlan(string Symbol, string Kind, ImmutableArray<TwinSlo
         $"{(Return is { } r ? r.ToString() : "void")} ({string.Join(", ", Parameters)})";
 }
 
+/// <summary>One transition a recorded bridge withdrawal says went back to its direct import.</summary>
+public sealed record TransitionWithdrawnTransition(string Member, string EntryPoint, string Symbol, ImmutableArray<string> Shapes, ImmutableArray<string> RefusesOn);
+
+/// <summary>
+/// A module's recorded bridge withdrawal (the plan sidecar's <c>bridgeWithdrawal</c>): the wrapper
+/// compile decided a routing, could not complete it, and restored the module's direct imports.
+/// <see cref="Origin"/> is the sidecar it was read from.
+/// </summary>
+public sealed record TransitionWithdrawal(
+    string Origin, string Module, string Cause, string Reason, string Library, ImmutableArray<TransitionWithdrawnTransition> Transitions)
+{
+    /// <summary>The causes a withdrawal can be accepted under: the restored wrapper is the one the receipt describes.</summary>
+    public static readonly IReadOnlySet<string> AcceptableCauses = new HashSet<string>(StringComparer.Ordinal) { "RelinkFailed", "RoutingDefect" };
+
+    /// <summary>The cause no withdrawal is accepted under: the relinked wrapper contradicted the receipt.</summary>
+    public const string ReceiptMismatch = "ReceiptMismatch";
+
+    /// <summary>Each restored member and the engines it refuses on, for a diagnostic.</summary>
+    public string Describe() => string.Join("; ", Transitions.Select(t =>
+        $"{t.Member} ({(t.RefusesOn.IsEmpty ? "refuses on no engine" : "refuses on " + string.Join(", ", t.RefusesOn))})"));
+}
+
 /// <summary>
 /// The bridge plans a scan's R3 compares twins against, read from the generator's call-plan
 /// sidecars (<c>*.swift-call-plans.json</c>, one per module) in the plan source's directory.
@@ -80,12 +103,24 @@ public sealed class BridgeTwinPlans
 
     private readonly Dictionary<string, TwinPlan> _plans;
 
-    private BridgeTwinPlans(Dictionary<string, TwinPlan> plans, ImmutableArray<string> problems, ImmutableArray<string> routingGaps, ImmutableArray<string> evidenceGaps)
+    private BridgeTwinPlans(Dictionary<string, TwinPlan> plans, ImmutableArray<string> problems, Gaps gaps, ImmutableArray<string> evidenceGaps)
     {
         _plans = plans;
         Problems = problems;
-        RoutingGaps = routingGaps;
+        RoutingGaps = gaps.All.ToImmutableArray();
+        UnrecordedRoutingGaps = gaps.Unrecorded.ToImmutableArray();
+        Withdrawals = gaps.Withdrawals.ToImmutableArray();
+        WithdrawalProblems = gaps.WithdrawalProblems.ToImmutableArray();
         EvidenceGaps = evidenceGaps;
+    }
+
+    /// <summary>What the coverage of the sidecars read says about routing: every gap, and how each is explained.</summary>
+    private sealed class Gaps
+    {
+        public List<string> All { get; } = new();
+        public List<string> Unrecorded { get; } = new();
+        public List<TransitionWithdrawal> Withdrawals { get; } = new();
+        public List<string> WithdrawalProblems { get; } = new();
     }
 
     /// <summary>Why the source does not read; any one makes every twin unverifiable.</summary>
@@ -98,6 +133,24 @@ public sealed class BridgeTwinPlans
     /// reject, so only the sidecar's coverage shows it.
     /// </summary>
     public ImmutableArray<string> RoutingGaps { get; }
+
+    /// <summary>
+    /// The routing gaps no recorded withdrawal explains: every gap of <see cref="RoutingGaps"/> but
+    /// those a module's <see cref="Withdrawals"/> lists, with the bridge it lists and the reason it
+    /// records. A transition called through a bridge the evidence did not prove is never explained.
+    /// </summary>
+    public ImmutableArray<string> UnrecordedRoutingGaps { get; }
+
+    /// <summary>The recorded bridge withdrawals, one per module that has one.</summary>
+    public ImmutableArray<TransitionWithdrawal> Withdrawals { get; }
+
+    /// <summary>
+    /// Why a recorded withdrawal does not hold up against its own sidecar: it does not read, lists a
+    /// transition its coverage does not show restored, leaves one still called through a bridge (a
+    /// partial restoration), records shapes or engines that disagree, or has a cause no withdrawal is
+    /// accepted under. Each makes the withdrawal explain nothing.
+    /// </summary>
+    public ImmutableArray<string> WithdrawalProblems { get; }
 
     /// <summary>
     /// Forward transitions a generation that was given lowering evidence planned but could not make
@@ -116,7 +169,7 @@ public sealed class BridgeTwinPlans
     public static BridgeTwinPlans Load(TransitionPlanSource source)
     {
         var problems = new List<string>();
-        var gaps = new List<string>();
+        var gaps = new Gaps();
         var evidenceGaps = new List<string>();
         var plans = new Dictionary<string, TwinPlan>(StringComparer.Ordinal);
         if (source.Kind != TransitionPlanSourceKind.CallPlanSidecars)
@@ -132,22 +185,22 @@ public sealed class BridgeTwinPlans
             foreach (var file in Directory.GetFiles(source.Location, "*" + SidecarSuffix, SearchOption.TopDirectoryOnly).Order(StringComparer.Ordinal))
                 Read(Path.GetFileName(file), File.ReadAllText(file), plans, problems, gaps, evidenceGaps);
         }
-        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray(), evidenceGaps.ToImmutableArray());
+        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps, evidenceGaps.ToImmutableArray());
     }
 
     /// <summary>Plans given as (name, JSON text), for tests.</summary>
     public static BridgeTwinPlans FromSidecars(IEnumerable<(string Name, string Json)> sidecars)
     {
         var problems = new List<string>();
-        var gaps = new List<string>();
+        var gaps = new Gaps();
         var evidenceGaps = new List<string>();
         var plans = new Dictionary<string, TwinPlan>(StringComparer.Ordinal);
         foreach (var (name, json) in sidecars)
             Read(name, json, plans, problems, gaps, evidenceGaps);
-        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps.ToImmutableArray(), evidenceGaps.ToImmutableArray());
+        return new BridgeTwinPlans(plans, problems.ToImmutableArray(), gaps, evidenceGaps.ToImmutableArray());
     }
 
-    private static void Read(string name, string json, Dictionary<string, TwinPlan> plans, List<string> problems, List<string> gaps, List<string> evidenceGaps)
+    private static void Read(string name, string json, Dictionary<string, TwinPlan> plans, List<string> problems, Gaps gaps, List<string> evidenceGaps)
     {
         try
         {
@@ -179,6 +232,14 @@ public sealed class BridgeTwinPlans
                 }
                 plans.Add(symbol, read);
             }
+            var withdrawal = root.TryGetProperty("bridgeWithdrawal", out var w) && w.ValueKind != JsonValueKind.Null
+                ? ReadWithdrawal(name, root.TryGetProperty("module", out var mod) && mod.ValueKind == JsonValueKind.String ? mod.GetString() ?? "" : "", w, gaps.WithdrawalProblems)
+                : null;
+            // A transition listed twice is already a problem of the record; the first listing explains its gap.
+            var listed = withdrawal?.Transitions.GroupBy(t => $"{t.Member}|{t.EntryPoint}", StringComparer.Ordinal)
+                             .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal)
+                         ?? new Dictionary<string, TransitionWithdrawnTransition>(StringComparer.Ordinal);
+            var restored = new HashSet<string>(StringComparer.Ordinal);
             if (root.TryGetProperty("coverage", out var coverage))
             {
                 foreach (var entry in coverage.EnumerateArray())
@@ -186,22 +247,100 @@ public sealed class BridgeTwinPlans
                     var executable = entry.TryGetProperty("executable", out var e) && e.ValueKind == JsonValueKind.True;
                     var bridged = entry.TryGetProperty("bridged", out var b) && b.ValueKind == JsonValueKind.True;
                     var member = entry.TryGetProperty("member", out var m) ? m.GetString() : null;
+                    var entryPoint = entry.TryGetProperty("entryPoint", out var ep) && ep.ValueKind == JsonValueKind.String ? ep.GetString() : null;
                     var target = entry.TryGetProperty("symbol", out var s) ? s.GetString() : null;
                     if (EvidenceGap(entry, executable, target, plans) is { } evidence)
                         evidenceGaps.Add($"{name}: {member} is planned through {target}, but its lowering evidence does not make it executable: {evidence}");
+                    if (withdrawal is not null && bridged)
+                        gaps.WithdrawalProblems.Add($"{name}: {member} is still called through its bridge {target}, but the module records that its bridges were withdrawn (a partial restoration)");
                     if (executable == bridged)
                         continue;
                     var refusal = entry.TryGetProperty("bridgeRefusal", out var r) && r.ValueKind == JsonValueKind.String ? r.GetString() : null;
-                    gaps.Add(executable
+                    var gap = executable
                         ? $"{name}: {member} is executable through {target} but kept its direct import: {refusal ?? "nothing routed it"}"
-                        : $"{name}: {member} is called through {target}, which the evidence does not prove executable");
+                        : $"{name}: {member} is called through {target}, which the evidence does not prove executable";
+                    gaps.All.Add(gap);
+                    // A gap is explained only by a withdrawal that lists it, with the bridge it was
+                    // planned through and the reason the withdrawal recorded on it.
+                    var key = $"{member}|{entryPoint}";
+                    if (executable && withdrawal is not null && listed.TryGetValue(key, out var listing)
+                        && listing.Symbol == target && refusal == withdrawal.Reason && restored.Add(key))
+                        continue;
+                    gaps.Unrecorded.Add(gap);
                 }
+            }
+            if (withdrawal is not null)
+            {
+                foreach (var listing in withdrawal.Transitions.Where(t => !restored.Contains($"{t.Member}|{t.EntryPoint}")))
+                    gaps.WithdrawalProblems.Add($"{name}: the bridge withdrawal lists {listing.Member} ({listing.EntryPoint}) through {listing.Symbol}, "
+                                                + "but its coverage does not show that transition executable and restored to its direct import for the withdrawal's reason");
+                gaps.Withdrawals.Add(withdrawal);
             }
         }
         catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException)
         {
             problems.Add($"{name}: the call plans do not read: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// The withdrawal record of a sidecar, or null when it does not read; what is wrong with it,
+    /// including a cause no withdrawal is accepted under and shapes or engines that disagree with the
+    /// engine table, goes to <paramref name="problems"/>.
+    /// </summary>
+    private static TransitionWithdrawal? ReadWithdrawal(string name, string module, JsonElement record, List<string> problems)
+    {
+        string? Text(JsonElement e, string property) =>
+            e.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.String && v.GetString() is { Length: > 0 } text ? text : null;
+        ImmutableArray<string>? Names(JsonElement e, string property) =>
+            e.TryGetProperty(property, out var v) && v.ValueKind == JsonValueKind.Array && v.EnumerateArray().All(x => x.ValueKind == JsonValueKind.String)
+                ? v.EnumerateArray().Select(x => x.GetString()!).ToImmutableArray()
+                : null;
+
+        if (record.ValueKind != JsonValueKind.Object)
+        {
+            problems.Add($"{name}: the bridge withdrawal is not an object");
+            return null;
+        }
+        var cause = Text(record, "cause");
+        var reason = Text(record, "reason");
+        var library = Text(record, "library");
+        if (cause is null || reason is null || library is null || !record.TryGetProperty("transitions", out var listed) || listed.ValueKind != JsonValueKind.Array)
+        {
+            problems.Add($"{name}: the bridge withdrawal does not record its cause, reason, library and transitions");
+            return null;
+        }
+        var transitions = ImmutableArray.CreateBuilder<TransitionWithdrawnTransition>();
+        foreach (var entry in listed.EnumerateArray())
+        {
+            if (entry.ValueKind != JsonValueKind.Object || Text(entry, "member") is not { } member || Text(entry, "entryPoint") is not { } entryPoint
+                || Text(entry, "symbol") is not { } symbol || Names(entry, "shapes") is not { } shapes || Names(entry, "refusesOn") is not { } refusesOn)
+            {
+                problems.Add($"{name}: a transition of the bridge withdrawal does not record its member, entry point, bridge, shapes and engines");
+                return null;
+            }
+            transitions.Add(new TransitionWithdrawnTransition(member, entryPoint, symbol, shapes, refusesOn));
+        }
+        var withdrawal = new TransitionWithdrawal(name, module, cause, reason, library, transitions.ToImmutable());
+
+        if (cause == TransitionWithdrawal.ReceiptMismatch)
+            problems.Add($"{name}: the module's bridges were withdrawn because the relinked wrapper contradicts its lowering receipt ({reason}); "
+                         + "the receipt then no longer shows the ABI the restored imports were judged against, so the withdrawal cannot be shown safe");
+        else if (!TransitionWithdrawal.AcceptableCauses.Contains(cause))
+            problems.Add($"{name}: the bridge withdrawal names the cause {cause}, which this check does not know");
+        if (withdrawal.Transitions.IsEmpty)
+            problems.Add($"{name}: the bridge withdrawal lists no transition");
+        foreach (var duplicate in withdrawal.Transitions.GroupBy(t => $"{t.Member}|{t.EntryPoint}", StringComparer.Ordinal).Where(g => g.Count() > 1))
+            problems.Add($"{name}: the bridge withdrawal lists {duplicate.First().Member} ({duplicate.First().EntryPoint}) {duplicate.Count()} times");
+        foreach (var transition in withdrawal.Transitions)
+        {
+            if (SwiftTransitionEngines.ShapesOf(transition.Shapes) is not { } bits)
+                problems.Add($"{name}: the bridge withdrawal records shapes of {transition.Member} that are not shape names ({string.Join(", ", transition.Shapes)})");
+            else if (!SwiftTransitionEngines.Refusing(bits).SequenceEqual(transition.RefusesOn, StringComparer.Ordinal))
+                problems.Add($"{name}: the bridge withdrawal says {transition.Member} refuses on [{string.Join(", ", transition.RefusesOn)}], "
+                             + $"but its shapes ({string.Join(", ", transition.Shapes)}) are refused on [{string.Join(", ", SwiftTransitionEngines.Refusing(bits))}]");
+        }
+        return withdrawal;
     }
 
     /// <summary>

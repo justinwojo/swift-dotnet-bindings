@@ -37,5 +37,6 @@
   <ItemGroup>
     <Compile Include="../../../build/SwiftTransitionGate/*.cs" Link="Engine/%(Filename)%(Extension)" />
     <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftTransitionManifestFormat.cs" Link="Engine/SwiftTransitionManifestFormat.cs" />
+    <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftTransitionEngines.cs" Link="Engine/SwiftTransitionEngines.cs" />
   </ItemGroup>
 </Project>

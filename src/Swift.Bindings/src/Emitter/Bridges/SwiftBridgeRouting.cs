@@ -219,11 +219,12 @@ public sealed class SwiftBridgeRouting
     private readonly Dictionary<string, SwiftBridgeRewrite> _rewrites;
 
     private SwiftBridgeRouting(ImmutableArray<SwiftBridgeRoute> routes, ImmutableArray<SwiftCallPlan> bridged,
-        Dictionary<string, SwiftBridgeRewrite> rewrites)
+        Dictionary<string, SwiftBridgeRewrite> rewrites, SwiftBridgeWithdrawal? withdrawal = null)
     {
         Routes = routes;
         Bridged = bridged;
         _rewrites = rewrites;
+        Withdrawal = withdrawal;
     }
 
     /// <summary>A routing that bridges nothing.</summary>
@@ -241,14 +242,35 @@ public sealed class SwiftBridgeRouting
 
     /// <summary>
     /// This routing with nothing bridged: every route it would have bridged keeps its import, for
-    /// <paramref name="reason"/>; a route it refused keeps its own reason.
+    /// <paramref name="reason"/>; a route it refused keeps its own reason. When it bridged anything,
+    /// the result records the withdrawal (<see cref="Withdrawal"/>): its cause and reason,
+    /// <paramref name="library"/>, and each restored import with the shapes its guard constant
+    /// holds in <paramref name="masks"/> (generation's own guards) and the engines that refuse them.
     /// </summary>
-    public SwiftBridgeRouting Withdraw(string reason) => Routes.IsEmpty
-        ? this
-        : new SwiftBridgeRouting(
+    internal SwiftBridgeRouting Withdraw(SwiftBridgeWithdrawalCause cause, string reason, string library, IReadOnlyList<SwiftTransitionGuards.Mask> masks)
+    {
+        // A routing already withdrawn bridges nothing, and keeps the record of why: the gaps it
+        // left carry that reason, so a later failure must not replace it with an empty one.
+        if (Routes.IsEmpty || Withdrawal is not null)
+            return this;
+        var shapes = masks.ToDictionary(m => m.Name, m => (ulong)m.Facts, StringComparer.Ordinal);
+        var restored = Routes.Where(r => r.IsBridged)
+            .Select(r =>
+            {
+                var facts = shapes.GetValueOrDefault(SwiftTransitionGuards.MaskName(r.Member, r.EntryPoint));
+                return new SwiftBridgeWithdrawnTransition(r.Member, r.EntryPoint, r.Symbol,
+                    SwiftTransitionEngines.ShapeNames(facts), SwiftTransitionEngines.Refusing(facts));
+            })
+            .ToImmutableArray();
+        return new SwiftBridgeRouting(
             Routes.Select(r => r.IsBridged ? r with { Twin = null, Refusal = reason } : r).ToImmutableArray(),
             [],
-            new(StringComparer.Ordinal));
+            new(StringComparer.Ordinal),
+            restored.IsEmpty ? null : new SwiftBridgeWithdrawal(cause, reason, library, restored));
+    }
+
+    /// <summary>What a withdrawn routing withdrew, when it had bridged anything; null for any other routing.</summary>
+    public SwiftBridgeWithdrawal? Withdrawal { get; }
 
     /// <summary>One route per executable forward transition, ordered by member and entry point.</summary>
     public ImmutableArray<SwiftBridgeRoute> Routes { get; }
@@ -395,6 +417,7 @@ public sealed class SwiftBridgeRouting
                         : e)
                 .ToImmutableArray(),
             Plans = plans.Plans,
+            BridgeWithdrawal = Withdrawal,
         };
     }
 

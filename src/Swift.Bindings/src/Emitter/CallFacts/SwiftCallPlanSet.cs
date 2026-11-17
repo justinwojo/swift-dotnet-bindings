@@ -79,6 +79,53 @@ public sealed record SwiftPlanCoverageEntry(
     public string? BridgeRefusal { get; init; }
 }
 
+/// <summary>Why a module's bridge routing was withdrawn after it was decided.</summary>
+public enum SwiftBridgeWithdrawalCause
+{
+    /// <summary>
+    /// The wrapper could not be relinked with its bridges (the relink failed or produced another
+    /// wrapper than the first compile's build settings, or the receipt held no evidence to verify it
+    /// against), and the wrapper the receipt describes was put back. The restored imports are
+    /// generation's own, guarded by their shapes.
+    /// </summary>
+    RelinkFailed,
+
+    /// <summary>
+    /// The relinked wrapper is not the one the receipt describes: two compiles of the same sources
+    /// lowered differently, so the receipt no longer establishes the ABI the module's direct imports
+    /// were judged against. A package and its consumers refuse such a binding.
+    /// </summary>
+    ReceiptMismatch,
+
+    /// <summary>The routing could not be written over the C# it was planned over: a generator defect.</summary>
+    RoutingDefect,
+}
+
+/// <summary>One transition a withdrawal moved back from its bridge onto its direct import.</summary>
+/// <param name="Member">The import's IL member, as the coverage names it.</param>
+/// <param name="EntryPoint">Its Swift entry point.</param>
+/// <param name="Symbol">The bridge it no longer calls.</param>
+/// <param name="Shapes">The register-convention shapes of the restored import, by name (<see cref="SwiftTransitionEngines.ShapeNames"/>).</param>
+/// <param name="RefusesOn">The engines whose guard refuses those shapes (<see cref="SwiftTransitionEngines.Refusing"/>): where the member throws before Swift runs.</param>
+public sealed record SwiftBridgeWithdrawnTransition(
+    string Member,
+    string EntryPoint,
+    string Symbol,
+    ImmutableArray<string> Shapes,
+    ImmutableArray<string> RefusesOn);
+
+/// <summary>
+/// The disposition of a bridge routing that was decided and then withdrawn: why, the wrapper the
+/// bridges would have been linked into, and every transition that went back to its direct import.
+/// Recorded on the plan set the module ships, so a package and its consumers can tell a withdrawal
+/// from a transition nothing routed. It explains a routing gap; it exempts nothing from any check.
+/// </summary>
+public sealed record SwiftBridgeWithdrawal(
+    SwiftBridgeWithdrawalCause Cause,
+    string Reason,
+    string Library,
+    ImmutableArray<SwiftBridgeWithdrawnTransition> Transitions);
+
 /// <summary>
 /// The plans of one module: one coverage entry per ledger transition, and the distinct plans they
 /// use. Every transition that needs a bridge is planned or refused with a reason; identical plans
@@ -116,6 +163,9 @@ public sealed class SwiftCallPlanSet
 
     /// <summary>The distinct plans, by symbol.</summary>
     public required ImmutableArray<SwiftCallPlan> Plans { get; init; }
+
+    /// <summary>When the wrapper compile withdrew the routing it decided, what it withdrew and why; null otherwise.</summary>
+    public SwiftBridgeWithdrawal? BridgeWithdrawal { get; init; }
 
     public int Count(SwiftPlanStatus status) => Coverage.Count(e => e.Status == status);
 
@@ -322,6 +372,7 @@ public sealed class SwiftCallPlanSet
         EvidenceScope = document.EvidenceScope,
         Coverage = document.Coverage,
         Plans = document.Plans,
+        BridgeWithdrawal = document.BridgeWithdrawal,
     };
 
     public static string FileName(string @namespace) => $"{@namespace}.swift-call-plans.json";
@@ -351,6 +402,7 @@ public sealed class SwiftCallPlanSet
         },
         Coverage = Coverage,
         Plans = Plans,
+        BridgeWithdrawal = BridgeWithdrawal,
     };
 
     public string ToJson() =>
@@ -391,6 +443,9 @@ public sealed record SwiftCallPlanDocument
     public required SwiftCallPlanTotals Totals { get; init; }
     public required ImmutableArray<SwiftPlanCoverageEntry> Coverage { get; init; }
     public required ImmutableArray<SwiftCallPlan> Plans { get; init; }
+
+    /// <summary>The withdrawal of a routing the wrapper compile decided; absent when none was withdrawn.</summary>
+    public SwiftBridgeWithdrawal? BridgeWithdrawal { get; init; }
 }
 
 /// <summary>The plan set's counts.</summary>

@@ -2450,7 +2450,7 @@ namespace BindingsGeneration
 
             // Compiles the wrapper again, now with its bridges, verifying every slice against the receipt
             // the first compile collected; on any difference the first compile's wrapper is put back.
-            string? RelinkWithBridges(SwiftLoweringReceipt expected)
+            SwiftBridgeFinalizer.RelinkFailure? RelinkWithBridges(SwiftLoweringReceipt expected)
             {
                 var wrapperPath = current!.XCFrameworkPath!;
                 var setAside = wrapperPath + ".routing-backup";
@@ -2462,7 +2462,7 @@ namespace BindingsGeneration
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    return $"the wrapper could not be set aside: {ex.Message}";
+                    return new SwiftBridgeFinalizer.RelinkFailure($"the wrapper could not be set aside: {ex.Message}");
                 }
 
                 var verification = SwiftWrapperLoweringEvidence.ForVerification(expected, request.LoweringPlatform);
@@ -2470,16 +2470,20 @@ namespace BindingsGeneration
                 var relinkOutcome = WrapperBuildOutcome.From(relink.Result, relink.Error, relink.ContractualUnmet);
 
                 string? why = null;
+                var cause = SwiftBridgeWithdrawalCause.RelinkFailed;
                 if (relinkOutcome.ExitCode != 0 || relink.Result?.XCFrameworkPath is null || !Directory.Exists(relink.Result.XCFrameworkPath))
                     why = $"the relink failed{(relink.Error is null ? "" : ": " + relink.Error.Message)}";
+                // A relinked wrapper that contradicts the receipt is named as such before any other
+                // difference, so the withdrawal records the cause that is never accepted.
+                else if (verification.Receipt(relink.Unmerged, out var unverified) is not { } verified)
+                    (why, cause) = ($"the relinked wrapper is not the one the receipt describes: {unverified}", SwiftBridgeWithdrawalCause.ReceiptMismatch);
+                else if (!verified.Receipts.Single().Slices.Keys.SequenceEqual(expected.Slices.Keys, StringComparer.Ordinal))
+                    (why, cause) = ($"the relinked wrapper ships [{string.Join(", ", verified.Receipts.Single().Slices.Keys)}], the receipt describes [{string.Join(", ", expected.Slices.Keys)}]",
+                        SwiftBridgeWithdrawalCause.ReceiptMismatch);
                 else if (!relink.Unmerged.SequenceEqual(request.UnmergedExtraArchs, StringComparer.Ordinal))
                     why = $"the relink folded other architectures (unmerged [{string.Join(", ", relink.Unmerged)}], first compile [{string.Join(", ", request.UnmergedExtraArchs)}])";
                 else if (!relinkOutcome.StrippedSymbols.SetEquals(request.Outcome.StrippedSymbols))
                     why = "the relink stripped other wrapper symbols than the first compile";
-                else if (verification.Receipt(relink.Unmerged, out var unverified) is not { } verified)
-                    why = $"the relinked wrapper is not the one the receipt describes: {unverified}";
-                else if (!verified.Receipts.Single().Slices.Keys.SequenceEqual(expected.Slices.Keys, StringComparer.Ordinal))
-                    why = $"the relinked wrapper ships [{string.Join(", ", verified.Receipts.Single().Slices.Keys)}], the receipt describes [{string.Join(", ", expected.Slices.Keys)}]";
                 else if (Environment.GetEnvironmentVariable(SwiftBridgeFinalizer.ForceRollbackVariable) == "1")
                     why = $"{SwiftBridgeFinalizer.ForceRollbackVariable} refused a relink that verified";
 
@@ -2506,7 +2510,7 @@ namespace BindingsGeneration
                     logger.LogError("The wrapper the receipt describes could not be put back from {SetAside}: {Message}", setAside, ex.Message);
                     current = null;
                 }
-                return why;
+                return new SwiftBridgeFinalizer.RelinkFailure(why!, cause);
             }
         }
 

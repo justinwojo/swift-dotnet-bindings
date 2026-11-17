@@ -124,6 +124,9 @@
          scanner, report) so its rules run here over small compiled fixtures, each a seeded red.
          System.Reflection.Metadata only. -->
     <Compile Include="../../../../build/SwiftTransitionGate/*.cs" Link="SwiftTransitionGate/Engine/%(Filename)%(Extension)" />
+    <!-- The byte-level negative controls of a recorded bridge withdrawal, which the bridge-consumer gate's
+         rollback mode runs over the packed binding; held here to the refusals the controls must reach. -->
+    <Compile Include="../../../../build/Models/BridgeWithdrawalControls.cs" Link="SwiftTransitionGate/Engine/BridgeWithdrawalControls.cs" />
     <Compile Include="../../../../build/InterpIdentity/*.cs" Link="InterpIdentity/Engine/%(Filename)%(Extension)" />
     <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
     <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />

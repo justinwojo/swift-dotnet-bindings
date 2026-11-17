@@ -86,7 +86,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
     private readonly SwiftTransitionLedger _ledger;
 
     private readonly List<string> _events = new();
-    private Func<SwiftLoweringReceipt, string?> _relink = _ => null;
+    private Func<SwiftLoweringReceipt, SwiftBridgeFinalizer.RelinkFailure?> _relink = _ => null;
 
     public SwiftBridgeFinalizerTests()
     {
@@ -410,6 +410,64 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
     }
 
     [Fact]
+    public void AFailedRelink_RecordsTheWithdrawal_WithEachRestoredImportsShapesAndEngines()
+    {
+        WriteGeneration();
+        _relink = _ => "swiftc exited 1";
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Withdrawn, Finalize(Receipt()));
+
+        var sidecar = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M"))));
+        var withdrawal = Assert.IsType<SwiftBridgeWithdrawal>(sidecar.BridgeWithdrawal);
+        Assert.Equal(SwiftBridgeWithdrawalCause.RelinkFailed, withdrawal.Cause);
+        Assert.Equal(Library, withdrawal.Library);
+        Assert.Contains("swiftc exited 1", withdrawal.Reason);
+        // Every transition the routing had bridged is listed, with the reason its coverage now records.
+        Assert.Equal(sidecar.Coverage.Where(e => e.Executable).Select(e => e.Member).Order(StringComparer.Ordinal),
+            withdrawal.Transitions.Select(t => t.Member).Order(StringComparer.Ordinal));
+        Assert.All(sidecar.Coverage.Where(e => e.Executable), e => Assert.Equal(withdrawal.Reason, e.BridgeRefusal));
+        var self = withdrawal.Transitions.Single(t => sidecar.Coverage.Single(e => e.Member == t.Member).EntryPoint == t.EntryPoint
+                                                     && t.Shapes.Contains(nameof(SwiftTransitionFacts.SelfRegister)));
+        Assert.Equal(SwiftTransitionEngines.ShapeNames((ulong)SelfImportShapes).ToArray(), self.Shapes.ToArray());
+        Assert.Equal(["Mono", "the CoreCLR interpreter (arm64)", "the CoreCLR interpreter (x86_64)"], self.RefusesOn.ToArray());
+
+        // The manifest the assembly embeds carries the record and routes nothing.
+        var manifest = SwiftTransitionManifestFormat.Parse(File.ReadAllBytes(PathOf(SwiftTransitionManifestFormat.FileName("M"))), "M");
+        Assert.Null(manifest.NativeSymbol);
+        Assert.Contains("\"bridgeWithdrawal\"", manifest.Plans);
+
+        // SWIFTBIND129 names the members, their engines, and that the binding still packs.
+        var warning = Assert.Single(_log.Warnings, w => w.Contains(SwiftBridgeFinalizer.FailedCode, StringComparison.Ordinal));
+        Assert.Contains("still builds and packs as a partial binding", warning);
+        Assert.Contains($"{self.Member} (refuses on Mono, the CoreCLR interpreter (arm64), the CoreCLR interpreter (x86_64))", warning);
+    }
+
+    [Fact]
+    public void ARelinkThatContradictsTheReceipt_IsRecordedAsSuch_AndWarnsThatItWillBeRefused()
+    {
+        WriteGeneration();
+        _relink = _ => new SwiftBridgeFinalizer.RelinkFailure("the relinked wrapper is not the one the receipt describes: arm64 differs",
+            SwiftBridgeWithdrawalCause.ReceiptMismatch);
+
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Withdrawn, Finalize(Receipt()));
+
+        var sidecar = SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M"))));
+        Assert.Equal(SwiftBridgeWithdrawalCause.ReceiptMismatch, sidecar.BridgeWithdrawal?.Cause);
+        var warning = Assert.Single(_log.Warnings, w => w.Contains(SwiftBridgeFinalizer.FailedCode, StringComparison.Ordinal));
+        Assert.Contains("refuse it (SWIFTBIND133, SWIFTBIND132)", warning);
+        Assert.DoesNotContain("still builds and packs", warning);
+    }
+
+    [Fact]
+    public void ACompletedRouting_RecordsNoWithdrawal()
+    {
+        WriteGeneration();
+        Assert.Equal(SwiftBridgeFinalizer.Outcome.Relinked, Finalize(Receipt()));
+        Assert.Null(SwiftCallPlanSet.From(SwiftCallPlanSet.Read(PathOf(SwiftCallPlanSet.FileName("M")))).BridgeWithdrawal);
+        Assert.DoesNotContain("bridgeWithdrawal", Read(SwiftCallPlanSet.FileName("M")));
+    }
+
+    [Fact]
     public void CSharpTheJournalDoesNotDescribe_FailsTheBuild_AndIsLeftAsFound()
     {
         WriteGeneration();
@@ -630,7 +688,7 @@ public sealed class SwiftBridgeFinalizerTests : IDisposable
         Assert.Equal(routed, SwiftTransitionLedger.WithBridges(unrouted, routing.Routes));
         Assert.Equal(routed, SwiftTransitionLedger.WithBridges(routed, routing.Routes));
         Assert.Equal(unrouted, SwiftTransitionLedger.WithBridges(routed, Array.Empty<SwiftBridgeRoute>()));
-        Assert.Equal(unrouted, SwiftTransitionLedger.WithBridges(routed, routing.Withdraw("withdrawn").Routes));
+        Assert.Equal(unrouted, SwiftTransitionLedger.WithBridges(routed, routing.Withdraw(SwiftBridgeWithdrawalCause.RelinkFailed, "withdrawn", Library, []).Routes));
         Assert.Throws<InvalidDataException>(() => SwiftTransitionLedger.WithBridges("{ \"schema\": 0 }", routing.Routes));
     }
 

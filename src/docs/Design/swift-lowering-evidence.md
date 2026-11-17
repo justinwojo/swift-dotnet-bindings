@@ -380,7 +380,11 @@ fingerprint never sees the receipt, and there is no loop.
 **Fail-closed.** An import the receipt does not authorize keeps its Swift-convention call, and a
 contradiction in the receipt refuses its plan whatever else the receipt says. When the relink fails,
 or its wrapper is not the one the receipt describes, the first compile's wrapper is put back, the C#
-goes back to generation's own and `SWIFTBIND129` says why. A journal that does not match the C# fails
+goes back to generation's own and `SWIFTBIND129` says why, naming the members that keep their guarded
+direct import and the engines they refuse on. The call-plan sidecar records that withdrawal
+(`bridgeWithdrawal`), and the binding packs as a partial binding when it holds up as the record
+(see [consumer-transition-check.md](consumer-transition-check.md) § *Partial bindings*); a relink whose
+wrapper contradicts the receipt is recorded too, and refused. A journal that does not match the C# fails
 the build, because the C# can no longer be trusted to be generation's own. A slice that cannot be
 observed withholds the whole receipt (see *When a receipt is written*), and with it every bridge:
 a thunk-only slice, which has no Swift source to compile to IR, therefore leaves its module unrouted.

@@ -656,7 +656,7 @@ public sealed class SwiftBridgeRoutingTests
         var routing = SwiftBridgeRouting.Plan(plans, source, Library);
         var refused = routing.Routes.Single(r => !r.IsBridged);
 
-        var withdrawn = routing.Withdraw("the relink failed");
+        var withdrawn = routing.Withdraw(SwiftBridgeWithdrawalCause.RelinkFailed, "the relink failed", Library, []);
 
         Assert.Empty(withdrawn.Bridged);
         Assert.Empty(withdrawn.Rewrites);
@@ -665,6 +665,12 @@ public sealed class SwiftBridgeRoutingTests
         Assert.Equal("the relink failed", withdrawn.Routes.Single(r => r.Member == "M.C::PInvoke_f").Refusal);
         Assert.Equal(refused.Refusal, withdrawn.Routes.Single(r => r.Member == refused.Member).Refusal);
         Assert.Null(withdrawn.Assembly(SwiftArchitecture.Arm64));
+
+        // A second failure (a relink after a routing defect withdrew the bridges) keeps the first record.
+        var again = withdrawn.Withdraw(SwiftBridgeWithdrawalCause.RelinkFailed, "a later relink failed", Library, []);
+        Assert.NotNull(again.Withdrawal);
+        Assert.Equal(withdrawn.Withdrawal, again.Withdrawal);
+        Assert.Equal("the relink failed", again.Routes.Single(r => r.Member == "M.C::PInvoke_f").Refusal);
     }
 
     // ---- the calling convention of a bridge symbol ----
