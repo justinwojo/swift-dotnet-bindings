@@ -62,4 +62,42 @@ public class ExistentialUnionTests
         Assert.False(success);
         Assert.Null(result);
     }
+
+    [Fact]
+    public void BorrowedUnion_DisposeLeavesTheBorrowedContainerReadable()
+    {
+        var union = new ExistentialUnion(new ExistentialContainer1 { Payload0 = (IntPtr)0x10 });
+        union.Dispose();
+        Assert.False(union.IsDisposed, "A borrowed union owns nothing to release");
+        Assert.Equal((IntPtr)0x10, union.GetExistentialContainer().Payload0);
+    }
+
+    [Fact]
+    public void OwnedUnion_RefusesUseAfterDispose()
+    {
+        // A class-bound union with a null reference: its release is a no-op, so this stays host-only.
+        var union = new ExistentialUnion(new ExistentialContainer1(), ownsContainer: true, classBound: true);
+        Assert.False(union.IsDisposed);
+        union.Dispose();
+        union.Dispose();
+        Assert.True(union.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => union.GetExistentialContainer());
+        Assert.Throws<ObjectDisposedException>(() => union.ObjectMetadata);
+        Assert.Throws<ObjectDisposedException>(() => union.As<SwiftString>());
+    }
+
+    [Fact]
+    public void SwiftExistential_RefusesUseAfterDispose()
+    {
+        var value = new SwiftExistential<ExistentialContainer1>(new ExistentialContainer1(), classBound: true);
+        Assert.Equal(IntPtr.Zero, value.GetExistentialContainer().Payload0);
+        value.Dispose();
+        value.Dispose();
+        Assert.True(value.IsDisposed);
+        Assert.Throws<ObjectDisposedException>(() => value.GetExistentialContainer());
+        // The setter/argument path takes the container through this interface, so a released value
+        // is refused before any native call.
+        Assert.Throws<ObjectDisposedException>(() =>
+            ExistentialContainerFactory.GetOrCreate<object>(value, out _, out _));
+    }
 }

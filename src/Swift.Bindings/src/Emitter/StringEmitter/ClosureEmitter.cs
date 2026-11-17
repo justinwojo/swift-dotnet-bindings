@@ -422,6 +422,22 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// A borrowed existential with no proxy class handed to a C# delegate: <c>Any</c> unboxes to its
+    /// value, anything else is copied into an owning box (the callback only lends the container,
+    /// which dangles once it returns if the delegate kept the raw bytes).
+    /// </summary>
+    private static string BorrowedNoProxyExistentialArg(ClosureHandler closureHandler, TypeSpec typeSpec, string containerAccess)
+    {
+        if (closureHandler.IsZeroWitnessExistentialParam(typeSpec))
+            return $"global::Swift.Runtime.ExistentialContainer0.Unbox({containerAccess})";
+        var containerType = closureHandler.GetPInvokeExistentialType(typeSpec);
+        if (!ExistentialHandler.IsOwnedExistentialContainerType(containerType))
+            return $"(object){containerAccess}";
+        return ExistentialHandler.NoProxyExistentialRead("object", containerType, containerAccess,
+            closureHandler.IsClassBoundArity1Existential(typeSpec), owned: false);
+    }
+
+    /// <summary>
     /// The C# expression that hands a closure's existential result to Swift as its container, or
     /// null when <paramref name="returnType"/> is not an existential the callback converts. A
     /// direct callback returns it; a @_cdecl callback whose adapter passes a result buffer writes it
@@ -471,7 +487,11 @@ public static partial class ClosureEmitter
         if (closureHandler.IsExistentialParam(returnType))
         {
             var ct = closureHandler.GetPInvokeExistentialType(returnType);
-            return $"({ct}){resultExpr}";
+            // Swift takes the result at +1, and the C# value is the owning box a read returned (or a
+            // boxable conformer), so mint the result's own reference rather than unbox the box.
+            return ExistentialHandler.NoProxyExistentialToOwnedContainer(
+                       ct, resultExpr, closureHandler.IsClassBoundArity1Existential(returnType))
+                ?? $"({ct}){resultExpr}";
         }
 
         return null;
@@ -581,7 +601,9 @@ public static partial class ClosureEmitter
                 else if (closureHandler.IsExistentialParam(elem))
                 {
                     var ct = closureHandler.GetPInvokeExistentialType(elem);
-                    elems.Add($"({ct}){acc}");
+                    elems.Add(ExistentialHandler.NoProxyExistentialToOwnedContainer(
+                                  ct, acc, closureHandler.IsClassBoundArity1Existential(elem))
+                              ?? $"({ct}){acc}");
                 }
                 else if (closureHandler.IsSimpleEnum(elem))
                 {
@@ -899,7 +921,7 @@ public static partial class ClosureEmitter
     /// <param name="argIndex">The argument index.</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <returns>The expression string to use when invoking the delegate.</returns>
-    private static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler, bool useCdecl = false)
+    internal static string GetInvokeArgExpression(TypeSpec typeSpec, int argIndex, ClosureHandler closureHandler, bool useCdecl = false)
     {
         // `inout`: the slot's seeded value is read from the address the adapter handed over, which
         // is the same shape for every carrier. Runs before every arm below because those read the
@@ -942,7 +964,10 @@ public static partial class ClosureEmitter
             // the container, so Unbox borrows it.
             if (closureHandler.IsZeroWitnessExistentialParam(typeSpec))
                 return $"global::Swift.Runtime.ExistentialContainer0.Unbox({containerAccess})";
-            return $"(object)({containerAccess})";
+            // No proxy class: the delegate takes an owning box. The callback only lends the
+            // container, so the box takes its own reference and stays valid if the delegate keeps it.
+            return ExistentialHandler.NoProxyExistentialRead("object", containerType, containerAccess,
+                closureHandler.IsClassBoundArity1Existential(typeSpec), owned: false);
         }
 
         // Bool requires byte->bool conversion. Read bit 0 only: on the direct CallConvSwift lane Swift
@@ -977,7 +1002,7 @@ public static partial class ClosureEmitter
                     else if (closureHandler.NeedsProxyWrapping(elem, out var pn))
                         elements.Add($"new {pn}({accessor})");
                     else if (closureHandler.IsExistentialParam(elem))
-                        elements.Add($"(object){accessor}");
+                        elements.Add(BorrowedNoProxyExistentialArg(closureHandler, elem, accessor));
                     else if (closureHandler.IsSimpleEnum(elem))
                     {
                         var enumType = closureHandler.TranslateTypeSpecToCSharp(elem);
@@ -1231,9 +1256,9 @@ public static partial class ClosureEmitter
         if (closureHandler.NeedsProxyWrapping(typeSpec, out var proxyName))
             return $"new {proxyName}(arg{argIndex})";
 
-        // Unknown protocol: box ExistentialContainer to object for delegate
+        // Unknown protocol: the delegate takes an owning copy of the borrowed container.
         if (closureHandler.IsExistentialParam(typeSpec))
-            return $"(object)arg{argIndex}";
+            return BorrowedNoProxyExistentialArg(closureHandler, typeSpec, $"arg{argIndex}");
 
         return $"arg{argIndex}";
     }

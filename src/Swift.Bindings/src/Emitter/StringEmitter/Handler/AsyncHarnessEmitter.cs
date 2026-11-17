@@ -768,12 +768,17 @@ namespace BindingsGeneration
                     : string.Empty;
                 string asyncWrapExpr;
                 bool asyncProxySuppressed = false;
-                if (asyncProtocolList.Protocols.Count == 0 || asyncPublicType == "object")
-                    asyncWrapExpr = "__existentialResult";
-                else if (asyncPublicType == "Swift.Runtime.ExistentialUnion")
-                    asyncWrapExpr = "new Swift.Runtime.ExistentialUnion(__existentialResult)";
+                // The carrier free below is a plain dealloc, so every arm takes over the carrier's +1:
+                // a zero-witness existential (`Any`, markers only) is the plain value UnboxOwned copies
+                // out before destroying the container (as the synchronous return does); a no-proxy
+                // `object` or union carrier adopts it; AnyError adopts it.
+                if (ExistentialHandler.IsZeroWitnessExistential(asyncProtocolList))
+                    asyncWrapExpr = "Swift.Runtime.ExistentialContainer0.UnboxOwned(__existentialResult)";
+                else if (ExistentialHandler.IsNoProxyExistentialCarrier(asyncPublicType))
+                    asyncWrapExpr = ExistentialHandler.NoProxyExistentialRead(asyncPublicType, asyncContainerType, "__existentialResult",
+                        _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList), owned: true);
                 else if (_env.ExistentialHandler.TryGetWellKnownProtocolType(asyncProtocolList, out var asyncWkIR))
-                    asyncWrapExpr = $"new {asyncWkIR}(__existentialResult)";
+                    asyncWrapExpr = $"new {asyncWkIR}(__existentialResult{ExistentialHandler.WellKnownOwnedTransferArg(asyncWkIR)})";
                 else if (_env.ExistentialHandler.IsProxyReferenceUnavailable(asyncProtocolList, _emissionContext))
                 {
                     // The protocol proxy that would marshal this async existential result is

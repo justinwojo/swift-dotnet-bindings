@@ -267,12 +267,17 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // env that emits the backing getter method (further below) — they MUST agree, else a settable
         // property would expose `object` publicly while its backing getter returns ExistentialUnion.
         bool isGetOnlyProperty = !propertyDecl.Accessors.OfType<SetAccessorDecl>().Any();
+        // A property that witnesses a protocol requirement implements the interface property, which
+        // keeps an existential at `object`; the union would be CS0738 (ProtocolRequirementWitness).
+        bool witnessesRequirement = ProtocolRequirementWitness.WitnessesConformedRequirement(
+            propertyDecl.ParentDecl, propertyDecl.Name, isProperty: true);
+        bool unionEligibleProperty = isGetOnlyProperty && !witnessesRequirement;
 
         string csTypeName;
         if (isExistential)
         {
             var protocolList = propertyEnv.ExistentialHandler.ToProtocolListTypeSpec(propertyDecl.SwiftTypeSpec)!;
-            csTypeName = propertyEnv.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: isGetOnlyProperty);
+            csTypeName = propertyEnv.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: unionEligibleProperty);
         }
         else if (isOptionalExistential)
         {
@@ -815,6 +820,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // signature is built, which would otherwise let the body project to union while the
                 // signature stayed `object`.
                 accessorEnv.IsSettablePropertyAccessor = !isGetOnlyProperty;
+                accessorEnv.WitnessesProtocolRequirement = witnessesRequirement;
 
                 // For the get-only case we still wire the engine here so the SIGNATURE path
                 // (MethodSignature.HandleReturnType) sees it: MethodHandler.Emit only sets EmissionContext
@@ -824,7 +830,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // by an `object`-returning method (CS0266). We wire only the engine, not the full
                 // EmissionContext, to avoid enabling the EmissionContext-gated wrapper-symbol contract
                 // check on the accessor path.
-                if (isGetOnlyProperty)
+                if (unionEligibleProperty)
                     accessorEnv.ExistentialHandler.SpecializationEngine = context.GetEmissionContext()?.SpecializationEngine;
                 methodHandler.Emit(csWriter, swiftWriter, accessorEnv, conductor, context);
                 // The accessor was emitted here rather than through IHandler's type-body loop, so

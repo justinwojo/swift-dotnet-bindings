@@ -730,13 +730,28 @@ public class MarshalPlanRegressionTests
     }
 
     [Fact]
-    public void Existential_Object_ReturnPlan_PassThrough()
+    public void Existential_Object_ReturnPlan_AdoptsTheOwnedContainer()
     {
+        // The raw container used to pass through boxed into object, leaking Swift's +1 on every read.
         var proj = new ExistentialProjection(
             "Swift.Runtime.ExistentialContainer1", "object", null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
-        Assert.Equal("result", plan.PInvokeExpression);
+        Assert.Equal("new Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer1>(result, classBound: false)", plan.PInvokeExpression);
+    }
+
+    [Theory]
+    [InlineData("object")]
+    [InlineData("Swift.Runtime.ExistentialUnion")]
+    public void Existential_NoProxy_OwnedHandOffToSwift_MintsItsOwnReference(string publicType)
+    {
+        // A C# conformer's getter or method returns the value to Swift at +1. The value is an owning
+        // box that only lends its container; borrowing it handed Swift the box's own reference.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", publicType, null);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<object>(value, classBoundCarrier: false)",
+            proj.GetOwnedParameterElementConversion("value"));
     }
 
     [Fact]

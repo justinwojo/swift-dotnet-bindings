@@ -145,6 +145,7 @@
       "SwiftEquatable",
       "SwiftEscapingClosure",
       "SwiftException",
+      "SwiftExistential",
       "SwiftFrameworkResolver",
       "SwiftHandle",
       "SwiftHandleGuard",

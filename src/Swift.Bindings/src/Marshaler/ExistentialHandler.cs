@@ -81,6 +81,72 @@ public class ExistentialHandler
     public static string WellKnownOwnedTransferArg(string? wellKnownType) =>
         wellKnownType == "Swift.Foundation.AnyError" ? ", ownsContainer: true" : string.Empty;
 
+    /// <summary>The public type a PAT existential with known conformers takes in a read position.</summary>
+    public const string ExistentialUnionType = "Swift.Runtime.ExistentialUnion";
+
+    /// <summary>
+    /// Whether <paramref name="publicType"/> is a carrier with no proxy class (<c>object</c>, or the
+    /// read-only <see cref="ExistentialUnionType"/>), for which <see cref="NoProxyExistentialRead"/>
+    /// builds the read.
+    /// </summary>
+    public static bool IsNoProxyExistentialCarrier(string publicType) =>
+        publicType == "object" || publicType == ExistentialUnionType;
+
+    /// <summary>
+    /// The C# expression that hands an existential with no proxy class to C# as
+    /// <paramref name="publicType"/> (<c>object</c> or <see cref="ExistentialUnionType"/>).
+    /// </summary>
+    /// <remarks>
+    /// A read used to box the raw container into <c>object</c>, or wrap it in a union that never
+    /// released it: an owned (+1) return leaked the value on every read, and a borrowed read
+    /// (an argument, an element read in place) handed out a container that dangled once its owner
+    /// released it. Both carriers now own exactly one <c>+1</c>: an owned read is adopted, a borrowed
+    /// one is copied with its own retain. The runtime releases it on Dispose or finalization.
+    /// </remarks>
+    /// <param name="publicType"><c>object</c> or <see cref="ExistentialUnionType"/>.</param>
+    /// <param name="containerType">The opaque container type (<c>Swift.Runtime.ExistentialContainerN</c>).</param>
+    /// <param name="containerExpression">The container value (an <c>ExistentialContainerN</c>, or a class-bound carrier).</param>
+    /// <param name="classBound">True when the existential is class-bound: its +1 is the class reference.</param>
+    /// <param name="owned">True when Swift handed the container over at +1.</param>
+    public static string NoProxyExistentialRead(string publicType, string containerType, string containerExpression,
+        bool classBound, bool owned)
+    {
+        var classBoundArg = classBound ? "true" : "false";
+        if (publicType == ExistentialUnionType)
+            return owned
+                ? $"new Swift.Runtime.ExistentialUnion({containerExpression}, ownsContainer: true, classBound: {classBoundArg})"
+                : $"Swift.Runtime.ExistentialUnion.FromBorrowed({containerExpression}, classBound: {classBoundArg})";
+        // A class-bound carrier widens to the 1-witness container (ClassExistentialContainer1's
+        // implicit conversion), whose Payload0 is the class reference the box releases.
+        var carrier = classBound ? "Swift.Runtime.ExistentialContainer1" : containerType;
+        return owned
+            ? $"new Swift.Runtime.SwiftExistential<{carrier}>({containerExpression}, classBound: {classBoundArg})"
+            : $"Swift.Runtime.SwiftExistential<{carrier}>.FromBorrowed({containerExpression}, classBound: {classBoundArg})";
+    }
+
+    /// <summary>
+    /// The C# expression that hands an <c>object</c> existential with no proxy class to Swift at
+    /// +1 (a closure result Swift takes ownership of), or null for a container this has no owned
+    /// mint for (<c>ExistentialContainer0</c>).
+    /// </summary>
+    /// <remarks>
+    /// The value is whatever the C# code holds for the existential: the owning box a read returned
+    /// (<c>SwiftExistential</c>, <see cref="ExistentialUnionType"/>), which only lends its container,
+    /// or a boxable conformer. An unboxing cast would throw on the box, and handing its borrowed
+    /// bytes to Swift as +1 would release the box's own reference. The factory mints an independent
+    /// +1 from a borrowed container and donates one a boxable conformer already minted.
+    /// </remarks>
+    public static string? NoProxyExistentialToOwnedContainer(string containerType, string valueExpression, bool classBound)
+    {
+        if (containerType.EndsWith("ClassExistentialContainer1", StringComparison.Ordinal))
+            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedClassCarrier<object>({valueExpression})";
+        if (!IsOwnedExistentialContainerType(containerType))
+            return null;
+        if (containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal))
+            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<object>({valueExpression}, classBoundCarrier: {(classBound ? "true" : "false")})";
+        return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<object, {containerType}>({valueExpression})";
+    }
+
     /// <summary>
     /// Sets the composition collector on this handler for late injection.
     /// </summary>
