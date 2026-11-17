@@ -73,7 +73,7 @@ public static partial class ClosureEmitter
         // indirect-return callback uses): Swift passes the buffer in its indirect-result register and
         // reads the value from it after the call, so the callback writes there and returns nothing.
         // Returning a freshly allocated buffer instead leaves Swift's own buffer uninitialized.
-        var swiftIndirectResult = IsSwiftLaneThrowingIndirectResult(closureTypeSpec, closureHandler, useCdecl);
+        var swiftIndirectResult = IsSwiftLaneIndirectResult(closureTypeSpec, closureHandler, useCdecl);
         if (!useCdecl)
         {
             // Swift: the shared reverse order — error first, context (self register) last.
@@ -171,7 +171,7 @@ public static partial class ClosureEmitter
             ? ""
             : swiftIndirectResult
                 ? BuildCallbackIndirectReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, bufferExpr: "indirectResult")
-                : BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType);
+                : BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType, ownedReference: !useCdecl);
 
         // The delegate invocation AND the success marshalling run inside try/catch: a
         // managed exception (a non-cooperative throw from the user delegate, or a failure
@@ -212,12 +212,12 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// True when a Swift-lane throwing callback receives its result buffer in Swift's indirect-result
+    /// True when a Swift-lane callback receives its result buffer in Swift's indirect-result
     /// register: the result is address-only (a resilient struct, an opaque existential, or an Optional
     /// or Result over one), which Swift never returns in registers. A class reference or a scalar still
     /// comes back in the return register. The @_cdecl lane keeps its adapter's returned-buffer contract.
     /// </summary>
-    internal static bool IsSwiftLaneThrowingIndirectResult(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler, bool useCdecl)
+    internal static bool IsSwiftLaneIndirectResult(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler, bool useCdecl)
         => !useCdecl &&
            !closureTypeSpec.ReturnType.IsEmptyTuple &&
            closureHandler.ClassifyDirectClosureArg(closureTypeSpec.ReturnType).Abi == DirectClosureArgAbi.Indirect;

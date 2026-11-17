@@ -249,7 +249,8 @@ public static partial class ClosureEmitter
                 closureTypeSpec.ReturnType,
                 delegateCallExpr,
                 closureHandler,
-                returnType);
+                returnType,
+                ownedReference: !useCdecl);
         }
 
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
@@ -486,12 +487,17 @@ public static partial class ClosureEmitter
     /// <param name="resultExpr">The expression that produces the result (e.g., "del(args)" or "swiftResult.Success").</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="callbackReturnType">The callback's declared return type string (e.g., "void*", "byte").</param>
+    /// <param name="ownedReference">
+    /// True on the Swift lane: Swift owns a closure's result, so a returned reference must carry its
+    /// own +1. The <c>@_cdecl</c> adapter takes the pointer unretained, so that lane returns it at +0.
+    /// </param>
     /// <returns>One or more lines of C# code for the return statement.</returns>
     internal static string BuildCallbackReturnStatement(
         TypeSpec returnType,
         string resultExpr,
         ClosureHandler closureHandler,
-        string callbackReturnType)
+        string callbackReturnType,
+        bool ownedReference = false)
     {
         if (MarshallingHelpers.IsBoolType(returnType))
             return $"return (byte)({resultExpr} ? 1 : 0);";
@@ -501,6 +507,10 @@ public static partial class ClosureEmitter
 
         if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && TypeDatabaseExtensions.IsPointerType(retNamedType))
             return $"return (void*){resultExpr};";
+
+        if (callbackReturnType == "void*" && ownedReference &&
+            (closureHandler.IsReferenceType(returnType) || IsOptionalReferenceReturn(returnType, closureHandler)))
+            return BuildOwnedReferenceReturn(returnType, resultExpr, closureHandler);
 
         if (callbackReturnType == "void*" && closureHandler.IsClassType(returnType))
             return $"return (void*){resultExpr}.Payload.DangerousGetHandle();";
@@ -674,6 +684,31 @@ public static partial class ClosureEmitter
         }
 
         return $"return {resultExpr};";
+    }
+
+    /// <summary>
+    /// Return statement for a reference result on the Swift lane: the handle Swift receives carries a
+    /// +1 of its own, taken while the managed wrapper is still alive. A Swift class is retained with
+    /// <c>swift_retain</c>, an Objective-C object with <c>swift_unknownObjectRetain</c>; a <c>null</c>
+    /// Optional returns the null pointer that is Swift's empty case.
+    /// </summary>
+    private static string BuildOwnedReferenceReturn(TypeSpec returnType, string resultExpr, ClosureHandler closureHandler)
+    {
+        var isOptional = IsOptionalReferenceReturn(returnType, closureHandler);
+        var referenceType = isOptional ? ((NamedTypeSpec)returnType).GenericParameters[0] : returnType;
+        var isSwiftClass = closureHandler.IsClassType(referenceType);
+        var handleRead = isSwiftClass
+            ? "_ownedResult.Payload.DangerousGetHandle()"
+            : "(global::System.IntPtr)_ownedResult.Handle";
+        var retain = isSwiftClass ? "global::Swift.Runtime.Arc.Retain" : "global::Swift.Runtime.Arc.UnknownObjectRetain";
+        var nullCheck = isOptional ? "if (_ownedResult is null) return null;\n        " : string.Empty;
+        return $$"""
+            var _ownedResult = {{resultExpr}};
+                    {{nullCheck}}var _ownedHandle = {{handleRead}};
+                    {{retain}}(_ownedHandle);
+                    global::System.GC.KeepAlive(_ownedResult);
+                    return (void*)_ownedHandle;
+            """;
     }
 
     /// <summary>
@@ -1489,7 +1524,7 @@ public static partial class ClosureEmitter
             }
         }
 
-        var swiftIndirectResult = IsSwiftLaneThrowingIndirectResult(closureTypeSpec, closureHandler, useCdecl);
+        var swiftIndirectResult = IsSwiftLaneIndirectResult(closureTypeSpec, closureHandler, useCdecl);
         var returnType = closureTypeSpec.ReturnType.IsEmptyTuple || swiftIndirectResult
             ? "void"
             : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);

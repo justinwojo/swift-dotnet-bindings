@@ -2461,6 +2461,8 @@ public partial class ClosureHandler
     /// <c>T?</c> is then only a nullable-reference annotation, so a reader or writer keyed on it sees
     /// <c>T</c> and loses Swift's empty case; callback code must go through <c>SwiftOptional&lt;T&gt;</c>.
     /// <c>Foundation.Data</c> is excluded: it projects to <c>byte[]</c> and has its own arms.
+    /// <c>Swift.AnyHashable</c> is excluded too: the database records it as a resilient struct, but the
+    /// runtime projects it as a hand-written C# struct, so its <c>T?</c> is a real <c>Nullable&lt;T&gt;</c>.
     /// </summary>
     public bool IsOptionalValueWrapper(TypeSpec typeSpec, out NamedTypeSpec inner)
     {
@@ -2468,6 +2470,7 @@ public partial class ClosureHandler
             named.GenericParameters.Count == 1 &&
             named.GenericParameters[0] is NamedTypeSpec payload &&
             payload.Name != "Foundation.Data" &&
+            payload.Name != "Swift.AnyHashable" &&
             (IsNonFrozenStruct(payload) || IsComplexEnum(payload)))
         {
             inner = payload;

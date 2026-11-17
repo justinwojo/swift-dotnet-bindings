@@ -30,6 +30,16 @@ public class OptionalValueWrapperCallbackTests
         Assert.DoesNotContain("MarshalCallbackArg<TestModule.Wide?>", callback);
     }
 
+    [Fact]
+    public void SwiftLane_OptionalRuntimeStructArgument_IsNotTreatedAsAWrapperClass()
+    {
+        // Swift.AnyHashable is recorded as a resilient struct, but the runtime projects it as a C#
+        // struct: its T? is Nullable<T>, which the class-constrained Optional reader cannot take.
+        var callback = EmitEscaping(new ClosureTypeSpec(Optional(new NamedTypeSpec("Swift.AnyHashable")), TupleTypeSpec.Empty), useCdecl: false);
+
+        Assert.DoesNotContain("MarshalOptionalCallbackArg<", callback);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -141,6 +151,16 @@ public class OptionalValueWrapperCallbackTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int"),
                 MetadataAccessor = "$sSiMa",
                 Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.AnyHashable"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "AnyHashable"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.AnyHashable"),
+                MetadataAccessor = "$ss11AnyHashableVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct,
             });
         typeDatabase.AddModuleDatabase(swiftModule);

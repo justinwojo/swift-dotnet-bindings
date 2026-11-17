@@ -303,6 +303,56 @@ public class ReverseCallbackShapesTests : TestBase
         });
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(ReverseCallbackSettings))]
+    public void TestStoredClassFactory_HandsSwiftAnOwnedReference()
+    {
+        // Swift owns a closure's class result and releases it when done. One managed node returned
+        // over and over must survive every release, and so must the managed wrapper that holds it.
+        AssertCallbackLane(typeof(ReverseCallbackSettings), "makeNode_Set_value", typeof(CallConvSwift));
+        using var settings = new ReverseCallbackSettings();
+        AssertEqual("swift-0,swift-1", settings.MakeNodes(2), "the default factory runs in Swift");
+
+        var shared = new ReverseCallbackNode("shared");
+        RunSwiftLane("ReverseCallbackSettings.MakeNode", () =>
+        {
+            settings.MakeNode = index => index == 1 ? new ReverseCallbackNode($"fresh-{index}") : shared;
+            for (var round = 0; round < 3; round++)
+            {
+                AssertEqual("shared,fresh-1,shared", settings.MakeNodes(3), $"round {round}: every node reaches Swift");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            AssertEqual("shared", shared.Name, "the managed node is still alive after Swift released its copies");
+        });
+    }
+
+    [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(ReverseCallbackSettings))]
+    public void TestStoredThrowingClassLookup_HandsSwiftAnOwnedReference()
+    {
+        // The throwing twin: a node and an error both cross, and the managed node survives Swift
+        // releasing every copy it was handed.
+        AssertCallbackLane(typeof(ReverseCallbackSettings), "findNode_Set_value", typeof(CallConvSwift));
+        using var settings = new ReverseCallbackSettings();
+        AssertEqual("swift-1", settings.DescribeNode(1), "the default lookup runs in Swift");
+
+        var shared = new ReverseCallbackNode("kept");
+        RunSwiftLane("ReverseCallbackSettings.FindNode", () =>
+        {
+            settings.FindNode = key => key < 0
+                ? throw new InvalidOperationException("negative")
+                : Swift.SwiftResult<ReverseCallbackNode, SwiftError>.FromSuccess(shared);
+            for (var round = 0; round < 3; round++)
+            {
+                AssertEqual("kept", settings.DescribeNode(5), $"round {round}: the node crosses back");
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+            AssertEqual("error", settings.DescribeNode(-1), "a managed exception reaches Swift as a thrown error");
+            AssertEqual("kept", settings.DescribeNode(6), "and the callback still works after an error");
+            AssertEqual("kept", shared.Name, "the managed node is still alive after Swift released its copies");
+        });
+    }
+
     /// <summary>A managed conformer Swift receives from the stored factory.</summary>
     private sealed class ScalingEncoding(nint factor) : IReverseCallbackEncoding
     {

@@ -150,6 +150,10 @@ public struct ReverseCallbackSettings {
     public var validate: (Int) throws -> Int
     /// A throwing lookup whose wide optional result Swift receives by address.
     public var lookup: (Int) throws -> ReverseCallbackWide?
+    /// A factory whose class result Swift owns once it comes back.
+    public var makeNode: (Int) -> ReverseCallbackNode
+    /// A throwing lookup whose class result Swift owns once it comes back.
+    public var findNode: (Int) throws -> ReverseCallbackNode
 
     public init() {
         transform = { $0 }
@@ -157,6 +161,27 @@ public struct ReverseCallbackSettings {
         makeEncoder = { ReverseCallbackOffsetEncoding(offset: $0) }
         validate = { $0 }
         lookup = { _ in nil }
+        makeNode = { ReverseCallbackNode(name: "swift-\($0)") }
+        findNode = { ReverseCallbackNode(name: "swift-\($0)") }
+    }
+
+    /// Calls `makeNode` for `0..<count`, holding every node until the last is made, and joins their
+    /// names. Swift releases each node when the array goes away.
+    public func makeNodes(_ count: Int) -> String {
+        var nodes: [ReverseCallbackNode] = []
+        for index in 0..<count {
+            nodes.append(makeNode(index))
+        }
+        return nodes.map(\.name).joined(separator: ",")
+    }
+
+    /// Describes `findNode(key)`: the node's name, or `error` when it throws.
+    public func describeNode(_ key: Int) -> String {
+        do {
+            return try findNode(key).name
+        } catch {
+            return "error"
+        }
     }
 
     /// `transform(value)`.
