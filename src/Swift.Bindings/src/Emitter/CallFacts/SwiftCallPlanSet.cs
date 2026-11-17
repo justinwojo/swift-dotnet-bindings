@@ -77,6 +77,25 @@ public sealed record SwiftPlanCoverageEntry(
 
     /// <summary>When an executable plan kept its direct import, why it could not be bridged.</summary>
     public string? BridgeRefusal { get; init; }
+
+    /// <summary>
+    /// For a forward plan, why a client of its module's public interface cannot name the target
+    /// (<see cref="SwiftCallTarget.NotPublic"/>); null when it can. A consumer's receipt, read from
+    /// such clients, never shows the target, so a judgement on one refuses the plan
+    /// (<see cref="SwiftPlanRefusalKind.NotPublicFromInterface"/>) rather than leave it unproven.
+    /// </summary>
+    public string? NotPublic { get; init; }
+
+    /// <summary>True when a judgement, not the planner, refused the plan: it is planned again before any other judgement.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool IsRefusedByJudgement =>
+        Status == SwiftPlanStatus.Refused && Symbol is not null
+        && Refusals.Length == 1 && Refusals[0].Kind == SwiftPlanRefusalKind.NotPublicFromInterface;
+
+    /// <summary>This entry before any judgement: a plan a judgement refused is planned again, with no evidence.</summary>
+    public SwiftPlanCoverageEntry Unjudged() => IsRefusedByJudgement
+        ? this with { Status = SwiftPlanStatus.Planned, Refusals = ImmutableArray<SwiftPlanRefusal>.Empty, Executable = false, Evidence = SwiftCallPlanSet.NoEvidenceReason }
+        : this;
 }
 
 /// <summary>Why a module's bridge routing was withdrawn after it was decided.</summary>
@@ -190,7 +209,8 @@ public sealed class SwiftCallPlanSet
                     outcomes.Add((entry, null, null));
                     break;
                 default:
-                    outcomes.Add((entry, Plan(entry, FactsOf(entry), planner), null));
+                    var entryFacts = FactsOf(entry);
+                    outcomes.Add((entry, Plan(entry, entryFacts, planner) with { NotPublic = entryFacts?.Target.NotPublic }, null));
                     break;
             }
         }
@@ -258,6 +278,7 @@ public sealed class SwiftCallPlanSet
                 {
                     Symbol = planned.Symbol, Hash = planned.Hash, Semantics = outcome.Semantics,
                     Callee = outcome.Callee, Evidence = NoEvidenceReason, Obligations = outcome.Obligations,
+                    NotPublic = planned.Body.Kind == SwiftPlanKind.Forward ? outcome.NotPublic : null,
                 };
             }
             else
@@ -336,7 +357,7 @@ public sealed class SwiftCallPlanSet
     {
         Module = Module,
         EvidenceScope = null,
-        Coverage = Coverage.Select(e => e with
+        Coverage = Coverage.Select(e => e.Unjudged()).Select(e => e with
         {
             Executable = false,
             Evidence = e.Status == SwiftPlanStatus.Planned ? NoEvidenceReason : null,

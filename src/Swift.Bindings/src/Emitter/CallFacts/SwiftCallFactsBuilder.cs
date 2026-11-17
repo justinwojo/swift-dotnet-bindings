@@ -96,7 +96,8 @@ public sealed class SwiftCallFactsBuilder
                 yield return facts;
         foreach (var subscript in type.Subscripts)
             foreach (var accessorDecl in subscript.Accessors)
-                yield return ForMethod(accessorDecl.Method, type, new MemberContext(AccessorOf(accessorDecl), subscript.Name, subscript.AvailabilityAnnotations, IsSubscript: true));
+                yield return ForMethod(accessorDecl.Method, type, new MemberContext(AccessorOf(accessorDecl), subscript.Name, subscript.AvailabilityAnnotations, IsSubscript: true,
+                    StorageIsInternal: subscript.IsModuleInternal, StorageIsSpi: subscript.IsSpiProtected));
         foreach (var nested in type.Types)
             foreach (var facts in ForType(nested, module, declaredHere: true))
                 yield return facts;
@@ -109,7 +110,8 @@ public sealed class SwiftCallFactsBuilder
             var annotations = accessorDecl is SetAccessorDecl && property.SetterAvailabilityAnnotations is { } setter
                 ? (IReadOnlyList<AvailabilityAnnotation>)setter.Concat(property.AvailabilityAnnotations ?? new()).ToList()
                 : property.AvailabilityAnnotations;
-            yield return ForMethod(accessorDecl.Method, parent, new MemberContext(AccessorOf(accessorDecl), property.Name, annotations, IsSubscript: false, IsLazyStorage: property.IsLazy));
+            yield return ForMethod(accessorDecl.Method, parent, new MemberContext(AccessorOf(accessorDecl), property.Name, annotations, IsSubscript: false, IsLazyStorage: property.IsLazy,
+                StorageIsInternal: property.IsModuleInternal, StorageIsSpi: property.IsSpiProtected));
         }
     }
 
@@ -117,14 +119,45 @@ public sealed class SwiftCallFactsBuilder
         accessor is SetAccessorDecl ? SwiftAccessorKind.Set : SwiftAccessorKind.Get;
 
     /// <summary>How a method is reached: directly, or as a property's or subscript's accessor.</summary>
+    /// <param name="StorageIsInternal">For an accessor, whether its property or subscript is internal to its module.</param>
+    /// <param name="StorageIsSpi">For an accessor, whether its property or subscript is SPI.</param>
     internal sealed record MemberContext(
         SwiftAccessorKind Accessor,
         string? StorageName,
         IReadOnlyList<AvailabilityAnnotation>? StorageAvailability,
         bool IsSubscript,
-        bool IsLazyStorage = false)
+        bool IsLazyStorage = false,
+        bool StorageIsInternal = false,
+        bool StorageIsSpi = false)
     {
         public static readonly MemberContext Plain = new(SwiftAccessorKind.None, null, null, false);
+    }
+
+    /// <summary>
+    /// Why a client of the module's public interface cannot name <paramref name="method"/>, or null
+    /// when it can: the member (or, for an accessor, its storage) is internal, <c>@usableFromInline
+    /// internal</c>, unavailable or SPI, or so is a type of the member's own module it is declared in.
+    /// A type of another module is not asked: an extension member reaches it through that module's
+    /// interface, and the parser marks every foreign type internal to this one.
+    /// </summary>
+    internal static string? NotPublicOf(MethodDecl method, TypeDecl? parent, MemberContext context)
+    {
+        const string hidden = "internal, @usableFromInline internal or unavailable";
+        if (method.IsSpiProtected || context.StorageIsSpi)
+            return "the member is SPI";
+        if (method.IsModuleInternal || context.StorageIsInternal)
+            return "the member is " + hidden;
+        var module = method.ModuleDecl?.Name ?? parent?.ModuleDecl?.Name;
+        for (var type = parent; type is not null; type = type.ParentDecl as TypeDecl)
+        {
+            if (!string.Equals(type.SwiftTypeName.Module, module, StringComparison.Ordinal))
+                continue;
+            if (type.IsSpiProtected)
+                return type.SwiftTypeName.ModuleQualifiedName + " is SPI";
+            if (type.IsModuleInternal)
+                return type.SwiftTypeName.ModuleQualifiedName + " is " + hidden;
+        }
+        return null;
     }
 
     /// <summary>Builds the facts of one method, initializer or accessor.</summary>
@@ -152,6 +185,7 @@ public sealed class SwiftCallFactsBuilder
             MemberName = context.StorageName ?? method.GetSwiftName(),
             Availability = AvailabilityOf(method.AvailabilityAnnotations, context.StorageAvailability, parent),
             HasDispatchThunk = HasDispatchThunk(method, parent, kind),
+            NotPublic = NotPublicOf(method, parent, context),
         };
 
         var self = SelfOf(method, parent, context, unknowns);

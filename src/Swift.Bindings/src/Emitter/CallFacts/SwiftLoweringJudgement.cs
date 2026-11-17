@@ -71,6 +71,19 @@ public sealed class SwiftLoweringJudgement
     /// </summary>
     public (bool Executable, string Evidence) Judge(string symbol, string callee)
     {
+        var verdict = Weigh(symbol, callee);
+        return (verdict.Executable, verdict.Evidence);
+    }
+
+    /// <summary>
+    /// A judgement of one target: whether it is executable and why, whether a receipt contradicts the
+    /// prediction, and, when the receipts authorize but do not show it, the reason each claimed slice
+    /// gives for not showing it (null where a slice gives none or is missing).
+    /// </summary>
+    private sealed record Verdict(bool Executable, string Evidence, bool Contradicted, ImmutableArray<string?> Unshown);
+
+    private Verdict Weigh(string symbol, string callee)
+    {
         var expected = "swiftcc " + callee;
         var contradictions = new List<string>();
         foreach (var receipt in _known)
@@ -85,37 +98,68 @@ public sealed class SwiftLoweringJudgement
             }
         }
         if (contradictions.Count > 0)
-            return (false, string.Join("; ", contradictions));
+            return new(false, string.Join("; ", contradictions), true, []);
         if (Refusal is not null)
-            return (false, Refusal);
+            return new(false, Refusal, false, []);
 
         var gaps = new List<string>();
+        var unshown = ImmutableArray.CreateBuilder<string?>();
         foreach (var receipt in _authorizing)
         {
             foreach (var triple in Scope.Slices)
             {
                 if (!receipt.Slices.TryGetValue(triple, out var slice))
+                {
                     gaps.Add($"no evidence for {triple} under {receipt.Compiler}");
+                    unshown.Add(null);
+                }
                 else if (!slice.Symbols.ContainsKey(symbol))
-                    gaps.Add(slice.Unobserved?.TryGetValue(symbol, out var why) == true
+                {
+                    var why = slice.Unobserved?.GetValueOrDefault(symbol);
+                    gaps.Add(why is not null
                         ? $"swiftc shows no {symbol} on {triple} under {receipt.Compiler}: {why}"
                         : $"swiftc shows no {symbol} on {triple} under {receipt.Compiler}");
+                    unshown.Add(why);
+                }
             }
         }
         return gaps.Count == 0
-            ? (true, $"swiftc gives {expected} on {Scope.Slices.Length} triple(s) under {_authorizing.Length} toolchain(s)")
-            : (false, string.Join("; ", gaps));
+            ? new(true, $"swiftc gives {expected} on {Scope.Slices.Length} triple(s) under {_authorizing.Length} toolchain(s)", false, [])
+            : new(false, string.Join("; ", gaps), false, unshown.ToImmutable());
+    }
+
+    /// <summary>
+    /// Why a consumer's receipt can never show a forward plan's target, or null: its facts say no
+    /// client of the module's public interface can name it, or every claimed slice's probe says the
+    /// same. Only a judgement on the artifact's own receipt asks, since that receipt is read from
+    /// such clients (the wrapper and the probe); the qualification record is read from definitions,
+    /// which show every target, so a target it does not show is stale evidence. A receipt that
+    /// contradicts the plan is never set aside.
+    /// </summary>
+    private string? NotPublicReason(SwiftPlanCoverageEntry entry, Verdict verdict)
+    {
+        if (Basis != AuthorizationBasis || verdict.Executable || verdict.Contradicted)
+            return null;
+        if (entry.NotPublic is { } notPublic)
+            return $"its target is not public from the module interface ({notPublic}), so no client can call it and no receipt of this build can show it";
+        if (verdict.Unshown.IsEmpty || verdict.Unshown.Any(why => why is null || SwiftLoweringProbe.ReasonCategory(why) != SwiftLoweringProbe.NotPublicCategory))
+            return null;
+        return "no client can call its target, so no receipt of this build can show it: "
+               + string.Join("; ", verdict.Unshown.Distinct(StringComparer.Ordinal));
     }
 
     /// <summary>
     /// <paramref name="coverage"/> with each planned entry's executable flag and evidence set. A
     /// forward entry is judged by its target and predicted callee; a thick or reverse one is not
-    /// executable; any unread argument without a reason fails closed.
+    /// executable; any unread argument without a reason fails closed. A forward entry the artifact's
+    /// own receipt can never show, because no client of the module's public interface can name its
+    /// target, is refused (<see cref="SwiftPlanRefusalKind.NotPublicFromInterface"/>) and keeps its
+    /// plan, symbol and evidence; an entry an earlier judgement refused so is judged afresh.
     /// </summary>
     public ImmutableArray<SwiftPlanCoverageEntry> Join(ImmutableArray<SwiftPlanCoverageEntry> coverage, ImmutableArray<SwiftCallPlan> plans)
     {
         var bySymbol = plans.ToDictionary(p => p.Symbol, StringComparer.Ordinal);
-        return coverage.Select(entry =>
+        return coverage.Select(e => e.Unjudged()).Select(entry =>
         {
             if (entry.Status != SwiftPlanStatus.Planned)
                 return entry with { Executable = false, Evidence = null };
@@ -127,8 +171,18 @@ public sealed class SwiftLoweringJudgement
                 return entry with { Executable = false, Evidence = "an argument the callee does not read has no reason it is benign" };
             if (entry.Callee is not { } callee)
                 return entry with { Executable = false, Evidence = "the entry records no predicted callee signature" };
-            var (executable, evidence) = Judge(plan.Body.Target, callee);
-            return entry with { Executable = executable, Evidence = evidence };
+            var verdict = Weigh(plan.Body.Target, callee);
+            if (NotPublicReason(entry, verdict) is { } notPublic)
+            {
+                return entry with
+                {
+                    Status = SwiftPlanStatus.Refused,
+                    Refusals = [new SwiftPlanRefusal(SwiftPlanRefusalKind.NotPublicFromInterface, notPublic)],
+                    Executable = false,
+                    Evidence = verdict.Evidence,
+                };
+            }
+            return entry with { Executable = verdict.Executable, Evidence = verdict.Evidence };
         }).ToImmutableArray();
     }
 }

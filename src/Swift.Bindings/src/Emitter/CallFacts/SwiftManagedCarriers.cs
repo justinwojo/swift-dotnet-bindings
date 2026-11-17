@@ -222,6 +222,15 @@ public enum SwiftPlanRefusalKind
 
     /// <summary>Two different plans hash to the same bridge name.</summary>
     HashCollision,
+
+    /// <summary>
+    /// The target is not public from the module interface (it, or a type it is declared in, is
+    /// internal, <c>@usableFromInline internal</c> or SPI), and the receipt of a build that compiles
+    /// against that interface does not show it: no client can call it, so no evidence it collects
+    /// ever will. Given by a judgement, not by the planner: the plan is kept, and judging again
+    /// without evidence plans the transition again.
+    /// </summary>
+    NotPublicFromInterface,
 }
 
 /// <summary>One refusal: what kind, on which architecture (null for all), and why.</summary>
