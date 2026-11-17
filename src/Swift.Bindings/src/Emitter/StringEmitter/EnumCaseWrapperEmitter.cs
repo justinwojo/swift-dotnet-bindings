@@ -298,6 +298,78 @@ public static class EnumCaseWrapperEmitter
     }
 
     /// <summary>
+    /// Whether an enum can carry a payload bridge (<see cref="EmitSwiftCasePayloadBridge"/>):
+    /// the wrapper library exists, the enum is not generic and does not inherit a generic
+    /// context (the bridge names the concrete enum type), and the wrapper module can spell it.
+    /// </summary>
+    public static bool CanEmitCasePayloadBridge(EnumDecl enumDecl, ITypeDatabase typeDatabase)
+        => WrapperValidation.IsXCFrameworkMode(typeDatabase)
+           && typeDatabase.AsyncLibraryName is not null
+           && !enumDecl.IsGeneric
+           && !WrapperValidation.IsInheritedGenericContext(enumDecl)
+           && !WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl)
+           && enumDecl.SwiftTypeName?.ModuleQualifiedName is not null;
+
+    /// <summary>
+    /// Gets the @_cdecl symbol name for an enum case payload bridge. It carries the same
+    /// mangled-name hash as the case factory, so the simulator-only guard matches it too.
+    /// </summary>
+    public static string GetCasePayloadBridgeSymbolName(string moduleName, string enumTypeName, string caseName, string mangledName)
+    {
+        var hash = EmitterUtility.DeterministicHash8(mangledName);
+        var safeTypeName = enumTypeName.Replace(".", "_");
+        return $"SBW_{moduleName}_{safeTypeName}_{caseName}_payload_{hash}";
+    }
+
+    /// <summary>
+    /// Emits a @_cdecl Swift wrapper that reads a single-value case's payload out of a live
+    /// enum value and returns it bridged to its Objective-C object at +1, or nil when the
+    /// enum is in another case (or, for an optional payload, holds nil).
+    /// <para>
+    /// An Objective-C-bridgeable Swift value (<c>URL</c>, <c>IndexPath</c>, <c>Decimal</c>, …)
+    /// and a collection of them (<c>[URL]</c>, <c>[String: URL]</c>, <c>Set&lt;URL&gt;</c>) sit
+    /// in the enum's memory as Swift values, not as the Objective-C objects they bridge to. A
+    /// URL's word is its Swift storage object, and an array of URLs is native array storage
+    /// whose <c>objectAtIndex:</c> hands back each element's storage word unbridged. Only
+    /// Swift's own bridge (<c>as AnyObject</c>) produces the right object, so extraction runs
+    /// it here, as the method-return wrappers do. The caller adopts the returned +1.
+    /// </para>
+    /// </summary>
+    public static void EmitSwiftCasePayloadBridge(
+        SwiftWriter swiftWriter,
+        EnumDecl enumDecl,
+        EnumCaseDecl caseDecl,
+        string symbolName,
+        bool optionalPayload,
+        ModuleEmissionContext? ctx = null)
+    {
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
+        if (!ctx.TryAddConstructorWrapperSymbol(symbolName, DeclIdFactory.ForType(enumDecl)))
+            return; // Already emitted
+
+        var enumModuleQualifiedName = enumDecl.SwiftTypeName?.ModuleQualifiedName
+            ?? throw new InvalidOperationException($"Enum '{enumDecl.Name}' has no module-qualified Swift name.");
+        var swiftFuncName = $"_sbw_casepayload_{caseDecl.Name}_{EmitterUtility.DeterministicHash8(symbolName)}";
+        var binding = optionalPayload ? "value?" : "value";
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLines($$"""
+            // Enum case payload bridge @_cdecl wrapper for {{enumModuleQualifiedName}}.{{caseDecl.Name}}.
+            // Returns the payload bridged to its Objective-C object at +1; the caller adopts it.
+            """);
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            enumDecl, memberIsMainActorIsolated: false);
+        WrapperEmitterHelpers.EmitCdeclAnnotation(swiftWriter, symbolName, needsMainActor,
+            WrapperEmitterHelpers.MergeAvailabilityFromAncestors(caseDecl.AvailabilityAnnotations, enumDecl));
+        swiftWriter.WriteLine($"public func {swiftFuncName}(_ enumPtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer? {{");
+        swiftWriter.Indent++;
+        swiftWriter.WriteLine($"guard case let .{caseDecl.Name}({binding}) = enumPtr.assumingMemoryBound(to: {enumModuleQualifiedName}.self).pointee else {{ return nil }}");
+        swiftWriter.WriteLine("return Swift.Unmanaged.passRetained(value as Swift.AnyObject).toOpaque()");
+        swiftWriter.Indent--;
+        swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
     /// Builds the Swift expression for constructing an enum case with associated values.
     /// Example: Module.EnumType.caseName(label1: val1, label2: val2)
     /// </summary>

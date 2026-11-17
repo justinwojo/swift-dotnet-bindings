@@ -240,7 +240,7 @@ public class ObjCRootedInheritedPropertyDriftTests
         return null;
     }
 
-    private static string? FindNetCoreAppRefDir()
+    internal static string? FindNetCoreAppRefDir()
     {
         foreach (var root in DotNetRoots())
         {
@@ -260,14 +260,14 @@ public class ObjCRootedInheritedPropertyDriftTests
         return null;
     }
 
-    private static bool IsRefAssemblyPath(string path)
+    internal static bool IsRefAssemblyPath(string path)
         => path.Replace('\\', '/').Contains("/ref/", StringComparison.Ordinal);
 
     /// <summary>
     /// Extracts the pack version from a <c>{pack}/{version}/ref/{tfm}/{assembly}.dll</c> path so the
     /// newest installed pack wins. Returns 0.0 when the path doesn't match (sorts last).
     /// </summary>
-    private static Version VersionFromRefPath(string file)
+    internal static Version VersionFromRefPath(string file)
     {
         var versionDir = Path.GetDirectoryName(   // {pack}/{version}
             Path.GetDirectoryName(                 // {pack}/{version}/ref
@@ -276,7 +276,7 @@ public class ObjCRootedInheritedPropertyDriftTests
         return Version.TryParse(segment, out var v) ? v : new Version(0, 0);
     }
 
-    private static IEnumerable<string> DotNetRoots()
+    internal static IEnumerable<string> DotNetRoots()
     {
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 

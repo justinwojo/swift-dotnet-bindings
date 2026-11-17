@@ -1270,6 +1270,12 @@ public static class NameProvider
     private static readonly HashSet<string> _inheritedMethodCollisions = new()
     {
         "Dispose",        // IDisposable.Dispose() from SafeHandle
+        // NSObject's reference-count methods: an ObjC-rooted binding's constructors call the
+        // inherited DangerousRelease() on themselves, so a Swift method projecting onto one of these
+        // names would capture that call.
+        "DangerousRelease",
+        "DangerousRetain",
+        "DangerousAutorelease",
         "Finalize",       // Object.Finalize() (C# destructor) — Swift type has a finalize() member
         "GetType",        // Object.GetType() — Firestore Expression.type() shadows it and breaks GetType().Name
         "ToString",       // Object.ToString()
@@ -1419,6 +1425,33 @@ public static class NameProvider
     public static string GetPropertyName(PropertyDecl propertyDecl, string? containingTypeName = null)
     {
         var name = ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(propertyDecl), containingTypeName);
+        // An Objective-C-rooted class inherits NSObject's C# properties. A Swift property that is
+        // not an override of one but projects onto its name (a stored `handle` → `Handle`) would
+        // hide it, and the binding's own members read `Handle` for the receiver pointer: hidden by
+        // an `int Handle`, every call in the class would pass the property's value as self (and the
+        // property's own getter would recurse into itself). Rename it off the inherited name.
+        // An override is named like the declaration it overrides: a Swift ancestor's property (which
+        // had this rename applied to it) or, failing that, NSObject's own member when NSObject
+        // declares it virtual (`description` → `Description`). Anything else overrides a renamed
+        // declaration in another module, and gets the same rename here.
+        if (propertyDecl.ParentDecl is ClassDecl { IsObjCRooted: true } objCRootedParent
+            && _objCRootedInheritedPropertyNames.Contains(name))
+        {
+            if (propertyDecl.IsOverride)
+            {
+                if (FindOverriddenAncestorProperty(objCRootedParent, propertyDecl) is { } overridden)
+                    return GetPropertyName(overridden, containingTypeName is null ? null : (overridden.ParentDecl as TypeDecl)?.Name);
+                if (ObjCInheritedMemberSurface.Properties.Any(p => p.Name == name && p.IsVirtual))
+                    return name;
+            }
+
+            var siblings = objCRootedParent.Properties
+                .Where(p => !ReferenceEquals(p, propertyDecl))
+                .Select(p => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(p), containingTypeName))
+                .ToHashSet(StringComparer.Ordinal);
+            name = NameCollisionPolicy.ResolveMemberValueName(
+                name, n => _objCRootedInheritedPropertyNames.Contains(n) || siblings.Contains(n));
+        }
         // C# forbids a member named like a type parameter of its declaring type (CS0102): a stored
         // `var t: T` on `Box<T>` PascalCases to `T`. The method namer applies the same axis from the
         // same parameter set; protocol parents carry none (see GetParentGenericParameterNames).
@@ -1433,6 +1466,18 @@ public static class NameProvider
             .Select(p => ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(p), containingTypeName))
             .ToHashSet(StringComparer.Ordinal);
         return NameCollisionPolicy.ResolveMemberValueName(name, n => parentGenerics.Contains(n) || siblingNames.Contains(n));
+    }
+
+    /// <summary>The nearest same-module ancestor's instance property that <paramref name="propertyDecl"/> overrides.</summary>
+    private static PropertyDecl? FindOverriddenAncestorProperty(ClassDecl parent, PropertyDecl propertyDecl)
+    {
+        for (var ancestor = parent.ResolvedSuperclass; ancestor != null; ancestor = ancestor.ResolvedSuperclass)
+        {
+            var match = ancestor.Properties.FirstOrDefault(p => p.Name == propertyDecl.Name && !p.IsStatic);
+            if (match != null)
+                return match;
+        }
+        return null;
     }
 
     /// <summary>

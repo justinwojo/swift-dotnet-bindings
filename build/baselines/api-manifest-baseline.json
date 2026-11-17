@@ -3624,6 +3624,31 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "BridgedValuePayload.MakeAmount(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_BridgedValuePayload_makeAmount_15528DD1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BridgedValuePayload.MakeLinkMap(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_BridgedValuePayload_makeLinkMap_038C776C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BridgedValuePayload.MakeLinkSet(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_BridgedValuePayload_makeLinkSet_66F3B92E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BridgedValuePayload.MakeLinks(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_BridgedValuePayload_makeLinks_9B054EAA"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "BridgedValuePayload.MakePaths(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_BridgedValuePayload_makePaths_8E4AA7E1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "BtNativeThunkCreate(int)",
       "symbol": "thunk_SwiftBindingsTestLib_56092e7d"
     },
@@ -9959,6 +9984,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "DescribedToken.DescribedToken(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_2d52c36c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DescribedToken.Description",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_DescribedToken_description"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DescribedToken.Id",
+      "symbol": "thunk_SwiftBindingsTestLib_b7e351ba"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "DescriptionPrinter.DescriptionPrinter(IDescribable)",
       "symbol": "SBW_SwiftBindingsTestLib_DescriptionPrinter_init_D9455C4E"
     },
@@ -13599,6 +13639,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "GetDescribedTokenLiveCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_518141ca"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "GetEquatablePayloadEmpty()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_equatablePayloadEmpty_2D884730"
     },
@@ -13616,6 +13661,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetIdentityFloat4x4()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_identityFloat4x4_CA2EBD5B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetInheritedKeyChangeCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_812e36df"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetInheritedLastChangedKey()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_getInheritedLastChangedKey_72884C9A"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -15129,6 +15184,91 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionChild.Description",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionChild_description"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionChild.InheritedDescriptionChild(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_InheritedDescriptionChild_init_2F58ABA0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.DebugDescription",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionObject_debugDescription"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.Description",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionObject_description"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.Hash",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionObject_hash"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.HashNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionObject_hash"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.InheritedDescriptionObject(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_InheritedDescriptionObject_init_C0BF9056"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.IsEqual(object?)",
+      "symbol": "SBW_SwiftBindingsTestLib_InheritedDescriptionObject_isEqual_8ACD028C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedDescriptionObject.Name",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedDescriptionObject_name"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHandleCarrier.InheritedHandleCarrier(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_2486764a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHandleCarrier.SuperHandleValue",
+      "symbol": "thunk_SwiftBindingsTestLib_1ac3f1c0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookChild.HandleValue",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedHookChild_handle|SBW_Set_SwiftBindingsTestLib_InheritedHookChild_handle"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookChild.InheritedHookChild(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_ce052192"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookObject.DidChangeValue(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_InheritedHookObject_didChangeValue_97BF327C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookObject.GetMarkDirty()",
+      "symbol": "thunk_SwiftBindingsTestLib_5e2f397c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookObject.HandleValue",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedHookObject_handle|SBW_Set_SwiftBindingsTestLib_InheritedHookObject_handle"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "InheritedHookObject.InheritedHookObject(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_1a6899d2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "InheritedNonEmptyChildSource.ChildDelegate",
       "symbol": "SBW_Get_SwiftBindingsTestLib_InheritedNonEmptyChildSource_childDelegate|SBW_Set_SwiftBindingsTestLib_InheritedNonEmptyChildSource_childDelegate"
     },
@@ -15626,6 +15766,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "IsActive(SwiftBindingsTestLib.EvolvingService)",
       "symbol": "thunk_SwiftBindingsTestLib_9e3f2272"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "IsBridgedPayloadStorageAlive()",
+      "symbol": "thunk_SwiftBindingsTestLib_31fc88a7"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -21921,6 +22066,76 @@
       "module": "SwiftBindingsTestLib",
       "signature": "OperationOutcomeFactory.OperationOutcomeFactory()",
       "symbol": "thunk_SwiftBindingsTestLib_8bebaabe"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityBase.Key",
+      "symbol": "thunk_SwiftBindingsTestLib_578f5d97"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityBase.OperatorEqualityBase(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_9f7c433f"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityDerived.OperatorEqualityDerived(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_8a0b1048"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityObjCBase.Key",
+      "symbol": "thunk_SwiftBindingsTestLib_212fd391"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityObjCBase.OperatorEqualityObjCBase(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_6a40a4d1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityObjCDerived.OperatorEqualityObjCDerived(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_c8a6a64a"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityRoot.Key",
+      "symbol": "thunk_SwiftBindingsTestLib_9bc13490"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEqualityRoot.OperatorEqualityRoot(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_54d3fdda"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableBase.Detail",
+      "symbol": "thunk_SwiftBindingsTestLib_b19dd73d"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableBase.Key",
+      "symbol": "thunk_SwiftBindingsTestLib_03b4eb08"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableBase.OperatorEquatableBase(int,int)",
+      "symbol": "thunk_SwiftBindingsTestLib_8bb96eb1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableDerived.OperatorEquatableDerived(int,int)",
+      "symbol": "thunk_SwiftBindingsTestLib_fe86bea2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableSetCount(SwiftBindingsTestLib.OperatorEquatableDerived,SwiftBindingsTestLib.OperatorEquatableDerived)",
+      "symbol": "thunk_SwiftBindingsTestLib_04c113e4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorObjCSetCount(SwiftBindingsTestLib.OperatorEqualityObjCDerived,SwiftBindingsTestLib.OperatorEqualityObjCDerived)",
+      "symbol": "thunk_SwiftBindingsTestLib_0d940ec0"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -32561,6 +32776,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "UnmanagedCallConv.UnmanagedCallConv(bool)",
       "symbol": "SBW_SwiftBindingsTestLib_UnmanagedCallConv_init_11E71148"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnrecordedExistentialPayload.MakeDescribed(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_UnrecordedExistentialPayload_makeDescribed_B2F508B2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UnrecordedExistentialPayload.PayloadDescription",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_UnrecordedExistentialPayload_payloadDescription"
     },
     {
       "module": "SwiftBindingsTestLib",

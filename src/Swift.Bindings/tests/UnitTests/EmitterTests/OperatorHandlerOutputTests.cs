@@ -238,6 +238,29 @@ public class OperatorHandlerOutputTests
         Assert.Contains("return 0;", output);
     }
 
+    // An NSObject subclass already has a value equality and a matching hash (isEqual:/hash, which
+    // Swift's own Hashable uses). An arbitrary `==` paired with a constant hash would contradict
+    // them for every NSObject-typed caller, so the inherited pair is kept.
+    [Fact]
+    public void ObjectEqualityOverrides_KeepInheritedEquality_WritesNoEqualsOrHash()
+    {
+        var typeDatabase = CreateTypeDatabaseWithTwoStructs();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("==", parentType, moduleDecl, "Swift.Bool", "TestModule.Point", "TestModule.Point");
+        var handler = new OperatorHandler(new NullLogger<OperatorHandler>());
+        var writer = new StringWriter();
+        var csWriter = new CSharpWriter(writer);
+
+        handler.ValidateAndEmitPairs(csWriter, new List<OperatorDecl> { op }, "Point", new HashSet<string> { "==" }, typeDatabase);
+        handler.EmitObjectEqualityOverrides(csWriter, "Point", keepInheritedEquality: true);
+
+        var output = writer.ToString();
+        Assert.True(handler.DefinesHomogeneousEquality);
+        Assert.DoesNotContain("this == other", output);
+        Assert.DoesNotContain("return 0;", output);
+    }
+
     [Fact]
     public void ObjectEqualityOverrides_OnlyHeterogeneousEquality_KeepsTheInheritedBehaviour()
     {

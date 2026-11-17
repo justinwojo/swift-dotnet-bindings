@@ -1270,12 +1270,18 @@ namespace BindingsGeneration
         /// arbitrary <c>==</c>. Without such an <c>==</c> both keep the inherited behaviour.
         /// Call after <see cref="ValidateAndEmitPairs"/>.
         /// </summary>
-        public void EmitObjectEqualityOverrides(CSharpWriter csWriter, string typeName)
+        /// <param name="csWriter">The writer of the type body.</param>
+        /// <param name="typeName">The containing type's C# name.</param>
+        /// <param name="keepInheritedEquality">Keep the base type's Equals/GetHashCode even for a
+        /// homogeneous <c>==</c>: set for a class whose base already defines a value equality and
+        /// a hash matching it (an NSObject subclass's isEqual:/hash), which an arbitrary
+        /// <c>==</c> paired with a constant hash would contradict for base-typed callers.</param>
+        public void EmitObjectEqualityOverrides(CSharpWriter csWriter, string typeName, bool keepInheritedEquality = false)
         {
             if (!DefinesEquality)
                 return;
 
-            if (DefinesHomogeneousEquality)
+            if (DefinesHomogeneousEquality && !keepInheritedEquality)
             {
                 csWriter.WriteLine("public override bool Equals(object? obj)");
                 csWriter.WriteLine("{");

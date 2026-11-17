@@ -919,15 +919,31 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Can only emit "override" if a resolved ancestor actually has this property in C#.
         // Otherwise CS0115 occurs when the property comes from an external ancestor or was skipped.
         string dispatchModifier = "";
+        // Set when the declaration may hide a member of a base whose C# surface the generator
+        // cannot know for every platform (see ObjCInheritedMemberSurface).
+        bool suppressHidingWarnings = false;
         if (propertyDecl.ParentDecl is ClassDecl classParent && !propertyDecl.IsStatic)
         {
-            if (propertyDecl.IsOverride && WrapperEmitter.HasPropertyInResolvedAncestors(classParent, propertyDecl.Name))
+            bool overridesEmittedAncestor = propertyDecl.IsOverride && WrapperEmitter.HasPropertyInResolvedAncestors(classParent, propertyDecl.Name);
+            var inherited = !overridesEmittedAncestor && classParent.IsObjCRooted
+                ? ObjCInheritedMemberSurface.ClassifyProperty(
+                    propertyName, csTypeName, accessorsToEmit.OfType<SetAccessorDecl>().Any(), propertyDecl.IsOverride)
+                : ObjCInheritedMemberSurface.Disposition.None;
+            bool isSealed = classParent.IsFinal || propertyDecl.IsFinal;
+            if (overridesEmittedAncestor || inherited == ObjCInheritedMemberSurface.Disposition.Override)
             {
+                // Overriding NSObject's own member (Description, DebugDescription, ...) is what makes
+                // a call through an NSObject-typed reference, and NSObject.ToString, reach the Swift
+                // override instead of NSObject's implementation.
                 dispatchModifier = propertyDecl.IsFinal ? "sealed override " : "override ";
             }
-            else if (!classParent.IsFinal && !propertyDecl.IsFinal)
+            else
             {
-                dispatchModifier = "virtual ";
+                if (!isSealed)
+                    dispatchModifier = "virtual ";
+                suppressHidingWarnings = inherited == ObjCInheritedMemberSurface.Disposition.Hide
+                    || (propertyDecl.IsOverride && (classParent.IsObjCRooted || classParent.HasCrossModuleSwiftSuperclass))
+                    || ObjCInheritedMemberSurface.InheritsUnknownObjCSurface(classParent);
             }
         }
         else if (propertyDecl.ParentDecl is ClassDecl staticParent && propertyDecl.IsStatic && propertyDecl.IsOverride
@@ -1001,6 +1017,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 companionParent, propertyName, propertyEnv.TypeDatabase);
         }
 
+        if (suppressHidingWarnings)
+            csWriter.WriteLine(ObjCInheritedMemberSurface.SuppressHidingWarnings);
         csWriter.WriteLine($"public {staticModifier}{dispatchModifier}{csTypeName} {propertyName}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -1022,6 +1040,10 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
+        // Restored after the body, not after the declaration line: a directive between the name and
+        // its brace would split the declaration for line-oriented readers of the emitted C#.
+        if (suppressHidingWarnings)
+            csWriter.WriteLine(ObjCInheritedMemberSurface.RestoreHidingWarnings);
 
         if (nativeCompanionName != null)
         {
@@ -1066,13 +1088,13 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             propertyDecl.MarkEmittedNativeWidthCSharpName(nativeCompanionName);
         }
 
-        // CS0535 fix: When a property was CS0542-renamed (e.g., DatabaseValue → DatabaseValueValue),
-        // any conformance interface that declares the original name (DatabaseValue) won't be satisfied.
-        // Emit explicit interface implementations to bridge the gap.
-        var originalName = NameProvider.GetPropertyName(propertyDecl);
-        if (propertyName != originalName && !propertyDecl.IsStatic)
+        // CS0535 fix: When a property was renamed off its projected name — CS0542 (DatabaseValue →
+        // DatabaseValueValue), or off a name an Objective-C-rooted class inherits from NSObject
+        // (handle → HandleValue) — any conformance interface that declares the projected name won't
+        // be satisfied. Emit explicit interface implementations to bridge the gap.
+        if (propertyName != NameProvider.GetPropertyBaseName(propertyDecl) && !propertyDecl.IsStatic)
         {
-            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, originalName, propertyName, csTypeName, propertyEnv.TypeDatabase, context);
+            EmitExplicitInterfaceImplementations(csWriter, propertyDecl, propertyName, csTypeName, propertyEnv.TypeDatabase, context);
         }
 
         csWriter.WriteLine();
@@ -1110,14 +1132,15 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
     }
 
     /// <summary>
-    /// Emits explicit interface implementations when a property was CS0542-renamed.
+    /// Emits explicit interface implementations when a property was renamed off its projected name.
     /// Searches the parent type's conformances for protocols that declare a property with
-    /// the original Swift name, and emits forwarding properties like:
-    ///   Type IInterface.OriginalName => RenamedName;
+    /// the same Swift name, and emits forwarding properties like:
+    ///   Type IInterface.InterfaceName => RenamedName;
+    /// for each one whose interface member is named differently from the emitted property.
     /// Only emits for interfaces that the type actually implements (validated by GetImplementedInterfaces).
     /// </summary>
     private void EmitExplicitInterfaceImplementations(CSharpWriter csWriter, PropertyDecl propertyDecl,
-        string originalName, string renamedName, string csTypeName, ITypeDatabase typeDatabase, TypeHandlerContext context)
+        string renamedName, string csTypeName, ITypeDatabase typeDatabase, TypeHandlerContext context)
     {
         // Get conformances from parent type
         var parentTypeDecl = propertyDecl.ParentDecl as TypeDecl;
@@ -1158,8 +1181,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 continue;
 
             // Check if this protocol declares a property with the same Swift name
-            var protocolProperty = protocolDecl.Properties.FirstOrDefault(p => p.Name == propertyDecl.Name);
+            var protocolProperty = protocolDecl.Properties.FirstOrDefault(p => p.Name == propertyDecl.Name && !p.IsStatic);
             if (protocolProperty == null)
+                continue;
+            // The name the interface declares (ProtocolHandler names it the same way).
+            var originalName = NameProvider.GetPropertyName(protocolProperty);
+            if (originalName == renamedName)
                 continue;
 
             var interfaceName = NameProvider.GetInterfaceName(protocolDecl.Name, moduleName: protocolDecl.ModuleDecl?.Name ?? "");

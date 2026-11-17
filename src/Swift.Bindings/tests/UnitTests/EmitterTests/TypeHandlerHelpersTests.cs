@@ -1797,7 +1797,7 @@ public class TypeHandlerHelpersTests
         Assert.Contains("@_cdecl(", swiftResult);
         Assert.Contains("Swift.Unmanaged<Swift.AnyObject>.fromOpaque(lhs).takeUnretainedValue()", swiftResult);
         Assert.Contains("as! ImagePipeline.ImageCache", swiftResult);
-        Assert.Contains("(l == r) ? 1 : 0", swiftResult);
+        Assert.Contains("witnessEquals(l, r) ? 1 : 0", swiftResult);
         // Must NOT use assumingMemoryBound (that's for structs, not classes)
         Assert.DoesNotContain("assumingMemoryBound", swiftResult);
     }

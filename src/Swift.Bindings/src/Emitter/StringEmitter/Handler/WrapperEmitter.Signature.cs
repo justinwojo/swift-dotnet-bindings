@@ -91,6 +91,9 @@ namespace BindingsGeneration
             // Compute virtual/override/sealed override modifier for class instance methods.
             // Excludes: static methods, constructors, async constructors, accessor methods.
             string dispatchModifier = "";
+            // Set when the declaration may hide a member of a base whose C# surface the generator
+            // cannot know for every platform (see ObjCInheritedMemberSurface).
+            bool suppressHidingWarnings = false;
             bool isClassInstanceMethod =
                 _env.ParentDecl is ClassDecl
                 && _env.MethodDecl.MethodType != MethodType.Static
@@ -104,13 +107,27 @@ namespace BindingsGeneration
                 // Otherwise CS0115 ("no suitable method found to override") occurs when:
                 // - The ancestor is external (NSObject, UIView, etc.) — no C# base class
                 // - The ancestor method was skipped by validation gates — no C# method to override
-                if (_env.MethodDecl.IsOverride && HasMethodInResolvedAncestors(classParent, _env.MethodDecl, _env.CSharpMethodName, _env.TypeDatabase))
+                bool overridesEmittedAncestor = _env.MethodDecl.IsOverride
+                    && HasMethodInResolvedAncestors(classParent, _env.MethodDecl, _env.CSharpMethodName, _env.TypeDatabase);
+                // NSObject's own members (AwakeFromNib, DidChangeValue, ...): overriding the inherited
+                // member is what lets a call through an NSObject-typed reference reach the Swift
+                // override; a different shape can only hide it.
+                var inherited = !overridesEmittedAncestor && classParent.IsObjCRooted && !isAsyncConstructor && !_requiresSwiftAsync
+                    ? ObjCInheritedMemberSurface.ClassifyMethod(
+                        _env.CSharpMethodName, _wrapperSignature.ApiSurfaceParameterTypes().ToList(),
+                        _wrapperSignature.ReturnType, _env.MethodDecl.IsOverride)
+                    : ObjCInheritedMemberSurface.Disposition.None;
+                if (overridesEmittedAncestor || inherited == ObjCInheritedMemberSurface.Disposition.Override)
                 {
                     dispatchModifier = _env.MethodDecl.IsFinal ? "sealed override " : "override ";
                 }
-                else if (!classParent.IsFinal && !_env.MethodDecl.IsFinal)
+                else
                 {
-                    dispatchModifier = "virtual ";
+                    if (!classParent.IsFinal && !_env.MethodDecl.IsFinal)
+                        dispatchModifier = "virtual ";
+                    suppressHidingWarnings = inherited == ObjCInheritedMemberSurface.Disposition.Hide
+                        || (_env.MethodDecl.IsOverride && (classParent.IsObjCRooted || classParent.HasCrossModuleSwiftSuperclass))
+                        || ObjCInheritedMemberSurface.InheritsUnknownObjCSurface(classParent);
                 }
             }
             else if (_env.ParentDecl is ClassDecl staticParent
@@ -156,7 +173,11 @@ namespace BindingsGeneration
             var cancellationTokenParam = _requiresSwiftAsync
                 ? $"{(_wrapperSignature.Parameters.Count > 0 ? ", " : "")}global::System.Threading.CancellationToken {CancellationTokenName} = default"
                 : "";
+            if (suppressHidingWarnings)
+                csWriter.WriteLine(ObjCInheritedMemberSurface.SuppressHidingWarnings);
             csWriter.WriteLine($"{accessModifier} {staticKeyword}{dispatchModifier}{returnType} {methodName}{genericParams}({_wrapperSignature.ParametersString(BuildOriginalSwiftTypeAttributes())}{cancellationTokenParam})");
+            if (suppressHidingWarnings)
+                csWriter.WriteLine(ObjCInheritedMemberSurface.RestoreHidingWarnings);
 
             // Emit where clauses for generic constraints
             var whereClause = BuildWhereClause();

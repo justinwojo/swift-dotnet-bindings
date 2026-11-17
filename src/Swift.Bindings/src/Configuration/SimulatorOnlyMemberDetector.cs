@@ -319,7 +319,7 @@ namespace BindingsGeneration
         /// Captures the fully-qualified member path (e.g., "ModuleName.TypeName.memberName").
         /// </summary>
         private static readonly Regex WrapperCommentRegex = new(
-            @"// (?:Property [gs]etter|Method|Constructor|Enum case factory) @_cdecl wrapper for (.+)\.",
+            @"// (?:Property [gs]etter|Method|Constructor|Enum case factory|Enum case payload bridge) @_cdecl wrapper for (.+)\.",
             RegexOptions.Compiled);
 
         /// <summary>

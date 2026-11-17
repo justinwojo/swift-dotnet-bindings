@@ -397,7 +397,19 @@ namespace BindingsGeneration
                 // Derived classes emit equality if they have their own IEquatable<DerivedType>
                 // (IEquatable<Derived> is a different interface from IEquatable<Base>).
                 // Root classes always emit equality if Equatable.
-                if (!isDerived || interfaces.Any(i => i.StartsWith("IEquatable<")))
+                bool emitsOwnEquality = !isDerived || interfaces.Any(i => i.StartsWith("IEquatable<"));
+                // A `==` declared without Equatable is the type's whole equality surface. C#
+                // requires Equals/GetHashCode beside it (CS0660/CS0661), and they must agree with
+                // it: a root class answers Equals through that `==` (as the struct path does)
+                // instead of handle identity, and a derived class, which inherits its root's
+                // Equals and would otherwise declare none, gets its own. An ObjC-rooted derived
+                // class keeps NSObject's isEqual:/hash pair, which Swift's own Hashable uses.
+                bool operatorOwnsObjectEquality = operatorHandler.DefinesEquality
+                    && !equatableWriter.ImplementsEquatable
+                    && (!emitsOwnEquality || operatorHandler.DefinesHomogeneousEquality);
+                if (operatorOwnsObjectEquality)
+                    operatorHandler.EmitObjectEqualityOverrides(csWriter, typeNameWithGenerics, keepInheritedEquality: classDecl.IsObjCRooted);
+                else if (emitsOwnEquality)
                     equatableWriter.WriteSwiftEquatableImplementation();
                 iSwiftObjectWriter.WriteClassImplementation();
 
@@ -1321,6 +1333,9 @@ namespace BindingsGeneration
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
         private readonly bool _implementsHashable;
+
+        /// <summary>Whether the class's Swift Equatable conformance drives its C# equality.</summary>
+        public bool ImplementsEquatable => _implementsEquatable;
         private readonly bool _hasExplicitEqualityOperator;
         private readonly bool _hasExplicitInequalityOperator;
         private readonly SwiftWriter? _swiftWriter;
@@ -1394,13 +1409,27 @@ namespace BindingsGeneration
         /// <summary>
         /// Gets the @_cdecl symbol name for a class equality wrapper.
         /// </summary>
-        private static string GetEqualitySymbolName(ClassDecl classDecl)
+        private static string GetEqualitySymbolName(ClassDecl classDecl) => GetWrapperSymbolName(classDecl, "eq");
+
+        private static string GetHashSymbolName(ClassDecl classDecl) => GetWrapperSymbolName(classDecl, "hash");
+
+        private static string GetWrapperSymbolName(ClassDecl classDecl, string role)
         {
             var moduleName = classDecl.ModuleDecl?.Name ?? "Unknown";
             var safeTypeName = classDecl.Name.Replace(".", "_");
             var hash = EmitterUtility.DeterministicHash8(classDecl.MangledName ?? classDecl.Name);
-            return $"SBW_{moduleName}_{safeTypeName}_eq_{hash}";
+            return $"SBW_{moduleName}_{safeTypeName}_{role}_{hash}";
         }
+
+        /// <summary>
+        /// Whether GetHashCode hashes through a <c>@_cdecl</c> wrapper over the Hashable witness
+        /// instead of the runtime's conformance lookup. An NSObject-rooted class inherits Hashable
+        /// from Foundation's <c>NSObject</c> conformance, which the module registers no conformance
+        /// for, so the runtime lookup misses and falls back to identity: equal objects would hash
+        /// apart. The witness reaches the class's Swift <c>hash</c> through NSObject's
+        /// <c>hashValue</c>, the same path a Swift <c>Set</c> uses.
+        /// </summary>
+        private bool HashesThroughWitnessWrapper => _implementsHashable && _classDecl.IsObjCRooted;
 
         /// <summary>
         /// Emits a @_cdecl Swift wrapper for class equality comparison and returns the symbol name.
@@ -1445,13 +1474,33 @@ namespace BindingsGeneration
                 equalityOperator?.AvailabilityAnnotations, _classDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
+            // Compare through the Equatable witness, not `l == r`: a subclass that declares its own
+            // `==` while inheriting the conformance (from NSObject or a Swift base) would otherwise
+            // resolve statically to that operator, and Equals would disagree with GetHashCode,
+            // which hashes through the inherited Hashable witness, and with Swift's Set.
             _swiftWriter.WriteLines($$"""
             public func {{symbolName}}(_ lhs: Swift.UnsafeRawPointer, _ rhs: Swift.UnsafeRawPointer) -> Swift.UInt8 {
                 let l = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(lhs).takeUnretainedValue() as! {{swiftTypeName}}
                 let r = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(rhs).takeUnretainedValue() as! {{swiftTypeName}}
-                return (l == r) ? 1 : 0
+                func witnessEquals<T: Swift.Equatable>(_ a: T, _ b: T) -> Swift.Bool { a == b }
+                return witnessEquals(l, r) ? 1 : 0
             }
             """);
+
+            var hashSymbol = GetHashSymbolName(_classDecl);
+            if (HashesThroughWitnessWrapper
+                && _emissionContext.TryAddEqualityWrapperSymbol(hashSymbol, DeclIdFactory.ForType(_classDecl)))
+            {
+                _swiftWriter.WriteLine();
+                WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, hashSymbol, needsMainActor, availability);
+                _swiftWriter.WriteLines($$"""
+                public func {{hashSymbol}}(_ value: Swift.UnsafeRawPointer) -> Swift.Int {
+                    let v = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue() as! {{swiftTypeName}}
+                    func witnessHash<T: Swift.Hashable>(_ a: T) -> Swift.Int { a.hashValue }
+                    return witnessHash(v)
+                }
+                """);
+            }
 
             return symbolName;
         }
@@ -1467,6 +1516,14 @@ namespace BindingsGeneration
             private static partial bool PInvoke_eq(IntPtr lhs, IntPtr rhs);
             """);
             _writer.WriteLine();
+            if (HashesThroughWitnessWrapper)
+            {
+                _writer.WriteLines($$"""
+                [global::System.Runtime.InteropServices.LibraryImport("{{_wrapperLibraryName}}", EntryPoint = "{{GetHashSymbolName(_classDecl)}}")]
+                private static partial nint PInvoke_hash(IntPtr value);
+                """);
+                _writer.WriteLine();
+            }
         }
 
         private void WriteSwiftEquatableImplementationWithSwiftEquals()
@@ -1489,9 +1546,18 @@ namespace BindingsGeneration
 
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
-            var hashCodeBody = _implementsHashable
-                ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
-                : "return 0;";
+            var hashCodeBody = !_implementsHashable
+                ? "return 0;"
+                : eqSymbol != null && HashesThroughWitnessWrapper
+                    // A disposed object has no native peer to hash; it keeps the identity hash
+                    // the runtime lookup would have returned.
+                    ? """
+                      var handle = this.GetSwiftHandle();
+                          if (handle == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+                          nint h = PInvoke_hash(handle);
+                          return unchecked((int)h ^ (int)((long)h >> 32));
+                      """
+                    : "return Swift.Runtime.SwiftHashable.GetHashCode(this);";
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {

@@ -1187,6 +1187,182 @@ public class ClassObjCRootedTests
 
     #endregion
 
+    #region Inherited NSObject members: override, hide, rename
+
+    // A Swift override of NSObject's `description` must override NSObject's virtual Description:
+    // emitted as a fresh virtual it hides it (CS0114), and NSObject-typed callers (ToString, string
+    // interpolation) never reach the Swift implementation.
+    [Theory]
+    [InlineData("description", "Description")]
+    [InlineData("debugDescription", "DebugDescription")]
+    public void ObjCRooted_OverrideOfNSObjectProperty_EmitsOverride(string swiftName, string csName)
+    {
+        var cls = CreateNSObjectSubclass("Described");
+        var property = StringProperty(swiftName);
+        property.IsOverride = true;
+        cls.Properties.Add(property);
+
+        var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
+
+        Assert.Contains($"public override string {csName}", output);
+        Assert.DoesNotContain($"virtual string {csName}", output);
+        Assert.DoesNotContain(ObjCInheritedMemberSurface.SuppressHidingWarnings, output);
+    }
+
+    [Fact]
+    public void PureSwift_DescriptionProperty_StaysVirtual()
+    {
+        var cls = CreateClassDecl("Plain", "TestModule");
+        cls.Properties.Add(StringProperty("description"));
+
+        var output = EmitNonObjCRootedClass(cls, withSwiftString: true);
+
+        Assert.Contains("public virtual string Description", output);
+        Assert.DoesNotContain("override string Description", output);
+    }
+
+    // A property whose shape differs from the inherited member can only hide it; the hiding
+    // warnings are suppressed around the whole declaration, and the restore follows the body so
+    // no directive splits the name from its brace.
+    [Fact]
+    public void ObjCRooted_PropertyWithDifferentShape_HidesWithPragmaAroundTheWholeDeclaration()
+    {
+        var cls = CreateNSObjectSubclass("Hashed");
+        var property = StringProperty("hash");
+        property.IsOverride = true;
+        cls.Properties.Add(property);
+
+        var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
+
+        var suppress = output.IndexOf(ObjCInheritedMemberSurface.SuppressHidingWarnings, StringComparison.Ordinal);
+        Assert.True(suppress >= 0, "the hiding warnings are suppressed");
+        var declaration = output.IndexOf(" Hash", suppress, StringComparison.Ordinal);
+        var restore = output.IndexOf(ObjCInheritedMemberSurface.RestoreHidingWarnings, suppress, StringComparison.Ordinal);
+        Assert.True(declaration > suppress && restore > declaration, "suppress, declaration, restore in order");
+        var declarationLine = output.Substring(declaration, output.IndexOf('\n', declaration) - declaration);
+        Assert.DoesNotContain("override", declarationLine);
+        Assert.Matches(@"Hash\s*\r?\n\s*\{", output.Substring(declaration, restore - declaration));
+    }
+
+    // NSObject.Handle is the receiver pointer every member of the class passes to Swift. A Swift
+    // `handle` property projected to `Handle` would hide it and send its own value as self.
+    [Fact]
+    public void ObjCRooted_HandleProperty_IsRenamedOffTheInheritedHandle()
+    {
+        var cls = CreateNSObjectSubclass("Hooked");
+        cls.Properties.Add(StringProperty("handle"));
+
+        var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
+
+        Assert.Contains("HandleValue", output);
+        Assert.DoesNotMatch(@"public (virtual )?(int|nint) Handle\b", output);
+    }
+
+    [Fact]
+    public void ObjCRooted_OverrideOfNSObjectMethod_EmitsOverride()
+    {
+        var cls = CreateNSObjectSubclass("Observed");
+        var method = TestDecls.Method("didChangeValue", parameters: new[] { TestDecls.Param("forKey", new NamedTypeSpec("Swift.String")) });
+        method.IsOverride = true;
+        cls.Methods.Add(method);
+
+        var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
+
+        Assert.Contains("public override void DidChangeValue(", output);
+        Assert.DoesNotContain("virtual void DidChangeValue(", output);
+    }
+
+    // An override is named like the declaration it overrides. Renaming a base's `handle` to
+    // `HandleValue` but leaving the override as `Handle` makes the override target NSObject's
+    // non-virtual Handle (CS0506) instead of the base property.
+    [Fact]
+    public void ObjCRooted_OverrideOfRenamedAncestorProperty_KeepsTheAncestorsName()
+    {
+        var parent = CreateNSObjectSubclass("HookBase");
+        parent.Properties.Add(StringProperty("handle"));
+        var child = CreateObjCRootedClassDecl("HookChild", superclassNames: new[] { "TestModule.HookBase" });
+        child.ResolvedSuperclass = parent;
+        var overriding = StringProperty("handle");
+        overriding.IsOverride = true;
+        child.Properties.Add(overriding);
+
+        var output = EmitObjCRootedHierarchy(parent, child, withSwiftString: true);
+
+        var childBody = GetClassBody(output, "HookChild");
+        Assert.Contains("public override string HandleValue", childBody);
+        Assert.DoesNotMatch(@"\bstring Handle\b", output);
+    }
+
+    // With no ancestor in this module, an override of a name NSObject does not declare virtual
+    // overrides a declaration another module's binding renamed the same way.
+    [Theory]
+    [InlineData("handle", "HandleValue")]
+    [InlineData("description", "Description")]
+    public void ObjCRooted_OverrideWithoutModuleAncestor_FollowsTheInheritedSurface(string swiftName, string expected)
+    {
+        var cls = CreateNSObjectSubclass("Remote");
+        var property = StringProperty(swiftName);
+        property.IsOverride = true;
+        property.ParentDecl = cls;
+        cls.Properties.Add(property);
+
+        Assert.Equal(expected, NameProvider.GetPropertyName(property, "Remote"));
+    }
+
+    // The constructors of an ObjC-rooted binding call the inherited DangerousRelease() on the new
+    // instance; a Swift method projecting onto that name would capture the call.
+    [Fact]
+    public void ObjCRooted_MethodNamedDangerousRelease_IsRenamed()
+    {
+        var cls = CreateNSObjectSubclass("Releasing");
+        cls.Methods.Add(TestDecls.Method("dangerousRelease"));
+
+        var output = EmitSingleObjCRootedClass(cls, withSwiftString: true);
+
+        Assert.DoesNotContain("void DangerousRelease(", output);
+    }
+
+    private static PropertyDecl StringProperty(string name)
+    {
+        var getter = TestDecls.Method($"{name}_Get", returnType: new NamedTypeSpec("Swift.String")) with
+        {
+            MangledName = $"$s10TestModule{name.Length}{name}SSvg",
+            IsAccessor = true,
+            IsSynthesizedAccessor = true,
+        };
+        return new PropertyDecl
+        {
+            Name = name,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.String"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getter } },
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+    }
+
+    private static ModuleTypeDatabase CreateSwiftModuleWithString()
+    {
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "String"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.String"),
+                MetadataAccessor = "$sSSMa",
+                Kind = TypeRecordKind.Struct,
+                Flags = TypeRecordFlags.Frozen
+            });
+        return swiftModule;
+    }
+
+    private static ClassDecl CreateNSObjectSubclass(string name)
+        => CreateObjCRootedClassDecl(name, superclassUsr: "c:objc(cs)NSObject", superclassNames: new[] { "ObjectiveC.NSObject" });
+
+    #endregion
+
     #region Test Helpers
 
     /// <summary>
@@ -1194,7 +1370,7 @@ public class ClassObjCRootedTests
     /// <see cref="EmitSingleObjCRootedClass"/> but registers the type WITHOUT the ObjCRooted flag and
     /// leaves <c>IsObjCRooted</c> false, so the curated NSObject-property seeding does not apply.
     /// </summary>
-    private static string EmitNonObjCRootedClass(ClassDecl classDecl)
+    private static string EmitNonObjCRootedClass(ClassDecl classDecl, bool withSwiftString = false)
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -1227,7 +1403,7 @@ public class ClassObjCRootedTests
             });
 
         var db = new TypeDatabase();
-        db.AddModuleDatabase(new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
+        db.AddModuleDatabase(withSwiftString ? CreateSwiftModuleWithString() : new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
         db.AddModuleDatabase(testModule);
 
         var csStringWriter = new StringWriter();
@@ -1370,7 +1546,7 @@ public class ClassObjCRootedTests
             Kind = TypeRecordKind.Class,
         };
 
-    private static string EmitSingleObjCRootedClass(ClassDecl classDecl, TypeRecord? extraBridgeRecord = null)
+    private static string EmitSingleObjCRootedClass(ClassDecl classDecl, TypeRecord? extraBridgeRecord = null, bool withSwiftString = false)
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -1405,7 +1581,7 @@ public class ClassObjCRootedTests
             });
 
         var db = new TypeDatabase();
-        db.AddModuleDatabase(new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
+        db.AddModuleDatabase(withSwiftString ? CreateSwiftModuleWithString() : new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
         db.AddModuleDatabase(testModule);
 
         var csStringWriter = new StringWriter();
@@ -1424,7 +1600,7 @@ public class ClassObjCRootedTests
     /// <summary>
     /// Emits ObjC-rooted parent + derived pair.
     /// </summary>
-    private static string EmitObjCRootedHierarchy(ClassDecl parent, ClassDecl child)
+    private static string EmitObjCRootedHierarchy(ClassDecl parent, ClassDecl child, bool withSwiftString = false)
     {
         var moduleDecl = CreateModuleDecl("TestModule");
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -1460,7 +1636,7 @@ public class ClassObjCRootedTests
         }
 
         var db = new TypeDatabase();
-        db.AddModuleDatabase(new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
+        db.AddModuleDatabase(withSwiftString ? CreateSwiftModuleWithString() : new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib"));
         db.AddModuleDatabase(testModule);
 
         var csStringWriter = new StringWriter();
