@@ -470,7 +470,7 @@ namespace BindingsGeneration
             foreach (var conformance in parameter.GenericConformances)
             {
                 var target = conformance.ConformanceTarget;
-                if (target.Name == "AnyObject" || target.ModuleQualifiedName == "Swift.AnyObject")
+                if (target.ModuleQualifiedName is "AnyObject" or "Swift.AnyObject")
                     return true;
                 if (AppleFrameworkRegistry.IsKnownClassBoundProtocol(target.ModuleQualifiedName))
                     return true;

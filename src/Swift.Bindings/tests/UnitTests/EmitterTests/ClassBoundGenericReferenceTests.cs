@@ -54,6 +54,8 @@ public class ClassBoundGenericReferenceTests
     [InlineData("TestModule.Revisioned", true)]
     [InlineData("Combine.ObservableObject", true)]
     [InlineData("TestModule.Keyed", false)]
+    // A module's own protocol named `AnyObject` is not Swift's.
+    [InlineData("TestModule.AnyObject", false)]
     [InlineData(null, false)]
     public void ClassBoundGenericParameter_ByConstraint(string? constraint, bool expected)
     {

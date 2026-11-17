@@ -215,7 +215,10 @@ partial class Build
             foreach (var failure in censusFailures)
                 Log.Error("  thunk-only census: {Failure}", failure);
 
-            if (!reports.All(r => r.Passed))
+            // A report fails on its inspection errors and every violation but an accepted R4, which
+            // unacceptedR4 accounts for (R1 stays red while guarded residuals remain).
+            if (reports.Any(r => !r.InspectionErrors.IsEmpty
+                    || r.Violations.Any(v => !ResidualGuardCheck.IsAcceptedReverseCallback(v, acceptedCallbacks[r.Path]))))
             {
                 var totals = SwiftTransitionReport.CountByRule(reports.SelectMany(r => r.Violations));
                 var errors = reports.Sum(r => r.InspectionErrors.Length);
