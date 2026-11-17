@@ -63,6 +63,46 @@ public class EveryProtocolEmitter
     private IReadOnlyList<ProtocolDecl>? _crossModuleParents;
 
     /// <summary>
+    /// Every member name a carrier extension can declare: the properties, methods and associated
+    /// types of each protocol the module conforms a carrier to. A carrier's own storage and the
+    /// file-scope vtable globals its witness bodies read unqualified are named apart from this set
+    /// (<see cref="CarrierScopeName"/>): a stored member sharing a requirement's name is a Swift
+    /// redeclaration, and a requirement sharing a global's name shadows it inside every witness body.
+    /// </summary>
+    private readonly HashSet<string> _requirementNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Records the member names of the protocols whose conformances this emitter will write on a
+    /// carrier, so carrier storage and vtable globals avoid them. Call before
+    /// <see cref="EmitEveryProtocolClass"/> with every module-local and cross-module protocol the
+    /// module conforms; the names chosen depend only on this set, so every call site agrees.
+    /// </summary>
+    public void ReserveRequirementNames(IEnumerable<ProtocolDecl> protocols)
+    {
+        foreach (var protocol in protocols)
+        {
+            foreach (var property in protocol.Properties)
+                _requirementNames.Add(NameProvider.ParserNameToSwift(property));
+            foreach (var method in protocol.Methods)
+                _requirementNames.Add(method.Name);
+            foreach (var associatedType in protocol.AssociatedTypes)
+                _requirementNames.Add(associatedType.Name);
+        }
+    }
+
+    /// <summary>
+    /// <paramref name="preferred"/>, lengthened with trailing underscores until no reserved
+    /// requirement name equals it.
+    /// </summary>
+    private string CarrierScopeName(string preferred)
+    {
+        var name = preferred;
+        while (_requirementNames.Contains(name))
+            name += "_";
+        return name;
+    }
+
+    /// <summary>
     /// True while emitting an NSObjectProtocol-only conformance: the Swift extension
     /// must hang off <c>EveryObjCProtocol</c> (NSObject-rooted) rather than the plain
     /// Swift <c>EveryProtocol</c>. Reset between protocols by
@@ -322,6 +362,13 @@ public class EveryProtocolEmitter
         }
         bool emitEntityBase = _emissionContext?.AnyEntityBaseUsed == true;
 
+        // Carrier storage is named apart from every requirement the carriers witness: the
+        // conformance extensions declare those names as members of the same class.
+        if (suitableProtocols is not null && _requirementNames.Count == 0)
+            ReserveRequirementNames(suitableProtocols);
+        var deinitCallback = CarrierScopeName("_sbwDeinitCallback");
+        var deinitContext = CarrierScopeName("_sbwDeinitContext");
+
         // Register the four hardcoded EveryProtocol @_cdecl symbols with the
         // wrapper-symbol contract. The matching P/Invokes live in
         // ProtocolProxyEmitter.SwiftObject and would trip the contract check if
@@ -373,35 +420,26 @@ public class EveryProtocolEmitter
             // This class is used by generated proxy classes to implement Swift protocols from C#.
             //
             // @unchecked Swift.Sendable: transitive Sendable conformance flows in from framework
-            // protocols (e.g. TipKit.Tip inherits Swift.Sendable). onDeinit/onDeinitCtx must stay
+            // protocols (e.g. TipKit.Tip inherits Swift.Sendable). The deinit callback storage must stay
             // mutable because SBW_SetEveryProtocolDeinitCallback writes them after init,
             // so strict Sendable checking can't verify them. Safety is enforced by the
             // SwiftObjectRegistry lifetime contract, not by the compiler.
             public final class EveryProtocol: @unchecked Swift.Sendable {
-                // Store a handle back to the C# proxy object
-                // This is used by vtable functions to find the C# implementation
-                public let handle: Swift.UnsafeRawPointer?
-
                 // Deinit callback fired when Swift's last retain drops. The C# proxy
                 // registers this so the SwiftObjectRegistry strong root and the
                 // ProxyLifetimeTracker entry can be torn down when Swift is finished
                 // with the existential container. Storage is fileprivate to prevent
                 // accidental access from outside this module.
-                fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
-                fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
+                fileprivate var {{deinitCallback}}: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                fileprivate var {{deinitContext}}: Swift.UnsafeRawPointer?
 
                 public init() {
-                    self.handle = nil
-                }
-
-                public init(handle: Swift.UnsafeRawPointer) {
-                    self.handle = handle
                 }
 
                 deinit {
                     // Idempotent, non-throwing. Runs when Swift's retain count reaches 0.
                     // The C# callback is responsible for short-circuiting on process exit.
-                    if let cb = onDeinit, let ctx = onDeinitCtx {
+                    if let cb = {{deinitCallback}}, let ctx = {{deinitContext}} {
                         cb(ctx)
                     }
                 }
@@ -441,8 +479,8 @@ public class EveryProtocolEmitter
                 _ context: Swift.UnsafeRawPointer
             ) {
                 let ep = Swift.Unmanaged<EveryProtocol>.fromOpaque(instance).takeUnretainedValue()
-                ep.onDeinit = callback
-                ep.onDeinitCtx = context
+                ep.{{deinitCallback}} = callback
+                ep.{{deinitContext}} = context
             }
 
             // EveryObjCProtocol is the NSObject-rooted twin of EveryProtocol. Swift
@@ -452,22 +490,15 @@ public class EveryProtocolEmitter
             // of isEqual:/hash/description, leaving the protocol's own requirements
             // to the same vtable-callback pattern used for EveryProtocol.
             @objc public final class EveryObjCProtocol: NSObject, @unchecked Swift.Sendable {
-                public let handle: Swift.UnsafeRawPointer?
-                fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
-                fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
+                fileprivate var {{deinitCallback}}: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                fileprivate var {{deinitContext}}: Swift.UnsafeRawPointer?
 
                 public override init() {
-                    self.handle = nil
-                    super.init()
-                }
-
-                public init(handle: Swift.UnsafeRawPointer) {
-                    self.handle = handle
                     super.init()
                 }
 
                 deinit {
-                    if let cb = onDeinit, let ctx = onDeinitCtx {
+                    if let cb = {{deinitCallback}}, let ctx = {{deinitContext}} {
                         cb(ctx)
                     }
                 }
@@ -496,8 +527,8 @@ public class EveryProtocolEmitter
                 _ context: Swift.UnsafeRawPointer
             ) {
                 let ep = Swift.Unmanaged<EveryObjCProtocol>.fromOpaque(instance).takeUnretainedValue()
-                ep.onDeinit = callback
-                ep.onDeinitCtx = context
+                ep.{{deinitCallback}} = callback
+                ep.{{deinitContext}} = context
             }
 
             """);
@@ -523,22 +554,15 @@ public class EveryProtocolEmitter
                 // module's binding is rooted at Entity (Failure B); a wrapper that
                 // does not import RealityFoundation must not reference Entity.
                 public final class EveryEntityProtocol: Entity, @unchecked Swift.Sendable {
-                    public let handle: Swift.UnsafeRawPointer?
-                    fileprivate var onDeinit: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
-                    fileprivate var onDeinitCtx: Swift.UnsafeRawPointer?
+                    fileprivate var {{deinitCallback}}: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?
+                    fileprivate var {{deinitContext}}: Swift.UnsafeRawPointer?
 
                     public required init() {
-                        self.handle = nil
-                        super.init()
-                    }
-
-                    public init(handle: Swift.UnsafeRawPointer) {
-                        self.handle = handle
                         super.init()
                     }
 
                     deinit {
-                        if let cb = onDeinit, let ctx = onDeinitCtx {
+                        if let cb = {{deinitCallback}}, let ctx = {{deinitContext}} {
                             cb(ctx)
                         }
                     }
@@ -567,8 +591,8 @@ public class EveryProtocolEmitter
                     _ context: Swift.UnsafeRawPointer
                 ) {
                     let ep = Swift.Unmanaged<EveryEntityProtocol>.fromOpaque(instance).takeUnretainedValue()
-                    ep.onDeinit = callback
-                    ep.onDeinitCtx = context
+                    ep.{{deinitCallback}} = callback
+                    ep.{{deinitContext}} = context
                 }
 
                 """);
@@ -6732,10 +6756,12 @@ public class EveryProtocolEmitter
         if (prefix.Length == 0)
         {
             // Same-module convention: lowercase first letter, drop a leading underscore is unneeded.
-            return $"_{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable";
+            return CarrierScopeName($"_{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable");
         }
         // Cross-module: keep the module prefix uppercase so it reads as "_Module_protocolName_vtable".
-        return $"_{prefix}{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable";
+        // Witness bodies read the global unqualified, so a requirement of the same name would
+        // shadow it: name it apart from every requirement (CarrierScopeName).
+        return CarrierScopeName($"_{prefix}{char.ToLowerInvariant(name[0])}{name.Substring(1)}_vtable");
     }
 
     private string GetSetVtableFunctionName(ProtocolDecl protocolDecl)

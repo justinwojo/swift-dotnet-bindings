@@ -1719,6 +1719,9 @@ namespace BindingsGeneration
             // emit the EveryEntityProtocol Swift class before the per-protocol
             // EmitProtocolConformance loop below opens any `extension EveryEntityProtocol: ...`
             // blocks.
+            // Name the carriers' storage and the vtable globals apart from every requirement a
+            // carrier will witness, local and cross-module alike, before any of them is written.
+            emitter.ReserveRequirementNames(suitableProtocols.Concat(crossModuleParents));
             emitter.EmitEveryProtocolClass(swiftWriter, suitableProtocols);
 
             // Emit Codable/Error stub conformances on EveryProtocol if any suitable protocol
