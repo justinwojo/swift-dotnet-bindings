@@ -142,3 +142,19 @@ public class KitchenPlain {
     public init(value: Int) { self.value = value }
     public func doubled() -> Int { return value * 2 }
 }
+
+/// A payload enum whose hostile case carries an Objective-C-bridgeable value inside an optional
+/// tuple. Its case factory is emitted with a C# signature its own body cannot satisfy, so the C#
+/// compile fails inside that one factory. The loop must withdraw that factory as its own leaf: the
+/// enum's other cases, their factories and readers, and the rest of the module stay bound. Before
+/// case factories owned their own fragments, the error was attributed to the enum's whole surface,
+/// which the loop cannot withdraw, and the module failed (SWIFTBIND111).
+public enum KitchenSignal {
+    case level(Int32)
+    #if RESILIENCE_HOSTILE
+    case maybePair((URL, Int32)?)
+    #endif
+    case idle
+
+    public static func makeLevel(_ value: Int32) -> KitchenSignal { .level(value) }
+}

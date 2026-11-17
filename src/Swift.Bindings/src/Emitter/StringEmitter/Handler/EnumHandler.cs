@@ -304,10 +304,23 @@ namespace BindingsGeneration
             {
                 if (caseDecl.HasAssociatedValues)
                 {
+                    // Each case factory is its own recovery leaf: a compile error inside one is
+                    // attributed to (and withdraws) that factory alone, never the enum's surface.
+                    var factoryName = NameProvider.GetFinalMemberName(
+                        NameProvider.GetCaseName(caseDecl.Name, caseNameMap), propertyRenames);
+                    var factoryId = EnumCaseMemberIds.Factory(enumDecl, factoryName);
+                    if (EmitterFaultGate.IsDenied(factoryId, out var factoryFault))
+                    {
+                        RefuseFaultedCaseMember(csWriter, enumDecl, caseDecl, factoryName, factoryFault);
+                        continue;
+                    }
+
+                    var factoryOwner = FragmentOwners.ForDeclId(factoryId);
+                    using var factoryCsScope = csWriter.BeginFragment(factoryOwner);
+                    using var factorySwiftScope = swiftWriter.BeginFragment(factoryOwner);
                     if (EmitEnumCaseWithAssociatedValues(csWriter, enumDecl, caseDecl, moduleDecl, env.TypeDatabase, typeNameWithGenerics, pinvokeHelperContext, propertyRenames, caseNameMap, swiftWriter, context.GetEmissionContext()))
                     {
-                        emittedCaseConstructorNames.Add(NameProvider.GetFinalMemberName(
-                            NameProvider.GetCaseName(caseDecl.Name, caseNameMap), propertyRenames));
+                        emittedCaseConstructorNames.Add(factoryName);
                     }
                 }
                 else
@@ -456,6 +469,19 @@ namespace BindingsGeneration
             // Emit TryGet methods for cases with associated values
             foreach (var caseDecl in enumDecl.Cases.Where(c => c.HasAssociatedValues))
             {
+                // Same leaf discipline as the case factories above: a reader that fails to
+                // compile withdraws only itself.
+                var tryGetName = $"TryGet{NameProvider.GetCaseName(caseDecl.Name, caseNameMap)}";
+                var tryGetId = EnumCaseMemberIds.Reader(enumDecl, tryGetName);
+                if (EmitterFaultGate.IsDenied(tryGetId, out var tryGetFault))
+                {
+                    RefuseFaultedCaseMember(csWriter, enumDecl, caseDecl, tryGetName, tryGetFault);
+                    continue;
+                }
+
+                var tryGetOwner = FragmentOwners.ForDeclId(tryGetId);
+                using var tryGetCsScope = csWriter.BeginFragment(tryGetOwner);
+                using var tryGetSwiftScope = swiftWriter.BeginFragment(tryGetOwner);
                 EmitTryGetMethod(csWriter, enumDecl, caseDecl, env.TypeDatabase, typeNameWithGenerics, tagPropertyName, caseNameMap, context.GetEmissionContext(), swiftWriter);
             }
 

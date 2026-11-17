@@ -10,6 +10,34 @@ namespace BindingsGeneration
     public partial class EnumHandler
     {
         /// <summary>
+        /// Recovery identities for the members an enum case projects to. A case is not a
+        /// <see cref="BaseDecl"/> the id factory can name on its own, so each projected member is
+        /// named by its emitted C# name under the enum: the factory (<c>MaybePair</c>) and the
+        /// reader (<c>TryGetMaybePair</c>) are distinct leaves, and either can be withdrawn
+        /// without taking the enum's surface or the other member with it.
+        /// </summary>
+        internal static class EnumCaseMemberIds
+        {
+            public static DeclId Factory(EnumDecl enumDecl, string factoryName) =>
+                DeclIdFactory.ForMember(BindingItemKind.Method, factoryName, enumDecl);
+
+            public static DeclId Reader(EnumDecl enumDecl, string readerName) =>
+                DeclIdFactory.ForMember(BindingItemKind.Method, readerName, enumDecl);
+        }
+
+        /// <summary>
+        /// Refuses a case member a previous attempt withdrew: records the skip under the member's
+        /// own name and leaves the usual tombstone comment in its place.
+        /// </summary>
+        private static void RefuseFaultedCaseMember(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, string memberName, string details)
+        {
+            ReportCollector.RecordMemberSkipped(BindingItemKind.Method, memberName, enumDecl, SkipReason.EmitterFault, details);
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                csWriter, memberName, BindingItemKind.Method, SkipReason.EmitterFault, details,
+                containingDecl: caseDecl.ParentDecl);
+        }
+
+        /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
         private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, Dictionary<string, string>? propertyRenames = null, Dictionary<string, string>? caseNameMap = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)

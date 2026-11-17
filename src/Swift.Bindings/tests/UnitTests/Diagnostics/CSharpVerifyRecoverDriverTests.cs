@@ -56,6 +56,36 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         }
     }
 
+    /// <summary>
+    /// A compile error inside one enum case factory withdraws that factory alone. Before case factories
+    /// and readers owned their own fragments, their text was attributed to the enum's type surface — a
+    /// scope the loop cannot withdraw — so one bad payload case failed the whole module (SWIFTBIND111).
+    /// The enum's other factory, both readers and the rest of the module must survive the withdrawal.
+    /// </summary>
+    [Theory]
+    [InlineData("public static unsafe Signal Level(", "Level", "TryGetLevel")]
+    [InlineData("public bool TryGetLevel(", "TryGetLevel", "public static unsafe Signal Level(")]
+    public void EnumCaseMemberCompileError_WithdrawsOnlyThatMember(string culpritText, string withdrawnName, string survivor)
+    {
+        using var harness = new JointDriverHarness(this, CSharpBehavior.ErrorAtCulpritText,
+            withPayloadEnum: true, culpritText: culpritText);
+        var result = WrapperRecoveryController.Run(harness);
+
+        Assert.True(harness.CSharpErrored);
+        Assert.True(result.Converged, $"verify-recover did not converge: {result.Cause}");
+        var withdrawn = Assert.Single(result.Denylist);
+        Assert.Equal(RecoveryScope.LeafApi, withdrawn.Scope);
+        Assert.Equal(withdrawnName, withdrawn.Decl.Name);
+
+        var emitted = harness.ReadEmittedCSharp();
+        Assert.DoesNotContain(culpritText, emitted);
+        Assert.Contains($"'Signal.{withdrawnName}' — EmitterFault", emitted);
+        Assert.Contains(survivor, emitted);
+        Assert.Contains("public static unsafe Signal Label(", emitted);
+        Assert.Contains("public bool TryGetLabel(", emitted);
+        Assert.Contains("Register", emitted);
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -446,6 +476,14 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         /// <summary>The emitted C# compiles first try — the verifier always returns clean.</summary>
         AlwaysClean,
 
+        /// <summary>
+        /// The compile fails at the first emitted occurrence of the harness's culprit text for as long
+        /// as that text is emitted. The diagnostic is placed by the text, not by any fragment owner, so
+        /// it models a real compiler: whether the loop can withdraw the culprit depends entirely on
+        /// which recovery unit the emitter attributed that text to.
+        /// </summary>
+        ErrorAtCulpritText,
+
         /// <summary>One emitted member fails the C# compile until it is withdrawn, then clean.</summary>
         ErrorUntilWithdrawn,
 
@@ -491,6 +529,7 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
         private readonly CSharpBehavior _behavior;
         private readonly Func<string, string>? _diagnosticPath;
 
+        private readonly string? _culpritText;
         private IReadOnlySet<RecoveryUnitId> _currentDenylist = new HashSet<RecoveryUnitId>();
         private RecoveryUnitId? _target;
 
@@ -521,9 +560,12 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
             Func<string, string>? diagnosticPath = null,
             string? swiftDiagnosticPathMode = null,
             bool relativeOutputDirectory = false,
-            bool absoluteDiagnosticPaths = false)
+            bool absoluteDiagnosticPaths = false,
+            bool withPayloadEnum = false,
+            string? culpritText = null)
         {
             _behavior = behavior;
+            _culpritText = culpritText;
             _scratch = Path.Combine(Path.GetTempPath(), "swiftbind-csharploop-" + Guid.NewGuid().ToString("N"));
             Directory.CreateDirectory(_scratch);
             owner._scratchDirs.Add(_scratch);
@@ -537,6 +579,8 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 : _scratch;
 
             _module = FixtureModuleFactory.BuildModule("ContainmentFixture");
+            if (withPayloadEnum)
+                FixtureModuleFactory.AddPayloadEnum(_module);
             _typeDatabase = FixtureModuleFactory.BuildTypeDatabase(_module);
             _context = new ModuleEmissionContext();
 
@@ -691,6 +735,9 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                 case CSharpBehavior.AlwaysInconclusive:
                     return Inconclusive();
 
+                case CSharpBehavior.ErrorAtCulpritText:
+                    return ErrorAtCulpritText();
+
                 case CSharpBehavior.ThrowsInfrastructureFailure:
                     // A real infrastructure fault: the external build's command runner times out. The
                     // driver, not this stub, is responsible for turning it into an Inconclusive verdict.
@@ -759,6 +806,38 @@ public class CSharpVerifyRecoverDriverTests : IDisposable
                         EndColumn: at.Value.Column + 1,
                         Message: "The name 'Nope' does not exist in the current context"),
                 });
+        }
+
+        private CSharpVerificationResult ErrorAtCulpritText()
+        {
+            foreach (var path in Directory
+                .EnumerateFiles(_scratch, "*.cs", SearchOption.AllDirectories)
+                .OrderBy(p => p, StringComparer.Ordinal))
+            {
+                var content = File.ReadAllText(path);
+                var offset = content.IndexOf(_culpritText!, StringComparison.Ordinal);
+                if (offset < 0)
+                    continue;
+
+                CSharpErrored = true;
+                var leaf = Path.GetFileName(path);
+                var (line, column) = OffsetToLineColumn(leaf, offset);
+                return new CSharpVerificationResult(
+                    CSharpVerificationOutcome.CompileErrors,
+                    new[]
+                    {
+                        new CSharpCompileDiagnostic(
+                            Id: "CS1503",
+                            Severity: CSharpDiagnosticSeverity.Error,
+                            FilePath: _diagnosticPath?.Invoke(leaf) ?? leaf,
+                            Line: line,
+                            Column: column,
+                            EndLine: line,
+                            EndColumn: column + 1,
+                            Message: "Argument 1: cannot convert from '(A, int)' to '(nint, int)'"),
+                    });
+            }
+            return Clean();
         }
 
         // Locates a C#-plane fragment in the current render whose owning recovery unit matches the
