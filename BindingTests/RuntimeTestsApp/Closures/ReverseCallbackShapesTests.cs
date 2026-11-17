@@ -282,6 +282,27 @@ public class ReverseCallbackShapesTests : TestBase
         });
     }
 
+    [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(ReverseCallbackSettings))]
+    public void TestStoredThrowingLookup_FillsSwiftsIndirectResult()
+    {
+        // A throwing callback whose wide optional result Swift receives by address: the value, nil,
+        // and an error all have to cross, and the callback must keep working after each.
+        AssertCallbackLane(typeof(ReverseCallbackSettings), "lookup_Set_value", typeof(CallConvSwift));
+        using var settings = new ReverseCallbackSettings();
+        AssertEqual("nil", settings.Find(1), "the default lookup finds nothing");
+
+        RunSwiftLane("ReverseCallbackSettings.Lookup", () =>
+        {
+            settings.Lookup = key => key < 0
+                ? throw new InvalidOperationException("negative")
+                : Swift.SwiftResult<ReverseCallbackWide?, SwiftError>.FromSuccess(key == 0 ? null : Wide((int)key, $"found-{key}"));
+            AssertEqual("7|8|9|found-7", settings.Find(7), "a present value crosses back");
+            AssertEqual("nil", settings.Find(0), "a null result reaches Swift as nil");
+            AssertEqual("error", settings.Find(-1), "a managed exception reaches Swift as a thrown error");
+            AssertEqual("11|12|13|found-11", settings.Find(11), "and the callback still works after an error");
+        });
+    }
+
     /// <summary>A managed conformer Swift receives from the stored factory.</summary>
     private sealed class ScalingEncoding(nint factor) : IReverseCallbackEncoding
     {

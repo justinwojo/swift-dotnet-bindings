@@ -2063,6 +2063,21 @@ public static class SwiftMarshal
     }
 
     /// <summary>
+    /// Reads a borrowed Swift <c>Optional&lt;T&gt;</c> handed to a Swift-convention callback by address,
+    /// where <typeparamref name="T"/> is a value-wrapper class (a resilient struct or a payload enum).
+    /// The case is read through <c>Optional&lt;T&gt;</c>'s own layout, and a present payload is copied
+    /// into an independently owned wrapper, so the result stays valid after the callback returns.
+    /// </summary>
+    /// <typeparam name="T">The wrapper class of the Optional's payload.</typeparam>
+    /// <param name="optionalAddress">Address of Swift's borrowed <c>Optional&lt;T&gt;</c>.</param>
+    /// <returns>The copied payload, or <c>null</c> when the Optional is empty.</returns>
+    public static T? MarshalOptionalCallbackArg<T>(IntPtr optionalAddress) where T : class
+    {
+        using var optional = MarshalFromSwift<SwiftOptional<T>>(optionalAddress);
+        return optional.Case == SwiftOptionalCases.Some ? optional.Some : null;
+    }
+
+    /// <summary>
     /// Returns the tag byte offset for known blittable primitive types in Swift Optional layout.
     /// Returns -1 for unknown types (enums, structs, etc.).
     /// </summary>

@@ -142,6 +142,11 @@ public static partial class ClosureEmitter
         // these today; see IsSupportedClosureReturnType.)
         bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
         bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
+        // Optional<resilient struct / payload enum>: both lanes size and later move the buffer as
+        // Optional<T>, while the delegate's `T?` is only a nullable-reference annotation over the
+        // wrapper class. Writing through T's metadata never stores Swift's empty case (and a null
+        // result has no payload to write), so the whole Optional is built and copied in.
+        bool isOptionalValueWrapper = closureHandler.IsOptionalValueWrapper(closureTypeSpec.ReturnType, out var optionalPayload);
 
         // No per-case delegate-type rewrite here: GetCSharpDelegateType is the SINGLE computation the
         // public signature and this cast both read, and it already spells a [String] closure return as
@@ -216,6 +221,19 @@ public static partial class ClosureEmitter
                 // ObjC-bridged type: write the handle pointer to the result buffer.
                 // The Swift struct wraps an ObjC reference — the handle IS the ABI representation.
                 *(IntPtr*)indirectResult = result.Handle;
+                """;
+        }
+        else if (isOptionalValueWrapper)
+        {
+            var payloadType = closureHandler.TranslateTypeSpecToCSharp(optionalPayload);
+            marshalBlock = $$"""
+                // Optional value wrapper: write Optional<{{payloadType}}>, including its empty case.
+                using var _swiftOpt = result is null
+                    ? SwiftOptional<{{payloadType}}>.NewNone()
+                    : SwiftOptional<{{payloadType}}>.NewSome(result);
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{payloadType}}>>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
                 """;
         }
         else if (isClassReturn)

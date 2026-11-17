@@ -68,14 +68,19 @@ public static partial class ClosureEmitter
             parameters.Add(ReverseSwiftCallbackSignature.ErrorParameter);
             parameters.Add("IntPtr contextPtr");
         }
-        else
+        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
+        // Swift lane with a result Swift receives by address (the same test the non-throwing
+        // indirect-return callback uses): Swift passes the buffer in its indirect-result register and
+        // reads the value from it after the call, so the callback writes there and returns nothing.
+        // Returning a freshly allocated buffer instead leaves Swift's own buffer uninitialized.
+        var swiftIndirectResult = IsSwiftLaneThrowingIndirectResult(closureTypeSpec, closureHandler, useCdecl);
+        if (!useCdecl)
         {
             // Swift: the shared reverse order — error first, context (self register) last.
-            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: true);
+            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: true, indirectResult: swiftIndirectResult);
         }
 
-        var hasReturn = !closureTypeSpec.ReturnType.IsEmptyTuple;
-        var returnType = hasReturn
+        var returnType = hasReturn && !swiftIndirectResult
             ? GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler)
             : "void";
 
@@ -154,16 +159,19 @@ public static partial class ClosureEmitter
 
         // Default value returned on BOTH the cooperative-failure and the caught-exception
         // paths. Bool callbacks return the byte 0; void callbacks just return.
-        var defaultReturnStmt = !hasReturn
+        var defaultReturnStmt = !hasReturn || swiftIndirectResult
             ? "return;"
             : (returnIsBool ? "return 0;" : "return default;");
 
         // Success return statement (shared conversion logic — same cases as
         // EmitEscapingClosureCallback). Empty for void: control falls off the end of the
-        // try block and the callback returns void.
-        var successReturnStmt = hasReturn
-            ? BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType)
-            : "";
+        // try block and the callback returns void. A Swift-lane indirect result is written into
+        // Swift's buffer by the same statement the @_cdecl indirect returns use.
+        var successReturnStmt = !hasReturn
+            ? ""
+            : swiftIndirectResult
+                ? BuildCallbackIndirectReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, bufferExpr: "indirectResult")
+                : BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType);
 
         // The delegate invocation AND the success marshalling run inside try/catch: a
         // managed exception (a non-cooperative throw from the user delegate, or a failure
@@ -172,6 +180,8 @@ public static partial class ClosureEmitter
         // Swift adapter rethrows it on the Swift side. The cooperative IsFailure path is
         // unchanged.
         var argPrologue = BuildDirectLaneWordBufferPrologue(closureTypeSpec, closureHandler, useCdecl);
+        if (swiftIndirectResult)
+            argPrologue = ReverseSwiftCallbackSignature.IndirectResultBuffer + "\n" + PrologueContinuationIndent + argPrologue;
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe {{returnType}} {{callbackName}}({{parametersString}})
@@ -200,6 +210,17 @@ public static partial class ClosureEmitter
             }
             """);
     }
+
+    /// <summary>
+    /// True when a Swift-lane throwing callback receives its result buffer in Swift's indirect-result
+    /// register: the result is address-only (a resilient struct, an opaque existential, or an Optional
+    /// or Result over one), which Swift never returns in registers. A class reference or a scalar still
+    /// comes back in the return register. The @_cdecl lane keeps its adapter's returned-buffer contract.
+    /// </summary>
+    internal static bool IsSwiftLaneThrowingIndirectResult(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler, bool useCdecl)
+        => !useCdecl &&
+           !closureTypeSpec.ReturnType.IsEmptyTuple &&
+           closureHandler.ClassifyDirectClosureArg(closureTypeSpec.ReturnType).Abi == DirectClosureArgAbi.Indirect;
 
     /// <summary>
     /// Emits the static field that holds the function pointer for a throwing closure callback.

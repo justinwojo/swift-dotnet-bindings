@@ -148,12 +148,15 @@ public struct ReverseCallbackSettings {
     public var makeEncoder: (Int) -> any ReverseCallbackEncoding
     /// A validator that throws.
     public var validate: (Int) throws -> Int
+    /// A throwing lookup whose wide optional result Swift receives by address.
+    public var lookup: (Int) throws -> ReverseCallbackWide?
 
     public init() {
         transform = { $0 }
         provider = { nil }
         makeEncoder = { ReverseCallbackOffsetEncoding(offset: $0) }
         validate = { $0 }
+        lookup = { _ in nil }
     }
 
     /// `transform(value)`.
@@ -164,6 +167,18 @@ public struct ReverseCallbackSettings {
 
     /// `makeEncoder(offset).encode(value)`.
     public func encode(_ value: Int, offset: Int) -> Int { makeEncoder(offset).encode(value) }
+
+    /// Describes `lookup(key)`: the found value's fields, `nil`, or the error it threw.
+    public func find(_ key: Int) -> String {
+        do {
+            guard let found = try lookup(key) else { return "nil" }
+            return "\(found.first)|\(found.second)|\(found.third)|\(found.label)"
+        } catch let failure as ReverseCallbackFailure {
+            return "failure:\(failure)"
+        } catch {
+            return "error"
+        }
+    }
 
     /// `validate(value)`, or `-1` when it throws a `ReverseCallbackFailure`, or `-2` for any other error.
     public func check(_ value: Int) -> Int {
