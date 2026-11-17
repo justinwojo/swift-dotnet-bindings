@@ -33,9 +33,48 @@ public class ReverseSwiftCallbackOrderTests
     [Fact]
     public void Rule_NonThrowing_PlacesOnlyTheContext_Last()
     {
-        var parameters = ReverseSwiftCallbackSignature.Parameters(new[] { "void* indirectResult", "nint arg0" }, throws: false);
+        var parameters = ReverseSwiftCallbackSignature.Parameters(new[] { "void* arg0", "nint arg1" }, throws: false);
 
-        Assert.Equal(new[] { "void* indirectResult", "nint arg0", "SwiftSelf context" }, parameters);
+        Assert.Equal(new[] { "void* arg0", "nint arg1", "SwiftSelf context" }, parameters);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Rule_IndirectResult_IsTheSwiftIndirectResultRegister_AfterTheErrorAndBeforeTheArguments(bool throws)
+    {
+        // Swift passes a closure's result buffer in x8 / rax and the first argument in x0 / rdi; a
+        // buffer declared as an ordinary leading pointer reads the first argument register instead.
+        var parameters = ReverseSwiftCallbackSignature.Parameters(new[] { "nint arg0" }, throws, indirectResult: true);
+        var pointer = ReverseSwiftCallbackSignature.FunctionPointerType(new[] { "nint" }, throws, "void", indirectResult: true);
+
+        var expected = new List<string> { "SwiftIndirectResult", "nint", "SwiftSelf" };
+        if (throws)
+            expected.Insert(0, "SwiftError*");
+        Assert.Equal(expected, ParameterTypes(parameters));
+        Assert.Equal(expected.Append("void"), PointerTypeArguments(pointer, "Swift").Select(t => t.Replace(SwiftInteropNamespace, "", System.StringComparison.Ordinal)));
+        Assert.DoesNotContain(parameters, p => p.StartsWith("void*", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void SwiftLane_IndirectReturn_ReadsTheBufferFromTheIndirectResultRegister()
+    {
+        var (callback, _) = Emit("indirect", useCdecl: false);
+
+        var types = ParameterTypes(UcoParameters(callback, out _)).ToList();
+        Assert.Equal(new[] { "SwiftIndirectResult", "nint", "SwiftSelf" }, types);
+        Assert.Contains(ReverseSwiftCallbackSignature.IndirectResultBuffer, callback);
+    }
+
+    [Fact]
+    public void CdeclLane_IndirectReturn_KeepsTheAdapterBufferArgument()
+    {
+        // The @_cdecl adapter passes the buffer as its first C argument; that lane must not move.
+        var (callback, _) = Emit("indirect", useCdecl: true);
+
+        var parameters = UcoParameters(callback, out _);
+        Assert.Equal("void* indirectResult", parameters[0].Trim());
+        Assert.DoesNotContain("SwiftIndirectResult", callback);
     }
 
     [Fact]
@@ -79,9 +118,11 @@ public class ReverseSwiftCallbackOrderTests
         if (shape == "throwing")
             Assert.Equal("SwiftError*", types[0]);
         Assert.True(types.Count(t => t == "SwiftError*") == (shape == "throwing" ? 1 : 0));
+        Assert.True(types.Count(t => t == "SwiftIndirectResult") == (shape == "indirect" ? 1 : 0));
 
         // The static pointer field that hands the callback to Swift names the same signature.
-        var pointerArgs = PointerTypeArguments(pointerField, "Swift");
+        var pointerArgs = PointerTypeArguments(pointerField, "Swift")
+            .Select(t => t.Replace(SwiftInteropNamespace, "", System.StringComparison.Ordinal)).ToList();
         Assert.Equal(types, pointerArgs.Take(pointerArgs.Count - 1));
     }
 
@@ -150,16 +191,19 @@ public class ReverseSwiftCallbackOrderTests
             {
                 total++;
                 var types = ParameterTypes(SplitTopLevel(match.Groups["params"].Value)).ToList();
-                var problem = CorpusOrderProblem(types);
+                var problem = CorpusOrderProblem(types)
+                    ?? (match.Groups["params"].Value.Contains("void* indirectResult", System.StringComparison.Ordinal)
+                        ? "the indirect result must arrive as a SwiftIndirectResult, not an ordinary pointer"
+                        : null);
                 if (problem is not null)
                     violations.Add($"{Path.GetFileName(file)} {match.Groups["name"].Value}({string.Join(", ", types)}): {problem}");
             }
         }
 
-        // The corpus may legitimately hold no Swift-convention callback: the generator moves every
-        // closure it can onto the @_cdecl lane, which every engine calls, and today that is all of
-        // them on both the .NET 10 and .NET 11 corpora. What must hold is that the scan read real
-        // callbacks, and that every Swift-convention one it finds was parsed and checked. Whether the
+        // The generator moves every closure it can onto the @_cdecl lane, which every engine calls;
+        // the corpus keeps Swift-convention callbacks only for shapes with no @_cdecl adapter
+        // (ReverseCallbackShapes.swift). What must hold is that the scan read real callbacks, and
+        // that every Swift-convention one it finds was parsed and checked. Whether the
         // signature pattern still matches what the Swift-lane emitters render is pinned on their own
         // output (CorpusPattern_MatchesEverySwiftLaneEmitter), so a return of the lane cannot slip
         // past this check unparsed.
@@ -198,6 +242,9 @@ public class ReverseSwiftCallbackOrderTests
         int errors = types.Count(t => t == "SwiftError*");
         if (errors > 1 || (errors == 1 && types[0] != "SwiftError*"))
             return "SwiftError* must be the first parameter";
+        int results = types.Count(t => t == "SwiftIndirectResult");
+        if (results > 1 || (results == 1 && types[errors] != "SwiftIndirectResult"))
+            return "SwiftIndirectResult must follow the error, before every ordinary parameter";
         return null;
     }
 

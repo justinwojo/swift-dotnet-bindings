@@ -193,6 +193,12 @@ public sealed class SwiftTransitionScanOptions
 /// </summary>
 public static class SwiftTransitionScanner
 {
+    /// <summary>The R4 class of a Swift-convention <c>UnmanagedCallersOnly</c> method.</summary>
+    public const string SwiftConventionCallbackClass = "swift-uco";
+
+    /// <summary>The R4 class of a Swift-convention callback that also names an <c>EntryPoint</c>.</summary>
+    public const string ExportedCallbackClass = "exported-uco";
+
     public const string BridgePrefix = "SBSR_";
     public const string ReverseBridgePrefix = "SBSRR_";
 
@@ -356,12 +362,12 @@ public static class SwiftTransitionScanner
             if (!TryDecode(member, () => _provider.DecodeMethod(method.Signature), out var signature))
                 return;
 
-            var attributes = ReadInteropAttributes(member, method);
+            var attributes = ReadInteropAttributes(member, method, out var exported);
             var isPInvoke = (method.Attributes & MethodAttributes.PinvokeImpl) != 0;
             if (isPInvoke)
                 ScanPInvoke(member, method, signature, attributes.UnmanagedCallConv);
             if (attributes.UnmanagedCallersOnly is { } ucoConvention)
-                ScanUnmanagedCallersOnly(member, signature, ucoConvention);
+                ScanUnmanagedCallersOnly(member, signature, ucoConvention, exported);
 
             // A transition's own signature was judged above as a whole; every other method signature is
             // inspected only for the function-pointer types it carries.
@@ -521,7 +527,7 @@ public static class SwiftTransitionScanner
                 verdict.Kind == CarrierKind.Primitive && verdict.Canonical is { } canonical && slot.Carriers.Contains(canonical);
         }
 
-        private void ScanUnmanagedCallersOnly(string member, MethodSignature<SigType> signature, TransitionConvention convention)
+        private void ScanUnmanagedCallersOnly(string member, MethodSignature<SigType> signature, TransitionConvention convention, bool exported)
         {
             var sigText = TypeNames.Display(convention, signature);
             var carriers = Carriers(signature);
@@ -536,7 +542,14 @@ public static class SwiftTransitionScanner
             if (convention == TransitionConvention.Swift)
             {
                 reasons.Add("reverse callback uses the Swift convention");
-                classes.Add("swift-uco");
+                classes.Add(SwiftConventionCallbackClass);
+                if (exported)
+                {
+                    // An exported callback is reachable from any native code, not only through the
+                    // members that hand Swift its address, so no guard of theirs can answer for it.
+                    reasons.Add("it is exported as a native entry point");
+                    classes.Add(ExportedCallbackClass);
+                }
             }
             if (signature.ParameterTypes.Prepend(signature.ReturnType)
                 .SelectMany(t => t.SelfAndDescendants())
@@ -752,9 +765,18 @@ public static class SwiftTransitionScanner
         }
 
         private (TransitionConvention? UnmanagedCallConv, TransitionConvention? UnmanagedCallersOnly) ReadInteropAttributes(
-            string member, MethodDefinition method)
+            string member, MethodDefinition method) => ReadInteropAttributes(member, method, out _);
+
+        /// <summary>
+        /// The conventions an import's <c>UnmanagedCallConv</c> and a method's <c>UnmanagedCallersOnly</c>
+        /// name. <paramref name="exported"/> is whether the <c>UnmanagedCallersOnly</c> also names an
+        /// <c>EntryPoint</c>, which NativeAOT exports as a native symbol anything can call.
+        /// </summary>
+        private (TransitionConvention? UnmanagedCallConv, TransitionConvention? UnmanagedCallersOnly) ReadInteropAttributes(
+            string member, MethodDefinition method, out bool exported)
         {
             TransitionConvention? callConv = null, uco = null;
+            exported = false;
             foreach (var attributeHandle in method.GetCustomAttributes())
             {
                 var attribute = _md.GetCustomAttribute(attributeHandle);
@@ -783,7 +805,10 @@ public static class SwiftTransitionScanner
                 if (isCallConv)
                     callConv = convention;
                 else
+                {
                     uco = convention ?? TransitionConvention.PlatformDefault;
+                    exported |= value.NamedArguments.Any(a => a.Name == "EntryPoint" && a.Value is string { Length: > 0 });
+                }
             }
             return (callConv, uco);
         }

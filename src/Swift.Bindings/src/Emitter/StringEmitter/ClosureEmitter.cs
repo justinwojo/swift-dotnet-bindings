@@ -1060,7 +1060,7 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
             }
 
-            // Result<Optional<Class/Any>, any Error> on the ordinary @_cdecl adapter arrives at
+            // A Result on the ordinary @_cdecl adapter (IsSupportedResultErrorCallbackInput) arrives at
             // an initialized Swift value. MarshalFromSwift performs the required metadata-driven
             // heap copy; the resulting SwiftResult owns that copy after Swift destroys its
             // temporary. The borrowed helper is deliberately not used because suppressing the

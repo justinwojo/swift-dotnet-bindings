@@ -1634,6 +1634,36 @@ public class ClosureCdeclEmitterTests
         Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
     }
 
+    public static IEnumerable<object[]> MetadataBackedResults() => new[]
+    {
+        // Result<non-frozen struct, complex enum>: a completion beside a URL whose typed failure carries a payload.
+        new object[] { new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.WideRecord"), new NamedTypeSpec("TestModule.LoadFailure")) },
+        // Result<class, any Error>.
+        new object[] { new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.Loader"), new NamedTypeSpec("Swift.Error") { IsAny = true }) },
+        // Result<complex enum, any Error>.
+        new object[] { new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.LoadFailure"), new NamedTypeSpec("Swift.Error") { IsAny = true }) },
+    };
+
+    [Theory]
+    [MemberData(nameof(MetadataBackedResults))]
+    public void ResultCallbackInput_MetadataBackedPayloads_TakeTheTypedAddressAdapter(NamedTypeSpec result)
+    {
+        // These completions once had no @_cdecl adapter, so they reached C# as a Swift-convention
+        // callback the x86_64 interpreter cannot receive. Swift now hands the Result by address and
+        // C# copies it out through its metadata.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var closureType = new ClosureTypeSpec(result, TupleTypeSpec.Empty);
+
+        Assert.True(ClosureEmitter.IsSupportedResultErrorCallbackInput(result, closureHandler));
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "completion", closureType, closureHandler, isOptional: false));
+        Assert.Contains("UnsafeMutablePointer<Swift.Result", swift);
+        Assert.Contains("__collection_0.initialize(to: p0)", swift);
+        Assert.Contains("__collection_0.deinitialize(count: 1); __collection_0.deallocate()", swift);
+    }
+
     [Fact]
     public void ResultErrorCallbackInput_NearMissesRemainRejected()
     {
@@ -1645,6 +1675,18 @@ public class ClosureCdeclEmitterTests
         Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
             new NamedTypeSpec("Swift.Result",
                 new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Int32")), error), closureHandler));
+        // Payloads with no metadata-backed C# projection: a String, a simple enum, an ObjC-bridged
+        // class, a frozen scalar struct as the failure, an inout.
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("Swift.String"), error), closureHandler));
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.ColorMode"), error), closureHandler));
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("Foundation.NSError"), error), closureHandler));
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.Loader"), new NamedTypeSpec("Swift.Int32")), closureHandler));
+        Assert.False(ClosureEmitter.IsSupportedResultErrorCallbackInput(
+            new NamedTypeSpec("Swift.Result", new NamedTypeSpec("TestModule.Loader"), error) { IsInOut = true }, closureHandler));
     }
 
     [Fact]
@@ -2442,6 +2484,26 @@ public class ClosureCdeclEmitterTests
                 MetadataAccessor = "$s10TestModule6LoaderCMa",
                 Flags = TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Class
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.WideRecord"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "WideRecord"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.WideRecord"),
+                MetadataAccessor = "$s10TestModule10WideRecordVMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Struct
+            });
+        module.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.LoadFailure"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "LoadFailure"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.LoadFailure"),
+                MetadataAccessor = "$s10TestModule11LoadFailureOMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Enum
             });
         module.RegisterType(
             SwiftTypeName.FromModuleQualifiedName("TestModule.VectorAnimationColor"),
