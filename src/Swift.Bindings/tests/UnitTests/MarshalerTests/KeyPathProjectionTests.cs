@@ -82,12 +82,13 @@ public class KeyPathProjectionTests
     #region Parameter plan — DangerousGetHandle (no .Payload hop)
 
     [Fact]
-    public void ParameterPlan_UsesDangerousGetHandle_NotPayload()
+    public void ParameterPlan_ReadsTheLiveHandle_NotPayload()
     {
         var proj = new KeyPathProjection("KeyPath", ["Root", "Value"]);
         var plan = proj.GetParameterPlan("kp");
 
-        Assert.Equal("kp.DangerousGetHandle()", plan.PInvokeExpression);
+        // The handle is read through the guard, which refuses a disposed key path before Swift runs.
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(kp))", plan.PInvokeExpression);
         // SwiftKeyPathHandle IS the SafeHandle — there is no .Payload indirection
         // like SwiftClassHandle<T>. A regression that re-introduces .Payload here
         // would break compilation against the Swift.Runtime KeyPath wrappers.
@@ -152,12 +153,12 @@ public class KeyPathProjectionTests
     #region Container element conversions — Optional<KeyPath>, [KeyPath]
 
     [Fact]
-    public void ParameterElementConversion_UsesDangerousGetHandle()
+    public void ParameterElementConversion_ReadsTheLiveHandle()
     {
         // SwiftOptional<KeyPath<,>> / SwiftArray<KeyPath<,>> need to lower each
         // element to the same IntPtr shape as a bare parameter.
         var proj = new KeyPathProjection("KeyPath", ["Root", "Value"]);
-        Assert.Equal("element.DangerousGetHandle()", proj.GetParameterElementConversion("element"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(element))", proj.GetParameterElementConversion("element"));
     }
 
     [Fact]

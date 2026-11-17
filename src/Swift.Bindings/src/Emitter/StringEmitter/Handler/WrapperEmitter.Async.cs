@@ -260,7 +260,7 @@ namespace BindingsGeneration
                 {
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
                     csWriter.WriteLines($$"""
-            IntPtr _selfPtr = Handle;
+            IntPtr _selfPtr = {{LiveHandleExpressions.ObjCSelf()}};
             global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";
@@ -328,7 +328,7 @@ namespace BindingsGeneration
                     // ObjC-rooted classes: Handle IS the Swift object pointer (no _payload buffer)
                     csWriter.WriteLines($$"""
             TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}} _tcs = new TaskCompletionSource{{(isEmptyTuple ? "" : $"<{_wrapperSignature.ReturnType}>")}}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
-            IntPtr _selfPtr = Handle;
+            IntPtr _selfPtr = {{LiveHandleExpressions.ObjCSelf()}};
             global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
             """);
                     selfFieldInit = "SelfRetain = new RetainedSelfPtr(_selfPtr)";

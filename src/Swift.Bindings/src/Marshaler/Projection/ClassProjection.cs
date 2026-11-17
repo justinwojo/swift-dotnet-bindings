@@ -34,7 +34,7 @@ public class ClassProjection : ITypeProjection
         // Payload property returns the SwiftClassHandle, DangerousGetHandle() extracts the IntPtr.
         return new MarshalPlan
         {
-            PInvokeExpression = $"{paramName}.Payload.DangerousGetHandle()"
+            PInvokeExpression = LiveHandleExpressions.SwiftObjectArgument(paramName, paramName)
         };
     }
 
@@ -54,7 +54,7 @@ public class ClassProjection : ITypeProjection
     // SwiftClassHandle: Payload property returns SwiftClassHandle,
     // DangerousGetHandle() extracts the Swift object pointer directly.
     public string? GetParameterElementConversion(string elementVar) =>
-        $"{elementVar}.Payload.DangerousGetHandle()";
+        LiveHandleExpressions.SwiftObject(elementVar);
 
     /// <summary>
     /// No return element conversion needed. When used inside Optional, ToNullable() handles

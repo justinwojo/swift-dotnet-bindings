@@ -1023,7 +1023,7 @@ public class ComplexProjectionTests
 
         Assert.NotNull(conv);
         Assert.Contains("IntPtr.Zero", conv);
-        Assert.Contains("Payload.DangerousGetHandle()", conv);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(__v_e.Payload))", conv);
         Assert.DoesNotContain("SwiftOptional<", conv);
     }
 
@@ -1371,7 +1371,7 @@ public class ComplexProjectionTests
             .FirstOrDefault(l => l.Code.Contains("closureResult"));
         Assert.NotNull(lambdaLine);
         Assert.Contains("arg0Converted", lambdaLine!.Code);
-        Assert.Contains("DangerousGetHandle", lambdaLine.Code);
+        Assert.Contains("SwiftHandleGuard.GetLive", lambdaLine.Code);
     }
 
     [Fact]
@@ -1665,7 +1665,7 @@ public class ComplexProjectionTests
     public void ObjCBridged_ElementConversions()
     {
         var proj = new ObjCBridgedProjection("UIImage");
-        Assert.Equal("(IntPtr)e.Handle", proj.GetParameterElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCHandle(e)", proj.GetParameterElementConversion("e"));
         Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIImage>(e)!", proj.GetReturnElementConversion("e"));
     }
 
@@ -1673,7 +1673,7 @@ public class ComplexProjectionTests
     public void NonFrozenStruct_ElementConversions()
     {
         var proj = new NonFrozenStructProjection("MyClass");
-        Assert.Equal("e.Payload.DangerousGetHandle()", proj.GetParameterElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(e.Payload))", proj.GetParameterElementConversion("e"));
         // Return element conversion is null — when used inside Optional, ToNullable() handles
         // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
         Assert.Null(proj.GetReturnElementConversion("e"));

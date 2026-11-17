@@ -258,7 +258,7 @@ public class SimpleProjectionTests
         Assert.Single(plan.SetupStatements);
 
         var setup = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Equal("var imageHandle = image.Handle;", setup.Code);
+        Assert.Equal("var imageHandle = global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCArgumentHandle(image, \"image\");", setup.Code);
     }
 
     [Fact]
@@ -528,7 +528,7 @@ public class SimpleProjectionTests
     {
         var proj = new NonFrozenStructProjection("MyClass");
         var plan = proj.GetParameterPlan("obj");
-        Assert.Equal("obj.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(obj.Payload))", plan.PInvokeExpression);
         Assert.Empty(plan.SetupStatements);
     }
 

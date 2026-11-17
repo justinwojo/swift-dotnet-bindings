@@ -1711,7 +1711,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 {
                     callArgs.Add(leaseSelf
                         ? "self.Payload"
-                        : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+                        : LiveHandleExpressions.SwiftObject("self"));
                 }
             }
             else
@@ -1728,7 +1728,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (leaseSelf)
                     selfExpr = isClass ? "Payload" : "_payload";
                 else
-                    selfExpr = isClass ? "GetSwiftHandle()" : "_payload.DangerousGetHandle()";
+                    selfExpr = isClass ? LiveHandleExpressions.SwiftObject("this") : LiveHandleExpressions.SafeHandle("_payload");
                 callArgs.Add(selfExpr);
             }
         }

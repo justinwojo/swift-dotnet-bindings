@@ -992,8 +992,8 @@ public static class ExistentialBypassEmitter
             callArgsList.Add("__resultPtr");
         var classParentDecl = env.ParentDecl as ClassDecl;
         var selfExpr = classParentDecl != null
-            ? (classParentDecl.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
-            : "_payload.DangerousGetHandle()";
+            ? (classParentDecl.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
+            : LiveHandleExpressions.SafeHandle("_payload");
         callArgsList.Add(selfExpr);
         var passthroughCallArgs = string.Join(", ", marshalledArgs);
         if (!string.IsNullOrEmpty(passthroughCallArgs))

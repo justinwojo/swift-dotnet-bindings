@@ -1336,8 +1336,8 @@ public static class AsyncMethodGenericBridgeEmitter
         // Self retain (instance methods only).
         if (isInstance && isClass && isObjCRooted)
         {
-            csWriter.WriteLines("""
-                IntPtr _selfPtr = Handle;
+            csWriter.WriteLines($$"""
+                IntPtr _selfPtr = {{LiveHandleExpressions.ObjCSelf()}};
                 global::Swift.Runtime.Arc.UnknownObjectRetain(_selfPtr);
                 """);
         }
@@ -1501,7 +1501,7 @@ public static class AsyncMethodGenericBridgeEmitter
             var csName = NameProvider.GetCSharpParameterName(arg);
             if (arg.SwiftTypeSpec is NamedTypeSpec named && named.Name == genericInfo.Param.TypeName)
             {
-                callArgs.Add($"{csName}.SwiftHandle");
+                callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
                 continue;
             }
 
@@ -1519,7 +1519,7 @@ public static class AsyncMethodGenericBridgeEmitter
                     break;
                 case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                 case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
-                    callArgs.Add($"{csName}.SwiftHandle");
+                    callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
                     break;
                 case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
                 {
@@ -1538,8 +1538,8 @@ public static class AsyncMethodGenericBridgeEmitter
         if (isInstance)
         {
             var selfExpr = isClass
-                ? (isObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
-                : "_payload.DangerousGetHandle()";
+                ? (isObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
+                : LiveHandleExpressions.SafeHandle("_payload");
             callArgs.Add(selfExpr);
         }
 

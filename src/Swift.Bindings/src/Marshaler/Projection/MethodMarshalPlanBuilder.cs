@@ -634,7 +634,7 @@ internal class MethodMarshalPlanBuilder
                 return new SwiftSelfSetup
                 {
                     Kind = SwiftSelfKind.ObjCRootedClass,
-                    CreationCode = "var self = new SwiftSelf((void*)Handle);"
+                    CreationCode = $"var self = new SwiftSelf((void*){LiveHandleExpressions.ObjCSelf()});"
                 };
             }
             return new SwiftSelfSetup

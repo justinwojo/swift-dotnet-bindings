@@ -28,7 +28,7 @@ public class ObjCBridgedProjection : ITypeProjection
         {
             SetupStatements = new List<MarshalStatement>
             {
-                new MarshalStatement.Line($"var {paramName}Handle = {paramName}.Handle;")
+                new MarshalStatement.Line($"var {paramName}Handle = {LiveHandleExpressions.ObjCArgument(paramName, paramName)};")
             },
             PInvokeExpression = $"{paramName}Handle"
         };
@@ -47,7 +47,7 @@ public class ObjCBridgedProjection : ITypeProjection
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
-    public string? GetParameterElementConversion(string elementVar) => $"(IntPtr){elementVar}.Handle";
+    public string? GetParameterElementConversion(string elementVar) => LiveHandleExpressions.ObjCSelf(elementVar);
     public string? GetReturnElementConversion(string elementVar) => MarshallingHelpers.FormatObjCBridgeCall(_csharpTypeName, elementVar, nonNull: true);
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);

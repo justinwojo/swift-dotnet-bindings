@@ -1085,7 +1085,7 @@ namespace BindingsGeneration
                     var metadata = SwiftObjectHelper<{{_typeNameWithGenerics}}>.GetTypeMetadata();
                     fixed (void* swiftDest = swiftDestSpan)
                     {
-                        IntPtr selfPtr = Handle;
+                        IntPtr selfPtr = {{LiveHandleExpressions.ObjCSelf()}};
                         metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, &selfPtr, metadata);
                         return (int)metadata.Size;
                     }
@@ -1536,13 +1536,15 @@ namespace BindingsGeneration
                 EmitEqualityPInvoke(eqSymbol);
             }
 
-            // Equality comparison expression — use @_cdecl P/Invoke if available.
-            // Classes: extract pointer via GetSwiftHandle() (emitted on root and ObjC boundary classes).
-            string equalsExpr(string lhs, string rhs)
-            {
-                if (eqSymbol == null) return $"Swift.Runtime.SwiftEquatable.Equals({lhs}, {rhs})";
-                return $"PInvoke_eq({lhs}.GetSwiftHandle(), {rhs}.GetSwiftHandle())";
-            }
+            // Every equality entry point goes through one helper. A disposed wrapper has no native
+            // peer to compare — its handle reads IntPtr.Zero, and the wrapper's Swift parameters
+            // are non-optional pointers — so it keeps reference identity instead, the contract the
+            // non-Equatable identity path and the disposed hash below already keep. A live pair is
+            // compared with both peers held across the call: a pure-Swift wrapper pins its
+            // SafeHandle (a concurrent Dispose then waits for the call to return), and an
+            // Objective-C-rooted one is kept reachable so its finalizer cannot run mid-call.
+            string equalsExpr(string lhs, string rhs) => $"_SwiftEquals({lhs}, {rhs})";
+            WriteEqualsHelper(eqSymbol);
 
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
@@ -1555,9 +1557,15 @@ namespace BindingsGeneration
                       var handle = this.GetSwiftHandle();
                           if (handle == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
                           nint h = PInvoke_hash(handle);
+                          global::System.GC.KeepAlive(this);
                           return unchecked((int)h ^ (int)((long)h >> 32));
                       """
-                    : "return Swift.Runtime.SwiftHashable.GetHashCode(this);";
+                    // The runtime hash marshals the object to Swift, which a disposed wrapper
+                    // cannot be; it keeps the identity hash its reference-identity Equals implies.
+                    : """
+                      if (this.GetSwiftHandle() == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
+                          return Swift.Runtime.SwiftHashable.GetHashCode(this);
+                      """;
             var equalsMethods = $$"""
             public override bool Equals(object? obj)
             {
@@ -1614,6 +1622,60 @@ namespace BindingsGeneration
             """;
 
             _writer.WriteLines(equatableEquals);
+            _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes <c>_SwiftEquals</c>, the one comparison every Equatable entry point calls: reference
+        /// identity when either wrapper is disposed, otherwise the Swift <c>==</c> with both native
+        /// peers held across the call.
+        /// </summary>
+        private void WriteEqualsHelper(string? eqSymbol)
+        {
+            var compare = eqSymbol == null
+                ? "Swift.Runtime.SwiftEquatable.Equals(left, right)"
+                : "PInvoke_eq(lhs, rhs)";
+            string body;
+            if (_classDecl.IsObjCRooted)
+            {
+                body = $$"""
+                    var lhs = left.GetSwiftHandle();
+                    var rhs = right.GetSwiftHandle();
+                    if (lhs == IntPtr.Zero || rhs == IntPtr.Zero) return ReferenceEquals(left, right);
+                    var equal = {{compare}};
+                    global::System.GC.KeepAlive(left);
+                    global::System.GC.KeepAlive(right);
+                    return equal;
+                """;
+            }
+            else
+            {
+                body = $$"""
+                    var lhs = left.GetSwiftHandle();
+                    var rhs = right.GetSwiftHandle();
+                    if (lhs == IntPtr.Zero || rhs == IntPtr.Zero) return ReferenceEquals(left, right);
+                    bool pinnedLeft = false;
+                    bool pinnedRight = false;
+                    try
+                    {
+                        left._handle.DangerousAddRef(ref pinnedLeft);
+                        right._handle.DangerousAddRef(ref pinnedRight);
+                        return {{compare}};
+                    }
+                    finally
+                    {
+                        if (pinnedRight) right._handle.DangerousRelease();
+                        if (pinnedLeft) left._handle.DangerousRelease();
+                    }
+                """;
+            }
+
+            _writer.WriteLines($$"""
+            private static bool _SwiftEquals({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
+            {
+            {{body}}
+            }
+            """);
             _writer.WriteLine();
         }
 

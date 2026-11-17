@@ -52,7 +52,7 @@ public class NonFrozenStructProjection : ITypeProjection
     {
         return new MarshalPlan
         {
-            PInvokeExpression = $"{paramName}.Payload.DangerousGetHandle()"
+            PInvokeExpression = LiveHandleExpressions.SafeHandle($"{paramName}.Payload")
         };
     }
 
@@ -96,7 +96,7 @@ public class NonFrozenStructProjection : ITypeProjection
     /// by value into the contiguous Swift array slot.
     /// </summary>
     public string? GetParameterElementConversion(string elementVar) =>
-        $"{elementVar}.Payload.DangerousGetHandle()";
+        LiveHandleExpressions.SafeHandle($"{elementVar}.Payload");
 
     /// <summary>
     /// No return element conversion needed. When used inside Optional, ToNullable() handles

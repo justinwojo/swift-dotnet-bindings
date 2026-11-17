@@ -459,7 +459,7 @@ public class TypeProjectionConsistencyTests
         var proj = new NonFrozenStructProjection("Pipeline");
         var plan = proj.GetParameterPlan("pipe");
 
-        Assert.Contains("DangerousGetHandle", plan.PInvokeExpression);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(pipe.Payload))", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -468,7 +468,7 @@ public class TypeProjectionConsistencyTests
         var proj = new ClassProjection("MyViewController");
         var plan = proj.GetParameterPlan("vc");
 
-        Assert.Contains("DangerousGetHandle", plan.PInvokeExpression);
+        Assert.Contains("SwiftHandleGuard.GetLiveArgumentHandle", plan.PInvokeExpression);
     }
 
     [Fact]

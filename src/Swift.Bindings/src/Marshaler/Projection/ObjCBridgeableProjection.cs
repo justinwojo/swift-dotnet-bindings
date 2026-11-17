@@ -112,7 +112,7 @@ public class ObjCBridgeableProjection : ITypeProjection
         var setup = _typedEnum is null
             ? new List<MarshalStatement>
             {
-                new MarshalStatement.Line($"var {paramName}Handle = {paramName}.Handle;")
+                new MarshalStatement.Line($"var {paramName}Handle = {LiveHandleExpressions.ObjCArgument(paramName, paramName)};")
             }
             : new List<MarshalStatement>
             {

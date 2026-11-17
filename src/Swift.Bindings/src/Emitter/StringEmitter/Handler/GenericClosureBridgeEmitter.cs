@@ -544,8 +544,8 @@ public static class GenericClosureBridgeEmitter
         // --- Public methods ---
         var classParent = parentDecl as ClassDecl;
         var selfExpr = classParent != null
-            ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
-            : "_payload.DangerousGetHandle()";
+            ? (classParent.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
+            : LiveHandleExpressions.SafeHandle("_payload");
         EmitPublicReturningMethod(csWriter, methodDecl, methodName, closureArgs,
             callbackNameRet, pInvokeName, csClosureName, closureTypeSpec, env, selfExpr, closureArg, ctx);
         if (emitVoidVariant)

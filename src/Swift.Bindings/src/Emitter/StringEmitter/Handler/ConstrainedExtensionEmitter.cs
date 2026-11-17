@@ -619,7 +619,7 @@ public static class ConstrainedExtensionEmitter
         {
             var args = new List<string>();
             if (leading != null) args.Add(leading);
-            if (!isStatic) args.Add("self.Payload.DangerousGetHandle()");
+            if (!isStatic) args.Add(LiveHandleExpressions.SafeHandle("self.Payload"));
             return string.Join(", ", args);
         }
 
@@ -1513,7 +1513,7 @@ public static class ConstrainedExtensionEmitter
 
         // Build the call arguments expression — instance methods pass the self
         // handle as the trailing arg; static methods pass nothing.
-        var pinvokeSelfArg = isStatic ? "" : "self.Payload.DangerousGetHandle()";
+        var pinvokeSelfArg = isStatic ? "" : LiveHandleExpressions.SafeHandle("self.Payload");
 
         // A `consuming` method on a ~Copyable parent moves the value out of the receiver's buffer
         // before the Swift method runs, so the handle is marked consumed however the call exits —

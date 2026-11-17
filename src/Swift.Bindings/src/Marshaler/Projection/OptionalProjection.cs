@@ -56,7 +56,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     private string ObjCInnerHandleExpression(string valueVar)
         => _innerProjection is ObjCBridgeableProjection bridgeable
             ? $"{bridgeable.BridgeWriteExpression(valueVar)}.Handle"
-            : $"{valueVar}.Handle";
+            : LiveHandleExpressions.ObjCSelf(valueVar);
 
     /// <summary>
     /// The managed read of a non-nil ObjC pointer on the nullable-pointer ABI return paths.
@@ -118,10 +118,10 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         var patVar = $"__v_{safeVar}";
 
         if (_innerProjection is ClassProjection)
-            return $"({elementVar} is {{ }} {patVar} ? {patVar}.Payload.DangerousGetHandle() : IntPtr.Zero)";
+            return $"({elementVar} is {{ }} {patVar} ? {LiveHandleExpressions.SafeHandle($"{patVar}.Payload")} : IntPtr.Zero)";
         // KeyPath wrappers ARE the SafeHandle (no .Payload hop); nil-pointer-optimized like classes.
         if (_innerProjection is KeyPathProjection)
-            return $"({elementVar} is {{ }} {patVar} ? {patVar}.DangerousGetHandle() : IntPtr.Zero)";
+            return $"({elementVar} is {{ }} {patVar} ? {LiveHandleExpressions.SafeHandle(patVar)} : IntPtr.Zero)";
         if (_innerProjection is ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection)
             return $"({elementVar} is {{ }} {patVar} ? {ObjCInnerHandleExpression(patVar)} : IntPtr.Zero)";
 
@@ -251,7 +251,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.Payload.DangerousGetHandle() : IntPtr.Zero;")
+                        $"IntPtr {paramName}Buffer = {LiveHandleExpressions.SwiftObjectOptionalArgument(paramName)};")
                 },
                 PInvokeExpression = $"{paramName}Buffer",
                 // The pointer was read off a managed wrapper that keeps owning the object, so it
@@ -271,7 +271,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
                 SetupStatements = new List<MarshalStatement>
                 {
                     new MarshalStatement.Line(
-                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {paramName}Val.DangerousGetHandle() : IntPtr.Zero;")
+                        $"IntPtr {paramName}Buffer = {paramName} is {{ }} {paramName}Val ? {LiveHandleExpressions.SafeHandle($"{paramName}Val")} : IntPtr.Zero;")
                 },
                 PInvokeExpression = $"{paramName}Buffer"
             };

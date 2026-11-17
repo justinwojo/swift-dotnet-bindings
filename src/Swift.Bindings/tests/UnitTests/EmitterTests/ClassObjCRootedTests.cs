@@ -885,7 +885,7 @@ public class ClassObjCRootedTests
 
         var body = GetClassBody(output, "MyLayer");
         Assert.Contains("MarshalToSwift", body);
-        Assert.Contains("IntPtr selfPtr = Handle", body);
+        Assert.Contains("IntPtr selfPtr = global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCHandle(this)", body);
     }
 
     [Fact]
@@ -987,7 +987,7 @@ public class ClassObjCRootedTests
 
         var setupCode = string.Join("\n", plan.SetupStatements.Select(s => RenderStatement(s)));
         Assert.Contains("stackalloc IntPtr[1]", setupCode);
-        Assert.Contains("layer.Handle", setupCode);
+        Assert.Contains("GetLiveObjCArgumentHandle(layer, \"layer\")", setupCode);
     }
 
     [Fact]
@@ -1023,7 +1023,7 @@ public class ClassObjCRootedTests
     {
         var proj = new ObjCRootedClassProjection("MyLayer");
         var conv = proj.GetParameterElementConversion("item");
-        Assert.Equal("(IntPtr)item.Handle", conv);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCHandle(item)", conv);
     }
 
     #endregion

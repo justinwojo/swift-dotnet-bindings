@@ -282,7 +282,7 @@ public static class SubclassClosedParentTrampolineEmitter
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
             csWriter, mergedAvailability, $"{leafDecl.Name}.{csMethodName}");
-        var call = $"{cdeclSymbol}(((global::Swift.Runtime.ISwiftObject)self).SwiftHandle)";
+        var call = $"{cdeclSymbol}({LiveHandleExpressions.SwiftObject("self")})";
         csWriter.WriteLine(isVoid ? $"{call};" : $"return {call};");
         csWriter.Indent--;
         csWriter.WriteLine("}");

@@ -402,8 +402,8 @@ public static class ConstrainedExistentialBridge
             var paramName = NameProvider.GetCSharpParameterName(bp.Arg);
             pInvokeArgs.Add(bp.Kind switch
             {
-                BridgeParamKind.ConstrainedExistential => $"(({ISwiftObjectInterfaceName}){paramName}).SwiftHandle",
-                BridgeParamKind.PayloadHandle => $"(({ISwiftObjectInterfaceName}){paramName}).SwiftHandle",
+                BridgeParamKind.ConstrainedExistential => LiveHandleExpressions.SwiftObjectArgument($"(({ISwiftObjectInterfaceName}){paramName})", paramName),
+                BridgeParamKind.PayloadHandle => LiveHandleExpressions.SwiftObjectArgument($"(({ISwiftObjectInterfaceName}){paramName})", paramName),
                 BridgeParamKind.Primitive => paramName,
                 _ => paramName,
             });

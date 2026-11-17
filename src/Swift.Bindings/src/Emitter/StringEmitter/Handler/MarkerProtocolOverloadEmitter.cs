@@ -196,7 +196,7 @@ namespace BindingsGeneration
 
                 var callArgs = new List<string>();
                 if (isInstance)
-                    callArgs.Add("this.Payload.DangerousGetHandle()");
+                    callArgs.Add(LiveHandleExpressions.SafeHandle("this.Payload"));
                 callArgs.Add(paramName);
 
                 var callExpr = $"{wrapperPInvokeName}({string.Join(", ", callArgs)})";

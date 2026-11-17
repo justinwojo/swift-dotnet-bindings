@@ -329,8 +329,8 @@ public static class AsyncStreamEmitter
         propertyDecl.MarkEmittedCSharpName(propertyName);
         var classParent = propertyDecl.ParentDecl as ClassDecl;
         var selfExpr = classParent != null
-            ? (classParent.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
-            : "_payload.DangerousGetHandle()";
+            ? (classParent.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
+            : LiveHandleExpressions.SafeHandle("_payload");
         var selfArg = isStatic ? "" : $"(void*){selfExpr}, ";
         // Throwing streams pass the producer-error trampoline; all streams pass the cancel key.
         var errorArg = isThrowing ? $"&{callbackName}_OnError, " : "";

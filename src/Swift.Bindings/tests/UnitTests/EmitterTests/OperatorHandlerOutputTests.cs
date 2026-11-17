@@ -1261,7 +1261,7 @@ public class OperatorHandlerOutputTests
         var output = EmitOperator(op, typeDatabase);
 
         Assert.Contains("ref var __operatorValue = ref operatorValue;", output);
-        var handleLine = output.Split('\n').Single(line => line.Contains(" = __operatorValue.Handle;"));
+        var handleLine = output.Split('\n').Single(line => line.Contains(" = global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCArgumentHandle(__operatorValue, \"__operatorValue\");"));
         var handleName = handleLine.Trim().Split(' ')[1];
         Assert.Contains($"PInvoke_op_Addition({handleName},", output);
     }
@@ -1295,11 +1295,73 @@ public class OperatorHandlerOutputTests
             @"operator \+\(TestModule\.OperatorValue (\w+), TestModule\.OperatorValue (\w+)\)");
         Assert.True(operands.Success);
         var handleLines = output.Split('\n').Select(line => line.Trim())
-            .Where(line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.Contains(".Handle")).ToList();
+            .Where(line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.Contains("GetLiveObjCArgumentHandle(")).ToList();
         Assert.Equal(2, handleLines.Count);
+        string Live(string operand) => $"global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCArgumentHandle({operand}, \"{operand}\")";
         Assert.Contains(handleLines, line => line.EndsWith(
-            $"= global::Swift.Runtime.Arc.UnknownObjectRetain({operands.Groups[1].Value}.Handle);", StringComparison.Ordinal));
-        Assert.Contains(handleLines, line => line.EndsWith($"= {operands.Groups[2].Value}.Handle;", StringComparison.Ordinal));
+            $"= global::Swift.Runtime.Arc.UnknownObjectRetain({Live(operands.Groups[1].Value)});", StringComparison.Ordinal));
+        Assert.Contains(handleLines, line => line.EndsWith($"= {Live(operands.Groups[2].Value)};", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A disposed class wrapper has no Swift object to compare. A class's own <c>==</c> and
+    /// <c>!=</c> answer by reference identity when either operand is disposed — as its
+    /// <c>Equals</c> does — before any handle is read for Swift, instead of throwing or handing
+    /// Swift a null pointer. Both class shapes, and both operators.
+    /// </summary>
+    [Theory]
+    [InlineData("==", false)]
+    [InlineData("==", true)]
+    [InlineData("!=", false)]
+    [InlineData("!=", true)]
+    public void EmitOperator_ClassEqualityWithDisposedOperand_FallsBackToReferenceIdentity(string symbol, bool objCRooted)
+    {
+        var flags = TypeRecordFlags.RequiresMemoryManagement | (objCRooted ? TypeRecordFlags.ObjCRooted : TypeRecordFlags.None);
+        var typeDatabase = CreateTypeDatabaseWithClasses(("OperatorValue", flags));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        parentType.IsObjCRooted = objCRooted;
+        var op = CreateClassBinaryOperator(symbol, parentType, moduleDecl, "Swift.Bool");
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        var operands = System.Text.RegularExpressions.Regex.Match(output,
+            $@"operator {System.Text.RegularExpressions.Regex.Escape(symbol)}\(TestModule\.OperatorValue (\w+), TestModule\.OperatorValue (\w+)\)");
+        Assert.True(operands.Success, output);
+        var (l, r) = (operands.Groups[1].Value, operands.Groups[2].Value);
+        var identity = $"ReferenceEquals({l}, {r})";
+        var fallback = $"if (((global::Swift.Runtime.ISwiftObject){l}).SwiftHandle == IntPtr.Zero || ((global::Swift.Runtime.ISwiftObject){r}).SwiftHandle == IntPtr.Zero) return {(symbol == "==" ? identity : "!" + identity)};";
+        var fallbackAt = output.IndexOf(fallback, StringComparison.Ordinal);
+        Assert.True(fallbackAt >= 0, output);
+        // After the null guards, before anything reads a handle for the call.
+        Assert.True(output.IndexOf($"if ({l} is null)", StringComparison.Ordinal) < fallbackAt, output);
+        // The live path refuses an operand disposed after the test: an ObjC-rooted operand's
+        // pointer is read through the disposal guard, and a Swift class's SafeHandle is passed to
+        // the P/Invoke as a SafeHandle, whose marshaller adds a reference (throwing on a closed one).
+        var liveRead = objCRooted
+            ? output.IndexOf("SwiftHandleGuard.GetLiveObjCArgumentHandle(", StringComparison.Ordinal)
+            : output.IndexOf($"({l}.Payload, {r}.Payload", StringComparison.Ordinal);
+        Assert.True(liveRead > fallbackAt, output);
+        if (!objCRooted)
+            Assert.Contains("( SafeHandle lhs,  SafeHandle rhs,", output);
+    }
+
+    /// <summary>A heterogeneous class operator compares no two wrappers, so it keeps no identity fallback.</summary>
+    [Fact]
+    public void EmitOperator_HeterogeneousClassEquality_HasNoIdentityFallback()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClasses(
+            ("OperatorValue", TypeRecordFlags.RequiresMemoryManagement),
+            ("OperatorValueOther", TypeRecordFlags.RequiresMemoryManagement));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        var op = CreateClassBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
+        op.UnderlyingMethod.CSSignature[2].SwiftTypeSpec = new NamedTypeSpec("TestModule.OperatorValueOther");
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Contains("operator ==", output);
+        Assert.DoesNotContain("ReferenceEquals(", output);
     }
 
     private static void SetOperatorAliasCollisionNames(OperatorDecl op)

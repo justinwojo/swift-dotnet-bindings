@@ -147,6 +147,7 @@
       "SwiftException",
       "SwiftFrameworkResolver",
       "SwiftHandle",
+      "SwiftHandleGuard",
       "SwiftHashable",
       "SwiftInheritanceChain",
       "SwiftLeakCensus",

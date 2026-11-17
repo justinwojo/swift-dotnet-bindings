@@ -329,7 +329,7 @@ namespace BindingsGeneration
                 { Type: MarshalledType.NativeRemappedNonFrozenType } => $"{parameter.Name}Swift.Payload",
                 { Type: MarshalledType.NativeRemappedFrozen } => $"{parameter.Name}Swift",
                 // ObjC-rooted class self: Handle IS the object pointer (no buffer dereference)
-                { Name: "_selfClassObjC" } => "Handle",
+                { Name: "_selfClassObjC" } => LiveHandleExpressions.ObjCSelf(),
                 // Instance methods on free-function wrapper paths pass self as explicit IntPtr.
                 // SwiftClassHandle: DangerousGetHandle() IS the Swift object pointer (no dereference).
                 { Name: "_selfClass" } => "_handle.DangerousGetHandle()",

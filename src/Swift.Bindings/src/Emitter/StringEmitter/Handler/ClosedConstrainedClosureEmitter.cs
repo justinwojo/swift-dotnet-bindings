@@ -520,7 +520,7 @@ public static class ClosedConstrainedClosureEmitter
         }
         // The live `self` reference keeps the handle valid across the synchronous P/Invoke (matches the
         // sync CSM / SCP extension convention — no AddRef/Release needed).
-        callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+        callArgs.Add(LiveHandleExpressions.SwiftObject("self"));
         csWriter.WriteLine($"{pinvokeName}({string.Join(", ", callArgs)});");
         foreach (var p in closures)
             csWriter.WriteLine($"{p.Identifier}Transferred = true;");

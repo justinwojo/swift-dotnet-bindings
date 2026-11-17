@@ -162,7 +162,7 @@ public class MarshalPlanRegressionTests
 
         var setupLine = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
         Assert.Contains("imageHandle", setupLine.Code);
-        Assert.Contains("image.Handle", setupLine.Code);
+        Assert.Contains("GetLiveObjCArgumentHandle(image, \"image\")", setupLine.Code);
         Assert.Equal("imageHandle", plan.PInvokeExpression);
     }
 
@@ -233,7 +233,7 @@ public class MarshalPlanRegressionTests
         var proj = new NonFrozenStructProjection("Pipeline");
         var plan = proj.GetParameterPlan("pipe");
 
-        Assert.Equal("pipe.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(pipe.Payload))", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -303,7 +303,7 @@ public class MarshalPlanRegressionTests
         var proj = new ClassProjection("ViewController");
         var plan = proj.GetParameterPlan("vc");
 
-        Assert.Equal("vc.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveArgumentHandle(vc, \"vc\")", plan.PInvokeExpression);
     }
 
     [Fact]

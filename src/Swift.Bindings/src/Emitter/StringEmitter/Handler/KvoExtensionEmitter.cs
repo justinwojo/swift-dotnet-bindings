@@ -216,7 +216,7 @@ internal static class KvoExtensionEmitter
             csWriter.Indent++;
             csWriter.WriteLine($"token = Observe{propPascal}Native(");
             csWriter.Indent++;
-            csWriter.WriteLine("((global::Swift.Runtime.ISwiftObject)obj).SwiftHandle,");
+            csWriter.WriteLine($"{LiveHandleExpressions.SwiftObject("obj")},");
             csWriter.WriteLine("(nuint)options,");
             csWriter.WriteLine("(global::System.IntPtr)fn,");
             csWriter.WriteLine("global::System.Runtime.InteropServices.GCHandle.ToIntPtr(gch));");
