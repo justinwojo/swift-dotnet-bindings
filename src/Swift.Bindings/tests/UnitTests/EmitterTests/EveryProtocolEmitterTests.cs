@@ -33,12 +33,20 @@ public class EveryProtocolEmitterTests
         Assert.Contains("public final class EveryProtocol", output);
     }
 
+    /// <summary>
+    /// The carriers declare no member a protocol requirement could also declare: a conformance
+    /// extension on the same class that witnesses a requirement named <c>handle</c> would otherwise
+    /// be a Swift redeclaration. The deinit storage lives under reserved names.
+    /// </summary>
     [Fact]
-    public void EmitEveryProtocolClass_GeneratesHandleProperty()
+    public void EmitEveryProtocolClass_DeclaresNoRequirementShapedMember()
     {
         var output = EmitEveryProtocolClass();
 
-        Assert.Contains("let handle: Swift.UnsafeRawPointer?", output);
+        Assert.DoesNotContain("handle", output.Replace("SBW_", "").Replace("Handle", ""), System.StringComparison.Ordinal);
+        Assert.DoesNotContain("onDeinit", output);
+        Assert.Contains("fileprivate var _sbwDeinitCallback: (@convention(c) (Swift.UnsafeRawPointer) -> Swift.Void)?", output);
+        Assert.Contains("fileprivate var _sbwDeinitContext: Swift.UnsafeRawPointer?", output);
     }
 
     [Fact]
@@ -49,12 +57,30 @@ public class EveryProtocolEmitterTests
         Assert.Contains("public init()", output);
     }
 
+    /// <summary>
+    /// A requirement that takes a carrier storage name pushes the storage to a longer name, and a
+    /// requirement named like a protocol's vtable global pushes the global the same way, so no
+    /// witness body reads a requirement where it meant the global.
+    /// </summary>
     [Fact]
-    public void EmitEveryProtocolClass_GeneratesHandleInit()
+    public void ReservedRequirementNames_LengthenCarrierStorageAndVtableGlobals()
     {
-        var output = EmitEveryProtocolClass();
+        var protocolDecl = CreateProtocolWithProperty("Named", "_sbwDeinitCallback", hasGetter: true, hasSetter: false);
+        var shadowing = CreateProtocolWithProperty("Shadow", "_shadow_vtable", hasGetter: true, hasSetter: false);
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule");
+        emitter.ReserveRequirementNames(new[] { protocolDecl, shadowing });
 
-        Assert.Contains("public init(handle: Swift.UnsafeRawPointer)", output);
+        var carrierWriter = new StringWriter();
+        emitter.EmitEveryProtocolClass(new SwiftWriter(carrierWriter));
+        var carriers = carrierWriter.ToString();
+        Assert.Contains("fileprivate var _sbwDeinitCallback_: ", carriers);
+        Assert.DoesNotContain("var _sbwDeinitCallback: ", carriers);
+        Assert.Contains("ep._sbwDeinitCallback_ = callback", carriers);
+        Assert.Contains("fileprivate var _sbwDeinitContext: ", carriers);
+
+        var vtableWriter = new StringWriter();
+        emitter.EmitProtocolVtableStruct(new SwiftWriter(vtableWriter), shadowing);
+        Assert.Contains("private var _shadow_vtable_ = Shadow_vtable()", vtableWriter.ToString());
     }
 
     #endregion

@@ -905,7 +905,7 @@ public static class MethodGenericBridgeEmitter
             {
                 // For ISwiftObject, get the handle. Protocol proxies have _swiftContainer,
                 // classes have Payload. Use the Payload SafeHandle for class-like objects.
-                callArgs.Add($"{csName}.SwiftHandle");
+                callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
             }
             else
             {
@@ -916,10 +916,10 @@ public static class MethodGenericBridgeEmitter
                         callArgs.Add(csName);
                         break;
                     case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
-                        callArgs.Add($"{csName}.SwiftHandle");
+                        callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
                         break;
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
-                        callArgs.Add($"{csName}.SwiftHandle");
+                        callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
                         break;
                     case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
                     {
@@ -942,8 +942,8 @@ public static class MethodGenericBridgeEmitter
         if (!isStatic)
         {
             var selfExpr = isClass
-                ? (parentDecl is ClassDecl cd && cd.IsObjCRooted ? "Handle" : "_handle.DangerousGetHandle()")
-                : "_payload.DangerousGetHandle()";
+                ? (parentDecl is ClassDecl cd && cd.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
+                : LiveHandleExpressions.SafeHandle("_payload");
             callArgs.Add(selfExpr);
         }
 

@@ -517,6 +517,8 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
                         csWriter.WriteLine($"if ({rightIsNull}) return true;");
                     }
+
+                    EmitDisposedOperandEqualityFallback(csWriter, operatorDecl, csOperator, leftParam.Name, leftType, rightParam.Name, rightType, typeNameWithGenerics);
                 }
 
                 // Non-cdecl operators consume the P/Invoke signature's collision-free marshalling
@@ -924,7 +926,7 @@ namespace BindingsGeneration
                         .FirstOrDefault(a => NameProvider.GetMarshallingBaseName(a) == param.Name);
                     bool handedOver = operand != null
                         && CalleeArgumentOwnership.IsHandedOverToCallee(methodEnv.MethodDecl, operand);
-                    csWriter.WriteLine($"IntPtr {handleName} = {WrapperEmitter.ObjCArgumentHandle($"{param.Name}.Handle", handedOver)};");
+                    csWriter.WriteLine($"IntPtr {handleName} = {WrapperEmitter.ObjCArgumentHandle(LiveHandleExpressions.ObjCArgument(param.Name, param.Name), handedOver)};");
                 }
             }
         }
@@ -1328,6 +1330,25 @@ namespace BindingsGeneration
         {
             var pattern = negate ? "is not null" : "is null";
             return IsParentOperand(operandType, containingType) ? $"{name} {pattern}" : $"(object?){name} {pattern}";
+        }
+
+        /// <summary>
+        /// A class's <c>==</c> or <c>!=</c> on two of its own operands answers by reference identity
+        /// when either operand is disposed, as the class's <c>Equals</c> does, instead of throwing:
+        /// a disposed wrapper has no Swift object to compare, and an equality operator must not throw.
+        /// The live-operand path still reads each handle through a disposal check, so an operand
+        /// disposed between this test and the call is refused before Swift runs.
+        /// </summary>
+        private static void EmitDisposedOperandEqualityFallback(CSharpWriter csWriter, OperatorDecl operatorDecl, string csOperator,
+            string leftName, string leftType, string rightName, string rightType, string containingType)
+        {
+            if (operatorDecl.ParentDecl is not ClassDecl
+                || !IsParentOperand(leftType, containingType)
+                || !IsParentOperand(rightType, containingType))
+                return;
+            string handle(string name) => $"((global::Swift.Runtime.ISwiftObject){name}).SwiftHandle";
+            var identity = $"ReferenceEquals({leftName}, {rightName})";
+            csWriter.WriteLine($"if ({handle(leftName)} == IntPtr.Zero || {handle(rightName)} == IntPtr.Zero) return {(csOperator == "==" ? identity : "!" + identity)};");
         }
 
         private static bool IsRelationalOperator(string symbol) =>

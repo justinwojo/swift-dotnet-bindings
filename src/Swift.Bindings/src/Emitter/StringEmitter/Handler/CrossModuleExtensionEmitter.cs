@@ -533,7 +533,7 @@ public static partial class CrossModuleExtensionEmitter
     /// </summary>
     private static string GetSelfExpression(string receiverName, bool isObjCRooted)
     {
-        var handle = isObjCRooted ? $"{receiverName}.Handle" : $"{receiverName}.Payload.DangerousGetHandle()";
+        var handle = isObjCRooted ? LiveHandleExpressions.ObjCSelf(receiverName) : $"{receiverName}.Payload.DangerousGetHandle()";
         return $"new SwiftSelf((void*){handle})";
     }
 

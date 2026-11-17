@@ -126,6 +126,53 @@ internal static class FixtureModuleFactory
         return moduleDecl;
     }
 
+    /// <summary>
+    /// Adds a payload enum <c>Signal</c> — <c>level(Int)</c>, <c>label(String)</c> and a bare
+    /// <c>idle</c> — so a render carries case factories (<c>Level</c>, <c>Label</c>) and case
+    /// readers (<c>TryGetLevel</c>, <c>TryGetLabel</c>). Opt-in rather than part of
+    /// <see cref="BuildModule"/> so the surfaces other gates pin stay as they are.
+    /// </summary>
+    public static EnumDecl AddPayloadEnum(ModuleDecl moduleDecl)
+    {
+        var moduleName = moduleDecl.Name;
+        EnumCaseDecl Case(string name, TypeSpec payload) => new()
+        {
+            Name = name,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            MangledName = $"$s{moduleName.Length}{moduleName}6SignalO{name.Length}{name}yA2CmF",
+            AssociatedValues = payload is null ? new List<TypeSpec>() : new List<TypeSpec> { payload },
+        };
+
+        var signal = new EnumDecl
+        {
+            Name = "Signal",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{moduleName}.Signal"),
+            MangledName = $"$s{moduleName.Length}{moduleName}6SignalON",
+            MetadataAccessor = $"$s{moduleName.Length}{moduleName}6SignalOMa",
+            IsFrozen = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Conformances = new List<TypeConformance>(),
+            Cases = new List<EnumCaseDecl>
+            {
+                Case("level", new NamedTypeSpec("Swift.Int")),
+                Case("label", new NamedTypeSpec("Swift.String")),
+                Case("idle", null),
+            },
+            AvailabilityAnnotations = null,
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        foreach (var c in signal.Cases)
+            c.ParentDecl = signal;
+        moduleDecl.Types.Add(signal);
+        return signal;
+    }
+
     /// <summary>An escaping <c>(In) -&gt; Out</c> closure parameter spec.</summary>
     private static ClosureTypeSpec ClosureSpec(TypeSpec argument, TypeSpec returnType)
     {
@@ -211,6 +258,7 @@ internal static class FixtureModuleFactory
             {
                 ProtocolDecl => TypeRecordKind.Protocol,
                 ClassDecl => TypeRecordKind.Class,
+                EnumDecl => TypeRecordKind.Enum,
                 _ => TypeRecordKind.Struct,
             };
             var flags = type is StructDecl { IsFrozen: true } ? TypeRecordFlags.Frozen : TypeRecordFlags.None;

@@ -618,7 +618,23 @@ namespace BindingsGeneration
         /// </para>
         /// </summary>
         public bool AllowsExistentialReturnUnionProjection =>
-            !MethodDecl.IsSubscriptAccessor && !MethodDecl.IsAsync && !IsSettablePropertyAccessor;
+            !MethodDecl.IsSubscriptAccessor && !MethodDecl.IsAsync && !IsSettablePropertyAccessor
+            && !WitnessesProtocolRequirement;
+
+        /// <summary>
+        /// Whether this member witnesses a requirement of a protocol its type conforms to, which keeps
+        /// an existential return at the interface's <c>object</c> (see
+        /// <see cref="ProtocolRequirementWitness"/>). Computed from the method for a plain method;
+        /// <c>PropertyHandler</c> sets it on a property accessor's environment from the property, since an
+        /// accessor's own name is not the requirement's.
+        /// </summary>
+        public bool WitnessesProtocolRequirement
+        {
+            get => _witnessesProtocolRequirement ??= !MethodDecl.IsAccessor
+                && ProtocolRequirementWitness.WitnessesConformedRequirement(MethodDecl.ParentDecl, MethodDecl.Name, isProperty: false);
+            set => _witnessesProtocolRequirement = value;
+        }
+        private bool? _witnessesProtocolRequirement;
 
         /// <summary>
         /// Set by <c>PropertyHandler</c> on a settable property's accessor environment so

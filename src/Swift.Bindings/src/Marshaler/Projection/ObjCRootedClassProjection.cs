@@ -34,7 +34,7 @@ public class ObjCRootedClassProjection : ITypeProjection
             SetupStatements = new List<MarshalStatement>
             {
                 new MarshalStatement.Line($"IntPtr* _{bareName}_ptr = stackalloc IntPtr[1];"),
-                new MarshalStatement.Line($"*_{bareName}_ptr = {paramName}.Handle;"),
+                new MarshalStatement.Line($"*_{bareName}_ptr = {LiveHandleExpressions.ObjCArgument(paramName, paramName)};"),
             },
             PInvokeExpression = $"(IntPtr)_{bareName}_ptr",
             RequiresUnsafe = true
@@ -57,7 +57,7 @@ public class ObjCRootedClassProjection : ITypeProjection
     // Cast to IntPtr: ObjC classes return ObjCRuntime.NativeHandle from .Handle,
     // but SwiftArray<IntPtr>/container projections need IntPtr.
     public string? GetParameterElementConversion(string elementVar) =>
-        $"(IntPtr){elementVar}.Handle";
+        LiveHandleExpressions.ObjCSelf(elementVar);
 
     public string? GetReturnElementConversion(string elementVar) => null;
 

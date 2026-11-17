@@ -1237,7 +1237,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // handle-accessor flavors, where SwiftHandle is an explicit interface impl.
         callArgs.Add(leaseSelf
             ? "self.Payload"
-            : "((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+            : LiveHandleExpressions.SwiftObject("self"));
         callArgs.Add(successCallbackField);
         if (throws) callArgs.Add(errorCallbackField);
         callArgs.Add($"global::System.Runtime.InteropServices.GCHandle.ToIntPtr({handleName})");

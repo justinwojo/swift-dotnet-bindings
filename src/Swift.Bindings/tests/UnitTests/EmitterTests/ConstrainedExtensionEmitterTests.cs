@@ -1279,7 +1279,7 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("public static void Ping(this Wrapper<TestModule.ConcreteA> self)", csOutput);
         Assert.Contains("partial void SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_ping_instance(IntPtr _self)", csOutput);
         // The C# call passes the SafeHandle.
-        Assert.Contains("self.Payload.DangerousGetHandle()", csOutput);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(self.Payload))", csOutput);
 
         // Swift wrapper materializes `obj` from `self_` and invokes the no-arg method.
         Assert.Contains("@_cdecl(\"SBW_CEMethod_TestModule_DWrapper_TestModule_DConcreteA_ping_instance\")", swiftOutput);

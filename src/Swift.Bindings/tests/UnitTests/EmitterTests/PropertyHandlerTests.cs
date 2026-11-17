@@ -831,8 +831,8 @@ public class PropertyHandlerTests
         Assert.Contains("Foundation.NSUrl", csOutput);
         // ObjCBridgeableProjection: getter returns IntPtr, wrapped via GetNSObject
         Assert.Contains("GetNSObject<Foundation.NSUrl>", csOutput);
-        // ObjCBridgeableProjection: setter extracts .Handle (IntPtr) from NSUrl
-        Assert.Contains(".Handle", csOutput);
+        // ObjCBridgeableProjection: setter reads the NSUrl's handle, refusing a null or disposed one
+        Assert.Contains("SwiftHandleGuard.GetLiveObjCArgumentHandle(", csOutput);
     }
 
     [Fact]

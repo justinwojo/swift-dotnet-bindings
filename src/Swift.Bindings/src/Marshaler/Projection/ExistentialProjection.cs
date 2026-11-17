@@ -299,8 +299,9 @@ public class ExistentialProjection : ITypeProjection
                 // Dispose + finalizer; OwnsContainerArg is gated on the container TYPE, not
                 // the protocol count.
                 ? $"new {_proxyClassName}({resultName}{OwnsContainerArg})"
-                : _publicType == "object"
-                    ? resultName
+                // No proxy class (`object`, or the read-only union): the carrier adopts the +1.
+                : ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
+                    ? ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, resultName, _isClassBoundArity1, owned: true)
                     // Well-known no-proxy existential (Swift.Foundation.AnyError): an owned +1
                     // transfer, so the wrapper adopts the boxed error and releases it on
                     // Dispose/finalize. The helper is a no-op for any other well-known type.
@@ -370,8 +371,9 @@ public class ExistentialProjection : ITypeProjection
     /// <see cref="Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential{TProtocol,TContainer}"/>:
     /// the only conformer is a Swift-vended proxy whose <c>GetExistentialContainer()</c> borrows, so the
     /// raw bytes would alias the proxy's sole +1 (no <c>BoxAsExistential2</c> donate arm exists). The
-    /// borrowed <c>GetExistentialContainer()</c> form remains only for no-proxy well-known/object
-    /// existentials, which carry their own self-owning release.
+    /// borrowed <c>GetExistentialContainer()</c> form remains only for well-known existentials, which
+    /// carry their own self-owning release. A no-proxy <c>object</c> or union value is an owning box
+    /// that only lends its container, so it mints the +1 through the runtime factory.
     ///
     /// NOT to be confused with the owned Swift→C# <see cref="GetOwnedReturnElementConversion"/>: that
     /// ADOPTS a Swift-returned container INTO a C# proxy (<c>new Proxy(container, ownsContainer:true)</c>),
@@ -400,7 +402,12 @@ public class ExistentialProjection : ITypeProjection
                         : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))"
                     : _proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)
                         ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})"
-                        : $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
+                        // No proxy class: the value is the owning box a read returned, which only
+                        // lends its container, so mint the reference Swift consumes.
+                        : (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
+                            ? ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, _isClassBoundArity1)
+                            : null)
+                          ?? $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     /// <summary>
     /// Per-element conversion for the PARAMETER/WRITE direction of a <c>[any P]</c> array (and the
@@ -486,8 +493,10 @@ public class ExistentialProjection : ITypeProjection
             // Cast to interface type for invariant container compatibility (IReadOnlyDictionary<K,V>
             // is invariant in V, so Func<EC, Proxy> won't match Func<EC, IProtocol>).
             ? $"({_publicType})new {_proxyClassName}({elementVar})"
-            : _publicType == "object"
-                ? $"(object){elementVar}"
+            // No proxy class (`object`, or the read-only union): the source keeps its ownership, so
+            // the carrier takes its own retained copy rather than outliving a borrowed container.
+            : ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
+                ? $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, _isClassBoundArity1, owned: false)}"
                 : $"new {_publicType}({elementVar})";
     }
 
@@ -522,9 +531,18 @@ public class ExistentialProjection : ITypeProjection
         // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).
         if (!_isBareAny && _proxyClassName != null && _proxyIsSuppressed)
             throw new SuppressedProxyReferenceException(_proxyClassName);
-        return !_isBareAny && _proxyClassName != null
-            ? $"({_publicType})new {_proxyClassName}({elementVar}{OwnsContainerArg})"
-            : GetReturnElementConversion(elementVar);
+        if (_isBareAny)
+            return GetReturnElementConversion(elementVar);
+        if (_proxyClassName != null)
+            return $"({_publicType})new {_proxyClassName}({elementVar}{OwnsContainerArg})";
+        // No proxy class: the carrier adopts the +1, matching AdoptsOwnedReturn (the caller then
+        // only frees the buffer's storage).
+        if (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType))
+            return $"({_publicType}){ExistentialHandler.NoProxyExistentialRead(_publicType, _containerType, elementVar, _isClassBoundArity1, owned: true)}";
+        if (_isObjCExistential)
+            return GetReturnElementConversion(elementVar);
+        // Well-known no-proxy carrier (AnyError): adopts the +1 like the scalar return plan does.
+        return $"new {_publicType}({elementVar}{ExistentialHandler.WellKnownOwnedTransferArg(_publicType)})";
     }
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);

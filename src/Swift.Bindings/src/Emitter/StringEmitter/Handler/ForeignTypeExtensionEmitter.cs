@@ -1132,7 +1132,7 @@ public static class ForeignTypeExtensionEmitter
             nativeArgs.Add(bodyScope.Mint(IndirectResultLocalName));
         }
 
-        nativeArgs.Add($"{receiverScope.ReceiverName}.Handle");
+        nativeArgs.Add(LiveHandleExpressions.ObjCArgument(receiverScope.ReceiverName, receiverScope.ReceiverName));
 
         // Add method parameters
         foreach (var (label, typeSpec, swiftType, _) in member.Parameters)
@@ -1155,9 +1155,9 @@ public static class ForeignTypeExtensionEmitter
             {
                 // Distinguish ObjC classes (.Handle) from same-module Swift classes (.Payload.DangerousGetHandle())
                 if (IsSameModuleSwiftClass(namedType, typeDatabase))
-                    nativeArgs.Add($"{paramName}.Payload.DangerousGetHandle()");
+                    nativeArgs.Add(LiveHandleExpressions.SwiftObjectArgument(paramName, paramName));
                 else
-                    nativeArgs.Add($"{paramName}.Handle");
+                    nativeArgs.Add(LiveHandleExpressions.ObjCArgument(paramName, paramName));
             }
             else
             {

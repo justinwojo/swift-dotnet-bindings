@@ -79,7 +79,7 @@ public class KeyPathProjection : ITypeProjection
         // managed stack.
         return new MarshalPlan
         {
-            PInvokeExpression = $"{paramName}.DangerousGetHandle()"
+            PInvokeExpression = LiveHandleExpressions.SafeHandle(paramName)
         };
     }
 
@@ -99,7 +99,7 @@ public class KeyPathProjection : ITypeProjection
     // Container element conversions — same shape as ClassProjection but without the
     // .Payload hop because the wrapper IS the SafeHandle.
     public string? GetParameterElementConversion(string elementVar) =>
-        $"{elementVar}.DangerousGetHandle()";
+        LiveHandleExpressions.SafeHandle(elementVar);
 
     public string? GetReturnElementConversion(string elementVar) => null;
 

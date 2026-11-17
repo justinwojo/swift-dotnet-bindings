@@ -298,6 +298,78 @@ public class ClosureExistentialTests
 
     #endregion
 
+    #region Existentials with no proxy class crossing a closure
+
+    // A closure argument is borrowed: the callback only lends the container. Handing the raw
+    // bytes to the delegate as `object` left a value that dangled once the callback returned if
+    // the delegate kept it, and that no read path could pass back (the reads now return an
+    // owning box). Each lane copies it into an owning box with its own reference.
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void NoProxyClosureArgument_IsCopiedIntoAnOwningBox(bool useCdecl)
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var existentialSpec = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+
+        var expression = ClosureEmitter.GetInvokeArgExpression(existentialSpec, 0, handler, useCdecl);
+
+        Assert.Contains("SwiftExistential<", expression);
+        Assert.Contains("ExistentialContainer1>.FromBorrowed(", expression);
+        Assert.DoesNotContain("(object)", expression);
+    }
+
+    [Fact]
+    public void NoProxyClosureTupleElement_IsCopiedIntoAnOwningBox()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var tuple = new TupleTypeSpec(new TypeSpec[]
+        {
+            new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true },
+            new NamedTypeSpec("Swift.Int32"),
+        });
+
+        var expression = ClosureEmitter.GetInvokeArgExpression(tuple, 0, handler);
+
+        Assert.Contains("SwiftExistential<Swift.Runtime.ExistentialContainer1>.FromBorrowed(arg0.Item1", expression);
+        Assert.DoesNotContain("(object)", expression);
+    }
+
+    // A closure result is taken by Swift at +1. The C# value is the owning box a read returned,
+    // which only lends its container: unboxing it with a cast threw, and passing its bytes at +1
+    // would hand Swift the box's own reference. The result mints a reference of its own.
+    [Fact]
+    public void NoProxyClosureResult_MintsAnOwnedContainer()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var existentialSpec = new NamedTypeSpec("TestModule.UnknownProtocol") { IsAny = true };
+
+        var expression = ClosureEmitter.BuildCallbackExistentialReturnExpression(existentialSpec, "del()", handler);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<object>(del(), classBoundCarrier: false)",
+            expression);
+    }
+
+    [Theory]
+    [InlineData("Swift.Runtime.ExistentialContainer1", false, "CreateOwnedExistential1<object>(v, classBoundCarrier: false)")]
+    [InlineData("Swift.Runtime.ExistentialContainer1", true, "CreateOwnedExistential1<object>(v, classBoundCarrier: true)")]
+    [InlineData("Swift.Runtime.ExistentialContainer2", false, "CreateOwnedCompositionExistential<object, Swift.Runtime.ExistentialContainer2>(v)")]
+    [InlineData("Swift.Runtime.ClassExistentialContainer1", true, "CreateOwnedClassCarrier<object>(v)")]
+    public void NoProxyExistentialToOwnedContainer_MintsPerCarrier(string containerType, bool classBound, string expected)
+    {
+        Assert.Equal($"Swift.Runtime.ExistentialContainerFactory.{expected}",
+            ExistentialHandler.NoProxyExistentialToOwnedContainer(containerType, "v", classBound));
+    }
+
+    [Fact]
+    public void NoProxyExistentialToOwnedContainer_ZeroWitness_HasNoMint()
+    {
+        Assert.Null(ExistentialHandler.NoProxyExistentialToOwnedContainer("Swift.Runtime.ExistentialContainer0", "v", false));
+    }
+
+    #endregion
+
     #region IsExistentialParam and GetPInvokeExistentialType helpers
 
     [Fact]

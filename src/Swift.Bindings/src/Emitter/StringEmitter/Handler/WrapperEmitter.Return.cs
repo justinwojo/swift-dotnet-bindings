@@ -229,10 +229,13 @@ namespace BindingsGeneration
             }
             // Return position (pure read) → allow the PAT-with-conformers union projection.
             var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
-            if (publicType == "object") { csWriter.WriteLine($"return {ExistentialResultName};"); return true; }
-            // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
-            if (publicType == "Swift.Runtime.ExistentialUnion")
-            { csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion({ExistentialResultName});"); return true; }
+            // No proxy class (`object`, or a PAT with known conformers → ExistentialUnion try-cast):
+            // the carrier adopts the callee's +1 and releases it on Dispose/finalize.
+            if (ExistentialHandler.IsNoProxyExistentialCarrier(publicType))
+            {
+                csWriter.WriteLine($"return {ExistentialHandler.NoProxyExistentialRead(publicType, containerType, ExistentialResultName, _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList), owned: true)};");
+                return true;
+            }
             if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wk))
             { csWriter.WriteLine($"return new {wk}({ExistentialResultName}{ExistentialHandler.WellKnownOwnedTransferArg(wk)});"); return true; }
             var proxy = _env.ExistentialHandler.GetRequiredProxyClassName(protocolList, _emissionContext);
@@ -925,28 +928,21 @@ namespace BindingsGeneration
             {
                 var protocolList = _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec)!;
 
-                // Zero-witness existential (Any, or markers only) → no proxy class; return container directly
-                // ExistentialContainer0 boxes to 'object' matching the public return type
+                // Zero-witness existential (Any, or markers only) → no proxy class; the public type is
+                // the plain value. The container is the callee's +1, which UnboxOwned destroys.
                 if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
                 {
-                    csWriter.WriteLine($"return {ReturnLocalName};");
+                    csWriter.WriteLine($"return Swift.Runtime.ExistentialContainer0.UnboxOwned({ReturnLocalName});");
                     return;
                 }
 
-                // Metatype/unresolved existential → GetPublicExistentialType returns "object"
-                // No proxy class exists; return container directly (public type is AnyType via [UnsupportedSwiftType])
-                // Return position (pure read) → allow the PAT-with-conformers union projection.
+                // No proxy class (metatype/unresolved existential → `object`; a PAT with known
+                // conformers in a pure-read position → ExistentialUnion try-cast): the carrier adopts
+                // the callee's +1 and releases it on Dispose/finalize.
                 var publicType = _env.ExistentialHandler.GetPublicExistentialType(protocolList, allowUnionProjection: _env.AllowsExistentialReturnUnionProjection);
-                if (publicType == "object")
+                if (ExistentialHandler.IsNoProxyExistentialCarrier(publicType))
                 {
-                    csWriter.WriteLine($"return {ReturnLocalName};");
-                    return;
-                }
-
-                // PAT protocol with known conformers → ExistentialUnion (no proxy, uses try-cast).
-                if (publicType == "Swift.Runtime.ExistentialUnion")
-                {
-                    csWriter.WriteLine($"return new Swift.Runtime.ExistentialUnion({ReturnLocalName});");
+                    csWriter.WriteLine($"return {ExistentialHandler.NoProxyExistentialRead(publicType, _env.ExistentialHandler.GetCSharpExistentialType(protocolList), ReturnLocalName, _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList), owned: true)};");
                     return;
                 }
 

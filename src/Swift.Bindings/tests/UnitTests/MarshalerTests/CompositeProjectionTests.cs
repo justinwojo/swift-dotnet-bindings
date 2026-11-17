@@ -436,7 +436,7 @@ public class CompositeProjectionTests
 
         Assert.Equal("imgBuffer", plan.PInvokeExpression);
         var line = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Handle", line.Code);
+        Assert.Contains("SwiftHandleGuard.GetLiveObjCHandle(imgVal)", line.Code);
         Assert.Contains("IntPtr.Zero", line.Code);
         Assert.DoesNotContain("SwiftOptional", line.Code);
     }
@@ -482,7 +482,7 @@ public class CompositeProjectionTests
 
         Assert.Equal("layerBuffer", plan.PInvokeExpression);
         var line = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Contains(".Handle", line.Code);
+        Assert.Contains("SwiftHandleGuard.GetLiveObjCHandle(layerVal)", line.Code);
         Assert.Contains("IntPtr.Zero", line.Code);
         Assert.DoesNotContain("SwiftOptional", line.Code);
     }
@@ -514,8 +514,8 @@ public class CompositeProjectionTests
         var setupCode = string.Join("\n", plan.SetupStatements.Select(s => ((MarshalStatement.Line)s).Code));
         Assert.DoesNotContain("_@in_ptr", setupCode);
         Assert.Contains("_in_ptr", setupCode);
-        // Parameter reference in .Handle access must keep @ prefix
-        Assert.Contains("@in.Handle", setupCode);
+        // The parameter reference keeps the @ prefix; the name it reports drops it
+        Assert.Contains("GetLiveObjCArgumentHandle(@in, \"in\")", setupCode);
     }
 
     #endregion
@@ -537,8 +537,7 @@ public class CompositeProjectionTests
         Assert.Equal("parentBuffer", plan.PInvokeExpression);
         var setupCode = string.Join("\n", plan.SetupStatements
             .OfType<MarshalStatement.Line>().Select(l => l.Code));
-        Assert.Contains("IntPtr.Zero", setupCode);
-        Assert.Contains("DangerousGetHandle()", setupCode);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandleOrZero(parent)", setupCode);
         Assert.DoesNotContain("SwiftOptional", setupCode);
     }
 

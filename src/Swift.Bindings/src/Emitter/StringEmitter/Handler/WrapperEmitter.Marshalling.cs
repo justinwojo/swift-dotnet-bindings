@@ -1027,9 +1027,11 @@ namespace BindingsGeneration
                 // +0 and the callee's release takes a count nobody transferred. Retained
                 // isa-dispatched, since an NSObject-rooted payload needs objc_retain rather than
                 // swift_retain, and null-tolerant so the nil arm stays IntPtr.Zero.
+                // A disposed wrapper is refused rather than passed as nil.
+                var liveOrNil = LiveHandleExpressions.ObjCOptionalArgument(csName);
                 var objCHandleExpression = ConsumedByDirectCallee(argumentDecl)
-                    ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName}?.Handle ?? IntPtr.Zero)"
-                    : $"{csName}?.Handle ?? IntPtr.Zero";
+                    ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({liveOrNil})"
+                    : liveOrNil;
                 csWriter.WriteLine($"IntPtr {bufferName} = {objCHandleExpression};");
                 return true;
             }
@@ -1853,7 +1855,11 @@ namespace BindingsGeneration
                         continue;
                     }
 
-                    csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle($"{csName}?.Handle ?? IntPtr.Zero", handsOverObjCHandle)};");
+                    // Null is nil only for an Optional parameter; a disposed wrapper is refused either way.
+                    var liveHandle = WrapperValidation.IsOptionalType(argumentDecl.SwiftTypeSpec)
+                        ? LiveHandleExpressions.ObjCOptionalArgument(csName)
+                        : LiveHandleExpressions.ObjCArgument(csName, csName);
+                    csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle(liveHandle, handsOverObjCHandle)};");
                     continue;
                 }
 

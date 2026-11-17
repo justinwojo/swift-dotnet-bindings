@@ -477,7 +477,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         var callArgs = new List<string> { "by.DangerousGetHandle()" };
         foreach (var p in ov.OtherParams)
             callArgs.Add(p.Name);
-        callArgs.Add("((global::Swift.Runtime.ISwiftObject)self).SwiftHandle");
+        callArgs.Add(LiveHandleExpressions.SwiftObject("self"));
         csWriter.WriteLine($"{pinvokeName}({string.Join(", ", callArgs)});");
         // Keep both the KeyPath SafeHandle and the receiver alive across the call so
         // a finaliser racing the P/Invoke can't free the underlying Swift KP or class

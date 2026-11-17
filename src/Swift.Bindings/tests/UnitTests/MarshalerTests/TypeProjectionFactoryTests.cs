@@ -344,7 +344,7 @@ public class TypeProjectionFactoryTests
         var projection = new ClassProjection("TestModule.MyClass");
         var plan = projection.GetParameterPlan("myParam");
 
-        Assert.Equal("myParam.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveArgumentHandle(myParam, \"myParam\")", plan.PInvokeExpression);
         Assert.Empty(plan.SetupStatements);
         Assert.Empty(plan.CleanupStatements);
     }
@@ -366,7 +366,7 @@ public class TypeProjectionFactoryTests
     {
         var projection = new ClassProjection("TestModule.MyClass");
 
-        Assert.Equal("e.Payload.DangerousGetHandle()", projection.GetParameterElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::Swift.Runtime.ISwiftObject)e)", projection.GetParameterElementConversion("e"));
         // Return element conversion is null — when used inside Optional, ToNullable() handles
         // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
         Assert.Null(projection.GetReturnElementConversion("e"));
@@ -385,7 +385,7 @@ public class TypeProjectionFactoryTests
         Assert.Equal("urlHandle", plan.PInvokeExpression);
         Assert.Single(plan.SetupStatements);
         var line = Assert.IsType<MarshalStatement.Line>(plan.SetupStatements[0]);
-        Assert.Equal("var urlHandle = url.Handle;", line.Code);
+        Assert.Equal("var urlHandle = global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCArgumentHandle(url, \"url\");", line.Code);
     }
 
     [Fact]

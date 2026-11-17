@@ -37,7 +37,7 @@ public class ProjectionVisitorTests
     {
         var proj = new ClassProjection("Loader");
         var plan = proj.GetParameterPlan("loader");
-        Assert.Equal("loader.Payload.DangerousGetHandle()", plan.PInvokeExpression);
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveArgumentHandle(loader, \"loader\")", plan.PInvokeExpression);
         Assert.Empty(plan.SetupStatements);
     }
 

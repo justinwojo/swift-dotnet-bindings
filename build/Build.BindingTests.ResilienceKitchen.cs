@@ -64,6 +64,15 @@ partial class Build
     static readonly string[] ResilienceHostileMembers =
         { "hostileWidget", "hostileSecond", "bitwiseOnly", "unitOnly" };
 
+    // Members whose emitted C# (not their Swift wrapper) fails to compile, keyed by declaring type and
+    // projected C# name. The loop must withdraw each as its own leaf-api unit on the C# plane. A case
+    // factory is the shape here: before it owned its own fragment, its compile error landed on the enum's
+    // type surface, which the loop cannot withdraw.
+    static readonly (string Owner, string Member)[] ResilienceCSharpHostileMembers =
+    {
+        ("KitchenSignal", "MaybePair"),
+    };
+
     // Fully-bindable type with no hostile members: its presence proves a genuine PARTIAL binding.
     static readonly string[] ResiliencePositiveControls = { "KitchenPlain" };
 
@@ -81,6 +90,7 @@ partial class Build
         ("KitchenBox", "Transform"), ("KitchenBox", "Adjust"),
         ("KitchenPair", "First"), ("KitchenPair", "Count"), ("KitchenPair", "GetPeekCount"),
         ("KitchenConstraintBox", "GetControl"),
+        ("KitchenSignal", "Level"), ("KitchenSignal", "TryGetLevel"), ("KitchenSignal", "MakeLevel"),
     };
 
     const string ResilienceBoxFile = ResilienceModule + ".Types.KitchenBox.cs";
@@ -332,6 +342,33 @@ partial class Build
 
             Log.Information("  ✓ withdrawal row: {Member} — {Reason}/{Stage}, root {Root}", member, reason, stage, rootCauseId);
         }
+
+        foreach (var (owner, member) in ResilienceCSharpHostileMembers)
+        {
+            var row = items.EnumerateArray().FirstOrDefault(it =>
+                it.TryGetProperty("Name", out var n) && n.GetString() == member &&
+                it.TryGetProperty("ContainingType", out var t) && t.GetString() == $"{ResilienceModule}.{owner}");
+            if (row.ValueKind != JsonValueKind.Object)
+                throw new Exception($"resilience-kitchen: no SkippedItems row for C#-plane hostile member '{owner}.{member}' — it must be withdrawn, not silently dropped or emitted.");
+
+            string Str(string prop) => row.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+            if (Str("Reason") != "EmitterFault")
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' Reason='{Str("Reason")}' (expected EmitterFault).");
+            if (!Str("Details").Contains("Withdrawn by C# verify-recover", StringComparison.Ordinal))
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' Details missing the C# withdrawal wording — got: {Str("Details")}");
+            if (Str("RecoveryStage") != "CSharpCompile")
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' RecoveryStage='{Str("RecoveryStage")}' (expected CSharpCompile).");
+            if (Str("CauseOwner") != "Generator")
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' CauseOwner='{Str("CauseOwner")}' (expected Generator).");
+            var rootCauseId = Str("RootCauseId");
+            if (!rootCauseId.EndsWith($"|{owner}|Method|{member}||None|||!leaf-api", StringComparison.Ordinal))
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' RootCauseId='{rootCauseId}' "
+                    + "(expected the member's own '!leaf-api' unit — not the enclosing type's surface).");
+            if (row.TryGetProperty("CascadeFrom", out var cascade) && cascade.ValueKind != JsonValueKind.Null)
+                throw new Exception($"resilience-kitchen: C#-plane hostile member '{owner}.{member}' has a non-null CascadeFrom='{cascade}'.");
+
+            Log.Information("  ✓ withdrawal row: {Owner}.{Member} — EmitterFault/CSharpCompile, root {Root}", owner, member, rootCauseId);
+        }
     }
 
     // Localized (recoverable) recovery-scope tokens: the RootCauseId of any verify-recover withdrawal ends
@@ -514,6 +551,23 @@ partial class Build
             }
         }
 
+        // A withdrawn C#-plane member must leave no live declaration or P/Invoke behind. Its case tag
+        // (`CaseTag.MaybePair`) is the enum's discriminator, not the member, so the scan looks for the
+        // member's own declaration and its P/Invoke import.
+        foreach (var (owner, member) in ResilienceCSharpHostileMembers)
+        {
+            var ownerFile = outputDir / $"{ResilienceModule}.Types.{owner}.cs";
+            if (!File.Exists(ownerFile))
+                throw new Exception($"resilience-kitchen: '{ownerFile.Name}' is missing — the withdrawal took out the whole type, not one member.");
+            foreach (var raw in File.ReadLines(ownerFile))
+            {
+                if (raw.TrimStart().StartsWith("//", StringComparison.Ordinal)) continue;
+                if (System.Text.RegularExpressions.Regex.IsMatch(raw, $@"\b{owner}\s+{member}\s*\(") ||
+                    raw.Contains($"PInvoke_{member}(", StringComparison.Ordinal))
+                    throw new Exception($"resilience-kitchen: dangling live reference to withdrawn C#-plane member '{owner}.{member}' in {ownerFile.Name}:\n    {raw.Trim()}");
+            }
+        }
+
         // The healthy siblings emit `@_cdecl` wrappers, so this file MUST exist — treat its absence as a
         // hard failure rather than skipping the leak scan (a fail-open `if (File.Exists)` would let a
         // vanished wrapper pass this claim silently).
@@ -526,6 +580,10 @@ partial class Build
             ? wrapperText.Contains(ResilienceBoxHostileSymbol, StringComparison.Ordinal) ||
               wrapperText.Contains(ResilienceBoxHostileOrigin, StringComparison.Ordinal)
             : wrapperText.Contains(m, StringComparison.Ordinal)).ToList();
+        // A withdrawn case factory's @_cdecl wrapper shares its leaf, so it must leave with it.
+        leaked.AddRange(ResilienceCSharpHostileMembers
+            .Select(h => $"SBW_{ResilienceModule}_{h.Owner}_{char.ToLowerInvariant(h.Member[0])}{h.Member[1..]}_")
+            .Where(symbol => wrapperText.Contains(symbol, StringComparison.Ordinal)));
         if (leaked.Count > 0)
             throw new Exception($"resilience-kitchen: the final wrapper still carries withdrawn symbol(s): {string.Join(", ", leaked)}. "
                 + "The verify-recover loop must re-emit the wrapper without the withdrawn units.");

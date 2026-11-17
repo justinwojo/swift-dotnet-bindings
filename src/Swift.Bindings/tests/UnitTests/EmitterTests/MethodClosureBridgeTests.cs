@@ -591,7 +591,7 @@ public class MethodClosureBridgeTests
 
         var cs = csOutput.ToString();
         // ObjC-bridged params use .Handle, not .Payload.DangerousGetHandle()
-        Assert.Contains("presenter.Handle", cs);
+        Assert.Contains("GetLiveObjCArgumentHandle(presenter, \"presenter\")", cs);
         // The non-closure param should NOT use .Payload (SwiftSelf for 'self' is separate)
         Assert.DoesNotContain("presenter.Payload", cs);
     }
@@ -607,8 +607,8 @@ public class MethodClosureBridgeTests
         MethodClosureBridge.TryEmit(csWriter, swiftWriter, env, env.ParentDecl as TypeDecl);
 
         var cs = csOutput.ToString();
-        // Swift-native class params use .Payload.DangerousGetHandle()
-        Assert.Contains(".Payload.DangerousGetHandle()", cs);
+        // Swift-native class params read the payload handle, refusing a null or disposed one
+        Assert.Contains("SwiftHandleGuard.GetLiveArgumentHandle(", cs);
     }
 
     // ─── TryEmit: Static methods ──────────────────────────────────────
@@ -1059,7 +1059,7 @@ public class MethodClosureBridgeTests
 
         var cs = csOutput.ToString();
         // Non-frozen struct params use .Payload.DangerousGetHandle() (same ABI as classes)
-        Assert.Contains("request.Payload.DangerousGetHandle()", cs);
+        Assert.Contains("GetLiveArgumentHandle(request, \"request\")", cs);
     }
 
     [Fact]

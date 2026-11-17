@@ -106,7 +106,7 @@ public class ConcreteSpecializationEngineTests
         var cs = csOutput.ToString();
 
         Assert.Contains("public string JoinItems(Swift.SwiftArray<Swift.SwiftString> items)", cs);
-        Assert.Contains("GetSwiftHandle()", cs);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandle((global::Swift.Runtime.ISwiftObject)this)", cs);
         Assert.Contains("IntPtr self_", cs);
         // ...never the raw private field, which does not exist on an ObjC-rooted class.
         Assert.DoesNotContain("_handle.DangerousGetHandle()", cs);

@@ -66,11 +66,12 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_ReturnPlan_Object_PassThrough()
+    public void Existential_ReturnPlan_Object_IsAnOwningBoxNotTheRawContainer()
     {
+        // The raw container passed through as `object` owned a +1 nothing released.
         var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null);
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
-        Assert.Equal("result", plan.PInvokeExpression);
+        Assert.Equal("new Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer0>(result, classBound: false)", plan.PInvokeExpression);
     }
 
     [Fact]
@@ -126,11 +127,54 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_ElementConversion_Object_ReturnCastsToObject()
+    public void Existential_ElementConversion_Object_CopiesTheBorrowedContainerIntoAnOwningBox()
     {
-        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null);
-        var retConv = proj.GetReturnElementConversion("e");
-        Assert.Equal("(object)e", retConv);
+        // A borrowed container boxed raw into `object` dangled once its owner released it; the box
+        // now takes its own retained copy.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "object", proxyClassName: null);
+        Assert.Equal(
+            "(object)Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer1>.FromBorrowed(e, classBound: false)",
+            proj.GetReturnElementConversion("e"));
+    }
+
+    [Theory]
+    [InlineData(false, "new Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer1>(result, classBound: false)")]
+    [InlineData(true, "new Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer1>(result, classBound: true)")]
+    public void Existential_ObjectReturnWithNoProxy_AdoptsTheOwnedContainer(bool classBound, string expected)
+    {
+        // Swift returns the existential at +1. Returning the raw container as `object` released
+        // nothing, so every read leaked the value.
+        var containerType = classBound ? "Swift.Runtime.ClassExistentialContainer1" : "Swift.Runtime.ExistentialContainer1";
+        var proj = new ExistentialProjection(containerType, "object", proxyClassName: null, isClassBoundArity1: classBound);
+        Assert.Equal(expected, proj.GetReturnPlan("result", ReturnStrategy.Direct).PInvokeExpression);
+        Assert.Equal($"(object){expected.Replace("(result", "(e")}", proj.GetOwnedReturnElementConversion("e"));
+        Assert.True(proj.AdoptsOwnedReturn, "The carrier adopts the +1, so the caller only frees the buffer");
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Existential_UnionReturn_AdoptsOwnedAndCopiesBorrowed(bool classBound)
+    {
+        var flag = classBound ? "true" : "false";
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Runtime.ExistentialUnion",
+            proxyClassName: null, isClassBoundArity1: classBound);
+        Assert.Equal($"new Swift.Runtime.ExistentialUnion(result, ownsContainer: true, classBound: {flag})",
+            proj.GetReturnPlan("result", ReturnStrategy.Direct).PInvokeExpression);
+        Assert.Equal($"(Swift.Runtime.ExistentialUnion)new Swift.Runtime.ExistentialUnion(e, ownsContainer: true, classBound: {flag})",
+            proj.GetOwnedReturnElementConversion("e"));
+        Assert.Equal($"(Swift.Runtime.ExistentialUnion)Swift.Runtime.ExistentialUnion.FromBorrowed(e, classBound: {flag})",
+            proj.GetReturnElementConversion("e"));
+    }
+
+    [Fact]
+    public void Existential_OwnedElementConversion_WellKnownError_AdoptsTheOwnedContainer()
+    {
+        // An owned Optional<any Error> read reports AdoptsOwnedReturn, so the caller frees the buffer
+        // without a destroy; the error carrier must therefore take the +1.
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", proxyClassName: null);
+        Assert.True(proj.AdoptsOwnedReturn);
+        Assert.Equal("new Swift.Foundation.AnyError(e, ownsContainer: true)", proj.GetOwnedReturnElementConversion("e"));
     }
 
     [Fact]
@@ -1023,7 +1067,7 @@ public class ComplexProjectionTests
 
         Assert.NotNull(conv);
         Assert.Contains("IntPtr.Zero", conv);
-        Assert.Contains("Payload.DangerousGetHandle()", conv);
+        Assert.Contains("SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(__v_e.Payload))", conv);
         Assert.DoesNotContain("SwiftOptional<", conv);
     }
 
@@ -1371,7 +1415,7 @@ public class ComplexProjectionTests
             .FirstOrDefault(l => l.Code.Contains("closureResult"));
         Assert.NotNull(lambdaLine);
         Assert.Contains("arg0Converted", lambdaLine!.Code);
-        Assert.Contains("DangerousGetHandle", lambdaLine.Code);
+        Assert.Contains("SwiftHandleGuard.GetLive", lambdaLine.Code);
     }
 
     [Fact]
@@ -1665,7 +1709,7 @@ public class ComplexProjectionTests
     public void ObjCBridged_ElementConversions()
     {
         var proj = new ObjCBridgedProjection("UIImage");
-        Assert.Equal("(IntPtr)e.Handle", proj.GetParameterElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCHandle(e)", proj.GetParameterElementConversion("e"));
         Assert.Equal("ObjCRuntime.Runtime.GetNSObject<UIImage>(e)!", proj.GetReturnElementConversion("e"));
     }
 
@@ -1673,7 +1717,7 @@ public class ComplexProjectionTests
     public void NonFrozenStruct_ElementConversions()
     {
         var proj = new NonFrozenStructProjection("MyClass");
-        Assert.Equal("e.Payload.DangerousGetHandle()", proj.GetParameterElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.SwiftHandleGuard.GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(e.Payload))", proj.GetParameterElementConversion("e"));
         // Return element conversion is null — when used inside Optional, ToNullable() handles
         // construction via ISwiftObject.NewFromPayload. Standalone returns use GetReturnPlan.
         Assert.Null(proj.GetReturnElementConversion("e"));

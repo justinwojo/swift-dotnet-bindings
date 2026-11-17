@@ -27,7 +27,54 @@ public class ClassEqualityWrapperTests
         Assert.Contains("func witnessEquals<T: Swift.Equatable>(_ a: T, _ b: T) -> Swift.Bool { a == b }", swift);
         Assert.Contains("return witnessEquals(l, r) ? 1 : 0", swift);
         Assert.DoesNotContain("(l == r)", swift);
-        Assert.Contains("PInvoke_eq(this.GetSwiftHandle(), other.GetSwiftHandle())", cs);
+        Assert.Contains("PInvoke_eq(lhs, rhs)", cs);
+    }
+
+    /// <summary>
+    /// A disposed wrapper's handle reads zero, and the witness would dereference it. Every
+    /// equality entry point (Equals(object), Equals(T), ==, !=) goes through one helper that falls
+    /// back to reference equality when either operand is disposed, and holds both operands alive
+    /// across the call: a pure-Swift operand's handle is pinned with DangerousAddRef, an
+    /// NSObject-rooted one is kept reachable until the witness returns.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EqualityWrapper_DisposedOperandFallsBackToReferenceEquality(bool isObjCRooted)
+    {
+        var (_, cs) = EmitEquality(isObjCRooted, hashable: false, explicitOperators: false);
+        Assert.Contains("private static bool _SwiftEquals(Keyed left, Keyed right)", cs);
+        var fallback = "if (lhs == IntPtr.Zero || rhs == IntPtr.Zero) return ReferenceEquals(left, right);";
+        Assert.Contains(fallback, cs);
+        // The fallback is decided before the witness is reached.
+        Assert.True(cs.IndexOf(fallback, System.StringComparison.Ordinal) < cs.IndexOf("PInvoke_eq(lhs, rhs)", System.StringComparison.Ordinal));
+        Assert.Contains("return obj is Keyed other && _SwiftEquals(this, other);", cs);
+        Assert.Contains("return _SwiftEquals(left, right);", cs);
+        Assert.Contains("return !_SwiftEquals(left, right);", cs);
+        Assert.DoesNotContain("PInvoke_eq(this.GetSwiftHandle()", cs);
+        if (isObjCRooted)
+        {
+            Assert.Contains("global::System.GC.KeepAlive(left);", cs);
+            Assert.Contains("global::System.GC.KeepAlive(right);", cs);
+        }
+        else
+        {
+            Assert.Contains("left._handle.DangerousAddRef(ref pinnedLeft);", cs);
+            Assert.Contains("right._handle.DangerousAddRef(ref pinnedRight);", cs);
+        }
+    }
+
+    /// <summary>
+    /// A disposed Swift-rooted wrapper hashes by identity, matching its reference-equality
+    /// fallback, instead of handing a zero handle to the runtime's Hashable lookup.
+    /// </summary>
+    [Fact]
+    public void HashableClass_DisposedSwiftRootedWrapper_HashesByIdentity()
+    {
+        var (_, cs) = EmitEquality(isObjCRooted: false, hashable: true);
+        var guard = "if (this.GetSwiftHandle() == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);";
+        Assert.Contains(guard, cs);
+        Assert.True(cs.IndexOf(guard, System.StringComparison.Ordinal) < cs.IndexOf("SwiftHashable.GetHashCode(this)", System.StringComparison.Ordinal));
     }
 
     /// <summary>
@@ -56,7 +103,7 @@ public class ClassEqualityWrapperTests
         }
     }
 
-    private static (string Swift, string CSharp) EmitEquality(bool isObjCRooted, bool hashable)
+    private static (string Swift, string CSharp) EmitEquality(bool isObjCRooted, bool hashable, bool explicitOperators = true)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -95,7 +142,7 @@ public class ClassEqualityWrapperTests
         var swiftOutput = new StringWriter();
         var writer = new ClassEqualityMethodsWriter(
             new CSharpWriter(csOutput), classDecl, "Keyed",
-            hasExplicitEqualityOperator: true, hasExplicitInequalityOperator: false,
+            hasExplicitEqualityOperator: explicitOperators, hasExplicitInequalityOperator: false,
             new SwiftWriter(swiftOutput), new ModuleEmissionContext(), "TestModuleSwiftBindings");
 
         writer.WriteSwiftEquatableImplementation();

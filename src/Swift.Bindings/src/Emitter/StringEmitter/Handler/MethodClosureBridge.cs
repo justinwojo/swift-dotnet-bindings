@@ -1729,10 +1729,10 @@ public static class MethodClosureBridge
             switch (category)
             {
                 case ParamAbiCategory.ObjCHandle:
-                    callArgs.Add($"{csName}.Handle");
+                    callArgs.Add(LiveHandleExpressions.ObjCArgument(csName, csName));
                     break;
                 case ParamAbiCategory.PayloadHandle:
-                    callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                    callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
                     break;
                 case ParamAbiCategory.Primitive:
                     callArgs.Add(csName);
@@ -1779,7 +1779,7 @@ public static class MethodClosureBridge
         {
             bool usesSwiftSelf = method.ParentDecl is TypeDecl gpTd && gpTd.IsGeneric && !reroutesToCdecl;
             bool isObjCRooted = method.ParentDecl is ClassDecl cd && cd.IsObjCRooted;
-            var selfHandle = isObjCRooted ? "Handle" : "Payload.DangerousGetHandle()";
+            var selfHandle = isObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("Payload");
             callArgs.Add(usesSwiftSelf
                 ? $"new SwiftSelf((void*){selfHandle})"
                 : selfHandle);
