@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Code that runs inside each load context the host creates: it uses the binding the context
+       resolves (a private copy, or the default context's shared one when this is loaded as a
+       plugin). The host reaches it only by reflection, so it never loads the binding itself. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-macos</TargetFramework>
+    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <NoWarn>CA1422;SB0001;SB0002;SB0003;SB0004;SB0008;IL2026;IL2059;IL2075;IL2080</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Binding/LoadContextBinding.csproj" />
+    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+</Project>

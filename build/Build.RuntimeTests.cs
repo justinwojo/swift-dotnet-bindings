@@ -1534,6 +1534,14 @@ partial class Build
 
             // Run natively on macOS via the .app bundle's native executable
             RunOnMacOS(platform);
+
+            // One managed owner per process for every native callback registration, proven on this
+            // lane's generated binding loaded into extra load contexts (Build.LoadContextHost.cs).
+            // A --class-filter run asked for one suite class, so it skips this leg.
+            if (string.IsNullOrEmpty(ClassFilter))
+                RunLoadContextOwnershipLeg(platform);
+            else
+                Log.Information("--class-filter set: skipping the load-context ownership leg.");
     }
 
     // ============================================================

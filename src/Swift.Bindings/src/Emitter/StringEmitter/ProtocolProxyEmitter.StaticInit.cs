@@ -10,6 +10,18 @@ public partial class ProtocolProxyEmitter
         var swiftVtableName = GetSwiftVtableStructName(protocolDecl);
         var localVtableName = GetLocalVtableStructName(protocolDecl);
 
+        // The load-context owner check comes first: static field initializers run in textual order
+        // ahead of the static constructor body, and the ones below reach native metadata accessors.
+        // The module initializer already claimed the module; this re-check covers any path that
+        // reaches the proxy without it, and refuses a second load context's copy before it registers
+        // a vtable over the owner's (NativeRegistrationOwnership).
+        writer.WriteLines($"""
+            #pragma warning disable CS0414 // Evaluated for its refusal, never read.
+            private static readonly bool s_nativeRegistrationOwnerClaimed = global::Swift.Runtime.NativeRegistrationOwnership.ClaimModule("{_moduleName}", typeof({GetProxyClassNameWithGenerics(protocolDecl)}).Assembly);
+            #pragma warning restore CS0414
+
+            """);
+
         writer.WriteLines($"""
             private static IntPtr _protocolWitnessTable;
             private static bool _vtableInitialized;

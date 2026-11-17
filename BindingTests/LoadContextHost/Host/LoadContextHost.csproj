@@ -1,0 +1,52 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- macOS host for the load-context ownership scenarios. It references none of the repo's
+       assemblies: the gate stages the binding, the probe, SwiftBindings.Runtime and
+       SwiftBindings.Apple under Contents/MonoBundle/lc/ and the host loads each into the load
+       context a scenario names, so nothing reaches the default context by accident. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-macos</TargetFramework>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == '' AND '$(BtRuntimeIdentifier)' != ''">$(BtRuntimeIdentifier)</RuntimeIdentifier>
+    <RuntimeIdentifier Condition="'$(RuntimeIdentifier)' == ''">osx-arm64</RuntimeIdentifier>
+    <BtNativeWrapperSlice Condition="'$(BtNativeWrapperSlice)' == ''">macos-arm64</BtNativeWrapperSlice>
+    <BtRuntimeEngine Condition="'$(BtRuntimeEngine)' == ''">coreclr</BtRuntimeEngine>
+    <OutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">bin/$(BtRuntimeEngine)/$(Configuration)/</OutputPath>
+    <IntermediateOutputPath Condition="'$(BtTargetFramework)' == 'net11.0'">obj/$(BtRuntimeEngine)/$(Configuration)/</IntermediateOutputPath>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ApplicationId>com.swiftbindings.loadcontexthost</ApplicationId>
+    <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+    <ApplicationVersion>1</ApplicationVersion>
+    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
+    <!-- Native libraries are injected after the build and the bundle is re-signed by the gate. -->
+    <EnableCodeSigning>false</EnableCodeSigning>
+    <!-- The host reaches every staged assembly by reflection, by design; nothing here is trimmed. -->
+    <EnableTrimAnalyzer>false</EnableTrimAnalyzer>
+    <EnableSingleFileAnalyzer>false</EnableSingleFileAnalyzer>
+    <EnableAotAnalyzer>false</EnableAotAnalyzer>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <NativeReference Include="../../.build/SwiftBindingsTestLib.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../../.build/SwiftBindingsTestLibDependency.xcframework')">
+    <NativeReference Include="../../.build/SwiftBindingsTestLibDependency.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+  <ItemGroup>
+    <NativeReference Include="../../output/SwiftBindings.xcframework"
+                     Condition="Exists('../../output/SwiftBindings.xcframework/$(BtNativeWrapperSlice)')">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+  <ItemGroup Condition="Exists('../../../src/Swift.Bindings.Apple/native/SBApple.xcframework')">
+    <NativeReference Include="../../../src/Swift.Bindings.Apple/native/SBApple.xcframework">
+      <Kind>Framework</Kind>
+    </NativeReference>
+  </ItemGroup>
+</Project>

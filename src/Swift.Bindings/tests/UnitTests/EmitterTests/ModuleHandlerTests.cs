@@ -1949,6 +1949,33 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_ModuleInitializerClaimsNativeRegistrationsAsItsFirstStatement()
+    {
+        // The claim must run before anything else the initializer does — the contract handshake, the
+        // resolver registration and every eager metadata registration — and outside the best-effort
+        // catches, so a copy of the binding in a second load context is refused before its first
+        // native call and the refusal cannot be swallowed.
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        var initializer = csOutput.IndexOf("internal static void Initialize()", StringComparison.Ordinal);
+        Assert.True(initializer >= 0);
+        var bodyOpen = csOutput.IndexOf('{', initializer);
+        var firstStatement = csOutput.Substring(bodyOpen + 1)
+            .Split('\n')
+            .Select(line => line.Trim())
+            .First(line => line.Length > 0 && !line.StartsWith("//", StringComparison.Ordinal));
+
+        Assert.Equal(
+            "global::Swift.Runtime.NativeRegistrationOwnership.ClaimModule(\"TestModule\", " +
+            "typeof(__SwiftFrameworkResolver_TestModule).Assembly);",
+            firstStatement);
+        var claim = csOutput.IndexOf("NativeRegistrationOwnership.ClaimModule", StringComparison.Ordinal);
+        Assert.True(claim < csOutput.IndexOf("RuntimeContract.AssertCompatible", StringComparison.Ordinal));
+        Assert.True(claim < csOutput.IndexOf("SwiftFrameworkResolver.RegisterForAssembly", StringComparison.Ordinal));
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(csOutput, @"NativeRegistrationOwnership\.ClaimModule"));
+    }
+
+    [Fact]
     public void Emit_FrameworkResolverUsesTypeofForAssembly()
     {
         var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>());

@@ -29,6 +29,11 @@ public static class SwiftFrameworkResolver
 #pragma warning restore CA2255
     internal static void InitializeRuntime()
     {
+        // First, before any native call: this copy of Swift.Runtime must own the process-global
+        // closure-context destroy hook it installs below. A private copy loaded into a second load
+        // context is refused here rather than overwrite the owner's hook (NativeRegistrationOwnership).
+        NativeRegistrationOwnership.ClaimRuntime(typeof(SwiftFrameworkResolver).Assembly);
+
         // Register the shared process-exit guard so finalizer-triggered Swift
         // releases (SwiftClassHandle, ProxyLifetimeTracker) short-circuit during
         // shutdown. Otherwise relying on lazy static init means the first release

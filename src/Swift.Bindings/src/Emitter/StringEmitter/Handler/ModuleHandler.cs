@@ -581,6 +581,12 @@ namespace BindingsGeneration
                     [global::System.Runtime.CompilerServices.ModuleInitializer]
                     internal static void Initialize()
                     {
+                        // First statement, before any native call: claim this module's process-global
+                        // native callback registrations (reverse-dispatch vtables) for this assembly. A
+                        // copy of the binding initializing in a second load context is refused here,
+                        // before it can overwrite the owner's registrations. Deliberately outside every
+                        // best-effort catch below.
+                        global::Swift.Runtime.NativeRegistrationOwnership.ClaimModule("{{moduleName}}", typeof(__SwiftFrameworkResolver_{{moduleName}}).Assembly);
                         // Runtime-contract handshake (Finding 32): a single unconditional check
                         // before the best-effort (try/catch) registrations below. If this binding
                         // was generated against a different runtime dispatch contract than the

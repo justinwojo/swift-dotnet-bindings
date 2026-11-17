@@ -102,6 +102,30 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_ClaimsModuleOwnershipBeforeAnyOtherStaticInitializer()
+    {
+        // A second load context's copy of the binding must be refused before the proxy registers a
+        // vtable over the owner's, and before any static field initializer reaches native metadata.
+        // Static field initializers run in textual order ahead of the static constructor body, so the
+        // claim must be the first initialized static field of the class.
+        var output = EmitProxyClass(CreateSimpleProtocol("OwnedProto"));
+
+        var claim = output.IndexOf(
+            "private static readonly bool s_nativeRegistrationOwnerClaimed = " +
+            "global::Swift.Runtime.NativeRegistrationOwnership.ClaimModule(\"TestModule\", typeof(OwnedProtoProxy).Assembly);",
+            StringComparison.Ordinal);
+        Assert.True(claim >= 0, "The proxy does not claim its module's native registrations.");
+
+        var classBody = output.IndexOf("public unsafe partial class OwnedProtoProxy", StringComparison.Ordinal);
+        var firstStaticInitializer = System.Text.RegularExpressions.Regex.Match(
+            output.Substring(classBody), @"\bstatic\s+(readonly\s+)?[^;()=]+=\s");
+        Assert.True(firstStaticInitializer.Success);
+        Assert.Equal(claim, classBody + firstStaticInitializer.Index - "private ".Length);
+        Assert.True(claim < output.IndexOf("s_everyProtocolMetadata = ", StringComparison.Ordinal));
+        Assert.True(claim < output.IndexOf("static OwnedProtoProxy()", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void EmitProxyClass_ReadOnlyProxy_OmitsEagerEveryProtocolMetadataField()
     {
         // RealityKit EntityGestureRecognizer regression: a read-only (Swift-vended-only)

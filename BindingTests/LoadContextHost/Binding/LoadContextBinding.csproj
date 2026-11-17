@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- The BindingTests binding as its own assembly, the shape a packaged binding has, so the
+       load-context host can load it into extra AssemblyLoadContexts by path. Same sources as the
+       macOS runtime app compiles into itself. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <BtTargetFramework Condition="'$(BtTargetFramework)' == ''">net10.0</BtTargetFramework>
+    <TargetFramework>$(BtTargetFramework)-macos</TargetFramework>
+    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
+    <AssemblyName>SwiftBindingsTestLib</AssemblyName>
+    <RootNamespace>SwiftBindingsTestLib</RootNamespace>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
+    <NoWarn>CS0169;CS0649;CA1420;CA1422;SB0001;SB0002;SB0003;SB0004;SB0008;IL2026;IL2065;IL2075;IL2087;IL2091;IL2104</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyAttribute Include="System.Runtime.CompilerServices.DisableRuntimeMarshallingAttribute" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../../../src/Swift.Runtime/src/Swift.Runtime.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+    <ProjectReference Include="../../../src/Swift.Bindings.Apple/Swift.Bindings.Apple.csproj"
+                      AdditionalProperties="IncludeSwiftBindingsRuntimeNative=false" />
+  </ItemGroup>
+  <ItemGroup>
+    <Using Include="SwiftBindingsTestLibDependency.IDependencyProtocol" Alias="IDependencyProtocol" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="../../output/SwiftBindingsTestLib.cs" />
+    <Compile Include="../../output/SwiftBindingsTestLib.Types.*.cs" />
+    <Compile Include="../../output/SwiftBindingsTestLibDependency.cs"
+             Condition="Exists('../../output/SwiftBindingsTestLibDependency.cs')" />
+    <Compile Include="../../output/SwiftBindingsTestLibDependency.Types.*.cs" />
+    <!-- Each module's transition manifest, as a generated binding project embeds it, so the
+         consumer transition check reads this assembly as a verified binding. -->
+    <Compile Include="../../output/*.SwiftTransitionManifest.g.cs" />
+    <EmbeddedResource Include="../../output/*.swift-transition-manifest.json">
+      <LogicalName>%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+</Project>
