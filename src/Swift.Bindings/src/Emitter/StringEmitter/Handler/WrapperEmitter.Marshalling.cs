@@ -1103,7 +1103,13 @@ namespace BindingsGeneration
                 // (typically a class type-metadata word) into the receiving slot.
                 bool needsGenericOptOverride =
                     optProjForHandle.InnerProjection is BlittableProjection blitInner
-                    && blitInner.IsGenericParameter;
+                    && blitInner.IsGenericParameter
+                    // ...unless the generic parameter is class-bound: its Optional is one nullable
+                    // pointer Swift reads directly, so the single-word load below is the value.
+                    && !(!_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.HasOptionalPointerWrapper
+                         && !_env.MethodDecl.UsesWrapperLibrary && !_env.MethodDecl.IsAsync && !_requiresOpaqueReturnWrapper
+                         && !argumentDecl.IsInOut
+                         && MarshallingHelpers.IsOptionalOfClassBoundGenericParameter(_env, argumentDecl.SwiftTypeSpec));
 
                 if (needsLargeOptOverride || needsCdeclOptOverride || needsGenericOptOverride)
                 {

@@ -69,6 +69,7 @@ internal static class AppleFrameworkRegistry
     // prefix list backfilled (e.g. AppKit's NS-prefixed types).
     private static readonly Dictionary<string, string[]> _perModuleObjcPrefixes;
     private static readonly HashSet<string> _netUnavailableTypes;
+    private static readonly HashSet<string> _classBoundProtocols;
     private static readonly Dictionary<string, string> _packageIds;
     // Union of every module name that appears in apple-frameworks.json, regardless of
     // which flags the entry sets. Used by callers that need to assert a module has a
@@ -234,6 +235,9 @@ internal static class AppleFrameworkRegistry
         [JsonProperty("netUnavailableTypes")]
         public string[]? NetUnavailableTypes { get; set; }
 
+        [JsonProperty("classBoundProtocols")]
+        public string[]? ClassBoundProtocols { get; set; }
+
         [JsonProperty("packageId")]
         public string? PackageId { get; set; }
     }
@@ -382,6 +386,7 @@ internal static class AppleFrameworkRegistry
         _integerEnumValueTypes = new HashSet<string>(StringComparer.Ordinal);
         _stringEnumValueTypes = new HashSet<string>(StringComparer.Ordinal);
         _netUnavailableTypes = new HashSet<string>(StringComparer.Ordinal);
+        _classBoundProtocols = new HashSet<string>(StringComparer.Ordinal);
         _packageIds = new Dictionary<string, string>(StringComparer.Ordinal);
         _perModuleObjcPrefixes = new Dictionary<string, string[]>(StringComparer.Ordinal);
         _allKnownModules = new HashSet<string>(StringComparer.Ordinal);
@@ -483,6 +488,12 @@ internal static class AppleFrameworkRegistry
             {
                 foreach (var typeName in def.NetUnavailableTypes)
                     _netUnavailableTypes.Add($"{def.Module}.{typeName}");
+            }
+
+            if (def.ClassBoundProtocols != null)
+            {
+                foreach (var protocolName in def.ClassBoundProtocols)
+                    _classBoundProtocols.Add($"{def.Module}.{protocolName}");
             }
 
             if (!string.IsNullOrEmpty(def.PackageId))
@@ -1068,6 +1079,18 @@ internal static class AppleFrameworkRegistry
     /// </summary>
     public static bool IsNetUnavailableType(string moduleQualifiedName) =>
         _netUnavailableTypes.Contains(moduleQualifiedName);
+
+    /// <summary>
+    /// Returns true if the given module-qualified name is a Swift-only Apple protocol that is
+    /// class-bound (declared <c>: AnyObject</c>, or refining one that is) in a framework no type
+    /// database records, such as <c>Combine.ObservableObject</c>. A generic parameter or
+    /// <c>Self</c> constrained to a protocol refining one of these is a single reference, which
+    /// Swift passes and returns directly; without this the generator would read the refinement as
+    /// unconstrained and pass the value by address. Data is sourced from
+    /// <c>apple-frameworks.json</c>'s <c>classBoundProtocols</c> entry per module.
+    /// </summary>
+    public static bool IsKnownClassBoundProtocol(string moduleQualifiedName) =>
+        _classBoundProtocols.Contains(moduleQualifiedName);
 
     /// <summary>
     /// Returns the NuGet package ID for a Swift module if one is registered in

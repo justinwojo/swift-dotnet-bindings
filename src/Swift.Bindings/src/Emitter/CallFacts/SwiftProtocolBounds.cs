@@ -12,7 +12,9 @@ internal static class SwiftProtocolBounds
     /// <summary>
     /// True when the protocol, or any protocol it refines, is declared <c>: AnyObject</c> or with a
     /// superclass constraint, or is <c>@objc</c>. Class-boundness is inherited: a protocol refining a
-    /// class-bound one is class-bound although its own declaration says nothing.
+    /// class-bound one is class-bound although its own declaration says nothing. A refined Swift-only
+    /// Apple protocol no database records (<c>Combine.ObservableObject</c>) is read from
+    /// <see cref="AppleFrameworkRegistry.IsKnownClassBoundProtocol"/>.
     /// </summary>
     /// <param name="declared">A refined protocol's declaration by module-qualified name, when one is in hand.</param>
     /// <param name="recorded">
@@ -45,7 +47,7 @@ internal static class SwiftProtocolBounds
                     return true;
                 continue;
             }
-            if (recorded(name) == true)
+            if (recorded(name) == true || AppleFrameworkRegistry.IsKnownClassBoundProtocol(name))
                 return true;
         }
         return false;

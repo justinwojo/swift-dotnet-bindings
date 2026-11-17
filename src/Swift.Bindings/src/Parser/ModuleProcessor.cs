@@ -1973,6 +1973,9 @@ namespace BindingsGeneration
                         record.Kind == TypeRecordKind.Protocol &&
                         record.Flags.HasFlag(TypeRecordFlags.ClassBound))
                         return true;
+                    // A Swift-only Apple protocol no database records (Combine.ObservableObject).
+                    if (AppleFrameworkRegistry.IsKnownClassBoundProtocol(name))
+                        return true;
                 }
             }
             return false;

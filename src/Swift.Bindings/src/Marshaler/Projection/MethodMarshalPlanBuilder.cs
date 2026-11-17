@@ -237,6 +237,11 @@ internal class MethodMarshalPlanBuilder
             lines.Add($"Span<byte> {payloadName}Span = stackalloc byte[(int){metadataName}.Size];");
             lines.Add($"SwiftMarshal.MarshalToSwift({csName}, ref {payloadName}Span);");
             lines.Add($"{payloadName} = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference({payloadName}Span));");
+            // A Swift-convention callee reads a class-bound generic argument as the reference
+            // itself, not the address of a buffer holding it. The buffer still owns the value: a
+            // consumed argument hands its +1 to the callee, a borrowed one is destroyed afterwards.
+            if (MarshallingHelpers.PassesGenericAsSwiftReference(_env, argument))
+                lines.Add($"IntPtr {NameProvider.GetGenericReferenceName(payloadName)} = *(IntPtr*){payloadName};");
         }
         return lines;
     }
@@ -1574,6 +1579,10 @@ internal class MethodMarshalPlanBuilder
         bool hasOptionalReturnBuffer = _env.BoundGenericsHandler.IsLargeOptionalReturn(_env.MethodDecl) &&
             (_env.MethodDecl.HasOptionalPointerWrapper || _env.MethodDecl.UsesWrapperLibrary);
         var returnPrefix = (_requiresIndirectResult || _requiresSwiftAsync || voidReturn || hasOptionalReturnBuffer) ? "" : $"var {returnLocalName} = ";
+        // A class-bound generic result comes back as the reference itself; it goes into the result
+        // buffer the generic return reads from, as an indirect result would have written it.
+        if (_requiresIndirectResult && MarshallingHelpers.ReturnsGenericAsSwiftReference(_env))
+            returnPrefix = "*(IntPtr*)_cdeclBuf = ";
         var pInvokeName = NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl);
         var callArgs = _pInvokeSignature.CallArgumentsString();
 

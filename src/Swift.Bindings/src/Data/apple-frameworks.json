@@ -118,12 +118,14 @@
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
-      "objcPrefixes": ["CK"]
+      "objcPrefixes": ["CK"],
+      "classBoundProtocols": ["CKSyncEngineDelegate"]
     },
     {
       "module": "Combine",
       "unsupported": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "classBoundProtocols": ["ObservableObject", "Subject"]
     },
     {
       "module": "Compression",
@@ -638,7 +640,8 @@
       "module": "Network",
       "optionalFallback": true,
       "objcPrefixes": ["NW"],
-      "valueTypes": ["NWEndpoint.Port"]
+      "valueTypes": ["NWEndpoint.Port"],
+      "classBoundProtocols": ["NWProtocolFramerImplementation", "NWGroupDescriptor"]
     },
     {
       "module": "NetworkExtension",
@@ -871,7 +874,8 @@
     {
       "module": "SwiftUI",
       "unsupported": true,
-      "wrapperImportable": true
+      "wrapperImportable": true,
+      "classBoundProtocols": ["ReferenceFileDocument"]
     },
     {
       "module": "SwiftUICore",
@@ -1096,7 +1100,8 @@
     },
     {
       "module": "_Concurrency",
-      "unsupported": true
+      "unsupported": true,
+      "classBoundProtocols": ["Actor", "Executor", "SerialExecutor", "TaskExecutor"]
     },
     {
       "module": "_LocationEssentials",

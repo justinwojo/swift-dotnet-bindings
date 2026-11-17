@@ -451,6 +451,80 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Is <paramref name="typeSpec"/> a generic parameter of the member's signature that is bound
+        /// to classes: constrained to <c>AnyObject</c>, to a superclass, or to a protocol that is
+        /// class-bound (declared <c>: AnyObject</c>, refining one that is, <c>@objc</c>, or a Swift-only
+        /// Apple protocol <see cref="AppleFrameworkRegistry.IsKnownClassBoundProtocol"/> names). Such a
+        /// parameter is one reference in Swift's lowering, which Swift passes and returns directly,
+        /// whereas an unconstrained one is address-only.
+        /// </summary>
+        internal static bool IsClassBoundGenericParameter(MethodEnvironment env, TypeSpec? typeSpec)
+        {
+            if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named
+                || !TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                return false;
+            var parameter = env.MethodDecl.GenericParameters.FirstOrDefault(g => g.TypeName == named.Name)
+                ?? (env.ParentDecl as TypeDecl)?.GenericParameters.FirstOrDefault(g => g.TypeName == named.Name);
+            if (parameter is null)
+                return false;
+            foreach (var conformance in parameter.GenericConformances)
+            {
+                var target = conformance.ConformanceTarget;
+                if (target.Name == "AnyObject" || target.ModuleQualifiedName == "Swift.AnyObject")
+                    return true;
+                if (AppleFrameworkRegistry.IsKnownClassBoundProtocol(target.ModuleQualifiedName))
+                    return true;
+                if (!env.TypeDatabase.TryGetTypeRecord(target, out var record))
+                    continue;
+                if (record.Kind == TypeRecordKind.Class)
+                    return true;
+                if (record.Kind == TypeRecordKind.Protocol
+                    && (record.Flags & (TypeRecordFlags.ClassBound | TypeRecordFlags.ObjCBridged)) != 0)
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Is <paramref name="typeSpec"/> <c>Optional</c> of a class-bound generic parameter? Its
+        /// layout is one nullable pointer (nil is null), which a Swift-convention call passes and
+        /// returns directly, unlike the Optional of an address-only generic parameter.
+        /// </summary>
+        internal static bool IsOptionalOfClassBoundGenericParameter(MethodEnvironment env, TypeSpec? typeSpec)
+            => typeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+                && IsClassBoundGenericParameter(env, optional.GenericParameters[0]);
+
+        /// <summary>
+        /// Does this argument cross a Swift-convention call (a direct import, a bridge or a native
+        /// thunk, not a <c>@_cdecl</c> wrapper) as a class-bound generic parameter, passed by value?
+        /// Swift reads it as the reference itself. The body still marshals it into a buffer, which
+        /// keeps its ownership (a consumed argument is handed over, a borrowed one destroyed after
+        /// the call), and passes the reference the buffer holds instead of the buffer's address.
+        /// </summary>
+        internal static bool PassesGenericAsSwiftReference(MethodEnvironment env, ArgumentDecl argument)
+            => argument.IsGeneric && !argument.IsInOut
+                && !env.MethodDecl.IsAsync && !env.MethodDecl.UsesCdeclWrapper
+                && IsClassBoundGenericParameter(env, argument.SwiftTypeSpec);
+
+        /// <summary>
+        /// Does this member return a class-bound generic parameter, or the Optional of one, across a
+        /// Swift-convention call? Swift returns the (nullable) reference directly in the first return
+        /// register, with no indirect result. The body still allocates the result buffer the generic return reads from and
+        /// stores the returned reference into it, so ownership is handled as for any generic result.
+        /// </summary>
+        internal static bool ReturnsGenericAsSwiftReference(MethodEnvironment env)
+        {
+            if (env.MethodDecl.IsAsync || env.MethodDecl.UsesCdeclWrapper || env.MethodDecl.IsConstructor)
+                return false;
+            var returnArgument = env.MethodDecl.CSSignature.FirstOrDefault();
+            if (returnArgument is null)
+                return false;
+            return (returnArgument.IsGeneric && IsClassBoundGenericParameter(env, returnArgument.SwiftTypeSpec))
+                || (!env.MethodDecl.HasOptionalPointerWrapper && !env.MethodDecl.UsesWrapperLibrary
+                    && IsOptionalOfClassBoundGenericParameter(env, returnArgument.SwiftTypeSpec));
+        }
+
+        /// <summary>
         /// Is <paramref name="typeSpec"/> an Optional of one native Swift class reference: the
         /// <c>Self</c> of a class member, or a Swift class that is not ObjC-bridged? Such an
         /// Optional is a single pointer with nil as null, and Swift returns it directly in the
