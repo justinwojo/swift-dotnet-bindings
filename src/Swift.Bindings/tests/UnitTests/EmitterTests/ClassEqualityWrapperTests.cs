@@ -23,6 +23,41 @@ public class ClassEqualityWrapperTests
     [InlineData(true)]
     public void EqualityWrapper_ComparesThroughTheEquatableWitness(bool isObjCRooted)
     {
+        var (swift, cs) = EmitEquality(isObjCRooted, hashable: false);
+        Assert.Contains("func witnessEquals<T: Swift.Equatable>(_ a: T, _ b: T) -> Swift.Bool { a == b }", swift);
+        Assert.Contains("return witnessEquals(l, r) ? 1 : 0", swift);
+        Assert.DoesNotContain("(l == r)", swift);
+        Assert.Contains("PInvoke_eq(this.GetSwiftHandle(), other.GetSwiftHandle())", cs);
+    }
+
+    /// <summary>
+    /// An NSObject-rooted class inherits Hashable from Foundation's NSObject conformance, which
+    /// the module registers nothing for, so the runtime's conformance lookup misses and hashes by
+    /// identity: equal objects hash apart. Its GetHashCode must hash through the witness in Swift.
+    /// A Swift-rooted class keeps the runtime lookup, which finds its registered conformance.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void HashableClass_HashesThroughTheWitnessOnlyWhenNSObjectRooted(bool isObjCRooted)
+    {
+        var (swift, cs) = EmitEquality(isObjCRooted, hashable: true);
+        if (isObjCRooted)
+        {
+            Assert.Contains("func witnessHash<T: Swift.Hashable>(_ a: T) -> Swift.Int { a.hashValue }", swift);
+            Assert.Contains("PInvoke_hash(handle)", cs);
+            Assert.Contains("if (handle == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);", cs);
+            Assert.DoesNotContain("SwiftHashable.GetHashCode", cs);
+        }
+        else
+        {
+            Assert.DoesNotContain("witnessHash", swift);
+            Assert.Contains("SwiftHashable.GetHashCode(this)", cs);
+        }
+    }
+
+    private static (string Swift, string CSharp) EmitEquality(bool isObjCRooted, bool hashable)
+    {
         var moduleDecl = new ModuleDecl
         {
             Name = "TestModule",
@@ -52,6 +87,9 @@ public class ClassEqualityWrapperTests
         };
         classDecl.Conformances.Add(new TypeConformance(classDecl.SwiftTypeName,
             SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"), ""));
+        if (hashable)
+            classDecl.Conformances.Add(new TypeConformance(classDecl.SwiftTypeName,
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"), ""));
 
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -61,11 +99,6 @@ public class ClassEqualityWrapperTests
             new SwiftWriter(swiftOutput), new ModuleEmissionContext(), "TestModuleSwiftBindings");
 
         writer.WriteSwiftEquatableImplementation();
-
-        var swift = swiftOutput.ToString();
-        Assert.Contains("func witnessEquals<T: Swift.Equatable>(_ a: T, _ b: T) -> Swift.Bool { a == b }", swift);
-        Assert.Contains("return witnessEquals(l, r) ? 1 : 0", swift);
-        Assert.DoesNotContain("(l == r)", swift);
-        Assert.Contains("PInvoke_eq(this.GetSwiftHandle(), other.GetSwiftHandle())", csOutput.ToString());
+        return (swiftOutput.ToString(), csOutput.ToString());
     }
 }

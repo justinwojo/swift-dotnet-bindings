@@ -59,6 +59,13 @@ public class ObjCInheritedMemberTests : TestBase
         AssertEqual(2, set.Count, "A HashSet merges the two equal values");
     }
 
+    public void TestDisposedObjectHashesWithoutItsNativePeer()
+    {
+        var disposed = new InheritedDescriptionObject("zeta");
+        disposed.Dispose();
+        AssertEqual(disposed.GetHashCode(), disposed.GetHashCode(), "A disposed object hashes stably without reaching Swift");
+    }
+
     public void TestOverriddenNSObjectMethodDispatchesThroughNSObject()
     {
         using var hook = new InheritedHookObject(3);
