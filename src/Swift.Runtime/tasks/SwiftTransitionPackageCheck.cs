@@ -90,6 +90,10 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 {
                     verified++;
                     Log.LogMessage(MessageImportance.Normal, "{0}: {1} ({2}).", shown, result.Verdict, result.State);
+                    foreach (var withdrawal in result.Withdrawals)
+                        Log.LogMessage(MessageImportance.High,
+                            "{0}: {1} packs as a partial binding: {2}'s bridges were withdrawn ({3}), so {4} member(s) keep their guarded direct import and throw before Swift runs on the engines named: {5}.",
+                            Path.GetFileName(package), shown, withdrawal.Module, withdrawal.Reason, withdrawal.Transitions.Length, withdrawal.Describe());
                     continue;
                 }
                 refused.Add(shown);
@@ -97,8 +101,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 var rest = result.Problems.Length > 3 ? $"; and {result.Problems.Length - 3} more (listed below)" : "";
                 Log.LogError(null, Code, null, package, 0, 0, 0, 0, "{0}",
                     $"{Path.GetFileName(package)}: {shown} would be refused by its consumers' Swift transition check (evidence {result.State}): {named}{rest}. "
-                    + "A wrapper that keeps the bridges or manifest hash of an earlier routing is the usual cause; rebuild the binding clean (delete its bin/ and obj/) and pack again. "
-                    + "The package was deleted.");
+                    + Remedy(result) + " The package was deleted.");
                 foreach (var problem in result.Problems)
                     Log.LogMessage(MessageImportance.Normal, "  {0}: {1}", shown, problem);
             }
@@ -118,6 +121,25 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             if (Directory.Exists(ScratchDirectory))
                 Directory.Delete(ScratchDirectory, recursive: true);
         }
+    }
+
+    /// <summary>What SWIFTBIND133 tells the author to do, from what refused the assembly.</summary>
+    internal static string Remedy(ConsumerTransitionResult result)
+    {
+        var withdrawal = result.Withdrawals.FirstOrDefault();
+        var relink = withdrawal is null ? "" : $"{withdrawal.Module}'s bridges were withdrawn because {withdrawal.Reason}. ";
+        return result.Remedy switch
+        {
+            ConsumerTransitionRemedy.CleanRebuild =>
+                relink + "A wrapper that keeps the bridges or manifest hash of an earlier routing is the usual cause; rebuild the binding clean (delete its bin/ and obj/) and pack again.",
+            ConsumerTransitionRemedy.ReceiptMismatch =>
+                relink + "The relinked wrapper contradicts the lowering receipt the bridges were authorized by, so the restored imports cannot be shown safe and the binding is not packed as a partial one. "
+                + "Make the wrapper's inputs stable between its compiles (the same sources, SDK and flags), then rebuild the binding clean and pack again.",
+            ConsumerTransitionRemedy.WithdrawalIncoherent =>
+                relink + "The binding does not hold up as the withdrawal it records, which a clean rebuild does not fix: fix the relink failure so the binding routes its bridges, "
+                + "or regenerate it with the current SwiftBindings.Sdk if the package was altered after it was built.",
+            _ => "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project) and pack again.",
+        };
     }
 
     /// <summary>Every framework binary in the package, with the Apple platform of the <c>runtimes/&lt;rid&gt;/</c> it is under, if any.</summary>

@@ -83,7 +83,17 @@ public static class SwiftBridgeFinalizer
     /// <paramref name="receipt"/>. Null on success; otherwise why, with the wrapper the receipt was
     /// collected from back in place.
     /// </summary>
-    public delegate string? Relink(SwiftLoweringReceipt receipt);
+    public delegate RelinkFailure? Relink(SwiftLoweringReceipt receipt);
+
+    /// <summary>
+    /// Why a relink was refused, and of what kind: a relink that could not produce the wrapper, or one
+    /// whose wrapper contradicts the receipt (<see cref="SwiftBridgeWithdrawalCause.ReceiptMismatch"/>).
+    /// A bare reason is a <see cref="SwiftBridgeWithdrawalCause.RelinkFailed"/>.
+    /// </summary>
+    public sealed record RelinkFailure(string Reason, SwiftBridgeWithdrawalCause Cause = SwiftBridgeWithdrawalCause.RelinkFailed)
+    {
+        public static implicit operator RelinkFailure?(string? reason) => reason is null ? null : new RelinkFailure(reason);
+    }
 
     /// <param name="OutputDirectory">The directory of the module's C#, sidecars, bridges and wrapper.</param>
     /// <param name="Module">The Swift module.</param>
@@ -259,8 +269,11 @@ public static class SwiftBridgeFinalizer
         catch (InvalidOperationException ex)
         {
             // A routing planned over these very files writes them; this is a generator defect.
-            logger.LogWarning("{Code}: {Module}'s imports are not routed through bridges: {Message}", FailedCode, module, ex.Message);
-            routing = routing.Withdraw(ex.Message);
+            if (MasksOf(pristine, [], module, logger) is not { } generationMasks)
+                return Outcome.Failed;
+            routing = routing.Withdraw(SwiftBridgeWithdrawalCause.RoutingDefect, ex.Message, request.Library, generationMasks);
+            logger.LogWarning("{Code}: {Module}'s imports are not routed through bridges: {Message}{Withdrawn}", FailedCode, module, ex.Message,
+                WithdrawnText(routing.Withdrawal));
             desired = SwiftBridgeRouting.Architectures.ToDictionary(a => a, _ => (string?)null);
             routed = pristine;
             markers = [];
@@ -308,7 +321,7 @@ public static class SwiftBridgeFinalizer
 
         beforeRelink();
         Write(directory, @namespace, nextJournal, journalPath, desired, assemblyPaths, routed, current, masks);
-        var failure = receipt is null ? "the receipt holds no evidence of the module" : relink(receipt);
+        var failure = receipt is null ? new RelinkFailure("the receipt holds no evidence of the module") : relink(receipt);
         if (failure is null)
         {
             WriteSidecars(directory, @namespace, sidecars, manifest, logger);
@@ -317,22 +330,40 @@ public static class SwiftBridgeFinalizer
         }
 
         // The wrapper the receipt was collected from is back in place, so the C# goes back to
-        // generation's own and the bridges to what that wrapper was linked from.
-        if (needed.Count > 0)
-            logger.LogWarning("{Code}: {Module}'s imports are not routed through bridges, and it is emitted as generated: the wrapper could not be relinked with its bridges: {Reason}",
-                FailedCode, module, failure);
-        else
-            logger.LogWarning("{Code}: {Module}'s wrapper keeps the bridges of an earlier routing its C# no longer calls: it could not be relinked without them: {Reason}",
-                FailedCode, module, failure);
-        var withdrawn = routing.Withdraw($"the wrapper could not be relinked with its bridges: {failure}");
-        // Generation's own C# guards every import it declares with that import's shapes.
+        // generation's own and the bridges to what that wrapper was linked from. Generation's own C#
+        // guards every import it declares with that import's shapes, which the withdrawal records.
         if (MasksOf(pristine, [], module, logger) is not { } pristineMasks)
             return Outcome.Failed;
+        var withdrawn = routing.Withdraw(failure.Cause, $"the wrapper could not be relinked with its bridges: {failure.Reason}", request.Library, pristineMasks);
+        if (needed.Count > 0)
+            logger.LogWarning("{Code}: {Module}'s imports are not routed through bridges, and it is emitted as generated: the wrapper could not be relinked with its bridges: {Reason}{Withdrawn}",
+                FailedCode, module, failure.Reason, WithdrawnText(withdrawn.Withdrawal));
+        else
+            logger.LogWarning("{Code}: {Module}'s wrapper keeps the bridges of an earlier routing its C# no longer calls: it could not be relinked without them: {Reason}",
+                FailedCode, module, failure.Reason);
         Write(directory, @namespace, nextJournal with { Rewrites = [], Markers = [] }, journalPath, linked, assemblyPaths, pristine,
             files.ToDictionary(f => f, f => File.ReadAllText(Path.Combine(directory, f)), StringComparer.Ordinal), pristineMasks);
         var withdrawnSidecars = Settle(directory, @namespace, withdrawn, judged, pristineMasks, logger);
         WriteSidecars(directory, @namespace, withdrawnSidecars, ManifestOf(module, @namespace, request.Library, withdrawnSidecars), logger);
         return Outcome.Withdrawn;
+    }
+
+    /// <summary>
+    /// What SWIFTBIND129 adds about a withdrawal: the members that went back to their direct imports
+    /// and the engines each refuses on, and whether the binding still packs.
+    /// </summary>
+    internal static string WithdrawnText(SwiftBridgeWithdrawal? withdrawal)
+    {
+        if (withdrawal is null)
+            return "";
+        var members = string.Join("; ", withdrawal.Transitions.Select(t =>
+            $"{t.Member} ({(t.RefusesOn.IsEmpty ? "refuses on no engine" : "refuses on " + string.Join(", ", t.RefusesOn))})"));
+        return withdrawal.Cause == SwiftBridgeWithdrawalCause.ReceiptMismatch
+            ? $". The relinked wrapper contradicts the lowering receipt the bridges were authorized by, so the receipt no longer shows the ABI the restored imports were judged against: "
+              + $"the binding's package and its consumers refuse it (SWIFTBIND133, SWIFTBIND132). Withdrawn: {members}. "
+              + "Make the wrapper's inputs stable between its compiles (the same sources, SDK and flags), then rebuild the binding clean"
+            : $". The binding still builds and packs as a partial binding: {withdrawal.Transitions.Length} member(s) keep their guarded direct import "
+              + $"and throw before Swift runs on the engines that mishandle their shapes: {members}";
     }
 
     /// <summary>

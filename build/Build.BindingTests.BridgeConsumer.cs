@@ -87,8 +87,9 @@ partial class Build
     /// How the app consumes the binding. <see cref="Transition"/> is the consumer transition check's
     /// leg (Build.BindingTests.TransitionConsumer.cs): build-only consumers of the binding the package
     /// mode packed and of two manifestless fixtures. <see cref="Rollback"/> forces the binding's bridge
-    /// relink to roll back after it ran: its pack must be refused, and an SDK-direct app built the same
-    /// way runs the restored imports.
+    /// relink to roll back after it ran: it must pack as a partial binding that records the withdrawal,
+    /// its doctored copies must be refused, and an app consuming the package runs the restored imports
+    /// (Build.BindingTests.BridgeConsumerRollback.cs).
     /// </summary>
     enum BcfMode { Package, Direct, ProjectReference, Rollback, Transition }
 
@@ -183,11 +184,11 @@ partial class Build
     // alike, so the P/Invoke wrapper is in the app image. The x86_64 Mac Catalyst slice is JIT-compiled, except that
     // a binding package's targets turn the Mono interpreter on there, because that JIT has known
     // Swift-interop defects; the interpreter's native-call path, linked into the app, then calls the
-    // bridge. A package consumer imports those targets; an SDK-direct app (the direct and rollback
-    // modes) and a plain ProjectReference consumer import none.
+    // bridge. A package consumer (the package and rollback modes) imports those targets; an SDK-direct
+    // app and a plain ProjectReference consumer import none.
     BcfCaller BcfExpectedCaller(BcfPlatform platform, BcfMode mode, BcfRun run) =>
         RuntimeLane.IsNet11 ? BcfCaller.Interpreter
-        : platform.Catalyst && run.Rid == "maccatalyst-x64" ? mode == BcfMode.Package ? BcfCaller.MonoInterpreter : BcfCaller.MonoJit
+        : platform.Catalyst && run.Rid == "maccatalyst-x64" ? mode is BcfMode.Package or BcfMode.Rollback ? BcfCaller.MonoInterpreter : BcfCaller.MonoJit
         : BcfCaller.App;
 
     void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot, bool catalyst, bool tvos)
@@ -380,147 +381,6 @@ partial class Build
                     appRids: platform.Runs.Select(r => r.Rid).ToList())));
         }
         return failures;
-    }
-
-    // A bridge relink rolled back after it ran: the generator's test-only switch refuses the verified
-    // relink, so the first compile's wrapper goes back in place, the C# back to generation's own guarded
-    // imports, and the sidecars record each executable transition as refused for that reason. The SDK's
-    // pack check treats those as routing gaps its consumers would refuse, so a rolled-back binding
-    // never ships as a package: the pack must fail with SWIFTBIND133 naming the rollback, and delete
-    // the package. An SDK-direct app is its own binding, outside that check, so it is the consumer that
-    // reaches a runtime lane with the restored imports: built with the same switch, it calls the member
-    // the bridge would have carried, which must run where the engine handles its shapes and refuse
-    // before Swift runs where it does not.
-    IEnumerable<string> RunBridgeConsumerRollback(BcfFamily family, AbsolutePath nupkgDir, AbsolutePath xcframework, BcfRoute element)
-    {
-        var label = $"[rollback] {family.Platform}";
-        var fixtureDir = family.Root / "rollback-binding";
-        var fixtureOut = family.Root / "rollback-output";
-        fixtureDir.CreateDirectory();
-        fixtureOut.CreateDirectory();
-        EvictBridgeConsumerBindingPackage();
-        WriteBridgeConsumerBinding(family, fixtureDir, nupkgDir, xcframework, packable: true);
-        Log.Information("=== bridge-consumer {Label}: packing the binding with its bridge relink rolled back ===", label);
-        // The switch reaches the generator through the environment the SDK's Exec inherits; a fresh
-        // MSBuild node guarantees no reused node holds an older environment.
-        var environment = new Dictionary<string, string>(EnvironmentInfo.Variables, StringComparer.Ordinal) { [BcfForceRollbackVariable] = "1" };
-        var pack = ProcessTasks.StartProcess("dotnet",
-            $"pack \"{fixtureDir / $"{BcfModule}.csproj"}\" -c Release -o \"{fixtureOut}\" -nodeReuse:false -nologo -v:detailed",
-            workingDirectory: fixtureDir, environmentVariables: environment, logOutput: false);
-        pack.WaitForExit();
-        var output = pack.Output.Select(o => o.Text).ToList();
-        var log = family.Receipts / "rollback-pack.log";
-        File.WriteAllLines(log, output);
-        if (!output.Any(l => l.Contains("SWIFTBIND129", StringComparison.Ordinal) && l.Contains(BcfForceRollbackVariable, StringComparison.Ordinal)))
-            return [$"{label}: the pack never reported the forced rollback (SWIFTBIND129 naming {BcfForceRollbackVariable}); see {log}."];
-        var refusal = output.FirstOrDefault(l => l.Contains("error SWIFTBIND133", StringComparison.Ordinal)
-            && l.Contains("kept its direct import: the wrapper could not be relinked with its bridges", StringComparison.Ordinal)
-            && l.Contains(BcfForceRollbackVariable, StringComparison.Ordinal));
-        if (pack.ExitCode == 0 || refusal is null)
-            return [$"{label}: the pack of a rolled-back binding must fail with SWIFTBIND133 naming the rollback; it exited {pack.ExitCode} " +
-                $"{(refusal is null ? "without that refusal" : "")}; see {log}."];
-        var nupkgs = Directory.GetFiles(fixtureOut, "*.nupkg");
-        if (nupkgs.Length != 0)
-            return [$"{label}: the refused pack left {string.Join(", ", nupkgs.Select(Path.GetFileName))} behind."];
-        Log.Information("  {Label}: the pack refused the rolled-back binding (SWIFTBIND133) and deleted the package", label);
-
-        var failures = new List<string>();
-        try
-        {
-            BridgeConsumerRolledBackBinding(family, label, fixtureDir / "obj" / "Release", BcfModule, appRids: []);
-        }
-        catch (Exception ex)
-        {
-            failures.Add($"{label} pack build: {ex.Message}");
-        }
-
-        // The SDK-direct apps build their binding with the same switch, through a fresh MSBuild node.
-        var previous = (Rollback: Environment.GetEnvironmentVariable(BcfForceRollbackVariable), NodeReuse: Environment.GetEnvironmentVariable("MSBUILDDISABLENODEREUSE"));
-        Environment.SetEnvironmentVariable(BcfForceRollbackVariable, "1");
-        Environment.SetEnvironmentVariable("MSBUILDDISABLENODEREUSE", "1");
-        try
-        {
-            foreach (var platform in family.Platforms)
-            {
-                var appDir = family.Root / $"rollback-app-{platform.Name}";
-                appDir.CreateDirectory();
-                File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
-                WriteBridgeConsumerApp(appDir, BcfMode.Rollback, platform, element, xcframework, projectReference: null);
-                failures.AddRange(RunBridgeConsumerApp(family, BcfMode.Rollback, appDir, platform, element,
-                    configuration => BridgeConsumerRolledBackBinding(family, $"{label} {platform.Name} ({configuration})", appDir / "obj" / configuration,
-                        BcfAppName, appRids: platform.Runs.Select(r => r.Rid).ToList())));
-            }
-        }
-        finally
-        {
-            Environment.SetEnvironmentVariable(BcfForceRollbackVariable, previous.Rollback);
-            Environment.SetEnvironmentVariable("MSBUILDDISABLENODEREUSE", previous.NodeReuse);
-        }
-        return failures;
-    }
-
-    // The rolled-back binding builds under `obj`: each sidecar plans members but routes none, each
-    // routing journal rewrites nothing, and every direct transition the compiled assembly makes is
-    // guarded with the shapes the import carries (no guard left that a routing settled to refuse
-    // nothing). A universal app's outer build only orchestrates its per-RID builds and compiles
-    // nothing, so it has no guards to judge.
-    BcfBinding BridgeConsumerRolledBackBinding(BcfFamily family, string label, AbsolutePath obj, string assemblyName, IReadOnlyList<string> appRids)
-    {
-        var plansName = $"{BcfModule}.swift-call-plans.json";
-        var builds = (Directory.Exists(obj) ? Directory.GetFiles(obj, plansName, SearchOption.AllDirectories) : [])
-            .Select(p => BcfBindingDirectory((AbsolutePath)p)).Distinct().OrderBy(d => d.ToString(), StringComparer.Ordinal).ToList();
-        string? RidOf(AbsolutePath bindingDir) => appRids.Contains(bindingDir.Parent.Name) ? bindingDir.Parent.Name : null;
-        var expected = appRids.Count > 1 ? appRids.Count : 1;
-        if (builds.Count(b => appRids.Count <= 1 || RidOf(b) is not null) != expected || builds.Count(b => appRids.Count > 1 && RidOf(b) is null) > 1)
-            throw new Exception($"expected {expected} binding build(s) under {obj}{(appRids.Count > 1 ? $" (one per RID: {string.Join(", ", appRids)}), plus at most the outer build's" : "")}; " +
-                $"found {builds.Count}: {string.Join(", ", builds)}.");
-
-        BcfBinding? chosen = null;
-        foreach (var bindingDir in builds)
-        {
-            var outer = appRids.Count > 1 && RidOf(bindingDir) is null;
-            var copyLabel = $"{label}{(appRids.Count > 1 ? $" {RidOf(bindingDir) ?? "outer build"}" : "")}";
-            AbsolutePath One(string fileName)
-            {
-                var found = Directory.GetFiles(bindingDir, fileName, SearchOption.AllDirectories);
-                if (found.Length != 1)
-                    throw new Exception($"{copyLabel}: expected one {fileName} under {bindingDir}, found {found.Length}.");
-                return (AbsolutePath)found[0];
-            }
-            var plans = One(plansName);
-            var receipt = One("swift-lowering-receipt.json");
-            var journal = One($"{BcfModule}.swift-bridge-routing.json");
-            var tag = $"rollback-{obj.Parent.Parent.Name}-{obj.Name.ToLowerInvariant()}{(appRids.Count > 1 ? $"-{RidOf(bindingDir) ?? "outer"}" : "")}";
-            foreach (var file in new[] { plans, receipt, journal })
-                File.Copy(file, family.Receipts / $"{tag}-{file.Name}", overwrite: true);
-
-            var coverage = JsonDocument.Parse(File.ReadAllText(plans)).RootElement.GetProperty("coverage").EnumerateArray().ToList();
-            var planned = coverage.Count(e => e.GetProperty("status").GetString() == "Planned");
-            var withdrawn = coverage.Count(e => e.TryGetProperty("bridgeRefusal", out var r) && r.ValueKind == JsonValueKind.String
-                && r.GetString()!.Contains(BcfForceRollbackVariable, StringComparison.Ordinal));
-            var bridged = BcfBridged(plans).Select(e => e.GetProperty("member").GetString()).ToList();
-            if (planned == 0)
-                throw new Exception($"{copyLabel}: the rolled-back build plans no member, so it proves nothing: {plans}.");
-            if (withdrawn == 0)
-                throw new Exception($"{copyLabel}: no transition records the forced rollback as why it kept its direct import: {plans}.");
-            if (bridged.Count > 0)
-                throw new Exception($"{copyLabel}: the rolled-back build still routes {bridged.Count} member(s) through bridges: {string.Join(", ", bridged)}.");
-            var rewrites = JsonDocument.Parse(File.ReadAllText(journal)).RootElement.GetProperty("rewrites").GetArrayLength();
-            if (rewrites != 0)
-                throw new Exception($"{copyLabel}: the rolled-back build's routing journal still records {rewrites} rewrite(s): {journal}.");
-            if (outer)
-                continue;
-
-            var (guardCalls, refusingNothing) = AssertBridgeConsumerResidualGuards(family, copyLabel, tag, bindingDir.Parent / $"{assemblyName}.dll",
-                One($"{BcfModule}.swift-transition-guards.json").Parent, plans);
-            if (guardCalls == 0 || refusingNothing != 0)
-                throw new Exception($"{copyLabel}: the rolled-back assembly has {guardCalls} guard call(s), {refusingNothing} of them refusing nothing; " +
-                    "every import must keep the guard of its own shapes.");
-            Log.Information("  {Label}: rolled back — {Planned} planned member(s), {Withdrawn} withdrawn, none routed, {Guards} guard call(s) all able to refuse",
-                copyLabel, planned, withdrawn, guardCalls);
-            chosen ??= new BcfBinding(plans, receipt, Settle: null);
-        }
-        return chosen!;
     }
 
     // The binding project an ordinary consumer writes: SwiftBindings.Sdk, one <SwiftFramework>, defaults.
@@ -1284,12 +1144,12 @@ partial class Build
     {
         var device = platform.OnDevice;
         var catalyst = platform.Catalyst;
-        var direct = mode is BcfMode.Direct or BcfMode.Rollback;
+        var direct = mode is BcfMode.Direct;
         // An SDK-direct app imports SwiftBindings.Sdk, which already emits DisableRuntimeMarshalling (a
         // second one is CS0579); an app that references a binding adds it itself.
         var reference = mode switch
         {
-            BcfMode.Package => $"""<PackageReference Include="{BcfPackageId}" Version="{BcfLaneVersion}" />""",
+            BcfMode.Package or BcfMode.Rollback => $"""<PackageReference Include="{BcfPackageId}" Version="{BcfLaneVersion}" />""",
             BcfMode.ProjectReference => $"""<ProjectReference Include="{projectReference}" />""",
             _ => $"""<SwiftFramework Include="{xcframework}" />""",
         };

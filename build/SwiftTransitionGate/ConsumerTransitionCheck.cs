@@ -26,18 +26,56 @@ public enum ConsumerTransitionVerdict
     Refused,
 }
 
+/// <summary>What a refused assembly's diagnostic should tell its author to do, from what refused it.</summary>
+public enum ConsumerTransitionRemedy
+{
+    /// <summary>Nothing: the assembly is not refused.</summary>
+    None,
+
+    /// <summary>Build the binding with the current SDK: a missing or tampered manifest, or a transition check that fails.</summary>
+    Regenerate,
+
+    /// <summary>
+    /// A native image carries bridges or a manifest hash the assembly's manifests do not account for,
+    /// which is what a wrapper left from an earlier routing ships: a clean rebuild replaces it.
+    /// </summary>
+    CleanRebuild,
+
+    /// <summary>
+    /// The module's bridges were withdrawn because the relinked wrapper contradicted the lowering
+    /// receipt; such a withdrawal is never accepted. The wrapper's inputs must be made stable.
+    /// </summary>
+    ReceiptMismatch,
+
+    /// <summary>
+    /// The module records a bridge withdrawal, but the compiled assembly or its images do not hold up
+    /// as that withdrawal (a dangling bridge, a missing guard, a record that disagrees): a defect a
+    /// clean rebuild does not fix. The relink failure the record names is what to fix, so the binding
+    /// routes its bridges.
+    /// </summary>
+    WithdrawalIncoherent,
+}
+
 /// <summary>The consumer check's result for one assembly.</summary>
 /// <param name="AssemblyName">The assembly's name.</param>
 /// <param name="Verdict">What the check concluded.</param>
 /// <param name="State">The reader's evidence state.</param>
 /// <param name="Problems">Why the assembly is refused, one per member or check; empty otherwise.</param>
-/// <param name="UnverifiedLibraries">Native libraries the manifests route bridges through that no image was given for, so their hash and exports went unchecked.</param>
+/// <param name="UnverifiedLibraries">Native libraries the manifests route bridges through, or a withdrawal withdrew them from, that no image was given for, so their hash and exports went unchecked.</param>
+/// <param name="Withdrawals">The recorded bridge withdrawals the assembly carries, accepted or not: which members refuse on which engines, and why.</param>
+/// <param name="Remedy">What a refusal's diagnostic should tell the author to do; <see cref="ConsumerTransitionRemedy.None"/> when not refused.</param>
 public sealed record ConsumerTransitionResult(
     string AssemblyName,
     ConsumerTransitionVerdict Verdict,
     TransitionEvidenceState State,
     ImmutableArray<string> Problems,
-    ImmutableArray<string> UnverifiedLibraries);
+    ImmutableArray<string> UnverifiedLibraries,
+    ImmutableArray<TransitionWithdrawal> Withdrawals = default,
+    ConsumerTransitionRemedy Remedy = ConsumerTransitionRemedy.None)
+{
+    /// <summary>The withdrawals, never default.</summary>
+    public ImmutableArray<TransitionWithdrawal> Withdrawals { get; init; } = Withdrawals.IsDefault ? ImmutableArray<TransitionWithdrawal>.Empty : Withdrawals;
+}
 
 /// <summary>
 /// The transition check of a compiled binding that something consumes: a reference assembly an app
@@ -56,6 +94,13 @@ public sealed record ConsumerTransitionResult(
 /// a valid manifest proves authenticity, not compliance.</item>
 /// <item><c>AbsentNonPrimitive</c> and <c>TamperedOrMismatched</c> are refused.</item>
 /// </list>
+/// <para>
+/// A routing gap a module's recorded bridge withdrawal explains is accepted on the terms of
+/// <see cref="PackageTransitionEvidence.RuleProblems"/>, and every image given of the library the
+/// bridges were withdrawn from must carry none of them and no manifest hash; any other gap is
+/// refused. The withdrawal is an explanation, never an exemption: every other rule still holds, and
+/// each restored member refuses, before Swift runs, on the engines its record names.
+/// </para>
 /// <para>Base class library, <c>System.Reflection.Metadata</c> and <c>System.Text.Json</c> only, so
 /// the MSBuild tasks the Runtime and SDK packages ship link-compile it.</para>
 /// </remarks>
@@ -126,34 +171,91 @@ public static class ConsumerTransitionCheck
             case TransitionEvidenceState.AbsentPrimitiveOnly:
                 return new(read.AssemblyName, ConsumerTransitionVerdict.PrimitiveOnly, read.State, [], []);
             case TransitionEvidenceState.AbsentNonPrimitive:
+                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems, [], Remedy: ConsumerTransitionRemedy.Regenerate);
             case TransitionEvidenceState.TamperedOrMismatched:
-                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems, []);
+                // A dangling bridge import shows here: what a withdrawal the manifests record says
+                // decides whether a clean rebuild can help.
+                var recorded = RecordedWithdrawals(read);
+                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems, [], recorded,
+                    recorded.IsEmpty ? ConsumerTransitionRemedy.Regenerate : RemedyOf(recorded));
         }
 
         var problems = new List<string>();
-        var (rules, _) = PackageTransitionEvidence.RuleProblems(assembly, read, scratch);
+        var rules = PackageTransitionEvidence.RuleProblems(assembly, read, scratch, acceptWithdrawals: true);
         // The rule lines lead with the assembly's path, which the consumer's diagnostic already names.
         var prefix = assembly.DisplayPath + ": ";
-        problems.AddRange(rules.Select(p => p.StartsWith(prefix, StringComparison.Ordinal) ? p[prefix.Length..] : p));
+        problems.AddRange(rules.Problems.Select(p => p.StartsWith(prefix, StringComparison.Ordinal) ? p[prefix.Length..] : p));
+        var ruleFailures = problems.Count;
 
         var unverified = new List<string>();
-        foreach (var library in read.Routing.Select(m => m.Manifest.NativeLibrary!).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
+        var withdrawals = rules.Withdrawals.IsEmpty ? RecordedWithdrawals(read) : rules.Withdrawals;
+        var routedLibraries = read.Routing.Select(m => m.Manifest.NativeLibrary!).ToHashSet(StringComparer.Ordinal);
+        foreach (var library in routedLibraries.Concat(withdrawals.Select(w => w.Library)).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal))
         {
             var images = natives.Where(n => n.Library == library).ToList();
             if (images.Count == 0)
             {
                 unverified.Add(library);
                 if (requireNativeImages)
-                    problems.Add($"its manifests route bridges through {library}, but no image of {library} was found to check");
+                    problems.Add(routedLibraries.Contains(library)
+                        ? $"its manifests route bridges through {library}, but no image of {library} was found to check"
+                        : $"its bridges through {library} were withdrawn, but no image of {library} was found to show they are gone");
                 continue;
             }
             foreach (var native in images)
                 problems.AddRange(SwiftTransitionManifestReader.CheckNative(read, library, native.Image, native.DisplayPath));
         }
+        if (!withdrawals.IsEmpty)
+            problems.AddRange(WithdrawnRoutingLeftovers(withdrawals, natives,
+                routedLibraries.Concat(withdrawals.Select(w => w.Library)).ToHashSet(StringComparer.Ordinal)));
 
-        return new(read.AssemblyName, problems.Count == 0 ? ConsumerTransitionVerdict.Verified : ConsumerTransitionVerdict.Refused,
-            read.State, problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), unverified.ToImmutableArray());
+        var refused = problems.Count > 0;
+        var remedy = !refused ? ConsumerTransitionRemedy.None
+            : withdrawals.Any(w => w.Cause == TransitionWithdrawal.ReceiptMismatch) ? ConsumerTransitionRemedy.ReceiptMismatch
+            : ruleFailures == 0 ? ConsumerTransitionRemedy.CleanRebuild
+            : !withdrawals.IsEmpty ? ConsumerTransitionRemedy.WithdrawalIncoherent
+            : ConsumerTransitionRemedy.Regenerate;
+        return new(read.AssemblyName, refused ? ConsumerTransitionVerdict.Refused : ConsumerTransitionVerdict.Verified,
+            read.State, problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), unverified.ToImmutableArray(), withdrawals, remedy);
     }
+
+    /// <summary>
+    /// What is left of a withdrawn routing in images the record does not name. The record's library
+    /// says which images must show the bridges gone, so it is not trusted to be the only one: a
+    /// wrapper that bridged the module exports the module's manifest hash symbol, and no image of
+    /// any other library may export it. Only that symbol is the module's own; bridge names follow
+    /// the plan, not the module, so another library's bridges are not taken for leftovers.
+    /// </summary>
+    private static IEnumerable<string> WithdrawnRoutingLeftovers(
+        ImmutableArray<TransitionWithdrawal> withdrawals, IReadOnlyList<PackagedNative> natives, IReadOnlySet<string> checkedLibraries)
+    {
+        var hashSymbols = withdrawals.Select(w => (w, symbol: BindingsGeneration.SwiftTransitionManifestFormat.NativeSymbol(w.Module))).ToList();
+        foreach (var native in natives.Where(n => !checkedLibraries.Contains(n.Library)))
+        {
+            ImmutableArray<MachOSlice> slices;
+            try
+            {
+                slices = MachOSymbols.Read(native.Image);
+            }
+            catch (BadImageFormatException)
+            {
+                continue; // not an image a wrapper of the module could be
+            }
+            foreach (var slice in slices)
+                foreach (var (withdrawal, symbol) in hashSymbols.Where(h => slice.Exports.Contains(h.symbol)))
+                    yield return $"{native.DisplayPath} ({slice.Architecture}) exports {symbol}, the manifest hash of {withdrawal.Module}'s withdrawn routing, "
+                                 + $"but the withdrawal records its bridges as withdrawn from {withdrawal.Library}";
+        }
+    }
+
+    /// <summary>The withdrawals the manifests that read record, whether or not they hold up.</summary>
+    private static ImmutableArray<TransitionWithdrawal> RecordedWithdrawals(TransitionEvidence read) =>
+        BridgeTwinPlans.FromSidecars(read.Manifests.Select(m =>
+                (m.Resource[..^BindingsGeneration.SwiftTransitionManifestFormat.FileSuffix.Length] + BridgeTwinPlans.SidecarSuffix, m.Manifest.Plans)))
+            .Withdrawals;
+
+    private static ConsumerTransitionRemedy RemedyOf(ImmutableArray<TransitionWithdrawal> withdrawals) =>
+        withdrawals.Any(w => w.Cause == TransitionWithdrawal.ReceiptMismatch) ? ConsumerTransitionRemedy.ReceiptMismatch : ConsumerTransitionRemedy.WithdrawalIncoherent;
 
     /// <summary>
     /// The binaries of every <c>{library}.framework</c> under <paramref name="root"/>: a shallow

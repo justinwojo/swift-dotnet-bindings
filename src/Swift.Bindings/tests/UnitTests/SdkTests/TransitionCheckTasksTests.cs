@@ -208,7 +208,7 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.NotEqual(0, exit);
         Assert.Contains("error SWIFTBIND133", output);
         Assert.Contains("lib/net10.0/Fixture.dll would be refused by its consumers' Swift transition check (evidence AbsentNonPrimitive)", output);
-        Assert.Contains("rebuild the binding clean", output);
+        Assert.Contains("Regenerate the binding with the current SwiftBindings.Sdk", output);
         Assert.False(File.Exists(package), "a refused package must not stay where it can be pushed");
     }
 

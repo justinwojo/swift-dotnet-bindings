@@ -4502,10 +4502,19 @@ TARGETSEOF"
        hash and export exactly those bridges. A missing slice is a refusal here (a
        package must carry its natives). A refused package is deleted.
 
-       The usual cause is a wrapper that kept the bridges or manifest hash of an earlier routing:
-       the wrapper-compile finalizer does not relink without a receipt to verify the relink
-       against, and after a failed relink (SWIFTBIND129) it keeps the wrapper the receipt was
-       collected from. A clean build of the binding fixes both.
+       A binding whose bridge relink failed (SWIFTBIND129) packs as a partial binding: its call
+       plans record the withdrawal (why, from which library, each restored member with its shapes
+       and the engines that refuse it), and the check accepts the gaps that record explains only
+       when the assembly and every shipped slice hold up as that withdrawal: each restored member
+       is a guarded direct import with the recorded shapes, nothing still routes through a bridge,
+       and no slice carries a bridge or manifest hash. A gap nothing records, a withdrawal after a
+       relink that contradicted the lowering receipt, or a record the binding does not match is
+       refused. The record explains; it exempts nothing.
+
+       The error names its remedy by cause. A wrapper that kept the bridges or manifest hash of an
+       earlier routing (the finalizer does not relink without a receipt to verify the relink
+       against) wants a clean build of the binding; a withdrawal that does not hold up, or follows
+       a receipt contradiction, wants the relink failure fixed, which no clean build does.
 
        The packed assemblies' references (the runtime, for carrier types) are the project's own
        resolved references, per target framework. Pure ObjC bindings make no Swift transition. The

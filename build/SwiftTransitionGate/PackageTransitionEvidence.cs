@@ -28,6 +28,12 @@ public sealed record PackageTransitionEvidenceResult(
 }
 
 /// <summary>
+/// The transition gate's rules over one assembly (<see cref="PackageTransitionEvidence.RuleProblems"/>):
+/// what fails, the scan they were read from, and the recorded bridge withdrawals that were accepted.
+/// </summary>
+public sealed record TransitionRuleOutcome(ImmutableArray<string> Problems, AssemblyTransitionReport Report, ImmutableArray<TransitionWithdrawal> Withdrawals);
+
+/// <summary>
 /// The transition evidence of a package, checked from the package alone: each managed assembly must
 /// embed valid transition manifests, its transitions must satisfy the transition gate's rules
 /// against the plans those manifests carry (not against a build tree), and every native slice must
@@ -53,9 +59,17 @@ public static class PackageTransitionEvidence
     /// is a directory the manifests' plans are written into for the plan-dependent rules; it is
     /// created if missing and left for the caller to remove.
     /// </summary>
+    /// <remarks>
+    /// Strict by default: a routing gap fails whether or not a recorded withdrawal explains it. With
+    /// <paramref name="acceptWithdrawals"/> the gaps a withdrawal explains are accepted on the terms
+    /// <see cref="RuleProblems"/> states, and every withdrawal's library must be among
+    /// <paramref name="natives"/>, so its images are shown to carry no bridge and no manifest hash.
+    /// </remarks>
     public static PackageTransitionEvidenceResult Check(
-        IReadOnlyList<PackagedAssembly> assemblies, IReadOnlyList<PackagedNative> natives, bool requireRoutedBridges, string scratch)
+        IReadOnlyList<PackagedAssembly> assemblies, IReadOnlyList<PackagedNative> natives, bool requireRoutedBridges, string scratch,
+        bool acceptWithdrawals = false)
     {
+        var withdrawn = new List<string>();
         var problems = new List<string>();
         var evidence = ImmutableArray.CreateBuilder<TransitionEvidence>();
         var reports = ImmutableArray.CreateBuilder<AssemblyTransitionReport>();
@@ -78,9 +92,10 @@ public static class PackageTransitionEvidence
             }
 
             var directory = Path.Combine(scratch, $"{index}-{Path.GetFileNameWithoutExtension(where)}");
-            var (ruleProblems, report) = RuleProblems(assembly, read, directory);
+            var (ruleProblems, report, withdrawals) = RuleProblems(assembly, read, directory, acceptWithdrawals);
             reports.Add(report);
             problems.AddRange(ruleProblems);
+            withdrawn.AddRange(withdrawals.Select(w => w.Library));
             var routed = read.Manifests.SelectMany(m => m.Manifest.Bridges).Distinct(StringComparer.Ordinal).Count();
             if (requireRoutedBridges && routed == 0)
                 problems.Add($"{where}: routes no transition through a bridge, but this package must (its bridges are its evidence that routing reached the package)");
@@ -99,6 +114,8 @@ public static class PackageTransitionEvidence
                      .SelectMany(e => e.Routing.Select(m => m.Manifest.NativeLibrary!)).Distinct(StringComparer.Ordinal)
                      .Where(l => !natives.Any(n => n.Library == l)))
             problems.Add($"the manifests route bridges through {library}, but the package holds no image of it");
+        foreach (var library in withdrawn.Distinct(StringComparer.Ordinal).Where(l => !natives.Any(n => n.Library == l)))
+            problems.Add($"a module's bridges through {library} were withdrawn, but the package holds no image of {library} to show they are gone");
 
         return new PackageTransitionEvidenceResult(problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), evidence.ToImmutable(), reports.ToImmutable());
     }
@@ -110,8 +127,21 @@ public static class PackageTransitionEvidence
     /// and the plans' routing and evidence gaps. <paramref name="directory"/> receives the manifests'
     /// records as sidecars; it is created if missing and left for the caller to remove.
     /// </summary>
-    public static (ImmutableArray<string> Problems, AssemblyTransitionReport Report) RuleProblems(
-        PackagedAssembly assembly, TransitionEvidence read, string directory)
+    /// <remarks>
+    /// <para>
+    /// Every routing gap fails unless <paramref name="acceptWithdrawals"/>. Then a gap a module's
+    /// recorded bridge withdrawal explains (<see cref="BridgeTwinPlans.UnrecordedRoutingGaps"/>) is
+    /// accepted only when the withdrawal holds up: it reads and agrees with its own coverage
+    /// (<see cref="BridgeTwinPlans.WithdrawalProblems"/>, which also refuses a withdrawal whose
+    /// relinked wrapper contradicted the receipt), the module's manifest routes nothing, and each
+    /// transition it lists is a Swift-convention import of the compiled assembly with the member,
+    /// entry point and shapes it records. Nothing else is relaxed: the residual-guard check still
+    /// requires an early guard on each restored import, and the native images must still carry no
+    /// bridge or hash of the withdrawn routing (<see cref="SwiftTransitionManifestReader.CheckNative"/>).
+    /// </para>
+    /// </remarks>
+    public static TransitionRuleOutcome RuleProblems(
+        PackagedAssembly assembly, TransitionEvidence read, string directory, bool acceptWithdrawals = false)
     {
         var where = assembly.DisplayPath;
         var problems = new List<string>();
@@ -141,11 +171,55 @@ public static class PackageTransitionEvidence
 
         var plans = BridgeTwinPlans.Load(source);
         problems.AddRange(plans.Problems.Select(p => $"{where}: plans {p}"));
-        problems.AddRange(plans.RoutingGaps.Select(g => $"{where}: routing {g}"));
+        var withdrawals = ImmutableArray<TransitionWithdrawal>.Empty;
+        if (!acceptWithdrawals)
+            problems.AddRange(plans.RoutingGaps.Select(g => $"{where}: routing {g}"));
+        else
+        {
+            problems.AddRange(plans.UnrecordedRoutingGaps.Select(g => $"{where}: routing {g}"));
+            problems.AddRange(plans.WithdrawalProblems.Select(p => $"{where}: withdrawal {p}"));
+            var restoration = plans.Withdrawals.SelectMany(w => RestorationProblems(w, read, report)).ToList();
+            problems.AddRange(restoration.Select(p => $"{where}: withdrawal {p}"));
+            if (plans.WithdrawalProblems.IsEmpty && restoration.Count == 0)
+                withdrawals = plans.Withdrawals;
+        }
         problems.AddRange(plans.EvidenceGaps.Select(g => $"{where}: evidence {g}"));
         var routed = read.Manifests.SelectMany(m => m.Manifest.Bridges).Distinct(StringComparer.Ordinal).Count();
         if (report.Inventory.BridgeTwins != routed)
             problems.Add($"{where}: imports {report.Inventory.BridgeTwins} bridge twin(s), but its manifests route {routed} transition(s) through a bridge");
-        return (problems.ToImmutableArray(), report);
+        return new TransitionRuleOutcome(problems.ToImmutableArray(), report, withdrawals);
+    }
+
+    /// <summary>
+    /// Where the compiled assembly does not show what <paramref name="withdrawal"/> says was restored:
+    /// the module's manifest still routes a bridge, or a listed transition is not a Swift-convention
+    /// import of the assembly from the recorded library, with the recorded member, entry point and shapes.
+    /// </summary>
+    private static IEnumerable<string> RestorationProblems(TransitionWithdrawal withdrawal, TransitionEvidence read, AssemblyTransitionReport report)
+    {
+        var manifest = read.Manifests.FirstOrDefault(m =>
+            m.Resource[..^SwiftTransitionManifestFormat.FileSuffix.Length] + BridgeTwinPlans.SidecarSuffix == withdrawal.Origin);
+        if (manifest is null)
+            yield return $"{withdrawal.Origin}: no manifest of the assembly carries the plans that record the withdrawal";
+        else if (manifest.Manifest.NativeSymbol is not null || !manifest.Manifest.Bridges.IsEmpty)
+            yield return $"{manifest.Resource} records that {withdrawal.Module}'s bridges were withdrawn but still routes "
+                         + $"[{string.Join(", ", manifest.Manifest.Bridges)}] through {manifest.Manifest.NativeLibrary} (a partial restoration)";
+        foreach (var transition in withdrawal.Transitions)
+        {
+            var sites = report.Sites.Where(s => s.Kind == TransitionSiteKind.PInvoke && s.Member == transition.Member && s.EntryPoint == transition.EntryPoint).ToList();
+            if (sites.Count == 0)
+            {
+                yield return $"{transition.Member} ({transition.EntryPoint}) is listed as restored to its direct import, but the assembly declares no such import";
+                continue;
+            }
+            foreach (var site in sites)
+            {
+                if (site.Convention != TransitionConvention.Swift)
+                    yield return $"{transition.Member} ({transition.EntryPoint}) is listed as restored to its Swift-convention import, but the assembly imports it with the {site.Convention} convention";
+                else if (SwiftTransitionEngines.ShapesOf(transition.Shapes) is { } recorded && recorded != site.Shapes)
+                    yield return $"{transition.Member} ({transition.EntryPoint}) is recorded with the shapes [{string.Join(", ", transition.Shapes)}], "
+                                 + $"but the compiled import has [{string.Join(", ", SwiftTransitionEngines.ShapeNames(site.Shapes))}]";
+            }
+        }
     }
 }

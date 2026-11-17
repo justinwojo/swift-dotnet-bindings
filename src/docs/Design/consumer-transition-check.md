@@ -44,6 +44,7 @@ gate's transition ledger cross-check and the SDK's pack check.
 |---|---|
 | `PresentValid`, the rules hold, and every native image the app references for a routed library holds the manifest hash and exactly its bridges | Accepted, no diagnostic |
 | `AbsentPrimitiveOnly` (no manifest, every Swift transition a primitive-only forward call) | Accepted, no diagnostic |
+| `PresentValid` with routing gaps that a recorded bridge withdrawal explains, and the assembly and images hold up as that withdrawal (see *Partial bindings*) | Accepted; a message names the withdrawn members and the engines they refuse on |
 | `PresentValid` with a rule failure or a mismatched native image | `error SWIFTBIND132` |
 | `AbsentNonPrimitive` (no manifest beside a non-primitive transition) | `error SWIFTBIND132` |
 | `TamperedOrMismatched` | `error SWIFTBIND132` |
@@ -91,12 +92,71 @@ assembly is checked against the slices a consumer of its target framework links:
 one wrapper per platform, and the two manifests differ wherever the platforms' routing does. A
 refused package is deleted and the build fails with `error SWIFTBIND133`.
 
-The usual cause is a wrapper that kept an earlier routing. The wrapper-compile finalizer does not
-relink when there is no lowering receipt, or when a relink fails (SWIFTBIND129) and it restores the
-earlier wrapper. That wrapper keeps the earlier hash and bridges while the manifest describes the new
-plans. The SDK keeps failing closed rather than recompiling at pack time: the remedy is a clean
-build (delete the binding's `bin/` and `obj/`) and a new pack. The consumer check catches the same
-mismatch for a `ProjectReference` whose wrapper is among the app's native references.
+The error names the remedy by cause. A wrapper that kept an earlier routing (the wrapper-compile
+finalizer does not relink without a lowering receipt, so the wrapper keeps the earlier hash and
+bridges while the manifest describes the new plans) wants a clean build (delete the binding's `bin/`
+and `obj/`) and a new pack; the SDK fails closed rather than recompiling at pack time. A bridge
+withdrawal that does not hold up wants the relink failure fixed, which no clean build does. A
+missing or tampered manifest wants the binding regenerated with the current SDK. The consumer check
+catches the same mismatches for a `ProjectReference` whose wrapper is among the app's native
+references.
+
+## Partial bindings
+
+When the bridge relink fails after generation routed (`SWIFTBIND129`), the finalizer puts the first
+compile's wrapper back and the C# back to generation's own guarded direct imports, and the call-plan
+sidecar records the withdrawal under `bridgeWithdrawal`:
+
+```json
+"bridgeWithdrawal": {
+  "cause": "RelinkFailed",
+  "reason": "the wrapper could not be relinked with its bridges: …",
+  "library": "AcmeSwiftBindings",
+  "transitions": [
+    { "member": "…", "entryPoint": "$s…", "symbol": "SBSR_…",
+      "shapes": ["SelfRegister", "LoweredSignature"],
+      "refusesOn": ["Mono", "the CoreCLR interpreter (arm64)", "the CoreCLR interpreter (x86_64)"] }
+  ]
+}
+```
+
+The coverage entries stay as they are (`executable` true, `bridged` false, `bridgeRefusal` the
+reason, lowering evidence kept), and the manifest embeds the sidecar, so the record ships inside the
+assembly and is covered by the manifest hash. `cause` is `RelinkFailed` (the relink did not
+complete), `RoutingDefect` (rewriting the C# or emitting the bridges threw), or `ReceiptMismatch`
+(the relinked wrapper is not the one the receipt describes). `refusesOn` is the engine table
+(`SwiftTransitionEngines`) applied to `shapes`, which a unit test holds to the runtime guard's own.
+
+Such a package is safe to consume, and its named members refuse, before Swift runs, on the named
+engines. The pack and consumer checks accept a routing gap only when all of this holds:
+
+- the gap is listed in the record by member and entry point, with the same bridge symbol, and its
+  `bridgeRefusal` is the record's reason; any other gap is unrecorded and refused;
+- the cause is `RelinkFailed` or `RoutingDefect`. A `ReceiptMismatch` is refused: two compiles of
+  the same wrapper lowered differently, so the receipt no longer shows the ABI the restored imports
+  were judged against;
+- the shapes are shape names and `refusesOn` is exactly the engines that refuse them;
+- nothing in the module is still bridged, its manifest routes nothing, and the assembly imports
+  no bridge (a dangling `SBSR_` import leaves the evidence `TamperedOrMismatched`);
+- each listed transition is a Swift-convention import of that member and entry point in the
+  assembly, with the recorded shapes, and the residual-guard check (R1) passes at full strength:
+  every restored import is behind a guard of its own shapes before anything can enter it;
+- every image of the withdrawn library carries no bridge and no manifest hash (a stale wrapper is
+  refused, with the clean-build remedy). The pack check requires those images; an app's check
+  logs a library it has no image of, as for a routed one. The record's library is not trusted to
+  be the only one: no image of any other library may export the module's manifest hash symbol
+  (`SBTM_<module>`), which every wrapper that bridged the module exports. (A restored import of a
+  dynamic framework calls the module's own library, not the wrapper that hosted the bridges, so
+  the imports do not name that wrapper; and bridge names follow the plan, not the module, so
+  another library's bridges are not taken for leftovers.);
+- every other rule still holds.
+
+The record explains the gaps; it exempts nothing. `PackageTransitionEvidence.Check` reads strictly by
+default (every gap fatal, as the compile gate's transition ledger reads its own output); the pack and
+consumer checks pass `acceptWithdrawals`. `SWIFTBIND129` stays a warning and names the withdrawn
+members and the engines they refuse on; the pack check and the app's check log the same. NativeAOT
+and CoreCLR's JIT run every known shape, so a withdrawn member runs there: on a device, NativeAOT
+runs both shapes of a self-register, lowered getter, while Mono full-AOT refuses its `SelfRegister`.
 
 ## Where it is proven
 
@@ -111,3 +171,13 @@ mismatch for a `ProjectReference` whose wrapper is among the app's native refere
   consumers for the device, unsigned and never installed: Mono full-AOT on .NET 10, the CoreCLR
   interpreter (Debug) and ReadyToRun (Release) on .NET 11. Each accepted build
   must show the verdict the check recorded, so a check that stopped running cannot pass.
+- `binding-tests --bridge-consumer`, mode `rollback`: a fresh rollback and a rollback after a build
+  that routed must both pack, their evidence from the nupkg alone must pass the accepting check over
+  every shipped slice and fail the strict one; doctored copies of the package (an unrecorded gap, an
+  inconsistent record, a dangling bridge import, a missing guard, the routed build's wrapper beside
+  the rolled-back assembly) must be refused by the engine and by the packaged pack and consumer tasks
+  for their own reasons while the undoctored package passes both; and a clean `PackageReference`
+  consumer must build with the binding recorded `Verified` and run it: the members that need no
+  bridge return the right values, and the withdrawn getter throws before Swift runs on every engine
+  the record names. `BridgeWithdrawalCheckTests` covers the same rule in unit tests, a late guard
+  included.
