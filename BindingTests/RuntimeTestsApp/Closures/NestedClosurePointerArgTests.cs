@@ -50,4 +50,53 @@ public class NestedClosurePointerArgTests : TestBase
         var result = host.ReadThroughRawPointer(2.5, (p, report) => report(*(double*)p * 4));
         AssertEqual(10.0, result, "the callback read Swift's Double through UnsafeRawPointer");
     }
+
+    public unsafe void TestSendableInnerClosureBesideTypedPointer()
+    {
+        using var host = new NestedPointerCallbackHost();
+        var result = host.ReadThroughTypedPointerReportingSendably(-8, (p, report) => report(*(int*)p * 3));
+        AssertEqual(-24, result, "the @Sendable inner closure was called and its report reached Swift");
+    }
+
+    public void TestSendableInnerClosureBesideScalar()
+    {
+        using var host = new NestedPointerCallbackHost();
+        var result = host.ReportSendably(12, (value, report) => report(value + 30));
+        AssertEqual(42, result, "the @Sendable inner closure was called and its report reached Swift");
+    }
+
+    public unsafe void TestInnerClosureReadsThroughTypedPointer()
+    {
+        using var host = new NestedPointerCallbackHost();
+        var result = host.ReadThroughInnerTypedPointer(19, (seed, read) =>
+        {
+            int cell = seed + 23;
+            read((System.IntPtr)(&cell));
+        });
+        AssertEqual(42, result, "Swift read the callback's Int32 through UnsafePointer<Int32>");
+    }
+
+    public unsafe void TestInnerClosureWritesThroughMutablePointer()
+    {
+        using var host = new NestedPointerCallbackHost();
+        long cell = 0;
+        host.WriteThroughInnerMutablePointer(write =>
+        {
+            long local = -1;
+            write((System.IntPtr)(&local));
+            cell = local;
+        });
+        AssertEqual((1L << 33) + 5, cell, "Swift's write through UnsafeMutablePointer<Int64> reached the callback's cell");
+    }
+
+    public unsafe void TestInnerClosureReadsThroughRawPointer()
+    {
+        using var host = new NestedPointerCallbackHost();
+        var result = host.ReadThroughInnerRawPointer(read =>
+        {
+            double cell = 6.25;
+            read((System.IntPtr)(&cell));
+        });
+        AssertEqual(6.25, result, "Swift read the callback's Double through UnsafeRawPointer");
+    }
 }

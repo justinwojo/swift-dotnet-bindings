@@ -1270,13 +1270,13 @@ public static class BindingsGeneratorCommand
         // compile, its fingerprint and the consumer metadata see only the settled source. The C# plane
         // stays off here: the consuming project's own compile grades the C#. The probe compiles the
         // platform's primary slice (SwiftWrapperCompiler.Compile: the simulator where the platform has
-        // one), so it runs only when the resolved slice is that slice; a device-only resolution keeps the
-        // deferred compile as its only grade.
+        // one), so it runs only when the resolved slice is that slice and the deferred compile builds it
+        // too; a device-only resolution or a device-only wrapper keeps the deferred compile as its only
+        // grade.
         var sdkDeferredWrapperProbe = skipWrapperCompilation && sdkMode && wouldCompileWrapper
             && resolution != null && xcframeworkPath != null
-            && (resolution.IsSimulatorSlice || !platformInfo.HasSimulatorVariant);
-        if ((shouldCompileWrapper && resolution != null &&
-             (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
+            && DeferredCompileBuildsProbeSlice(platformInfo.HasSimulatorVariant, resolution.IsSimulatorSlice, wrapperArchNormalized);
+        if ((shouldCompileWrapper && resolution != null && wrapperArchNormalized == "simulator")
             || sdkDeferredWrapperProbe)
         {
             var loopResolution = resolution!;
@@ -1293,6 +1293,9 @@ public static class BindingsGeneratorCommand
                 loopSimDepPaths, xcframeworkPath!,
                 loopOnSimulator ? XCFrameworkPlatformTarget.Simulator : XCFrameworkPlatformTarget.Device,
                 logger, platformInfo);
+            // The dependency collision list the same compile patches with. Only an explicit device-only
+            // wrapper compiles that platform's primary slice against the device list.
+            var loopDeviceCollisions = !loopOnSimulator && wrapperArchNormalized == "device";
 
             WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory)
             {
@@ -1308,7 +1311,9 @@ public static class BindingsGeneratorCommand
                     swiftInterfacePath: loopResolution.SwiftInterfacePath,
                     skipThunkCompilation: skipThunkCompilation,
                     resolvedArchitecture: loopResolution.SelectedArchitecture,
-                    depModuleNamesForCollision: req.DepModuleCollisions.Simulator,
+                    depModuleNamesForCollision: loopDeviceCollisions
+                        ? req.DepModuleCollisions.Device
+                        : req.DepModuleCollisions.Simulator,
                     linkFrameworks: linkFrameworks,
                     linkLibraries: linkLibraries,
                     collector: collector);
@@ -3474,6 +3479,17 @@ public static class BindingsGeneratorCommand
         /// <summary>An explicitly requested architecture is absent from the source slice (SWIFTBIND052).</summary>
         UnsatisfiableRequest,
     }
+
+    /// <summary>
+    /// Whether the SDK's deferred wrapper compile builds the slice the render pass's probe compiles —
+    /// the platform's primary slice, the simulator where the platform has one. The probe grades only
+    /// that slice, so it may withdraw members only when the shipped wrapper is built from it too: a
+    /// device-resolved framework or a device-only wrapper (<c>--wrapper-architectures device</c>) on
+    /// a platform with a simulator is graded by the deferred compile alone.
+    /// </summary>
+    internal static bool DeferredCompileBuildsProbeSlice(
+        bool platformHasSimulator, bool resolvedSimulatorSlice, string wrapperArchitectures) =>
+        !platformHasSimulator || (resolvedSimulatorSlice && wrapperArchitectures != "device");
 
     /// <summary>
     /// The direct-mode wrapper CPU-arch decision: which architecture the wrapper's PRIMARY compile

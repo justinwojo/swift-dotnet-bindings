@@ -81,4 +81,23 @@ public class SdkWrapperProbeTests : IDisposable
         Assert.NotNull(compiledIn);
         Assert.False(Directory.Exists(compiledIn));
     }
+
+    /// <summary>
+    /// The probe compiles the platform's primary slice, so it may withdraw members only when the
+    /// deferred compile builds that slice too. A device-only wrapper on a platform with a simulator
+    /// is the case that must not be probed: the simulator SDK can lack what the device links.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, "all", true)]
+    [InlineData(true, true, "simulator", true)]
+    [InlineData(true, true, "device", false)]
+    [InlineData(true, false, "all", false)]
+    [InlineData(false, false, "all", true)]
+    [InlineData(false, false, "device", true)]
+    public void DeferredCompileBuildsProbeSlice_ProbesOnlyASliceTheShippedWrapperIsBuiltFrom(
+        bool platformHasSimulator, bool resolvedSimulatorSlice, string wrapperArchitectures, bool expected)
+    {
+        Assert.Equal(expected, BindingsGeneratorCommand.DeferredCompileBuildsProbeSlice(
+            platformHasSimulator, resolvedSimulatorSlice, wrapperArchitectures));
+    }
 }

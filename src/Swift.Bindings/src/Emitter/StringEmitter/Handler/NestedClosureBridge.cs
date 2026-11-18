@@ -601,6 +601,24 @@ public static class NestedClosureBridge
     }
 
     /// <summary>
+    /// The Swift function type an inner closure is boxed as and cast back to: escaping and not
+    /// <c>@Sendable</c>. The cast compares the boxed function type exactly, so a boxed non-escaping
+    /// or <c>@Sendable</c> closure fails it and traps the first time the callback fires. The ABI
+    /// JSON omits <c>@Sendable</c>, so the box site coerces the closure to this type before erasing
+    /// it to <c>AnyObject</c> (escaping it first with <c>withoutActuallyEscaping</c> when it is not
+    /// escaping). Swift refuses a coercion that drops a global actor, which fails the wrapper
+    /// compile, where verify-recover withdraws the member.
+    /// </summary>
+    private static string InnerClosureSwiftType(InnerClosureInfo inner)
+    {
+        var argTypes = inner.Args.Select(ExistentialBypassEmitter.RenderSwiftTypeSpec);
+        var returnType = inner.Spec.ReturnType.IsEmptyTuple
+            ? "Swift.Void"
+            : ExistentialBypassEmitter.RenderSwiftTypeSpec(inner.Spec.ReturnType);
+        return $"({string.Join(", ", argTypes)}) -> {returnType}";
+    }
+
+    /// <summary>
     /// Emits inner-closure trampolines for one outer closure. Naming respects single-outer legacy
     /// ("innerTrampoline", "innerTrampoline0", "innerTrampoline1") vs multi-outer namespaced form
     /// ("innerTrampoline_{outerIdx}_{innerIdx}").
@@ -632,20 +650,7 @@ public static class NestedClosureBridge
                 : "Swift.Void";
             var innerTrampolineType = $"@convention(c) ({string.Join(", ", innerCdeclParamTypes)}) -> {innerReturnCdeclType}";
 
-            var innerClosureSwiftArgTypes = new List<string>();
-            foreach (var innerArg in innerArgs)
-            {
-                innerClosureSwiftArgTypes.Add(ExistentialBypassEmitter.RenderSwiftTypeSpec(innerArg));
-            }
-            var innerReturnSwiftType = innerReturnsValue
-                ? ExistentialBypassEmitter.RenderSwiftTypeSpec(innerClosureSpec.ReturnType)
-                : "Swift.Void";
-            var innerClosureSwiftType = innerClosureSwiftArgTypes.Count switch
-            {
-                0 => $"() -> {innerReturnSwiftType}",
-                1 => $"({innerClosureSwiftArgTypes[0]}) -> {innerReturnSwiftType}",
-                _ => $"({string.Join(", ", innerClosureSwiftArgTypes)}) -> {innerReturnSwiftType}"
-            };
+            var innerClosureSwiftType = InnerClosureSwiftType(ic);
 
             var trampolineName = InnerTrampolineName(multiOuter, multiInner, nc.Index, j);
             var boxSuffix = InnerBoxSuffix(multiOuter, multiInner, nc.Index, j);
@@ -862,6 +867,19 @@ public static class NestedClosureBridge
         if (nc.IsEffectivelyEscaping)
             swiftWriter.WriteLine($"{indent}_ = {synth.Box[nc.Index]}");
 
+        // Each inner closure is boxed as exactly the function type its trampoline casts back to
+        // (InnerClosureSwiftType): an escaping, non-@Sendable type. A non-escaping closure has
+        // different runtime metadata and would fail that cast, so it is boxed through
+        // withoutActuallyEscaping, whose scope covers the cdecl call and the box release below.
+        var outerIndent = indent;
+        var nonEscapingScopes = 0;
+        foreach (var inner in nc.InnerClosures.Where(ic => !ic.Spec.IsEscaping))
+        {
+            swiftWriter.WriteLine($"{indent}Swift.withoutActuallyEscaping(__op{inner.OuterArgIndex}) {{ __op{inner.OuterArgIndex} in");
+            indent += "    ";
+            nonEscapingScopes++;
+        }
+
         var cdeclCallArgs = new List<string>();
         var innerBoxesToRelease = new List<string>();
         for (int i = 0; i < nc.OuterArgs.Count; i++)
@@ -871,7 +889,8 @@ public static class NestedClosureBridge
             {
                 var trampolineName = InnerTrampolineName(multiOuter, multiInner, nc.Index, innerMatch);
                 var suffix = InnerBoxSuffix(multiOuter, multiInner, nc.Index, innerMatch);
-                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Swift.Unmanaged.passRetained(__op{i} as Swift.AnyObject).toOpaque()");
+                var innerSwiftType = InnerClosureSwiftType(nc.InnerClosures[innerMatch]);
+                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Swift.Unmanaged.passRetained((__op{i} as {innerSwiftType}) as Swift.AnyObject).toOpaque()");
                 swiftWriter.WriteLine($"{indent}let __innerFuncPtr{suffix} = Swift.unsafeBitCast({trampolineName}, to: Swift.UnsafeMutableRawPointer?.self)");
                 cdeclCallArgs.Add($"__innerFuncPtr{suffix}");
                 cdeclCallArgs.Add($"__innerBox{suffix}");
@@ -897,6 +916,8 @@ public static class NestedClosureBridge
         swiftWriter.WriteLine($"{indent}{cdeclVar}({string.Join(", ", cdeclCallArgs)})");
         foreach (var box in innerBoxesToRelease)
             swiftWriter.WriteLine($"{indent}Swift.Unmanaged<Swift.AnyObject>.fromOpaque({box}).release()");
+        for (int scope = nonEscapingScopes; scope > 0; scope--)
+            swiftWriter.WriteLine($"{outerIndent}{new string(' ', 4 * (scope - 1))}}}");
     }
 
     private static string InnerTrampolineName(bool multiOuter, bool multiInner, int outerIndex, int innerIndex)
@@ -1795,6 +1816,13 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // An inner closure's pointer argument arrives as the pointer it is (raw, opaque) or as
+            // a raw pointer rebound to its pointee (typed), never as an object reference.
+            if (IsUntypedPointer(named.Name))
+                return paramName;
+            if (ClosureEmitter.TryGetRawToTypedPointerConversion(named, paramName, out var typed))
+                return typed;
+
             // Optional<ref> → nil check + Unmanaged.fromOpaque
             if (IsOptionalReferenceType(named, env.ClosureHandler))
             {
@@ -1860,13 +1888,11 @@ public static class NestedClosureBridge
         if (argType is NamedTypeSpec named)
         {
             // Pointers cross the C slot as the pointer they are (raw, opaque) or as a raw pointer
-            // (typed), never as an object reference. The result also feeds a `return` (an inner
-            // closure's result), where the implicit UnsafeMutablePointer<T> → UnsafeMutableRawPointer
-            // argument conversion does not apply, so the mutable form converts explicitly too.
+            // (typed), never as an object reference. Pointers reach here only as outer callback
+            // arguments (an inner closure returns a primitive or nothing), where a mutable typed
+            // pointer converts implicitly.
             if (IsUntypedPointer(named.Name))
                 return paramName;
-            if (named is { Name: "Swift.UnsafeMutablePointer", GenericParameters.Count: 1 })
-                return $"Swift.UnsafeMutableRawPointer({paramName})";
             if (ClosureEmitter.TryGetTypedPointerToRawConversion(named, paramName, out var raw))
                 return raw;
 

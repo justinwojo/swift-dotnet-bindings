@@ -47,4 +47,46 @@ public final class NestedPointerCallbackHost {
         withUnsafePointer(to: &cell) { p in body(UnsafeRawPointer(p)) { reported = $0 } }
         return reported
     }
+
+    /// A `@Sendable` inner closure beside a typed pointer. The bridge boxes the inner closure and
+    /// casts it back to its Swift function type to call it; a boxed `@Sendable` closure does not
+    /// cast to the plain function type, so the cast must say `@Sendable` or the first report traps.
+    public func readThroughTypedPointerReportingSendably(_ value: Int32, _ body: (UnsafePointer<Int32>, @Sendable (Int32) -> Void) -> Void) -> Int32 {
+        let report = NestedSendableReport()
+        var cell = value
+        withUnsafePointer(to: &cell) { p in body(p) { report.value = $0 } }
+        return report.value
+    }
+
+    /// The same `@Sendable` inner closure beside a scalar, a shape the bridge emitted before
+    /// pointers did.
+    public func reportSendably(_ value: Int32, _ body: (Int32, @Sendable (Int32) -> Void) -> Void) -> Int32 {
+        let report = NestedSendableReport()
+        body(value) { report.value = $0 }
+        return report.value
+    }
+
+    /// The inner closure takes the pointer: the callback passes the address of its own Int32 and
+    /// Swift reads through it.
+    public func readThroughInnerTypedPointer(_ seed: Int32, _ body: (Int32, (UnsafePointer<Int32>) -> Void) -> Void) -> Int32 {
+        var read: Int32 = 0
+        body(seed) { p in read = p.pointee }
+        return read
+    }
+
+    /// Swift writes through the callback's `UnsafeMutablePointer<Int64>`.
+    public func writeThroughInnerMutablePointer(_ body: ((UnsafeMutablePointer<Int64>) -> Void) -> Void) {
+        body { p in p.pointee = (1 << 33) + 5 }
+    }
+
+    /// Swift reads the callback's Double through `UnsafeRawPointer`.
+    public func readThroughInnerRawPointer(_ body: ((UnsafeRawPointer) -> Void) -> Void) -> Double {
+        var read = 0.0
+        body { p in read = p.load(as: Double.self) }
+        return read
+    }
+}
+
+private final class NestedSendableReport: @unchecked Sendable {
+    var value: Int32 = 0
 }
