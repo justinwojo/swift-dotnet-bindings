@@ -1848,6 +1848,10 @@ public static class NestedClosureBridge
         return paramName;
     }
 
+    /// <summary>The pointer types whose C slot is the same type (<see cref="SwiftBuilder.GetSwiftCdeclParamType(NamedTypeSpec)"/>).</summary>
+    private static bool IsUntypedPointer(string swiftName)
+        => swiftName is "Swift.UnsafeRawPointer" or "Swift.UnsafeMutableRawPointer" or "Swift.OpaquePointer";
+
     /// <summary>
     /// Gets the Swift expression to convert an outer closure arg to its cdecl representation.
     /// </summary>
@@ -1855,6 +1859,17 @@ public static class NestedClosureBridge
     {
         if (argType is NamedTypeSpec named)
         {
+            // Pointers cross the C slot as the pointer they are (raw, opaque) or as a raw pointer
+            // (typed), never as an object reference. The result also feeds a `return` (an inner
+            // closure's result), where the implicit UnsafeMutablePointer<T> → UnsafeMutableRawPointer
+            // argument conversion does not apply, so the mutable form converts explicitly too.
+            if (IsUntypedPointer(named.Name))
+                return paramName;
+            if (named is { Name: "Swift.UnsafeMutablePointer", GenericParameters.Count: 1 })
+                return $"Swift.UnsafeMutableRawPointer({paramName})";
+            if (ClosureEmitter.TryGetTypedPointerToRawConversion(named, paramName, out var raw))
+                return raw;
+
             // Optional<ref> → nil check + passUnretained
             if (IsOptionalReferenceType(named, env.ClosureHandler))
                 return $"{paramName} != nil ? Swift.Unmanaged.passUnretained({paramName}!).toOpaque() : nil";

@@ -1033,6 +1033,9 @@ public static partial class ClosureEmitter
         if (!IsTypedPointer(named, out var isMutable, out var pointee))
             return false;
         var pointeeType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(pointee);
+        // A function or composition type needs parentheses before `.self`; a nominal type reads plainly.
+        if (pointee is not NamedTypeSpec)
+            pointeeType = $"({pointeeType})";
         var bound = $"({expr}).assumingMemoryBound(to: {pointeeType}.self)";
         conversion = isMutable ? bound : $"Swift.UnsafePointer({bound})";
         return true;

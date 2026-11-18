@@ -1268,20 +1268,31 @@ public static class BindingsGeneratorCommand
         // the rendered sources: the loop settles the on-disk source exactly as it does in the repository
         // path, and nothing the probe builds lands in the SDK's intermediate directory, so the later
         // compile, its fingerprint and the consumer metadata see only the settled source. The C# plane
-        // stays off here: the consuming project's own compile grades the C#.
+        // stays off here: the consuming project's own compile grades the C#. The probe compiles the
+        // platform's primary slice (SwiftWrapperCompiler.Compile: the simulator where the platform has
+        // one), so it runs only when the resolved slice is that slice; a device-only resolution keeps the
+        // deferred compile as its only grade.
         var sdkDeferredWrapperProbe = skipWrapperCompilation && sdkMode && wouldCompileWrapper
-            && resolution != null && xcframeworkPath != null;
+            && resolution != null && xcframeworkPath != null
+            && (resolution.IsSimulatorSlice || !platformInfo.HasSimulatorVariant);
         if ((shouldCompileWrapper && resolution != null &&
              (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
             || sdkDeferredWrapperProbe)
         {
             var loopResolution = resolution!;
+            // The dependency search paths of the slice the loop compiles. A platform without a simulator
+            // (macOS, Mac Catalyst) resolves its dependencies on the device side, as CompileAll's primary
+            // compile reads them.
+            var loopOnSimulator = platformInfo.HasSimulatorVariant;
             var loopSimDepPaths = resolvedDependencies?
-                .Where(d => d.SimulatorFrameworkSearchPath != null)
-                .Select(d => d.SimulatorFrameworkSearchPath!)
+                .Select(d => loopOnSimulator ? d.SimulatorFrameworkSearchPath : d.DeviceFrameworkSearchPath)
+                .Where(path => path != null)
+                .Select(path => path!)
                 .ToList();
             loopSimDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
-                loopSimDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+                loopSimDepPaths, xcframeworkPath!,
+                loopOnSimulator ? XCFrameworkPlatformTarget.Simulator : XCFrameworkPlatformTarget.Device,
+                logger, platformInfo);
 
             WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory)
             {

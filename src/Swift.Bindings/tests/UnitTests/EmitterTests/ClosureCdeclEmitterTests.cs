@@ -1635,6 +1635,21 @@ public class ClosureCdeclEmitterTests
     }
 
     [Fact]
+    public void SwiftClosureAdapter_TypedPointerResultToFunctionType_ParenthesizesThePointeeMetatype()
+    {
+        // `() -> Swift.Int32.self` does not parse; the pointee type needs parentheses before `.self`.
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var pointee = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Int32"));
+        var closureType = new ClosureTypeSpec(
+            TupleTypeSpec.Empty, new NamedTypeSpec("Swift.UnsafePointer", pointee));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "provider", closureType, closureHandler, isOptional: false));
+
+        Assert.Matches(@"assumingMemoryBound\(to: \(\(\) -> Swift\.Int32\)\.self\)", swift);
+    }
+
+    [Fact]
     public void SwiftClosureAdapter_OptionalAnyErrorNamedExistential_UsesOneWordBorrowedPayloadAndSwift6Any()
     {
         var closureHandler = new ClosureHandler(CreateTypeDatabase());

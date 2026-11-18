@@ -55,7 +55,6 @@ public static class SdkWrapperProbe
         if (!Directory.Exists(outputDirectory))
             return [];
         return SwiftWrapperCompiler.CollectSwiftFiles(outputDirectory)
-            .Concat(Directory.GetFiles(outputDirectory, "*.s"))
-            .Distinct(StringComparer.Ordinal);
+            .Concat(Directory.GetFiles(outputDirectory, "*.s"));
     }
 }
