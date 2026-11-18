@@ -936,6 +936,91 @@ public class CrossModuleExtensionEmitterTests
         Assert.Contains(report.SkippedItems, r => r.Details!.Contains("initializers", System.StringComparison.Ordinal));
     }
 
+    [Fact]
+    public void EmitStruct_DuplicateAbiEntryOfABoundMember_NotReported()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Contains("DoMath", csOutput.ToString());
+        Assert.Empty(report.SkippedItems);
+    }
+
+    [Fact]
+    public void EmitStruct_SubscriptTheModuleAdds_Reported()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl>(),
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s10TestModule9OrigPointVys5Int32VSicig",
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+        });
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Contains("DoMath", csOutput.ToString());
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal(BindingItemKind.Subscript, row.Kind);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+    }
+
+    [Fact]
+    public void EmitStruct_NestedTypeOnATurnedAwayReceiver_ReportedAsAMemberNotASkippedType()
+    {
+        var (csWriter, swiftWriter, _, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: false, requiresMemoryManagement: false);
+        var nested = new StructDecl
+        {
+            Name = "Tag",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigPoint.Tag"),
+            MangledName = "$s10TestModule9OrigPointV3TagV",
+            MetadataAccessor = "$s10TestModule9OrigPointV3TagVMa",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+        };
+        structDecl.Types.Add(nested);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+            // The skipped-type set feeds signature validation; a member elsewhere naming Tag must not be
+            // turned away because its declaring extension was.
+            var report = ReportCollector.Complete()!;
+            Assert.Equal(0, report.SkippedTypes);
+            var row = Assert.Single(report.SkippedItems);
+            Assert.Equal(BindingItemKind.Type, row.Kind);
+            Assert.Equal("Tag", row.Name);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
     {
         ReportCollector.Reset();

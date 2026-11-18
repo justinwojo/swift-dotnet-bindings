@@ -51,8 +51,6 @@ public static partial class CrossModuleExtensionEmitter
             default:
                 logger.LogDebug("Cross-module extension on {Kind} '{Name}' not supported.",
                     typeDecl.GetType().Name, typeDecl.Name);
-                RecordUnboundReceiverMembers(typeDecl, moduleDecl,
-                    "only class and struct receivers are routed to the cross-module extension path.");
                 break;
         }
     }
@@ -133,6 +131,8 @@ public static partial class CrossModuleExtensionEmitter
         // emitted in the current module's binding assembly under a partial-class wrapper of the
         // foreign type so consumers can reference them as `CurrentModule.ForeignType.Nested`.
         // Member-only extensions (no nested types) still take the methods/properties-only path below.
+        RecordUnboundSubscripts(classDecl, moduleDecl);
+
         var nestedTypes = classDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
             .ToList();
@@ -167,6 +167,8 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.Indent++;
 
             var emittedSignatures = new HashSet<string>();
+            var declined = new List<BaseDecl>();
+            var bound = new HashSet<string>(StringComparer.Ordinal);
             // Trampoline P/Invokes accumulate here so the NativeMethods block can emit
             // their Cdecl declarations alongside the existing Swift-conv P/Invokes.
             var trampolinePinvokes = new List<ClassTrampolinePInvokeInfo>();
@@ -191,9 +193,14 @@ public static partial class CrossModuleExtensionEmitter
                 }
 
                 if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                {
                     emittedCount++;
+                    bound.Add(BindKey(property));
+                }
                 else
-                    RecordUnboundCrossModuleMember(property, classDecl, moduleDecl, ShapeNotBound);
+                {
+                    declined.Add(property);
+                }
             }
 
             // Emit methods. The trampoline paths are tried first and the simple
@@ -229,6 +236,7 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     methodsRoutedToTrampoline.Add(method);
                     emittedCount++;
+                    bound.Add(BindKey(method));
                     continue;
                 }
 
@@ -238,14 +246,21 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     methodsRoutedToTrampoline.Add(method);
                     emittedCount++;
+                    bound.Add(BindKey(method));
                     continue;
                 }
 
                 if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                {
                     emittedCount++;
+                    bound.Add(BindKey(method));
+                }
                 else
-                    RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ShapeNotBound);
+                {
+                    declined.Add(method);
+                }
             }
+            RecordDeclinedUnlessBound(declined, bound, classDecl, moduleDecl);
 
             // Emit NativeMethods if we emitted anything
             if (emittedCount > 0)
@@ -363,9 +378,10 @@ public static partial class CrossModuleExtensionEmitter
         "initializers an extension adds to a foreign type are not bound.";
 
     private const string ShapeNotBound =
-        "the cross-module extension path cannot bind this member's shape (static, generic, mutating and "
-        + "some async or throwing members, members whose types it does not marshal, and a member whose C# "
-        + "signature collides with another are not bound).";
+        "the cross-module extension path cannot bind this member's signature.";
+
+    private const string SubscriptNotBound =
+        "subscripts an extension adds to a foreign type are not bound.";
 
     /// <summary>
     /// Reports every member and nested type the current module adds to a foreign receiver this path
@@ -384,13 +400,48 @@ public static partial class CrossModuleExtensionEmitter
             if (property.ModuleDecl?.Name == currentModule)
                 RecordUnboundCrossModuleMember(property, receiver, moduleDecl, why);
         }
+        RecordUnboundSubscripts(receiver, moduleDecl, why);
+        // A member-level row, not RecordTypeSkipped: the skipped-type set feeds signature validation,
+        // and a nested type withheld here must not turn away members elsewhere that name it.
         foreach (var nested in receiver.Types)
         {
             if (nested.ModuleDecl?.Name == currentModule)
-                ReportCollector.RecordTypeSkipped(nested, SkipReason.UnsupportedSignature,
+                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, nested.Name, receiver,
+                    SkipReason.UnsupportedSignature,
                     $"Extension on foreign type '{receiver.SwiftTypeName.ModuleQualifiedName}': {why}");
         }
     }
+
+    /// <summary>Reports the subscripts the current module adds to a foreign receiver; this path binds none.</summary>
+    private static void RecordUnboundSubscripts(TypeDecl receiver, ModuleDecl moduleDecl, string why = SubscriptNotBound)
+    {
+        foreach (var subscript in receiver.Subscripts)
+        {
+            if (subscript.ModuleDecl?.Name == moduleDecl.Name)
+                RecordUnboundCrossModuleMember(subscript, receiver, moduleDecl, why);
+        }
+    }
+
+    /// <summary>
+    /// Reports the members a receiver's TryEmit* gates declined, except one whose declaration was bound
+    /// under another entry (a duplicate ABI entry for the same symbol fails only the signature dedup).
+    /// </summary>
+    private static void RecordDeclinedUnlessBound(
+        List<BaseDecl> declined, HashSet<string> bound, TypeDecl receiver, ModuleDecl moduleDecl)
+    {
+        foreach (var member in declined)
+        {
+            if (!bound.Contains(BindKey(member)))
+                RecordUnboundCrossModuleMember(member, receiver, moduleDecl, ShapeNotBound);
+        }
+    }
+
+    private static string BindKey(BaseDecl member) => member switch
+    {
+        MethodDecl method => "m:" + (method.MangledName ?? method.Name),
+        PropertyDecl property => (property.IsStatic ? "sp:" : "p:") + property.Name,
+        _ => member.Name,
+    };
 
     /// <summary>
     /// Reports one member the current module adds to a foreign receiver that this path does not bind.
@@ -413,6 +464,9 @@ public static partial class CrossModuleExtensionEmitter
                 break;
             case PropertyDecl { IsModuleInternal: false, IsSpiProtected: false } property:
                 ReportCollector.RecordMemberSkipped(property, SkipReason.UnsupportedSignature, details);
+                break;
+            case SubscriptDecl { IsModuleInternal: false, IsSpiProtected: false } subscript:
+                ReportCollector.RecordMemberSkipped(subscript, SkipReason.UnsupportedSignature, details);
                 break;
         }
     }

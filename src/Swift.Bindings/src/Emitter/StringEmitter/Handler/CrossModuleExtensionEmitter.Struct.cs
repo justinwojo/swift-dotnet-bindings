@@ -122,6 +122,8 @@ public static partial class CrossModuleExtensionEmitter
         // The wrapper is `class` rather than `struct` even when the receiver is a struct — it's a
         // namespace-like host with no fields, and the consumer references the nested types through
         // it without expecting value-type semantics on the wrapper itself.
+        RecordUnboundSubscripts(structDecl, moduleDecl);
+
         var nestedTypes = structDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
             .ToList();
@@ -156,6 +158,8 @@ public static partial class CrossModuleExtensionEmitter
 
             var emittedSignatures = new HashSet<string>();
             var pinvokeDecls = new List<StructPInvokeInfo>();
+            var declined = new List<BaseDecl>();
+            var bound = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var property in properties)
             {
@@ -169,10 +173,11 @@ public static partial class CrossModuleExtensionEmitter
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
                     emittedCount++;
+                    bound.Add(BindKey(property));
                 }
                 else
                 {
-                    RecordUnboundCrossModuleMember(property, structDecl, moduleDecl, ShapeNotBound);
+                    declined.Add(property);
                 }
             }
 
@@ -192,12 +197,14 @@ public static partial class CrossModuleExtensionEmitter
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
                     emittedCount++;
+                    bound.Add(BindKey(method));
                 }
                 else
                 {
-                    RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ShapeNotBound);
+                    declined.Add(method);
                 }
             }
+            RecordDeclinedUnlessBound(declined, bound, structDecl, moduleDecl);
 
             if (emittedCount > 0)
             {
