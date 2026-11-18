@@ -99,7 +99,8 @@ namespace BindingsGeneration
                     // in-memory registry is consumed by the wire-format extension and Swift
                     // cascade helper that follow. See ErrorEnumRegistryEmitter.
                     ErrorEnumRegistryEmitter.Precompute(moduleDecl, emissionContext);
-                    var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext);
+                    var initialContext = new TypeHandlerContext(null, new(), null, MarkerProtocolConformances: _markerProtocolConformances, EmissionContext: emissionContext,
+                        DeferredNamespaceScopeEmissions: new());
                     moduleHandler.Emit(csWriter, swiftWriter, env, _conductor, initialContext);
                     collectedViews = SwiftUIBridgeCollector.GetCollectedViews(emissionContext);
                 }

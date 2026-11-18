@@ -182,7 +182,20 @@ public class TypeSpecParser
                 if (segmentToken.Kind != TypeTokenKind.TypeName)
                     throw new TypeSpecParseException($"In parsing an inner type (type.type), expected a name but got {segmentToken.Value}.");
                 tokenizer.Next();
-                var segment = new NamedTypeSpec(SwiftModuleAliases.NormalizeTypeName(segmentToken.Value));
+                // The tokenizer reads a dotted run (`Op.Options`) as one name. Behind a generic base
+                // every component is a member type, never a module, so each gets its own link:
+                // a combined segment reads as `Module.Name` to every renderer that strips a module
+                // prefix, and `Box<T>.Op.Options` would render as `Box<T>.Options`.
+                var components = segmentToken.Value.Split('.');
+                for (var i = 0; i < components.Length - 1; i++)
+                {
+                    var link = new NamedTypeSpec(components[i]);
+                    currType.InnerType = link;
+                    currType = link;
+                }
+                var segment = new NamedTypeSpec(components.Length > 1
+                    ? components[^1]
+                    : SwiftModuleAliases.NormalizeTypeName(segmentToken.Value));
                 if (tokenizer.Peek().Kind == TypeTokenKind.LeftAngle)
                 {
                     tokenizer.Next();

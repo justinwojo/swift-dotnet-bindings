@@ -294,6 +294,65 @@ public class RuntimeAvailabilityGuardTests : TestBase
         AssertGuardThrows(() => method.Invoke(null, null), "FutureGatedBuffer<int>.futureStatic");
     }
 
+    /// <summary>
+    /// The concrete specialization of a <c>some P</c> initializer overloaded with a composition
+    /// spelling (<c>init(wrapping: some FloorWrappable)</c> beside
+    /// <c>init(wrapping: some (Error &amp; FloorFaultMarker))</c>) must keep its extension's iOS 99
+    /// floor: the attribute, and a guard that fires before Swift runs. Without the floor the
+    /// wrapper does not compile and the member is withdrawn.
+    /// </summary>
+    public void TestOpaqueOverloadSpecialization_KeepsItsFutureFloor()
+    {
+        var method = FindSpecialization(typeof(FlooredHost), typeof(FlooredHost));
+        AssertFloor(method, "ios99.0");
+        using var argument = new FlooredHost();
+        AssertGuardThrows(() => method.Invoke(null, new object[] { argument }), "FlooredHost.init(wrapping:)");
+    }
+
+    /// <summary>
+    /// The same overload pair at a floor this OS satisfies and the deployment target does not:
+    /// the specialization carries the floor, runs, and reaches the single-constraint overload
+    /// (source 11), not its composition sibling (12).
+    /// </summary>
+    public void TestOpaqueOverloadSpecialization_ReachesItsOverloadAtASatisfiedFloor()
+    {
+        var method = FindSpecialization(typeof(FlooredAdopter), typeof(FlooredHost));
+        AssertFloor(method, "ios17.0");
+        using var argument = new FlooredHost();
+        object result;
+        try
+        {
+            result = method.Invoke(null, new object[] { argument })!;
+        }
+        catch (TargetInvocationException tie)
+        {
+            throw new AssertionException(
+                $"FlooredAdopter.init(adopting:) is floored at iOS 17 / macOS 14; it threw {tie.InnerException?.GetType().Name}: {tie.InnerException?.Message}");
+        }
+        using var adopter = (FlooredAdopter)result;
+        AssertEqual(11, adopter.Source, "the specialization calls init(adopting: some FloorWrappable)");
+    }
+
+    private static MethodInfo FindSpecialization(
+        [DynamicallyAccessedMembers(DynamicallyAccessedMemberTypes.PublicMethods)]
+        Type host,
+        Type argument)
+    {
+        return host.GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .First(m => m.ReturnType == host
+                        && m.GetParameters() is { Length: 1 } parameters
+                        && parameters[0].ParameterType == argument);
+    }
+
+    private void AssertFloor(MethodInfo method, string iosFloor)
+    {
+        var platforms = method.GetCustomAttributes<SupportedOSPlatformAttribute>(inherit: false)
+            .Select(a => a.PlatformName).ToArray();
+        TestLogger.Info($"{method.DeclaringType?.Name}.{method.Name} SupportedOSPlatform: [{string.Join(", ", platforms)}]");
+        AssertTrue(platforms.Any(p => string.Equals(p, iosFloor, StringComparison.OrdinalIgnoreCase)),
+            $"{method.DeclaringType?.Name}.{method.Name} must carry SupportedOSPlatform(\"{iosFloor}\"), its extension's floor.");
+    }
+
     private void AssertGuardThrows(Func<object?> invoke, string memberLabel, bool transitionMayRefuse = false)
     {
         try

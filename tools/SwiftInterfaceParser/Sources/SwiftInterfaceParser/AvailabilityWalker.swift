@@ -859,6 +859,12 @@ final class AvailabilityWalker: SyntaxVisitor {
                 if s.hasPrefix(prefix + " ") {
                     s = String(s.dropFirst(prefix.count + 1))
                         .trimmingCharacters(in: .whitespaces)
+                    // An opaque parameter is a different type from the existential of the
+                    // same constraint, so `some` stays in the key; the parentheses of
+                    // `some (P)` or `some (P & Q)` add nothing to it. Mirrors the .NET side.
+                    if prefix == "some" {
+                        return "some " + normalizeParamType(peelEnclosingParentheses(s))
+                    }
                     stripped = true
                     break
                 }
@@ -870,10 +876,40 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         // Strip trailing `?` / `!` BEFORE peeling off generics so `Array<Int>?`
         // recurses into `Array<Int>` correctly.
+        var optionalDepth = 0
         while let last = s.last, last == "?" || last == "!" {
             s = String(s.dropLast())
+            optionalDepth += 1
         }
         s = s.trimmingCharacters(in: .whitespaces)
+
+        // `(some P)?` and `(any P & Q)?` parenthesize an opaque type or a composition only to
+        // apply `?`. Their keys keep each level of optionality, so `f(_: (some P)?)` and
+        // `f(_: some P)`, or `f(_: (any P & Q)?)` and `f(_: any P & Q)`, stay apart. Mirrors
+        // the .NET side.
+        let chars = Array(s)
+        if chars.count >= 2, chars.first == "(", chars.last == ")", enclosesWhole(chars) {
+            let inner = peelEnclosingParentheses(s)
+            if inner.hasPrefix("some ") || splitTopLevelComposition(inner) != nil {
+                return normalizeParamType(inner) + String(repeating: "?", count: optionalDepth)
+            }
+        }
+
+        // A protocol composition has no canonical order (the interface prints the source
+        // order, the ABI descriptor sorts an opaque parameter's requirements), so each member
+        // is normalized and the members are sorted and joined with `&`. Mirrors the .NET side.
+        // Sorted by UTF-16 code units, the order .NET's StringComparer.Ordinal uses (Swift's
+        // own String order compares Unicode scalars, which differs above the BMP).
+        // A member that repeats is kept once, as the ABI keeps it.
+        if let members = splitTopLevelComposition(s) {
+            var unique: [String] = []
+            for member in members.map({ normalizeParamType($0) }) where !unique.contains(member) {
+                unique.append(member)
+            }
+            return unique
+                .sorted { $0.utf16.lexicographicallyPrecedes($1.utf16) }
+                .joined(separator: "&")
+        }
 
         // Canonicalize collection sugar (`[T]` → `Array<T>`, `[K: V]` →
         // `Dictionary<K,V>`). Mirrors the .NET-side step so both parsers
@@ -909,6 +945,64 @@ final class AvailabilityWalker: SyntaxVisitor {
         // Recursively normalize each comma-split argument, then reassemble.
         let parts = splitTopLevelCommas(argsInner).map { normalizeParamType($0) }
         return outer + "<" + parts.joined(separator: ",") + ">"
+    }
+
+    /// Splits a protocol composition into its members at top-level `&`, after peeling one
+    /// pair of parentheses that encloses the whole text. Returns nil when the text has no
+    /// top-level `&`. Mirrors `MemberSignatureNormalizer.TrySplitTopLevelComposition`.
+    private static func splitTopLevelComposition(_ text: String) -> [String]? {
+        let body = Array(peelEnclosingParentheses(text))
+        var members: [String]? = nil
+        var depth = 0
+        var start = 0
+        for (i, c) in body.enumerated() {
+            if c == "(" || c == "[" || c == "<" {
+                depth += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                depth -= 1
+            } else if c == "&" && depth == 0 {
+                if members == nil { members = [] }
+                members!.append(String(body[start..<i]).trimmingCharacters(in: .whitespaces))
+                start = i + 1
+            }
+        }
+        guard var result = members else { return nil }
+        result.append(String(body[start...]).trimmingCharacters(in: .whitespaces))
+
+        // A grouped member (`B & (A & C)`) is flattened into the list, the way the ABI lists
+        // a composition's requirements, so the sort sees every member. Mirrors the .NET side.
+        var flat: [String] = []
+        for member in result {
+            if let nested = splitTopLevelComposition(member), peelEnclosingParentheses(member) != member {
+                flat.append(contentsOf: nested)
+            } else {
+                flat.append(member)
+            }
+        }
+        return flat
+    }
+
+    /// `((X))` → `X`: every parenthesis pair that encloses the whole text is removed.
+    /// Mirrors `MemberSignatureNormalizer.PeelEnclosingParentheses`.
+    private static func peelEnclosingParentheses(_ text: String) -> String {
+        var t = Array(text.trimmingCharacters(in: .whitespaces))
+        while t.count >= 2, t.first == "(", t.last == ")", enclosesWhole(t) {
+            t = Array(String(t[1..<(t.count - 1)]).trimmingCharacters(in: .whitespaces))
+        }
+        return String(t)
+    }
+
+    private static func enclosesWhole(_ t: [Character]) -> Bool {
+        var d = 0
+        for (i, c) in t.enumerated() {
+            if c == "(" || c == "[" || c == "<" {
+                d += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                d -= 1
+                if d == 0 && i != t.count - 1 { return false }
+            }
+        }
+        return true
     }
 
     /// Folds Swift collection sugar to the equivalent nominal generic form.

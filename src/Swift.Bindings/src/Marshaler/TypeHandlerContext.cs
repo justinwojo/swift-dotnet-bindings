@@ -19,6 +19,11 @@ namespace BindingsGeneration
     /// classes inline (they'd still be inside the outer generic type → CS7042).
     /// </para>
     /// <para>
+    /// <see cref="DeferredNamespaceScopeEmissions"/> is shared the same way: a nested type queues the
+    /// static extension classes it must place at namespace scope and the outermost type runs them
+    /// after its body (see <see cref="NamespaceScopeEmission"/>). Null means "emit in place".
+    /// </para>
+    /// <para>
     /// <see cref="EmissionContext"/> is a per-module instance that replaces static mutable state
     /// in infrastructure emitters (Utf8Slice, Cancellation, ErrorDescription, etc.) with
     /// typed dedup APIs. Threaded from Program.cs → EmitModule → TypeHandlerContext → handlers.
@@ -43,7 +48,8 @@ namespace BindingsGeneration
         SortedDictionary<string, List<string>>? CompositionCollector = null,
         Dictionary<string, List<string>>? MarkerProtocolConformances = null,
         ModuleEmissionContext? EmissionContext = null,
-        Dictionary<string, string>? EnumPropertyRenames = null)
+        Dictionary<string, string>? EnumPropertyRenames = null,
+        List<System.Action<CSharpWriter>>? DeferredNamespaceScopeEmissions = null)
     {
         /// <summary>
         /// The context used when the caller threaded none. Scoped to this context and every

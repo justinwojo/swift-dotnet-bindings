@@ -541,6 +541,7 @@ namespace BindingsGeneration
         {
             if (node.Children == null) return string.Empty;
             var sourceNames = MapGenericParametersToSourceNames(node.GenericSig, node.sugared_genericSig);
+            sourceNames = AddOpaqueParameterSpellings(node.GenericSig, sourceNames);
             var raw = new List<string>();
             int i = 0;
             foreach (var child in node.Children)
@@ -581,29 +582,101 @@ namespace BindingsGeneration
 
             var depthIndexNames = GenericParameterNames(genericSig);
             var sourceNames = GenericParameterNames(sugaredGenericSig);
-            if (depthIndexNames.Count == 0 || depthIndexNames.Count != sourceNames.Count)
+            // The sugared signature leaves out opaque (`some P`) parameters, which follow every
+            // named parameter, so it may be shorter; the names it has pair with the leading
+            // depth-and-index names. AddOpaqueParameterSpellings spells the rest.
+            if (depthIndexNames.Count == 0 || sourceNames.Count == 0 || sourceNames.Count > depthIndexNames.Count)
+                return null;
+            // Opaque parameters belong to the declaration's own (innermost) depth. A shortfall
+            // anywhere else means the two lists do not line up, and nothing is translated.
+            var innermostDepth = depthIndexNames.Max(DepthOf);
+            if (depthIndexNames.Skip(sourceNames.Count).Any(n => DepthOf(n) != innermostDepth))
                 return null;
 
             var map = new Dictionary<string, string>(StringComparer.Ordinal);
-            for (int k = 0; k < depthIndexNames.Count; k++)
+            for (int k = 0; k < sourceNames.Count; k++)
                 map[depthIndexNames[k]] = sourceNames[k];
             return map;
+        }
 
-            // `<A, B : P where ...>` → [A, B]: the parameter list ends at `where`, and an inline
-            // constraint (`B : P`) follows the name.
-            static List<string> GenericParameterNames(string signature)
+        /// <summary>
+        /// Spells each opaque parameter of <paramref name="genericSig"/> the way the interface
+        /// producer keys it. <c>func f(_ x: some P &amp; Q)</c> has an anonymous generic parameter the
+        /// ABI descriptor prints as <c>τ_0_0</c> and keeps out of the sugared signature, while the
+        /// interface text names it by its constraint; two overloads that differ only in that
+        /// constraint (<c>init(wrapping: some P)</c>, <c>init(wrapping: some (Error &amp; Q))</c>) then
+        /// share a printedName and both lose their disambiguated availability. The constraint is
+        /// recoverable from the generic signature's conformance, superclass and layout
+        /// requirements on the parameter, joined as a composition. A parameter that a same-type
+        /// requirement or an associated-type requirement constrains (<c>some Collection&lt;Int&gt;</c>)
+        /// cannot be spelled back from the requirements and is left as printed.
+        /// </summary>
+        private static Dictionary<string, string>? AddOpaqueParameterSpellings(string? genericSig, Dictionary<string, string>? named)
+        {
+            if (string.IsNullOrEmpty(genericSig) || !genericSig.Contains("τ_", StringComparison.Ordinal))
+                return named;
+
+            var body = genericSig.Trim();
+            if (body.StartsWith('<') && body.EndsWith('>'))
+                body = body[1..^1];
+            var whereIndex = body.IndexOf(" where ", StringComparison.Ordinal);
+            var requirements = whereIndex >= 0
+                ? SwiftTypeListText.SplitTopLevelCommas(body[(whereIndex + " where ".Length)..]).Select(r => r.Trim()).ToList()
+                : new List<string>();
+
+            Dictionary<string, string>? map = named;
+            foreach (var parameter in GenericParameterNames(genericSig))
             {
-                var body = signature.Trim();
-                if (body.StartsWith('<') && body.EndsWith('>'))
-                    body = body[1..^1];
-                var whereIndex = body.IndexOf(" where ", StringComparison.Ordinal);
-                if (whereIndex >= 0)
-                    body = body[..whereIndex];
-                return SwiftTypeListText.SplitTopLevelCommas(body)
-                    .Select(p => p.Split(':')[0].Trim())
-                    .Where(p => p.Length > 0)
-                    .ToList();
+                if (!parameter.StartsWith("τ_", StringComparison.Ordinal) || (map?.ContainsKey(parameter) ?? false))
+                    continue;
+
+                var constraints = new List<string>();
+                var spellable = true;
+                foreach (var requirement in requirements)
+                {
+                    if (!DepthIndexGenericParameterName.Matches(requirement).Any(m => m.Value == parameter))
+                        continue;
+                    var colon = requirement.IndexOf(" : ", StringComparison.Ordinal);
+                    if (colon < 0 || requirement[..colon].Trim() != parameter)
+                    {
+                        spellable = false;
+                        break;
+                    }
+                    constraints.Add(requirement[(colon + 3)..].Trim());
+                }
+                if (!spellable || constraints.Count == 0)
+                    continue;
+
+                // Spelled `(some P & Q)` so a `?` the printed type applies to the parameter
+                // reads as the interface's `(some P & Q)?`; `some` keeps it apart from the
+                // existential of the same constraint.
+                map ??= new Dictionary<string, string>(StringComparer.Ordinal);
+                map[parameter] = $"(some {string.Join(" & ", constraints)})";
             }
+            return map;
+        }
+
+        // `τ_1_0` → 1; a name that is not depth-and-index spelled sorts below every depth.
+        private static int DepthOf(string name)
+        {
+            var parts = name.Split('_');
+            return parts.Length == 3 && int.TryParse(parts[1], out var depth) ? depth : -1;
+        }
+
+        // `<A, B : P where ...>` → [A, B]: the parameter list ends at `where`, and an inline
+        // constraint (`B : P`) follows the name.
+        private static List<string> GenericParameterNames(string signature)
+        {
+            var body = signature.Trim();
+            if (body.StartsWith('<') && body.EndsWith('>'))
+                body = body[1..^1];
+            var whereIndex = body.IndexOf(" where ", StringComparison.Ordinal);
+            if (whereIndex >= 0)
+                body = body[..whereIndex];
+            return SwiftTypeListText.SplitTopLevelCommas(body)
+                .Select(p => p.Split(':')[0].Trim())
+                .Where(p => p.Length > 0)
+                .ToList();
         }
 
         /// <summary>

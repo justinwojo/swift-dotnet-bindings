@@ -1130,7 +1130,7 @@ internal static class AppleFrameworkRegistry
                _unsupportedModules.Contains(moduleName);
     }
 
-    private static bool IsSwiftSystemModule(string moduleName) =>
+    internal static bool IsSwiftSystemModule(string moduleName) =>
         moduleName is "Swift" or "_Concurrency" or "_StringProcessing" or
                       "__ObjC" or "Dispatch" or "CoreFoundation" or "ObjectiveC" or "Security";
 }
