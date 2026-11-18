@@ -241,6 +241,28 @@ public class ArraySliceNormalizationEmitterTests
         SyntheticRegistration.AssertBoundWithFacts(ctx, csOutput, SwiftWrapperSynthesizer.ArraySliceNormalization);
     }
 
+    /// <summary>
+    /// The normalization wrapper calls the original member synchronously; a main-actor member's
+    /// wrapper must be main-actor too, or swiftc refuses the call from a nonisolated context.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, false)]
+    [InlineData(true, true, false)]
+    public void TryEmit_MainActorMember_IsolatesItsWrapper(bool memberIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var (method, typeDatabase, _) = CreateMethodWithArraySlice("encrypt");
+        method.IsMainActorIsolated = memberIsMainActor;
+        method.IsNonisolated = memberIsNonisolated;
+
+        var (_, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        var lines = swiftOutput.Split('\n').Select(l => l.Trim()).ToArray();
+        var declaration = Array.FindIndex(lines, l => l.StartsWith("@_silgen_name(", StringComparison.Ordinal));
+        Assert.True(declaration > 0, swiftOutput);
+        Assert.Equal(expectMainActor, lines[declaration - 1] == "@MainActor");
+    }
+
     [Fact]
     public void TryEmit_ThrowingMethod_EmitsThrowsAndTry()
     {

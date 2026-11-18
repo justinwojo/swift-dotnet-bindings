@@ -427,6 +427,52 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void EmitSwiftImports_ImportsImplementationDetailThroughItsPublicModule()
+    {
+        // Swift 6.4 SDK modules that are implementation details of an umbrella declare
+        // `-public-module-name <Umbrella>`; swiftc refuses `import Detail` when Detail is loaded
+        // from the SDK. An umbrella that `@_exported`-imports such modules re-exports them, so the
+        // wrapper must name the umbrella once and never the detail modules.
+        var sdk = Path.Combine(Path.GetTempPath(), "sb-fake-sdk-" + Guid.NewGuid().ToString("N"));
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            SdkPublicModuleNamesTests.WriteSdkModule(sdk, "SubFrameworks", "RenderDetail", "Umbrella");
+            SdkPublicModuleNamesTests.WriteSdkModule(sdk, "Frameworks", "TypeSupport", "Sibling");
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "@_exported public import RenderDetail\n" +
+                "import TypeSupport\n" +
+                "public struct Marker {}\n");
+
+            string swiftOutput;
+            using (SdkPublicModuleNames.Install(new SdkPublicModuleNames(sdk)))
+            {
+                (_, swiftOutput) = EmitModuleWithDependencies("Umbrella", new List<string>(),
+                    moduleDecl =>
+                    {
+                        moduleDecl.DependencyModuleNames = new List<string> { "RenderDetail", "TypeSupport" };
+                        moduleDecl.SwiftInterfacePath = interfaceFile;
+                    });
+            }
+
+            var imports = swiftOutput.Split('\n').Where(l => l.StartsWith("import ", StringComparison.Ordinal)).ToList();
+            Assert.Contains("import Umbrella", imports);
+            Assert.Contains("import Sibling", imports);
+            Assert.DoesNotContain("import RenderDetail", imports);
+            Assert.DoesNotContain("import TypeSupport", imports);
+            Assert.Single(imports, l => l == "import Umbrella");
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+            if (Directory.Exists(sdk))
+                Directory.Delete(sdk, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EmitSwiftImports_FiltersUnreferencedDependency()
     {
         // Regression: the validation pipeline auto-broadcasts every sibling xcframework

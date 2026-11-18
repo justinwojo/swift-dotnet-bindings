@@ -645,7 +645,7 @@ public sealed class ModuleEmissionContext
 
     // ==================== Foreign Type Extension ====================
 
-    private readonly List<string> _foreignExtWrapperLines = new();
+    private readonly List<(string Line, DeclId? Owner)> _foreignExtWrapperLines = new();
     private readonly HashSet<string> _foreignExtEmittedSymbols = new();
     private readonly Dictionary<string, ForeignExtensionClassInfo> _foreignExtClasses = new();
     private readonly HashSet<string> _foreignExtNeededImports = new();
@@ -655,7 +655,20 @@ public sealed class ModuleEmissionContext
     public int ForeignExtEmittedCount { get; set; }
 
     /// <summary>Accumulated Swift wrapper source lines for foreign type extensions.</summary>
-    public IReadOnlyList<string> ForeignExtSwiftWrapperLines => _foreignExtWrapperLines;
+    public IReadOnlyList<string> ForeignExtSwiftWrapperLines => _foreignExtWrapperLines.ConvertAll(e => e.Line);
+
+    /// <summary>
+    /// The accumulated wrapper lines with the member each was written for (null for lines no member
+    /// owns), so emission can write each member's wrapper as that member's fragment and leave out a
+    /// member recovery has withdrawn.
+    /// </summary>
+    public IReadOnlyList<(string Line, DeclId? Owner)> ForeignExtSwiftWrapperEntries => _foreignExtWrapperLines;
+
+    /// <summary>
+    /// The foreign-extension member the pre-pass is processing; every wrapper line and C# member it
+    /// adds meanwhile is owned by it. Null outside a member.
+    /// </summary>
+    public DeclId? CurrentForeignExtOwner { get; set; }
 
     /// <summary>Foreign modules that need to be imported in the Swift wrapper file.</summary>
     public IReadOnlyCollection<string> ForeignExtNeededImports => _foreignExtNeededImports;
@@ -671,10 +684,14 @@ public sealed class ModuleEmissionContext
         RegisterWrapperSymbolInternal(_foreignExtEmittedSymbols, symbol, owner);
 
     /// <summary>Adds a single Swift wrapper line for foreign type extensions.</summary>
-    public void AddForeignExtWrapperLine(string line) => _foreignExtWrapperLines.Add(line);
+    public void AddForeignExtWrapperLine(string line) => _foreignExtWrapperLines.Add((line, CurrentForeignExtOwner));
 
     /// <summary>Adds multiple Swift wrapper lines for foreign type extensions.</summary>
-    public void AddForeignExtWrapperLines(IEnumerable<string> lines) => _foreignExtWrapperLines.AddRange(lines);
+    public void AddForeignExtWrapperLines(IEnumerable<string> lines)
+    {
+        foreach (var line in lines)
+            AddForeignExtWrapperLine(line);
+    }
 
     /// <summary>Adds a foreign module import for the Swift wrapper file.</summary>
     public void AddForeignExtNeededImport(string import) => _foreignExtNeededImports.Add(import);
@@ -3069,6 +3086,9 @@ public class ForeignExtensionMemberInfo
     public required ExtensionMarshallingHelper.ReturnKind ReturnCategory { get; init; }
     public bool IsPropertyGetter { get; init; }
     public bool IsPropertySetter { get; init; }
+
+    /// <summary>The member this C# surface was written for (see <see cref="DeclIdFactory.ForForeignExtensionMember"/>).</summary>
+    public DeclId? Owner { get; init; }
 }
 
 /// <summary>

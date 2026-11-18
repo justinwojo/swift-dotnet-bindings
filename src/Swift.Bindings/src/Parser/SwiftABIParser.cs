@@ -1421,6 +1421,13 @@ namespace BindingsGeneration
                 !string.IsNullOrEmpty(moduleDecl.Name) &&
                 node.ModuleName != moduleDecl.Name)
             {
+                // Record what the foreign type is before any gate below drops the node: an extension
+                // the interface declares on it is bound by kind (a class receiver is passed by
+                // reference, a value receiver is not), and the module the type lives in says nothing
+                // about that (Foundation holds Swift enums and structs as well as ObjC classes).
+                RecordForeignTypeDeclKinds(
+                    node, GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName, moduleDecl);
+
                 // Runtime-provided Swift stdlib generics (Optional / Array / Dictionary / Set /
                 // Result / ClosedRange) are supplied by Swift.Runtime as Swift.SwiftOptional<T>,
                 // Swift.SwiftArray<T>, etc. A third-party module that merely extends or re-exports
@@ -4796,6 +4803,23 @@ namespace BindingsGeneration
         /// carries a <c>$s...</c> mangled name, so it never reaches the missing-mangled-name gate
         /// this helper guards.
         /// </summary>
+        /// <summary>
+        /// Records the declared kind of the foreign type <paramref name="node"/> and of every type nested
+        /// in it, keyed by module-qualified name. The nested ones are walked here because the gates that
+        /// follow can drop the parent (an ObjC-rooted Foundation class, say) without visiting its
+        /// children, and an extension on a nested value type is bound by its kind as well.
+        /// </summary>
+        private static void RecordForeignTypeDeclKinds(Node node, string qualifiedName, ModuleDecl moduleDecl)
+        {
+            if (!string.IsNullOrEmpty(node.DeclKind))
+                moduleDecl.ForeignTypeDeclKinds.TryAdd(qualifiedName, node.DeclKind);
+            foreach (var child in node.Children ?? Array.Empty<Node>())
+            {
+                if (child.Kind == "TypeDecl" && !string.IsNullOrEmpty(child.Name))
+                    RecordForeignTypeDeclKinds(child, $"{qualifiedName}.{child.Name}", moduleDecl);
+            }
+        }
+
         private static bool IsObjCRootedIdentity(Node node)
         {
             if (node.DeclAttributes is not null && Array.IndexOf(node.DeclAttributes, "ObjC") != -1)

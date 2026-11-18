@@ -805,7 +805,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -849,7 +849,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1039,6 +1039,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -1050,7 +1051,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1094,7 +1095,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1284,6 +1285,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -1295,7 +1297,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1339,7 +1341,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1529,6 +1531,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -1540,7 +1543,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1584,7 +1587,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1774,6 +1777,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -1785,7 +1789,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -1829,7 +1833,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2019,6 +2023,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -2030,7 +2035,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2074,7 +2079,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2264,6 +2269,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -2275,7 +2281,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2319,7 +2325,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2509,6 +2515,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -2520,7 +2527,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2564,7 +2571,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2754,6 +2761,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -2777,7 +2785,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -2821,7 +2829,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3011,6 +3019,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -3022,7 +3031,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3066,7 +3075,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3256,6 +3265,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -3267,7 +3277,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3311,7 +3321,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3501,6 +3511,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -3512,7 +3523,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3556,7 +3567,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3746,6 +3757,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -3757,7 +3769,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -3801,7 +3813,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3991,6 +4003,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -4002,7 +4015,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4046,7 +4059,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4236,6 +4249,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -4247,7 +4261,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4291,7 +4305,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4481,6 +4495,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -4492,7 +4507,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4536,7 +4551,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4726,6 +4741,7 @@
             "$s20SwiftBindingsTestLib8WireNoteV13decodeMessage7decoderyxz_tAA0E7DecoderRzlF": "swiftcc void (ptr, ptr, ptr, ptr swiftself)",
             "$s20SwiftBindingsTestLib9InoutCellV8exchangeyyxzF": "swiftcc void (ptr, ptr, ptr swiftself)",
             "DBW_GlobalActorIsolatedDefaultArgClass_init_5F28131A_1_async": "swiftcc void (ptr, ptr, i64, i64, i64, ptr)",
+            "SBSW_MainActorBypassConfig_init_7A7E7FF9": "swiftcc ptr (i64, ptr)",
             "SBSW_ObjectiveC_NSObject_stamped_resultInt32": "swiftcc void (ptr noalias sret, ptr, i32)",
             "SBSW_ObjectiveC_NSObject_summarize_metadataInt32_bufferInt32_indirectResultInt32": "swiftcc void (ptr noalias sret, ptr, i32, i32, i32)",
             "SBSW_WrapperCohesionExistentialPair_describeBy_D0A036A2": "swiftcc void (ptr, ptr, i64, ptr)"
@@ -4749,7 +4765,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4793,7 +4809,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4809,7 +4825,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4853,7 +4869,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4869,7 +4885,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4913,7 +4929,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4929,7 +4945,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -4973,7 +4989,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4989,7 +5005,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5033,7 +5049,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5049,7 +5065,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5093,7 +5109,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5109,7 +5125,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5153,7 +5169,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5169,7 +5185,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5213,7 +5229,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5241,7 +5257,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5285,7 +5301,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5301,7 +5317,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5345,7 +5361,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5361,7 +5377,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5405,7 +5421,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5421,7 +5437,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5465,7 +5481,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5481,7 +5497,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5525,7 +5541,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5541,7 +5557,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5585,7 +5601,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:7ea3c114ffea5e71dcbea8d7609a414fcfb9a90e67f532e76a9d8a3a43abd9ac",
+              "digest": "sha256:9f1ec108a3a9cfd409f0b767e666c2f38a02ac9e4dc56eba2e5bc3246a8c7f5a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5601,7 +5617,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5645,7 +5661,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:94884ac859539a9658c375ba07cce7c8dfd1fb393e5db7c69c0b60d9ee8f5db2",
+              "digest": "sha256:a6a6875867ca2f6e4585d609069f380cd0923775d00c01152cd6a6837a97fe67",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5661,7 +5677,7 @@
             {
               "role": "definition",
               "name": "SwiftBindingsTestLib",
-              "digest": "sha256:25d2c5fc121099520cbb1d5df417d72592d074a2070ebf6aa5463e694c1e6955",
+              "digest": "sha256:49a5fa6eeb0c47eac9dd6d45991112d1f7583e0be94242219af9bf8b509c057a",
               "flags": [
                 "-swift-version",
                 "5",
@@ -5705,7 +5721,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:322c4d1a1c8433c7c5f4136dfc11905b910f8c6c3a68c11d1ed6f8ad88f8415f",
+              "digest": "sha256:83af2b68c11d0298ba4ad800374c7208630ff2ecd86660f644bbce9ff76453be",
               "flags": [
                 "-wmo",
                 "-parse-as-library",

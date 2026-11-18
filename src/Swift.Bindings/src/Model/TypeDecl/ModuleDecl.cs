@@ -90,5 +90,15 @@ namespace BindingsGeneration
         /// produced no protocols.
         /// </summary>
         public Dictionary<string, List<ProtocolDecl>> DependencyProtocols { get; set; } = new();
+
+        /// <summary>
+        /// The declaration kind (<c>Class</c>, <c>Struct</c>, <c>Enum</c>, <c>Protocol</c>) of every
+        /// other module's type this module's ABI dump mentions as a type declaration, keyed by its
+        /// module-qualified name (<c>Foundation.AttributeScopes</c> → <c>Enum</c>). The digester writes
+        /// such a node for each foreign type the module extends, so this is the compiler's own word on
+        /// what an extended foreign type is, independent of which module it lives in. Populated by
+        /// <c>SwiftABIParser</c> before any of its re-export gates drop the node.
+        /// </summary>
+        public Dictionary<string, string> ForeignTypeDeclKinds { get; } = new(StringComparer.Ordinal);
     }
 }

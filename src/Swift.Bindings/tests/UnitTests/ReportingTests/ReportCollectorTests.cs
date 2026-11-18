@@ -1029,6 +1029,29 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void Complete_WithdrawnMember_IsNotMarkedRecoveredBySameNamedSibling()
+    {
+        // Two overloads share a name; recovery withdrew one (EmitterFault) while the other's closed
+        // projection emitted. The recovery facts are keyed by name, so without the exclusion the
+        // withdrawn overload's row would read as recovered and drop out of the reported loss.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var append = TestModelFactory.CreateProperty("append", parent: classDecl);
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(append, SkipReason.EmitterFault, "withdrawn by recovery");
+        ReportCollector.RecordMemberRecovered(append, "Box<Song>.Append");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Null(row.RecoveredBy);
+        Assert.True(SkipAttributionLinker.IsLoss(row));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void Complete_SkippedMemberWithNoProjection_StaysPlainSkip()
     {
         // The control: an AnyType skip with NO recorded recovery keeps RecoveredBy null and stays a

@@ -156,6 +156,29 @@ public static class DeclIdFactory
     }
 
     /// <summary>
+    /// Identity for a member the bound module declares in an extension of another module's type
+    /// (<c>extension UIKit.UIView { var x: Int }</c>). There is no parsed declaration for it — the
+    /// member comes from the interface's extension text — so the extended type's qualified name is
+    /// the container and the member's printed signature separates overloads, which share a base name.
+    /// </summary>
+    public static DeclId ForForeignExtensionMember(string foreignTypeQualifiedName, ProtocolExtensionMethodDecl member)
+    {
+        ArgumentNullException.ThrowIfNull(foreignTypeQualifiedName);
+        ArgumentNullException.ThrowIfNull(member);
+        var firstDot = foreignTypeQualifiedName.IndexOf('.');
+        var (module, declPath) = firstDot < 0
+            ? (string.Empty, foreignTypeQualifiedName)
+            : (foreignTypeQualifiedName[..firstDot], foreignTypeQualifiedName[(firstDot + 1)..]);
+        return DeclId.Create(
+            module,
+            declPath,
+            member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method,
+            member.MethodName,
+            symbol: member.IsProperty ? null : member.RawSignature,
+            discriminator: StaticnessOf(member.IsStatic));
+    }
+
+    /// <summary>
     /// Dispatches to the decl-kind-appropriate factory. Returns <see langword="null"/> for a
     /// declaration shape with no id mapping, so callers can stay id-agnostic.
     /// </summary>

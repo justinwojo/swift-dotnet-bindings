@@ -452,6 +452,11 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // Every Swift file this run compiles imports modules by the names the bound interface uses;
+        // an SDK module that is an implementation detail of an umbrella must be imported through it.
+        using var publicModuleNames = SdkPublicModuleNames.Install(
+            SdkPublicModuleNames.ForPlatform(platformInfo, new SystemCommandRunner(), logger));
+
         // A library that ships only one architecture of its platform (an x86_64-only Mac Catalyst or
         // macOS slice) is packed for that architecture's RID; the platform's default RID is arm64.
         if (!string.IsNullOrWhiteSpace(rid))

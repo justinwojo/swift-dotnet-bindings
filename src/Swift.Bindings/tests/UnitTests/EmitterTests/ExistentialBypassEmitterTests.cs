@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -827,6 +828,74 @@ public class ExistentialBypassEmitterTests
         Assert.DoesNotContain("PipelineProxy(", csOutput);
         Assert.Contains("NotSupportedException", csOutput);
         Assert.Contains("SB0006", csOutput);
+    }
+
+    /// <summary>
+    /// The bypass wrapper calls the member synchronously, so a main-actor member (or a member of a
+    /// main-actor type) needs a main-actor wrapper, or swiftc refuses the call from a nonisolated
+    /// context. A <c>nonisolated</c> member opts out of its type's isolation.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, false)]
+    public void TryEmitMethodBypass_MainActorIsolation_IsCarriedOntoTheWrapper(
+        bool typeIsMainActor, bool memberIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+        parentDecl.IsMainActorIsolated = typeIsMainActor;
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var method = CreateInstanceMethodDecl(
+            "take",
+            parentDecl,
+            moduleDecl,
+            new TupleTypeSpec(new List<TypeSpec>()),
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+        method.IsMainActorIsolated = memberIsMainActor;
+        method.IsNonisolated = memberIsNonisolated;
+
+        var (emitted, _, swiftOutput) = EmitMethodBypass(method, typeDatabase);
+
+        Assert.True(emitted);
+        var lines = swiftOutput.Split('\n');
+        var declaration = System.Array.FindIndex(lines, l => l.Contains("@_silgen_name(\"SBSW_"));
+        Assert.True(declaration > 0, swiftOutput);
+        Assert.Equal(expectMainActor, lines[..declaration].Any(l => l.Trim() == "@MainActor"));
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void TryEmitConstructorBypass_MainActorType_IsolatesTheInitWrapperOnly(bool typeIsMainActor, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        parentDecl.IsMainActorIsolated = typeIsMainActor;
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (_, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        var lines = swiftOutput.Split('\n');
+        var init = System.Array.FindIndex(lines, l => l.Contains("@_silgen_name(\"SBSW_Config_init_"));
+        var free = System.Array.FindIndex(lines, l => l.Contains("@_silgen_name(\"SBSW_Config_free_"));
+        Assert.True(init > 0 && free > init, swiftOutput);
+        Assert.Equal(expectMainActor, lines[init - 1].Trim() == "@MainActor" || lines[..init].Any(l => l.Trim() == "@MainActor"));
+        Assert.NotEqual("@MainActor", lines[free - 1].Trim());
     }
 
     // --- Helper methods ---

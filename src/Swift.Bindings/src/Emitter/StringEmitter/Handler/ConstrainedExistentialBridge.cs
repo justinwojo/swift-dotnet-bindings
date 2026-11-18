@@ -289,7 +289,8 @@ public static class ConstrainedExistentialBridge
         var callArgString = string.Join(", ", callArgs);
 
         // Emit import statements for constraint type modules
-        foreach (var import in neededImports.OrderBy(i => i))
+        // through the module the SDK makes public, as the wrapper's own imports are
+        foreach (var import in neededImports.Select(AppleFrameworkRegistry.MapModuleToCompileImport).Distinct().OrderBy(i => i))
         {
             swiftWriter.WriteLine($"import {import}");
         }

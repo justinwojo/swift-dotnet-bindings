@@ -810,6 +810,67 @@ public class ConstrainedExtensionEmitterTests
     /// <see cref="ConstrainedExtensionEmitter.EmitConstrainedExtensions"/>, and
     /// returns the C# + Swift output for the test to assert against.
     /// </summary>
+    /// <summary>
+    /// A member of a same-type-constrained extension (<c>extension Wrapper where T == ConcreteA</c>) is
+    /// its own recovery unit: its C# extension method, its deferred P/Invoke and its Swift wrapper are
+    /// that member's fragments, so a swiftc error in one is withdrawn with the member instead of being
+    /// charged to the generic type's whole surface. Withdrawing it leaves its sibling in place.
+    /// </summary>
+    [Fact]
+    public void EmitConstrainedExtensions_Member_IsItsOwnRecoveryUnit_AndWithdrawsAlone()
+    {
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        var signature = CreatePropertyWithConstraint("signature", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.String"));
+        enumDecl.Properties.Add(signature);
+        enumDecl.Properties.Add(CreatePropertyWithConstraint("title", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.String")));
+        var root = FragmentOwners.ForDecl(enumDecl);
+
+        var csSw = new StringWriter();
+        var csWriter = new CSharpWriter(csSw);
+        var swiftSw = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftSw);
+        ConstrainedExtensionEmitter.EmitConstrainedExtensions(csWriter, swiftWriter, enumDecl, tdb,
+            new ModuleEmissionContext(), NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        var csharp = csSw.ToString();
+        var swift = swiftSw.ToString();
+
+        RecoveryUnitId OwnerAt(BufferedSourceWriter writer, string text, string marker, int occurrence = 0)
+        {
+            var offset = -1;
+            for (var i = 0; i <= occurrence; i++)
+                offset = text.IndexOf(marker, offset + 1, StringComparison.Ordinal);
+            Assert.True(offset >= 0, $"'{marker}' #{occurrence} was not emitted");
+            var tile = writer.Fragments.BuildTiling(text.Length, root).Single(t => t.Start <= offset && offset < t.End);
+            return RecoveryUnitClassifier.ClassifyArtifact(tile.Owner.Artifact).Unit;
+        }
+        var expected = RecoveryUnitId.ForAccessorGroup(DeclIdFactory.ForProperty(signature));
+        const string symbol = "SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signature_instance";
+        Assert.Equal(expected, OwnerAt(swiftWriter, swift, symbol));
+        Assert.Equal(expected, OwnerAt(csWriter, csharp, "GetSignature("));
+        // The P/Invoke the getter binds is emitted after every member, and is still the member's.
+        Assert.Equal(expected, OwnerAt(csWriter, csharp, $"EntryPoint = \"{symbol}\""));
+        Assert.NotEqual(expected, OwnerAt(csWriter, csharp, "GetTitle("));
+
+        var withdrawnCs = new StringWriter();
+        var withdrawnSwift = new StringWriter();
+        using (EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+            new HashSet<RecoveryUnitId> { expected }, static _ => EmitterFaultOrigin.RecoveryWithdrawal)))
+        {
+            ConstrainedExtensionEmitter.EmitConstrainedExtensions(new CSharpWriter(withdrawnCs),
+                new SwiftWriter(withdrawnSwift), enumDecl, tdb, new ModuleEmissionContext(),
+                NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        }
+
+        Assert.DoesNotContain(symbol, withdrawnSwift.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("GetSignature(", withdrawnCs.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain(symbol, withdrawnCs.ToString(), StringComparison.Ordinal);
+        Assert.Contains("GetTitle(", withdrawnCs.ToString(), StringComparison.Ordinal);
+        Assert.Contains("_title_instance", withdrawnSwift.ToString(), StringComparison.Ordinal);
+    }
+
     private static (string csOutput, string swiftOutput) EmitForGenericEnumWithProperty(
         string propertyName,
         string returnTypeName,

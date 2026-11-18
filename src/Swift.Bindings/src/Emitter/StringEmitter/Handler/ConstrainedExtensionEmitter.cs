@@ -387,13 +387,41 @@ public static class ConstrainedExtensionEmitter
         int emittedCount = 0;
         var pinvokeDeclarations = new List<Action>();
 
+        // Each specialized member is written on behalf of the generic member it closes, so its text
+        // (Swift wrapper, C# extension member and its deferred P/Invoke) is owned by that member. A
+        // wrapper that fails to compile is then withdrawn with the member on the retry rather than
+        // charged to the enclosing type's surface, which recovery refuses to withdraw.
+        bool EmitOwned(BaseDecl member, Func<bool> emit)
+        {
+            if (EmissionSeam.TryDenyUpFront(member, csWriter))
+                return false;
+            var csOwner = FragmentOwners.ForDecl(member);
+            var firstDeferred = pinvokeDeclarations.Count;
+            bool emitted;
+            using (csWriter.BeginFragment(csOwner))
+            using (swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(member)))
+            {
+                emitted = emit();
+            }
+            for (var i = firstDeferred; i < pinvokeDeclarations.Count; i++)
+            {
+                var deferred = pinvokeDeclarations[i];
+                pinvokeDeclarations[i] = () =>
+                {
+                    using var scope = csWriter.BeginFragment(csOwner);
+                    deferred();
+                };
+            }
+            return emitted;
+        }
+
         foreach (var property in properties)
         {
-            if (TryEmitPropertyExtension(
+            if (EmitOwned(property, () => TryEmitPropertyExtension(
                 csWriter, swiftWriter, property, typeDecl, concreteTypeName,
                 closedGenericCsType, moduleName, wrapperLibPath,
                 typeDatabase, emissionContext, pinvokeDeclarations, logger,
-                substitutedReturnTypeSpec: null))
+                substitutedReturnTypeSpec: null)))
             {
                 emittedCount++;
             }
@@ -424,11 +452,11 @@ public static class ConstrainedExtensionEmitter
                     property.Name, typeDecl.Name, concreteTypeName.Name);
                 continue;
             }
-            if (TryEmitPropertyExtension(
+            if (EmitOwned(property, () => TryEmitPropertyExtension(
                 csWriter, swiftWriter, property, typeDecl, concreteTypeName,
                 closedGenericCsType, moduleName, wrapperLibPath,
                 typeDatabase, emissionContext, pinvokeDeclarations, logger,
-                substitutedReturnTypeSpec: substituted))
+                substitutedReturnTypeSpec: substituted)))
             {
                 emittedCount++;
             }
@@ -436,10 +464,10 @@ public static class ConstrainedExtensionEmitter
 
         foreach (var method in methods)
         {
-            if (TryEmitMethodExtension(
+            if (EmitOwned(method, () => TryEmitMethodExtension(
                 csWriter, swiftWriter, method, typeDecl, concreteTypeName,
                 closedGenericCsType, moduleName, wrapperLibPath,
-                typeDatabase, emissionContext, pinvokeDeclarations, logger))
+                typeDatabase, emissionContext, pinvokeDeclarations, logger)))
             {
                 emittedCount++;
             }
