@@ -51,6 +51,8 @@ public static partial class CrossModuleExtensionEmitter
             default:
                 logger.LogDebug("Cross-module extension on {Kind} '{Name}' not supported.",
                     typeDecl.GetType().Name, typeDecl.Name);
+                RecordUnboundReceiverMembers(typeDecl, moduleDecl,
+                    "only class and struct receivers are routed to the cross-module extension path.");
                 break;
         }
     }
@@ -91,6 +93,9 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension {Type} from {Module}: receiver fell back to {Resolved}; skipping to avoid unsafe extension on a base class.",
                 classDecl.Name, currentModule, origCSharpType);
+            RecordUnboundReceiverMembers(classDecl, moduleDecl,
+                $"the receiver resolves to its base class '{origCSharpType}' in the type database, and an extension "
+                + "on the base class would also bind to unrelated instances.");
             return;
         }
 
@@ -103,7 +108,10 @@ public static partial class CrossModuleExtensionEmitter
             if (method.ModuleDecl?.Name != currentModule)
                 continue;
             if (method.IsConstructor)
+            {
+                RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ConstructorNotBound);
                 continue;
+            }
             // SPI / @usableFromInline-internal methods are visible at C# level
             // but the wrapper trampoline (compiled outside the SPI group) cannot resolve them.
             if (method.IsModuleInternal || method.IsSpiProtected)
@@ -184,6 +192,8 @@ public static partial class CrossModuleExtensionEmitter
 
                 if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
                     emittedCount++;
+                else
+                    RecordUnboundCrossModuleMember(property, classDecl, moduleDecl, ShapeNotBound);
             }
 
             // Emit methods. The trampoline paths are tried first and the simple
@@ -233,6 +243,8 @@ public static partial class CrossModuleExtensionEmitter
 
                 if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
                     emittedCount++;
+                else
+                    RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ShapeNotBound);
             }
 
             // Emit NativeMethods if we emitted anything
@@ -346,6 +358,64 @@ public static partial class CrossModuleExtensionEmitter
     }
 
     // ==================== Absent-Apple ingress gate ====================
+
+    private const string ConstructorNotBound =
+        "initializers an extension adds to a foreign type are not bound.";
+
+    private const string ShapeNotBound =
+        "the cross-module extension path cannot bind this member's shape (static, generic, mutating and "
+        + "some async or throwing members, members whose types it does not marshal, and a member whose C# "
+        + "signature collides with another are not bound).";
+
+    /// <summary>
+    /// Reports every member and nested type the current module adds to a foreign receiver this path
+    /// does not bind at all, so an extension the receiver gates turn away is not a silent loss.
+    /// </summary>
+    private static void RecordUnboundReceiverMembers(TypeDecl receiver, ModuleDecl moduleDecl, string why)
+    {
+        var currentModule = moduleDecl.Name;
+        foreach (var method in receiver.Methods)
+        {
+            if (method.ModuleDecl?.Name == currentModule && !method.IsAccessor)
+                RecordUnboundCrossModuleMember(method, receiver, moduleDecl, why);
+        }
+        foreach (var property in receiver.Properties)
+        {
+            if (property.ModuleDecl?.Name == currentModule)
+                RecordUnboundCrossModuleMember(property, receiver, moduleDecl, why);
+        }
+        foreach (var nested in receiver.Types)
+        {
+            if (nested.ModuleDecl?.Name == currentModule)
+                ReportCollector.RecordTypeSkipped(nested, SkipReason.UnsupportedSignature,
+                    $"Extension on foreign type '{receiver.SwiftTypeName.ModuleQualifiedName}': {why}");
+        }
+    }
+
+    /// <summary>
+    /// Reports one member the current module adds to a foreign receiver that this path does not bind.
+    /// Internal and SPI members are not public surface. A function or variable added to an Objective-C
+    /// class also reaches the foreign-extension path from the interface text, which binds or reports it
+    /// itself, so only what that path never sees (initializers) is reported from here.
+    /// </summary>
+    private static void RecordUnboundCrossModuleMember(BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why)
+    {
+        var receiverName = receiver.SwiftTypeName.ModuleQualifiedName;
+        var isConstructor = member is MethodDecl { IsConstructor: true };
+        if (!isConstructor
+            && ForeignTypeExtensionEmitter.IsForeignObjCClassType(receiverName, moduleDecl.ForeignTypeDeclKinds))
+            return;
+        var details = $"Extension on foreign type '{receiverName}': {why}";
+        switch (member)
+        {
+            case MethodDecl { IsModuleInternal: false, IsSpiProtected: false } method:
+                ReportCollector.RecordMemberSkipped(method, SkipReason.UnsupportedSignature, details);
+                break;
+            case PropertyDecl { IsModuleInternal: false, IsSpiProtected: false } property:
+                ReportCollector.RecordMemberSkipped(property, SkipReason.UnsupportedSignature, details);
+                break;
+        }
+    }
 
     /// <summary>
     /// Absent-Apple ingress gate for a cross-module extension method. When the signature (return or

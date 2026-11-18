@@ -60,6 +60,8 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension on struct {Type} from {Module}: foreign type not in TypeDatabase, skipping.",
                 structDecl.Name, currentModule);
+            RecordUnboundReceiverMembers(structDecl, moduleDecl,
+                "the receiver is not in the type database, so there is no C# type to extend.");
             return;
         }
 
@@ -74,6 +76,9 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension on struct {Type} from {Module}: receiver is not a frozen value struct, skipping.",
                 structDecl.Name, currentModule);
+            RecordUnboundReceiverMembers(structDecl, moduleDecl,
+                $"the receiver projects to '{origRecord.CSharpTypeName.FullyQualifiedName}', which is not a frozen value "
+                + "struct, and the cross-module extension path binds members only on frozen value structs and classes.");
             return;
         }
 
@@ -89,7 +94,10 @@ public static partial class CrossModuleExtensionEmitter
             if (method.ModuleDecl?.Name != currentModule)
                 continue;
             if (method.IsConstructor)
+            {
+                RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ConstructorNotBound);
                 continue;
+            }
             // @usableFromInline-internal and @_spi members are visible at C# level via the
             // ABI dump but the wrapper trampoline (compiled in its own module, outside the SPI
             // group) cannot resolve them.
@@ -162,6 +170,10 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     emittedCount++;
                 }
+                else
+                {
+                    RecordUnboundCrossModuleMember(property, structDecl, moduleDecl, ShapeNotBound);
+                }
             }
 
             foreach (var method in methods)
@@ -180,6 +192,10 @@ public static partial class CrossModuleExtensionEmitter
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
                     emittedCount++;
+                }
+                else
+                {
+                    RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ShapeNotBound);
                 }
             }
 
