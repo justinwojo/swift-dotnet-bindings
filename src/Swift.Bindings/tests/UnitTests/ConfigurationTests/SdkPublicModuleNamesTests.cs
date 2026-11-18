@@ -99,6 +99,100 @@ namespace BindingsGeneration.Tests
             Assert.Null(new SdkPublicModuleNames((string?)null).TryGetPublicModuleName("Detail"));
         }
 
+        /// <summary>
+        /// A framework only some slices' SDKs ship (Xcode 27.2's CoreAI: device and macOS SDKs, no
+        /// simulator) is slice-asymmetric; one every SDK ships, one none ships, or any module in a
+        /// single-SDK run is not.
+        /// </summary>
+        [Fact]
+        public void IsSliceAsymmetric_TrueOnlyForAModuleSomeSliceSdksLack()
+        {
+            var simulator = Path.Combine(_sdk, "simulator");
+            var device = Path.Combine(_sdk, "device");
+            WriteSdkModule(simulator, "Frameworks", "Shared", null);
+            WriteSdkModule(device, "Frameworks", "Shared", null);
+            WriteSdkModule(device, "Frameworks", "DeviceOnly", null);
+            WriteSdkModule(device, "SubFrameworks", "DeviceOnlyDetail", null);
+            Directory.CreateDirectory(Path.Combine(device, "usr", "lib", "swift", "DeviceOverlay.swiftmodule"));
+
+            var names = new SdkPublicModuleNames(simulator, device);
+
+            Assert.True(names.IsSliceAsymmetric("DeviceOnly"));
+            Assert.True(names.IsSliceAsymmetric("DeviceOnlyDetail"));
+            Assert.True(names.IsSliceAsymmetric("DeviceOverlay"));
+            Assert.False(names.IsSliceAsymmetric("Shared"));
+            Assert.False(names.IsSliceAsymmetric("ThirdPartyDependency"));
+            Assert.False(new SdkPublicModuleNames(device).IsSliceAsymmetric("DeviceOnly"));
+            Assert.False(new SdkPublicModuleNames(device, device).IsSliceAsymmetric("DeviceOnly"));
+        }
+
+        [Fact]
+        public void ImportLines_GuardsOnlySliceAsymmetricModules()
+        {
+            var simulator = Path.Combine(_sdk, "simulator");
+            var device = Path.Combine(_sdk, "device");
+            WriteSdkModule(simulator, "Frameworks", "Shared", null);
+            WriteSdkModule(device, "Frameworks", "Shared", null);
+            WriteSdkModule(device, "Frameworks", "DeviceOnly", null);
+
+            Assert.Equal(new[] { "import DeviceOnly" }, SdkPublicModuleNames.ImportLines("DeviceOnly"));
+            using (SdkPublicModuleNames.Install(new SdkPublicModuleNames(simulator, device)))
+            {
+                Assert.Equal(new[] { "#if canImport(DeviceOnly)", "import DeviceOnly", "#endif" },
+                    SdkPublicModuleNames.ImportLines("DeviceOnly"));
+                Assert.Equal(new[] { "#if canImport(DeviceOnly)", "import DeviceOnly.Sub", "#endif" },
+                    SdkPublicModuleNames.ImportLines("DeviceOnly.Sub"));
+                Assert.Equal(new[] { "import Shared" }, SdkPublicModuleNames.ImportLines("Shared"));
+                Assert.Equal(new[] { "import ThirdPartyDependency" }, SdkPublicModuleNames.ImportLines("ThirdPartyDependency"));
+            }
+        }
+
+        /// <summary>
+        /// Both legs of a guarded import compile: with the module on the search path (the slice whose
+        /// SDK ships it) and without it (the slice whose SDK lacks it), where the plain import the
+        /// guard replaces fails. Real swiftc, a module built here, so it holds on any installed Xcode.
+        /// </summary>
+        [SkippableFact]
+        public void ImportLines_GuardedImportCompilesOnBothLegs()
+        {
+            Skip.IfNot(OperatingSystem.IsMacOS(), "swiftc is required");
+            var runner = new SystemCommandRunner();
+            var probe = runner.Run("xcrun", "--find swiftc");
+            Skip.If(probe.ExitCode != 0, "xcrun swiftc is required");
+
+            var work = Path.Combine(_sdk, "legs");
+            var modules = Path.Combine(work, "modules");
+            Directory.CreateDirectory(modules);
+            var moduleSource = Path.Combine(work, "SBSliceOnly.swift");
+            File.WriteAllText(moduleSource, "public struct SliceOnlyMarker { public init() {} }\n");
+            var built = runner.Run("xcrun",
+                $"swiftc -parse-as-library -emit-module -module-name SBSliceOnly -emit-module-path \"{Path.Combine(modules, "SBSliceOnly.swiftmodule")}\" \"{moduleSource}\"",
+                timeoutMs: 120000);
+            Assert.True(built.ExitCode == 0, built.StdErr);
+
+            var simulator = Path.Combine(_sdk, "simulator");
+            var device = Path.Combine(_sdk, "device");
+            Directory.CreateDirectory(simulator);
+            Directory.CreateDirectory(Path.Combine(device, "usr", "lib", "swift", "SBSliceOnly.swiftmodule"));
+            IReadOnlyList<string> guarded;
+            using (SdkPublicModuleNames.Install(new SdkPublicModuleNames(simulator, device)))
+                guarded = SdkPublicModuleNames.ImportLines("SBSliceOnly");
+            Assert.Equal("#if canImport(SBSliceOnly)", guarded[0]);
+
+            string Typecheck(IEnumerable<string> imports, bool withModule)
+            {
+                var source = Path.Combine(work, $"wrapper-{Guid.NewGuid():N}.swift");
+                File.WriteAllText(source, string.Join("\n", imports) + "\npublic func sbWrapperBody() -> Int32 { 1 }\n");
+                var search = withModule ? $"-I \"{modules}\" " : "";
+                var (exit, _, stderr) = runner.Run("xcrun", $"swiftc -typecheck -parse-as-library {search}\"{source}\"", timeoutMs: 120000);
+                return exit == 0 ? "" : stderr;
+            }
+
+            Assert.Equal("", Typecheck(guarded, withModule: true));
+            Assert.Equal("", Typecheck(guarded, withModule: false));
+            Assert.Contains("SBSliceOnly", Typecheck(new[] { "import SBSliceOnly" }, withModule: false));
+        }
+
         [Fact]
         public void MapModuleToCompileImport_PrefersTheInterfaceDeclaredPublicModule()
         {

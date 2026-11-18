@@ -427,6 +427,58 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void EmitSwiftImports_GuardsAModuleOnlySomeSliceSdksShip()
+    {
+        // One wrapper source compiles for every slice. Xcode 27.2's MetalPerformanceShadersGraph
+        // imports CoreAI in its device interface, and the simulator SDKs carry no CoreAI, so a plain
+        // import of it fails the simulator slice; it is imported under canImport instead.
+        var root = Path.Combine(Path.GetTempPath(), "sb-fake-sdk-" + Guid.NewGuid().ToString("N"));
+        var simulator = Path.Combine(root, "simulator");
+        var device = Path.Combine(root, "device");
+        var interfaceFile = Path.GetTempFileName();
+        try
+        {
+            SdkPublicModuleNamesTests.WriteSdkModule(simulator, "Frameworks", "SharedKit", null);
+            SdkPublicModuleNamesTests.WriteSdkModule(device, "Frameworks", "SharedKit", null);
+            SdkPublicModuleNamesTests.WriteSdkModule(device, "Frameworks", "DeviceOnlyKit", null);
+            File.WriteAllText(interfaceFile,
+                "// swift-interface-format-version: 1.0\n" +
+                "import Foundation\n" +
+                "import DeviceOnlyKit\n" +
+                "import SharedKit\n" +
+                "public struct Marker {}\n");
+
+            string swiftOutput;
+            using (SdkPublicModuleNames.Install(new SdkPublicModuleNames(simulator, device)))
+            {
+                (_, swiftOutput) = EmitModuleWithDependencies("Bound", new List<string>(),
+                    moduleDecl =>
+                    {
+                        moduleDecl.DependencyModuleNames = new List<string> { "DeviceOnlyKit", "SharedKit" };
+                        moduleDecl.SwiftInterfacePath = interfaceFile;
+                    });
+            }
+
+            var lines = swiftOutput.Split('\n').ToList();
+            var guarded = lines.IndexOf("import DeviceOnlyKit");
+            Assert.True(guarded > 0, swiftOutput);
+            Assert.Equal("#if canImport(DeviceOnlyKit)", lines[guarded - 1]);
+            Assert.Equal("#endif", lines[guarded + 1]);
+            var shared = lines.IndexOf("import SharedKit");
+            Assert.True(shared > 0, swiftOutput);
+            Assert.NotEqual("#if canImport(SharedKit)", lines[shared - 1]);
+            Assert.Contains("import Bound", lines);
+            Assert.DoesNotContain("#if canImport(Bound)", lines);
+        }
+        finally
+        {
+            File.Delete(interfaceFile);
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [Fact]
     public void EmitSwiftImports_ImportsImplementationDetailThroughItsPublicModule()
     {
         // Swift 6.4 SDK modules that are implementation details of an umbrella declare

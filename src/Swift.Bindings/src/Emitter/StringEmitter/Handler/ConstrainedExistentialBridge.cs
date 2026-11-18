@@ -292,7 +292,8 @@ public static class ConstrainedExistentialBridge
         // through the module the SDK makes public, as the wrapper's own imports are
         foreach (var import in neededImports.Select(AppleFrameworkRegistry.MapModuleToCompileImport).Distinct().OrderBy(i => i))
         {
-            swiftWriter.WriteLine($"import {import}");
+            foreach (var line in SdkPublicModuleNames.ImportLines(import))
+                swiftWriter.WriteLine(line);
         }
 
         swiftWriter.WriteLine();

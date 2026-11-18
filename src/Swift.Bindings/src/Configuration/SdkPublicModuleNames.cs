@@ -33,6 +33,7 @@ namespace BindingsGeneration
 
         private readonly Lazy<IReadOnlyList<string>> _sdkRoots;
         private readonly ConcurrentDictionary<string, string?> _cache = new(StringComparer.Ordinal);
+        private readonly ConcurrentDictionary<string, bool> _asymmetricCache = new(StringComparer.Ordinal);
 
         /// <summary>The lookup installed for the current run, or null outside one.</summary>
         internal static SdkPublicModuleNames? Current => _current.Value;
@@ -103,6 +104,66 @@ namespace BindingsGeneration
                 }
                 return null;
             });
+        }
+
+        /// <summary>
+        /// True when <paramref name="module"/> ships in some of this run's slice SDKs and not in
+        /// others. One wrapper source is compiled for every slice, and the SDKs do not hold the same
+        /// modules: a device SDK can carry a framework its simulator SDK lacks (Xcode 27.2's CoreAI is
+        /// in the iPhoneOS, AppleTVOS and MacOSX SDKs, absent from both simulators, and
+        /// MetalPerformanceShadersGraph's device interface imports it), so a plain <c>import</c> of such
+        /// a module fails every slice whose SDK lacks it. A module present in no slice SDK (a bound
+        /// library's own dependency) or in all of them answers false, as does a run with fewer than two
+        /// distinct SDKs.
+        /// </summary>
+        internal bool IsSliceAsymmetric(string module)
+        {
+            if (string.IsNullOrEmpty(module) || _sdkRoots.Value.Count < 2)
+                return false;
+            return _asymmetricCache.GetOrAdd(module, m =>
+            {
+                var present = 0;
+                foreach (var sdk in _sdkRoots.Value)
+                {
+                    if (ShipsModule(sdk, m))
+                        present++;
+                }
+                return present > 0 && present < _sdkRoots.Value.Count;
+            });
+        }
+
+        /// <summary>
+        /// Whether <paramref name="sdkRoot"/> ships <paramref name="module"/>: as a framework under
+        /// one of its <see cref="FrameworkDirectories"/>, or as a Swift module of its toolchain overlay
+        /// directory (<c>usr/lib/swift/&lt;M&gt;.swiftmodule</c>).
+        /// </summary>
+        internal static bool ShipsModule(string sdkRoot, string module)
+        {
+            foreach (var frameworks in FrameworkDirectories(sdkRoot))
+            {
+                if (Directory.Exists(Path.Combine(frameworks, $"{module}.framework")))
+                    return true;
+            }
+            return Directory.Exists(Path.Combine(sdkRoot, "usr", "lib", "swift", $"{module}.swiftmodule"))
+                || File.Exists(Path.Combine(sdkRoot, "usr", "lib", "swift", $"{module}.swiftinterface"));
+        }
+
+        /// <summary>
+        /// The Swift lines importing <paramref name="module"/> into a wrapper source: a plain
+        /// <c>import</c>, or, when the run's slice SDKs disagree on whether the module exists
+        /// (<see cref="IsSliceAsymmetric"/>), the same import under <c>#if canImport(...)</c> so each
+        /// slice compiles with the modules its own SDK has. A declaration that names one of the
+        /// module's types still needs that module on the slice it compiles for; verify-recover
+        /// withdraws it there like any other member that does not compile.
+        /// </summary>
+        internal static IReadOnlyList<string> ImportLines(string module)
+        {
+            var line = $"import {module}";
+            // canImport takes the top-level module; a submodule import is guarded on its parent.
+            var topLevel = module.Split('.')[0];
+            return Current?.IsSliceAsymmetric(topLevel) == true
+                ? new[] { $"#if canImport({topLevel})", line, "#endif" }
+                : new[] { line };
         }
 
         /// <summary>The framework directories of an SDK a module's interface can live under.</summary>

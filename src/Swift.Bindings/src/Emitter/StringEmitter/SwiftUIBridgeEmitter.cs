@@ -771,7 +771,8 @@ public static partial class SwiftUIBridgeEmitter
                 .ToList();
             foreach (var import in extraImports)
             {
-                sb.AppendLine($"import {import}");
+                foreach (var line in SdkPublicModuleNames.ImportLines(import))
+                    sb.AppendLine(line);
             }
 
             // Extra imports from bridge hints
@@ -781,8 +782,16 @@ public static partial class SwiftUIBridgeEmitter
                     .Distinct().OrderBy(i => i, StringComparer.Ordinal))
                 {
                     // Avoid duplicating imports already emitted from async patterns
-                    if (!extraImports.Contains(import))
+                    if (extraImports.Contains(import))
+                        continue;
+                    // The bound module is imported unconditionally above.
+                    if (import == moduleName)
                         sb.AppendLine($"import {import}");
+                    else
+                    {
+                        foreach (var line in SdkPublicModuleNames.ImportLines(import))
+                            sb.AppendLine(line);
+                    }
                 }
             }
 
