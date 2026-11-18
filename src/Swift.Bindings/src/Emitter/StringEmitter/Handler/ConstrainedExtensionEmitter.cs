@@ -320,6 +320,41 @@ public static class ConstrainedExtensionEmitter
                     c.Kind == ConformanceKind.ConcreteType && IsSpecializableConcretePin(c.ConformanceTarget)));
     }
 
+    /// <summary>
+    /// The Swift spelling of <paramref name="parentTypeDecl"/> closed over its single pinned generic
+    /// parameter. The argument goes on the nesting level that declares the parameter: a type nested in
+    /// a constrained extension of a generic type (<c>extension Outer where Value == X { struct Inner }</c>)
+    /// is <c>Module.Outer&lt;X&gt;.Inner</c>, not <c>Module.Outer.Inner&lt;X&gt;</c>, which swiftc refuses
+    /// ("cannot specialize non-generic type").
+    /// </summary>
+    internal static string RenderClosedSwiftParent(TypeDecl parentTypeDecl, SwiftTypeName concreteTypeName)
+        => ConstructorWrapperEmitter.RenderGenericTypeReference(parentTypeDecl, _ => concreteTypeName.ModuleQualifiedName);
+
+    /// <summary>
+    /// The C# mirror of <see cref="RenderClosedSwiftParent"/>: the projected class chain from the
+    /// outermost enclosing type, with the concrete argument on the class that declares the generic
+    /// parameter (<c>Outer&lt;X&gt;.Inner</c>). The extension class sits at namespace scope, so a nested
+    /// parent must be spelled through its enclosing classes, each by the name its declaration was
+    /// emitted under (a nested type renamed to dodge a member collision, <c>Entry</c> →
+    /// <c>EntryInfo</c>, is only reachable by its new name).
+    /// </summary>
+    internal static string RenderClosedCSharpParent(TypeDecl typeDecl, string concreteCsName, ITypeDatabase? typeDatabase = null)
+    {
+        var chain = new List<TypeDecl>();
+        for (BaseDecl? current = typeDecl; current is TypeDecl level; current = level.ParentDecl)
+            chain.Add(level);
+        chain.Reverse();
+        return string.Join(".", chain.Select(level =>
+        {
+            var declared = GenericTypeEmitter.GetTypeNameWithGenerics(level, typeDatabase);
+            var lt = declared.IndexOf('<');
+            var name = lt >= 0 ? declared[..lt] : declared;
+            return GenericTypeEmitter.GetTypeDeclOwnGenericParams(level).Count > 0
+                ? $"{name}<{concreteCsName}>"
+                : name;
+        }));
+    }
+
     private static void EmitSpecializationClass(
         CSharpWriter csWriter,
         SwiftWriter swiftWriter,
@@ -335,7 +370,6 @@ public static class ConstrainedExtensionEmitter
         ILogger logger)
     {
         // Resolve C# type names
-        var parentCsName = typeDecl.Name;
         var concreteCsName = ResolveCSharpName(concreteTypeName, typeDatabase);
         if (concreteCsName == null)
         {
@@ -363,15 +397,15 @@ public static class ConstrainedExtensionEmitter
             }
         }
 
-        var closedGenericCsType = $"{parentCsName}<{concreteCsName}>";
+        var closedGenericCsType = RenderClosedCSharpParent(typeDecl, concreteCsName, typeDatabase);
         // Both the parent slot and the concretization slot are rendered through the
         // injective `SanitizeForSymbol(ModuleQualifiedName)` encoding, AND a literal
         // `_` separator is placed between them so that two pairs whose encoded
         // segments could otherwise concatenate to the same string (e.g.
         // parent=`A.A`, concrete=`AA.A` → `A_DAAA_DA` vs parent=`A.AA`,
         // concrete=`A.A` → same `A_DAAA_DA` without a boundary char) instead
-        // render distinct class names. `parentCsName` alone is the leaf declaration
-        // name (e.g. `Box` for both `Mod.Box` and `Mod.Outer.Box`); without parent
+        // render distinct class names. The leaf declaration name alone
+        // (e.g. `Box` for both `Mod.Box` and `Mod.Outer.Box`); without parent
         // qualification, two nested generic parents would produce duplicate
         // `BoxFooExtensions` classes (CS0102).
         var className = $"{SanitizeParent(typeDecl)}_{SanitizeConcretization(concreteTypeName)}Extensions";
@@ -839,9 +873,7 @@ public static class ConstrainedExtensionEmitter
         TypeSpec effectiveReturnTypeSpec,
         ITypeDatabase typeDatabase)
     {
-        var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
-        var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
-        var closedGenericSwiftType = $"{parentSwiftName}<{concreteSwiftName}>";
+        var closedGenericSwiftType = RenderClosedSwiftParent(parentTypeDecl, concreteTypeName);
 
         // Ensure SBW_Utf8Slice is available for string properties
         if (shape == CEReturnShape.String)
@@ -1752,9 +1784,7 @@ public static class ConstrainedExtensionEmitter
         ModuleEmissionContext emissionContext,
         ITypeDatabase typeDatabase)
     {
-        var parentSwiftName = parentTypeDecl.SwiftTypeName.ModuleQualifiedName;
-        var concreteSwiftName = concreteTypeName.ModuleQualifiedName;
-        var closedGenericSwiftType = $"{parentSwiftName}<{concreteSwiftName}>";
+        var closedGenericSwiftType = RenderClosedSwiftParent(parentTypeDecl, concreteTypeName);
 
         if (shape == CEReturnShape.String)
         {

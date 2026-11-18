@@ -1144,6 +1144,59 @@ public class SwiftABIParserRuntimeTests
             SwiftABIParser.ComputeAbiParamSignature(node));
     }
 
+    [Theory]
+    // An opaque `some P` parameter is an anonymous generic parameter. The ABI descriptor prints it
+    // by depth and index and leaves it out of the sugared signature, so its only spelling is the
+    // generic signature's conformance requirements; the interface producer keys it by the `some`
+    // constraint it was written with. A composition may list its protocols in any order.
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.FloorP>", null, "τ_0_0", "some FloorP")]
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.FloorQ, τ_0_0 : Swift.Error>", null, "τ_0_0", "some (Error & FloorQ)")]
+    [InlineData("<τ_0_0 where τ_0_0 : AnyObject, τ_0_0 : TestModule.P>", null, "τ_0_0", "some P & AnyObject")]
+    [InlineData("<τ_0_0 where τ_0_0 : TestModule.P>", null, "[τ_0_0]", "[some P]")]
+    // Named generic parameters come first and are the ones the sugared signature lists; the
+    // opaque parameters follow them.
+    [InlineData("<τ_0_0, τ_0_1 where τ_0_0 : TestModule.P, τ_0_1 : TestModule.Q>", "<T where T : TestModule.P>",
+        "τ_0_0|τ_0_1", "T|some Q")]
+    [InlineData("<τ_0_0, τ_0_1 where τ_0_1 : TestModule.P>", "<T>", "τ_0_0|τ_0_1", "T|some P")]
+    public void ComputeAbiParamSignature_OpaqueParameters_UseTheirConstraint(
+        string genericSig, string? sugaredSig, string abiParamsPipe, string interfaceParamsPipe)
+    {
+        var node = MakeAbiFunctionNode("m", "m(_:)", "()", abiParamsPipe.Split('|'));
+        node.GenericSig = genericSig;
+        node.sugared_genericSig = sugaredSig;
+
+        Assert.Equal(
+            MemberSignatureNormalizer.BuildSignature(interfaceParamsPipe.Split('|')),
+            SwiftABIParser.ComputeAbiParamSignature(node));
+    }
+
+    [Fact]
+    public void ComputeAbiParamSignature_OpaqueOverloads_KeyApart()
+    {
+        // `init(wrapping: some FloorP)` and `init(wrapping: some (Error & FloorQ))` share a
+        // printedName, so the bare availability key is left empty and each overload must find its
+        // own disambiguated key. Both print as a lone `τ_0_0`; only the requirements tell them apart.
+        var single = MakeAbiFunctionNode("init", "init(wrapping:)", "TestModule.Host", "τ_0_0");
+        single.GenericSig = "<τ_0_0 where τ_0_0 : TestModule.FloorP>";
+        var composition = MakeAbiFunctionNode("init", "init(wrapping:)", "TestModule.Host", "τ_0_0");
+        composition.GenericSig = "<τ_0_0 where τ_0_0 : TestModule.FloorQ, τ_0_0 : Swift.Error>";
+
+        Assert.NotEqual(
+            SwiftABIParser.ComputeAbiParamSignature(single),
+            SwiftABIParser.ComputeAbiParamSignature(composition));
+    }
+
+    [Fact]
+    public void ComputeAbiParamSignature_OpaqueParameterWithAssociatedTypeRequirement_KeepsItsAbiSpelling()
+    {
+        // `some Collection<Int>` constrains an associated type; its interface spelling cannot be
+        // rebuilt from the requirements alone, so the parameter keeps the spelling it had.
+        var node = MakeAbiFunctionNode("m", "m(_:)", "()", "τ_0_0");
+        node.GenericSig = "<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.Int>";
+
+        Assert.Equal("τ_0_0", SwiftABIParser.ComputeAbiParamSignature(node));
+    }
+
     [Fact]
     public void ComputeAbiParamSignature_VariadicParameter_IsSpelledByItsElement()
     {
@@ -2617,7 +2670,7 @@ public class SwiftABIParserRuntimeTests
     /// Builds an ABI function node whose children are [return, params...] — the exact shape
     /// <see cref="SwiftABIParser.ComputeAbiParamSignature"/> walks (index 0 = return type).
     /// </summary>
-    private static Node MakeAbiFunctionNode(
+    internal static Node MakeAbiFunctionNode(
         string name, string printedName, string returnPrinted, params string[] paramPrinted)
     {
         var children = new List<Node> { MakeTypeNode(returnPrinted) };

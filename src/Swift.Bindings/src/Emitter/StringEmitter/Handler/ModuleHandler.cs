@@ -408,6 +408,7 @@ namespace BindingsGeneration
 
                 base.HandleBaseDecl(csWriter, swiftWriter, moduleDecl.Types, conductor, env.TypeDatabase, context,
                     topLevelSpanSink: context.GetEmissionContext().TopLevelTypeSpans);
+                NamespaceScopeEmission.DrainAtModuleEnd(csWriter, context);
 
                 // Emit protocol extension method Swift wrappers (accumulated during InjectExtensionMethods)
                 var emissionCtx = context.GetEmissionContext();

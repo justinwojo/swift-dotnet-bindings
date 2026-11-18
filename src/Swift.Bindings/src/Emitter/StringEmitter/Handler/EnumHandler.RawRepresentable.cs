@@ -111,6 +111,19 @@ namespace BindingsGeneration
                 return;
             }
 
+            // An enum nested in a generic type has no top-level Swift spelling, so its wrappers take
+            // the enum's metadata and the C# side declares them in the generic parent's helper class
+            // (a generic C# type cannot hold P/Invokes). The metadata comes from the enum's own
+            // accessor, which already threads every witness table the parent's constraints need.
+            var viaMetadata = pinvokeHelperContext != null;
+            var enumMetadataCall = pinvokeHelperContext != null
+                ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
+                : "PInvoke_getMetadata()";
+            var wrapperMethodName = $"PInvoke_InitWithRawValue_Wrapper{enumPInvokeSuffix}";
+            var wrapperCallTarget = pinvokeHelperContext != null
+                ? $"{pinvokeHelperContext.HelperClassName}.{wrapperMethodName}"
+                : wrapperMethodName;
+
             // For String raw types, emit Swift wrapper for init(rawValue:) conversion
             string? wrapperSymbol = null;
             string? caseByIndexSymbol = null;
@@ -120,15 +133,15 @@ namespace BindingsGeneration
                 // Use full module-qualified name to avoid collisions for same-named nested enums
                 // (e.g., Module.Foo.ErrorType and Module.Bar.ErrorType get unique symbols)
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx);
+                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx, viaMetadata);
             }
-            else if (!enumDecl.IsFrozen && WrapperValidation.IsXCFrameworkMode(typeDatabase))
+            else if (WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
                 // Non-frozen blittable enum: emit @_cdecl wrapper for init(rawValue:) to avoid
                 // CallConvSwift + SwiftIndirectResult crash on Mono JIT.
                 // The wrapper writes Optional<Self> to a caller-provided buffer using Cdecl ABI.
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, ctx);
+                EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, ctx, viaMetadata);
             }
 
             // Emit CaseByIndex Swift wrapper for raw-representable enums.
@@ -139,7 +152,7 @@ namespace BindingsGeneration
             if (isStringRawType || WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
                 caseByIndexSymbol = $"SBW_{sanitizedName}_CaseByIndex";
-                EmitCaseByIndexSwiftWrapper(swiftWriter, enumDecl, simpleCases, caseByIndexSymbol, ctx);
+                EmitCaseByIndexSwiftWrapper(swiftWriter, enumDecl, simpleCases, caseByIndexSymbol, ctx, viaMetadata);
             }
 
             // Emit FromRawValue method - different implementations for frozen vs non-frozen enums
@@ -163,7 +176,9 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine("var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };");
-                    csWriter.WriteLine("IntPtr resultPtr = PInvoke_InitWithRawValue_Wrapper((IntPtr)(&slice));");
+                    csWriter.WriteLine(viaMetadata
+                        ? $"IntPtr resultPtr = {wrapperCallTarget}((IntPtr)(&slice), {enumMetadataCall}.Handle);"
+                        : $"IntPtr resultPtr = {wrapperCallTarget}((IntPtr)(&slice));");
                     csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -180,9 +195,8 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // P/Invoke for the Swift wrapper (not the original init)
-                    csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-                    csWriter.WriteLine("private static partial IntPtr PInvoke_InitWithRawValue_Wrapper(IntPtr slicePtr);");
-                    csWriter.WriteLine();
+                    EmitRawRepWrapperDeclaration(csWriter, pinvokeHelperContext, wrapperLibPath, wrapperSymbol!, wrapperMethodName,
+                        "IntPtr", "IntPtr slicePtr");
                 }
                 else
                 {
@@ -190,9 +204,16 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
-                    var rawInitCall = pinvokeHelperContext != null
-                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
-                        : "PInvoke_InitWithRawValue(rawValue)";
+                    // With a wrapper, Swift returns a heap copy of the case or nil, as the String
+                    // branch does. The direct init returns Optional<Self> in the enum's own lowering
+                    // (a one-byte discriminator for a payload-free enum), never a pointer.
+                    var rawInitCall = wrapperSymbol != null
+                        ? (viaMetadata
+                            ? $"{wrapperCallTarget}(rawValue, {enumMetadataCall}.Handle)"
+                            : $"{wrapperCallTarget}(rawValue)")
+                        : pinvokeHelperContext != null
+                            ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
+                            : "PInvoke_InitWithRawValue(rawValue)";
                     csWriter.WriteLine($"IntPtr resultPtr = {rawInitCall};");
                     csWriter.WriteLine("if (resultPtr == IntPtr.Zero)");
                     csWriter.WriteLine("{");
@@ -208,7 +229,12 @@ namespace BindingsGeneration
                     csWriter.WriteLine();
 
                     // Emit P/Invoke for init(rawValue:) - frozen version returns IntPtr directly
-                    if (pinvokeHelperContext != null)
+                    if (wrapperSymbol != null)
+                    {
+                        EmitRawRepWrapperDeclaration(csWriter, pinvokeHelperContext, wrapperLibPath, wrapperSymbol, wrapperMethodName,
+                            "IntPtr", $"{csharpRawType} rawValue");
+                    }
+                    else if (pinvokeHelperContext != null)
                     {
                         pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
                         {
@@ -255,10 +281,7 @@ namespace BindingsGeneration
                 // The metadata accessor PInvoke takes PWT args for any
                 // protocol-constrained generic params.
                 csWriter.WriteLine("// Get metadata for the enum type");
-                var getMetadataCall = pinvokeHelperContext != null
-                    ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList())})"
-                    : "PInvoke_getMetadata()";
-                csWriter.WriteLine($"var enumMetadata = {getMetadataCall};");
+                csWriter.WriteLine($"var enumMetadata = {enumMetadataCall};");
                 csWriter.WriteLine();
                 csWriter.WriteLine("// Get metadata for SwiftOptional<EnumType>");
                 var optionalMetadataAccessorCall = pinvokeHelperContext != null
@@ -289,18 +312,22 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine("var slice = new Utf8Slice { Ptr = (IntPtr)utf8Ptr, Len = (nint)utf8Bytes.Length };");
-                    csWriter.WriteLine("PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, (IntPtr)(&slice));");
+                    csWriter.WriteLine(viaMetadata
+                        ? $"{wrapperCallTarget}((IntPtr)resultBuffer, (IntPtr)(&slice), enumMetadata.Handle);"
+                        : $"{wrapperCallTarget}((IntPtr)resultBuffer, (IntPtr)(&slice));");
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
                 }
-                else if (wrapperSymbol != null && pinvokeHelperContext == null)
+                else if (wrapperSymbol != null)
                 {
                     // Blittable raw type with @_cdecl wrapper: Cdecl ABI, IntPtr result buffer
-                    csWriter.WriteLine($"PInvoke_InitWithRawValue_Wrapper((IntPtr)resultBuffer, rawValue);");
+                    csWriter.WriteLine(viaMetadata
+                        ? $"{wrapperCallTarget}((IntPtr)resultBuffer, rawValue, enumMetadata.Handle);"
+                        : $"{wrapperCallTarget}((IntPtr)resultBuffer, rawValue);");
                 }
                 else
                 {
-                    // Blittable raw type: direct P/Invoke (fallback for generic parents or no wrapper lib)
+                    // Blittable raw type: direct P/Invoke (fallback when there is no wrapper lib)
                     csWriter.WriteLine("var swiftIndirectResult = new SwiftIndirectResult(resultBuffer);");
                     var rawInitIndirectCall = pinvokeHelperContext != null
                         ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_InitWithRawValue{enumPInvokeSuffix}(swiftIndirectResult, rawValue, {string.Join(", ", pinvokeHelperContext.GetMetadataArgumentList())})"
@@ -358,22 +385,14 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: P/Invoke for the Swift wrapper
-                    csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibPath}\", EntryPoint = \"{wrapperSymbol}\")]");
-                    csWriter.WriteLine("private static partial void PInvoke_InitWithRawValue_Wrapper(IntPtr resultPtr, IntPtr slicePtr);");
-                    csWriter.WriteLine();
+                    EmitRawRepWrapperDeclaration(csWriter, pinvokeHelperContext, wrapperLibPath, wrapperSymbol!, wrapperMethodName,
+                        "void", "IntPtr resultPtr, IntPtr slicePtr");
                 }
-                else if (wrapperSymbol != null && pinvokeHelperContext == null)
+                else if (wrapperSymbol != null)
                 {
                     // Blittable raw type with @_cdecl wrapper: Cdecl P/Invoke targeting wrapper
-                    PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
-                    {
-                        LibraryPath = wrapperLibPath,
-                        EntryPoint = wrapperSymbol,
-                        MethodName = "PInvoke_InitWithRawValue_Wrapper",
-                        ReturnType = "void",
-                        ParametersString = $"IntPtr resultPtr, {csharpRawType} rawValue"
-                    });
-                    csWriter.WriteLine();
+                    EmitRawRepWrapperDeclaration(csWriter, pinvokeHelperContext, wrapperLibPath, wrapperSymbol, wrapperMethodName,
+                        "void", $"IntPtr resultPtr, {csharpRawType} rawValue");
                 }
                 else if (pinvokeHelperContext != null)
                 {
@@ -449,7 +468,7 @@ namespace BindingsGeneration
                         EntryPoint = caseByIndexSymbol,
                         MethodName = $"PInvoke_CaseByIndex{enumPInvokeSuffix}",
                         ReturnType = "IntPtr",
-                        ParametersString = "nint index",
+                        ParametersString = "nint index, IntPtr enumMetadata",
                         IsAsync = false
                     });
                 }
@@ -481,7 +500,7 @@ namespace BindingsGeneration
                 if (caseByIndexSymbol != null)
                 {
                     var caseByIndexCall = pinvokeHelperContext != null
-                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_CaseByIndex{enumPInvokeSuffix}({i})"
+                        ? $"{pinvokeHelperContext.HelperClassName}.PInvoke_CaseByIndex{enumPInvokeSuffix}({i}, {enumMetadataCall}.Handle)"
                         : $"PInvoke_CaseByIndex({i})";
 
                     if (canCacheCases)
@@ -582,10 +601,49 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Declares the C# side of a RawRepresentable @_cdecl wrapper: in the enum's own class, or in
+        /// the generic parent's helper class with the trailing enum-metadata argument the
+        /// metadata-dispatched Swift wrapper takes.
+        /// </summary>
+        private static void EmitRawRepWrapperDeclaration(CSharpWriter csWriter, PInvokeHelperContext? pinvokeHelperContext,
+            string wrapperLibPath, string wrapperSymbol, string methodName, string returnType, string parameters)
+        {
+            if (pinvokeHelperContext != null)
+            {
+                pinvokeHelperContext.AddDeclaration(new PInvokeDeclaration
+                {
+                    LibraryPath = wrapperLibPath,
+                    EntryPoint = wrapperSymbol,
+                    MethodName = methodName,
+                    ReturnType = returnType,
+                    ParametersString = $"{parameters}, IntPtr enumMetadata",
+                    IsAsync = false
+                });
+                return;
+            }
+
+            PInvokeEmitHelper.EmitDeclaration(csWriter, new PInvokeEmissionInfo
+            {
+                LibraryPath = wrapperLibPath,
+                EntryPoint = wrapperSymbol,
+                MethodName = methodName,
+                ReturnType = returnType,
+                ParametersString = parameters
+            });
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
         /// Emits the Swift wrapper function for String-based enum init(rawValue:).
         /// The wrapper accepts SBW_Utf8Slice, decodes to String, and calls the real init.
         /// </summary>
-        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null)
+        /// <param name="viaMetadata">
+        /// The enum is nested in a generic type, so no top-level Swift spelling names it without
+        /// generic arguments. The wrapper then takes the enum's metadata as a trailing argument and
+        /// runs its body in an extension of the enum, where <c>Self</c> is the instantiation the
+        /// caller's metadata selected (see <see cref="EmitMetadataDispatchedRawRepWrapper"/>).
+        /// </param>
+        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
@@ -595,7 +653,7 @@ namespace BindingsGeneration
             }
 
             // Use the full module-qualified name for nested enums (e.g., Module.ParentClass.NestedEnum)
-            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var enumFullName = viaMetadata ? "Self" : enumDecl.SwiftTypeName.ModuleQualifiedName;
 
             // Emit SBW_Utf8Slice struct if not already done for this module
             Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx);
@@ -604,91 +662,96 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
+            const string decodeSlice = """
+                let slice = slicePtr.load(as: SBW_Utf8Slice.self)
+                let str: Swift.String
+                if slice.len > 0 {
+                    str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
+                        Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
+                        return slice.len
+                    }
+                } else {
+                    str = ""
+                }
+                """;
+
             // Determine if enum is frozen (affects return style)
             if (enumDecl.IsFrozen)
             {
                 // Frozen enum: return Optional pointer directly
                 // Returns nil (NULL) if rawValue is invalid
-                WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
-                swiftWriter.WriteLines($$"""
-                    @_cdecl("{{wrapperSymbol}}")
-                    public func {{wrapperSymbol}}(_ slicePtr: Swift.UnsafeRawPointer) -> Swift.UnsafeMutableRawPointer? {
-                        let slice = slicePtr.load(as: SBW_Utf8Slice.self)
-                        let str: Swift.String
-                        if slice.len > 0 {
-                            str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
-                                Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
-                                return slice.len
-                            }
-                        } else {
-                            str = ""
-                        }
-                        guard let result = {{enumFullName}}(rawValue: str) else {
-                            return nil
-                        }
-                        let ptr = Swift.UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
-                        ptr.initialize(to: result)
-                        return Swift.UnsafeMutableRawPointer(ptr)
+                var body = $$"""
+                    {{decodeSlice}}
+                    guard let result = {{enumFullName}}(rawValue: str) else {
+                        return nil
                     }
-
-                    """);
+                    let ptr = Swift.UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return Swift.UnsafeMutableRawPointer(ptr)
+                    """;
+                EmitRawRepWrapper(swiftWriter, enumDecl, wrapperSymbol, availability, viaMetadata,
+                    ["_ slicePtr: Swift.UnsafeRawPointer"], " -> Swift.UnsafeMutableRawPointer?", body);
             }
             else
             {
                 // Non-frozen enum: write result to indirect return buffer
                 // The caller provides the buffer for Optional<EnumType>
-                WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
-                swiftWriter.WriteLines($$"""
-                    @_cdecl("{{wrapperSymbol}}")
-                    public func {{wrapperSymbol}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ slicePtr: Swift.UnsafeRawPointer) {
-                        let slice = slicePtr.load(as: SBW_Utf8Slice.self)
-                        let str: Swift.String
-                        if slice.len > 0 {
-                            str = Swift.String(unsafeUninitializedCapacity: slice.len) { buf in
-                                Swift.UnsafeMutableRawPointer(buf.baseAddress!).copyMemory(from: slice.ptr, byteCount: slice.len)
-                                return slice.len
-                            }
-                        } else {
-                            str = ""
-                        }
-                        let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
-                        // Use withUnsafePointer + copyMemory instead of storeBytes to avoid
-                        // BitwiseCopyable requirement (Swift 6+) for Swift.Optional<Enum> with String raw values
-                        Swift.withUnsafePointer(to: result) { _srcPtr in
-                            resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
-                        }
+                // Use withUnsafePointer + copyMemory instead of storeBytes to avoid
+                // BitwiseCopyable requirement (Swift 6+) for Swift.Optional<Enum> with String raw values
+                var body = $$"""
+                    {{decodeSlice}}
+                    let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
+                    Swift.withUnsafePointer(to: result) { _srcPtr in
+                        resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
                     }
-
-                    """);
+                    """;
+                EmitRawRepWrapper(swiftWriter, enumDecl, wrapperSymbol, availability, viaMetadata,
+                    ["_ resultPtr: Swift.UnsafeMutableRawPointer", "_ slicePtr: Swift.UnsafeRawPointer"], "", body);
             }
         }
 
         /// <summary>
-        /// Emits a @_cdecl Swift wrapper for non-frozen blittable enum init(rawValue:).
-        /// Writes Optional&lt;Self&gt; to a caller-provided buffer, avoiding CallConvSwift + SwiftIndirectResult
+        /// Emits a @_cdecl Swift wrapper for blittable enum init(rawValue:). A non-frozen enum's
+        /// wrapper writes Optional&lt;Self&gt; to a caller-provided buffer; a frozen enum's returns a
+        /// heap copy of the case or nil. Both avoid avoiding CallConvSwift + SwiftIndirectResult
         /// which crashes on Mono JIT.
         /// </summary>
-        private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null)
+        private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(wrapperSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;
 
-            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var enumFullName = viaMetadata ? "Self" : enumDecl.SwiftTypeName.ModuleQualifiedName;
             var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
-            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
-            swiftWriter.WriteLines($$"""
-                @_cdecl("{{wrapperSymbol}}")
-                public func {{wrapperSymbol}}(_ resultPtr: Swift.UnsafeMutableRawPointer, _ rawValue: {{TypeSpecHelpers.QualifyStdlibScalarName(rawTypeName)}}) {
-                    let result: {{enumFullName}}? = {{enumFullName}}(rawValue: rawValue)
-                    Swift.withUnsafePointer(to: result) { _srcPtr in
-                        resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
+            var rawParam = $"_ rawValue: {TypeSpecHelpers.QualifyStdlibScalarName(rawTypeName)}";
+            if (enumDecl.IsFrozen)
+            {
+                // Frozen enum: return a heap copy of the case, or nil, so C# reads a pointer
+                // whatever the enum's own Optional lowering is.
+                var frozenBody = $$"""
+                    guard let result = {{enumFullName}}(rawValue: rawValue) else {
+                        return nil
                     }
-                }
+                    let ptr = Swift.UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
+                    ptr.initialize(to: result)
+                    return Swift.UnsafeMutableRawPointer(ptr)
+                    """;
+                EmitRawRepWrapper(swiftWriter, enumDecl, wrapperSymbol, availability, viaMetadata,
+                    [rawParam], " -> Swift.UnsafeMutableRawPointer?", frozenBody);
+                return;
+            }
 
-                """);
+            var body = $$"""
+                let result: {{enumFullName}}? = {{enumFullName}}(rawValue: rawValue)
+                Swift.withUnsafePointer(to: result) { _srcPtr in
+                    resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
+                }
+                """;
+            EmitRawRepWrapper(swiftWriter, enumDecl, wrapperSymbol, availability, viaMetadata,
+                ["_ resultPtr: Swift.UnsafeMutableRawPointer", rawParam], "", body);
         }
 
         /// <summary>
@@ -696,14 +759,14 @@ namespace BindingsGeneration
         /// This avoids the ABI JSON limitation where actual raw values are unknown —
         /// cases are constructed directly (e.g., .ok, .notFound) rather than through init(rawValue:).
         /// </summary>
-        private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null)
+        private void EmitCaseByIndexSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, List<EnumCaseDecl> simpleCases, string caseByIndexSymbol, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One case-by-index wrapper per enum, keyed by symbol name.
             if (!ctx.TryAddEnumRawRepWrapperSymbol(caseByIndexSymbol, DeclIdFactory.ForType(enumDecl)))
                 return;
 
-            var enumFullName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var enumFullName = viaMetadata ? "Self" : enumDecl.SwiftTypeName.ModuleQualifiedName;
             // Walk every case's @available so cases added in newer SDKs (e.g.
             // ModelDebugOptionsComponent.VisualizationMode.clearcoatNormal at iOS 18 in an
             // iOS 14 enum) lift the wrapper's floor — referencing them under the enum's
@@ -719,31 +782,99 @@ namespace BindingsGeneration
             }
             var availability = WrapperEmitterHelpers.MergeAvailability(caseAnnotations, enumDecl);
 
-            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             var sb = new System.Text.StringBuilder();
-            sb.AppendLine($"@_cdecl(\"{caseByIndexSymbol}\")");
-            sb.AppendLine($"public func {caseByIndexSymbol}(_ index: Swift.Int) -> Swift.UnsafeMutableRawPointer {{");
-            sb.AppendLine($"    let value: {enumFullName}");
-            sb.AppendLine("    switch index {");
+            sb.AppendLine($"let value: {enumFullName}");
+            sb.AppendLine("switch index {");
             for (int i = 0; i < simpleCases.Count; i++)
             {
                 // Skip @_spi-protected cases — inaccessible without @_spi import
                 if (simpleCases[i].IsSpiProtected)
                 {
-                    sb.AppendLine($"    case {i}: Swift.fatalError(\"[SwiftBindings] Case at index \\({i}) is @_spi protected\")");
+                    sb.AppendLine($"case {i}: Swift.fatalError(\"[SwiftBindings] Case at index \\({i}) is @_spi protected\")");
                     continue;
                 }
-                sb.AppendLine($"    case {i}: value = .{simpleCases[i].Name}");
+                sb.AppendLine($"case {i}: value = .{simpleCases[i].Name}");
             }
-            sb.AppendLine($"    default: Swift.fatalError(\"[SwiftBindings] Invalid case index \\(index) for {enumFullName}\")");
-            sb.AppendLine("    }");
-            sb.AppendLine($"    let ptr = Swift.UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
-            sb.AppendLine("    ptr.initialize(to: value)");
-            sb.AppendLine("    return Swift.UnsafeMutableRawPointer(ptr)");
+            sb.AppendLine($"default: Swift.fatalError(\"[SwiftBindings] Invalid case index \\(index) for {enumDecl.SwiftTypeName.ModuleQualifiedName}\")");
             sb.AppendLine("}");
+            sb.AppendLine($"let ptr = Swift.UnsafeMutablePointer<{enumFullName}>.allocate(capacity: 1)");
+            sb.AppendLine("ptr.initialize(to: value)");
+            sb.Append("return Swift.UnsafeMutableRawPointer(ptr)");
 
-            swiftWriter.WriteLines(sb.ToString());
+            EmitRawRepWrapper(swiftWriter, enumDecl, caseByIndexSymbol, availability, viaMetadata,
+                ["_ index: Swift.Int"], " -> Swift.UnsafeMutableRawPointer", sb.ToString());
+        }
+
+        /// <summary>
+        /// Writes one RawRepresentable @_cdecl wrapper: directly when the enum has a top-level
+        /// Swift spelling, through <see cref="EmitMetadataDispatchedRawRepWrapper"/> when it does not.
+        /// </summary>
+        private static void EmitRawRepWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string symbol,
+            IReadOnlyList<AvailabilityAnnotation>? availability, bool viaMetadata,
+            IReadOnlyList<string> cdeclParams, string returnClause, string body)
+        {
+            if (viaMetadata)
+            {
+                EmitMetadataDispatchedRawRepWrapper(swiftWriter, enumDecl, symbol, availability, cdeclParams, returnClause, body);
+                return;
+            }
+
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
+            swiftWriter.WriteLine($"public func {symbol}({string.Join(", ", cdeclParams)}){returnClause} {{");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLines(body);
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
             swiftWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Writes a RawRepresentable wrapper for an enum nested in a generic type. A top-level
+        /// function cannot spell <c>Module.Box.Kind</c> without the parent's generic arguments, and
+        /// a constrained extension's nested enum (<c>extension Box where T: P { enum Kind }</c>)
+        /// cannot be spelled at all without a conforming argument. So the body moves into an
+        /// extension of the enum behind a private static requirement, where <c>Self</c> is the
+        /// instantiation; the @_cdecl entry point takes the enum's complete metadata as its last
+        /// argument and dispatches through the requirement. The caller already holds that metadata
+        /// (it resolves it, with every witness table the parent's constraints need, through the
+        /// enum's metadata accessor), so the wrapper takes no generic arguments of its own.
+        /// </summary>
+        private static void EmitMetadataDispatchedRawRepWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string symbol,
+            IReadOnlyList<AvailabilityAnnotation>? availability, IReadOnlyList<string> cdeclParams, string returnClause, string body)
+        {
+            var hash = EmitterUtility.DeterministicHash8(symbol);
+            var protocolName = $"_SBW_RR_{hash}";
+            var methodName = $"_sbw_rr_{hash}";
+            var availPrefix = WrapperEmitterHelpers.BuildAvailabilityHeredocPrefix(availability, "");
+            // The protocol and its conformance carry no @_cdecl symbol; the anchor attributes a
+            // compile failure inside either to the enum, as the generic property getters do.
+            var originAnchor = OriginAnchorEmitter.LineForWrapper(enumDecl);
+            var paramList = string.Join(", ", cdeclParams);
+            var callArgs = string.Join(", ", cdeclParams.Select(p => p.Split(':')[0].Trim().Split(' ')[^1]));
+            var indentedBody = string.Join("\n        ", body.Split('\n'));
+
+            swiftWriter.WriteLines($$"""
+                {{originAnchor}}
+                {{availPrefix}}private protocol {{protocolName}}{{WrapperEmitterHelpers.DispatchProtocolCopyability(enumDecl)}} {
+                    static func {{methodName}}({{paramList}}){{returnClause}}
+                }
+                {{originAnchor}}
+                {{availPrefix}}extension {{enumDecl.SwiftTypeName.ModuleQualifiedName}}: {{protocolName}} {
+                    static func {{methodName}}({{paramList}}){{returnClause}} {
+                        {{indentedBody}}
+                    }
+                }
+                """);
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLines($$"""
+                @_cdecl("{{symbol}}")
+                public func {{symbol}}({{paramList}}, _ _enumMetadata: Swift.UnsafeRawPointer){{returnClause}} {
+                    let _metatype = Swift.unsafeBitCast(_enumMetadata, to: Any.Type.self) as! any {{protocolName}}.Type
+                    return _metatype.{{methodName}}({{callArgs}})
+                }
+
+                """);
         }
 
         // Utf8Slice struct is now shared at module level (emitted by ModuleHandler).

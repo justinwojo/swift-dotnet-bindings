@@ -465,10 +465,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
-                // Emit constrained-extension specialization classes (e.g., extension X where T == Concrete)
-                ConstrainedExtensionEmitter.EmitConstrainedExtensions(
-                    csWriter, swiftWriter, structDecl,
-                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+                // Emit constrained-extension specialization classes (e.g., extension X where T == Concrete).
+                // A nested type cannot host these static extension classes after its own body
+                // (still inside the enclosing type, CS1109); see NamespaceScopeEmission.
+                NamespaceScopeEmission.EmitOrDefer(csWriter, swiftWriter, structDecl, context, nsWriter =>
+                    ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+                        nsWriter, swiftWriter, structDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), _logger));
 
                 // Generic-parent CSM: per-parent-conformer static extension classes.
                 // Must live outside the parent's body so the receiver can close over the generic.
@@ -510,6 +513,7 @@ namespace BindingsGeneration
                         context.DeferredPInvokeHelperContexts.Clear();
                     }
                 }
+                NamespaceScopeEmission.DrainAfterOutermost(csWriter, structDecl, context);
             }
         }
 

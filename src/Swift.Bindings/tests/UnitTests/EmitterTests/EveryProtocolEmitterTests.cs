@@ -901,12 +901,13 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void CrossCarrierInheritedRequirement_CrossModuleParentNotSupplied_SplitNotDetected()
+    public void CrossCarrierInheritedRequirement_CrossModuleParentNotSupplied_ChildUnwitnessed()
     {
-        // Guards the load-bearing crossModuleParents argument: without it the gate cannot resolve the
-        // cross-module parent's carrier, so the split is silently missed and the child is NOT suppressed.
-        // ModuleHandler MUST pass the parents (which it does) for the cross-module split to be caught —
-        // this asserts the mechanism is the parent list, not incidental behaviour.
+        // Guards the load-bearing crossModuleParents argument from the other side: without it the
+        // dependency parent resolves to no decl, so nothing in this module writes its witnesses and
+        // the child conformance cannot compile. The child is skipped as unwitnessed (not for a
+        // carrier split, which needs the parent's decl to detect). ModuleHandler passes the parents,
+        // which is what keeps a real dependency parent witnessed (see the next test).
         var child = CreateProtocolWithProperty("UnresolvedParentChild", "flag", hasGetter: true, hasSetter: false);
         child.InheritedProtocols.Add(new NamedTypeSpec("DepModule.DepCarrierParent"));
         child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
@@ -914,7 +915,100 @@ public class EveryProtocolEmitterTests
         // No crossModuleParents supplied — the dep parent is unresolvable.
         _emitter.PreScanProtocols(new[] { child });
 
+        Assert.True(_emitter.IsConformanceSkipped(child));
+    }
+
+    /// <summary>
+    /// A protocol refining a requirement-bearing protocol of a module this run never loaded (the
+    /// LiveCommunicationKit <c>LiveAssistanceExtensionConfiguration :
+    /// ExtensionFoundation.AppExtensionConfiguration</c> shape): no decl for the parent reaches the
+    /// emitter, so its requirement can never be witnessed and an empty
+    /// <c>extension EveryProtocol: Child {}</c> fails with "does not conform to protocol
+    /// 'AppExtensionConfiguration'". Both channels that carry the inheritance (the qualified genericSig
+    /// clause and the bare parsed conformance) must reach the same answer.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UnloadedForeignParent_ChildConformanceSkipped(bool viaGenericSig)
+    {
+        var child = CreateCompositionProtocol("ForeignConfigAccepting");
+        if (viaGenericSig)
+        {
+            child.GenericSignature = "<τ_0_0 : ExtensionFoundation.AppExtensionConfiguration>";
+            child.InheritedProtocols.Add(new NamedTypeSpec("AppExtensionConfiguration"));
+        }
+        else
+        {
+            child.InheritedProtocols.Add(new NamedTypeSpec("ExtensionFoundation.AppExtensionConfiguration"));
+        }
+
+        _emitter.PreScanProtocols(new[] { child });
+
+        Assert.True(_emitter.IsConformanceSkipped(child));
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.ForeignConfigAccepting", EmitFullConformance(child));
+    }
+
+    /// <summary>
+    /// The positive control for <see cref="UnloadedForeignParent_ChildConformanceSkipped"/>: a parent
+    /// in a loaded --framework-dependency module gets its own conformance in this module, so an empty
+    /// child refining it keeps its conformance (and the parent's witnesses dispatch through it).
+    /// </summary>
+    [Fact]
+    public void LoadedDependencyParent_EmptyChildConformanceKept()
+    {
+        var parent = CreateCrossModuleParentWithMethod("DepModule", "DepAccepting", "accept");
+        var child = CreateCompositionProtocol("LocalAccepting", "DepModule.DepAccepting");
+        child.GenericSignature = "<τ_0_0 : DepModule.DepAccepting>";
+
+        _emitter.PreScanProtocols(new[] { child }, new[] { parent });
+
         Assert.False(_emitter.IsConformanceSkipped(child));
+        Assert.Contains("extension EveryProtocol: TestModule.LocalAccepting", EmitFullConformance(child));
+    }
+
+    /// <summary>
+    /// Swift system modules are outside the unloaded-module rule: their protocols stay with the
+    /// arms that predate it (trivial markers, Codable stubs, the unsatisfied-stdlib list).
+    /// <c>Swift.CustomReflectable</c> is in none of those, so it is the one shape that reaches the
+    /// rule, and the rule must not change its outcome.
+    /// </summary>
+    [Fact]
+    public void SwiftSystemModuleParent_LeftToThePreexistingArms()
+    {
+        var child = CreateCompositionProtocol("ReflectedChild", "Swift.CustomReflectable");
+        child.GenericSignature = "<τ_0_0 : Swift.CustomReflectable>";
+
+        _emitter.PreScanProtocols(new[] { child });
+
+        Assert.False(_emitter.IsConformanceSkipped(child));
+    }
+
+    /// <summary>
+    /// A loaded protocol that only shares the simple name of the unloaded parent does not witness
+    /// it: <c>Child : Unloaded.Parent</c> stays unwitnessed although a local <c>Parent</c> exists.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UnloadedForeignParent_LocalNamesakeDoesNotStandIn(bool viaGenericSig)
+    {
+        var localNamesake = CreateCompositionProtocol("AppExtensionConfiguration");
+        var child = CreateCompositionProtocol("ForeignConfigAccepting");
+        if (viaGenericSig)
+        {
+            child.GenericSignature = "<τ_0_0 : ExtensionFoundation.AppExtensionConfiguration>";
+            child.InheritedProtocols.Add(new NamedTypeSpec("AppExtensionConfiguration"));
+        }
+        else
+        {
+            child.InheritedProtocols.Add(new NamedTypeSpec("ExtensionFoundation.AppExtensionConfiguration"));
+        }
+
+        _emitter.PreScanProtocols(new[] { localNamesake, child });
+
+        Assert.False(_emitter.IsConformanceSkipped(localNamesake));
+        Assert.True(_emitter.IsConformanceSkipped(child));
     }
 
     [Fact]

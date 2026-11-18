@@ -111,6 +111,12 @@ internal static class MemberSignatureNormalizer
                 if (s.StartsWith(prefix + " "))
                 {
                     s = s.Substring(prefix.Length + 1).TrimStart();
+                    // An opaque parameter is a different type from the existential of the same
+                    // constraint (`f(_: some P)` and `f(_: any P)` can overload each other), so
+                    // `some` stays in the key, over the whole normalized constraint; the
+                    // parentheses of `some (P)` or `some (P & Q)` add nothing to it.
+                    if (prefix == "some")
+                        return "some " + NormalizeParamType(PeelEnclosingParentheses(s));
                     stripped = true;
                     break;
                 }
@@ -135,9 +141,43 @@ internal static class MemberSignatureNormalizer
 
         // Strip trailing optionality markers (`Int?`, `Int!`). Done before the
         // generic split so `Array<Int>?` reduces to `Array<Int>` and recurses.
+        var optionalDepth = 0;
         while (s.Length > 0 && (s[s.Length - 1] == '?' || s[s.Length - 1] == '!'))
+        {
             s = s.Substring(0, s.Length - 1);
+            optionalDepth++;
+        }
         s = s.TrimEnd();
+
+        // `(some P)?` and `(any P & Q)?` parenthesize an opaque type or a composition only to
+        // apply `?`. Their keys keep each level of optionality, so `f(_: (some P)?)` and
+        // `f(_: some P)`, or `f(_: (any P & Q)?)` and `f(_: any P & Q)`, stay apart.
+        if (s.Length >= 2 && s[0] == '(' && s[s.Length - 1] == ')' && EnclosesWhole(s))
+        {
+            var inner = PeelEnclosingParentheses(s);
+            if (inner.StartsWith("some ", StringComparison.Ordinal) || TrySplitTopLevelComposition(inner) != null)
+                return NormalizeParamType(inner) + new string('?', optionalDepth);
+        }
+
+        // A protocol composition (`Error & FloorQ`, `(any P & Q)`) has no canonical order: the
+        // interface prints the source order while the ABI descriptor sorts an opaque parameter's
+        // requirements its own way. Each member is normalized on its own, then the members are
+        // sorted ordinally and joined with `&`; a member that repeats is kept once, as the ABI
+        // keeps it. Before this rule the last-dot step below cut a qualified composition
+        // (`M.P & M.Q`) down to its final member.
+        var composition = TrySplitTopLevelComposition(s);
+        if (composition != null)
+        {
+            var members = new List<string>(composition.Count);
+            foreach (var member in composition)
+            {
+                var normalized = NormalizeParamType(member);
+                if (!members.Contains(normalized))
+                    members.Add(normalized);
+            }
+            members.Sort(System.StringComparer.Ordinal);
+            return string.Join("&", members);
+        }
 
         // Canonicalize collection sugar to nominal generic form:
         //   `[T]`      → `Array<T>`
@@ -369,6 +409,72 @@ internal static class MemberSignatureNormalizer
         }
         if (start <= text.Length)
             yield return text.Substring(start);
+    }
+
+    /// <summary>
+    /// Splits a protocol composition into its members at top-level <c>&amp;</c>, after peeling
+    /// one pair of parentheses that encloses the whole text. Returns null when the text is not a
+    /// composition (no top-level <c>&amp;</c>), so <c>(A &amp; B) -&gt; Void</c> stays whole.
+    /// MIRROR-LOCKED with <c>AvailabilityWalker.splitTopLevelComposition</c>.
+    /// </summary>
+    private static List<string>? TrySplitTopLevelComposition(string text)
+    {
+        var body = PeelEnclosingParentheses(text);
+
+        List<string>? members = null;
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < body.Length; i++)
+        {
+            var c = body[i];
+            if (c == '(' || c == '[' || c == '<') depth++;
+            else if (c == ')' || c == ']' || c == '>') depth--;
+            else if (c == '&' && depth == 0)
+            {
+                members ??= new List<string>();
+                members.Add(body.Substring(start, i - start).Trim());
+                start = i + 1;
+            }
+        }
+        if (members == null) return null;
+        members.Add(body.Substring(start).Trim());
+
+        // A grouped member (`B & (A & C)`) is flattened into the list, the way the ABI lists a
+        // composition's requirements, so the sort sees every member.
+        var flat = new List<string>(members.Count);
+        foreach (var member in members)
+        {
+            if (TrySplitTopLevelComposition(member) is { } nested && PeelEnclosingParentheses(member) != member)
+                flat.AddRange(nested);
+            else
+                flat.Add(member);
+        }
+        return flat;
+    }
+
+    // `((X))` → `X`: every parenthesis pair that encloses the whole text is removed.
+    private static string PeelEnclosingParentheses(string text)
+    {
+        var t = text.Trim();
+        while (t.Length >= 2 && t[0] == '(' && t[t.Length - 1] == ')' && EnclosesWhole(t))
+            t = t.Substring(1, t.Length - 2).Trim();
+        return t;
+    }
+
+    // True when the opening parenthesis at 0 closes at the last character.
+    private static bool EnclosesWhole(string t)
+    {
+        int d = 0;
+        for (int i = 0; i < t.Length; i++)
+        {
+            if (t[i] == '(' || t[i] == '[' || t[i] == '<') d++;
+            else if (t[i] == ')' || t[i] == ']' || t[i] == '>')
+            {
+                d--;
+                if (d == 0 && i != t.Length - 1) return false;
+            }
+        }
+        return true;
     }
 
     private static int FindLastTopLevelColon(string text)

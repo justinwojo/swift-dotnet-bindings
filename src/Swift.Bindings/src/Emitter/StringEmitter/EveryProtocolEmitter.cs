@@ -290,6 +290,24 @@ public class EveryProtocolEmitter
     /// </summary>
     private ProtocolDecl? ResolveInheritedConformer(string simpleName, string qualifiedName)
     {
+        var qualifiedHit = ResolveQualifiedConformer(qualifiedName);
+        if (qualifiedHit != null)
+            return qualifiedHit;
+
+        // No module-qualified match: the reference is unqualified (simpleName == qualifiedName), or
+        // the candidate carries no module metadata. Resolve by simple name — an unqualified Swift
+        // reference is only well-formed when exactly one protocol of that name is in scope.
+        bool MatchesSimple(ProtocolDecl p) => p.Name == simpleName;
+        return _allProtocols?.FirstOrDefault(MatchesSimple)
+            ?? _crossModuleParents?.FirstOrDefault(MatchesSimple);
+    }
+
+    /// <summary>
+    /// The exact-match phase of <see cref="ResolveInheritedConformer"/>: the loaded protocol whose
+    /// own name, Swift type name or module-qualified name is <paramref name="qualifiedName"/>.
+    /// </summary>
+    private ProtocolDecl? ResolveQualifiedConformer(string qualifiedName)
+    {
         bool MatchesQualified(ProtocolDecl p) =>
             // Bare-name arm. Dead for a module-qualified reference (a candidate's simple Name never
             // equals "Module.Name"), but LOAD-BEARING for an unqualified one: it binds an unqualified
@@ -301,17 +319,8 @@ public class EveryProtocolEmitter
             p.SwiftTypeName?.ToString() == qualifiedName ||
             QualifiedProtocolName(p) == qualifiedName;
 
-        var qualifiedHit = _allProtocols?.FirstOrDefault(MatchesQualified)
+        return _allProtocols?.FirstOrDefault(MatchesQualified)
             ?? _crossModuleParents?.FirstOrDefault(MatchesQualified);
-        if (qualifiedHit != null)
-            return qualifiedHit;
-
-        // No module-qualified match: the reference is unqualified (simpleName == qualifiedName), or
-        // the candidate carries no module metadata. Resolve by simple name — an unqualified Swift
-        // reference is only well-formed when exactly one protocol of that name is in scope.
-        bool MatchesSimple(ProtocolDecl p) => p.Name == simpleName;
-        return _allProtocols?.FirstOrDefault(MatchesSimple)
-            ?? _crossModuleParents?.FirstOrDefault(MatchesSimple);
     }
 
     /// <summary>
@@ -7665,6 +7674,21 @@ public class EveryProtocolEmitter
         // These are often ObjC protocol backing types (e.g., ExternalModule._internal_SomeDelegate)
         // that we can't inspect. Conservative: skip rather than emit broken conformance.
         if (moduleName != _moduleName && typeName.StartsWith("_"))
+            return true;
+
+        // Case 4: a protocol from a module whose declarations this run never loaded — neither this
+        // module nor a --framework-dependency, so no decl for it reaches the emitter and nothing can
+        // write its witnesses. Declaring the child conformance would still make Swift demand them
+        // (LiveCommunicationKit's `LiveAssistanceExtensionConfiguration :
+        // ExtensionFoundation.AppExtensionConfiguration`, whose `accept(connection:)` requirement
+        // the generator never sees). Case 1 names the Apple modules this already held for; the
+        // fact is the same for every module outside the loaded set, so it no longer depends on the
+        // module being listed. Swift system modules are left to the trivial and stdlib arms.
+        // A module-qualified reference must find that exact protocol: the simple-name fallback
+        // would let a loaded namesake (a local `Parent`) stand in for `Unloaded.Parent`.
+        if (moduleName != _moduleName
+            && !AppleFrameworkRegistry.IsSwiftSystemModule(moduleName)
+            && ResolveQualifiedConformer(constraint) == null)
             return true;
 
         return false;

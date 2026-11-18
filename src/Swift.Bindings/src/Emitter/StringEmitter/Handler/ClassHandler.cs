@@ -473,10 +473,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
-                // Emit constrained-extension specialization classes (e.g., extension X where T == Concrete)
-                ConstrainedExtensionEmitter.EmitConstrainedExtensions(
-                    csWriter, swiftWriter, classDecl,
-                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+                // Emit constrained-extension specialization classes (e.g., extension X where T == Concrete).
+                // A nested type cannot host these static extension classes after its own body
+                // (still inside the enclosing type, CS1109); see NamespaceScopeEmission.
+                NamespaceScopeEmission.EmitOrDefer(csWriter, swiftWriter, classDecl, context, nsWriter =>
+                    ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+                        nsWriter, swiftWriter, classDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), _logger));
 
                 // Foundation KVO observe extensions for NSObject-rooted
                 // classes with `@objc dynamic` stored properties. Lives at
@@ -548,6 +551,7 @@ namespace BindingsGeneration
                         context.DeferredPInvokeHelperContexts.Clear();
                     }
                 }
+                NamespaceScopeEmission.DrainAfterOutermost(csWriter, classDecl, context);
             }
         }
 

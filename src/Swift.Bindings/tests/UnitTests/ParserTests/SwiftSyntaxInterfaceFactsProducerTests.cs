@@ -156,6 +156,167 @@ public class SwiftSyntaxInterfaceFactsProducerTests
     }
 
     [SkippableFact]
+    public void OpaqueParameterOverloads_AbiKeysFindTheirExtensionFloor()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OpaqueParameterOverloads_AbiKeysFindTheirExtensionFloor));
+        // Two overloads that differ only in their `some` constraint share a printedName, so each
+        // reaches its floor only through its disambiguated key. The ABI descriptor spells both
+        // parameters `τ_0_0` and lists the composition's requirements in its own order.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public protocol FloorP { }
+            public protocol FloorQ { }
+            public struct Host { }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public init(wrapping a: some FloorP)
+              public init(wrapping b: some (Error & FloorQ))
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            foreach (var genericSig in new[]
+            {
+                "<τ_0_0 where τ_0_0 : Kit.FloorP>",
+                "<τ_0_0 where τ_0_0 : Kit.FloorQ, τ_0_0 : Swift.Error>",
+            })
+            {
+                var node = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", "init(wrapping:)", "Kit.Host", "τ_0_0");
+                node.GenericSig = genericSig;
+                var key = MemberSignatureNormalizer.ComposeKey("Host.init(wrapping:)", SwiftABIParser.ComputeAbiParamSignature(node));
+                Assert.True(facts.AvailabilityAnnotations!.TryGetValue(key, out var annotations),
+                    $"no availability under '{key}'; keys: {string.Join(", ", facts.AvailabilityAnnotations.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)))}");
+                Assert.Contains(annotations!, a => a.Platform == "iOS" && a.IntroducedVersion == "99");
+            }
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void OpaqueAndExistentialOverloadsOfOneConstraint_KeepTheirOwnFloors()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OpaqueAndExistentialOverloadsOfOneConstraint_KeepTheirOwnFloors));
+        // `some (Error & FloorQ)` and `any Error & FloorQ` are different parameter types, so the
+        // opaque overload's future floor must not reach the always-available existential one.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public protocol FloorQ { }
+            public struct Host {
+              public init(wrapping c: any Error & FloorQ)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public init(wrapping b: some (Error & FloorQ))
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var keys = string.Join(", ", facts.AvailabilityAnnotations!.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)));
+
+            var opaque = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", "init(wrapping:)", "Kit.Host", "τ_0_0");
+            opaque.GenericSig = "<τ_0_0 where τ_0_0 : Kit.FloorQ, τ_0_0 : Swift.Error>";
+            var opaqueKey = MemberSignatureNormalizer.ComposeKey("Host.init(wrapping:)", SwiftABIParser.ComputeAbiParamSignature(opaque));
+            Assert.True(facts.AvailabilityAnnotations!.TryGetValue(opaqueKey, out var opaqueAnnotations), $"no availability under '{opaqueKey}'; keys: {keys}");
+            Assert.Contains(opaqueAnnotations!, a => a.Platform == "iOS" && a.IntroducedVersion == "99");
+
+            var existential = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", "init(wrapping:)", "Kit.Host", "any Swift.Error & Kit.FloorQ");
+            var existentialKey = MemberSignatureNormalizer.ComposeKey("Host.init(wrapping:)", SwiftABIParser.ComputeAbiParamSignature(existential));
+            Assert.NotEqual(opaqueKey, existentialKey);
+            Assert.False(facts.AvailabilityAnnotations.TryGetValue(existentialKey, out var existentialAnnotations)
+                && existentialAnnotations.Any(a => a.IntroducedVersion == "99"),
+                $"the existential overload took the opaque overload's floor under '{existentialKey}'; keys: {keys}");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void OptionalAndParenthesizedOpaqueOverloads_KeepTheirOwnFloors()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OptionalAndParenthesizedOpaqueOverloads_KeepTheirOwnFloors));
+        // `(some P)?` and `some (P)` are different parameter types; the floored `some (P)` overload
+        // must reach its own ABI key, and must not reach the always-available optional one.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public protocol FloorP { }
+            public struct Host {
+              public func take(_ p: (some FloorP)?)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public func take(_ p: some (FloorP))
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var keys = string.Join(", ", facts.AvailabilityAnnotations!.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)));
+
+            var floored = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("take", "take(_:)", "Kit.Host", "τ_0_0");
+            floored.GenericSig = "<τ_0_0 where τ_0_0 : Kit.FloorP>";
+            var flooredKey = MemberSignatureNormalizer.ComposeKey("Host.take(_:)", SwiftABIParser.ComputeAbiParamSignature(floored));
+            Assert.True(facts.AvailabilityAnnotations!.TryGetValue(flooredKey, out var flooredAnnotations), $"no availability under '{flooredKey}'; keys: {keys}");
+            Assert.Contains(flooredAnnotations!, a => a.Platform == "iOS" && a.IntroducedVersion == "99");
+
+            var optional = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("take", "take(_:)", "Kit.Host", "τ_0_0?");
+            optional.GenericSig = "<τ_0_0 where τ_0_0 : Kit.FloorP>";
+            var optionalKey = MemberSignatureNormalizer.ComposeKey("Host.take(_:)", SwiftABIParser.ComputeAbiParamSignature(optional));
+            Assert.NotEqual(flooredKey, optionalKey);
+            Assert.False(facts.AvailabilityAnnotations.TryGetValue(optionalKey, out var optionalAnnotations)
+                && optionalAnnotations.Any(a => a.IntroducedVersion == "99"),
+                $"the optional overload took the floored overload's floor under '{optionalKey}'; keys: {keys}");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
+    public void OptionalCompositionAndNestedGroupOverloads_KeepTheirOwnFloors()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OptionalCompositionAndNestedGroupOverloads_KeepTheirOwnFloors));
+        // The floored `(any FloorR & FloorP)?` overload must not lend its floor to the required
+        // `any FloorP & FloorR` one, and the floored `some (FloorR & (FloorQ & FloorP))` must reach
+        // the ABI key of its flat requirement list.
+        var source = """
+            // swift-module-flags: -module-name Kit
+            public protocol FloorP { }
+            public protocol FloorQ { }
+            public protocol FloorR { }
+            public struct Host {
+              public func take(_ p: any FloorP & FloorR)
+              public func take(_ p: some FloorQ)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public func take(_ p: (any FloorR & FloorP)?)
+              public func take(_ p: some (FloorR & (FloorQ & FloorP)))
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var keys = string.Join(", ", facts.AvailabilityAnnotations!.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)));
+            string KeyOf(string printedName, string? genericSig = null)
+            {
+                var node = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("take", "take(_:)", "Kit.Host", printedName);
+                if (genericSig != null) node.GenericSig = genericSig;
+                return MemberSignatureNormalizer.ComposeKey("Host.take(_:)", SwiftABIParser.ComputeAbiParamSignature(node));
+            }
+            bool Floored(string key) => facts.AvailabilityAnnotations!.TryGetValue(key, out var a) && a.Any(x => x.IntroducedVersion == "99");
+
+            Assert.True(Floored(KeyOf("(any Kit.FloorP & Kit.FloorR)?")), $"optional composition lost its floor; keys: {keys}");
+            Assert.False(Floored(KeyOf("any Kit.FloorP & Kit.FloorR")), $"required composition took the optional overload's floor; keys: {keys}");
+            Assert.True(Floored(KeyOf("τ_0_0", "<τ_0_0 where τ_0_0 : Kit.FloorP, τ_0_0 : Kit.FloorQ, τ_0_0 : Kit.FloorR>")),
+                $"nested-group opaque overload lost its floor; keys: {keys}");
+        }
+        finally { File.Delete(path); }
+    }
+
+    [SkippableFact]
     public void AnyAppleOSAvailability_ExpandsToEachAppleOSTheDeclarationDoesNotName()
     {
         var annotations = ProduceAvailability("""

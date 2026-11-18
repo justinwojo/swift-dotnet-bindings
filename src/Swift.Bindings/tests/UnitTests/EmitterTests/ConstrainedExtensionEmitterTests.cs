@@ -324,6 +324,37 @@ public class ConstrainedExtensionEmitterTests
         };
     }
 
+    [Fact]
+    public void RenderClosedCSharpParent_SpellsEachLevelByItsEmittedName()
+    {
+        // `Host.Entry` was renamed to `EntryInfo` (a `Host.entry` property collides with it), and
+        // `Box<T>` nests inside it: the receiver must reach Box through the renamed class.
+        var host = CreateStructDecl("Host", isGeneric: false);
+        var entry = CreateStructDecl("Entry", isGeneric: false) with
+        {
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Host.Entry"),
+            ParentDecl = host,
+        };
+        var box = CreateGenericStructDecl("Box", "T") with
+        {
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Host.Entry.Box"),
+            ParentDecl = entry,
+        };
+        var db = BuildEmissionTypeDatabase(new[]
+        {
+            (entry.SwiftTypeName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Host.EntryInfo"),
+                SwiftTypeName = entry.SwiftTypeName,
+                MetadataAccessor = "",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+            }),
+        });
+
+        Assert.Equal("Host.EntryInfo.Box<ConcreteA>", ConstrainedExtensionEmitter.RenderClosedCSharpParent(box, "ConcreteA", db));
+    }
+
     // ==================== Helpers ====================
 
     private static StructDecl CreateStructDecl(string name, bool isGeneric)

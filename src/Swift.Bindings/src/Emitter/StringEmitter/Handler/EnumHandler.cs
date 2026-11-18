@@ -654,9 +654,14 @@ namespace BindingsGeneration
                 // re-surfaced as closed-generic extension methods, so consumers
                 // lose the property surface entirely. StoreKit2's
                 // `VerificationResult<SignedType>.jwsRepresentation` is the canonical case.
-                ConstrainedExtensionEmitter.EmitConstrainedExtensions(
-                    csWriter, swiftWriter, enumDecl,
-                    env.TypeDatabase, context.GetEmissionContext(), _logger);
+                // A nested type cannot host these static extension classes after its own body
+                // (still inside the enclosing type, CS1109); see NamespaceScopeEmission.
+                NamespaceScopeEmission.EmitOrDefer(csWriter, swiftWriter, enumDecl, context, nsWriter =>
+                {
+                    ConstrainedExtensionEmitter.EmitConstrainedExtensions(
+                        nsWriter, swiftWriter, enumDecl,
+                        env.TypeDatabase, context.GetEmissionContext(), _logger);
+                });
 
                 // Emit P/Invoke helper class(es) after the main enum.
                 // If this is a nested generic inside a generic parent, defer emission
@@ -673,6 +678,7 @@ namespace BindingsGeneration
                         context.DeferredPInvokeHelperContexts.Clear();
                     }
                 }
+                NamespaceScopeEmission.DrainAfterOutermost(csWriter, enumDecl, context);
             }
         }
 
@@ -844,6 +850,7 @@ namespace BindingsGeneration
                     context.DeferredPInvokeHelperContexts.Clear();
                 }
             }
+            NamespaceScopeEmission.DrainAfterOutermost(csWriter, enumDecl, context);
         }
 
         /// <summary>
