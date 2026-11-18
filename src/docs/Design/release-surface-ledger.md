@@ -27,12 +27,17 @@ the generated C# at both points, and a metadata listing of every public and prot
 `CompileCheck.dll` built from each generator (21825 rows at `sdk-v0.20.2`, 24622 on the branch
 before the fixture added below).
 
-| Measure | sdk-v0.20.2 | Branch | Change |
-|---|---|---|---|
-| API-manifest members | 6146 | 6983 | 837 added (21 from the fixture below), 0 removed |
-| Members whose entry point moved (same C# signature) | | 43 | 15 direct Swift call → `@_cdecl` wrapper, 27 `@_cdecl` wrapper → native thunk, 1 wrapper → wrapper |
-| Skip-surface markers | 348 | 348 | `SB0001` 23 → 11, `Unsupported` 284 → 294 (one from the fixture below), `UnsupportedSwiftType` 41 → 43 |
-| Members carrying a transition guard | none (no guard existed) | 3 | see below |
+| Measure | sdk-v0.20.2 | Branch (first measurement) | Candidate (`4600d8f2`) | Change against sdk-v0.20.2 |
+|---|---|---|---|---|
+| API-manifest members | 6146 | 6983 | 7160 | 1014 added, 0 removed: every (module, signature) entry of `sdk-v0.20.2` is in the candidate's baseline |
+| Members whose entry point moved (same C# signature) | | 43 | 43 | 15 direct Swift call → `@_cdecl` wrapper, 27 `@_cdecl` wrapper → native thunk, 1 wrapper → wrapper |
+| Skip-surface markers | 348 | 348 | 372 | `SB0001` 23 → 10, `Unsupported` 284 → 305, `UnsupportedSwiftType` 41 → 57 |
+| Members carrying a transition guard | none (no guard existed) | 3 | not re-measured | see below |
+
+The candidate column reads the committed API-manifest and skip-surface baselines; the moved entry
+points are the API manifest's own entry-point column, unchanged since the first measurement. The
+24 markers gained since the first measurement all come from fixtures added after it and are listed
+under "Candidate changes since the first measurement" below.
 
 ### Members public in sdk-v0.20.2 that are now removed, reshaped, skipped or guarded
 
@@ -250,11 +255,135 @@ fixture of its shape; the downstream patches and logs are outside this repositor
 The 10 fixed rows are public again; 32 members remain removed, reshaped or guarded. The three
 packaging causes above are closed: every downstream library packs and every test app builds.
 
-## defect-closure-3: pending
+## Candidate changes since the first measurement
 
-`defect-closure-3` was not on `origin` when this ledger was written (checked with `git fetch` on
-2026-11-17), so its surface delta is not included. When it lands, compare its API manifest and skip
-surface against this ledger's base (`7383cf60`) and add a table here with a disposition for each
-member it removes, skips or guards. It touches class equality and hashing on disposed instances,
-protocol-proxy member names, enum case factories for optional tuples, verify-recover convergence,
-inherited renamed-property forwarding and existential object returns.
+The candidate (`4600d8f2`) adds `defect-closure-3`, the packaging-blocker fixes and four
+generation batches to the tree the sections above first measured. Against that measurement the API
+manifest gains 177 members and loses none, and the skip surface moves by 24 markers, each from a
+fixture added after it:
+
+| Change | Markers | Source |
+|---|---|---|
+| `Existential type fallback` (`UnsupportedSwiftType`) | 21 → 35 | `Lifetime/NoProxyExistentialReturns.swift` (`500f011b`): members of the new fixture whose existential has no proxy. They are fixture members, never public before. |
+| `SB0001` "a closure parameter shape the C wrapper bridge cannot marshal" | 1 → 0 | `500f011b`: the member now takes the closure wrapper. |
+| `Unsupported`: generic constructors with method-own type parameters | +3 | `PinnedUrlOrSequenceSession.init` (`b1c56c11`), `FlooredAdopter.init`, `FlooredHost.init` (`15a4b4fe`) |
+| `Unsupported`: constrained-extension properties on a single specialization | +8 | `PinBox.Op.Options.first`, `.second` (2 each), `.rawValue`, `PinBox.Op.label`, `PinBox.Op.tag`, `PinBox.Unit.rawValue` (`15a4b4fe`, `Generics/ConstrainedExtensionNestedTypes.swift`) |
+
+No member present at `sdk-v0.20.2` gained a marker. The reverse-callback disposition (cause 1) is
+delivered as recorded under Dispositions: the packed SDK's `SwiftBindings.Tasks.dll` carries
+`ResidualGuardCheck.AcceptedReverseCallbacks`, and the release checkpoint below exercised it.
+
+## Release checkpoint on the candidate
+
+One package set was packed from `4600d8f2` on the `net10-xcode26` profile
+(`nuke pack --version 0.21.0-ck.1 --apple-version 26.2.10-ck.1`; ApiCompat against
+`SwiftBindings.Runtime 0.20.2`, transition evidence and the packed residual-guard check passed) and
+consumed unchanged on all three supported pairings, each with its own feed copy and package cache.
+
+| Package | sha256 |
+|---|---|
+| `SwiftBindings.Runtime 0.21.0-ck.1` | `3d6c794738340432ebd944641033cd0099757c360f3d75cebb32b62705d4f1d3` |
+| `SwiftBindings.Sdk 0.21.0-ck.1` | `6d3ab76fab24e951a3e4a72697eead9024b0a3b8417a41d3d5bd5d59afc4d165` |
+| `SwiftBindings.Templates 0.21.0-ck.1` | `3a857e41f13d73d09a95172bbe876d524853a86d98b8fe09010c00c3fa3a5846` |
+| `SwiftBindings.Apple 26.2.10-ck.1` | `5d5d3be011dfc2b244c5f8e71b89ee6c11bf29378793da3e0db2e3a66ad0420a` |
+
+The packed `SwiftBindings.Tasks.dll` carries `ResidualGuardCheck.AcceptedReverseCallbacks`.
+
+### Consumption on the three pairings
+
+Each pairing restored from an empty private package cache and its own copy of the feed, in its own
+copy of the downstream checkout with no `bin/` or `obj/`, and built Debug: the package, then its
+iOS (and, where it has one, tvOS) simulator test app. The checkpoint's time box covered the
+packages below; the third-party libraries, the internal binding-testing apps and the remaining
+Apple framework packages were not reached and stay to be run.
+
+| Package | `net10-xcode26` | `net10-xcode27` | `net11-xcode27` | Test apps |
+|---|---|---|---|---|
+| RealityFoundation sibling pack | pass | pass | pass | |
+| Matter sibling pack | pass | pass | pass | |
+| RealityFoundation | pass | pass | pass | iOS: pass ×3 |
+| RealityKit (consumes the RealityFoundation sibling) | pass | pass | pass | iOS: pass ×3 |
+| AppIntents | pass | pass | pass | none in the package |
+| LiveCommunicationKit | pass | pass | pass | iOS: pass ×3 |
+| Translation | pass | pass | pass | iOS: pass ×3 |
+| MusicKit | pass | pass | pass | iOS, tvOS: pass ×3 |
+
+No restore, build or consumer transition check failed.
+
+The RealityFoundation sibling package was packed first on each pairing and RealityKit restored that
+package from the pairing's local feed: the nupkg in each private cache hashes to the one packed
+(`0bcd282b…` on `net10-xcode26`, `35d40d5b…` on `net10-xcode27`, `34e11d3d…` on `net11-xcode27`; the
+three differ because each pairing generates its own binding). The packed sibling assembly declares
+`PhotogrammetrySession(NSUrl)` on all three. RealityFoundation on both .NET 10 pairings and
+RealityKit on `net11-xcode27` were built a second time in the same checkout, nothing cleaned: each
+rebuilt incrementally and passed.
+
+**Negative control.** A first-party reverse-callback fixture bound through the packed SDK
+(`net10-xcode26`), in two copies: as generated, and with one added Swift-convention
+`[UnmanagedCallersOnly]` callback handed to an import that no transition guard covers. Each was
+packed and consumed through a `ProjectReference` by a simulator app. The doctored copy's pack fails
+with `SWIFTBIND133` (and the package is deleted) and its app build with `SWIFTBIND132`, both naming
+the doctored callback. The generated copy packs with its guarded generated callbacks accepted, and
+the app's transition check records it `Verified`.
+
+### Surface on the candidate
+
+Member-level diff of each binding's compiled iOS assembly: `sdk-v0.20.2` against the candidate on
+Xcode 26.3, and the candidate on Xcode 26.3 against Xcode 27.2 (`net10-xcode27`; `net11-xcode27`
+generates the same binding). The silent-drop checker compares each module's public ABI against
+the emitted members and the skip report; a row is real only if the member is public, unrenamed and
+absent from both.
+
+| Module | Members: sdk-v0.20.2 → candidate, Xcode 26.3 | sdk-v0.20.2 → candidate: removed, guarded | Candidate, Xcode 26.3 → 27.2 | Lost on 27.2 | Checker rows new on the candidate |
+|---|---|---|---|---|---|
+| RealityFoundation | 5642 → 5705 | exactly the rows above | 5705 → 6946 | 29: 27 moved (Apple), 2 declined (regression) | 0 real (18 on 27.2, all renamed types, skip-reported or existing channels) |
+| RealityKit | 294 → 294 | `ARView.LayerClass` (above) | identical | 0 | 0 |
+| AppIntents | 1798 → 1802 | exactly the rows above | 1802 → 2047 | 35 types (regression), 1 reshaped and 1 obsoleted (Apple) | 0 real (63 on 27.2, all API new in 27.2 in existing channels or renamed) |
+| LiveCommunicationKit | 286 → 286 | none | 286 → 341 | 0 | 0 real (1 on 27.2, a requirement of a new protocol) |
+| Translation | 74 → 74 | none | 74 → 96 | 0 | 0 (none on any run) |
+| MusicKit | 2240 → 2245 | the rows above, and `MusicLibrarySectionedRequest<,>()` guarded because the build does not route (see the defects) | 2245 → 2264 | 0 | 0 |
+
+Against `sdk-v0.20.2` the candidate on Xcode 26.3 removes or guards no member beyond the rows already
+recorded above, and no member any checker run flags is newly dropped. Every row the checker reports
+on the candidate also exists at `sdk-v0.20.2` (the shapes recorded in the binding plan: protocol
+requirements and protocol-extension members, raw-value initializers and Codable initializers of
+enums projected as C# enums, caseless namespace enums) or is a false positive (a nested type
+emitted under an `…Info` name beside a same-named property, a member the skip report names).
+
+The Xcode 27.2 losses:
+
+- **RealityFoundation `Audio.Directivity`, `Audio.DistanceAttenuation`** and their `CaseTag`s (27
+  members): Apple added static members to `public enum Audio` in the 27.2 SDK
+  (`Audio.prepareAudio(_:)`, `Audio.playAudio(_:)`, `playAudio(_:at:)`), so `Audio` is no longer a
+  caseless namespace enum and is emitted as a class. Both types reappear nested in it member for
+  member; the C# spelling `Audio.Directivity` is unchanged, the binary identity is not.
+- **RealityFoundation `AudioFileResource.CreateAsync(NSUrl, string, …)` and
+  `CreateAsync(string, NSBundle, …)`**: the 27.2 SDK adds `init(from: Data, configuration:)`, and
+  the default-parameter overload emitter treats any same-named constructor of equal arity as a
+  collision without comparing parameter types, so the forms that omit only `configuration` are
+  declined. Recorded in the emission report's `suppressedAmbiguousOverloads`; the full forms remain.
+  Regression, open.
+- **AppIntents, 35 `…CsmExtensions` types** (`EmptyResolverSpecification`, `EntityProperty`,
+  `IntentItem`, `IntentItemCollection`, `IntentItemSection`, `IntentParameter`,
+  `IntentParameterContext` × `EntityIdentifier`, `IntentCurrencyAmount`, `IntentFile`,
+  `IntentPaymentMethod`, `IntentPerson`): the 27.2 interface spells the conformances with module
+  selectors (`extension AppIntents::EntityIdentifier : AppIntents::_IntentValue`), which
+  `UnderscoreProtocolSynthesizer`'s extension-header pattern does not match, so the stripped
+  `_IntentValue` conformances are never re-attached and no conformer reaches the specialization
+  emitter. Neither emitted nor in the skip report. Regression, open: it does not affect the
+  supplement generated on Xcode 26.3, but a consumer generating AppIntents on Xcode 27.2 loses these
+  types silently.
+- **AppIntents `IntentFile.DefaultResolverSpecification`** becomes `object`: the 27.2 SDK declares
+  its `Specification` as an opaque result type. **`AppIntentError.Unrecoverable.Unknown`** is
+  `[Obsolete]`: Apple deprecated it in 27.2.
+
+### Defects found
+
+| Defect | Pairings | Effect | Owning component | Status |
+|---|---|---|---|---|
+| A closure whose parameters include `UnsafePointer<T>` gets a wrapper adapter that passes the typed pointer where the `@convention(c)` thunk takes a raw pointer; the wrapper does not compile and the SDK path, which has no member-level recovery, fails the whole binding with `SWIFTBIND051`. | all (seen on `net10-xcode26`) | whole package | generator closure-adapter emission; SDK wrapper-compile recovery | open |
+| The Xcode 27.2 interfaces' module selectors (`AppIntents::T`) defeat `UnderscoreProtocolSynthesizer`'s extension-header pattern: 35 AppIntents types silently lost. | Xcode 27.2 | 35 types, silent | parser | open |
+| The default-parameter overload emitter compares constructors by arity only: 2 RealityFoundation overloads declined on Xcode 27.2. | Xcode 27.2 | 2 members, recorded | emitter | open |
+| The wrapper xcframework compiled in the lowering-receipt path names its fat simulator slice `ios-arm64-simulator` (Info.plist lists arm64 and x86_64), while validate's PackGate expects `ios-arm64_x86_64-simulator`: PackGate is red. No consumer build failed. | all (seen on `net11-xcode27`; the same layout is in packages built on `net10-xcode26`) | gate | SDK/generator slice naming or PackGate's slice table | open |
+| validate pins Apple-framework targets to platform version 26.2, whose reference packs the Xcode 27.2 profiles do not install: every Apple-framework target fails generation there, and an unfiltered validate on those profiles cannot pass. | Xcode 27.2 | gate | validate target selection × profile packs | open |
+| The downstream MusicKit build collects no lowering receipt and routes nothing, so `MusicLibrarySectionedRequest<,>()` ships guarded (shape `LoweredSignature`) instead of routed. Cause not found. | all | 1 member, CoreCLR interpreter x64 only | SDK receipt collection and routing | open |
