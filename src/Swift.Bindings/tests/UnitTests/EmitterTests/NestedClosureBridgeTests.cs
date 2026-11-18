@@ -508,9 +508,9 @@ public class NestedClosureBridgeTests
 
     /// <summary>
     /// The inner trampoline force-casts the boxed closure back to a plain Swift function type. A
-    /// boxed <c>@Sendable</c> closure does not cast to the plain type (the cast traps the first time
-    /// the callback fires), and the ABI JSON omits <c>@Sendable</c>, so the box site must coerce the
-    /// closure to exactly the type the trampoline casts to before erasing it.
+    /// boxed non-escaping or <c>@Sendable</c> closure does not cast to it (the cast traps the first
+    /// time the callback fires), and the ABI JSON omits <c>@Sendable</c>, so the box site must box a
+    /// forwarding closure of exactly the type the trampoline casts to.
     /// </summary>
     [Theory]
     [InlineData(0)]
@@ -541,7 +541,8 @@ public class NestedClosureBridgeTests
             System.Text.RegularExpressions.RegexOptions.Multiline);
         Assert.True(cast.Success, swift);
         var castType = cast.Groups["type"].Value.TrimEnd();
-        Assert.Contains($"passRetained((__op1 as {castType}) as Swift.AnyObject)", swift);
+        var forwarded = string.Join(", ", System.Linq.Enumerable.Range(0, innerArgCount).Select(a => $"${a}"));
+        Assert.Contains($"passRetained(({{ __op1({forwarded}) }} as {castType}) as Swift.AnyObject)", swift);
     }
 
     /// <summary>

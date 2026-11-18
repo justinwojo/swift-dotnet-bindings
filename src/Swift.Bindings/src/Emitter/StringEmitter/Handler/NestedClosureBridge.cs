@@ -603,11 +603,12 @@ public static class NestedClosureBridge
     /// <summary>
     /// The Swift function type an inner closure is boxed as and cast back to: escaping and not
     /// <c>@Sendable</c>. The cast compares the boxed function type exactly, so a boxed non-escaping
-    /// or <c>@Sendable</c> closure fails it and traps the first time the callback fires. The ABI
-    /// JSON omits <c>@Sendable</c>, so the box site coerces the closure to this type before erasing
-    /// it to <c>AnyObject</c> (escaping it first with <c>withoutActuallyEscaping</c> when it is not
-    /// escaping). Swift refuses a coercion that drops a global actor, which fails the wrapper
-    /// compile, where verify-recover withdraws the member.
+    /// or <c>@Sendable</c> closure fails it and traps the first time the callback fires, and the ABI
+    /// JSON omits <c>@Sendable</c>. The box site therefore boxes a forwarding closure of exactly this
+    /// type (escaping the inner closure first with <c>withoutActuallyEscaping</c> when it is not
+    /// escaping). Forwarding, not an <c>as</c> coercion: a coercion would drop a global actor with
+    /// only a warning in the wrapper's concurrency mode, while calling a global-actor closure from
+    /// the nonisolated forwarder is a compile error, so verify-recover withdraws that member.
     /// </summary>
     private static string InnerClosureSwiftType(InnerClosureInfo inner)
     {
@@ -889,8 +890,9 @@ public static class NestedClosureBridge
             {
                 var trampolineName = InnerTrampolineName(multiOuter, multiInner, nc.Index, innerMatch);
                 var suffix = InnerBoxSuffix(multiOuter, multiInner, nc.Index, innerMatch);
-                var innerSwiftType = InnerClosureSwiftType(nc.InnerClosures[innerMatch]);
-                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Swift.Unmanaged.passRetained((__op{i} as {innerSwiftType}) as Swift.AnyObject).toOpaque()");
+                var inner = nc.InnerClosures[innerMatch];
+                var forwardedArgs = string.Join(", ", Enumerable.Range(0, inner.Args.Count).Select(a => $"${a}"));
+                swiftWriter.WriteLine($"{indent}let __innerBox{suffix} = Swift.Unmanaged.passRetained(({{ __op{i}({forwardedArgs}) }} as {InnerClosureSwiftType(inner)}) as Swift.AnyObject).toOpaque()");
                 swiftWriter.WriteLine($"{indent}let __innerFuncPtr{suffix} = Swift.unsafeBitCast({trampolineName}, to: Swift.UnsafeMutableRawPointer?.self)");
                 cdeclCallArgs.Add($"__innerFuncPtr{suffix}");
                 cdeclCallArgs.Add($"__innerBox{suffix}");
