@@ -845,10 +845,17 @@ internal static class AppleFrameworkRegistry
     /// <c>RealityFoundation</c> → <c>RealityKit</c>). Returns the input unchanged when
     /// no remap is registered. Type qualifications and the .NET namespace continue to
     /// use the original module name — only the literal import line is rewritten.
+    /// The public module the SDK's own interface declares (<c>-public-module-name</c>, read
+    /// through the run's <see cref="SdkPublicModuleNames"/>) takes precedence; the registry's
+    /// <c>compileImportModule</c> entries answer only when no SDK interface is reachable.
     /// </summary>
     public static string MapModuleToCompileImport(string swiftModule)
     {
         if (string.IsNullOrEmpty(swiftModule)) return swiftModule;
+        // The module's own interface is the authority (`-public-module-name`); the curated table is
+        // the fallback when the run has no SDK to read it from.
+        if (SdkPublicModuleNames.Current?.TryGetPublicModuleName(swiftModule) is { } declared)
+            return declared;
         return _compileImportRemaps.TryGetValue(swiftModule, out var mapped) ? mapped : swiftModule;
     }
 

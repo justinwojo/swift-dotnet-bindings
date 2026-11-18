@@ -760,12 +760,15 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine("import SwiftUI");
             sb.AppendLine($"import {moduleName}");
 
-            // Extra imports from async patterns
+            // Extra imports from async patterns, each through the module the SDK makes public (as the
+            // wrapper's own imports are)
             var extraImports = bridgeResults
                 .Where(r => r.AsyncPattern?.ExtraSwiftImports != null)
                 .SelectMany(r => r.AsyncPattern!.ExtraSwiftImports)
+                .Select(AppleFrameworkRegistry.MapModuleToCompileImport)
                 .Distinct()
-                .Where(m => m != moduleName);
+                .Where(m => m != moduleName)
+                .ToList();
             foreach (var import in extraImports)
             {
                 sb.AppendLine($"import {import}");
@@ -774,7 +777,8 @@ public static partial class SwiftUIBridgeEmitter
             // Extra imports from bridge hints
             if (hintImports != null)
             {
-                foreach (var import in hintImports.OrderBy(i => i, StringComparer.Ordinal))
+                foreach (var import in hintImports.Select(AppleFrameworkRegistry.MapModuleToCompileImport)
+                    .Distinct().OrderBy(i => i, StringComparer.Ordinal))
                 {
                     // Avoid duplicating imports already emitted from async patterns
                     if (!extraImports.Contains(import))
