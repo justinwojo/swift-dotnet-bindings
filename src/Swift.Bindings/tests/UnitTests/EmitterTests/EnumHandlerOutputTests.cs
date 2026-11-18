@@ -553,6 +553,68 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain(": ISwiftObject", csOutput);
     }
 
+    /// <summary>
+    /// A simple enum's extension members call Swift through wrappers written <c>@MainActor</c> when
+    /// the enum or the member is main-actor isolated. The C# member says so as the regular member
+    /// paths do: the <c>[SwiftMainActor]</c> marker on the signature and the Debug guard as the
+    /// first statement. A <c>nonisolated</c> member of a main-actor enum carries neither.
+    /// </summary>
+    [Theory]
+    [InlineData("instanceMethod", true, false, true)]
+    [InlineData("instanceProperty", true, false, true)]
+    [InlineData("staticMethod", true, false, true)]
+    [InlineData("staticProperty", true, false, true)]
+    [InlineData("staticProperty", false, false, false)]
+    [InlineData("staticMethod", true, true, false)]
+    public void Emit_SimpleEnumMember_SurfacesMainActorIsolationInCSharp(
+        string member, bool enumIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.IsMainActorIsolated = enumIsMainActor;
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        string signature;
+        switch (member)
+        {
+            case "instanceMethod":
+                var instance = CreateStaticMethod("bump", enumDecl, moduleDecl) with
+                {
+                    MethodType = MethodType.Instance,
+                    MangledName = "$s10TestModule6StatusO4bumpACyF",
+                };
+                instance.IsNonisolated = memberIsNonisolated;
+                enumDecl.Methods.Add(instance);
+                signature = "Bump(this Status self";
+                break;
+            case "instanceProperty":
+                var instanceProperty = CreateInstanceIntProperty("priority", enumDecl, moduleDecl);
+                instanceProperty.IsNonisolated = memberIsNonisolated;
+                enumDecl.Properties.Add(instanceProperty);
+                signature = "GetPriority(this Status self)";
+                break;
+            case "staticMethod":
+                var staticMethod = CreateStaticMethod("defaultStatus", enumDecl, moduleDecl);
+                staticMethod.IsNonisolated = memberIsNonisolated;
+                enumDecl.Methods.Add(staticMethod);
+                signature = "Status DefaultStatus(";
+                break;
+            default:
+                var staticProperty = CreateStaticIntProperty("count", enumDecl, moduleDecl);
+                staticProperty.IsNonisolated = memberIsNonisolated;
+                enumDecl.Properties.Add(staticProperty);
+                signature = "int Count";
+                break;
+        }
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        // The Swift wrapper is isolated off the same decision.
+        Assert.Equal(expectMainActor, swiftOutput.Contains("@MainActor"));
+        MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput, signature, expectMainActor);
+    }
+
     [Fact]
     public void CanSafelyEmitAsSimpleEnum_NoMembers_ReturnsTrue()
     {

@@ -927,6 +927,12 @@ namespace BindingsGeneration
                     }
                 }
 
+                // With nothing to inject, the extension members the ABI declares still need their
+                // rows: injection reports them itself, so this runs only when it did not run.
+                if (protocolNames.Count == 0 || facts.ProtocolExtensionMethods.Count == 0)
+                    ProtocolExtensionEmitter.ReportUnextractedMembers(
+                        decl, facts.ProtocolExtensionMethods, typeDatabase, logger, emissionContext);
+
                 // Detect phantom defaults — required protocol members that no conforming type
                 // can implement in C#, indicating they're satisfied by PAT extension defaults
                 // not visible in the public ABI. These become default interface methods in C#.
@@ -1164,6 +1170,7 @@ namespace BindingsGeneration
                 // no longer exists, and nothing re-writes them because the pre-pass does not re-run per
                 // attempt. Put them back into the settled session before it is read.
                 ForeignTypeExtensionEmitter.RepublishWithdrawals(decl, emissionContext);
+                ProtocolExtensionEmitter.PublishDeclines(decl, emissionContext);
 
                 var report = ReportCollector.Complete();
                 if (report != null)

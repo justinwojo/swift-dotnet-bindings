@@ -431,6 +431,9 @@ namespace BindingsGeneration
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
+            // The operator's Swift wrapper is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                operatorDecl.ParentDecl, operatorDecl.UnderlyingMethod.IsMainActorIsolated, operatorDecl.UnderlyingMethod.IsNonisolated);
             var wrapperSignature = signatureHandler.GetWrapperSignature();
             var pInvokeSignature = signatureHandler.GetPInvokeSignature();
 
@@ -496,7 +499,11 @@ namespace BindingsGeneration
                 var rightType = ApplyRemap(FixGenericTypeName(rightParam.Type.PublicTypeName));
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
+                if (mainActor)
+                    TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, operatorDecl, operatorDecl.ParentDecl, emitObsolete: true);
+                if (mainActor)
+                    TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({leftType} {leftParam.Name}, {rightType} {rightParam.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -520,6 +527,10 @@ namespace BindingsGeneration
 
                     EmitDisposedOperandEqualityFallback(csWriter, operatorDecl, csOperator, leftParam.Name, leftType, rightParam.Name, rightType, typeNameWithGenerics);
                 }
+
+                // After the managed null and disposed-operand answers, which touch no Swift state, so a
+                // null test stays legal off the main thread; before anything that reaches Swift.
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
                 // Non-cdecl operators consume the P/Invoke signature's collision-free marshalling
                 // bases directly. Declare the same aliases ordinary wrapper bodies do before any
@@ -570,10 +581,15 @@ namespace BindingsGeneration
                 var operandType = ApplyRemap(FixGenericTypeName(operand.Type.PublicTypeName));
 
                 XmlDocCommentEmitter.EmitDocComment(csWriter, operatorDecl);
+                if (mainActor)
+                    TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
                 AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, operatorDecl, operatorDecl.ParentDecl, emitObsolete: true);
+                if (mainActor)
+                    TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
                 csWriter.WriteLine($"public static {returnType} operator {csOperator}({operandType} {operand.Name})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
                 if (!usesCdeclWrapper)
                     PInvokeEmitter.EmitMarshallingBaseAliases(csWriter, methodEnv);

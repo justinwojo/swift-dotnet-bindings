@@ -53,6 +53,14 @@ public sealed record ProtocolDecl : TypeDecl
     public List<NamedTypeSpec> InheritedProtocols { get; set; } = new();
 
     /// <summary>
+    /// The protocol-extension members the ABI lists under this protocol, which the parser keeps off
+    /// <see cref="TypeDecl.Methods"/>, <see cref="TypeDecl.Properties"/> and
+    /// <see cref="TypeDecl.Subscripts"/> because they are not part of the protocol's contract. Read
+    /// only to account for the members no binding path carries; nothing is emitted from it.
+    /// </summary>
+    public List<BaseDecl> ExtensionMembers { get; set; } = new();
+
+    /// <summary>
     /// The generic signature of the protocol, if it has generic requirements.
     /// This includes where clauses like "where T: Equatable".
     /// </summary>

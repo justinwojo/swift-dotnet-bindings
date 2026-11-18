@@ -1010,10 +1010,15 @@ public static class ExistentialBypassEmitter
         // (SB0006) ahead of the signature so callers fail to build, not just at runtime. A synthesized
         // (private) accessor is NOT poisoned here — its delegating public getter carries the marker
         // instead (recorded below), mirroring WrapperEmitter's accessor split.
+        var mainActor = NeedsCSharpMainActorSurfacing(env);
+        if (mainActor)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
         if (isExistentialReturn && returnProxySuppressed && !env.MethodDecl.IsSynthesizedAccessor)
         {
             WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
         }
+        if (mainActor)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         // The bypass emits a *reduced* parameter list — every omittable existential argument is
         // dropped and supplied by Swift's own default — so the declared parameter types describe a
         // signature that was never written. Record what was, so the API manifest names this member
@@ -1026,6 +1031,7 @@ public static class ExistentialBypassEmitter
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         // Suppressed return-proxy: emit a throwing body and skip the buffer alloc / P/Invoke call.
         // The P/Invoke decl and Swift wrapper stay declared but unused (the suppressed-return gate is
@@ -1216,6 +1222,16 @@ public static class ExistentialBypassEmitter
     }
 
     /// <summary>
+    /// Whether the C# member surfaces the isolation its Swift wrapper is written with
+    /// (<see cref="EmitMainActorIfNeeded"/>). An accessor's backing method is left to its public
+    /// property, as on the regular wrapper path.
+    /// </summary>
+    private static bool NeedsCSharpMainActorSurfacing(MethodEnvironment env)
+        => !env.MethodDecl.IsAccessor
+           && TypeAnnotationHelper.NeedsMainActorSurfacing(
+               env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated);
+
+    /// <summary>
     /// Writes a @_silgen_name wrapper's declaration lines and describes the wrapper from them, so
     /// the binding's Swift-convention transition carries its facts.
     /// </summary>
@@ -1326,9 +1342,12 @@ public static class ExistentialBypassEmitter
             csharpName: factoryName,
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(
                 reducedWrapperSig.ApiSurfaceParameterTypes()));
+        var mainActor = NeedsCSharpMainActorSurfacing(env);
+        TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
         csWriter.WriteLine($"{accessModifier} static unsafe {typeName} {factoryName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         // Generate marshalling code for string params if needed
         var (marshalledArgs, setupLines, _) = GetBypassMarshalledCallArguments(reducedWrapperSig, reducedPInvokeSig);

@@ -5,6 +5,7 @@
 
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -1364,6 +1365,34 @@ public class OperatorHandlerOutputTests
         Assert.DoesNotContain("ReferenceEquals(", output);
     }
 
+    /// <summary>
+    /// A main-actor class's equality operator answers a null operand from managed state alone, so a
+    /// null test stays legal off the main thread; the Debug guard sits after those answers and before
+    /// anything that reaches Swift.
+    /// </summary>
+    [Fact]
+    public void EmitOperator_MainActorClassEquality_GuardsAfterTheManagedNullAnswers()
+    {
+        var typeDatabase = CreateTypeDatabaseWithClasses(("OperatorValue", TypeRecordFlags.RequiresMemoryManagement));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateClassDecl("OperatorValue", moduleDecl);
+        parentType.IsMainActorIsolated = true;
+        var op = CreateClassBinaryOperator("==", parentType, moduleDecl, "Swift.Bool");
+
+        var output = EmitOperator(op, typeDatabase, new ModuleEmissionContext());
+
+        var lines = output.Split('\n');
+        int LineOf(System.Func<string, bool> match) => System.Array.FindIndex(lines, l => match(l));
+        var nullAnswer = LineOf(l => l.Contains("return false;"));
+        var guard = LineOf(l => l.Contains("MainActorGuard.AssertMainThread();"));
+        // The first call into Swift, not the import declaration.
+        var call = LineOf(l => l.Contains("PInvoke_") && !l.Contains("partial ") && !l.Contains(" extern "));
+        Assert.True(nullAnswer >= 0, output);
+        Assert.True(guard > nullAnswer, "the guard must follow the managed null answers");
+        Assert.True(call > guard, "the guard must precede the Swift call");
+        Assert.Contains("[global::Swift.Runtime.SwiftMainActor]", output);
+    }
+
     private static void SetOperatorAliasCollisionNames(OperatorDecl op)
     {
         var left = op.UnderlyingMethod.CSSignature[1];
@@ -1815,6 +1844,35 @@ public class OperatorHandlerOutputTests
         var swift = swiftOutput.ToString().Replace("\r\n", "\n");
         Assert.Contains("@_cdecl(", swift);
         Assert.Equal(expectMainActor, swift.Contains("@MainActor\n@_cdecl(", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The C# operator of a main-actor operator says so, as every regular member does: the
+    /// <c>[SwiftMainActor]</c> marker and the Debug main-thread guard, off the same decision that
+    /// isolates its Swift wrapper.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)] // nonisolated operator on a main-actor type
+    [InlineData(false, false, false)]
+    public void EmitOperator_MainActorOperator_SurfacesIsolationInCSharp(bool typeIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        parentType.IsMainActorIsolated = typeIsMainActor;
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.Point");
+        op.UnderlyingMethod.IsMainActorIsolated = !typeIsMainActor && memberIsNonisolated;
+        op.UnderlyingMethod.IsNonisolated = typeIsMainActor && memberIsNonisolated;
+
+        var csOutput = new StringWriter();
+        Assert.True(new OperatorHandler(new NullLogger<OperatorHandler>()).EmitOperator(
+            new CSharpWriter(csOutput), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(new StringWriter()), emissionContext: new ModuleEmissionContext()));
+
+        MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput.ToString(), "operator +", expectMainActor);
     }
 
     /// <summary>

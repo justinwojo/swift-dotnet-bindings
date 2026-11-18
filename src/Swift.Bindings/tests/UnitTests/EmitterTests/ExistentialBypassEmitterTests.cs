@@ -870,6 +870,61 @@ public class ExistentialBypassEmitterTests
     }
 
     [Theory]
+    [InlineData(true, false, false, true)]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, false)]
+    public void TryEmitMethodBypass_MainActorIsolation_IsSurfacedInCSharp(
+        bool typeIsMainActor, bool memberIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+        parentDecl.IsMainActorIsolated = typeIsMainActor;
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var method = CreateInstanceMethodDecl(
+            "take",
+            parentDecl,
+            moduleDecl,
+            new TupleTypeSpec(new List<TypeSpec>()),
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+        method.IsMainActorIsolated = memberIsMainActor;
+        method.IsNonisolated = memberIsNonisolated;
+
+        var (emitted, csOutput, _) = EmitMethodBypass(method, typeDatabase);
+
+        Assert.True(emitted);
+        MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput, " Take(", expectMainActor);
+    }
+
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void TryEmitConstructorBypass_MainActorType_SurfacesIsolationOnTheFactory(bool typeIsMainActor, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+        parentDecl.IsMainActorIsolated = typeIsMainActor;
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase);
+
+        MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput, "static unsafe Config ", expectMainActor);
+    }
+
+    [Theory]
     [InlineData(true, true)]
     [InlineData(false, false)]
     public void TryEmitConstructorBypass_MainActorType_IsolatesTheInitWrapperOnly(bool typeIsMainActor, bool expectMainActor)

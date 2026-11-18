@@ -719,6 +719,17 @@ public sealed class ModuleEmissionContext
     public void AddForeignExtWithdrawal(ForeignExtensionWithdrawal withdrawal) =>
         _foreignExtWithdrawals.Add(withdrawal);
 
+    private readonly List<ProtocolExtensionDecline> _protocolExtDeclines = new();
+
+    /// <summary>
+    /// Protocol-extension members injection declined, kept so they can be published into whichever
+    /// report session settles (see <see cref="ProtocolExtensionEmitter.PublishDeclines"/>).
+    /// </summary>
+    public IReadOnlyList<ProtocolExtensionDecline> ProtocolExtDeclines => _protocolExtDeclines;
+
+    /// <summary>Records a declined protocol-extension member for later publication.</summary>
+    public void AddProtocolExtDecline(ProtocolExtensionDecline decline) => _protocolExtDeclines.Add(decline);
+
     /// <summary>Gets or creates extension class info for a foreign type.</summary>
     public ForeignExtensionClassInfo GetOrAddForeignExtClass(string key, Func<ForeignExtensionClassInfo> factory)
     {
@@ -2491,6 +2502,13 @@ public sealed class ModuleEmissionContext
     /// <paramref name="symbol"/> for later attribution. Optional: an un-threaded call site leaves
     /// the symbol unowned rather than mis-owned.
     /// </param>
+    /// <summary>
+    /// Whether this very declaration (receiver, name and source key) already claimed its wrapper
+    /// through <see cref="TryClaimWrapperSymbol(string, string, string, string, DeclId?)"/>.
+    /// </summary>
+    public bool IsWrapperStructuralIdentityClaimed(string typeName, string methodName, string sourceKey)
+        => _wrapperStructuralIdentities.Contains((typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty));
+
     public bool TryClaimWrapperSymbol(
         string typeName,
         string methodName,
@@ -3085,6 +3103,11 @@ public sealed record ForeignExtensionWithdrawal(
     SkipReason Reason,
     string Details,
     DeclId? MemberId = null);
+
+/// <summary>
+/// One protocol-extension member the injection pass declined, in the shape its skip row needs.
+/// </summary>
+public sealed record ProtocolExtensionDecline(DeclId MemberId, SkipReason Reason, string Details);
 
 /// <summary>
 /// Info for a single C# extension class for a foreign type.

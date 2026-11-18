@@ -422,11 +422,19 @@ internal static class ConformerKeyPathInitFactoryEmitter
             // spelled like it; nothing moves when nothing collides.
             var bodyScope = new SyntheticNameScope(factoryParamNames);
 
+            // The Swift trampoline is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                shape.DepClass, shape.Ctor.IsMainActorIsolated, shape.Ctor.IsNonisolated);
+            if (mainActor)
+                TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, availability, parentAnnotations: null);
+            if (mainActor)
+                TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
             csWriter.WriteLine($"public static {returnType} {methodName}({string.Join(", ", factoryParams)})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
             // The KeyPath-init trampoline this P/Invokes is availability-gated (see EmitSwiftTrampolines).
             // On an OS below the merged dep-class+conformer floor its body dereferences a weak-linked,

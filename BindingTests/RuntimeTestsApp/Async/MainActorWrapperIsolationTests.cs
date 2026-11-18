@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Threading;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 using SwiftBindingsTestLibDependency;
@@ -62,5 +63,79 @@ public class MainActorWrapperIsolationTests : TestBase
         req.Sort(RouteC_AlbumSortBagKeyPaths.Year, ascending: false);
         AssertEqual("main-actor desc", RouteC_SortTracker.LastDescription.ToString(),
             "Sort(Year, ascending=false) reached the main-actor member through the nint overload");
+    }
+
+    // The C# side of each member above carries the Debug main-thread guard, as every regular
+    // main-actor member does. Off the main thread a Debug build must refuse the call before any
+    // Swift code runs. MainActorGuard is [Conditional("DEBUG")], so a Release build has no guard
+    // to observe; those builds do not call off the main thread at all, since the member's Swift
+    // code is main-actor isolated.
+
+    // The operands are built here, on the main thread: the struct's initializer carries its own
+    // guard, and only the operator may run on the worker.
+    public void TestOperatorOffTheMainThreadTripsTheDebugGuard()
+    {
+#if DEBUG
+        var left = new MainActorTally(1);
+        var right = new MainActorTally(2);
+        AssertDebugGuardTrips("MainActorTally +", () => _ = left + right);
+#endif
+    }
+
+    public void TestPrefixOperatorOffTheMainThreadTripsTheDebugGuard()
+    {
+#if DEBUG
+        var operand = new MainActorTally(1);
+        AssertDebugGuardTrips("prefix MainActorTally -", () => _ = -operand);
+#endif
+    }
+
+    public void TestSimpleEnumMembersOffTheMainThreadTripTheDebugGuard()
+    {
+        AssertDebugGuardTrips("MainActorSignal.weight", () => _ = MainActorSignal.Green.GetWeight());
+        AssertDebugGuardTrips("MainActorSignal.scaled(by:)", () => _ = MainActorSignal.Blue.Scaled(2));
+        AssertDebugGuardTrips("MainActorSignal.brightest", () => _ = MainActorSignalExtensions.Brightest);
+        AssertDebugGuardTrips("MainActorSignal.offset(_:)", () => _ = MainActorSignalExtensions.Offset(1));
+    }
+
+    public void TestCrossModuleExtensionMembersOffTheMainThreadTripTheDebugGuard()
+    {
+#if DEBUG
+        var point = new DependencyPoint(3.0, -4.0);
+        AssertDebugGuardTrips("DependencyPoint.mainActorSum()", () => _ = point.MainActorSum());
+        AssertDebugGuardTrips("DependencyPoint.mainActorSpan", () => _ = point.GetMainActorSpan());
+#endif
+    }
+
+    public void TestRouteCSortOffTheMainThreadTripsTheDebugGuard()
+    {
+#if DEBUG
+        RouteC_SortTracker.Reset();
+        var req = new RouteC_MainActorRequest<RouteC_Album>();
+        AssertDebugGuardTrips("RouteC_MainActorRequest.sort",
+            () => req.Sort(RouteC_AlbumSortBagKeyPaths.Title, ascending: true));
+        // The guard refused the call before the trampoline ran.
+        AssertEqual("", RouteC_SortTracker.LastDescription.ToString(), "the refused sort never reached Swift");
+#endif
+    }
+
+    private void AssertDebugGuardTrips(string member, Action call)
+    {
+#if DEBUG
+        Exception? captured = null;
+        var worker = new Thread(() =>
+        {
+            try { call(); }
+            catch (Exception ex) { captured = ex; }
+        });
+        worker.Start();
+        worker.Join();
+        AssertTrue(
+            captured is InvalidOperationException,
+            $"{member} off the main thread should throw InvalidOperationException from the Debug guard, got {captured?.GetType().Name ?? "no exception"}");
+#else
+        _ = member;
+        _ = call;
+#endif
     }
 }
