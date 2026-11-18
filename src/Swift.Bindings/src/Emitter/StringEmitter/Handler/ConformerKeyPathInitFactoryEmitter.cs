@@ -55,6 +55,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
     /// </summary>
     private sealed record InitShape(
         ClassDecl DepClass,
+        MethodDecl Ctor,
         string DepClassCSharpBaseName,
         string DepClassSwiftQualified,
         string DepClassSwiftQualifiedForWrapper,
@@ -169,7 +170,7 @@ internal static class ConformerKeyPathInitFactoryEmitter
                 recognized.KeyPathArgLabel, recognized.KeyPathIsWritable ? "WritableKeyPath" : "KeyPath");
 
             shapes.Add(new InitShape(
-                classDecl, depBaseName, depSwiftQualified, depSwiftForWrapper,
+                classDecl, ctor, depBaseName, depSwiftQualified, depSwiftForWrapper,
                 recognized.ConstraintProtocol, recognized.KeyPathIsWritable, recognized.KeyPathArgLabel,
                 recognized.ScalarLabels.Select(label => new ScalarParam(label)).ToList()));
         }
@@ -491,6 +492,10 @@ internal static class ConformerKeyPathInitFactoryEmitter
             swiftWriter.WriteLine();
             swiftWriter.WriteLine($"// KeyPath-init factory trampoline: {shape.DepClassSwiftQualified}({shape.KeyPathArgLabel}: \\{conformerSwiftForWrapper}.*) as {keyPathFlavor}<{conformerSwiftForWrapper}, {swiftValueTypeForWrapper}>");
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The trampoline calls the dependency class's initializer synchronously; a main-actor
+            // initializer (its own annotation or its class's) needs the trampoline isolated with it.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, shape.DepClass, shape.Ctor.IsMainActorIsolated, shape.Ctor.IsNonisolated);
             swiftWriter.WriteLine($"@_cdecl(\"{symbol}\")");
             swiftWriter.WriteLine($"public func {symbol}({string.Join(", ", trampolineParams)}) -> Swift.UnsafeMutableRawPointer {{");
             swiftWriter.Indent++;

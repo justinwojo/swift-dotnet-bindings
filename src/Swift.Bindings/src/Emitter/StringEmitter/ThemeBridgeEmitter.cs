@@ -290,11 +290,7 @@ public static class ThemeBridgeEmitter
             // Emit SBW_onMainThread since no view bridge created the file
             header.AppendLine("// --- Shared helpers ---");
             header.AppendLine();
-            header.AppendLine("@discardableResult");
-            header.AppendLine("func SBW_onMainThread<T>(_ block: () -> T) -> T {");
-            header.AppendLine("    if Thread.isMainThread { return block() }");
-            header.AppendLine("    return DispatchQueue.main.sync { block() }");
-            header.AppendLine("}");
+            SwiftUIBridgeEmitter.AppendMainThreadHelper(header);
             header.AppendLine();
 
             File.WriteAllText(swiftPath, header.ToString() + qualifiedSwift + endifLine);
@@ -400,7 +396,7 @@ public static class ThemeBridgeEmitter
     {
         if (hasSwiftUIFonts)
         {
-            sb.AppendLine("func SBW_fontWeight(_ raw: Swift.Int32) -> Font.Weight {");
+            sb.AppendLine("func SBW_fontWeight(_ raw: Swift.Int32) -> SwiftUI.Font.Weight {");
             sb.AppendLine("    switch raw {");
             sb.AppendLine("    case 0: return .ultraLight");
             sb.AppendLine("    case 1: return .thin");
@@ -415,7 +411,7 @@ public static class ThemeBridgeEmitter
             sb.AppendLine("    }");
             sb.AppendLine("}");
             sb.AppendLine();
-            sb.AppendLine("func SBW_fontDesign(_ raw: Swift.Int32) -> Font.Design {");
+            sb.AppendLine("func SBW_fontDesign(_ raw: Swift.Int32) -> SwiftUI.Font.Design {");
             sb.AppendLine("    switch raw {");
             sb.AppendLine("    case 0: return .default");
             sb.AppendLine("    case 1: return .rounded");
@@ -465,10 +461,10 @@ public static class ThemeBridgeEmitter
             {
                 var ctor = prop.Kind == ThemePropertyKind.UIKitColor
                     ? "UIColor(red: CGFloat(r), green: CGFloat(g), blue: CGFloat(b), alpha: CGFloat(a))"
-                    : "Color(red: r, green: g, blue: b, opacity: a)";
+                    : "SwiftUI.Color(red: r, green: g, blue: b, opacity: a)";
 
                 sb.AppendLine($"@_cdecl(\"{funcName}\")");
-                sb.AppendLine($"func {funcName}(");
+                sb.AppendLine($"public func {funcName}(");
                 sb.AppendLine($"    _ r: Swift.Double, _ g: Swift.Double, _ b: Swift.Double, _ a: Swift.Double");
                 sb.AppendLine(") {");
                 sb.AppendLine("    SBW_onMainThread {");
@@ -479,12 +475,12 @@ public static class ThemeBridgeEmitter
             else if (prop.Kind == ThemePropertyKind.Font)
             {
                 sb.AppendLine($"@_cdecl(\"{funcName}\")");
-                sb.AppendLine($"func {funcName}(");
+                sb.AppendLine($"public func {funcName}(");
                 sb.AppendLine($"    _ namePtr: Swift.UnsafePointer<Swift.UInt8>?, _ nameLen: Swift.Int,");
                 sb.AppendLine($"    _ size: Swift.Double, _ weight: Swift.Int32, _ design: Swift.Int32, _ isSystem: Swift.Int32");
                 sb.AppendLine(") {");
                 sb.AppendLine("    SBW_onMainThread {");
-                sb.AppendLine("        let font: Font");
+                sb.AppendLine("        let font: SwiftUI.Font");
                 sb.AppendLine("        if isSystem != 0 {");
                 sb.AppendLine("            font = .system(size: CGFloat(size),");
                 sb.AppendLine("                           weight: SBW_fontWeight(weight),");
@@ -503,7 +499,7 @@ public static class ThemeBridgeEmitter
             else // UIKitFont
             {
                 sb.AppendLine($"@_cdecl(\"{funcName}\")");
-                sb.AppendLine($"func {funcName}(");
+                sb.AppendLine($"public func {funcName}(");
                 sb.AppendLine($"    _ namePtr: Swift.UnsafePointer<Swift.UInt8>?, _ nameLen: Swift.Int,");
                 sb.AppendLine($"    _ size: Swift.Double, _ weight: Swift.Int32, _ design: Swift.Int32, _ isSystem: Swift.Int32");
                 sb.AppendLine(") {");
@@ -546,7 +542,7 @@ public static class ThemeBridgeEmitter
             emissionContext?.TryAddDirectHelperWrapperSymbol(funcName);
 
             sb.AppendLine($"@_cdecl(\"{funcName}\")");
-            sb.AppendLine($"func {funcName}(");
+            sb.AppendLine($"public func {funcName}(");
             sb.AppendLine($"    _ rOut: Swift.UnsafeMutablePointer<Swift.Double>,");
             sb.AppendLine($"    _ gOut: Swift.UnsafeMutablePointer<Swift.Double>,");
             sb.AppendLine($"    _ bOut: Swift.UnsafeMutablePointer<Swift.Double>,");
@@ -589,7 +585,9 @@ public static class ThemeBridgeEmitter
         ModuleEmissionContext? emissionContext)
     {
         var sb = new StringBuilder();
-        var bridgeLib = $"{moduleName}SwiftBindings";
+        // The theme exports live in the bridge Swift file, which compiles into the bridge
+        // library alongside the view exports (SwiftWrapperCompiler: "{module}Bridge").
+        var bridgeLib = $"{moduleName}Bridge";
 
         foreach (var info in themeInfos)
         {

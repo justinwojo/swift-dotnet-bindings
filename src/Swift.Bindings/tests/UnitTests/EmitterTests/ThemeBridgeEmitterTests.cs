@@ -407,8 +407,8 @@ public class ThemeBridgeEmitterTests : IDisposable
 
         var content = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
 
-        Assert.Contains("func SBW_fontWeight(_ raw: Swift.Int32) -> Font.Weight", content);
-        Assert.Contains("func SBW_fontDesign(_ raw: Swift.Int32) -> Font.Design", content);
+        Assert.Contains("func SBW_fontWeight(_ raw: Swift.Int32) -> SwiftUI.Font.Weight", content);
+        Assert.Contains("func SBW_fontDesign(_ raw: Swift.Int32) -> SwiftUI.Font.Design", content);
     }
 
     [Fact]
@@ -616,7 +616,10 @@ public class ThemeBridgeEmitterTests : IDisposable
         // Pinned to the qualified spelling the emitter actually writes. A bare `LibraryImport(`
         // substring would match either spelling, so it would keep passing if qualification were
         // dropped here — this is the emitter-output assertion that holds the convention.
-        Assert.Contains("[global::System.Runtime.InteropServices.LibraryImport(\"TestModuleSwiftBindings\"", content);
+        // The theme exports compile into the bridge library with the view exports, so the
+        // P/Invokes must name it (not the wrapper library, which never carries them).
+        Assert.Contains("[global::System.Runtime.InteropServices.LibraryImport(\"TestModuleBridge\"", content);
+        Assert.DoesNotContain("TestModuleSwiftBindings", content);
         Assert.Contains("ThemeBridgeNativeMethods", content);
         Assert.Contains("EntryPoint = \"SBW_MyTheme_set_alertColor\"", content);
         Assert.Contains("double r, double g, double b, double a", content);
@@ -758,6 +761,43 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.Contains("SBW_onMainThread", swiftContent);
         Assert.Contains("import SwiftUI", swiftContent);
         Assert.Contains("import TestModule", swiftContent);
+    }
+
+    /// <summary>
+    /// The theme setter and getter bodies touch the singleton inside <c>SBW_onMainThread</c>; a
+    /// main-actor theme class makes that an error from a nonisolated block, so the helper's block
+    /// must be <c>@MainActor</c> and run under <c>MainActor.assumeIsolated</c> on both paths.
+    /// </summary>
+    [Fact]
+    public void EmitThemeBridge_StandaloneBridgeRunsOnTheMainActorAndQualifiesSwiftUITypes()
+    {
+        var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
+        {
+            new("MyTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("bgColor", ThemeBridgeEmitter.ThemePropertyKind.Color),
+                new("titleFont", ThemeBridgeEmitter.ThemePropertyKind.Font),
+            })
+        };
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
+            viewBridgeExists: false, NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("func SBW_onMainThread<T>(_ block: @MainActor () -> T) -> T {", swiftContent);
+        // The bound module is imported beside SwiftUI and may declare its own Color or Font, so the
+        // bridge names SwiftUI's through the module.
+        Assert.Contains("MyTheme.shared.bgColor = SwiftUI.Color(red: r, green: g, blue: b, opacity: a)", swiftContent);
+        Assert.Contains("let font: SwiftUI.Font", swiftContent);
+        Assert.Contains("-> SwiftUI.Font.Weight {", swiftContent);
+        Assert.Contains("-> SwiftUI.Font.Design {", swiftContent);
+        Assert.Equal(2, swiftContent.Split("MainActor.assumeIsolated { SBW_MainThreadResult(value: block()) }.value").Length - 1);
+        Assert.Contains("struct SBW_MainThreadResult<T>: @unchecked Swift.Sendable", swiftContent);
+        // Every C-callable export is public, as the view bridge's are; an internal @_cdecl function
+        // never reaches the bridge library's exported symbols, so its P/Invoke finds no entry point.
+        var cdecls = System.Text.RegularExpressions.Regex.Matches(swiftContent, @"@_cdecl\(""[^""]+""\)\s*\n(\w+)");
+        Assert.NotEmpty(cdecls);
+        Assert.All(cdecls, m => Assert.Equal("public", m.Groups[1].Value));
     }
 
     #endregion
@@ -1083,7 +1123,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.Contains("UIFont(name: name, size: CGFloat(size))", content);
         Assert.Contains("MyTheme.shared.loadingFont = font", content);
         // Should NOT contain SwiftUI Font constructor
-        Assert.DoesNotContain("let font: Font", content);
+        Assert.DoesNotContain("let font: SwiftUI.Font", content);
     }
 
     [Fact]
@@ -1209,7 +1249,7 @@ public class ThemeBridgeEmitterTests : IDisposable
         Assert.Contains("Color(red: r, green: g, blue: b, opacity: a)", swiftContent);
 
         // Both font constructor styles
-        Assert.Contains("let font: Font", swiftContent);
+        Assert.Contains("let font: SwiftUI.Font", swiftContent);
         Assert.Contains("let font: UIFont", swiftContent);
     }
 

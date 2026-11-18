@@ -513,6 +513,34 @@ public class CrossModuleExtensionEmitterTests
         Assert.Contains("self_.assumingMemoryBound(to: OrigModule.OrigPoint.self).pointee", swiftResult);
     }
 
+    /// <summary>
+    /// The struct-receiver trampoline calls the extension member synchronously, so a main-actor
+    /// member (or a member of a main-actor receiver) needs the trampoline isolated with it, as the
+    /// class-receiver trampoline already is; a nonisolated member stays unannotated.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, false)]
+    public void EmitStruct_FrozenStructReceiver_TrampolineCarriesMainActorIsolation(
+        bool receiverIsMainActor, bool memberIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var (csWriter, swiftWriter, _, swiftOutput, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.IsMainActorIsolated = receiverIsMainActor;
+        var method = CreateMethodDecl("doMath", "TestModule", structDecl);
+        method.IsMainActorIsolated = memberIsMainActor;
+        method.IsNonisolated = memberIsNonisolated;
+        structDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var swift = swiftOutput.ToString().Replace("\r\n", "\n");
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Ext_OrigPoint_doMath_", swift);
+        Assert.Equal(expectMainActor, swift.Contains("@MainActor\n@_cdecl(\"SBW_TestModule_Ext_OrigPoint_doMath_", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void EmitStruct_NonFrozenStruct_NoExtensionClassEmitted()
     {

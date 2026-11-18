@@ -509,6 +509,10 @@ internal static class KeyPathBagValueSpecializationEmitter
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Route C per-V sort: {ov.ParentSwiftClosed}.{NameProvider.ParserNameToSwift(ov.Method)}<{variantList}>");
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, ov.MergedAvailability);
+        // The trampoline calls the sort member synchronously on the receiver; a main-actor member
+        // (or main-actor generic parent) needs the wrapper isolated with it.
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, ov.Method.ParentDecl, ov.Method.IsMainActorIsolated, ov.Method.IsNonisolated);
         swiftWriter.WriteLine($"@_cdecl(\"{ov.CdeclSymbol}\")");
 
         var swiftParams = new List<string> { "_ _by: Swift.UnsafeRawPointer" };

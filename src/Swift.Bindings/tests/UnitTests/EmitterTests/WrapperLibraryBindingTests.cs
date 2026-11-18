@@ -151,6 +151,22 @@ public class WrapperLibraryBindingTests
         Assert.DoesNotContain("AlphaSwiftBindings", second);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void KeyPathInitFactoryTrampoline_CarriesTheDependencyClassIsolation(bool mainActorDepClass)
+    {
+        // The trampoline calls the dependency class's initializer synchronously. On a main-actor
+        // class that initializer is main-actor isolated, and swiftc (6.2 and 6.4, even under
+        // -strict-concurrency=minimal) refuses the call from a nonisolated function, so the
+        // trampoline must carry the class's isolation; a nonisolated class keeps a plain one.
+        var (_, swift) = EmitKeyPathInitFactoriesWithWrapper(ConfiguredWrapper, mainActorDepClass);
+
+        Assert.Contains("@_cdecl(\"SBW_EPF_", swift);
+        var annotated = Regex.IsMatch(swift, @"@MainActor\s*\n\s*@_cdecl\(""SBW_EPF_");
+        Assert.Equal(mainActorDepClass, annotated);
+    }
+
     // ─── Drift guard over the whole emitter tree ───
 
     [Fact]
@@ -202,6 +218,14 @@ public class WrapperLibraryBindingTests
     /// Returns the emitted C#.
     /// </summary>
     private static string EmitKeyPathInitFactories(string asyncLibraryName)
+        => EmitKeyPathInitFactoriesWithWrapper(asyncLibraryName, mainActorDepClass: false).CSharp;
+
+    /// <summary>
+    /// As <see cref="EmitKeyPathInitFactories"/>, also returning the emitted Swift trampolines, with
+    /// the dependency class optionally main-actor isolated.
+    /// </summary>
+    private static (string CSharp, string Swift) EmitKeyPathInitFactoriesWithWrapper(
+        string asyncLibraryName, bool mainActorDepClass)
     {
         // A non-empty AsyncLibraryName is also what puts the run in XCFramework mode, which is the
         // emitter's own gate — the factories are wrapper-trampoline-backed, so a Direct-mode run
@@ -209,6 +233,7 @@ public class WrapperLibraryBindingTests
         var typeDatabase = new TypeDatabase { AsyncLibraryName = asyncLibraryName };
 
         var depClass = BuildMiniEntityPropertyClass();
+        depClass.IsMainActorIsolated = mainActorDepClass;
         var depModule = BuildModule("DepModule", depClass);
         typeDatabase.AddDependencyModuleDecl(depModule);
 
@@ -221,15 +246,16 @@ public class WrapperLibraryBindingTests
         engine.IndexModuleConformances(localModule);
 
         var sw = new StringWriter();
+        var swiftOut = new StringWriter();
         ConformerKeyPathInitFactoryEmitter.EmitForModule(
-            new CSharpWriter(sw), new SwiftWriter(new StringWriter()),
+            new CSharpWriter(sw), new SwiftWriter(swiftOut),
             localModule, typeDatabase,
             // An explicit context: the dedup key this emitter claims is scoped to whatever context
             // it is handed, so sharing one across tests would make the second emit nothing.
             new ModuleEmissionContext(),
             engine, NullLogger.Instance);
 
-        return sw.ToString();
+        return (sw.ToString(), swiftOut.ToString());
     }
 
     private static ModuleDecl BuildModule(string name, TypeDecl type)

@@ -95,3 +95,17 @@ public struct RouteC_CollisionScope {
         public init() {}
     }
 }
+
+// A main-actor generic parent. Its sort member is main-actor isolated, so the Route C trampoline
+// that calls it synchronously compiles only when the trampoline carries the same isolation
+// (swiftc 6.2 and 6.4, even under -strict-concurrency=minimal).
+@MainActor
+public class RouteC_MainActorRequest<Item: RouteC_Filterable> {
+    public init() {}
+
+    public final func sort<V>(by keyPath: KeyPath<Item.SortBag, V>, ascending: Bool) {
+        RouteC_SortTracker.lastKeyPathHash = keyPath.hashValue
+        RouteC_SortTracker.lastAscending = ascending
+        RouteC_SortTracker.lastDescription = ascending ? "main-actor asc" : "main-actor desc"
+    }
+}

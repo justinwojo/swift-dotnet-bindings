@@ -708,6 +708,9 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, enumDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The wrapper calls the member synchronously; a main-actor enum's members are isolated.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, enumDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");
@@ -1271,6 +1274,9 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, enumDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The wrapper calls the member synchronously; a main-actor enum's members are isolated.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, enumDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_get_{propertyDecl.Name}(_ tag: {swiftScalarType}) -> {swiftReturnType} {{");
@@ -1321,6 +1327,9 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(propertyDecl.AvailabilityAnnotations, enumDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The wrapper calls the member synchronously; a main-actor enum's members are isolated.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, enumDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_get_{propertyDecl.Name}() -> {swiftReturnType} {{");
@@ -1389,6 +1398,9 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(methodDecl.AvailabilityAnnotations, enumDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The wrapper calls the member synchronously; a main-actor enum's members are isolated.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, enumDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             swiftWriter.WriteLine($"@_cdecl(\"{wrapperSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{GetSwiftWrapperIdentifierPath(enumDecl)}_{methodDecl.Name}({string.Join(", ", swiftParams)}) -> {returnTypeStr} {{");

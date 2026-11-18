@@ -800,11 +800,7 @@ public static partial class SwiftUIBridgeEmitter
             // Shared helpers
             sb.AppendLine("// --- Shared helpers ---");
             sb.AppendLine();
-            sb.AppendLine("@discardableResult");
-            sb.AppendLine("func SBW_onMainThread<T>(_ block: () -> T) -> T {");
-            sb.AppendLine("    if Thread.isMainThread { return block() }");
-            sb.AppendLine("    return DispatchQueue.main.sync { block() }");
-            sb.AppendLine("}");
+            AppendMainThreadHelper(sb);
             sb.AppendLine();
         }
         else
@@ -3388,6 +3384,31 @@ public static partial class SwiftUIBridgeEmitter
             return $"{info.SwiftTypeReference}<{GetOrderedTypeArgs(info.GenericAnalysis)}>";
         }
         return info.SwiftTypeReference;
+    }
+
+    /// <summary>
+    /// Writes <c>SBW_onMainThread</c>, the bridge files' one way to run a block on the main thread
+    /// and return its value. The block is <c>@MainActor</c> and runs under
+    /// <c>MainActor.assumeIsolated</c> (on the main thread directly, or after a synchronous hop to
+    /// the main queue), so a bridge body may touch main-actor state: a main-actor theme singleton's
+    /// properties are an error from a nonisolated closure on Swift 6.2 and 6.4 even under
+    /// <c>-strict-concurrency=minimal</c>, and a main-actor view's initializer a warning.
+    /// <c>assumeIsolated</c> returns only a <c>Sendable</c> value, so the result crosses in an
+    /// unchecked box; it never leaves the calling thread, which waits for the block.
+    /// </summary>
+    internal static void AppendMainThreadHelper(StringBuilder sb)
+    {
+        sb.AppendLine("struct SBW_MainThreadResult<T>: @unchecked Swift.Sendable { let value: T }");
+        sb.AppendLine();
+        sb.AppendLine("@discardableResult");
+        sb.AppendLine("func SBW_onMainThread<T>(_ block: @MainActor () -> T) -> T {");
+        sb.AppendLine("    if Thread.isMainThread {");
+        sb.AppendLine("        return MainActor.assumeIsolated { SBW_MainThreadResult(value: block()) }.value");
+        sb.AppendLine("    }");
+        sb.AppendLine("    return DispatchQueue.main.sync {");
+        sb.AppendLine("        MainActor.assumeIsolated { SBW_MainThreadResult(value: block()) }.value");
+        sb.AppendLine("    }");
+        sb.AppendLine("}");
     }
 
     /// <summary>

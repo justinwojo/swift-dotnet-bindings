@@ -278,6 +278,24 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("DispatchQueue.main.sync", swiftContent);
     }
 
+    [Fact]
+    public void EmitBridgeFiles_MainThreadHelperRunsItsBlockOnTheMainActor()
+    {
+        // Bridge bodies run user code (a view's initializer, a theme singleton's setters) inside
+        // SBW_onMainThread. A main-actor member is an error (or, through SwiftUI's preconcurrency
+        // View, a warning) from a nonisolated block, so the block is @MainActor and runs under
+        // MainActor.assumeIsolated on the main-thread path and after the main-queue hop alike.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance);
+
+        var swiftContent = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("func SBW_onMainThread<T>(_ block: @MainActor () -> T) -> T {", swiftContent);
+        Assert.Equal(2, swiftContent.Split("MainActor.assumeIsolated { SBW_MainThreadResult(value: block()) }.value").Length - 1);
+        Assert.DoesNotContain("func SBW_onMainThread<T>(_ block: () -> T)", swiftContent);
+    }
+
     #endregion
 
     #region Functional Bridge Generation
