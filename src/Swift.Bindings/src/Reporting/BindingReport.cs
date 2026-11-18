@@ -756,6 +756,17 @@ public enum SkipReason
     /// </para>
     /// </summary>
     NonCopyableThroughCopyingLane,
+
+    /// <summary>
+    /// A member declared in an extension of a protocol that no C# surface carries. Extension
+    /// members are bound by injecting a wrapper onto each conforming type of this module; the
+    /// protocol's C# interface carries its requirements only. The member is therefore lost when no
+    /// type here conforms (the usual case for a protocol the consumer is meant to adopt), or when
+    /// its shape is one the extension path does not inject at all: a constrained extension, a
+    /// settable property, an async member or typed throws. <see cref="SkippedItem.Details"/> names
+    /// which.
+    /// </summary>
+    ProtocolExtensionUncarried,
 }
 
 /// <summary>

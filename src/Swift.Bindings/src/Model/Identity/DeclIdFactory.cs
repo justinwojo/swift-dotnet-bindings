@@ -160,8 +160,15 @@ public static class DeclIdFactory
     /// (<c>extension UIKit.UIView { var x: Int }</c>). There is no parsed declaration for it — the
     /// member comes from the interface's extension text — so the extended type's qualified name is
     /// the container and the member's printed signature separates overloads, which share a base name.
+    /// With <paramref name="includeConstraints"/>, a member of a constrained extension also carries its
+    /// extension's <c>where</c> clause, so the same signature in two constrained extensions keeps two
+    /// identities. <paramref name="declaringProtocol"/> names the protocol whose extension declares the
+    /// member when the container is a conformer, so two protocols' same-signature members keep two
+    /// identities on one conformer.
     /// </summary>
-    public static DeclId ForForeignExtensionMember(string foreignTypeQualifiedName, ProtocolExtensionMethodDecl member)
+    public static DeclId ForForeignExtensionMember(
+        string foreignTypeQualifiedName, ProtocolExtensionMethodDecl member, bool includeConstraints = false,
+        string? declaringProtocol = null)
     {
         ArgumentNullException.ThrowIfNull(foreignTypeQualifiedName);
         ArgumentNullException.ThrowIfNull(member);
@@ -174,8 +181,24 @@ public static class DeclIdFactory
             declPath,
             member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method,
             member.MethodName,
-            symbol: member.IsProperty ? null : member.RawSignature,
+            symbol: declaringProtocol is null
+                ? ExtensionMemberSymbol(member, includeConstraints)
+                : $"{declaringProtocol}: {ExtensionMemberSymbol(member, includeConstraints)}",
             discriminator: StaticnessOf(member.IsStatic));
+    }
+
+    private static string? ExtensionMemberSymbol(ProtocolExtensionMethodDecl member, bool includeConstraints)
+    {
+        var signature = member.IsProperty ? null : member.RawSignature;
+        if (!includeConstraints)
+            return signature;
+        // Report equality ignores the discriminator, so a static property and an instance property of
+        // one name keep separate rows only through the symbol.
+        if (member.IsProperty && member.IsStatic)
+            signature = "static";
+        if (member.WhereConstraints.Count == 0)
+            return signature;
+        return $"{signature} where {string.Join(", ", member.WhereConstraints)}".TrimStart();
     }
 
     /// <summary>

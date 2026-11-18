@@ -1821,12 +1821,19 @@ namespace BindingsGeneration
                 // composition wrappers) sees only the real protocol contract. Real extension
                 // defaults that ARE genuine requirements (rare) still flow through because the
                 // filter requires BOTH isFromExtension AND !IsProtocolRequirement.
-                if (decl is ProtocolDecl)
+                if (decl is ProtocolDecl protocolDecl)
                 {
                     decl.Properties.AddRange(childDecls.OfType<PropertyDecl>()
                         .Where(p => !(p.IsFromExtension && !p.IsProtocolRequirement)));
                     decl.Methods.AddRange(childDecls.OfType<MethodDecl>()
                         .Where(m => !(m.IsExtensionMethod && !m.IsProtocolRequirement)));
+                    // Kept aside so the members no binding path carries can still be reported.
+                    protocolDecl.ExtensionMembers.AddRange(childDecls.OfType<PropertyDecl>()
+                        .Where(p => p.IsFromExtension && !p.IsProtocolRequirement));
+                    protocolDecl.ExtensionMembers.AddRange(childDecls.OfType<MethodDecl>()
+                        .Where(m => m.IsExtensionMethod && !m.IsProtocolRequirement && !m.IsAccessor));
+                    protocolDecl.ExtensionMembers.AddRange(childDecls.OfType<SubscriptDecl>()
+                        .Where(s => s.IsFromExtension && !s.IsProtocolRequirement));
                 }
                 else
                 {

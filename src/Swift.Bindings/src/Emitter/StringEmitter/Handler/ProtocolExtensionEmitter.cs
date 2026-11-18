@@ -29,11 +29,13 @@ public static class ProtocolExtensionEmitter
         ModuleEmissionContext? ctx = null)
     {
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
+        ReportUnextractedMembers(moduleDecl, protocolExtensionMethods, typeDatabase, logger, ctx);
         if (protocolExtensionMethods.Count == 0)
             return;
 
         // Build protocol name → list of conforming TypeDecl map (ClassDecl + non-frozen StructDecl)
         var conformanceMap = BuildConformanceMap(moduleDecl);
+        var unboundConformers = BuildUnboundConformerMap(moduleDecl);
 
         foreach (var (protocolQualifiedName, extensionMethods) in protocolExtensionMethods)
         {
@@ -43,39 +45,91 @@ public static class ProtocolExtensionEmitter
                 ? protocolQualifiedName.Substring(dotIdx + 1)
                 : protocolQualifiedName;
 
-            if (!conformanceMap.TryGetValue(unqualifiedProtocolName, out var conformingTypes))
-                continue;
+            var conformingTypes = conformanceMap.TryGetValue(unqualifiedProtocolName, out var found)
+                ? found
+                : (IReadOnlyList<TypeDecl>)Array.Empty<TypeDecl>();
+            var unbound = unboundConformers.TryGetValue(InModule(moduleDecl, protocolQualifiedName), out var unboundFound)
+                ? unboundFound
+                : (IReadOnlyList<(TypeDecl Type, string Kind)>)Array.Empty<(TypeDecl, string)>();
 
             foreach (var extMethod in extensionMethods)
             {
-                // Skip constrained extensions for now — we can't validate constraints
-                // against conforming types without full type system resolution
-                if (extMethod.WhereConstraints.Count > 0)
-                    continue;
+                // A member that supplies the default for one of the protocol's own requirements is
+                // not separate surface: the requirement is what a consumer sees, on the protocol's
+                // interface and on every conformer, and it is accounted for wherever it is bound.
+                // It still goes through injection below, exactly as before; only its row is moot.
+                var isRequirementDefault = IsRequirementDefault(moduleDecl, protocolQualifiedName, extMethod, typeDatabase, logger);
 
-                // Read-write protocol-extension property defaults are deferred — surfacing a
-                // setter needs a paired write-back wrapper that doesn't exist yet. Read-only
-                // (get-only) properties are surfaced as synthetic getter METHODS (GetX()) via
-                // the property arm of TryInjectMethod, reusing the same free-function wrapper +
-                // synthetic-MethodDecl pipeline as the extension-default methods on this type.
-                if (extMethod.IsProperty && extMethod.HasSetter)
+                // A shape this path declines for every conformer alike is reported once, on the
+                // protocol that declares it.
+                var memberDecline = MemberLevelDecline(extMethod);
+                if (memberDecline is { } declined)
+                {
+                    if (!isRequirementDefault)
+                        RecordDecline(ctx, moduleDecl, protocolQualifiedName, extMethod, declined.Reason,
+                            $"Extension member of protocol '{protocolQualifiedName}': {declined.Details}, "
+                            + "so it is bound on no conforming type.");
                     continue;
+                }
 
-                // Skip static methods (defer to later session)
-                if (extMethod.IsStatic)
-                    continue;
-
-                // Skip async methods (wrapper semantics not implemented)
-                if (IsAsyncSignature(extMethod.RawSignature))
-                    continue;
-
-                // Skip typed throws (e.g., "throws(ParseError)") — deferred
-                if (IsTypedThrowsSignature(extMethod.RawSignature))
-                    continue;
-
+                var carried = false;
+                List<(TypeDecl Type, InjectOutcome Outcome)>? declines = null;
                 foreach (var conformingType in conformingTypes)
                 {
-                    TryInjectMethod(moduleDecl, conformingType, extMethod, typeDatabase, logger, ctx);
+                    var outcome = TryInjectMethod(moduleDecl, conformingType, extMethod, typeDatabase, logger, ctx);
+                    if (outcome.IsCarried)
+                        carried = true;
+                    else
+                        (declines ??= new()).Add((conformingType, outcome));
+                }
+
+                if (isRequirementDefault)
+                    continue;
+
+                if (!carried)
+                {
+                    // Nothing surfaces the member: with no conformer it has no C# home at all (the
+                    // protocol's C# interface carries requirements, not extension members), and with
+                    // conformers every one of them declined it.
+                    if (declines is { Count: > 0 })
+                    {
+                        var first = declines[0].Outcome;
+                        RecordDecline(ctx, moduleDecl, protocolQualifiedName, extMethod, first.Reason,
+                            $"Extension member of protocol '{protocolQualifiedName}': no conforming type binds it; "
+                            + $"on {QualifiedName(declines[0].Type)} {first.Details}"
+                            + (declines.Count > 1 ? $" ({declines.Count - 1} other conformer(s) declined it too)." : "."));
+                    }
+                    else if (unbound.Count > 0)
+                    {
+                        RecordDecline(ctx, moduleDecl, protocolQualifiedName, extMethod, SkipReason.ProtocolExtensionUncarried,
+                            $"Extension member of protocol '{protocolQualifiedName}': no conforming type binds it; "
+                            + $"{QualifiedName(unbound[0].Type)} is {unbound[0].Kind}, which the extension path does not bind "
+                            + "extension members onto"
+                            + (unbound.Count > 1 ? $" ({unbound.Count - 1} other conformer(s) likewise)." : "."));
+                    }
+                    else
+                    {
+                        RecordDecline(ctx, moduleDecl, protocolQualifiedName, extMethod, SkipReason.ProtocolExtensionUncarried,
+                            $"Extension member of protocol '{protocolQualifiedName}': no type in this module conforms to the "
+                            + "protocol, and the protocol's C# interface carries its requirements only, so the member has "
+                            + "no C# surface.");
+                    }
+                    continue;
+                }
+
+                // Conformers the extension path never binds onto lose the member too.
+                foreach (var (type, kind) in unbound)
+                    RecordDecline(ctx, moduleDecl, QualifiedName(type), extMethod, SkipReason.ProtocolExtensionUncarried,
+                        $"Extension member of protocol '{protocolQualifiedName}', inherited by {QualifiedName(type)}: "
+                        + $"it is {kind}, which the extension path does not bind extension members onto.");
+
+                // Some conformers carry it: the ones that declined lose it.
+                if (declines != null)
+                {
+                    foreach (var (type, outcome) in declines)
+                        RecordDecline(ctx, moduleDecl, QualifiedName(type), extMethod, outcome.Reason,
+                            $"Extension member of protocol '{protocolQualifiedName}', inherited by {QualifiedName(type)}: "
+                            + $"{outcome.Details}.");
                 }
             }
         }
@@ -84,6 +138,521 @@ public static class ProtocolExtensionEmitter
         {
             logger.LogInformation("Injected {Count} protocol extension methods across conforming types", ctx.ProtocolExtInjectedCount);
         }
+    }
+
+    /// <summary>
+    /// What became of one extension member on one conforming type: bound there (injected, or
+    /// already bound by the type itself or an ancestor), or declined for a reason the report names.
+    /// </summary>
+    private readonly record struct InjectOutcome(bool IsCarried, SkipReason Reason, string Details)
+    {
+        public static InjectOutcome Carried => new(true, default, string.Empty);
+
+        public static InjectOutcome Declined(SkipReason reason, string details) => new(false, reason, details);
+    }
+
+    /// <summary>
+    /// The shapes this path declines before looking at any conformer, with the reason each is
+    /// reported under. Null when the member goes on to per-conformer injection.
+    /// </summary>
+    private static (SkipReason Reason, string Details)? MemberLevelDecline(ProtocolExtensionMethodDecl extMethod)
+    {
+        // Constrained extensions are not injected: the constraints cannot be checked against a
+        // conformer without full type-system resolution.
+        if (extMethod.WhereConstraints.Count > 0)
+            return (SkipReason.ProtocolExtensionUncarried,
+                $"it is declared in a constrained extension (where {string.Join(", ", extMethod.WhereConstraints)})");
+
+        // Read-write protocol-extension property defaults are deferred — surfacing a setter needs
+        // a paired write-back wrapper that doesn't exist yet. Read-only (get-only) properties are
+        // surfaced as synthetic getter METHODS (GetX()) via the property arm of TryInjectMethod.
+        if (extMethod.IsProperty && extMethod.HasSetter)
+            return (SkipReason.ProtocolExtensionUncarried, "it is a settable property, and the extension path binds getters only");
+
+        if (extMethod.IsStatic)
+            return (SkipReason.ProtocolExtensionUncarried, "it is static, and the extension path binds instance members only");
+
+        if (IsAsyncSignature(extMethod.RawSignature))
+            return (SkipReason.ProtocolExtensionUncarried, "it is async, and the extension wrapper is synchronous");
+
+        if (IsTypedThrowsSignature(extMethod.RawSignature))
+            return (SkipReason.ProtocolExtensionUncarried, "it uses typed throws, which the extension wrapper does not bridge");
+
+        return null;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="extMethod"/> is the default implementation of a requirement of the
+    /// protocol it extends, of a protocol that protocol inherits, or of a protocol a <c>Self :</c>
+    /// constraint on its extension names. Only protocols this module declares can be inspected.
+    /// </summary>
+    private static bool IsRequirementDefault(
+        ModuleDecl moduleDecl,
+        string protocolQualifiedName,
+        ProtocolExtensionMethodDecl extMethod,
+        ITypeDatabase typeDatabase,
+        ILogger logger)
+    {
+        // Matched by name, labels and parameter types, so an extension overload that shares a
+        // requirement's labels is still its own member. Types are compared only where both sides
+        // print them the same way: a requirement whose parameters and return are all concrete
+        // module-qualified types. Otherwise (a generic, associated or Self type, or a signature that does not parse)
+        // name and labels decide, which can only drop a row, never add a false one.
+        var overloadKey = ExtensionOverloadKey(extMethod, typeDatabase, logger);
+        bool IsDefaultFor(MethodDecl requirement)
+        {
+            if (AbiLabelKey(requirement) != extMethod.PrintedName)
+                return false;
+            // Swift overloads on async-ness: a sync requirement never takes an async extension member
+            // for its default, while a sync member does witness an async requirement.
+            var extensionIsAsync = IsAsyncSignature(extMethod.RawSignature);
+            if (!requirement.IsAsync && extensionIsAsync)
+                return false;
+            if ((requirement.MethodType == MethodType.Static) != extMethod.IsStatic)
+                return false;
+            if (overloadKey == null || !HasOnlyConcreteSignatureTypes(requirement))
+                return true;
+            var requirementKey = AbiOverloadKey(requirement);
+            if (requirement.IsAsync && !extensionIsAsync)
+                requirementKey = requirementKey.Replace(" async -> ", " -> ", StringComparison.Ordinal);
+            return requirementKey == overloadKey;
+        }
+
+        var byName = new Dictionary<string, ProtocolDecl>(StringComparer.Ordinal);
+        foreach (var protocol in ModuleProtocols(moduleDecl))
+            byName.TryAdd(QualifiedName(protocol), protocol);
+
+        var pending = new Stack<string>();
+        pending.Push(protocolQualifiedName);
+        foreach (var constraint in extMethod.WhereConstraints)
+        {
+            var trimmed = constraint.Trim();
+            if (!trimmed.StartsWith("Self", StringComparison.Ordinal))
+                continue;
+            var colon = trimmed.IndexOf(':');
+            if (colon > 0 && trimmed[..colon].Trim() == "Self")
+                foreach (var part in trimmed[(colon + 1)..].Split('&'))
+                    pending.Push(part.Trim());
+        }
+
+        var visited = new HashSet<ProtocolDecl>();
+        while (pending.Count > 0)
+        {
+            var name = pending.Pop();
+            if (!byName.TryGetValue(InModule(moduleDecl, name), out var protocol))
+            {
+                // A protocol of another module: its requirements are not visible here, so the member
+                // may be the default of one of them, and a row could be false.
+                if (name != protocolQualifiedName
+                    && (KnownForeignRequirements(name) is not { } known || known.Contains(extMethod.MethodName)))
+                    return true;
+                continue;
+            }
+            if (!visited.Add(protocol))
+                continue;
+
+            if (extMethod.IsProperty
+                ? protocol.Properties.Any(p => p.GetSwiftName() == extMethod.MethodName && p.IsStatic == extMethod.IsStatic)
+                : protocol.Methods.Any(m => !m.IsAccessor && IsDefaultFor(m)))
+                return true;
+
+            foreach (var inherited in protocol.InheritedProtocols)
+                pending.Push(inherited.Name);
+        }
+        return false;
+    }
+
+    private static string QualifiedName(TypeDecl type) => type.SwiftTypeName.ModuleQualifiedName;
+
+    /// <summary>
+    /// A type name as this module qualifies its own types: module selectors (<c>M::</c>) dropped, and
+    /// a name with no module of its own taken to be this module's. A name another module qualifies
+    /// keeps that module, so it never resolves to a local type with the same short name.
+    /// </summary>
+    internal static string InModule(ModuleDecl moduleDecl, string name)
+    {
+        var plain = ModuleSelector.Replace(name.Trim(), string.Empty);
+        if (plain.StartsWith(moduleDecl.Name + ".", StringComparison.Ordinal))
+            return plain;
+        var firstDot = plain.IndexOf('.');
+        var head = firstDot < 0 ? plain : plain[..firstDot];
+        return firstDot < 0 || moduleDecl.Types.Any(t => t.Name == head) || moduleDecl.Protocols.Any(p => p.Name == head)
+            ? $"{moduleDecl.Name}.{plain}"
+            : plain;
+    }
+
+    /// <summary>
+    /// The requirement names of the other modules' protocols this protocol inherits (through its own
+    /// module's protocols), or null when one of them is a protocol whose requirements this module
+    /// cannot see. An extension member of such a protocol may supply the default for one of them, so
+    /// it is not reported as unextracted.
+    /// </summary>
+    private static HashSet<string>? ForeignParentRequirements(ModuleDecl moduleDecl, ProtocolDecl protocol)
+    {
+        var local = ModuleProtocols(moduleDecl).Select(QualifiedName).ToHashSet(StringComparer.Ordinal);
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var inherited in ProtocolAndInheritedInModule(moduleDecl, protocol).SelectMany(p => p.InheritedProtocols))
+        {
+            if (local.Contains(InModule(moduleDecl, inherited.Name)))
+                continue;
+            if (KnownForeignRequirements(inherited.Name) is not { } known)
+                return null;
+            names.UnionWith(known);
+        }
+        return names;
+    }
+
+    /// <summary>
+    /// The requirement names of another module's protocol whose requirements are known here (the
+    /// standard library's, and Foundation's that Apple frameworks commonly refine), or null for any
+    /// other protocol of another module.
+    /// </summary>
+    private static IReadOnlySet<string>? KnownForeignRequirements(string name)
+    {
+        var plain = ModuleSelector.Replace(name.Trim(), string.Empty);
+        if (plain.StartsWith("Swift.", StringComparison.Ordinal))
+            plain = plain["Swift.".Length..];
+        return KnownForeignProtocolRequirements.TryGetValue(plain, out var names) ? names : null;
+    }
+
+    private static readonly Dictionary<string, HashSet<string>> KnownForeignProtocolRequirements = new(StringComparer.Ordinal)
+    {
+        ["Sendable"] = new(), ["SendableMetatype"] = new(), ["Copyable"] = new(), ["Escapable"] = new(),
+        ["BitwiseCopyable"] = new(), ["AnyObject"] = new(), ["Error"] = new(),
+        ["Equatable"] = new() { "==" },
+        ["Hashable"] = new() { "==", "hash", "hashValue" },
+        ["Comparable"] = new() { "==", "<", "<=", ">", ">=" },
+        ["CustomStringConvertible"] = new() { "description" },
+        ["CustomDebugStringConvertible"] = new() { "debugDescription" },
+        ["Identifiable"] = new() { "id" },
+        ["Encodable"] = new() { "encode" },
+        ["Decodable"] = new() { "init" },
+        ["Codable"] = new() { "encode", "init" },
+        ["RawRepresentable"] = new() { "init", "rawValue" },
+        ["CaseIterable"] = new() { "allCases" },
+        ["Foundation.CustomLocalizedStringResourceConvertible"] = new() { "localizedStringResource" },
+    };
+
+    private static string SwiftNameOf(BaseDecl member) => member switch
+    {
+        MethodDecl method => method.GetSwiftName(),
+        PropertyDecl property => property.GetSwiftName(),
+        _ => member.Name,
+    };
+
+    private static readonly System.Text.RegularExpressions.Regex ModuleSelector = new(@"\b\w+::", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>Every protocol this module declares, nested ones (<c>enum S { protocol P }</c>) included.</summary>
+    private static IEnumerable<ProtocolDecl> ModuleProtocols(ModuleDecl moduleDecl)
+    {
+        var seen = new HashSet<ProtocolDecl>();
+        var pending = new Stack<TypeDecl>();
+        foreach (var type in moduleDecl.Types.Concat(moduleDecl.Protocols).Reverse())
+            pending.Push(type);
+        while (pending.Count > 0)
+        {
+            var type = pending.Pop();
+            if (type is ProtocolDecl protocol && seen.Add(protocol))
+                yield return protocol;
+            for (var i = type.Types.Count - 1; i >= 0; i--)
+                pending.Push(type.Types[i]);
+        }
+    }
+
+    /// <summary>
+    /// Another declaration already owns the wrapper symbol this member renders to (the symbol carries
+    /// the name, labels and parameter types, not the return type), so this member gets no wrapper.
+    /// </summary>
+    private static InjectOutcome WrapperSymbolTaken(string symbolName)
+        => InjectOutcome.Declined(SkipReason.DuplicateSignature,
+            $"its wrapper symbol {symbolName} is already taken by another member with the same name, labels and parameter types");
+
+    /// <summary>
+    /// Whether every parameter and the return type is a concrete module-qualified type (or the return
+    /// is void), the shapes the ABI and the interface reader print alike.
+    /// </summary>
+    private static bool HasOnlyConcreteSignatureTypes(MethodDecl method)
+        => method.CSSignature.Select((arg, index) => (arg, index)).All(e =>
+            (e.index == 0 && e.arg.SwiftTypeSpec is { IsEmptyTuple: true })
+            || (e.arg.SwiftTypeSpec is NamedTypeSpec named
+                && named.GenericParameters.Count == 0
+                && named.Name.Contains('.')
+                && !named.Name.StartsWith("Self", StringComparison.Ordinal)));
+
+    /// <summary>
+    /// Reports the protocol-extension members the ABI declares that never reach injection: the
+    /// interface reader extracts plain <c>func</c> and <c>var</c> members of an extension it can read,
+    /// so an initializer, a subscript, a member with another modifier (<c>final</c>,
+    /// <c>nonisolated</c>, …) or a member of an extension it cannot parse has no injection candidate
+    /// and, without this, no row. A member is left alone when the reader extracted it (injection owns
+    /// its row then), or when it supplies the default for a requirement with the same signature (the
+    /// requirement is the surface). Members are matched by overload: name, labels and parameter types.
+    /// </summary>
+    internal static void ReportUnextractedMembers(
+        ModuleDecl moduleDecl,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> protocolExtensionMethods,
+        ITypeDatabase typeDatabase,
+        ILogger logger,
+        ModuleEmissionContext ctx)
+    {
+        Dictionary<string, ExtractedMembers>? extracted = null;
+        foreach (var protocol in ModuleProtocols(moduleDecl))
+        {
+            if (protocol.ExtensionMembers.Count == 0 || protocol.IsModuleInternal)
+                continue;
+            if (ForeignParentRequirements(moduleDecl, protocol) is not { } foreignRequirements)
+                continue;
+            extracted ??= IndexExtractedMembers(moduleDecl, protocolExtensionMethods, typeDatabase, logger);
+            extracted.TryGetValue(QualifiedName(protocol), out var reader);
+
+            // Unmatched ABI methods grouped by name and labels: the reader's count for the group caps
+            // how many of them can be unextracted, so a type that prints differently on the two sides
+            // never turns an extracted overload into a row.
+            var unmatchedMethods = new Dictionary<string, List<MethodDecl>>(StringComparer.Ordinal);
+            var abiMethodCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            var candidates = new List<(BaseDecl Member, string Shape)>();
+            foreach (var member in protocol.ExtensionMembers)
+            {
+                switch (member)
+                {
+                    case MethodDecl { IsConstructor: true } init when !init.IsModuleInternal:
+                        if (!IsRequirementSignature(moduleDecl, protocol, init))
+                            candidates.Add((init, "an initializer"));
+                        break;
+                    case MethodDecl method when !method.IsModuleInternal && method.Name.Length > 0:
+                        // Counted before the requirement check: the reader's count for the group
+                        // includes the requirement defaults it extracted, so the ABI count must too.
+                        var labelKey = AbiLabelKey(method);
+                        abiMethodCounts[labelKey] = abiMethodCounts.GetValueOrDefault(labelKey) + 1;
+                        if (IsRequirementSignature(moduleDecl, protocol, method))
+                            break;
+                        if (reader == null || !reader.Matches(method))
+                        {
+                            if (!unmatchedMethods.TryGetValue(labelKey, out var group))
+                                unmatchedMethods[labelKey] = group = new List<MethodDecl>();
+                            group.Add(method);
+                        }
+                        break;
+                    case PropertyDecl property when !property.IsModuleInternal && property.Name.Length > 0:
+                        if (reader?.PropertyNames.Contains(property.GetSwiftName()) != true
+                            && !IsRequirementSignature(moduleDecl, protocol, property))
+                            candidates.Add((property, "a property"));
+                        break;
+                    case SubscriptDecl subscript when !subscript.IsModuleInternal:
+                        if (!IsRequirementSignature(moduleDecl, protocol, subscript))
+                            candidates.Add((subscript, "a subscript"));
+                        break;
+                }
+            }
+
+            foreach (var (labelKey, group) in unmatchedMethods)
+            {
+                var readerCount = reader?.CountByLabels.GetValueOrDefault(labelKey) ?? 0;
+                var excess = abiMethodCounts[labelKey] - readerCount;
+                if (excess <= 0)
+                    continue;
+                if (group.Count > excess)
+                {
+                    logger.LogDebug("Protocol {Protocol}: cannot tell which of {Count} overloads of {Key} the interface reader missed",
+                        protocol.Name, group.Count, labelKey);
+                    continue;
+                }
+                foreach (var method in group)
+                    candidates.Add((method, "a method"));
+            }
+
+            var protocolName = QualifiedName(protocol);
+            foreach (var (member, shape) in candidates)
+            {
+                if (foreignRequirements.Contains(member is MethodDecl { IsConstructor: true } ? "init" : SwiftNameOf(member)))
+                    continue;
+                if (DeclIdFactory.ForDecl(member) is not { } memberId)
+                    continue;
+                var details = $"Extension member of protocol '{protocolName}': {shape} the interface reader does not "
+                    + "extract (it reads plain func and var members of extensions it can parse), so no conforming "
+                    + "type binds it and the protocol's C# interface carries requirements only.";
+                ReportCollector.RecordMemberSkipped(memberId, moduleDecl, SkipReason.ProtocolExtensionUncarried, details);
+                ctx.AddProtocolExtDecline(new ProtocolExtensionDecline(memberId, SkipReason.ProtocolExtensionUncarried, details));
+            }
+        }
+    }
+
+
+    /// <summary>What the interface reader extracted for one protocol, keyed for overload matching.</summary>
+    private sealed class ExtractedMembers
+    {
+        /// <summary>Name, labels and parameter types of each method whose signature parsed.</summary>
+        public HashSet<string> OverloadKeys { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>Name and labels of each method whose signature did not parse; matched by labels alone.</summary>
+        public HashSet<string> UnparsedLabelKeys { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>How many methods the reader extracted per name and labels.</summary>
+        public Dictionary<string, int> CountByLabels { get; } = new(StringComparer.Ordinal);
+
+        public HashSet<string> PropertyNames { get; } = new(StringComparer.Ordinal);
+
+        public bool Matches(MethodDecl method)
+            => OverloadKeys.Contains(AbiOverloadKey(method))
+                || UnparsedLabelKeys.Contains(AbiLabelKey(method));
+    }
+
+    private static Dictionary<string, ExtractedMembers> IndexExtractedMembers(
+        ModuleDecl moduleDecl,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> protocolExtensionMethods,
+        ITypeDatabase typeDatabase,
+        ILogger logger)
+    {
+        var index = new Dictionary<string, ExtractedMembers>(StringComparer.Ordinal);
+        foreach (var (rawReceiver, members) in protocolExtensionMethods)
+        {
+            var receiver = InModule(moduleDecl, rawReceiver);
+            if (!index.TryGetValue(receiver, out var entry))
+                index[receiver] = entry = new ExtractedMembers();
+            foreach (var member in members)
+            {
+                if (member.IsProperty)
+                {
+                    entry.PropertyNames.Add(member.MethodName);
+                    continue;
+                }
+                entry.CountByLabels[member.PrintedName] = entry.CountByLabels.GetValueOrDefault(member.PrintedName) + 1;
+                if (ExtensionOverloadKey(member, typeDatabase, logger) is { } overloadKey)
+                    entry.OverloadKeys.Add(overloadKey);
+                else
+                    entry.UnparsedLabelKeys.Add(member.PrintedName);
+            }
+        }
+        return index;
+    }
+
+    /// <summary>
+    /// The full overload key of an extracted method: name, labels and parameter types in the shape
+    /// <see cref="BuildOverloadAwareMethodKey"/> gives an ABI method, then async-ness and the return
+    /// type, which Swift also overloads on (see <see cref="AbiOverloadKey"/>). Null when its signature
+    /// does not parse.
+    /// </summary>
+    private static string? ExtensionOverloadKey(ProtocolExtensionMethodDecl member, ITypeDatabase typeDatabase, ILogger logger)
+    {
+        if (member.IsProperty)
+            return null;
+        if (ParseExtensionSignature(member, typeDatabase, logger) is not { } parsed)
+            return null;
+        var returnType = member.ReturnsSelf ? "Self" : parsed.returnTypeSpec?.ToString() ?? TupleTypeSpec.Empty.ToString();
+        return OverloadKeyTail(BuildOverloadAwareExtensionKey(member.MethodName, parsed.parameters),
+            IsAsyncSignature(member.RawSignature), returnType);
+    }
+
+    /// <summary>
+    /// The ABI counterpart of <see cref="ExtensionOverloadKey"/>, spelled as Swift spells it: the ABI
+    /// parser escapes a C# keyword in a method name or a label (<c>default</c> becomes
+    /// <c>_default</c>), and the interface reader keeps the Swift spelling.
+    /// </summary>
+    private static string AbiOverloadKey(MethodDecl method)
+    {
+        var parameters = method.CSSignature.Skip(1).ToList();
+        var key = parameters.Count == 0
+            ? $"{method.GetSwiftName()}()"
+            : $"{method.GetSwiftName()}({string.Join(",", parameters.Select(a => $"{SwiftLabel(a)}:{a.SwiftTypeSpec}"))})";
+        return OverloadKeyTail(key, method.IsAsync,
+            method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec?.ToString() ?? string.Empty : string.Empty);
+    }
+
+    /// <summary>
+    /// The name-and-labels key of an ABI method in the interface reader's printed-name shape
+    /// (<c>name(label:_:)</c>), spelled as Swift spells it.
+    /// </summary>
+    private static string AbiLabelKey(MethodDecl method)
+        => $"{method.GetSwiftName()}({string.Concat(method.CSSignature.Skip(1).Select(a => $"{SwiftLabel(a)}:"))})";
+
+    private static string SwiftLabel(ArgumentDecl arg)
+        => string.IsNullOrEmpty(arg.OriginalSwiftName) ? GetExternalLabel(arg) : arg.OriginalSwiftName;
+
+    private static string OverloadKeyTail(string key, bool isAsync, string returnType)
+        => $"{key}{(isAsync ? " async" : string.Empty)} -> {returnType}";
+
+
+    /// <summary>
+    /// Whether the protocol, or a protocol it inherits in this module, declares a requirement this
+    /// extension member is the default for: a method or initializer with the same name, labels and
+    /// parameter types, a property of the same name, or a subscript with the same parameter types.
+    /// </summary>
+    private static bool IsRequirementSignature(ModuleDecl moduleDecl, ProtocolDecl protocol, BaseDecl member)
+    {
+        var methodKey = member is MethodDecl m ? $"{m.MethodType} {AbiOverloadKey(m)}" : null;
+        var subscriptKey = member is SubscriptDecl s ? SubscriptKey(s) : null;
+        foreach (var current in ProtocolAndInheritedInModule(moduleDecl, protocol))
+        {
+            var declares = member switch
+            {
+                MethodDecl => current.Methods.Any(r => !r.IsAccessor && $"{r.MethodType} {AbiOverloadKey(r)}" == methodKey),
+                PropertyDecl p => current.Properties.Any(r => r.Name == p.Name && r.IsStatic == p.IsStatic),
+                SubscriptDecl => current.Subscripts.Any(r => SubscriptKey(r) == subscriptKey),
+                _ => false,
+            };
+            if (declares)
+                return true;
+        }
+        return false;
+    }
+
+    private static string SubscriptKey(SubscriptDecl subscript)
+        => $"{(subscript.IsStatic ? "static " : string.Empty)}"
+            + string.Join(",", subscript.IndexParameters.Select(a => $"{GetExternalLabel(a)}:{a.SwiftTypeSpec}"))
+            + $" -> {subscript.ReturnTypeSpec}";
+
+    private static IEnumerable<ProtocolDecl> ProtocolAndInheritedInModule(ModuleDecl moduleDecl, ProtocolDecl protocol)
+    {
+        var visited = new HashSet<ProtocolDecl>();
+        var pending = new Stack<ProtocolDecl>();
+        pending.Push(protocol);
+        while (pending.Count > 0)
+        {
+            var current = pending.Pop();
+            if (!visited.Add(current))
+                continue;
+            yield return current;
+            foreach (var inherited in current.InheritedProtocols)
+            {
+                var name = InModule(moduleDecl, inherited.Name);
+                var next = ModuleProtocols(moduleDecl).FirstOrDefault(p => QualifiedName(p) == name);
+                if (next != null)
+                    pending.Push(next);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Keeps one declined extension member for <see cref="PublishDeclines"/>. The member is keyed by
+    /// the receiver it was declined on and its own signature, so overloads keep separate rows and a
+    /// decline never shares an identity with a member the receiver binds.
+    /// </summary>
+    private static void RecordDecline(
+        ModuleEmissionContext ctx,
+        ModuleDecl moduleDecl,
+        string receiverQualifiedName,
+        ProtocolExtensionMethodDecl extMethod,
+        SkipReason reason,
+        string details)
+    {
+        var memberId = DeclIdFactory.ForForeignExtensionMember(receiverQualifiedName, extMethod, includeConstraints: true,
+            declaringProtocol: receiverQualifiedName == extMethod.ProtocolQualifiedName ? null : extMethod.ProtocolQualifiedName);
+        ReportCollector.RecordMemberSkipped(memberId, moduleDecl, reason, details);
+        ctx.AddProtocolExtDecline(new ProtocolExtensionDecline(memberId, reason, details));
+    }
+
+    /// <summary>
+    /// Publishes every member <see cref="InjectExtensionMethods"/> declined into the report session
+    /// that is live now. Injection runs once, before the containment loop, and the loop starts a
+    /// fresh report session for every attempt, so the rows written during injection do not survive
+    /// to the settled report on their own. Idempotent: the report dedups by member identity.
+    /// </summary>
+    public static void PublishDeclines(ModuleDecl moduleDecl, ModuleEmissionContext ctx)
+    {
+        ArgumentNullException.ThrowIfNull(moduleDecl);
+        ArgumentNullException.ThrowIfNull(ctx);
+        foreach (var decline in ctx.ProtocolExtDeclines)
+            ReportCollector.RecordMemberSkipped(decline.MemberId, moduleDecl, decline.Reason, decline.Details);
     }
 
     /// <summary>
@@ -116,6 +685,50 @@ public static class ProtocolExtensionEmitter
     /// Builds a map from unqualified protocol name → list of conforming TypeDecls.
     /// Includes ClassDecl types and non-frozen StructDecl types.
     /// </summary>
+    /// <summary>
+    /// Public conformers <see cref="BuildConformanceMap"/> leaves out because the extension path does
+    /// not bind onto their kind (frozen structs and enums), keyed by module-qualified protocol, so the report can name
+    /// them. Types a wrapper cannot reach are not public surface and stay out here too.
+    /// </summary>
+    private static Dictionary<string, List<(TypeDecl Type, string Kind)>> BuildUnboundConformerMap(ModuleDecl moduleDecl)
+    {
+        var map = new Dictionary<string, List<(TypeDecl, string)>>();
+        void Walk(IEnumerable<TypeDecl> types)
+        {
+            foreach (var type in types)
+            {
+                var kind = type switch
+                {
+                    StructDecl { IsFrozen: true } => "a frozen struct",
+                    EnumDecl => "an enum",
+                    _ => null,
+                };
+                if (kind != null && !WrapperValidation.IsTypeOrEnclosingUnavailableToWrapper(type, moduleDecl.Name))
+                {
+                    var conformances = type switch
+                    {
+                        StructDecl structDecl => structDecl.Conformances,
+                        EnumDecl enumDecl => enumDecl.Conformances,
+                        _ => null,
+                    };
+                    foreach (var conformance in conformances ?? new List<TypeConformance>())
+                    {
+                        // Module-qualified: a same-named protocol of another module is not this one.
+                        var protocolKey = conformance.Protocol.ModuleQualifiedName;
+                        if (!map.TryGetValue(protocolKey, out var list))
+                            map[protocolKey] = list = new List<(TypeDecl, string)>();
+                        if (!list.Any(e => ReferenceEquals(e.Item1, type)))
+                            list.Add((type, kind));
+                    }
+                }
+                if (type.Types.Any())
+                    Walk(type.Types);
+            }
+        }
+        Walk(moduleDecl.Types);
+        return map;
+    }
+
     private static Dictionary<string, List<TypeDecl>> BuildConformanceMap(ModuleDecl moduleDecl)
     {
         var map = new Dictionary<string, List<TypeDecl>>();
@@ -176,7 +789,7 @@ public static class ProtocolExtensionEmitter
     /// Attempts to inject a single protocol extension method onto a conforming type (class or non-frozen struct).
     /// Applies conservative gates and generates the Swift wrapper + synthetic MethodDecl.
     /// </summary>
-    private static void TryInjectMethod(
+    private static InjectOutcome TryInjectMethod(
         ModuleDecl moduleDecl,
         TypeDecl conformingType,
         ProtocolExtensionMethodDecl extMethod,
@@ -194,7 +807,8 @@ public static class ProtocolExtensionEmitter
             ? ParsePropertyReturn(extMethod, typeDatabase, logger)
             : ParseExtensionSignature(extMethod, typeDatabase, logger);
         if (parseResult == null)
-            return;
+            return InjectOutcome.Declined(SkipReason.UnsupportedSignature,
+                "its swiftinterface signature could not be parsed into parameter and return types");
 
         var (parameters, returnTypeSpec, returnTypeName) = parseResult.Value;
 
@@ -206,7 +820,8 @@ public static class ProtocolExtensionEmitter
         {
             logger.LogDebug("Skipping extension method {Type}.{Method}: conforming type is a protocol (metatype invalid)",
                 typeName, extMethod.MethodName);
-            return;
+            return InjectOutcome.Declined(SkipReason.UnsupportedType,
+                "the conforming type is itself a protocol, whose metatype a wrapper cannot name");
         }
 
         // Gate: all parameter types must be resolvable and cdecl-compatible
@@ -216,7 +831,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: parameter type not cdecl-compatible",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.UnsupportedType,
+                    "a parameter type has no C-compatible wrapper projection");
             }
         }
 
@@ -231,7 +847,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: unresolved generic/associated type in parameter",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.GenericProtocolConstraint,
+                    "a parameter names a generic parameter or associated type the wrapper cannot resolve");
             }
         }
         if (!extMethod.ReturnsSelf && returnTypeSpec != null && !returnTypeSpec.IsEmptyTuple &&
@@ -240,7 +857,8 @@ public static class ProtocolExtensionEmitter
         {
             logger.LogDebug("Skipping extension method {Type}.{Method}: unresolved generic/associated type in return",
                 typeName, extMethod.MethodName);
-            return;
+            return InjectOutcome.Declined(SkipReason.GenericProtocolConstraint,
+                "the return type names a generic parameter or associated type the wrapper cannot resolve");
         }
 
         // Gate: return type must be Self, Void, a primitive, a class type, or a supported existential
@@ -252,7 +870,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: return type not class/Self/Void/primitive/existential",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.UnsupportedType,
+                    "the return type is not Self, Void, a primitive, a class or a supported existential");
             }
         }
 
@@ -291,7 +910,9 @@ public static class ProtocolExtensionEmitter
         // failed gate would permanently reserve the name and block a legitimate later
         // emitter from registering it.
         if (ctx.IsWrapperSymbolRegistered(symbolName))
-            return;
+            return ctx.IsWrapperStructuralIdentityClaimed(typeName, extMethod.MethodName, BuildSourceKey(extMethod))
+                ? InjectOutcome.Carried
+                : WrapperSymbolTaken(symbolName);
 
         // Check for duplicate methods using a Swift-overload-aware key that pairs the
         // method name with each parameter's printed Swift type name. Labels-only keys
@@ -309,7 +930,8 @@ public static class ProtocolExtensionEmitter
         {
             logger.LogDebug("Skipping extension method {Type}.{Method}: collision with ABI method (key: {Key})",
                 typeName, extMethod.MethodName, extensionKey);
-            return;
+            // The conforming type declares this exact member itself, so it is bound from there.
+            return InjectOutcome.Carried;
         }
 
         // Check projected C# signature collision — Swift overloads with different labels
@@ -386,7 +1008,8 @@ public static class ProtocolExtensionEmitter
                 {
                     logger.LogDebug("Skipping extension method {Type}.{Method}: projected C# signature collision ({Key})",
                         typeName, extMethod.MethodName, projectedKey);
-                    return;
+                    return InjectOutcome.Declined(SkipReason.DuplicateSignature,
+                        $"its C# projection collides with another member of the conforming type ({projectedKey})");
                 }
             }
         }
@@ -415,7 +1038,8 @@ public static class ProtocolExtensionEmitter
         {
             logger.LogDebug("Skipping extension method {Type}.{Method}: multiple closure params not supported",
                 typeName, extMethod.MethodName);
-            return;
+            return InjectOutcome.Declined(SkipReason.UnsupportedClosure,
+                "it takes more than one closure parameter");
         }
 
         if (closureCount == 1)
@@ -427,7 +1051,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: closure + additional params not supported",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.UnsupportedClosure,
+                    "it takes a closure alongside other parameters");
             }
 
             // Skip methods with where constraints on method-level generics (e.g., flatMap<Source> where Source : ObservableConvertibleType)
@@ -436,7 +1061,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: method-level where constraints not supported",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.UnsatisfiedGenericConstraint,
+                    "it carries a method-level where clause");
             }
 
             // Detect method-level generic params (e.g., <Result> in map<Result>)
@@ -449,7 +1075,8 @@ public static class ProtocolExtensionEmitter
             {
                 logger.LogDebug("Skipping extension method {Type}.{Method}: inline generic constraints not supported",
                     typeName, extMethod.MethodName);
-                return;
+                return InjectOutcome.Declined(SkipReason.UnsatisfiedGenericConstraint,
+                    "it constrains a method-level generic parameter inline");
             }
 
             // Lift the wrapper's @available floor to also satisfy the protocol-extension's
@@ -463,8 +1090,8 @@ public static class ProtocolExtensionEmitter
             // collapses into the same identity and skips a redundant @_cdecl emission
             // even if its rendered symbol string would have diverged.
             var sourceKey = BuildSourceKey(extMethod);
-            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName))
-                return;
+            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName, out var sameDeclaration))
+                return sameDeclaration ? InjectOutcome.Carried : WrapperSymbolTaken(symbolName);
 
             // Closure-bearing method: emit Swift wrapper with closure bridging
             EmitClosureSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec,
@@ -479,6 +1106,7 @@ public static class ProtocolExtensionEmitter
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
+            return InjectOutcome.Carried;
         }
         else
         {
@@ -489,8 +1117,8 @@ public static class ProtocolExtensionEmitter
             // Claim the wrapper symbol via structural identity — see closure path
             // comment above for the rationale.
             var sourceKey = BuildSourceKey(extMethod);
-            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName))
-                return;
+            if (!ctx.TryClaimWrapperSymbol(typeName, extMethod.MethodName, sourceKey, symbolName, out var sameDeclaration))
+                return sameDeclaration ? InjectOutcome.Carried : WrapperSymbolTaken(symbolName);
 
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
@@ -523,6 +1151,7 @@ public static class ProtocolExtensionEmitter
                 EmitSwiftWrapper(conformingType, extMethod, parameters, returnTypeSpec, symbolName, isThrows, useCdecl,
                     typeDatabase, ctx, protocolAvailability);
             }
+            return InjectOutcome.Carried;
         }
     }
 
@@ -564,6 +1193,10 @@ public static class ProtocolExtensionEmitter
                 }
             }
         }
+
+        // An unbalanced list (a parenthesis inside a default-value literal) has no end to read to.
+        if (parenEnd == parenStart)
+            return null;
 
         var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
 
