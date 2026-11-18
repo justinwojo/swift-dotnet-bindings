@@ -783,6 +783,37 @@ namespace BindingsGeneration
         internal static void EmitSwiftMainActorMemberAttribute(CSharpWriter csWriter)
             => csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
 
+        /// <summary>
+        /// Whether a member whose Swift wrapper is written <c>@MainActor</c> also surfaces that on its
+        /// C# side. The same oracle the Swift wrapper emitters consult
+        /// (<see cref="WrapperEmitterHelpers.EmitMainActorIfNeeded"/>), so the two sides cannot disagree.
+        /// </summary>
+        internal static bool NeedsMainActorSurfacing(BaseDecl? parentDecl, bool memberIsMainActorIsolated, bool memberIsNonisolated)
+            => WrapperValidation.NeedsMainActorAnnotation(parentDecl, memberIsMainActorIsolated, memberIsNonisolated);
+
+        /// <summary>
+        /// The doc remark and <c>[SwiftMainActor]</c> marker of a main-actor member, for emitters that
+        /// write no other doc lines or attributes of their own. Write it immediately before the member's
+        /// signature.
+        /// </summary>
+        internal static void EmitMainActorMemberHeader(CSharpWriter csWriter, bool mainActor)
+        {
+            if (!mainActor)
+                return;
+            EmitSwiftMainActorMemberRemarks(csWriter);
+            EmitSwiftMainActorMemberAttribute(csWriter);
+        }
+
+        /// <summary>
+        /// The Debug-only main-thread guard of a main-actor member (compiled out in Release by its
+        /// <c>[Conditional("DEBUG")]</c>). Write it as the first statement of the member's body.
+        /// </summary>
+        internal static void EmitMainActorGuard(CSharpWriter csWriter, bool mainActor)
+        {
+            if (mainActor)
+                csWriter.WriteLine("global::Swift.Runtime.MainActorGuard.AssertMainThread();");
+        }
+
         private static bool IsSwiftSendable(TypeDecl typeDecl)
         {
             // Sendable is one of the four marker protocols (Sendable / Copyable / Escapable /

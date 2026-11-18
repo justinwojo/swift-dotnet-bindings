@@ -458,9 +458,16 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.WriteLine($"private static extern void {pinvokeName}({string.Join(", ", pinvokeParams)});");
         csWriter.WriteLine();
 
-        // Extension method surfacing the typed KeyPath overload.
+        // Extension method surfacing the typed KeyPath overload. The Swift trampoline is written
+        // @MainActor off the same decision as the marker and guard here.
+        var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+            ov.Method.ParentDecl, ov.Method.IsMainActorIsolated, ov.Method.IsNonisolated);
+        if (mainActor)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberRemarks(csWriter);
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, ov.MergedAvailability, parentAnnotations: null);
+        if (mainActor)
+            TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
         var publicParams = new List<string> { $"this {ov.ReceiverCsType} self", $"{keyPathParamCs} by" };
         foreach (var p in ov.OtherParams)
             publicParams.Add($"{p.CsType} {p.Name}");
@@ -468,6 +475,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.WriteLine($"public static void {ov.PublicMethodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
         csWriter.WriteLine("if (by is null) throw new global::System.ArgumentNullException(nameof(by));");
         csWriter.WriteLine("if (self is null) throw new global::System.ArgumentNullException(nameof(self));");
         // The KeyPath bag-value @_cdecl wrapper is availability-gated; on an OS below the merged floor

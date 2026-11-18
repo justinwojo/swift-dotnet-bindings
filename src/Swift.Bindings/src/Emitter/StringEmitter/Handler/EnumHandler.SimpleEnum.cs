@@ -560,15 +560,20 @@ namespace BindingsGeneration
             _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
             EmitSimpleEnumSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
+            // The Swift wrapper above is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                enumDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             if (returnsString)
             {
                 // String return: use Utf8Slice marshalling pattern
                 // Utf8Slice struct is shared at module level
 
+                TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
                 csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
                 var callArgs = new List<string> { $"({csUnderlyingType})self" };
                 foreach (var param in paramDecls)
                 {
@@ -613,9 +618,11 @@ namespace BindingsGeneration
             else
             {
                 // Emit extension method
+                TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
                 csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
                 // Build P/Invoke call arguments: cast enum to underlying type
                 var callArgs = new List<string> { $"({csUnderlyingType})self" };
@@ -947,19 +954,25 @@ namespace BindingsGeneration
             // Emit Swift wrapper
             EmitSimpleEnumPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString, returnsOptionalString);
+            // The Swift wrapper above is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                enumDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
 
             // Emit C# extension getter method
             if (returnsString || returnsOptionalString)
             {
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
-                    wrapperSymbol, csUnderlyingType, moduleName, isStatic: false, isNullable: returnsOptionalString);
+                    wrapperSymbol, csUnderlyingType, moduleName, isStatic: false, isNullable: returnsOptionalString,
+                    mainActor: mainActor);
             }
             else
             {
+                TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
                 csWriter.WriteLine($"public static {csReturnType} Get{propertyPascalName}(this {enumName} self)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
                 if (returnsEnum)
                     csWriter.WriteLine($"return ({enumName})PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
@@ -1044,20 +1057,25 @@ namespace BindingsGeneration
             _simpleEnumEmissionContext?.TryAddMethodWrapperSymbol(wrapperSymbol, DeclIdFactory.ForMethod(methodDecl));
             EmitSimpleEnumStaticMethodSwiftWrapper(swiftWriter, enumDecl, methodDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString);
+            // The Swift wrapper above is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                enumDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             if (returnsString)
             {
                 // String return: use Utf8Slice pattern
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticMethod(csWriter, enumName, methodPascalName,
-                    wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase);
+                    wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase, mainActor);
             }
             else
             {
                 // Emit C# static method (NOT extension method — no `this`)
+                TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
                 csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
                 // Build P/Invoke call arguments
                 var callArgs = new List<string>();
@@ -1161,12 +1179,15 @@ namespace BindingsGeneration
             // Emit Swift wrapper (no tag param for static)
             EmitSimpleEnumStaticPropertySwiftWrapper(swiftWriter, enumDecl, propertyDecl, wrapperSymbol,
                 swiftScalarType, moduleName, returnsEnum, returnsString, returnsOptionalString);
+            // The Swift wrapper above is written @MainActor off the same decision.
+            var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+                enumDecl, propertyDecl.IsMainActorIsolated, propertyDecl.IsNonisolated);
 
             if (returnsString || returnsOptionalString)
             {
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticPropertyAccessor(csWriter, enumName, propertyPascalName,
-                    wrapperSymbol, moduleName, isNullable: returnsOptionalString);
+                    wrapperSymbol, moduleName, isNullable: returnsOptionalString, mainActor: mainActor);
             }
             else
             {
@@ -1176,7 +1197,27 @@ namespace BindingsGeneration
                     ? $"({enumName})PInvoke_Get{propertyPascalName}()"
                     : $"PInvoke_Get{propertyPascalName}()";
 
-                csWriter.WriteLine($"public static {csReturnType} {propertyPascalName} => {valueExpr};");
+                TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+                if (mainActor)
+                {
+                    // The guard needs a statement body, which an expression-bodied property lacks.
+                    csWriter.WriteLine($"public static {csReturnType} {propertyPascalName}");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    csWriter.WriteLine("get");
+                    csWriter.WriteLine("{");
+                    csWriter.Indent++;
+                    TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                    csWriter.WriteLine($"return {valueExpr};");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                    csWriter.Indent--;
+                    csWriter.WriteLine("}");
+                }
+                else
+                {
+                    csWriter.WriteLine($"public static {csReturnType} {propertyPascalName} => {valueExpr};");
+                }
                 csWriter.WriteLine();
 
                 // P/Invoke
@@ -1497,16 +1538,18 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringReturnExtensionMethod(CSharpWriter csWriter, string enumName,
             string propertyPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
-            bool isStatic, bool isNullable = false)
+            bool isStatic, bool isNullable = false, bool mainActor = false)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
             var selfParam = isStatic ? "" : $"this {enumName} self";
             var callArg = isStatic ? "" : $"({csUnderlyingType})self";
             var returnType = isNullable ? "string?" : "string";
 
+            TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             csWriter.WriteLine($"public static unsafe {returnType} Get{propertyPascalName}({selfParam})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}({callArg});");
             if (isNullable)
                 csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
@@ -1541,7 +1584,7 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringReturnStaticMethod(CSharpWriter csWriter, string enumName,
             string methodPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
-            List<ArgumentDecl> paramDecls, EnumDecl enumDecl, ITypeDatabase typeDatabase)
+            List<ArgumentDecl> paramDecls, EnumDecl enumDecl, ITypeDatabase typeDatabase, bool mainActor = false)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
 
@@ -1564,9 +1607,11 @@ namespace BindingsGeneration
             var resultPtrName = bodyScope.Mint("resultPtr");
             var sliceName = bodyScope.Mint("slice");
 
+            TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
             // Build call args
             var callArgs = new List<string>();
@@ -1618,15 +1663,18 @@ namespace BindingsGeneration
         /// from the Swift wrapper maps to null.
         /// </summary>
         private void EmitStringReturnStaticPropertyAccessor(CSharpWriter csWriter, string enumName,
-            string propertyPascalName, string wrapperSymbol, string moduleName, bool isNullable = false)
+            string propertyPascalName, string wrapperSymbol, string moduleName, bool isNullable = false,
+            bool mainActor = false)
         {
             var returnType = isNullable ? "string?" : "string";
+            TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             csWriter.WriteLine($"public static unsafe {returnType} {propertyPascalName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}();");
             if (isNullable)
                 csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");

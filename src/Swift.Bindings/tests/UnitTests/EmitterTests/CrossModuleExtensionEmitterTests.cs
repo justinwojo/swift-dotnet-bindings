@@ -541,6 +541,31 @@ public class CrossModuleExtensionEmitterTests
         Assert.Equal(expectMainActor, swift.Contains("@MainActor\n@_cdecl(\"SBW_TestModule_Ext_OrigPoint_doMath_", StringComparison.Ordinal));
     }
 
+    /// <summary>
+    /// The C# extension method over a struct-receiver trampoline carries the marker and Debug guard
+    /// whenever the trampoline is written <c>@MainActor</c>.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true, false, true)]
+    [InlineData(true, false, false, true)]
+    [InlineData(true, false, true, false)]
+    [InlineData(false, false, false, false)]
+    public void EmitStruct_FrozenStructReceiver_SurfacesMainActorIsolationInCSharp(
+        bool receiverIsMainActor, bool memberIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.IsMainActorIsolated = receiverIsMainActor;
+        var method = CreateMethodDecl("doMath", "TestModule", structDecl);
+        method.IsMainActorIsolated = memberIsMainActor;
+        method.IsNonisolated = memberIsNonisolated;
+        structDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput.ToString(), "public static unsafe", expectMainActor);
+    }
+
     [Fact]
     public void EmitStruct_NonFrozenStruct_NoExtensionClassEmitted()
     {

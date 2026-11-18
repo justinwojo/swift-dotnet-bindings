@@ -392,10 +392,15 @@ public static partial class CrossModuleExtensionEmitter
             publicParamParts.Add($"{MapBoolType(p.CSharpType)} {p.Name}");
         }
 
+        // The Swift trampoline is written @MainActor off the same decision.
+        var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+            structDecl, method.IsMainActorIsolated, method.IsNonisolated);
         csWriter.WriteLine();
+        TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
         csWriter.WriteLine($"public static unsafe {publicReturnType} {methodName}({string.Join(", ", publicParamParts)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         // The receiver is a by-value frozen struct parameter; it already lives on the
         // call stack so `&self` is a stable pointer for the duration of the method.
@@ -496,10 +501,15 @@ public static partial class CrossModuleExtensionEmitter
         // the method arm so the two paths cannot drift.
         var getterReceiver = BuildReceiverScope(null);
 
+        // The Swift getter and setter trampolines are written @MainActor off the same decision.
+        var mainActor = TypeAnnotationHelper.NeedsMainActorSurfacing(
+            structDecl, property.IsMainActorIsolated, property.IsNonisolated);
         csWriter.WriteLine();
+        TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
         csWriter.WriteLine($"public static unsafe {publicType} Get{propertyName}(this {origCSharpType} {getterReceiver.ReceiverName})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         bool returnsViaResultPtr = returnCategory.Value == ReturnKind.FrozenStruct;
         var pinvokeCallArgs = new List<string>();
@@ -557,9 +567,11 @@ public static partial class CrossModuleExtensionEmitter
             var pinnedSelfLocal = setterReceiver.BodyScope.Mint("__self");
 
             csWriter.WriteLine();
+            TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             csWriter.WriteLine($"public static unsafe void Set{propertyName}(this ref {origCSharpType} {setterReceiver.ReceiverName}, {publicType} {SetterValueParameterName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
             csWriter.WriteLine($"fixed ({origCSharpType}* {pinnedSelfLocal} = &{setterReceiver.ReceiverName})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
