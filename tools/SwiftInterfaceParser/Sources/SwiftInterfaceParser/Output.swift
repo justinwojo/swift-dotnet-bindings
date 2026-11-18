@@ -152,7 +152,7 @@ struct SourcePositionJson: Encodable {
 
 /// Mirrors .NET's `AvailabilityAnnotation` record. All fields nullable except the booleans;
 /// matches what the regex parser's `ParseAvailableClause` constructs.
-struct AvailabilityAnnotationJson: Encodable {
+struct AvailabilityAnnotationJson: Encodable, Equatable {
     let platform: String?
     let introducedVersion: String?
     let deprecatedVersion: String?

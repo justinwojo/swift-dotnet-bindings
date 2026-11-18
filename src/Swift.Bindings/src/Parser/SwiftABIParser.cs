@@ -557,16 +557,27 @@ namespace BindingsGeneration
                 {
                     printed = arrayElement[0].PrintedName ?? string.Empty;
                 }
-                if (sourceNames != null)
-                    printed = DepthIndexGenericParameterName.Replace(
-                        printed, m => sourceNames.TryGetValue(m.Value, out var name) ? name : m.Value);
+                printed = SpellGenericParameters(printed, sourceNames);
+                // A parameter still spelled by depth and index is one the interface spells some
+                // other way that could not be rebuilt. Its key could only miss, or match a
+                // concrete type of that name, so no signature is offered and the lookup falls
+                // back to the bare key.
+                if (DepthIndexGenericParameterName.IsMatch(printed))
+                    return string.Empty;
                 raw.Add(printed);
             }
             return MemberSignatureNormalizer.BuildSignature(raw);
         }
 
+        // A depth-and-index name standing alone: `Probe.τ_0_0` is a concrete type of that name.
         private static readonly System.Text.RegularExpressions.Regex DepthIndexGenericParameterName =
-            new(@"τ_[0-9]+_[0-9]+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            new(@"(?<![\w.])τ_[0-9]+_[0-9]+(?!\w)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        // Replaces each depth-and-index name that <paramref name="names"/> spells.
+        private static string SpellGenericParameters(string text, Dictionary<string, string>? names) =>
+            names == null
+                ? text
+                : DepthIndexGenericParameterName.Replace(text, m => names.TryGetValue(m.Value, out var name) ? name : m.Value);
 
         /// <summary>
         /// Pairs each depth-and-index generic parameter name in <paramref name="genericSig"/> with
@@ -607,9 +618,14 @@ namespace BindingsGeneration
         /// constraint (<c>init(wrapping: some P)</c>, <c>init(wrapping: some (Error &amp; Q))</c>) then
         /// share a printedName and both lose their disambiguated availability. The constraint is
         /// recoverable from the generic signature's conformance, superclass and layout
-        /// requirements on the parameter, joined as a composition. A parameter that a same-type
-        /// requirement or an associated-type requirement constrains (<c>some Collection&lt;Int&gt;</c>)
-        /// cannot be spelled back from the requirements and is left as printed.
+        /// requirements on the parameter, joined as a composition, with every generic parameter
+        /// they name spelled by its source name (<c>some Base&lt;T&gt;</c>). A primary associated
+        /// type's same-type requirement (<c>τ_0_0.Element == Swift.Int</c>, in either orientation)
+        /// becomes the generic argument of a lone constraint (<c>some Collection&lt;Int&gt;</c>).
+        /// Two such requirements cannot be put in the protocol's order, one argument cannot be
+        /// assigned among several constraints, and any other requirement on the parameter has no
+        /// opaque spelling; such a parameter is left unspelled, and
+        /// <see cref="ComputeAbiParamSignature"/> then offers no signature.
         /// </summary>
         private static Dictionary<string, string>? AddOpaqueParameterSpellings(string? genericSig, Dictionary<string, string>? named)
         {
@@ -631,29 +647,62 @@ namespace BindingsGeneration
                     continue;
 
                 var constraints = new List<string>();
+                var arguments = new List<string>();
                 var spellable = true;
                 foreach (var requirement in requirements)
                 {
-                    if (!DepthIndexGenericParameterName.Matches(requirement).Any(m => m.Value == parameter))
+                    if (!Names(requirement, parameter))
                         continue;
                     var colon = requirement.IndexOf(" : ", StringComparison.Ordinal);
-                    if (colon < 0 || requirement[..colon].Trim() != parameter)
+                    var sameType = requirement.IndexOf(" == ", StringComparison.Ordinal);
+                    if (colon >= 0 && requirement[..colon].Trim() == parameter)
+                    {
+                        constraints.Add(requirement[(colon + 3)..].Trim());
+                    }
+                    else if (sameType >= 0 &&
+                             TryPrimaryArgument(parameter, requirement[..sameType].Trim(), requirement[(sameType + 4)..].Trim()) is { } argument)
+                    {
+                        arguments.Add(argument);
+                    }
+                    else
                     {
                         spellable = false;
                         break;
                     }
-                    constraints.Add(requirement[(colon + 3)..].Trim());
                 }
                 if (!spellable || constraints.Count == 0)
+                    continue;
+
+                string constraint;
+                if (arguments.Count == 0)
+                    constraint = string.Join(" & ", constraints);
+                else if (arguments.Count == 1 && constraints.Count == 1 && !constraints[0].Contains('<'))
+                    constraint = $"{constraints[0]}<{arguments[0]}>";
+                else
                     continue;
 
                 // Spelled `(some P & Q)` so a `?` the printed type applies to the parameter
                 // reads as the interface's `(some P & Q)?`; `some` keeps it apart from the
                 // existential of the same constraint.
                 map ??= new Dictionary<string, string>(StringComparer.Ordinal);
-                map[parameter] = $"(some {string.Join(" & ", constraints)})";
+                map[parameter] = $"(some {SpellGenericParameters(constraint, map)})";
             }
             return map;
+
+            static bool Names(string text, string parameter) =>
+                DepthIndexGenericParameterName.Matches(text).Any(m => m.Value == parameter);
+
+            // `τ_0_0.Element == X` or `X == τ_0_0.Element` → X, when X does not name the parameter.
+            static string? TryPrimaryArgument(string parameter, string left, string right)
+            {
+                bool IsMember(string side) =>
+                    side.Length > parameter.Length + 1 &&
+                    side.StartsWith(parameter + ".", StringComparison.Ordinal) &&
+                    side[(parameter.Length + 1)..].All(c => char.IsLetterOrDigit(c) || c == '_');
+                if (IsMember(left) && !Names(right, parameter)) return right;
+                if (IsMember(right) && !Names(left, parameter)) return left;
+                return null;
+            }
         }
 
         // `τ_1_0` → 1; a name that is not depth-and-index spelled sorts below every depth.
@@ -1424,6 +1473,7 @@ namespace BindingsGeneration
             catch (NotImplementedException e)
             {
                 droppedWithError = true;
+                RecordUnboundChildrenOfFaultedReceiver(node, parentDecl, moduleDecl, e.Message);
                 _logger.LogWarning($"Not implemented '{node.Name}' ({node.MangledName}): {e.Message}");
                 RecordDropLedger(
                     node, parentDecl, IngestionCause.UnhandledDeclaration,
@@ -1433,6 +1483,7 @@ namespace BindingsGeneration
             catch (Exception e)
             {
                 droppedWithError = true;
+                RecordUnboundChildrenOfFaultedReceiver(node, parentDecl, moduleDecl, e.Message);
                 _logger.LogWarning($"Error while processing node '{node.Name} ({node.MangledName})': {e.Message}");
                 RecordDropLedger(
                     node, parentDecl, IngestionCause.ParseFault,
@@ -1514,6 +1565,10 @@ namespace BindingsGeneration
                 if (node.ModuleName == "Swift" && TypeDatabaseExtensions.IsKnownGenericType(node.Name))
                 {
                     _logger.LogInformation($"Skipping foreign Swift stdlib generic '{node.Name}' (canonical module: Swift) — runtime-provided; a local type would shadow Swift.Swift{node.Name}<...>.");
+                    RecordUnboundForeignReceiverChildren(
+                        node, $"Swift.{node.Name}", moduleDecl,
+                        $"it extends the Swift standard-library generic 'Swift.{node.Name}', which Swift.Runtime "
+                        + "supplies; members added to it are not bound.");
                     return null;
                 }
 
@@ -1552,6 +1607,11 @@ namespace BindingsGeneration
                              foreignShape.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
                         {
                             _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
+                            RecordUnboundForeignReceiverChildren(
+                                node, probeName.ModuleQualifiedName, moduleDecl,
+                                $"it extends the foreign struct '{probeName.ModuleQualifiedName}', which is not a frozen "
+                                + "trivial value; the cross-module struct path reads `self` by value and is only "
+                                + "ABI-safe for frozen structs without a managed payload.");
                             return null;
                         }
                     }
@@ -1560,6 +1620,13 @@ namespace BindingsGeneration
                 else if (!_resolver.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
+                    // Walked whatever the immediate children are: a declaration of this module can sit
+                    // on a foreign type nested in this one, and that type is dropped with it.
+                    var receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+                    RecordUnboundForeignReceiverChildren(
+                        node, receiverName, moduleDecl,
+                        $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and "
+                        + "frozen-struct receivers are routed to the cross-module extension path.");
                     return null;
                 }
                 // else: foreign type from a system / common-Apple module with no extension
@@ -1623,6 +1690,17 @@ namespace BindingsGeneration
                 if (IsObjCRootedIdentity(node))
                 {
                     _logger.LogDebug($"Skipping ObjC-rooted declaration '{node.Name}' with no Swift mangled name (resolved via supplement / out-of-module when referenced).");
+                    // The interface's foreign-extension path binds or reports this module's methods and
+                    // properties on the class; what it never carries goes with the node unless parked.
+                    if (!string.IsNullOrEmpty(node.ModuleName) && node.ModuleName != moduleDecl.Name)
+                    {
+                        var objcReceiver = typeName.ModuleQualifiedName;
+                        RecordUnboundForeignReceiverChildren(
+                            node, objcReceiver, moduleDecl,
+                            $"it is declared in an extension of the Objective-C class '{objcReceiver}', and the "
+                            + "foreign-extension path binds only methods and properties there.",
+                            onlyBeyondInterfaceExtensionPath: true);
+                    }
                     return null;
                 }
 
@@ -4876,6 +4954,90 @@ namespace BindingsGeneration
         /// carries a <c>$s...</c> mangled name, so it never reaches the missing-mangled-name gate
         /// this helper guards.
         /// </summary>
+        /// <summary>
+        /// A foreign type node the binder faulted on takes with it every declaration the module being
+        /// parsed adds to it. The fault itself is in the ingestion ledger, but that names the receiver,
+        /// not the members a reader of the interface would look for, so each of them is parked for a
+        /// skip row as well. A node with no such children, or one of the module's own, records nothing.
+        /// </summary>
+        private void RecordUnboundChildrenOfFaultedReceiver(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, string fault)
+        {
+            if (node.Kind != "TypeDecl" || string.IsNullOrEmpty(node.ModuleName) ||
+                string.IsNullOrEmpty(moduleDecl.Name) || node.ModuleName == moduleDecl.Name)
+                return;
+            string receiverName;
+            try
+            {
+                receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+            }
+            catch (Exception)
+            {
+                receiverName = $"{node.ModuleName}.{node.Name}";
+            }
+            RecordUnboundForeignReceiverChildren(
+                node, receiverName, moduleDecl,
+                $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and frozen-struct "
+                + $"receivers are routed to the cross-module extension path, and the receiver could not be bound "
+                + $"as a type of its own ({fault}).");
+        }
+
+        /// <summary>
+        /// Parks every declaration of the module being parsed that lives on the dropped foreign
+        /// receiver <paramref name="node"/> — and on foreign types nested in it — so the emitter can
+        /// report each as skipped. A nested type of the module's own is reported as one row: its
+        /// members go with it, as they do for any skipped type. With
+        /// <paramref name="onlyBeyondInterfaceExtensionPath"/>, only the kinds the interface's
+        /// foreign-extension path never carries are parked (nested types, initializers, subscripts and
+        /// operators): that path binds or reports the receiver's methods and properties itself.
+        /// </summary>
+        private static void RecordUnboundForeignReceiverChildren(
+            Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why,
+            bool onlyBeyondInterfaceExtensionPath = false)
+        {
+            foreach (var child in node.Children ?? Array.Empty<Node>())
+            {
+                if (string.IsNullOrEmpty(child.Name))
+                    continue;
+                bool isOwn = child.ModuleName == moduleDecl.Name;
+                if (child.Kind == "TypeDecl" && !isOwn)
+                {
+                    RecordUnboundForeignReceiverChildren(
+                        child, $"{receiverQualifiedName}.{child.Name}", moduleDecl, why,
+                        onlyBeyondInterfaceExtensionPath);
+                    continue;
+                }
+                if (!isOwn)
+                    continue;
+                if (onlyBeyondInterfaceExtensionPath &&
+                    !(child.Kind is "TypeDecl" or "Constructor" or "Subscript" ||
+                      (child.Kind == "Function" && IsOperator(child.Name))))
+                    continue;
+                BindingItemKind? kind = child.Kind switch
+                {
+                    "TypeDecl" => BindingItemKind.Type,
+                    "Function" or "Constructor" => IsOperator(child.Name) ? BindingItemKind.Operator : BindingItemKind.Method,
+                    "Var" when child.DeclKind != "EnumElement" => BindingItemKind.Property,
+                    "Subscript" => BindingItemKind.Subscript,
+                    _ => null,
+                };
+                if (kind is null)
+                    continue;
+                moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+                    receiverQualifiedName, kind.Value, child.Name,
+                    $"Not bound: {why}",
+                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName));
+            }
+        }
+
+        private static string DescribeReceiverKind(Node node) => node.DeclKind switch
+        {
+            "Enum" => "enum",
+            "Struct" => "struct",
+            "Class" => "class",
+            "Protocol" => "protocol",
+            _ => "type",
+        };
+
         /// <summary>
         /// Records the declared kind of the foreign type <paramref name="node"/> and of every type nested
         /// in it, keyed by module-qualified name. The nested ones are walked here because the gates that

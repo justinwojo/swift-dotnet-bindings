@@ -91,6 +91,9 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension {Type} from {Module}: receiver fell back to {Resolved}; skipping to avoid unsafe extension on a base class.",
                 classDecl.Name, currentModule, origCSharpType);
+            RecordUnboundReceiverMembers(classDecl, moduleDecl,
+                $"the receiver resolves to its base class '{origCSharpType}' in the type database, and an extension "
+                + "on the base class would also bind to unrelated instances.", context?.GetEmissionContext());
             return;
         }
 
@@ -103,7 +106,10 @@ public static partial class CrossModuleExtensionEmitter
             if (method.ModuleDecl?.Name != currentModule)
                 continue;
             if (method.IsConstructor)
+            {
+                RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ConstructorNotBound, context?.GetEmissionContext());
                 continue;
+            }
             // SPI / @usableFromInline-internal methods are visible at C# level
             // but the wrapper trampoline (compiled outside the SPI group) cannot resolve them.
             if (method.IsModuleInternal || method.IsSpiProtected)
@@ -125,6 +131,8 @@ public static partial class CrossModuleExtensionEmitter
         // emitted in the current module's binding assembly under a partial-class wrapper of the
         // foreign type so consumers can reference them as `CurrentModule.ForeignType.Nested`.
         // Member-only extensions (no nested types) still take the methods/properties-only path below.
+        RecordUnboundSubscriptsAndOperators(classDecl, moduleDecl, context?.GetEmissionContext());
+
         var nestedTypes = classDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
             .ToList();
@@ -159,6 +167,8 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.Indent++;
 
             var emittedSignatures = new HashSet<string>();
+            var declined = new List<BaseDecl>();
+            var bound = new HashSet<string>(StringComparer.Ordinal);
             // Trampoline P/Invokes accumulate here so the NativeMethods block can emit
             // their Cdecl declarations alongside the existing Swift-conv P/Invokes.
             var trampolinePinvokes = new List<ClassTrampolinePInvokeInfo>();
@@ -183,7 +193,14 @@ public static partial class CrossModuleExtensionEmitter
                 }
 
                 if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                {
                     emittedCount++;
+                    bound.Add(BindKey(property));
+                }
+                else
+                {
+                    declined.Add(property);
+                }
             }
 
             // Emit methods. The trampoline paths are tried first and the simple
@@ -219,6 +236,7 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     methodsRoutedToTrampoline.Add(method);
                     emittedCount++;
+                    bound.Add(BindKey(method));
                     continue;
                 }
 
@@ -228,12 +246,21 @@ public static partial class CrossModuleExtensionEmitter
                 {
                     methodsRoutedToTrampoline.Add(method);
                     emittedCount++;
+                    bound.Add(BindKey(method));
                     continue;
                 }
 
                 if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                {
                     emittedCount++;
+                    bound.Add(BindKey(method));
+                }
+                else
+                {
+                    declined.Add(method);
+                }
             }
+            RecordDeclinedUnlessBound(declined, bound, classDecl, moduleDecl, context?.GetEmissionContext());
 
             // Emit NativeMethods if we emitted anything
             if (emittedCount > 0)
@@ -346,6 +373,153 @@ public static partial class CrossModuleExtensionEmitter
     }
 
     // ==================== Absent-Apple ingress gate ====================
+
+    private const string ConstructorNotBound =
+        "initializers an extension adds to a foreign type are not bound.";
+
+    private const string ShapeNotBound =
+        "the cross-module extension path cannot bind this member's signature.";
+
+    private const string SubscriptNotBound =
+        "subscripts an extension adds to a foreign type are not bound.";
+
+    private const string OperatorNotBound =
+        "operators an extension declares on a foreign type are not bound.";
+
+    /// <summary>
+    /// Reports every member and nested type the current module adds to a foreign receiver this path
+    /// does not bind at all, so an extension the receiver gates turn away is not a silent loss.
+    /// </summary>
+    private static void RecordUnboundReceiverMembers(
+        TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
+    {
+        var currentModule = moduleDecl.Name;
+        foreach (var method in receiver.Methods)
+        {
+            if (method.ModuleDecl?.Name == currentModule && !method.IsAccessor)
+                RecordUnboundCrossModuleMember(method, receiver, moduleDecl, why, emissionContext);
+        }
+        foreach (var property in receiver.Properties)
+        {
+            if (property.ModuleDecl?.Name == currentModule)
+                RecordUnboundCrossModuleMember(property, receiver, moduleDecl, why, emissionContext);
+        }
+        RecordUnboundSubscriptsAndOperators(receiver, moduleDecl, emissionContext, why);
+        // A member-level row, not RecordTypeSkipped: the skipped-type set feeds signature validation,
+        // and a nested type withheld here must not turn away members elsewhere that name it.
+        foreach (var nested in receiver.Types)
+        {
+            if (nested.ModuleDecl?.Name == currentModule)
+                ReportCollector.RecordMemberSkipped(DeclIdFactory.ForType(nested), receiver,
+                    SkipReason.UnsupportedSignature,
+                    $"Extension on foreign type '{receiver.SwiftTypeName.ModuleQualifiedName}': {why}");
+        }
+    }
+
+    /// <summary>
+    /// Reports the subscripts and operators the current module adds to a foreign receiver; this path
+    /// binds neither, and the handlers' own operator emission never runs for a cross-module receiver.
+    /// </summary>
+    private static void RecordUnboundSubscriptsAndOperators(
+        TypeDecl receiver, ModuleDecl moduleDecl, ModuleEmissionContext? emissionContext, string? why = null)
+    {
+        foreach (var subscript in receiver.Subscripts)
+        {
+            if (subscript.ModuleDecl?.Name == moduleDecl.Name)
+                RecordUnboundCrossModuleMember(subscript, receiver, moduleDecl, why ?? SubscriptNotBound, emissionContext);
+        }
+        foreach (var op in receiver.Operators)
+        {
+            if (op.ModuleDecl?.Name == moduleDecl.Name)
+                RecordUnboundCrossModuleMember(op, receiver, moduleDecl, why ?? OperatorNotBound, emissionContext);
+        }
+    }
+
+    /// <summary>
+    /// Reports the members a receiver's TryEmit* gates declined, except one whose declaration was bound
+    /// under another entry (a duplicate ABI entry for the same symbol fails only the signature dedup).
+    /// </summary>
+    private static void RecordDeclinedUnlessBound(
+        List<BaseDecl> declined, HashSet<string> bound, TypeDecl receiver, ModuleDecl moduleDecl,
+        ModuleEmissionContext? emissionContext)
+    {
+        foreach (var member in declined)
+        {
+            if (!bound.Contains(BindKey(member)))
+                RecordUnboundCrossModuleMember(member, receiver, moduleDecl, ShapeNotBound, emissionContext);
+        }
+    }
+
+    /// <summary>
+    /// The declaration a member entry stands for: its Swift symbol (a property's getter symbol), or the
+    /// entry itself when it carries none, so two declarations never share a key.
+    /// </summary>
+    private static string BindKey(BaseDecl member)
+    {
+        var symbol = member switch
+        {
+            MethodDecl method => method.MangledName,
+            PropertyDecl property => property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method.MangledName,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(symbol)
+            ? $"entry:{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(member)}"
+            : symbol;
+    }
+
+    /// <summary>
+    /// Reports one member the current module adds to a foreign receiver that this path does not bind.
+    /// Internal and SPI members are not public surface. The interface pre-pass may have bound a function
+    /// or variable of the same receiver from the interface text (an Objective-C-module receiver); such a
+    /// member is not lost, so it is left alone. The pre-pass reports nothing for a receiver this path
+    /// carries, so whatever neither path binds is reported here, including on runs with no interface.
+    /// </summary>
+    private static void RecordUnboundCrossModuleMember(
+        BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
+    {
+        var receiverName = receiver.SwiftTypeName.ModuleQualifiedName;
+        if (BoundByInterfacePrePass(member, receiverName, emissionContext))
+            return;
+        var details = $"Extension on foreign type '{receiverName}': {why}";
+        switch (member)
+        {
+            case MethodDecl { IsModuleInternal: false, IsSpiProtected: false } method:
+                ReportCollector.RecordMemberSkipped(method, SkipReason.UnsupportedSignature, details);
+                break;
+            case PropertyDecl { IsModuleInternal: false, IsSpiProtected: false } property:
+                ReportCollector.RecordMemberSkipped(property, SkipReason.UnsupportedSignature, details);
+                break;
+            case SubscriptDecl { IsModuleInternal: false, IsSpiProtected: false } subscript:
+                ReportCollector.RecordMemberSkipped(subscript, SkipReason.UnsupportedSignature, details);
+                break;
+            case OperatorDecl { UnderlyingMethod: { IsModuleInternal: false, IsSpiProtected: false } } op:
+                ReportCollector.RecordMemberSkipped(op, SkipReason.UnsupportedSignature, details);
+                break;
+        }
+    }
+
+    private static bool BoundByInterfacePrePass(BaseDecl member, string receiverName, ModuleEmissionContext? emissionContext)
+    {
+        if (emissionContext is null
+            || member is not (MethodDecl { IsConstructor: false } or PropertyDecl)
+            || !emissionContext.ForeignExtClasses.TryGetValue(receiverName, out var classInfo))
+            return false;
+        var method = member as MethodDecl;
+        // The pre-pass declines every generic method, so a generic overload is never its binding.
+        if (method is { IsGeneric: true })
+            return false;
+        var swiftName = method is not null ? method.OriginalSwiftName ?? method.Name : member.Name;
+        // Overloads share a name, so a method must also take as many parameters as the one the
+        // pre-pass bound; CSSignature[0] is the return slot.
+        var arity = method is null ? -1 : Math.Max(0, method.CSSignature.Count - 1);
+        return classInfo.Members.Any(m =>
+            m.ExtMethod.IsProperty == (method is null)
+            && (string.Equals(m.ExtMethod.MethodName, swiftName, StringComparison.Ordinal)
+                || string.Equals(m.ExtMethod.MethodName, member.Name, StringComparison.Ordinal))
+            && (method is null || LabelCount(m.ExtMethod.PrintedName) == arity));
+    }
+
+    private static int LabelCount(string printedName) => printedName.Count(c => c == ':');
 
     /// <summary>
     /// Absent-Apple ingress gate for a cross-module extension method. When the signature (return or

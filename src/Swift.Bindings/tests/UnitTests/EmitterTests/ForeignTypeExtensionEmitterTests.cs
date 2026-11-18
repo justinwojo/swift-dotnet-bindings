@@ -138,6 +138,312 @@ public class ForeignTypeExtensionEmitterTests
 
     #endregion
 
+    #region Declined members are reported, and survive the containment session restart
+
+    /// <summary>
+    /// Runs the pre-pass the way generation does: outside containment, whose fresh report session then
+    /// discards everything the pre-pass wrote, so only <see cref="ForeignTypeExtensionEmitter.RepublishWithdrawals"/>
+    /// can carry a row into the report that is written.
+    /// </summary>
+    private static BindingReport RunPrePassAcrossASessionRestart(
+        ModuleDecl moduleDecl, Dictionary<string, List<ProtocolExtensionMethodDecl>> extensions, ModuleEmissionContext ctx)
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(moduleDecl, extensions, CreateTypeDatabase(), Logger, ctx);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+        return report;
+    }
+
+    public static TheoryData<string, SkipReason> DeclinedShapes => new()
+    {
+        { "constrained", SkipReason.ConstrainedExtensionWrapper },
+        { "deprecated", SkipReason.UnsupportedSignature },
+        { "static", SkipReason.UnsupportedSignature },
+        { "async", SkipReason.UnsupportedSignature },
+        { "throwing", SkipReason.UnsupportedSignature },
+    };
+
+    [Theory]
+    [MemberData(nameof(DeclinedShapes))]
+    public void ProcessForeignTypeExtensions_DeclinedShape_ReportedAgainstTheReceiver(string shape, SkipReason expected)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = shape switch
+        {
+            "async" => CreateExtMethod("refresh", "public func refresh() async"),
+            "throwing" => CreateExtMethod("refresh", "public func refresh() throws"),
+            _ => CreateExtMethod("refresh", "public func refresh()"),
+        };
+        if (shape == "constrained") method.WhereConstraints = new List<string> { "Element : Comparable" };
+        if (shape == "deprecated") method.IsDeprecated = true;
+        if (shape == "static") method.IsStatic = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("refresh", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(expected, row.Reason);
+        Assert.Contains("UIKit.UIView", row.Details);
+    }
+
+    /// <summary>
+    /// A signature the per-kind binders cannot marshal (here a generic method) is reported against the
+    /// member, whichever of their many internal gates declined it.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_UnmarshallableSignature_Reported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateExtMethod("convert", "public func convert<T>(_ value: T) -> Swift.Int");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("convert", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+    }
+
+    /// <summary>
+    /// A member listed twice binds once through its first claim; the second listing is the same member,
+    /// already bound, so it is not reported as skipped.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_SameMemberListedTwice_BoundOnceAndNotReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl,
+            new()
+            {
+                ["UIKit.UIView"] = new()
+                {
+                    CreateExtMethod("refresh", "public func refresh()"),
+                    CreateExtMethod("refresh", "public func refresh()"),
+                },
+            },
+            ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
+    /// Two different members whose wrappers render the same symbol cannot both bind; the one that
+    /// loses the claim is reported against the receiver rather than taken for a duplicate listing.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_DifferentMembersSharingAWrapperSymbol_LoserReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var property = CreateExtMethod("rank", "public var rank: Swift.Int32 { get }");
+        property.IsProperty = true;
+        var method = CreateExtMethod("get_rank", "public func get_rank() -> Swift.Int32");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { property, method } }, ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("get_rank", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(SkipReason.EmitterFault, row.Reason);
+        Assert.Contains("SBSW_UIKit_UIView_get_rank", row.Details);
+    }
+
+    /// <summary>
+    /// A settable property whose value this path marshals only out of a getter keeps its getter, and
+    /// its setter is reported rather than dropped.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_SetterOfANonPrimitiveValue_ReportedAndGetterBound()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var property = CreateExtMethod("snapshotView", "public var snapshotView: UIKit.UIView { get set }");
+        property.IsProperty = true;
+        property.HasSetter = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { property } }, ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("snapshotView", row.Name);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Equal(AccessorKind.Setter, DeclId.Parse(row.DeclId!).Accessor);
+    }
+
+    /// <summary>
+    /// A member a module adds to a foreign Swift enum or struct is not bound by this path. It is
+    /// reported, against the receiver it extends, rather than dropped without a trace.
+    /// </summary>
+    [Theory]
+    [InlineData("Enum")]
+    [InlineData("Struct")]
+    public void ProcessForeignTypeExtensions_MemberOfForeignSwiftValueType_Reported(string declaredKind)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = declaredKind;
+        var property = CreateExtMethod("translation", "public var translation: Swift.Int { get }");
+        property.IsProperty = true;
+        var method = CreateExtMethod("describe", "public func describe() -> Swift.Int");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { property, method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Equal(
+            new[] { "describe|Method", "translation|Property" },
+            report.SkippedItems.Select(r => $"{r.Name}|{r.Kind}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.All(report.SkippedItems, r =>
+        {
+            Assert.Equal("Foundation.AttributeScopes", r.ContainingType);
+            Assert.Equal(SkipReason.UnsupportedSignature, r.Reason);
+            Assert.Contains(declaredKind.ToLowerInvariant(), r.Details);
+        });
+    }
+
+    /// <summary>
+    /// A frozen-struct or class receiver the parser kept is bound by the cross-module extension path,
+    /// so this path leaves its members alone rather than report a member that is in fact bound.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_ReceiverCarriedByTheCrossModulePath_NotReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.Measurement"] = "Struct";
+        moduleDecl.Types.Add(new StructDecl
+        {
+            Name = "Measurement",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Measurement"),
+            MangledName = "$s10Foundation11MeasurementV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "",
+        });
+        var property = CreateExtMethod("doubled", "public var doubled: Swift.Int { get }");
+        property.IsProperty = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.Measurement"] = new() { property } }, ctx);
+
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
+    /// A declined member of a class receiver the parser kept (an Objective-C-module Swift class) is left to
+    /// the cross-module path, which may bind it from the ABI (a static method, say) and reports it only
+    /// when it does not.
+    /// </summary>
+    [Theory]
+    [InlineData("tag", "public static func tag() -> Swift.Int32", true)]
+    [InlineData("pick", "public func pick<T>(_ value: T) -> Swift.Int32", false)]
+    public void ProcessForeignTypeExtensions_DeclinedMemberOfACarriedClassReceiver_LeftToTheCrossModulePath(
+        string name, string signature, bool isStatic)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.Types.Add(new ClassDecl
+        {
+            Name = "UIView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+            MangledName = "$s5UIKit6UIViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var member = CreateExtMethod(name, signature);
+        member.IsStatic = isStatic;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { member } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
+    /// What the parser parked with a dropped receiver is published once emission settles, and a member
+    /// the interface also lists on that receiver gets one row, not two.
+    /// </summary>
+    [Fact]
+    public void RepublishWithdrawals_ParserParkedMembers_ReportedOnce()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Type, "TranslationAttributes", "Not bound: parked"));
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Property, "translation", "Not bound: parked"));
+        var property = CreateExtMethod("translation", "public var translation: Swift.Int { get }");
+        property.IsProperty = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { property } }, ctx);
+
+        Assert.Equal(
+            new[] { "TranslationAttributes|Type", "translation|Property" },
+            report.SkippedItems.Select(r => $"{r.Name}|{r.Kind}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.All(report.SkippedItems, r =>
+        {
+            Assert.Equal("Foundation.AttributeScopes", r.ContainingType);
+            Assert.Equal("Not bound: parked", r.Details);
+        });
+    }
+
+    /// <summary>
+    /// Overloads parked with a dropped receiver share a name but not a symbol, and each loss keeps a row.
+    /// </summary>
+    [Fact]
+    public void RepublishWithdrawals_ParkedOverloads_EachReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_Int32"));
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_String"));
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new(), ctx);
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "describe"));
+    }
+
+    #endregion
+
     #region ProcessForeignTypeExtensions: property getter
 
     [Fact]
@@ -985,6 +1291,45 @@ public class ForeignTypeExtensionEmitterTests
 
         Assert.Equal(0, ctx.ForeignExtEmittedCount);
         Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+    }
+
+    /// <summary>
+    /// On a receiver the cross-module path carries, that path may bind the member (or an overload of
+    /// it) from the ABI and reports it when it does not, so the pre-pass's withdrawal leaves no row.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_AbsentAppleReturnOnACarriedReceiver_LeftToTheCrossModulePath()
+    {
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.Types.Add(new ClassDecl
+        {
+            Name = "UIView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+            MangledName = "$s5UIKit6UIViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var method = CreateExtMethod("makeLevel", "public func makeLevel() -> UIKit.UIWindowLevel");
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, CreateTypeDatabase(), Logger, ctx);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report!.SkippedItems);
     }
 
     [Fact]

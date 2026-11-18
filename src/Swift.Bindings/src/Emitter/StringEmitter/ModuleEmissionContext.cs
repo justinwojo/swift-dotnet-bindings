@@ -654,6 +654,12 @@ public sealed class ModuleEmissionContext
     /// <summary>Count of emitted foreign extension members for logging.</summary>
     public int ForeignExtEmittedCount { get; set; }
 
+    /// <summary>
+    /// Count of foreign extension members whose wrapper symbol an earlier claim of the same member
+    /// already holds: the member is bound through that claim, so it is neither emitted again nor lost.
+    /// </summary>
+    public int ForeignExtDuplicateClaimCount { get; set; }
+
     /// <summary>Accumulated Swift wrapper source lines for foreign type extensions.</summary>
     public IReadOnlyList<string> ForeignExtSwiftWrapperLines => _foreignExtWrapperLines.ConvertAll(e => e.Line);
 
@@ -2491,10 +2497,29 @@ public sealed class ModuleEmissionContext
         string sourceKey,
         string symbol,
         DeclId? owner = null)
+        => TryClaimWrapperSymbol(typeName, methodName, sourceKey, symbol, out _, owner);
+
+    /// <summary>
+    /// <see cref="TryClaimWrapperSymbol(string, string, string, string, DeclId?)"/>, also telling a
+    /// lost claim's two causes apart: <paramref name="sameDeclaration"/> is true when this very
+    /// declaration (same receiver, name and source key) was already claimed, and false when a
+    /// different declaration rendered the same symbol.
+    /// </summary>
+    public bool TryClaimWrapperSymbol(
+        string typeName,
+        string methodName,
+        string sourceKey,
+        string symbol,
+        out bool sameDeclaration,
+        DeclId? owner = null)
     {
+        sameDeclaration = false;
         var identity = (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty);
         if (!_wrapperStructuralIdentities.Add(identity))
+        {
+            sameDeclaration = true;
             return false;
+        }
 
         if (!string.IsNullOrEmpty(symbol) && !AddWrapperSymbolInternal(symbol, owner, ArtifactRole.SwiftWrapper))
         {
@@ -3058,7 +3083,8 @@ public sealed record ForeignExtensionWithdrawal(
     BindingItemKind Kind,
     string MemberName,
     SkipReason Reason,
-    string Details);
+    string Details,
+    DeclId? MemberId = null);
 
 /// <summary>
 /// Info for a single C# extension class for a foreign type.

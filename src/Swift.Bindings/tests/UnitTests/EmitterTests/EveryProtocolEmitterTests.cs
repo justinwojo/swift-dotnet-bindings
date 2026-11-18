@@ -901,13 +901,13 @@ public class EveryProtocolEmitterTests
     }
 
     [Fact]
-    public void CrossCarrierInheritedRequirement_CrossModuleParentNotSupplied_ChildUnwitnessed()
+    public void CrossCarrierInheritedRequirement_CrossModuleParentNotSupplied_SplitNotDetected()
     {
-        // Guards the load-bearing crossModuleParents argument from the other side: without it the
-        // dependency parent resolves to no decl, so nothing in this module writes its witnesses and
-        // the child conformance cannot compile. The child is skipped as unwitnessed (not for a
-        // carrier split, which needs the parent's decl to detect). ModuleHandler passes the parents,
-        // which is what keeps a real dependency parent witnessed (see the next test).
+        // Guards the load-bearing crossModuleParents argument: without it the gate cannot resolve the
+        // cross-module parent's carrier, so the split is not detected and nothing predicts a skip.
+        // Whether the child then compiles is the wrapper compile's call (a failure withdraws the
+        // conformance through verify-recover). ModuleHandler MUST pass the parents, which it does, for
+        // the cross-module split to be caught up front.
         var child = CreateProtocolWithProperty("UnresolvedParentChild", "flag", hasGetter: true, hasSetter: false);
         child.InheritedProtocols.Add(new NamedTypeSpec("DepModule.DepCarrierParent"));
         child.InheritedProtocols.Add(new NamedTypeSpec("ObjectiveC.NSObjectProtocol"));
@@ -915,22 +915,23 @@ public class EveryProtocolEmitterTests
         // No crossModuleParents supplied — the dep parent is unresolvable.
         _emitter.PreScanProtocols(new[] { child });
 
-        Assert.True(_emitter.IsConformanceSkipped(child));
+        Assert.False(_emitter.IsConformanceSkipped(child));
     }
 
     /// <summary>
-    /// A protocol refining a requirement-bearing protocol of a module this run never loaded (the
-    /// LiveCommunicationKit <c>LiveAssistanceExtensionConfiguration :
-    /// ExtensionFoundation.AppExtensionConfiguration</c> shape): no decl for the parent reaches the
-    /// emitter, so its requirement can never be witnessed and an empty
-    /// <c>extension EveryProtocol: Child {}</c> fails with "does not conform to protocol
-    /// 'AppExtensionConfiguration'". Both channels that carry the inheritance (the qualified genericSig
-    /// clause and the bare parsed conformance) must reach the same answer.
+    /// A protocol refining a protocol of a module this run never loaded is not predicted away. Whether
+    /// <c>extension EveryProtocol: Child {}</c> compiles depends on requirements the generator cannot
+    /// see: AppIntents' <c>AppIntentsExtension : ExtensionFoundation.AppExtension</c> compiles because
+    /// AppIntents defaults every inherited requirement, LiveCommunicationKit's
+    /// <c>LiveAssistanceExtensionConfiguration : ExtensionFoundation.AppExtensionConfiguration</c> does
+    /// not. A compile failure is the verify-recover loop's to withdraw (see
+    /// <see cref="WithdrawnConformance_SkippedWithItsDependents"/>), so both channels that carry the
+    /// inheritance (the qualified genericSig clause and the bare parsed conformance) emit the conformance.
     /// </summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void UnloadedForeignParent_ChildConformanceSkipped(bool viaGenericSig)
+    public void UnloadedForeignParent_ChildConformanceEmitted(bool viaGenericSig)
     {
         var child = CreateCompositionProtocol("ForeignConfigAccepting");
         if (viaGenericSig)
@@ -945,12 +946,67 @@ public class EveryProtocolEmitterTests
 
         _emitter.PreScanProtocols(new[] { child });
 
-        Assert.True(_emitter.IsConformanceSkipped(child));
-        Assert.DoesNotContain("extension EveryProtocol: TestModule.ForeignConfigAccepting", EmitFullConformance(child));
+        Assert.False(_emitter.IsConformanceSkipped(child));
+        Assert.Contains("extension EveryProtocol: TestModule.ForeignConfigAccepting", EmitFullConformance(child));
     }
 
     /// <summary>
-    /// The positive control for <see cref="UnloadedForeignParent_ChildConformanceSkipped"/>: a parent
+    /// A conformance the verify-recover loop withdrew (its managed-conformance unit is on the
+    /// denylist) is skipped like a structural skip: no extension, a recorded decision carrying the
+    /// withdrawal wording, and a child protocol refining it loses its conformance as unwitnessed.
+    /// An unrelated protocol keeps its conformance.
+    /// </summary>
+    [Fact]
+    public void WithdrawnConformance_SkippedWithItsDependents()
+    {
+        var context = new ModuleEmissionContext();
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule", context);
+        var withdrawn = CreateCompositionProtocol("ForeignConfigAccepting");
+        withdrawn.InheritedProtocols.Add(new NamedTypeSpec("ExtensionFoundation.AppExtensionConfiguration"));
+        var refining = CreateCompositionProtocol("RefiningAccepting", "TestModule.ForeignConfigAccepting");
+        refining.GenericSignature = "<τ_0_0 : TestModule.ForeignConfigAccepting>";
+        var unrelated = CreateCompositionProtocol("UnrelatedMarker");
+
+        var unit = EveryProtocolEmitter.ConformanceUnit(withdrawn);
+        Assert.Equal(RecoveryScope.ManagedProtocolConformance, unit.Scope);
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId> { unit }));
+
+        emitter.PreScanProtocols(new[] { withdrawn, refining, unrelated });
+
+        Assert.True(emitter.IsConformanceSkipped(withdrawn));
+        Assert.True(emitter.IsConformanceSkipped(refining));
+        Assert.False(emitter.IsConformanceSkipped(unrelated));
+
+        var stringWriter = new StringWriter();
+        emitter.EmitProtocolConformance(new SwiftWriter(stringWriter), withdrawn);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.ForeignConfigAccepting", stringWriter.ToString());
+
+        var reason = context.GetConformanceSkipReason("TestModule.ForeignConfigAccepting");
+        Assert.NotNull(reason);
+        Assert.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, reason);
+        Assert.Contains("managed-protocol-conformance", reason);
+    }
+
+    /// <summary>
+    /// The fragment a protocol's conformance is emitted under resolves to the same managed-conformance
+    /// unit the emitter checks for withdrawal, and is droppable alone, so a wrapper diagnostic inside
+    /// it reaches the loop as that unit instead of being suppressed to the module scope.
+    /// </summary>
+    [Fact]
+    public void ConformanceFragmentOwner_ResolvesToTheWithdrawableConformanceUnit()
+    {
+        var protocolDecl = CreateCompositionProtocol("ForeignConfigAccepting");
+
+        var owner = EveryProtocolEmitter.ConformanceFragmentOwner(protocolDecl);
+        var (unit, droppable) = RecoveryUnitClassifier.ClassifyArtifact(owner.Artifact);
+
+        Assert.Equal(EveryProtocolEmitter.ConformanceUnit(protocolDecl), owner.Unit);
+        Assert.Equal(owner.Unit, unit);
+        Assert.True(droppable);
+    }
+
+    /// <summary>
+    /// The positive control for <see cref="UnloadedForeignParent_ChildConformanceEmitted"/>: a parent
     /// in a loaded --framework-dependency module gets its own conformance in this module, so an empty
     /// child refining it keeps its conformance (and the parent's witnesses dispatch through it).
     /// </summary>
@@ -985,13 +1041,14 @@ public class EveryProtocolEmitterTests
     }
 
     /// <summary>
-    /// A loaded protocol that only shares the simple name of the unloaded parent does not witness
-    /// it: <c>Child : Unloaded.Parent</c> stays unwitnessed although a local <c>Parent</c> exists.
+    /// A loaded protocol that only shares the simple name of the unloaded parent changes nothing: the
+    /// child's conformance is still emitted (and left to the wrapper compile), and the namesake keeps
+    /// its own.
     /// </summary>
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public void UnloadedForeignParent_LocalNamesakeDoesNotStandIn(bool viaGenericSig)
+    public void UnloadedForeignParent_LocalNamesakeChangesNothing(bool viaGenericSig)
     {
         var localNamesake = CreateCompositionProtocol("AppExtensionConfiguration");
         var child = CreateCompositionProtocol("ForeignConfigAccepting");
@@ -1008,7 +1065,7 @@ public class EveryProtocolEmitterTests
         _emitter.PreScanProtocols(new[] { localNamesake, child });
 
         Assert.False(_emitter.IsConformanceSkipped(localNamesake));
-        Assert.True(_emitter.IsConformanceSkipped(child));
+        Assert.False(_emitter.IsConformanceSkipped(child));
     }
 
     [Fact]

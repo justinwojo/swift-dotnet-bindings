@@ -28,7 +28,9 @@ namespace BindingsGeneration;
 /// <item>Stripping ownership / opaque-type modifiers (<c>inout</c>, <c>borrowing</c>,
 ///       <c>consuming</c>, <c>some</c>, <c>any</c>, <c>__owned</c>, <c>__shared</c>).</item>
 /// <item>Stripping default-value tails (<c>= ...</c>).</item>
-/// <item>Stripping trailing optionality markers (<c>?</c> / <c>!</c>).</item>
+/// <item>Stripping trailing optionality markers (<c>?</c> / <c>!</c>), after reading an
+///       explicit <c>Optional&lt;T&gt;</c> as the postfix <c>T?</c> the ABI prints. An opaque
+///       type or a composition keeps one <c>?</c> per level.</item>
 /// <item>Folding collection sugar to nominal generic form: <c>[T]</c> becomes
 ///       <c>Array&lt;T&gt;</c>, <c>[K: V]</c> becomes <c>Dictionary&lt;K,V&gt;</c>.
 ///       Without this step, the swiftinterface producer (which often prints
@@ -148,6 +150,19 @@ internal static class MemberSignatureNormalizer
             optionalDepth++;
         }
         s = s.TrimEnd();
+
+        // The interface keeps an explicit `Optional<T>` as written while the ABI prints the
+        // postfix form (`Optional<any P & Q>` is `(any P & Q)?`, `Optional<Optional<some P>>` is
+        // `(some P)??`), so the explicit spelling is rewritten to that postfix form, parenthesized
+        // the way the ABI parenthesizes it, and normalized again.
+        if (TryUnwrapExplicitOptional(s) is { } wrapped)
+        {
+            var parenthesize = wrapped.StartsWith("some ", StringComparison.Ordinal) ||
+                               wrapped.StartsWith("any ", StringComparison.Ordinal) ||
+                               TrySplitTopLevelComposition(wrapped) != null ||
+                               HasTopLevelArrow(wrapped);
+            return NormalizeParamType((parenthesize ? "(" + wrapped + ")" : wrapped) + new string('?', optionalDepth + 1));
+        }
 
         // `(some P)?` and `(any P & Q)?` parenthesize an opaque type or a composition only to
         // apply `?`. Their keys keep each level of optionality, so `f(_: (some P)?)` and
@@ -440,16 +455,67 @@ internal static class MemberSignatureNormalizer
         members.Add(body.Substring(start).Trim());
 
         // A grouped member (`B & (A & C)`) is flattened into the list, the way the ABI lists a
-        // composition's requirements, so the sort sees every member.
+        // composition's requirements, so the sort sees every member; a group of one (`Q & (P)`)
+        // is that member.
         var flat = new List<string>(members.Count);
         foreach (var member in members)
         {
-            if (TrySplitTopLevelComposition(member) is { } nested && PeelEnclosingParentheses(member) != member)
+            var peeled = PeelEnclosingParentheses(member);
+            if (TrySplitTopLevelComposition(peeled) is { } nested)
                 flat.AddRange(nested);
             else
-                flat.Add(member);
+                flat.Add(peeled);
         }
         return flat;
+    }
+
+    /// <summary>
+    /// <c>Optional&lt;T&gt;</c> or <c>Swift.Optional&lt;T&gt;</c> → <c>T</c>, when the angle
+    /// brackets enclose the rest of the text; otherwise null.
+    /// MIRROR-LOCKED with <c>AvailabilityWalker.unwrapExplicitOptional</c>.
+    /// </summary>
+    private static string? TryUnwrapExplicitOptional(string text)
+    {
+        foreach (var head in _explicitOptionalHeads)
+        {
+            if (!text.StartsWith(head, StringComparison.Ordinal) || text[text.Length - 1] != '>')
+                continue;
+            int depth = 0;
+            for (int i = head.Length - 1; i < text.Length; i++)
+            {
+                var c = text[i];
+                if (c == '(' || c == '[' || c == '<') depth++;
+                else if ((c == ')' || c == ']' || c == '>') && !(c == '>' && text[i - 1] == '-'))
+                {
+                    depth--;
+                    if (depth == 0)
+                        return i == text.Length - 1 ? text.Substring(head.Length, i - head.Length).Trim() : null;
+                }
+            }
+            return null;
+        }
+        return null;
+    }
+
+    private static readonly string[] _explicitOptionalHeads = { "Optional<", "Swift.Optional<" };
+
+    // True when `->` appears outside every bracket: the text is a function type.
+    // MIRROR-LOCKED with `AvailabilityWalker.hasTopLevelArrow`.
+    private static bool HasTopLevelArrow(string text)
+    {
+        int depth = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+            if (c == '-' && i + 1 < text.Length && text[i + 1] == '>')
+            {
+                if (depth == 0) return true;
+                i++;
+            }
+            else if (c == '(' || c == '[' || c == '<') depth++;
+            else if (c == ')' || c == ']' || c == '>') depth--;
+        }
+        return false;
     }
 
     // `((X))` → `X`: every parenthesis pair that encloses the whole text is removed.

@@ -550,6 +550,180 @@ public class AbiIngestionContractTests
         Assert.Equal("Struct", result.ModuleDecl.ForeignTypeDeclKinds["Foundation.NSWidget.Options"]);
     }
 
+    /// <summary>
+    /// A foreign receiver the parser cannot keep (a Swift enum, from a system module or a third-party
+    /// one) takes with it every declaration this module adds to it. Each of them is parked on the
+    /// module so the emitter can report it, instead of vanishing with the receiver; a nested type of
+    /// the module's own is one entry, and a foreign type nested in the receiver is walked for its own.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation", "s:10Foundation15AttributeScopesO")]
+    [InlineData("OtherLib", "s:8OtherLib15AttributeScopesO")]
+    public void ParseModule_DroppedForeignEnumReceiver_ParksTheModulesDeclarationsOnIt(string foreignModule, string usr)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var ownNestedType = CreateNode(
+            "TypeDecl", declKind: "Struct", name: "TranslationAttributes",
+            mangledName: "$s" + usr[2..] + "10TestModuleE21TranslationAttributesV");
+        var ownProperty = CreateNode("Var", declKind: "Var", name: "translation", mangledName: "$s_translation");
+        var ownMethodOnNestedForeign = CreateNode("Function", declKind: "Func", name: "describe()", mangledName: "$s_describe");
+        var foreignNested = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "FoundationAttributes", moduleName: foreignModule,
+            mangledName: "$s" + usr[2..] + "20FoundationAttributesO", isExternal: true,
+            children: [ownMethodOnNestedForeign]);
+        var foreignOnly = CreateNode("Var", declKind: "Var", name: "foundation", moduleName: foreignModule, mangledName: "$s_foundation");
+        var receiver = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "AttributeScopes", moduleName: foreignModule,
+            mangledName: "$s" + usr[2..], usr: usr, declAttributes: [], isExternal: true,
+            children: [ownNestedType, ownProperty, foreignNested, foreignOnly]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, receiver);
+
+        var result = fixture.Parser.ParseModule();
+
+        var parked = result.ModuleDecl.UnboundForeignReceiverMembers
+            .Select(u => $"{u.ForeignTypeQualifiedName}|{u.Kind}|{u.Name}")
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            new[]
+            {
+                $"{foreignModule}.AttributeScopes.FoundationAttributes|Method|describe()",
+                $"{foreignModule}.AttributeScopes|Property|translation",
+                $"{foreignModule}.AttributeScopes|Type|TranslationAttributes",
+            },
+            parked);
+        Assert.All(result.ModuleDecl.UnboundForeignReceiverMembers, u => Assert.StartsWith("Not bound: ", u.Details));
+    }
+
+    /// <summary>
+    /// Overloads on a dropped receiver are parked one entry each, told apart by their symbols.
+    /// </summary>
+    [Fact]
+    public void ParseModule_DroppedReceiverOverloads_ParkedWithTheirSymbols()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var receiver = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "Scopes", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib6ScopesO", usr: "s:8OtherLib6ScopesO", isExternal: true,
+            children:
+            [
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_Int32"),
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_String"),
+            ]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, receiver);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Equal(
+            new[] { "$s_describe_Int32", "$s_describe_String" },
+            result.ModuleDecl.UnboundForeignReceiverMembers.Select(u => u.Symbol).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// A dropped re-exported receiver is walked for this module's declarations however deep they sit:
+    /// one on a foreign type nested in it is lost with the receiver, even when the receiver's own
+    /// children are all foreign.
+    /// </summary>
+    [Fact]
+    public void ParseModule_DroppedReceiverWithOnlyForeignChildren_ParksDeclarationsNestedDeeper()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var inner = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "Inner", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib5OuterC5InnerO", isExternal: true,
+            children: [CreateNode("TypeDecl", declKind: "Struct", name: "Added", mangledName: "$s_Added")]);
+        var outer = CreateNode(
+            "TypeDecl", declKind: "Class", name: "Outer", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib5OuterC", usr: "s:8OtherLib5OuterC", isExternal: true,
+            children: [inner]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, outer);
+
+        var result = fixture.Parser.ParseModule();
+
+        var parked = Assert.Single(result.ModuleDecl.UnboundForeignReceiverMembers);
+        Assert.Equal("OtherLib.Outer.Inner|Type|Added", $"{parked.ForeignTypeQualifiedName}|{parked.Kind}|{parked.Name}");
+    }
+
+    /// <summary>
+    /// A member this module adds to a Swift standard-library generic is not bound (Swift.Runtime owns
+    /// those types), and is parked rather than dropped with the receiver.
+    /// </summary>
+    [Fact]
+    public void ParseModule_StdlibGenericReceiver_ParksTheModulesDeclarationsOnIt()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var array = CreateNode(
+            "TypeDecl", declKind: "Struct", name: "Array", moduleName: "Swift",
+            mangledName: "$sSa", usr: "s:Sa", isExternal: true,
+            children: [CreateNode("Var", declKind: "Var", name: "firstLocal", mangledName: "$s_firstLocal")]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, array);
+
+        var result = fixture.Parser.ParseModule();
+
+        var parked = Assert.Single(result.ModuleDecl.UnboundForeignReceiverMembers);
+        Assert.Equal("Swift.Array|Property|firstLocal", $"{parked.ForeignTypeQualifiedName}|{parked.Kind}|{parked.Name}");
+    }
+
+    /// <summary>
+    /// On an Objective-C class the interface's foreign-extension path binds or reports this module's
+    /// methods and properties; the kinds it never carries (nested types, initializers, subscripts) are
+    /// parked with the dropped node, and the rest are left to that path.
+    /// </summary>
+    [Fact]
+    public void ParseModule_ObjCRootedReceiver_ParksOnlyWhatTheInterfacePathDoesNotCarry()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var view = CreateNode(
+            "TypeDecl", declKind: "Class", name: "UIView", moduleName: "UIKit",
+            mangledName: "", usr: "c:objc(cs)UIView", declAttributes: ["ObjC"], isExternal: true,
+            children:
+            [
+                CreateNode("Constructor", declKind: "Constructor", name: "init", mangledName: "$s_init_rank"),
+                CreateNode("TypeDecl", declKind: "Struct", name: "Style", mangledName: "$s_Style"),
+                CreateNode("Subscript", declKind: "Subscript", name: "subscript", mangledName: "$s_subscript"),
+                CreateNode("Var", declKind: "Var", name: "rank", mangledName: "$s_rank"),
+                CreateNode("Function", declKind: "Func", name: "refresh", mangledName: "$s_refresh"),
+            ]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, view);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Equal(
+            new[] { "UIKit.UIView|Method|init", "UIKit.UIView|Subscript|subscript", "UIKit.UIView|Type|Style" },
+            result.ModuleDecl.UnboundForeignReceiverMembers
+                .Select(u => $"{u.ForeignTypeQualifiedName}|{u.Kind}|{u.Name}")
+                .OrderBy(x => x, StringComparer.Ordinal)
+                .ToArray());
+    }
+
+    /// <summary>
+    /// A foreign receiver with nothing of this module's on it parks nothing, whatever the parser does
+    /// with the receiver itself.
+    /// </summary>
+    [Fact]
+    public void ParseModule_ForeignReceiverWithoutTheModulesDeclarations_ParksNothing()
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var foreign = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "AttributeScopes", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib15AttributeScopesO", usr: "s:8OtherLib15AttributeScopesO",
+            declAttributes: [], isExternal: true,
+            children: [CreateNode("Var", declKind: "Var", name: "foundation", moduleName: "OtherLib", mangledName: "$s_f")]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, foreign);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.UnboundForeignReceiverMembers);
+    }
+
     #region Harness
 
     private static ParserFixture CreateParser(int? jsonFormatVersion, ILogger logger, params Node[] nodes)

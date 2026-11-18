@@ -1186,15 +1186,41 @@ public class SwiftABIParserRuntimeTests
             SwiftABIParser.ComputeAbiParamSignature(composition));
     }
 
-    [Fact]
-    public void ComputeAbiParamSignature_OpaqueParameterWithAssociatedTypeRequirement_KeepsItsAbiSpelling()
+    [Theory]
+    // Spellings from Xcode 27.2's ABI descriptor. A constraint naming a generic parameter is
+    // spelled with that parameter's source name, and a primary associated type's same-type
+    // requirement is spelled back as the constraint's generic argument, in either orientation.
+    [InlineData("<τ_0_0, τ_0_1 where τ_0_1 : Dep.Base<τ_0_0>>", "<T>", "τ_0_0|τ_0_1", "T|some Base<T>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.Int>", null, "τ_0_0", "some Collection<Int>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Dep.Primary, τ_0_0.Element == [Swift.Int]>", null, "τ_0_0", "some Primary<Array<Int>>")]
+    [InlineData("<τ_0_0, τ_0_1 where τ_0_0 == τ_0_1.Element, τ_0_1 : Swift.Collection>", "<T>", "τ_0_1|τ_0_0", "some Collection<T>|T")]
+    // A concrete type named like a depth-and-index parameter is not one.
+    [InlineData("<τ_0_0 where τ_0_0 : Probe.P>", null, "τ_0_0|Probe.τ_0_0", "some P|Probe.τ_0_0")]
+    public void ComputeAbiParamSignature_OpaqueConstraintsOverGenericArguments_MatchTheInterface(
+        string genericSig, string? sugaredSig, string abiParamsPipe, string interfaceParamsPipe)
     {
-        // `some Collection<Int>` constrains an associated type; its interface spelling cannot be
-        // rebuilt from the requirements alone, so the parameter keeps the spelling it had.
-        var node = MakeAbiFunctionNode("m", "m(_:)", "()", "τ_0_0");
-        node.GenericSig = "<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element == Swift.Int>";
+        var node = MakeAbiFunctionNode("m", "m(_:)", "()", abiParamsPipe.Split('|'));
+        node.GenericSig = genericSig;
+        node.sugared_genericSig = sugaredSig;
 
-        Assert.Equal("τ_0_0", SwiftABIParser.ComputeAbiParamSignature(node));
+        Assert.Equal(
+            MemberSignatureNormalizer.BuildSignature(interfaceParamsPipe.Split('|')),
+            SwiftABIParser.ComputeAbiParamSignature(node));
+    }
+
+    [Theory]
+    // Two primary arguments cannot be ordered from the requirements, and an argument cannot be
+    // assigned to one of two constraints. Such a parameter has no reliable key, so the whole
+    // signature is withheld and the lookup falls back to the bare key.
+    [InlineData("<τ_0_0 where τ_0_0 : Dep.Two, τ_0_0.A == Swift.Int, τ_0_0.B == Swift.String>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Dep.Other, τ_0_0 : Dep.Primary, τ_0_0.Element == Swift.Int>")]
+    [InlineData("<τ_0_0 where τ_0_0 : Swift.Collection, τ_0_0.Element : Swift.Hashable>")]
+    public void ComputeAbiParamSignature_UnspellableOpaqueParameter_WithholdsTheSignature(string genericSig)
+    {
+        var node = MakeAbiFunctionNode("m", "m(_:_:)", "()", "τ_0_0", "Swift.Int");
+        node.GenericSig = genericSig;
+
+        Assert.Equal(string.Empty, SwiftABIParser.ComputeAbiParamSignature(node));
     }
 
     [Fact]

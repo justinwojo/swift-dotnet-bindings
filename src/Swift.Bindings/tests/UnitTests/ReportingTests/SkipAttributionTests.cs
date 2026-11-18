@@ -115,6 +115,30 @@ public class SkipAttributionTests
         Assert.Equal(CauseOwner.Generator, item.CauseOwner);
     }
 
+    /// <summary>
+    /// A row lost with a recovery unit other than the one its own kind maps to (a proxy removed with its
+    /// protocol's managed conformance) names that unit as its root, so it joins the withdrawal evidence.
+    /// </summary>
+    [Fact]
+    public void Link_RowWithdrawnAsAnotherUnit_NamesThatUnitAsItsRoot()
+    {
+        var protocol = TypeDecl("Configuration");
+        var conformance = RecoveryUnitId.Create(protocol, RecoveryScope.ManagedProtocolConformance).Canonical;
+        var proxy = new SkippedItem
+        {
+            Kind = BindingItemKind.Type,
+            Name = "ConfigurationProxy",
+            ContainingType = "M.Configuration",
+            Reason = SkipReason.EmitterFault,
+            DeclId = DeclId.Create("M", "Configuration", BindingItemKind.Type, "ConfigurationProxy").Canonical,
+            RecoveryUnit = conformance,
+        };
+
+        SkipAttributionLinker.Link(new[] { proxy });
+
+        Assert.Equal(conformance, proxy.RootCauseId);
+    }
+
     [Fact]
     public void Link_LinksANestedTypeToItsSkippedAncestor()
     {

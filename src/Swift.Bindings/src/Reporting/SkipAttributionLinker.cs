@@ -206,7 +206,7 @@ public static class SkipAttributionLinker
     /// The recovery unit a skip row names. Scope follows the kind of thing that was lost, which is
     /// what makes a root-cause id joinable with the recovery graph.
     /// </summary>
-    private static string UnitIdOf(SkippedItem item, DeclId decl) => item.Kind switch
+    private static string UnitIdOf(SkippedItem item, DeclId decl) => item.RecoveryUnit ?? item.Kind switch
     {
         BindingItemKind.Type => RecoveryUnitId.Create(decl, RecoveryScope.TypeSurface).Canonical,
         BindingItemKind.Property or BindingItemKind.Subscript =>
