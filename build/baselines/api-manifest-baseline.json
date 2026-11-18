@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "22946d38",
+  "git_sha": "5bd79fcb",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -27299,13 +27299,43 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.DescribeNode(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReverseCallbackSettings_describeNode_5ECBA65C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ReverseCallbackSettings.Encode(nint,nint)",
       "symbol": "thunk_SwiftBindingsTestLib_8ab03b50"
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.Find(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReverseCallbackSettings_find_2950DEEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.FindNode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReverseCallbackSettings_findNode|$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8findNodeyAA0efI0CSiKcvs"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.Lookup",
+      "symbol": "$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvg|$s20SwiftBindingsTestLib23ReverseCallbackSettingsV6lookupyAA0eF4WideVSgSiKcvs"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ReverseCallbackSettings.MakeEncoder",
       "symbol": "SBW_Get_SwiftBindingsTestLib_ReverseCallbackSettings_makeEncoder|$s20SwiftBindingsTestLib23ReverseCallbackSettingsV11makeEncoderyAA0eF8Encoding_pSicvs"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.MakeNode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ReverseCallbackSettings_makeNode|$s20SwiftBindingsTestLib23ReverseCallbackSettingsV8makeNodeyAA0efI0CSicvs"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReverseCallbackSettings.MakeNodes(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_ReverseCallbackSettings_makeNodes_656E32D0"
     },
     {
       "module": "SwiftBindingsTestLib",
