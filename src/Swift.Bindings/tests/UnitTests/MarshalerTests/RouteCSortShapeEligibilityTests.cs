@@ -137,11 +137,21 @@ public class RouteCSortShapeEligibilityTests
     }
 
     [Fact]
-    public void Condition6_ActorIsolated_IsRejected()
+    public void Condition6_CustomActorIsolated_IsRejected()
     {
         var (method, parent) = BuildSortShape();
         method.IsActorIsolated = true;
         Assert.False(RouteCSortShapeEligibility.IsRouteCSortShapeEligible(method, parent, out _));
+    }
+
+    [Fact]
+    public void Condition6_MainActorIsolated_IsEligible()
+    {
+        // The trampoline carries @MainActor, so a main-actor sort member binds like any other.
+        var (method, parent) = BuildSortShape();
+        method.IsActorIsolated = true;
+        method.IsMainActorIsolated = true;
+        Assert.True(RouteCSortShapeEligibility.IsRouteCSortShapeEligible(method, parent, out _));
     }
 
     [Fact]

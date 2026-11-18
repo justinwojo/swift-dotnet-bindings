@@ -43,8 +43,9 @@ namespace BindingsGeneration;
 ///   <item><description>The KeyPath-family parameter's Root type spec references the parent
 ///   generic's associated-type bag (e.g. <c>Parent.LibrarySortProperties</c>).</description></item>
 ///   <item><description>The method is <b>not async</b>, <b>not throws-typed-error</b>,
-///   <b>not actor-isolated</b> (these add witness-table complications that are out of
-///   scope; the simple synchronous mutating shape is what MusicKit's <c>sort(by:)</c> is).</description></item>
+///   <b>not isolated to a custom actor</b> (these add witness-table complications that are out of
+///   scope; the simple synchronous mutating shape is what MusicKit's <c>sort(by:)</c> is). A
+///   main-actor member is eligible: its trampoline carries <c>@MainActor</c>.</description></item>
 /// </list>
 /// </summary>
 public static class RouteCSortShapeEligibility
@@ -79,11 +80,13 @@ public static class RouteCSortShapeEligibility
         // (Section conformer × Item conformer) blow-up that the current emitter has
         // no recipe for. Single-generic-parent only.
         if (parentTypeDecl.GenericParameters.Count != 1) return false;
-        // Synchronous, non-throws-typed, non-actor-isolated shape only (condition 6).
+        // Synchronous, non-throws-typed shape only, not isolated to a custom actor (condition 6).
+        // A main-actor member is eligible: KeyPathBagValueSpecializationEmitter isolates its
+        // trampoline with it.
         if (method.IsAsync) return false;
         if (method.HasTypedThrows) return false;
         if (method.IsAccessor || method.IsConstructor) return false;
-        if (method.IsActorIsolated) return false;
+        if (method.IsActorIsolated && !method.IsMainActorIsolated) return false;
 
         // Condition 1: identify the parent's PAT-constrained generic parameter and the
         // protocol it conforms to. The Route C emitter calls engine.GetConformers on

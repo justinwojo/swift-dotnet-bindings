@@ -1787,6 +1787,37 @@ public class OperatorHandlerOutputTests
     }
 
     /// <summary>
+    /// The operator wrapper calls the operator synchronously. An operator of a main-actor type is
+    /// main-actor isolated, so the wrapper must be <c>@MainActor</c> or swiftc refuses the call (and
+    /// verify-recover withdraws the operator); an ordinary type's wrapper stays nonisolated.
+    /// </summary>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, false)] // nonisolated operator on a main-actor type
+    [InlineData(false, false, false)]
+    public void EmitOperator_CdeclWrapper_CarriesMainActorIsolation(bool typeIsMainActor, bool memberIsNonisolated, bool expectMainActor)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        parentType.IsMainActorIsolated = typeIsMainActor;
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "TestModule.Point");
+        op.UnderlyingMethod.IsMainActorIsolated = !typeIsMainActor && memberIsNonisolated;
+        op.UnderlyingMethod.IsNonisolated = typeIsMainActor && memberIsNonisolated;
+
+        var swiftOutput = new StringWriter();
+        Assert.True(new OperatorHandler(new NullLogger<OperatorHandler>()).EmitOperator(
+            new CSharpWriter(new StringWriter()), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(swiftOutput), emissionContext: new ModuleEmissionContext()));
+
+        var swift = swiftOutput.ToString().Replace("\r\n", "\n");
+        Assert.Contains("@_cdecl(", swift);
+        Assert.Equal(expectMainActor, swift.Contains("@MainActor\n@_cdecl(", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// A frozen struct's operator goes through the <c>@_cdecl</c> wrapper, which takes the result
     /// buffer as its first ordinary C argument. The C import must pass it as a pointer:
     /// <c>SwiftIndirectResult</c> is the Swift convention's indirect-result register carrier, and on

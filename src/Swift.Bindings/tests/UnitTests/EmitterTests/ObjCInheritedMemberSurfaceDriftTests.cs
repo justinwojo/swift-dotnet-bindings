@@ -38,6 +38,9 @@ public class ObjCInheritedMemberSurfaceDriftTests
             .Select(p => PropertyKey(p.Name, p.Type, p.HasSetter, p.IsVirtual)).ToHashSet(StringComparer.Ordinal);
         var tableMethods = ObjCInheritedMemberSurface.Methods
             .Select(m => MethodKey(m.Name, m.ParameterTypes, m.ReturnType, m.IsVirtual)).ToHashSet(StringComparer.Ordinal);
+        var workloadSpecificMethods = ObjCInheritedMemberSurface.WorkloadSpecificMethods
+            .Select(w => MethodKey(w.Method.Name, w.Method.ParameterTypes, w.Method.ReturnType, w.Method.IsVirtual))
+            .ToHashSet(StringComparer.Ordinal);
 
         foreach (var (platform, surface) in surfaces)
         {
@@ -52,11 +55,56 @@ public class ObjCInheritedMemberSurfaceDriftTests
         {
             var commonProperties = surfaces.Values.Select(s => s.Properties).Aggregate((a, b) => a.Intersect(b).ToHashSet());
             var commonMethods = surfaces.Values.Select(s => s.Methods).Aggregate((a, b) => a.Intersect(b).ToHashSet());
-            var unlisted = commonProperties.Except(tableProperties).Concat(commonMethods.Except(tableMethods))
+            var unlisted = commonProperties.Except(tableProperties)
+                .Concat(commonMethods.Except(tableMethods).Except(workloadSpecificMethods))
                 .OrderBy(k => k, StringComparer.Ordinal).ToList();
             Assert.True(unlisted.Count == 0,
                 $"Members every platform's NSObject declares that the table lacks: {string.Join("; ", unlisted)}.");
         }
+    }
+
+    /// <summary>
+    /// A workload-specific method is declared, with exactly the table's shape, on every platform of a
+    /// workload at or after its first major version and on none before it, so the entry tracks the
+    /// installed workload whichever supported one it is. It must never also sit in the common table,
+    /// which feeds an <c>override</c> no workload before it could compile.
+    /// </summary>
+    [SkippableFact]
+    public void WorkloadSpecificMethods_MatchTheInstalledWorkloadVersion()
+    {
+        var surfaces = LoadSurfaces();
+        Skip.If(surfaces.Count == 0, "No Apple platform reference assembly installed.");
+
+        var tableMethods = ObjCInheritedMemberSurface.Methods
+            .Select(m => MethodKey(m.Name, m.ParameterTypes, m.ReturnType, m.IsVirtual)).ToHashSet(StringComparer.Ordinal);
+        foreach (var entry in ObjCInheritedMemberSurface.WorkloadSpecificMethods)
+        {
+            var key = MethodKey(entry.Method.Name, entry.Method.ParameterTypes, entry.Method.ReturnType, entry.Method.IsVirtual);
+            Assert.DoesNotContain(key, tableMethods);
+            foreach (var (platform, surface) in surfaces)
+            {
+                var expected = surface.WorkloadVersion.Major >= entry.FirstWorkloadMajor;
+                Assert.True(surface.Methods.Contains(key) == expected,
+                    $"{platform} workload {surface.WorkloadVersion}: expected '{key}' to be " +
+                    $"{(expected ? "declared" : "absent")} (first workload major {entry.FirstWorkloadMajor}).");
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData("ObjCRuntime.NativeHandle", "string", "bool")]
+    [InlineData("global::ObjCRuntime.NativeHandle", "global::System.String", "System.Boolean")]
+    public void ClassifyMethod_WorkloadSpecificSignature_Hides(string handle, string name, string flag)
+    {
+        // Hides under the workloads that declare it and hides nothing under the others; only the
+        // suppressed declaration compiles under both, so the classification is Hide even for an override.
+        Assert.Equal(ObjCInheritedMemberSurface.Disposition.Hide,
+            ObjCInheritedMemberSurface.ClassifyMethod("InitializeHandle", new[] { handle, name, flag }, "void", isSwiftOverride: false));
+        Assert.Equal(ObjCInheritedMemberSurface.Disposition.Hide,
+            ObjCInheritedMemberSurface.ClassifyMethod("InitializeHandle", new[] { handle, name, flag }, "void", isSwiftOverride: true));
+        // A different overload of the same name is an overload, not a hide.
+        Assert.Equal(ObjCInheritedMemberSurface.Disposition.None,
+            ObjCInheritedMemberSurface.ClassifyMethod("InitializeHandle", new[] { handle, name, flag, "int" }, "void", isSwiftOverride: false));
     }
 
     [SkippableFact]
@@ -68,6 +116,7 @@ public class ObjCInheritedMemberSurfaceDriftTests
         var known = ObjCInheritedMemberSurface.Properties.Select(p => p.Name)
             .Concat(ObjCInheritedMemberSurface.Methods.Select(m => m.Name))
             .Concat(ObjCInheritedMemberSurface.PlatformSpecificMemberNames)
+            .Concat(ObjCInheritedMemberSurface.WorkloadSpecificMethods.Select(e => e.Method.Name))
             .ToHashSet(StringComparer.Ordinal);
 
         foreach (var (platform, surface) in surfaces)
@@ -100,7 +149,7 @@ public class ObjCInheritedMemberSurfaceDriftTests
         => $"M {name}({string.Join(",", parameterTypes.Select(ObjCInheritedMemberSurface.NormalizeType))}): " +
            $"{ObjCInheritedMemberSurface.NormalizeType(returnType)} virtual={isVirtual}";
 
-    private sealed record Surface(HashSet<string> Properties, HashSet<string> Methods, HashSet<string> Names);
+    private sealed record Surface(HashSet<string> Properties, HashSet<string> Methods, HashSet<string> Names, Version WorkloadVersion);
 
     [UnconditionalSuppressMessage("Trimming", "IL2026", Justification = "Metadata-only reflection in a test.")]
     [UnconditionalSuppressMessage("Trimming", "IL2070", Justification = "Metadata-only reflection in a test.")]
@@ -148,7 +197,9 @@ public class ObjCInheritedMemberSurfaceDriftTests
                 methods.Add(MethodKey(m.Name, m.GetParameters().Select(x => Format(x.ParameterType)), Format(m.ReturnType), m.IsVirtual && !m.IsFinal));
                 names.Add(m.Name);
             }
-            result[platform] = new Surface(properties, methods, names);
+            // The prerelease-aware parse: a "27.0.x-rc.2" pack folder is workload 27, not 0.0.
+            result[platform] = new Surface(properties, methods, names,
+                CSharpProbeReferenceSet.VersionFromRefPath(refAssembly));
         }
         return result;
     }
@@ -179,7 +230,7 @@ public class ObjCInheritedMemberSurfaceDriftTests
             var best = Directory.GetDirectories(packsDir, $"{assemblyName}.Ref*")
                 .SelectMany(packDir => Directory.GetFiles(packDir, $"{assemblyName}.dll", SearchOption.AllDirectories))
                 .Where(ObjCRootedInheritedPropertyDriftTests.IsRefAssemblyPath)
-                .OrderByDescending(ObjCRootedInheritedPropertyDriftTests.VersionFromRefPath)
+                .OrderByDescending(CSharpProbeReferenceSet.VersionFromRefPath)
                 .FirstOrDefault();
             if (best is not null)
                 return best;

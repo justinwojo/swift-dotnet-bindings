@@ -25,7 +25,9 @@ namespace BindingsGeneration;
 ///
 /// <para>The tables hold only members present with the same shape on every Apple platform's
 /// NSObject (iOS, tvOS, Mac Catalyst and macOS ref assemblies), since one decision feeds every
-/// platform's compile. Names that exist on some platforms only are listed in
+/// platform's compile, and only members every supported workload declares (methods that some
+/// workload versions add are listed in <see cref="WorkloadSpecificMethods"/>). Names that exist
+/// on some platforms only are listed in
 /// <see cref="PlatformSpecificMemberNames"/>; a member projecting onto one of them can neither
 /// override nor say <c>new</c> portably, so its declaration is emitted with the hiding warnings
 /// suppressed instead. The reflection drift test (<c>ObjCInheritedMemberSurfaceDriftTests</c>)
@@ -138,6 +140,27 @@ public static class ObjCInheritedMemberSurface
     };
 
     /// <summary>
+    /// An inherited NSObject method that only some supported platform workloads declare: present from
+    /// the workload whose major version is <paramref name="FirstWorkloadMajor"/> on (on every Apple
+    /// platform of that workload), absent before it.
+    /// </summary>
+    public sealed record WorkloadSpecificMethodEntry(MethodEntry Method, int FirstWorkloadMajor);
+
+    /// <summary>
+    /// NSObject methods whose presence depends on the platform workload the binding is compiled
+    /// against. Generated code compiles against whichever supported workload the consumer has (the
+    /// Xcode 26 and Xcode 27 workloads are both supported), so a member projecting onto one of
+    /// these can neither override nor say <c>new</c> portably: it hides an inherited member under
+    /// one workload and nothing under the other. It is classified <see cref="Disposition.Hide"/> and
+    /// emitted with the hiding warnings suppressed, the one form that compiles under both.
+    /// </summary>
+    public static IReadOnlyList<WorkloadSpecificMethodEntry> WorkloadSpecificMethods { get; } = new WorkloadSpecificMethodEntry[]
+    {
+        // Protected, non-virtual; added by the Xcode 27 workloads (27.x ref packs, .NET 10 and 11).
+        new(new("InitializeHandle", new[] { "ObjCRuntime.NativeHandle", "string", "bool" }, "void", IsVirtual: false), FirstWorkloadMajor: 27),
+    };
+
+    /// <summary>
     /// NSObject member names declared on some Apple platforms only (the iOS-family accessibility
     /// properties; macOS's Cocoa-bindings and editing members). Kept apart from the common tables
     /// because no single modifier compiles on every platform for them.
@@ -182,13 +205,14 @@ public static class ObjCInheritedMemberSurface
     /// </summary>
     public static Disposition ClassifyMethod(string csharpName, IReadOnlyList<string> parameterTypes, string returnType, bool isSwiftOverride)
     {
-        var entry = Methods.FirstOrDefault(m => m.Name == csharpName
-            && m.ParameterTypes.Length == parameterTypes.Count
-            && m.ParameterTypes.Zip(parameterTypes).All(t => TypesMatch(t.First, t.Second)));
+        var entry = Methods.FirstOrDefault(m => SameSignature(m, csharpName, parameterTypes));
         if (entry is null)
         {
-            // A platform-only name may or may not be declared where this compiles; the caller
-            // suppresses the hiding warnings rather than guess a modifier.
+            // A platform-only name, or a method only some supported workloads declare, may or may
+            // not be inherited where this compiles; the caller suppresses the hiding warnings rather
+            // than guess a modifier.
+            if (WorkloadSpecificMethods.Any(w => SameSignature(w.Method, csharpName, parameterTypes)))
+                return Disposition.Hide;
             return PlatformSpecificMemberNames.Contains(csharpName) ? Disposition.Hide : Disposition.None;
         }
         if (isSwiftOverride && entry.IsVirtual && TypesMatch(entry.ReturnType, returnType))
@@ -260,6 +284,11 @@ public static class ObjCInheritedMemberSurface
            || t == "ObjCRuntime.Class"
            || t.StartsWith("System.Action", StringComparison.Ordinal)
            || t == "System.IDisposable";
+
+    private static bool SameSignature(MethodEntry entry, string csharpName, IReadOnlyList<string> parameterTypes)
+        => entry.Name == csharpName
+           && entry.ParameterTypes.Length == parameterTypes.Count
+           && entry.ParameterTypes.Zip(parameterTypes).All(t => TypesMatch(t.First, t.Second));
 
     private static bool TypesMatch(string tableType, string emittedType)
         => string.Equals(NormalizeType(tableType), NormalizeType(emittedType), StringComparison.Ordinal);

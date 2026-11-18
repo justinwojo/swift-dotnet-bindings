@@ -618,6 +618,10 @@ public static partial class CrossModuleExtensionEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module struct-extension @_cdecl trampoline for {origSwiftTypeQualified}.{method.Name}");
+        // The trampoline calls the member synchronously, so it shares a main-actor member's (or
+        // main-actor receiver's) isolation, as the class-receiver trampoline does.
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, structDecl, method.IsMainActorIsolated, method.IsNonisolated);
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
         swiftWriter.WriteLine($"public func _sbw_ext_{symbolName}({string.Join(", ", swiftParams)}){swiftReturn} {{");
         swiftWriter.Indent++;
@@ -718,6 +722,10 @@ public static partial class CrossModuleExtensionEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module struct-extension @_cdecl getter trampoline for {origSwiftTypeQualified}.{property.Name}");
+        // The trampoline calls the member synchronously, so it shares a main-actor member's (or
+        // main-actor receiver's) isolation, as the class-receiver trampoline does.
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, structDecl, property.IsMainActorIsolated, property.IsNonisolated);
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
         swiftWriter.WriteLine($"public func _sbw_ext_{symbolName}({string.Join(", ", swiftParams)}){swiftReturn} {{");
         swiftWriter.Indent++;
@@ -766,6 +774,10 @@ public static partial class CrossModuleExtensionEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Cross-module struct-extension @_cdecl setter trampoline for {origSwiftTypeQualified}.{property.Name}");
+        // The trampoline calls the member synchronously, so it shares a main-actor member's (or
+        // main-actor receiver's) isolation, as the class-receiver trampoline does.
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, structDecl, property.IsMainActorIsolated, property.IsNonisolated);
         swiftWriter.WriteLine($"@_cdecl(\"{symbolName}\")");
         swiftWriter.WriteLine($"public func _sbw_ext_{symbolName}(_ newValue: {valueType}, _ self_: Swift.UnsafeMutableRawPointer) {{");
         swiftWriter.Indent++;

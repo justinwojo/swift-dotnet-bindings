@@ -18,6 +18,22 @@ public static class WrapperEmitterHelpers
         => WrapperValidation.IsNonCopyableStructParent(conformingTypeDecl) ? ": ~Swift.Copyable" : "";
 
     /// <summary>
+    /// Writes <c>@MainActor</c> on a wrapper that calls its member synchronously when that member is
+    /// main-actor isolated, itself or through its parent type
+    /// (<see cref="WrapperValidation.NeedsMainActorAnnotation"/>). Swift (6.2 and 6.4 alike) refuses a
+    /// synchronous call to such a member from a nonisolated function, even under
+    /// <c>-strict-concurrency=minimal</c>; the attribute changes no ABI. Write it after the
+    /// availability lines and before the <c>@_cdecl</c>/<c>@_silgen_name</c> line, as
+    /// <see cref="EmitCdeclAnnotation"/> does.
+    /// </summary>
+    public static void EmitMainActorIfNeeded(SwiftWriter swiftWriter, BaseDecl? parentDecl,
+        bool memberIsMainActorIsolated, bool memberIsNonisolated)
+    {
+        if (WrapperValidation.NeedsMainActorAnnotation(parentDecl, memberIsMainActorIsolated, memberIsNonisolated))
+            swiftWriter.WriteLine("@MainActor");
+    }
+
+    /// <summary>
     /// Emits the @MainActor (if needed) and @_cdecl annotations for a Swift wrapper function.
     /// Consolidates the identical annotation pattern used by MethodWrapperEmitter,
     /// PropertyWrapperEmitter, and ConstructorWrapperEmitter.

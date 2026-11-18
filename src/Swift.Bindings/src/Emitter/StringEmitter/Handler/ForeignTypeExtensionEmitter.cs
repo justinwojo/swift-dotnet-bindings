@@ -150,7 +150,8 @@ public static class ForeignTypeExtensionEmitter
         // Emit any additional imports needed for foreign type modules
         foreach (var import in ctx.ForeignExtNeededImports.OrderBy(s => s))
         {
-            swiftWriter.WriteLine($"import {import}");
+            foreach (var line in SdkPublicModuleNames.ImportLines(import))
+                swiftWriter.WriteLine(line);
         }
 
         swiftWriter.WriteLine();

@@ -1019,9 +1019,11 @@ namespace BindingsGeneration
             additionalImports.Remove(compileImport);
             additionalImports.Remove(moduleDecl.Name);
 
+            // An SDK module that only some slices' SDKs ship is imported under canImport.
             foreach (var import in additionalImports.OrderBy(s => s))
             {
-                swiftWriter.WriteLine($"import {import}");
+                foreach (var line in SdkPublicModuleNames.ImportLines(import))
+                    swiftWriter.WriteLine(line);
             }
 
             // A module whose own name is shadowed by a type of that name can't be qualified

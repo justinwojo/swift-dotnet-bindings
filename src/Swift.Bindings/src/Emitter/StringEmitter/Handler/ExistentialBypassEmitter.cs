@@ -1211,11 +1211,8 @@ public static class ExistentialBypassEmitter
     /// </summary>
     private static void EmitMainActorIfNeeded(SwiftWriter swiftWriter, MethodEnvironment env)
     {
-        if (WrapperValidation.NeedsMainActorAnnotation(
-                env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated))
-        {
-            swiftWriter.WriteLine("@MainActor");
-        }
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated);
     }
 
     /// <summary>

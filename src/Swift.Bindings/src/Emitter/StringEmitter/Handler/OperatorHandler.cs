@@ -1564,6 +1564,10 @@ namespace BindingsGeneration
             // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
             var availability = WrapperEmitterHelpers.MergeAvailability(operatorDecl.AvailabilityAnnotations, parentDecl);
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            // The wrapper calls the operator synchronously; an operator of a main-actor type (or a
+            // main-actor operator) is main-actor isolated, and swiftc refuses the call otherwise.
+            WrapperEmitterHelpers.EmitMainActorIfNeeded(
+                swiftWriter, parentDecl, methodDecl.IsMainActorIsolated, methodDecl.IsNonisolated);
 
             swiftWriter.WriteLines($$"""
                 @_cdecl("{{symbolName}}")
