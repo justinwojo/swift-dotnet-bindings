@@ -187,6 +187,48 @@ public class ReverseCallbackAcceptanceTests
         Assert.Equal(["Outer::Body_Callback"], ResidualGuardCheck.AcceptedReverseCallbacks(confined, confinedResult));
     }
 
+    /// <summary>
+    /// A throwing callback whose result Swift receives by address declares both the error and the
+    /// indirect result ahead of its arguments, which a reverse thunk placing special registers by
+    /// position cannot carry: its hand-offs must refuse <see cref="SwiftTransitionShapes.SpecialBeforeArguments"/> too.
+    /// </summary>
+    private static string ErrorAndIndirect(string guardFacts) => Factory($$"""
+            [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvSwift) })]
+            private static unsafe void Body_Callback(SwiftError* errorOut, SwiftIndirectResult result, nint arg0, SwiftSelf context) { }
+            private static unsafe readonly delegate* unmanaged[Swift]<SwiftError*, SwiftIndirectResult, nint, SwiftSelf, void> s_Body_Callback = &Body_Callback;
+            [DllImport("lib", EntryPoint = "take")]
+            private static extern void Take(nint callback, nint context);
+            public static void Make() { SwiftTransitionGuard.ThrowIfUnsupported((SwiftTransitionFacts){{guardFacts}}, "Factory.Make()"); Take((nint)s_Body_Callback, 0); }
+        """);
+
+    [Fact]
+    public void ACallbackTakingAnErrorAndAnIndirectResult_IsAcceptedOnlyBehindAGuardForBothShapes()
+    {
+        var (report, result) = Engine(ErrorAndIndirect("0x10002"));
+
+        var hazard = Assert.Single(result.Hazards, h => h.Kind == TransitionSiteKind.UnmanagedCallersOnly);
+        Assert.Equal(SwiftTransitionShapes.ReverseCallback | SwiftTransitionShapes.SpecialBeforeArguments, hazard.Shapes);
+        Assert.True(result.Passed, ResidualGuardCheck.ToSummary(result));
+        Assert.Equal([CallbackMember], ResidualGuardCheck.AcceptedReverseCallbacks(report, result));
+
+        // A guard for the reverse callback alone lets the hand-off run where only the leading specials are refused.
+        var (underReport, underResult) = Engine(ErrorAndIndirect("0x10000"));
+        Assert.Contains(underReport.Violations, v => v.Rule == TransitionRule.R4 && v.Member == CallbackMember);
+        Assert.Empty(ResidualGuardCheck.AcceptedReverseCallbacks(underReport, underResult));
+    }
+
+    [Fact]
+    public void ACallbackTakingAnErrorAndAnIndirectResult_PassesThePackagedChecksOnlyBehindAGuardForBothShapes()
+    {
+        var (pack, consumer) = Packaged(ErrorAndIndirect("0x10002"));
+        Assert.True(pack.Passed, string.Join("\n", pack.Problems));
+        Assert.Equal(ConsumerTransitionVerdict.Verified, consumer.Verdict);
+
+        var (underPack, underConsumer) = Packaged(ErrorAndIndirect("0x10000"));
+        Assert.Contains(underPack.Problems, p => p.Contains($"R4 {CallbackMember}", StringComparison.Ordinal));
+        Assert.Equal(ConsumerTransitionVerdict.Refused, underConsumer.Verdict);
+    }
+
     // ---- SWIFTBIND133 (pack) and SWIFTBIND132 (consumer) ----------------------------------------
 
     [Fact]

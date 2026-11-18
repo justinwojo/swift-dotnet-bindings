@@ -44,9 +44,10 @@ public class ReverseCallbackShapesTests : TestBase
     /// Runs <paramref name="call"/>, which must work where the engine runs a Swift-lane member and
     /// must throw before Swift runs, naming <paramref name="member"/>, everywhere else.
     /// </summary>
-    private void RunSwiftLane(string member, Action call)
+    private void RunSwiftLane(string member, Action call, SwiftTransitionFacts callbackShapes = SwiftTransitionFacts.None)
     {
-        if (SwiftTransitionGuard.IsSupported(SwiftLaneShapes))
+        var shapes = SwiftLaneShapes | callbackShapes;
+        if (SwiftTransitionGuard.IsSupported(shapes))
         {
             call();
             return;
@@ -62,7 +63,7 @@ public class ReverseCallbackShapesTests : TestBase
         }
         AssertNotNull(refusal, $"{member} must refuse on {SwiftTransitionGuard.UnsupportedFacts}");
         AssertTrue(refusal!.Member.Contains(member, StringComparison.Ordinal), $"refusal names the member: {refusal.Member}");
-        AssertTrue((refusal.RefusedFacts & SwiftLaneShapes) != 0, $"refusal names a shape the member has: {refusal.RefusedFacts}");
+        AssertTrue((refusal.RefusedFacts & shapes) != 0, $"refusal names a shape the member has: {refusal.RefusedFacts}");
         TestLogger.Info($"{member}: refused before Swift ran ({refusal.RefusedFacts})");
     }
 
@@ -286,7 +287,9 @@ public class ReverseCallbackShapesTests : TestBase
     public void TestStoredThrowingLookup_FillsSwiftsIndirectResult()
     {
         // A throwing callback whose wide optional result Swift receives by address: the value, nil,
-        // and an error all have to cross, and the callback must keep working after each.
+        // and an error all have to cross, and the callback must keep working after each. Its error
+        // and indirect result both lead its parameters, so an engine that places special registers
+        // by position (the CoreCLR interpreter) must refuse it before Swift runs.
         AssertCallbackLane(typeof(ReverseCallbackSettings), "lookup_Set_value", typeof(CallConvSwift));
         using var settings = new ReverseCallbackSettings();
         AssertEqual("nil", settings.Find(1), "the default lookup finds nothing");
@@ -300,7 +303,9 @@ public class ReverseCallbackShapesTests : TestBase
             AssertEqual("nil", settings.Find(0), "a null result reaches Swift as nil");
             AssertEqual("error", settings.Find(-1), "a managed exception reaches Swift as a thrown error");
             AssertEqual("11|12|13|found-11", settings.Find(11), "and the callback still works after an error");
-        });
+        },
+        // The callback takes both the error and the indirect result ahead of its argument.
+        SwiftTransitionFacts.SpecialBeforeArguments);
     }
 
     [DynamicDependency(DynamicallyAccessedMemberTypes.NonPublicMethods, typeof(ReverseCallbackSettings))]

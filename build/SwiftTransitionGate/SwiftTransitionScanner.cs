@@ -533,7 +533,10 @@ public static class SwiftTransitionScanner
             var carriers = Carriers(signature);
             var site = AddSite(TransitionSiteKind.UnmanagedCallersOnly, member, convention, sigText);
             if (convention == TransitionConvention.Swift)
+            {
+                site.Shapes = SwiftTransitionShapes.OfReverse(carriers);
                 Inventory.SwiftUnmanagedCallersOnly++;
+            }
             else
                 Inventory.NonSwiftUnmanagedCallersOnly++;
 

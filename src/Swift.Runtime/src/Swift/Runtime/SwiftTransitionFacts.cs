@@ -37,6 +37,10 @@ public enum SwiftTransitionFacts : ulong
 
     /// <summary>
     /// The import declares a <c>SwiftSelf</c> or <c>SwiftError*</c> before an ordinary argument.
+    /// A member also carries it, beside <see cref="ReverseCallback"/>, when the Swift-convention
+    /// callback it hands Swift takes both a <c>SwiftError*</c> and a <c>SwiftIndirectResult</c>:
+    /// two special registers ahead of the callback's arguments, which a reverse stub that places
+    /// them by position cannot both deliver.
     /// </summary>
     SpecialBeforeArguments = 1UL << 1,
 

@@ -88,6 +88,22 @@ public static class SwiftTransitionShapes
         return shapes;
     }
 
+    /// <summary>
+    /// The shapes of a Swift-convention reverse callback, read from its native carriers:
+    /// <see cref="ReverseCallback"/>, and <see cref="SpecialBeforeArguments"/> as well when it takes
+    /// both the error register and an indirect result. Both lead its managed parameters, and a
+    /// reverse thunk that places special registers by position (the .NET 11 CoreCLR interpreter
+    /// stores the error register into the first slot) cannot carry the two. This matches the
+    /// generator's reading of the callback's declaration (<c>SwiftTransitionGuards.ReverseFactsOf</c>).
+    /// </summary>
+    public static ulong OfReverse(IReadOnlyList<(int Index, CarrierVerdict Verdict)> carriers)
+    {
+        var parameters = carriers.Where(c => c.Index >= 0).Select(c => c.Verdict.Kind).ToList();
+        return parameters.Contains(CarrierKind.SwiftError) && parameters.Contains(CarrierKind.SwiftIndirectResult)
+            ? ReverseCallback | SpecialBeforeArguments
+            : ReverseCallback;
+    }
+
     /// <summary>The shapes by name; a bit this table does not know is spelled in hex.</summary>
     public static string Describe(ulong shapes)
     {
@@ -203,7 +219,9 @@ public static class ResidualGuardCheck
     /// The R4 violations a guard answers for: each Swift-convention callback (by its member name)
     /// whose only R4 reason is the Swift convention, which the assembly hands Swift from at least one
     /// of its own members, and whose every hand-off this check found guarded for
-    /// <see cref="SwiftTransitionShapes.ReverseCallback"/>. That is the reverse counterpart of an R1
+    /// <see cref="SwiftTransitionShapes.ReverseCallback"/> (and for
+    /// <see cref="SwiftTransitionShapes.SpecialBeforeArguments"/> where its signature takes both an
+    /// error and an indirect result, <see cref="SwiftTransitionShapes.OfReverse"/>). That is the reverse counterpart of an R1
     /// hazard reached only through a guarded holder: the callback still exists, and on the engines
     /// that refuse <see cref="SwiftTransitionShapes.ReverseCallback"/> every member that could hand it
     /// to Swift throws before it does.
@@ -223,7 +241,8 @@ public static class ResidualGuardCheck
         if (!result.Passed)
             return accepted;
         var handedOver = result.Hazards
-            .Where(h => h.Kind == TransitionSiteKind.UnmanagedCallersOnly && h.Referenced && h.Confined && h.Shapes == SwiftTransitionShapes.ReverseCallback)
+            .Where(h => h.Kind == TransitionSiteKind.UnmanagedCallersOnly && h.Referenced && h.Confined
+                        && (h.Shapes & ~SwiftTransitionShapes.SpecialBeforeArguments) == SwiftTransitionShapes.ReverseCallback)
             .Select(h => h.Member)
             .ToHashSet(StringComparer.Ordinal);
         foreach (var violation in report.Violations)
@@ -407,9 +426,15 @@ public static class ResidualGuardCheck
                 hazardSites.Add((site, holder.Handle));
             }
             var callbacks = CallbackHandOffs(report, out var exposed);
-            foreach (var (_, executes) in callbacks)
+            // Each callback's shapes, from its own reverse signature.
+            var callbackShapes = new Dictionary<string, ulong>(StringComparer.Ordinal);
+            foreach (var site in report.Sites)
+                if (site.Kind == TransitionSiteKind.UnmanagedCallersOnly && site.Convention == TransitionConvention.Swift)
+                    callbackShapes[site.Member] = callbackShapes.GetValueOrDefault(site.Member) | site.Shapes | SwiftTransitionShapes.ReverseCallback;
+            ulong ShapesOf(string callback) => callbackShapes.GetValueOrDefault(callback, SwiftTransitionShapes.ReverseCallback);
+            foreach (var (callback, executes) in callbacks)
                 foreach (var method in executes)
-                    method.Local |= SwiftTransitionShapes.ReverseCallback;
+                    method.Local |= ShapesOf(callback);
 
             Propagate();
             var hazards = new List<ResidualHazard>();
@@ -422,8 +447,8 @@ public static class ResidualGuardCheck
             {
                 var referenced = false;
                 foreach (var method in executes.Distinct())
-                    referenced |= AttributeHolders(atExecutor: true, SwiftTransitionShapes.ReverseCallback, callback, method);
-                hazards.Add(new ResidualHazard(TransitionSiteKind.UnmanagedCallersOnly, callback, null, null, SwiftTransitionShapes.ReverseCallback, referenced,
+                    referenced |= AttributeHolders(atExecutor: true, ShapesOf(callback), callback, method);
+                hazards.Add(new ResidualHazard(TransitionSiteKind.UnmanagedCallersOnly, callback, null, null, ShapesOf(callback), referenced,
                     Confined: !exposed.Contains(callback)));
             }
 

@@ -129,6 +129,35 @@ public sealed class SwiftTransitionGuardsTests
         Assert.Empty(guards.Issues);
     }
 
+    [Theory]
+    [InlineData("SwiftError* errorOut, SwiftIndirectResult __indirectResult, nint arg0", "SwiftError*, SwiftIndirectResult, nint", true)]
+    [InlineData("SwiftError* errorOut, SwiftIndirectResult __indirectResult", "SwiftError*, SwiftIndirectResult", true)]
+    [InlineData("SwiftError* errorOut, nint arg0", "SwiftError*, nint", false)]
+    [InlineData("SwiftIndirectResult __indirectResult", "SwiftIndirectResult", false)]
+    public void ACallbackTakingBothAnErrorAndAnIndirectResult_IsGuardedForTheTwoLeadingSpecials(string parameters, string pointerParameters, bool both)
+    {
+        // A reverse thunk that places special registers by position puts the error register in the
+        // first managed slot; with the indirect result also leading, the two cannot both land.
+        var guards = Plan($$"""
+            using System.Runtime.InteropServices.Swift;
+            namespace M
+            {
+                public sealed unsafe class Factory
+                {
+                    [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { typeof(global::System.Runtime.CompilerServices.CallConvSwift) })]
+                    private static void Body_Callback({{parameters}}, SwiftSelf context) { }
+                    private static readonly delegate* unmanaged[Swift]<{{pointerParameters}}, SwiftSelf, void> s_Body_Callback = &Body_Callback;
+                    public static nint Make() => (nint)s_Body_Callback;
+                }
+            }
+            """);
+
+        var hazard = Assert.Single(guards.Hazards);
+        Assert.Equal(SwiftTransitionKind.ReverseCallback, hazard.Kind);
+        Assert.Equal(both ? SwiftTransitionFacts.ReverseCallback | SwiftTransitionFacts.SpecialBeforeArguments : SwiftTransitionFacts.ReverseCallback, hazard.Facts);
+        Assert.Empty(guards.Issues);
+    }
+
     [Fact]
     public void ACallbackAddressTakenInsideAMember_GuardsThatMember_AndItsPublicCallers()
     {
