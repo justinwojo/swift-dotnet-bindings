@@ -316,6 +316,237 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         finally { File.Delete(path); }
     }
 
+    // The interface and ABI spellings in the overload-key tests below are what Xcode 27.2's
+    // swiftc writes for the same declarations (the `.swiftinterface` text and each parameter's
+    // ABI-descriptor `printedName` and `genericSig`).
+
+    [SkippableFact]
+    public void CrossModuleSameNamedCompositions_NeverLendEachOtherAFloor()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(CrossModuleSameNamedCompositions_NeverLendEachOtherAFloor));
+        // `P` and `Q` are declared in both `Aaa` and `Zzz`. The two compositions of each pair are
+        // different types that normalize to one key, so the key must not carry either floor.
+        var source = """
+            // swift-module-flags: -module-name Host
+            import Aaa
+            import Zzz
+            public struct Host {
+              public func crossed(_ x: any Aaa::Q & Zzz::P)
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func crossed(_ x: any Aaa::P & Zzz::Q)
+              public func opq(_ x: some Aaa.Q & Zzz.P)
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func opq(_ x: some Aaa.P & Zzz.Q)
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        Assert.False(facts.Floored("crossed(_:)", "any Aaa.Q & Zzz.P"), $"the unfloored existential took its namesake's floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("opq(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Aaa.Q, τ_0_0 : Zzz.P>"),
+            $"the unfloored opaque overload took its namesake's floor; keys: {facts.Keys}");
+    }
+
+    [SkippableFact]
+    public void CanonicallyEquivalentProtocolNames_StayDistinctInTheKey()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(CanonicallyEquivalentProtocolNames_StayDistinctInTheKey));
+        // `Café` (precomposed é) and `Café` (e + combining acute) are two protocols to both
+        // compilers. Swift's String equality treats them as one; the key must keep both.
+        const string pre = "Café", dec = "Café";
+        var source = $$"""
+            // swift-module-flags: -module-name Uni
+            public protocol {{pre}} {}
+            public protocol {{dec}} {}
+            public struct Host {
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func take(_ x: any Uni::{{dec}} & Uni::{{pre}})
+              public func take(_ x: Swift::Int)
+              public func one(_ x: any Uni::{{pre}})
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func one(_ x: any Uni::{{dec}})
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func two(_ x: any Uni::{{pre}})
+              @available(iOS 98, macOS 98, tvOS 98, macCatalyst 98, *)
+              public func two(_ x: any Uni::{{dec}})
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        Assert.True(facts.Floored("take(_:)", $"any Uni.{dec} & Uni.{pre}"), $"the composition lost its floor; keys: {facts.Keys}");
+        Assert.True(facts.Floored("one(_:)", $"any Uni.{dec}"), $"the decomposed spelling lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("one(_:)", $"any Uni.{pre}"), $"the precomposed spelling took the other's floor; keys: {facts.Keys}");
+        // Both floored: the two keys cannot both be stored, so neither is, and neither overload
+        // takes the other's floor.
+        Assert.False(facts.Floored("two(_:)", $"any Uni.{dec}"), $"the decomposed spelling took the other's floor; keys: {facts.Keys}");
+    }
+
+    [SkippableFact]
+    public void ConcreteTypeNamedLikeAGenericParameter_KeepsItsOwnKey()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ConcreteTypeNamedLikeAGenericParameter_KeepsItsOwnKey));
+        // `Probe.τ_0_0` is a struct, not the anonymous generic parameter the ABI prints as `τ_0_0`.
+        var source = """
+            // swift-module-flags: -module-name Probe
+            public protocol P {}
+            public struct τ_0_0 {}
+            public struct Host {
+              public func take(_ x: some P, _ y: Probe::τ_0_0)
+              public func take(_ x: (any Probe::P)?, _ y: (any Probe::P)?)
+            }
+            extension Host {
+              @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+              public func take(_ x: some P, _ y: (any Probe::P)?)
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        const string sig = "<τ_0_0 where τ_0_0 : Probe.P>";
+        Assert.True(facts.Floored("take(_:_:)", new[] { "τ_0_0", "(any Probe.P)?" }, sig), $"the floored overload lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("take(_:_:)", new[] { "τ_0_0", "Probe.τ_0_0" }, sig), $"the concrete-τ overload took the floor; keys: {facts.Keys}");
+    }
+
+    [SkippableFact]
+    public void ExplicitOptionalSpellings_MatchTheirPostfixAbiSpelling()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExplicitOptionalSpellings_MatchTheirPostfixAbiSpelling));
+        // The interface keeps `Optional<…>` as written; the ABI prints the postfix `?` form.
+        var source = """
+            // swift-module-flags: -module-name Opt
+            public protocol P {}
+            public protocol Q {}
+            public struct Host {
+              public func take(_ x: any Opt::P & Opt::Q)
+              public func opq(_ x: (some P)?)
+              public func opq(_ x: some P)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public func take(_ x: Swift::Optional<any Opt::P & Opt::Q>)
+              public func opq(_ x: Swift::Optional<Swift::Optional<some P>>)
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        const string sig = "<τ_0_0 where τ_0_0 : Opt.P>";
+        Assert.True(facts.Floored("take(_:)", "(any Opt.P & Opt.Q)?"), $"Optional<any P & Q> lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("take(_:)", "any Opt.P & Opt.Q"), $"the required composition took the floor; keys: {facts.Keys}");
+        Assert.True(facts.Floored("opq(_:)", "τ_0_0??", sig), $"Optional<Optional<some P>> lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("opq(_:)", "τ_0_0?", sig), $"(some P)? took the floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("opq(_:)", "τ_0_0", sig), $"some P took the floor; keys: {facts.Keys}");
+    }
+
+    [SkippableFact]
+    public void GroupedOpaqueConstraints_ReachTheirAbiKey()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(GroupedOpaqueConstraints_ReachTheirAbiKey));
+        // `some (Q & (P))` groups a single member. A redundant member (`Child: P`, so the compiler
+        // drops `P` from `some (Q & (P & Child))`) cannot be recovered from the interface; that
+        // overload's key misses, and its floor must not reach any sibling.
+        var source = """
+            // swift-module-flags: -module-name Grp
+            public protocol P {}
+            public protocol Q {}
+            public protocol Child : Grp::P {}
+            public struct Host {
+              public func take(_ x: Swift::Int)
+              public func take(_ x: some Q)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public func take(_ x: some (Q & (P)))
+              public func take(_ x: some (Q & (P & Child)))
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        Assert.True(facts.Floored("take(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Grp.P, τ_0_0 : Grp.Q>"),
+            $"some (Q & (P)) lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("take(_:)", "Swift.Int"), $"the Int overload took a floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("take(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Grp.Q>"), $"some Q took a floor; keys: {facts.Keys}");
+    }
+
+    [SkippableFact]
+    public void OpaqueConstraintsOverGenericArguments_ReachTheirAbiKey()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OpaqueConstraintsOverGenericArguments_ReachTheirAbiKey));
+        // A constraint that names a generic parameter, and a primary associated type, are rebuilt
+        // from the ABI's requirements. Two primary arguments cannot be ordered from the
+        // requirements, so those overloads get no key of their own and lend no floor.
+        var source = """
+            // swift-module-flags: -module-name Dep
+            open class Base<T> {}
+            public protocol Primary<Element> { associatedtype Element }
+            public protocol Two<A, B> { associatedtype A; associatedtype B }
+            public struct Host {
+              public func take(_ x: Swift::Int, _ y: Swift::Int)
+              public func prim(_ x: some Primary<String>)
+              public func two(_ x: some Two<String, Int>)
+              public func coll(_ x: Swift::Int, _ y: Swift::Int)
+            }
+            @available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)
+            extension Host {
+              public func take<T>(_ x: T, _ y: some Base<T>)
+              public func prim(_ x: some Primary<Int>)
+              public func two(_ x: some Two<Int, String>)
+              public func coll<T>(_ x: some Collection<T>, _ y: T)
+            }
+            """;
+        using var facts = ProduceKeyedFacts(source, "Host");
+        Assert.True(facts.FlooredSugared("take(_:_:)", new[] { "τ_0_0", "τ_0_1" }, "<τ_0_0, τ_0_1 where τ_0_1 : Dep.Base<τ_0_0>>", "<T>"),
+            $"some Base<T> lost its floor; keys: {facts.Keys}");
+        Assert.True(facts.Floored("prim(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Dep.Primary, τ_0_0.Element == Swift.Int>"),
+            $"some Primary<Int> lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("prim(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Dep.Primary, τ_0_0.Element == Swift.String>"),
+            $"some Primary<String> took the floor; keys: {facts.Keys}");
+        Assert.True(facts.FlooredSugared("coll(_:_:)", new[] { "τ_0_1", "τ_0_0" }, "<τ_0_0, τ_0_1 where τ_0_0 == τ_0_1.Element, τ_0_1 : Swift.Collection>", "<T>"),
+            $"some Collection<T> lost its floor; keys: {facts.Keys}");
+        Assert.False(facts.Floored("two(_:)", "τ_0_0", "<τ_0_0 where τ_0_0 : Dep.Two, τ_0_0.A == Swift.String, τ_0_0.B == Swift.Int>"),
+            $"some Two<String, Int> took the floor; keys: {facts.Keys}");
+    }
+
+    /// <summary>
+    /// The walker's availability facts for one interface, looked up the way
+    /// <see cref="SwiftABIParser"/> looks a member up: its disambiguated key first, then the bare key.
+    /// </summary>
+    private sealed class KeyedFacts : IDisposable
+    {
+        private readonly string _path;
+        private readonly string _type;
+        private readonly IReadOnlyDictionary<string, List<AvailabilityAnnotation>> _annotations;
+
+        public KeyedFacts(string path, string type, IReadOnlyDictionary<string, List<AvailabilityAnnotation>> annotations)
+        {
+            _path = path;
+            _type = type;
+            _annotations = annotations;
+        }
+
+        public string Keys => string.Join(", ", _annotations.Keys.Where(k => k.StartsWith(_type + ".", StringComparison.Ordinal)));
+
+        public bool Floored(string printedName, string parameter, string? genericSig = null) =>
+            FlooredSugared(printedName, new[] { parameter }, genericSig, null);
+
+        public bool Floored(string printedName, string[] parameters, string? genericSig = null) =>
+            FlooredSugared(printedName, parameters, genericSig, null);
+
+        public bool FlooredSugared(string printedName, string[] parameters, string? genericSig, string? sugaredSig)
+        {
+            var node = SwiftABIParserRuntimeTests.MakeAbiFunctionNode(printedName.Split('(')[0], printedName, "()", parameters);
+            node.GenericSig = genericSig;
+            node.sugared_genericSig = sugaredSig;
+            var bareKey = $"{_type}.{printedName}";
+            var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, SwiftABIParser.ComputeAbiParamSignature(node));
+            var found = _annotations.TryGetValue(disambKey, out var annotations) ||
+                        _annotations.TryGetValue(bareKey, out annotations);
+            return found && annotations!.Any(a => a.IntroducedVersion == "99");
+        }
+
+        public void Dispose() => File.Delete(_path);
+    }
+
+    private static KeyedFacts ProduceKeyedFacts(string source, string type)
+    {
+        var binaryPath = ResolveBinaryOrSkip(type);
+        var path = WriteTempFile(source);
+        var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+        return new KeyedFacts(path, type, facts.AvailabilityAnnotations!);
+    }
+
     [SkippableFact]
     public void AnyAppleOSAvailability_ExpandsToEachAppleOSTheDeclarationDoesNotName()
     {

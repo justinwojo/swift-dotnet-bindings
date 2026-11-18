@@ -557,16 +557,27 @@ namespace BindingsGeneration
                 {
                     printed = arrayElement[0].PrintedName ?? string.Empty;
                 }
-                if (sourceNames != null)
-                    printed = DepthIndexGenericParameterName.Replace(
-                        printed, m => sourceNames.TryGetValue(m.Value, out var name) ? name : m.Value);
+                printed = SpellGenericParameters(printed, sourceNames);
+                // A parameter still spelled by depth and index is one the interface spells some
+                // other way that could not be rebuilt. Its key could only miss, or match a
+                // concrete type of that name, so no signature is offered and the lookup falls
+                // back to the bare key.
+                if (DepthIndexGenericParameterName.IsMatch(printed))
+                    return string.Empty;
                 raw.Add(printed);
             }
             return MemberSignatureNormalizer.BuildSignature(raw);
         }
 
+        // A depth-and-index name standing alone: `Probe.τ_0_0` is a concrete type of that name.
         private static readonly System.Text.RegularExpressions.Regex DepthIndexGenericParameterName =
-            new(@"τ_[0-9]+_[0-9]+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+            new(@"(?<![\w.])τ_[0-9]+_[0-9]+(?!\w)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+        // Replaces each depth-and-index name that <paramref name="names"/> spells.
+        private static string SpellGenericParameters(string text, Dictionary<string, string>? names) =>
+            names == null
+                ? text
+                : DepthIndexGenericParameterName.Replace(text, m => names.TryGetValue(m.Value, out var name) ? name : m.Value);
 
         /// <summary>
         /// Pairs each depth-and-index generic parameter name in <paramref name="genericSig"/> with
@@ -607,9 +618,14 @@ namespace BindingsGeneration
         /// constraint (<c>init(wrapping: some P)</c>, <c>init(wrapping: some (Error &amp; Q))</c>) then
         /// share a printedName and both lose their disambiguated availability. The constraint is
         /// recoverable from the generic signature's conformance, superclass and layout
-        /// requirements on the parameter, joined as a composition. A parameter that a same-type
-        /// requirement or an associated-type requirement constrains (<c>some Collection&lt;Int&gt;</c>)
-        /// cannot be spelled back from the requirements and is left as printed.
+        /// requirements on the parameter, joined as a composition, with every generic parameter
+        /// they name spelled by its source name (<c>some Base&lt;T&gt;</c>). A primary associated
+        /// type's same-type requirement (<c>τ_0_0.Element == Swift.Int</c>, in either orientation)
+        /// becomes the generic argument of a lone constraint (<c>some Collection&lt;Int&gt;</c>).
+        /// Two such requirements cannot be put in the protocol's order, one argument cannot be
+        /// assigned among several constraints, and any other requirement on the parameter has no
+        /// opaque spelling; such a parameter is left unspelled, and
+        /// <see cref="ComputeAbiParamSignature"/> then offers no signature.
         /// </summary>
         private static Dictionary<string, string>? AddOpaqueParameterSpellings(string? genericSig, Dictionary<string, string>? named)
         {
@@ -631,29 +647,62 @@ namespace BindingsGeneration
                     continue;
 
                 var constraints = new List<string>();
+                var arguments = new List<string>();
                 var spellable = true;
                 foreach (var requirement in requirements)
                 {
-                    if (!DepthIndexGenericParameterName.Matches(requirement).Any(m => m.Value == parameter))
+                    if (!Names(requirement, parameter))
                         continue;
                     var colon = requirement.IndexOf(" : ", StringComparison.Ordinal);
-                    if (colon < 0 || requirement[..colon].Trim() != parameter)
+                    var sameType = requirement.IndexOf(" == ", StringComparison.Ordinal);
+                    if (colon >= 0 && requirement[..colon].Trim() == parameter)
+                    {
+                        constraints.Add(requirement[(colon + 3)..].Trim());
+                    }
+                    else if (sameType >= 0 &&
+                             TryPrimaryArgument(parameter, requirement[..sameType].Trim(), requirement[(sameType + 4)..].Trim()) is { } argument)
+                    {
+                        arguments.Add(argument);
+                    }
+                    else
                     {
                         spellable = false;
                         break;
                     }
-                    constraints.Add(requirement[(colon + 3)..].Trim());
                 }
                 if (!spellable || constraints.Count == 0)
+                    continue;
+
+                string constraint;
+                if (arguments.Count == 0)
+                    constraint = string.Join(" & ", constraints);
+                else if (arguments.Count == 1 && constraints.Count == 1 && !constraints[0].Contains('<'))
+                    constraint = $"{constraints[0]}<{arguments[0]}>";
+                else
                     continue;
 
                 // Spelled `(some P & Q)` so a `?` the printed type applies to the parameter
                 // reads as the interface's `(some P & Q)?`; `some` keeps it apart from the
                 // existential of the same constraint.
                 map ??= new Dictionary<string, string>(StringComparer.Ordinal);
-                map[parameter] = $"(some {string.Join(" & ", constraints)})";
+                map[parameter] = $"(some {SpellGenericParameters(constraint, map)})";
             }
             return map;
+
+            static bool Names(string text, string parameter) =>
+                DepthIndexGenericParameterName.Matches(text).Any(m => m.Value == parameter);
+
+            // `τ_0_0.Element == X` or `X == τ_0_0.Element` → X, when X does not name the parameter.
+            static string? TryPrimaryArgument(string parameter, string left, string right)
+            {
+                bool IsMember(string side) =>
+                    side.Length > parameter.Length + 1 &&
+                    side.StartsWith(parameter + ".", StringComparison.Ordinal) &&
+                    side[(parameter.Length + 1)..].All(c => char.IsLetterOrDigit(c) || c == '_');
+                if (IsMember(left) && !Names(right, parameter)) return right;
+                if (IsMember(right) && !Names(left, parameter)) return left;
+                return null;
+            }
         }
 
         // `τ_1_0` → 1; a name that is not depth-and-index spelled sorts below every depth.
