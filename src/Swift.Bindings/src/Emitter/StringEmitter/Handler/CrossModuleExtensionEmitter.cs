@@ -93,7 +93,7 @@ public static partial class CrossModuleExtensionEmitter
                 classDecl.Name, currentModule, origCSharpType);
             RecordUnboundReceiverMembers(classDecl, moduleDecl,
                 $"the receiver resolves to its base class '{origCSharpType}' in the type database, and an extension "
-                + "on the base class would also bind to unrelated instances.");
+                + "on the base class would also bind to unrelated instances.", context?.GetEmissionContext());
             return;
         }
 
@@ -107,7 +107,7 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
             if (method.IsConstructor)
             {
-                RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ConstructorNotBound);
+                RecordUnboundCrossModuleMember(method, classDecl, moduleDecl, ConstructorNotBound, context?.GetEmissionContext());
                 continue;
             }
             // SPI / @usableFromInline-internal methods are visible at C# level
@@ -131,7 +131,7 @@ public static partial class CrossModuleExtensionEmitter
         // emitted in the current module's binding assembly under a partial-class wrapper of the
         // foreign type so consumers can reference them as `CurrentModule.ForeignType.Nested`.
         // Member-only extensions (no nested types) still take the methods/properties-only path below.
-        RecordUnboundSubscripts(classDecl, moduleDecl);
+        RecordUnboundSubscriptsAndOperators(classDecl, moduleDecl, context?.GetEmissionContext());
 
         var nestedTypes = classDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
@@ -260,7 +260,7 @@ public static partial class CrossModuleExtensionEmitter
                     declined.Add(method);
                 }
             }
-            RecordDeclinedUnlessBound(declined, bound, classDecl, moduleDecl);
+            RecordDeclinedUnlessBound(declined, bound, classDecl, moduleDecl, context?.GetEmissionContext());
 
             // Emit NativeMethods if we emitted anything
             if (emittedCount > 0)
@@ -383,42 +383,55 @@ public static partial class CrossModuleExtensionEmitter
     private const string SubscriptNotBound =
         "subscripts an extension adds to a foreign type are not bound.";
 
+    private const string OperatorNotBound =
+        "operators an extension declares on a foreign type are not bound.";
+
     /// <summary>
     /// Reports every member and nested type the current module adds to a foreign receiver this path
     /// does not bind at all, so an extension the receiver gates turn away is not a silent loss.
     /// </summary>
-    private static void RecordUnboundReceiverMembers(TypeDecl receiver, ModuleDecl moduleDecl, string why)
+    private static void RecordUnboundReceiverMembers(
+        TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
     {
         var currentModule = moduleDecl.Name;
         foreach (var method in receiver.Methods)
         {
             if (method.ModuleDecl?.Name == currentModule && !method.IsAccessor)
-                RecordUnboundCrossModuleMember(method, receiver, moduleDecl, why);
+                RecordUnboundCrossModuleMember(method, receiver, moduleDecl, why, emissionContext);
         }
         foreach (var property in receiver.Properties)
         {
             if (property.ModuleDecl?.Name == currentModule)
-                RecordUnboundCrossModuleMember(property, receiver, moduleDecl, why);
+                RecordUnboundCrossModuleMember(property, receiver, moduleDecl, why, emissionContext);
         }
-        RecordUnboundSubscripts(receiver, moduleDecl, why);
+        RecordUnboundSubscriptsAndOperators(receiver, moduleDecl, emissionContext, why);
         // A member-level row, not RecordTypeSkipped: the skipped-type set feeds signature validation,
         // and a nested type withheld here must not turn away members elsewhere that name it.
         foreach (var nested in receiver.Types)
         {
             if (nested.ModuleDecl?.Name == currentModule)
-                ReportCollector.RecordMemberSkipped(BindingItemKind.Type, nested.Name, receiver,
+                ReportCollector.RecordMemberSkipped(DeclIdFactory.ForType(nested), receiver,
                     SkipReason.UnsupportedSignature,
                     $"Extension on foreign type '{receiver.SwiftTypeName.ModuleQualifiedName}': {why}");
         }
     }
 
-    /// <summary>Reports the subscripts the current module adds to a foreign receiver; this path binds none.</summary>
-    private static void RecordUnboundSubscripts(TypeDecl receiver, ModuleDecl moduleDecl, string why = SubscriptNotBound)
+    /// <summary>
+    /// Reports the subscripts and operators the current module adds to a foreign receiver; this path
+    /// binds neither, and the handlers' own operator emission never runs for a cross-module receiver.
+    /// </summary>
+    private static void RecordUnboundSubscriptsAndOperators(
+        TypeDecl receiver, ModuleDecl moduleDecl, ModuleEmissionContext? emissionContext, string? why = null)
     {
         foreach (var subscript in receiver.Subscripts)
         {
             if (subscript.ModuleDecl?.Name == moduleDecl.Name)
-                RecordUnboundCrossModuleMember(subscript, receiver, moduleDecl, why);
+                RecordUnboundCrossModuleMember(subscript, receiver, moduleDecl, why ?? SubscriptNotBound, emissionContext);
+        }
+        foreach (var op in receiver.Operators)
+        {
+            if (op.ModuleDecl?.Name == moduleDecl.Name)
+                RecordUnboundCrossModuleMember(op, receiver, moduleDecl, why ?? OperatorNotBound, emissionContext);
         }
     }
 
@@ -427,34 +440,45 @@ public static partial class CrossModuleExtensionEmitter
     /// under another entry (a duplicate ABI entry for the same symbol fails only the signature dedup).
     /// </summary>
     private static void RecordDeclinedUnlessBound(
-        List<BaseDecl> declined, HashSet<string> bound, TypeDecl receiver, ModuleDecl moduleDecl)
+        List<BaseDecl> declined, HashSet<string> bound, TypeDecl receiver, ModuleDecl moduleDecl,
+        ModuleEmissionContext? emissionContext)
     {
         foreach (var member in declined)
         {
             if (!bound.Contains(BindKey(member)))
-                RecordUnboundCrossModuleMember(member, receiver, moduleDecl, ShapeNotBound);
+                RecordUnboundCrossModuleMember(member, receiver, moduleDecl, ShapeNotBound, emissionContext);
         }
     }
 
-    private static string BindKey(BaseDecl member) => member switch
+    /// <summary>
+    /// The declaration a member entry stands for: its Swift symbol (a property's getter symbol), or the
+    /// entry itself when it carries none, so two declarations never share a key.
+    /// </summary>
+    private static string BindKey(BaseDecl member)
     {
-        MethodDecl method => "m:" + (method.MangledName ?? method.Name),
-        PropertyDecl property => (property.IsStatic ? "sp:" : "p:") + property.Name,
-        _ => member.Name,
-    };
+        var symbol = member switch
+        {
+            MethodDecl method => method.MangledName,
+            PropertyDecl property => property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault()?.Method.MangledName,
+            _ => null,
+        };
+        return string.IsNullOrEmpty(symbol)
+            ? $"entry:{System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(member)}"
+            : symbol;
+    }
 
     /// <summary>
     /// Reports one member the current module adds to a foreign receiver that this path does not bind.
-    /// Internal and SPI members are not public surface. A function or variable added to an Objective-C
-    /// class also reaches the foreign-extension path from the interface text, which binds or reports it
-    /// itself, so only what that path never sees (initializers) is reported from here.
+    /// Internal and SPI members are not public surface. The interface pre-pass may have bound a function
+    /// or variable of the same receiver from the interface text (an Objective-C-module receiver); such a
+    /// member is not lost, so it is left alone. The pre-pass reports nothing for a receiver this path
+    /// carries, so whatever neither path binds is reported here, including on runs with no interface.
     /// </summary>
-    private static void RecordUnboundCrossModuleMember(BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why)
+    private static void RecordUnboundCrossModuleMember(
+        BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
     {
         var receiverName = receiver.SwiftTypeName.ModuleQualifiedName;
-        var isConstructor = member is MethodDecl { IsConstructor: true };
-        if (!isConstructor
-            && ForeignTypeExtensionEmitter.IsForeignObjCClassType(receiverName, moduleDecl.ForeignTypeDeclKinds))
+        if (BoundByInterfacePrePass(member, receiverName, emissionContext))
             return;
         var details = $"Extension on foreign type '{receiverName}': {why}";
         switch (member)
@@ -468,7 +492,22 @@ public static partial class CrossModuleExtensionEmitter
             case SubscriptDecl { IsModuleInternal: false, IsSpiProtected: false } subscript:
                 ReportCollector.RecordMemberSkipped(subscript, SkipReason.UnsupportedSignature, details);
                 break;
+            case OperatorDecl { UnderlyingMethod: { IsModuleInternal: false, IsSpiProtected: false } } op:
+                ReportCollector.RecordMemberSkipped(op, SkipReason.UnsupportedSignature, details);
+                break;
         }
+    }
+
+    private static bool BoundByInterfacePrePass(BaseDecl member, string receiverName, ModuleEmissionContext? emissionContext)
+    {
+        if (emissionContext is null
+            || member is not (MethodDecl { IsConstructor: false } or PropertyDecl)
+            || !emissionContext.ForeignExtClasses.TryGetValue(receiverName, out var classInfo))
+            return false;
+        var swiftName = member is MethodDecl method ? method.OriginalSwiftName ?? method.Name : member.Name;
+        return classInfo.Members.Any(m =>
+            string.Equals(m.ExtMethod.MethodName, swiftName, StringComparison.Ordinal)
+            || string.Equals(m.ExtMethod.MethodName, member.Name, StringComparison.Ordinal));
     }
 
     /// <summary>

@@ -1021,6 +1021,59 @@ public class CrossModuleExtensionEmitterTests
         }
     }
 
+    [Fact]
+    public void Emit_MemberTheInterfacePrePassBound_NotReportedAndTheRestReported()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        var generic = CreateMethodDecl("doWork", "TestModule", classDecl);
+        generic.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        classDecl.Methods.Add(generic);
+        classDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl>(),
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s10TestModule8OrigTypeCys5Int32VSicig",
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+        });
+        // The interface pre-pass bound doWork on this receiver from the interface text.
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.GetOrAddForeignExtClass("OrigModule.OrigType", () => new ForeignExtensionClassInfo
+        {
+            ForeignTypeQualifiedName = "OrigModule.OrigType",
+            ModuleName = "TestModule",
+        }).Members.Add(new ForeignExtensionMemberInfo
+        {
+            SymbolName = "SBSW_OrigModule_OrigType_doWork",
+            CSharpMethodName = "DoWork",
+            ExtMethod = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = "",
+                MethodName = "doWork",
+                RawSignature = "public func doWork()",
+                ReturnsSelf = false,
+                IsMainActorIsolated = false,
+                IsStatic = false,
+                IsProperty = false,
+                PrintedName = "doWork()",
+                WhereConstraints = new List<string>(),
+            },
+            Parameters = new(),
+            ReturnTypeName = "void",
+            ReturnCategory = ExtensionMarshallingHelper.ReturnKind.Void,
+        });
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal(BindingItemKind.Subscript, row.Kind);
+    }
+
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
     {
         ReportCollector.Reset();

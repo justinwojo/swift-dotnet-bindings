@@ -351,9 +351,17 @@ public static class ForeignTypeExtensionEmitter
     {
         // The shapes this emitter does not bind. Each is reported against the member, so a reader of
         // the interface can tell a member the binding declined from one it lost.
+        // A receiver the ABI parser kept is also walked by the cross-module extension path, which binds
+        // from the ABI what this pass declines (a static method, say) and reports whatever neither binds.
+        // Its losses are reported there, so a declined member here is not reported a second time or,
+        // worse, reported although the other path bound it.
+        var reportsDeclines = !IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName);
+
         var declined = DeclinedShape(extMethod);
         if (declined is not null)
         {
+            if (!reportsDeclines)
+                return;
             RecordUnbound(
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
                 declined.Value.Reason,
@@ -376,7 +384,8 @@ public static class ForeignTypeExtensionEmitter
         // The per-kind binders decline a signature they cannot marshal at a dozen places, most of them
         // with nothing but a debug log. Whatever the reason, a member that came out neither bound nor
         // reported is reported here, so no member of the interface leaves the binding without a row.
-        if (ctx.ForeignExtEmittedCount == emittedBefore &&
+        if (reportsDeclines &&
+            ctx.ForeignExtEmittedCount == emittedBefore &&
             ctx.ForeignExtDuplicateClaimCount == duplicatesBefore &&
             ctx.ForeignExtWithdrawals.Count == withdrawalsBefore)
         {

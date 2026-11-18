@@ -357,6 +357,44 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     /// <summary>
+    /// A declined member of a class receiver the parser kept (an Objective-C-module Swift class) is left to
+    /// the cross-module path, which may bind it from the ABI (a static method, say) and reports it only
+    /// when it does not.
+    /// </summary>
+    [Theory]
+    [InlineData("tag", "public static func tag() -> Swift.Int32", true)]
+    [InlineData("pick", "public func pick<T>(_ value: T) -> Swift.Int32", false)]
+    public void ProcessForeignTypeExtensions_DeclinedMemberOfACarriedClassReceiver_LeftToTheCrossModulePath(
+        string name, string signature, bool isStatic)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.Types.Add(new ClassDecl
+        {
+            Name = "UIView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+            MangledName = "$s5UIKit6UIViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var member = CreateExtMethod(name, signature);
+        member.IsStatic = isStatic;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { member } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
     /// What the parser parked with a dropped receiver is published once emission settles, and a member
     /// the interface also lists on that receiver gets one row, not two.
     /// </summary>

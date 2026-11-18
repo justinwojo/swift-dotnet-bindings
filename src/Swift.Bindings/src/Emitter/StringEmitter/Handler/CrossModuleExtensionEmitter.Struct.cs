@@ -61,7 +61,7 @@ public static partial class CrossModuleExtensionEmitter
                 "Cross-module extension on struct {Type} from {Module}: foreign type not in TypeDatabase, skipping.",
                 structDecl.Name, currentModule);
             RecordUnboundReceiverMembers(structDecl, moduleDecl,
-                "the receiver is not in the type database, so there is no C# type to extend.");
+                "the receiver is not in the type database, so there is no C# type to extend.", context?.GetEmissionContext());
             return;
         }
 
@@ -78,7 +78,7 @@ public static partial class CrossModuleExtensionEmitter
                 structDecl.Name, currentModule);
             RecordUnboundReceiverMembers(structDecl, moduleDecl,
                 $"the receiver projects to '{origRecord.CSharpTypeName.FullyQualifiedName}', which is not a frozen value "
-                + "struct, and the cross-module extension path binds members only on frozen value structs and classes.");
+                + "struct, and the cross-module extension path binds members only on frozen value structs and classes.", context?.GetEmissionContext());
             return;
         }
 
@@ -95,7 +95,7 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
             if (method.IsConstructor)
             {
-                RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ConstructorNotBound);
+                RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ConstructorNotBound, context?.GetEmissionContext());
                 continue;
             }
             // @usableFromInline-internal and @_spi members are visible at C# level via the
@@ -122,7 +122,7 @@ public static partial class CrossModuleExtensionEmitter
         // The wrapper is `class` rather than `struct` even when the receiver is a struct — it's a
         // namespace-like host with no fields, and the consumer references the nested types through
         // it without expecting value-type semantics on the wrapper itself.
-        RecordUnboundSubscripts(structDecl, moduleDecl);
+        RecordUnboundSubscriptsAndOperators(structDecl, moduleDecl, context?.GetEmissionContext());
 
         var nestedTypes = structDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
@@ -204,7 +204,7 @@ public static partial class CrossModuleExtensionEmitter
                     declined.Add(method);
                 }
             }
-            RecordDeclinedUnlessBound(declined, bound, structDecl, moduleDecl);
+            RecordDeclinedUnlessBound(declined, bound, structDecl, moduleDecl, context?.GetEmissionContext());
 
             if (emittedCount > 0)
             {
