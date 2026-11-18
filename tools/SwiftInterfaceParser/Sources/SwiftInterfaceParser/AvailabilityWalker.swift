@@ -109,9 +109,18 @@ final class AvailabilityWalker: SyntaxVisitor {
         let position: SourcePositionJson?
     }
     private var stagedMemberAnnotations: [StagedAnnotation] = []
-    /// Set of distinct param signatures seen for each bare key. 2+ entries =
-    /// overloaded → disambiguate.
-    private var memberSignatures: [String: Set<String>] = [:]
+    /// One member declaration seen under a bare key: its parameter types as written and the
+    /// annotations it carries (empty when it has none).
+    private struct MemberDeclaration {
+        let rawParams: ExactText
+        let annotations: [AvailabilityAnnotationJson]
+    }
+    /// The declarations seen under each bare key, grouped by normalized param signature. 2+
+    /// signatures = overloaded → disambiguate. Keys compare scalar by scalar (`ExactText`), as
+    /// the .NET consumer compares them: Swift's `String` equality would merge two signatures
+    /// that differ only in Unicode normalization (`Café` spelled with a precomposed or a
+    /// combining accent), which name different types to the compiler.
+    private var memberSignatures: [ExactText: [ExactText: [MemberDeclaration]]] = [:]
 
     // Modifier-shape gates for PublicFuncRegex / PublicInitRegex / PublicVarRegex /
     // subscript shapes. ORDER matters — the walker steps through `node.modifiers` in
@@ -156,12 +165,22 @@ final class AvailabilityWalker: SyntaxVisitor {
     ///     `{bareKey}|{sig}` and remove the bare-key position entry so an
     ///     unmatched .NET-side bare-key lookup misses cleanly rather than
     ///     misapplying another overload's annotations (Family-F-1 / F-4).
+    ///   - declarations written with different parameter types whose signatures
+    ///     normalize to one key (`any Aaa.P & Zzz.Q` and `any Aaa.Q & Zzz.P`, or
+    ///     `Int?` and `Int`) and that disagree on their annotations → nothing is
+    ///     stored for that key. The .NET side computes the same key for each of them
+    ///     and cannot tell which floor is its own, so a missing floor is preferred to
+    ///     one taken from a sibling. Declarations written identically (the same member
+    ///     in two constrained extensions) keep the legacy merge.
     private func finalize() {
         let positionsByBareKey = availabilityAnnotationPositions
+        var stored: [ExactText: [AvailabilityAnnotationJson]] = [:]
+        var storageOrder: [ExactText] = []
         for staged in stagedMemberAnnotations {
-            let distinctSigs = memberSignatures[staged.bareKey]?.count ?? 1
+            let groups = memberSignatures[ExactText(staged.bareKey)] ?? [:]
+            if Self.normalizationMerged(groups[ExactText(staged.paramSig)] ?? []) { continue }
             let storageKey: String
-            if distinctSigs <= 1 {
+            if groups.count <= 1 {
                 storageKey = staged.bareKey
             } else {
                 storageKey = staged.paramSig.isEmpty
@@ -172,24 +191,56 @@ final class AvailabilityWalker: SyntaxVisitor {
                     availabilityAnnotationPositions[storageKey] = bp
                 }
             }
-            if availabilityAnnotations[storageKey] != nil {
-                availabilityAnnotations[storageKey]!.append(contentsOf: staged.annotations)
+            let exactKey = ExactText(storageKey)
+            if stored[exactKey] != nil {
+                stored[exactKey]!.append(contentsOf: staged.annotations)
             } else {
-                availabilityAnnotations[storageKey] = staged.annotations
+                stored[exactKey] = staged.annotations
+                storageOrder.append(exactKey)
             }
             if availabilityAnnotationPositions[storageKey] == nil,
                let pos = staged.position {
                 availabilityAnnotationPositions[storageKey] = pos
             }
         }
+        // `availabilityAnnotations` is keyed by `String`, whose equality would fold two keys
+        // that differ only in Unicode normalization into one entry. Such keys are withheld.
+        var written: [String: ExactText] = [:]
+        for key in availabilityAnnotations.keys { written[key] = ExactText(key) }
+        var clashing = Set<String>()
+        for exactKey in storageOrder {
+            let key = exactKey.text
+            if let prior = written[key], prior != exactKey {
+                clashing.insert(key)
+                continue
+            }
+            written[key] = exactKey
+            if availabilityAnnotations[key] != nil {
+                availabilityAnnotations[key]!.append(contentsOf: stored[exactKey]!)
+            } else {
+                availabilityAnnotations[key] = stored[exactKey]!
+            }
+        }
+        for key in clashing {
+            availabilityAnnotations.removeValue(forKey: key)
+            availabilityAnnotationPositions.removeValue(forKey: key)
+        }
         // Drop bare-key positions that won't have a matching annotation entry
         // (every overload was ambiguous and got disamb-keyed). Otherwise the
         // position dict has orphan entries pointing at the wrong overload.
         for (bareKey, sigs) in memberSignatures where sigs.count > 1 {
-            if availabilityAnnotations[bareKey] == nil {
-                availabilityAnnotationPositions.removeValue(forKey: bareKey)
+            if availabilityAnnotations[bareKey.text] == nil {
+                availabilityAnnotationPositions.removeValue(forKey: bareKey.text)
             }
         }
+    }
+
+    /// True when declarations written with different parameter types share one normalized
+    /// signature and their annotations differ, so the key cannot carry either set.
+    private static func normalizationMerged(_ declarations: [MemberDeclaration]) -> Bool {
+        guard let first = declarations.first else { return false }
+        let written = Set(declarations.map(\.rawParams))
+        return written.count > 1 && !declarations.allSatisfy { $0.annotations == first.annotations }
     }
 
     /// Records that a member-line decl with the given bare key was seen. Called
@@ -197,10 +248,10 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// overload-count check in `finalize()` covers decls without annotations
     /// (Family-F-1: the recommended overload has no annotations but its presence
     /// must trigger disambiguation).
-    private func recordMemberSignature(bareKey: String, paramSig: String) {
-        var set = memberSignatures[bareKey] ?? Set<String>()
-        set.insert(paramSig)
-        memberSignatures[bareKey] = set
+    private func recordMemberSignature(bareKey: String, paramSig: String, rawParams: String,
+                                       annotations: [AvailabilityAnnotationJson]) {
+        memberSignatures[ExactText(bareKey), default: [:]][ExactText(paramSig), default: []]
+            .append(MemberDeclaration(rawParams: ExactText(rawParams), annotations: annotations))
     }
 
     /// Stage member annotations for the post-walk finalize pass. The bareKey
@@ -677,8 +728,10 @@ final class AvailabilityWalker: SyntaxVisitor {
         let printed = buildPrintedName(funcName: node.name.text, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
         let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
-        recordMemberSignature(bareKey: key, paramSig: paramSig)
         let annotations = collectAnnotations(declAttrs: node.attributes)
+        recordMemberSignature(bareKey: key, paramSig: paramSig,
+                              rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
+                              annotations: annotations)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.funcKeyword)
         let declEnd = node.body?.leftBrace.position ?? declSignatureEnd(node)
         stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
@@ -695,8 +748,10 @@ final class AvailabilityWalker: SyntaxVisitor {
         let printed = buildPrintedName(funcName: "init", params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
         let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
-        recordMemberSignature(bareKey: key, paramSig: paramSig)
         let annotations = collectAnnotations(declAttrs: node.attributes)
+        recordMemberSignature(bareKey: key, paramSig: paramSig,
+                              rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
+                              annotations: annotations)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.initKeyword)
         let declEnd = node.body?.leftBrace.position ?? declSignatureEnd(node)
         stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
@@ -724,8 +779,8 @@ final class AvailabilityWalker: SyntaxVisitor {
         let key = memberKey(printedName: identifier.identifier.text)
         // Vars cannot be overloaded; sig is empty. Recording still ensures the
         // bare-key path stays the storage path.
-        recordMemberSignature(bareKey: key, paramSig: "")
         let annotations = collectAnnotations(declAttrs: node.attributes)
+        recordMemberSignature(bareKey: key, paramSig: "", rawParams: "", annotations: annotations)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.bindingSpecifier)
         let declEnd = signatureEndForVar(node)
         stageMemberAnnotations(bareKey: key, paramSig: "", annotations: annotations,
@@ -744,8 +799,10 @@ final class AvailabilityWalker: SyntaxVisitor {
         let printed = buildPrintedNameForSubscript(params: node.parameterClause)
         let key = memberKey(printedName: printed)
         let paramSig = AvailabilityWalker.buildParamSignature(params: node.parameterClause)
-        recordMemberSignature(bareKey: key, paramSig: paramSig)
         let annotations = collectAnnotations(declAttrs: node.attributes)
+        recordMemberSignature(bareKey: key, paramSig: paramSig,
+                              rawParams: AvailabilityWalker.writtenParamTypes(params: node.parameterClause),
+                              annotations: annotations)
         let anchor = declAnchorToken(modifiers: node.modifiers, fallback: node.subscriptKeyword)
         let declEnd = signatureEndForSubscript(node)
         stageMemberAnnotations(bareKey: key, paramSig: paramSig, annotations: annotations,
@@ -820,6 +877,12 @@ final class AvailabilityWalker: SyntaxVisitor {
         return tails.joined(separator: ",")
     }
 
+    /// The parameter types as written, joined with `,`: two declarations whose written types
+    /// differ are different overloads even when their normalized signatures agree.
+    static func writtenParamTypes(params: FunctionParameterClauseSyntax) -> String {
+        params.parameters.map { $0.type.dottedDescription }.joined(separator: ",")
+    }
+
     /// Mirrors `MemberSignatureNormalizer.NormalizeParamType` on the .NET side. Both
     /// sides MUST collapse to the same string for the disamb keys to match. Generic
     /// argument lists are preserved and normalized recursively so overloads
@@ -883,6 +946,18 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         s = s.trimmingCharacters(in: .whitespaces)
 
+        // The interface keeps an explicit `Optional<T>` as written while the ABI prints the
+        // postfix form (`Optional<any P & Q>` is `(any P & Q)?`, `Optional<Optional<some P>>`
+        // is `(some P)??`), so the explicit spelling is rewritten to that postfix form,
+        // parenthesized the way the ABI parenthesizes it, and normalized again. Mirrors the
+        // .NET side.
+        if let wrapped = unwrapExplicitOptional(s) {
+            let parenthesize = wrapped.hasPrefix("some ") || wrapped.hasPrefix("any ")
+                || splitTopLevelComposition(wrapped) != nil || hasTopLevelArrow(wrapped)
+            return normalizeParamType((parenthesize ? "(" + wrapped + ")" : wrapped)
+                + String(repeating: "?", count: optionalDepth + 1))
+        }
+
         // `(some P)?` and `(any P & Q)?` parenthesize an opaque type or a composition only to
         // apply `?`. Their keys keep each level of optionality, so `f(_: (some P)?)` and
         // `f(_: some P)`, or `f(_: (any P & Q)?)` and `f(_: any P & Q)`, stay apart. Mirrors
@@ -900,10 +975,14 @@ final class AvailabilityWalker: SyntaxVisitor {
         // is normalized and the members are sorted and joined with `&`. Mirrors the .NET side.
         // Sorted by UTF-16 code units, the order .NET's StringComparer.Ordinal uses (Swift's
         // own String order compares Unicode scalars, which differs above the BMP).
-        // A member that repeats is kept once, as the ABI keeps it.
+        // A member that repeats is kept once, as the ABI keeps it. Repeats compare by UTF-16
+        // code units like .NET's ordinal comparison: `String` equality would take `Café` with a
+        // precomposed accent and `Café` with a combining one, two protocols to the compiler,
+        // for one member.
         if let members = splitTopLevelComposition(s) {
             var unique: [String] = []
-            for member in members.map({ normalizeParamType($0) }) where !unique.contains(member) {
+            for member in members.map({ normalizeParamType($0) })
+            where !unique.contains(where: { $0.utf16.elementsEqual(member.utf16) }) {
                 unique.append(member)
             }
             return unique
@@ -970,16 +1049,64 @@ final class AvailabilityWalker: SyntaxVisitor {
         result.append(String(body[start...]).trimmingCharacters(in: .whitespaces))
 
         // A grouped member (`B & (A & C)`) is flattened into the list, the way the ABI lists
-        // a composition's requirements, so the sort sees every member. Mirrors the .NET side.
+        // a composition's requirements, so the sort sees every member; a group of one
+        // (`Q & (P)`) is that member. Mirrors the .NET side.
         var flat: [String] = []
         for member in result {
-            if let nested = splitTopLevelComposition(member), peelEnclosingParentheses(member) != member {
+            let peeled = peelEnclosingParentheses(member)
+            if let nested = splitTopLevelComposition(peeled) {
                 flat.append(contentsOf: nested)
             } else {
-                flat.append(member)
+                flat.append(peeled)
             }
         }
         return flat
+    }
+
+    /// `Optional<T>` or `Swift.Optional<T>` → `T`, when the angle brackets enclose the rest of
+    /// the text; otherwise nil. Mirrors `MemberSignatureNormalizer.TryUnwrapExplicitOptional`.
+    private static func unwrapExplicitOptional(_ text: String) -> String? {
+        let chars = Array(text)
+        for head in ["Optional<", "Swift.Optional<"] {
+            let headChars = Array(head)
+            guard chars.count > headChars.count, chars.starts(with: headChars), chars.last == ">" else { continue }
+            var depth = 0
+            for i in (headChars.count - 1)..<chars.count {
+                let c = chars[i]
+                if c == "(" || c == "[" || c == "<" {
+                    depth += 1
+                } else if (c == ")" || c == "]" || c == ">") && !(c == ">" && chars[i - 1] == "-") {
+                    depth -= 1
+                    if depth == 0 {
+                        guard i == chars.count - 1 else { return nil }
+                        return String(chars[headChars.count..<i]).trimmingCharacters(in: .whitespaces)
+                    }
+                }
+            }
+            return nil
+        }
+        return nil
+    }
+
+    /// True when `->` appears outside every bracket: the text is a function type.
+    /// Mirrors `MemberSignatureNormalizer.HasTopLevelArrow`.
+    private static func hasTopLevelArrow(_ text: String) -> Bool {
+        let chars = Array(text)
+        var depth = 0
+        var i = 0
+        while i < chars.count {
+            let c = chars[i]
+            if c == "-", i + 1 < chars.count, chars[i + 1] == ">" {
+                if depth == 0 { return true }
+                i += 1
+            } else if c == "(" || c == "[" || c == "<" {
+                depth += 1
+            } else if c == ")" || c == "]" || c == ">" {
+                depth -= 1
+            }
+            i += 1
+        }
+        return false
     }
 
     /// `((X))` → `X`: every parenthesis pair that encloses the whole text is removed.
@@ -1123,6 +1250,21 @@ final class AvailabilityWalker: SyntaxVisitor {
         let clauseText = arguments.dottedDescription
         return AvailabilityClauseParser.parse(clause: clauseText)
     }
+}
+
+/// Text that compares and hashes by its UTF-16 code units, the way the .NET consumer's ordinal
+/// dictionaries compare keys. `String` compares by canonical equivalence instead.
+struct ExactText: Hashable {
+    let text: String
+    private let units: [UInt16]
+
+    init(_ text: String) {
+        self.text = text
+        self.units = Array(text.utf16)
+    }
+
+    static func == (lhs: ExactText, rhs: ExactText) -> Bool { lhs.units == rhs.units }
+    func hash(into hasher: inout Hasher) { hasher.combine(units) }
 }
 
 /// Output bag for the availability cluster.

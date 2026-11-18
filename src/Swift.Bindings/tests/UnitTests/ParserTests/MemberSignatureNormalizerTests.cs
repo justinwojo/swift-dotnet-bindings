@@ -24,7 +24,8 @@ public class MemberSignatureNormalizerTests
     // specializations don't collide. Pre-fix, every `Array<T>` reduced to `Array`,
     // collapsing `func f(_ x: Array<Int>)` and `func f(_ x: Array<String>)` to the
     // same disamb signature and reintroducing the Family-F broadcast bug.
-    [InlineData("Optional<Int>", "Optional<Int>")]
+    // An explicit `Optional<T>` reads as the postfix `T?` the ABI prints.
+    [InlineData("Optional<Int>", "Int")]
     [InlineData("Array<Int>", "Array<Int>")]
     [InlineData("Array<String>", "Array<String>")]
     [InlineData("Foundation.Array<Foundation.URL>", "Array<URL>")]
@@ -133,6 +134,18 @@ public class MemberSignatureNormalizerTests
     [InlineData("AppShortcut", "AppShortcut...")]                      // interface (no `...`) ⇄ ABI variadic
     [InlineData("UIKit.UIViewController", "UIViewController")]         // ObjC-bridged qualified ⇄ bare
     [InlineData("Swift.Optional<Swift.Int>", "Optional<Int>")]        // explicit Optional both sides
+    // The interface keeps an explicit `Optional<…>` as written; the ABI prints the postfix form
+    // (spellings from Xcode 27.2), so each converges on the postfix key with its optional depth.
+    [InlineData("Swift.Optional<Swift.Int>", "Swift.Int?")]
+    [InlineData("Swift.Optional<any Opt.P & Opt.Q>", "(any Opt.P & Opt.Q)?")]
+    [InlineData("Swift.Optional<Swift.Optional<any Opt.P & Opt.Q>>", "(any Opt.P & Opt.Q)??")]
+    [InlineData("Swift.Optional<Swift.Optional<some P>>", "(some Opt.P)??")]
+    [InlineData("Optional<some P>", "(some Opt.P)?")]
+    [InlineData("Swift.Optional<any Opt.P>", "(any Opt.P)?")]
+    [InlineData("Swift.Array<Swift.Optional<Swift.Int>>", "[Swift.Int?]")]
+    // A grouped single member of a composition is just that member.
+    [InlineData("some (Q & (P))", "(some Grp.P & Grp.Q)")]
+    [InlineData("some ((Q) & (P))", "(some Grp.P & Grp.Q)")]
     public void NormalizeParamType_ProducerAndAbiSpellings_ConvergeToSameKey(
         string interfaceSpelling, string abiSpelling)
     {
@@ -196,6 +209,17 @@ public class MemberSignatureNormalizerTests
     /// availability annotation to be stored under the bare key and broadcast
     /// across both overloads.
     /// </summary>
+    [Theory]
+    // Each level of optionality on an opaque type or a composition is part of the key, whichever
+    // way the interface spells it.
+    [InlineData("Swift.Optional<any P & Q>", "any P & Q")]
+    [InlineData("Swift.Optional<Swift.Optional<some P>>", "(some P)?")]
+    [InlineData("Swift.Optional<Swift.Optional<some P>>", "some P")]
+    public void NormalizeParamType_ExplicitOptionalDepth_StaysDistinct(string a, string b)
+    {
+        Assert.NotEqual(MemberSignatureNormalizer.NormalizeParamType(a), MemberSignatureNormalizer.NormalizeParamType(b));
+    }
+
     [Fact]
     public void NormalizeParamType_DistinctGenericSpecializations_StayDistinct()
     {

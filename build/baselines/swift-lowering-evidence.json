@@ -849,7 +849,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1095,7 +1095,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1341,7 +1341,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1587,7 +1587,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -1833,7 +1833,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2079,7 +2079,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2325,7 +2325,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2571,7 +2571,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -2829,7 +2829,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3075,7 +3075,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3321,7 +3321,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3567,7 +3567,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -3813,7 +3813,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4059,7 +4059,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4305,7 +4305,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4551,7 +4551,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4809,7 +4809,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4869,7 +4869,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4929,7 +4929,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -4989,7 +4989,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5049,7 +5049,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5109,7 +5109,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5169,7 +5169,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5229,7 +5229,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5301,7 +5301,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5361,7 +5361,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5421,7 +5421,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5481,7 +5481,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5541,7 +5541,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5601,7 +5601,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:71e8ddda11140880ba73f1333753c283bc1ce3cdc44e648245d9f460fad542f9",
+              "digest": "sha256:24f7ca370d21b770884e6639446673b6414d4390a97b8036bbcd6f1df29bb8b2",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5661,7 +5661,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:07027ef4f11e63ee96af4b065f94002fe62acb249459c7ce944935c55168e607",
+              "digest": "sha256:04a155514b109b265c6838f21b185e596dafba15b2b102201657293d00a20672",
               "flags": [
                 "-wmo",
                 "-parse-as-library",
@@ -5721,7 +5721,7 @@
             {
               "role": "wrapper",
               "name": "SwiftBindingsTestLibSwiftBindings",
-              "digest": "sha256:ffb48a4280518f17a7e60be251e36dcb8fd07c102a0cdc220adc67338143b2b7",
+              "digest": "sha256:92f736e01ff343488959e941e076b9bf4312f1517dda304cd988a93d93bb4a9a",
               "flags": [
                 "-wmo",
                 "-parse-as-library",

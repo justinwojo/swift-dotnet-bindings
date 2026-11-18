@@ -2315,6 +2315,12 @@ public class EveryProtocolEmitter
     /// </summary>
     private bool WillSkipConformance(ProtocolDecl protocolDecl)
     {
+        // A conformance verify-recover withdrew is skipped like any structural skip, so the same
+        // fixpoint re-derives every dependent from it: child protocols lose their conformance as
+        // unwitnessed, the sibling plans drop it, and the C# proxy is suppressed.
+        if (IsConformanceWithdrawn(protocolDecl, out _))
+            return true;
+
         if (protocolDecl.HasSelfRequirement)
             return true;
 
@@ -2565,6 +2571,16 @@ public class EveryProtocolEmitter
             // Key on the module-qualified name so a dependency protocol sharing a simple
             // name with a local one records its own decision without collision.
             _emissionContext?.RecordConformanceDecision(protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name, false, reason);
+        }
+
+        // A conformance the verify-recover loop withdrew (its own wrapper did not compile) is refused
+        // first, and its decision carries the withdrawal wording and recovery unit so the suppressed
+        // proxy's report row says exactly why it is gone. Mirrors the WillSkipConformance pre-scan.
+        if (IsConformanceWithdrawn(protocolDecl, out var withdrawalDetails))
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: withdrawn by verify-recover");
+            RecordSkip(withdrawalDetails);
+            return;
         }
 
         // Skip protocols with Self requirements - these require special handling
@@ -7676,20 +7692,16 @@ public class EveryProtocolEmitter
         if (moduleName != _moduleName && typeName.StartsWith("_"))
             return true;
 
-        // Case 4: a protocol from a module whose declarations this run never loaded — neither this
-        // module nor a --framework-dependency, so no decl for it reaches the emitter and nothing can
-        // write its witnesses. Declaring the child conformance would still make Swift demand them
-        // (LiveCommunicationKit's `LiveAssistanceExtensionConfiguration :
-        // ExtensionFoundation.AppExtensionConfiguration`, whose `accept(connection:)` requirement
-        // the generator never sees). Case 1 names the Apple modules this already held for; the
-        // fact is the same for every module outside the loaded set, so it no longer depends on the
-        // module being listed. Swift system modules are left to the trivial and stdlib arms.
-        // A module-qualified reference must find that exact protocol: the simple-name fallback
-        // would let a loaded namesake (a local `Parent`) stand in for `Unloaded.Parent`.
-        if (moduleName != _moduleName
-            && !AppleFrameworkRegistry.IsSwiftSystemModule(moduleName)
-            && ResolveQualifiedConformer(constraint) == null)
-            return true;
+        // A protocol from a module this run never loaded (neither this module nor a
+        // --framework-dependency) is deliberately NOT predicted here. Whether the child conformance
+        // compiles depends on requirements the generator cannot see — AppIntents'
+        // `AppIntentsExtension : ExtensionFoundation.AppExtension` compiles because AppIntents
+        // defaults every inherited requirement, while LiveCommunicationKit's
+        // `LiveAssistanceExtensionConfiguration : ExtensionFoundation.AppExtensionConfiguration`
+        // does not. That failure compiles out, so per the prediction-gate freeze policy it belongs
+        // to verify-recover: the conformance is emitted inside its own managed-conformance fragment
+        // (ModuleHandler), and a wrapper error there withdraws that conformance alone
+        // (IsConformanceWithdrawn), recorded against its recovery unit.
 
         return false;
     }
@@ -7701,6 +7713,34 @@ public class EveryProtocolEmitter
     /// </summary>
     private bool IsUnwitnessed(string name)
         => _skippedProtocols.Contains(name) || _unavailableConformances.Contains(name);
+
+    /// <summary>
+    /// The recovery unit that owns a protocol's EveryProtocol conformance: the reverse capability
+    /// (conformance extension, vtable trampoline, witness-table and existential-size getters, C#
+    /// proxy and its registration), withdrawable only whole.
+    /// </summary>
+    public static RecoveryUnitId ConformanceUnit(ProtocolDecl protocolDecl)
+    {
+        ArgumentNullException.ThrowIfNull(protocolDecl);
+        return RecoveryUnitId.Create(DeclIdFactory.ForType(protocolDecl), RecoveryScope.ManagedProtocolConformance);
+    }
+
+    /// <summary>
+    /// The fragment owner the module emission brackets a protocol's conformance with, so a wrapper
+    /// diagnostic inside it attributes to <see cref="ConformanceUnit"/> rather than to the module.
+    /// </summary>
+    public static FragmentOwner ConformanceFragmentOwner(ProtocolDecl protocolDecl)
+    {
+        ArgumentNullException.ThrowIfNull(protocolDecl);
+        return FragmentOwners.ForDeclId(DeclIdFactory.ForType(protocolDecl), ArtifactRole.ReverseVtable);
+    }
+
+    /// <summary>
+    /// Whether the verify-recover loop withdrew this protocol's conformance, with the withdrawal
+    /// wording for the skip record. False on every ordinary run.
+    /// </summary>
+    internal static bool IsConformanceWithdrawn(ProtocolDecl protocolDecl, out string details)
+        => EmitterFaultGate.IsDenied(ConformanceUnit(protocolDecl), out details);
 
     /// <summary>
     /// Protocols whose conformance EveryProtocol carries via an emitted stub rather than a

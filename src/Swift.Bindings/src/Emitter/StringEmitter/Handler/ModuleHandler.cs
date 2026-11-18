@@ -1902,7 +1902,15 @@ namespace BindingsGeneration
             foreach (var protocolDecl in suitableProtocols)
             {
                 _logger.LogDebug($"Emitting EveryProtocol conformance for {protocolDecl.Name}");
-                emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans, methodPlans);
+                // The conformance is its own recovery unit (managed protocol conformance): a wrapper
+                // error inside it, such as an inherited requirement of a module this run never loaded
+                // that nothing defaults, withdraws this conformance and its proxy alone instead of
+                // failing the module. The witness-dispatch accessors below stay outside it — they
+                // are the forward view, which survives a withdrawn reverse capability.
+                using (swiftWriter.BeginFragment(EveryProtocolEmitter.ConformanceFragmentOwner(protocolDecl)))
+                {
+                    emitter.EmitProtocolConformance(swiftWriter, protocolDecl, globalEmittedSignatures, nonThrowingOverrides, propertyPlans, subscriptPlans, methodPlans);
+                }
                 // Skip witness dispatch for mixed-generic protocols — the type projection
                 // pipeline generates incorrect types when method-level generic parameters
                 // are in scope (e.g., RxTime→Double instead of Date).

@@ -803,6 +803,17 @@ public sealed class SkippedItem
     public string? DeclId { get; init; }
 
     /// <summary>
+    /// Canonical <see cref="RecoveryUnitId"/> this row's loss was withdrawn as, when that is not the
+    /// unit the row's own kind maps to — a proxy the verify-recover loop removed with its protocol's
+    /// managed conformance names the conformance unit, not a type surface of its own. Null for every
+    /// other row, and then not written. <see cref="SkipAttributionLinker"/> reports it as
+    /// <see cref="RootCauseId"/>; it is serialized so a report rebuilt from the artifact manifest
+    /// (after the wrapper compile) is linked the same way.
+    /// </summary>
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? RecoveryUnit { get; init; }
+
+    /// <summary>
     /// Canonical <see cref="RecoveryUnitId"/> of the row that ultimately caused this one — its own
     /// unit on a root cause, the root's unit on a cascade. Grouping by it turns "forty rows" into
     /// "one root and thirty-nine consequences". Null when the row carries no parseable declaration

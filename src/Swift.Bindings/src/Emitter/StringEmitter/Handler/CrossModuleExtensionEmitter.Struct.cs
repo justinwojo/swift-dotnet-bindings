@@ -60,6 +60,8 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension on struct {Type} from {Module}: foreign type not in TypeDatabase, skipping.",
                 structDecl.Name, currentModule);
+            RecordUnboundReceiverMembers(structDecl, moduleDecl,
+                "the receiver is not in the type database, so there is no C# type to extend.", context?.GetEmissionContext());
             return;
         }
 
@@ -74,6 +76,9 @@ public static partial class CrossModuleExtensionEmitter
             logger.LogInformation(
                 "Cross-module extension on struct {Type} from {Module}: receiver is not a frozen value struct, skipping.",
                 structDecl.Name, currentModule);
+            RecordUnboundReceiverMembers(structDecl, moduleDecl,
+                $"the receiver projects to '{origRecord.CSharpTypeName.FullyQualifiedName}', which is not a frozen value "
+                + "struct, and the cross-module extension path binds members only on frozen value structs and classes.", context?.GetEmissionContext());
             return;
         }
 
@@ -89,7 +94,10 @@ public static partial class CrossModuleExtensionEmitter
             if (method.ModuleDecl?.Name != currentModule)
                 continue;
             if (method.IsConstructor)
+            {
+                RecordUnboundCrossModuleMember(method, structDecl, moduleDecl, ConstructorNotBound, context?.GetEmissionContext());
                 continue;
+            }
             // @usableFromInline-internal and @_spi members are visible at C# level via the
             // ABI dump but the wrapper trampoline (compiled in its own module, outside the SPI
             // group) cannot resolve them.
@@ -114,6 +122,8 @@ public static partial class CrossModuleExtensionEmitter
         // The wrapper is `class` rather than `struct` even when the receiver is a struct — it's a
         // namespace-like host with no fields, and the consumer references the nested types through
         // it without expecting value-type semantics on the wrapper itself.
+        RecordUnboundSubscriptsAndOperators(structDecl, moduleDecl, context?.GetEmissionContext());
+
         var nestedTypes = structDecl.Types
             .Where(t => t.ModuleDecl != null && t.ModuleDecl.Name == currentModule)
             .ToList();
@@ -148,6 +158,8 @@ public static partial class CrossModuleExtensionEmitter
 
             var emittedSignatures = new HashSet<string>();
             var pinvokeDecls = new List<StructPInvokeInfo>();
+            var declined = new List<BaseDecl>();
+            var bound = new HashSet<string>(StringComparer.Ordinal);
 
             foreach (var property in properties)
             {
@@ -161,6 +173,11 @@ public static partial class CrossModuleExtensionEmitter
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
                     emittedCount++;
+                    bound.Add(BindKey(property));
+                }
+                else
+                {
+                    declined.Add(property);
                 }
             }
 
@@ -180,8 +197,14 @@ public static partial class CrossModuleExtensionEmitter
                     typeDatabase, emittedSignatures, pinvokeDecls, logger))
                 {
                     emittedCount++;
+                    bound.Add(BindKey(method));
+                }
+                else
+                {
+                    declined.Add(method);
                 }
             }
+            RecordDeclinedUnlessBound(declined, bound, structDecl, moduleDecl, context?.GetEmissionContext());
 
             if (emittedCount > 0)
             {

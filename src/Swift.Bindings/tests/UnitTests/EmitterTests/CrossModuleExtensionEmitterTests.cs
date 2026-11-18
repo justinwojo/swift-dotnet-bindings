@@ -902,6 +902,241 @@ public class CrossModuleExtensionEmitterTests
         Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
     }
 
+    // A receiver the cross-module path turns away, and every member it cannot bind, used to leave
+    // no trace in the binding report: the module's extension members simply vanished. Each one is
+    // now reported against the foreign receiver it extends.
+
+    [Fact]
+    public void EmitStruct_ReceiverNotAFrozenValueStruct_ReportsEveryMemberTheModuleAdds()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: false, requiresMemoryManagement: false);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Methods.Add(CreateMethodDecl("fromOrigin", "OrigModule", structDecl));
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.DoesNotContain("OrigPointTestModuleExtensions", csOutput.ToString());
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("doMath", row.Name);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Contains("OrigModule.OrigPoint", row.Details);
+    }
+
+    [Fact]
+    public void EmitStruct_MemberTheGatesDecline_ReportedAndSurvivorBound()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        var mutating = CreateMethodDecl("shift", "TestModule", structDecl);
+        mutating.IsMutating = true;
+        structDecl.Methods.Add(mutating);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Contains("DoMath", csOutput.ToString());
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("shift", row.Name);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+    }
+
+    [Fact]
+    public void Emit_GatedMethodAndInitializerOnClassReceiver_EachReported()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        var generic = CreateMethodDecl("doWork", "TestModule", classDecl);
+        generic.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        classDecl.Methods.Add(generic);
+        var initializer = CreateMethodDecl("init", "TestModule", classDecl);
+        initializer.IsConstructor = true;
+        classDecl.Methods.Add(initializer);
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.DoesNotContain("DoWork", csOutput.ToString());
+        Assert.Equal(2, report.SkippedItems.Count);
+        Assert.All(report.SkippedItems, r => Assert.Equal(SkipReason.UnsupportedSignature, r.Reason));
+        Assert.Contains(report.SkippedItems, r => r.Name == "doWork");
+        Assert.Contains(report.SkippedItems, r => r.Details!.Contains("initializers", System.StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void EmitStruct_DuplicateAbiEntryOfABoundMember_NotReported()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Contains("DoMath", csOutput.ToString());
+        Assert.Empty(report.SkippedItems);
+    }
+
+    [Fact]
+    public void EmitStruct_SubscriptTheModuleAdds_Reported()
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        structDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", structDecl));
+        structDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl>(),
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s10TestModule9OrigPointVys5Int32VSicig",
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+        });
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Contains("DoMath", csOutput.ToString());
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal(BindingItemKind.Subscript, row.Kind);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+    }
+
+    [Fact]
+    public void EmitStruct_NestedTypeOnATurnedAwayReceiver_ReportedAsAMemberNotASkippedType()
+    {
+        var (csWriter, swiftWriter, _, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: false, requiresMemoryManagement: false);
+        var nested = new StructDecl
+        {
+            Name = "Tag",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OrigModule.OrigPoint.Tag"),
+            MangledName = "$s10TestModule9OrigPointV3TagV",
+            MetadataAccessor = "$s10TestModule9OrigPointV3TagVMa",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = structDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+        };
+        structDecl.Types.Add(nested);
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+            // The skipped-type set feeds signature validation; a member elsewhere naming Tag must not be
+            // turned away because its declaring extension was.
+            var report = ReportCollector.Complete()!;
+            Assert.Equal(0, report.SkippedTypes);
+            var row = Assert.Single(report.SkippedItems);
+            Assert.Equal(BindingItemKind.Type, row.Kind);
+            Assert.Equal("Tag", row.Name);
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
+    [Fact]
+    public void Emit_MemberTheInterfacePrePassBound_NotReportedAndTheRestReported()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        // Both paths decline this one (the ABI path for its mutating flag); the pre-pass bound it.
+        var bound = CreateMethodDecl("doWork", "TestModule", classDecl);
+        bound.IsMutating = true;
+        classDecl.Methods.Add(bound);
+        // Overloads of the same name the pre-pass did not bind keep their rows: a generic one of
+        // the same arity, which the pre-pass never binds, and one taking a parameter.
+        var generic = CreateMethodDecl("doWork", "TestModule", classDecl, mangledName: "$s10TestModule6doWorkyyxlF");
+        generic.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        classDecl.Methods.Add(generic);
+        var overload = CreateMethodDecl("doWork", "TestModule", classDecl, mangledName: "$s10TestModule6doWorkyySiF");
+        overload.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        overload.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "count",
+            PrivateName = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+        });
+        classDecl.Methods.Add(overload);
+        classDecl.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl>(),
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s10TestModule8OrigTypeCys5Int32VSicig",
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl,
+        });
+        // The interface pre-pass bound doWork on this receiver from the interface text.
+        var emissionContext = new ModuleEmissionContext();
+        emissionContext.GetOrAddForeignExtClass("OrigModule.OrigType", () => new ForeignExtensionClassInfo
+        {
+            ForeignTypeQualifiedName = "OrigModule.OrigType",
+            ModuleName = "TestModule",
+        }).Members.Add(new ForeignExtensionMemberInfo
+        {
+            SymbolName = "SBSW_OrigModule_OrigType_doWork",
+            CSharpMethodName = "DoWork",
+            ExtMethod = new ProtocolExtensionMethodDecl
+            {
+                ProtocolQualifiedName = "",
+                MethodName = "doWork",
+                RawSignature = "public func doWork()",
+                ReturnsSelf = false,
+                IsMainActorIsolated = false,
+                IsStatic = false,
+                IsProperty = false,
+                PrintedName = "doWork()",
+                WhereConstraints = new List<string>(),
+            },
+            Parameters = new(),
+            ReturnTypeName = "void",
+            ReturnCategory = ExtensionMarshallingHelper.ReturnKind.Void,
+        });
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.Equal(3, report.SkippedItems.Count);
+        Assert.Contains(report.SkippedItems, r => r.Kind == BindingItemKind.Subscript);
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Kind == BindingItemKind.Method && r.Name == "doWork"));
+    }
+
+    private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            emit();
+            return ReportCollector.Complete()!;
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     [Fact]
     public void EmitStruct_AbsentAppleAmongGoodMembers_WithdrawnWithTombstoneKeepsShell()
     {
