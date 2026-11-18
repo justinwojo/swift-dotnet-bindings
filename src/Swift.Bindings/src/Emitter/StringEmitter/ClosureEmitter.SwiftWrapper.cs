@@ -832,7 +832,13 @@ public static partial class ClosureEmitter
             if (IsSwiftPrimitive(named.Name))
                 return argExpr;
 
-            // Pointer types pass through
+            // Typed pointers cross @convention(c) as the raw pointer GetSwiftCdeclParamType gives
+            // them. An UnsafeMutablePointer<T> converts to it implicitly, but an UnsafePointer<T>
+            // does not convert to a mutable raw pointer at all, so it is converted explicitly.
+            if (TryGetTypedPointerToRawConversion(named, argExpr, out var pointerToRaw))
+                return pointerToRaw;
+
+            // Other pointer types pass through
             if (named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer")
                 return argExpr;
 
@@ -890,6 +896,11 @@ public static partial class ClosureEmitter
         {
             if (named.Name == "Swift.Bool")
                 return $"({expr}) != 0";
+
+            // A typed pointer comes back as the raw pointer its cdecl slot carries; rebind it to
+            // the pointee type the Swift signature names.
+            if (TryGetRawToTypedPointerConversion(named, expr, out var rawToPointer))
+                return rawToPointer;
 
             if (closureHandler != null)
             {
@@ -976,6 +987,55 @@ public static partial class ClosureEmitter
         }
 
         return expr;
+    }
+
+    /// <summary>
+    /// The typed pointers whose @convention(c) slot is a raw pointer
+    /// (<see cref="SwiftBuilder.GetSwiftCdeclParamType(NamedTypeSpec)"/> maps each to
+    /// <c>Swift.UnsafeMutableRawPointer</c>): <c>UnsafePointer&lt;T&gt;</c> and
+    /// <c>UnsafeMutablePointer&lt;T&gt;</c>. Raw, opaque and autoreleasing pointers convert to that
+    /// slot implicitly and are not listed; buffer pointers never reach a single-pointer slot.
+    /// </summary>
+    private static bool IsTypedPointer(NamedTypeSpec named, out bool isMutable, out TypeSpec pointee)
+    {
+        isMutable = named.Name == "Swift.UnsafeMutablePointer";
+        pointee = null!;
+        if ((named.Name != "Swift.UnsafePointer" && !isMutable) ||
+            named.GenericParameters.Count != 1)
+            return false;
+        pointee = named.GenericParameters[0];
+        return true;
+    }
+
+    /// <summary>
+    /// Swift → cdecl for a typed-pointer value (a callback argument Swift hands to managed code).
+    /// <c>UnsafePointer&lt;T&gt;</c> needs <c>UnsafeMutableRawPointer(mutating:)</c>; the mutable
+    /// form converts implicitly, so its expression is left as it was.
+    /// </summary>
+    internal static bool TryGetTypedPointerToRawConversion(NamedTypeSpec named, string expr, out string conversion)
+    {
+        conversion = expr;
+        if (!IsTypedPointer(named, out var isMutable, out _))
+            return false;
+        if (!isMutable)
+            conversion = $"Swift.UnsafeMutableRawPointer(mutating: {expr})";
+        return true;
+    }
+
+    /// <summary>
+    /// cdecl → Swift for a typed-pointer value (a callback result managed code hands back to
+    /// Swift): the raw pointer is rebound to the pointee type, and made immutable for
+    /// <c>UnsafePointer&lt;T&gt;</c>.
+    /// </summary>
+    internal static bool TryGetRawToTypedPointerConversion(NamedTypeSpec named, string expr, out string conversion)
+    {
+        conversion = expr;
+        if (!IsTypedPointer(named, out var isMutable, out var pointee))
+            return false;
+        var pointeeType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(pointee);
+        var bound = $"({expr}).assumingMemoryBound(to: {pointeeType}.self)";
+        conversion = isMutable ? bound : $"Swift.UnsafePointer({bound})";
+        return true;
     }
 
     /// <summary>

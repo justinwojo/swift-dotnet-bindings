@@ -1260,10 +1260,22 @@ public static class BindingsGeneratorCommand
         // verify-recover covers the simulator slice, and a device-only failure still fails the build closed
         // through the unchanged post-loop compile.
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? verifyRecoverCompile = null;
-        if (shouldCompileWrapper && resolution != null &&
-            (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
+        // The SDK's two-pass flow: this pass only renders the wrapper (--skip-wrapper-compilation) and
+        // _CompileSwiftWrapper compiles it later. Without a loop here, one member whose wrapper does not
+        // compile fails that later compile, and with it the whole package (SWIFTBIND051), where the
+        // repository path withdraws the member and reports it. So this pass runs the same Swift-plane
+        // loop against a probe compile of the primary slice, built in a scratch directory from a copy of
+        // the rendered sources: the loop settles the on-disk source exactly as it does in the repository
+        // path, and nothing the probe builds lands in the SDK's intermediate directory, so the later
+        // compile, its fingerprint and the consumer metadata see only the settled source. The C# plane
+        // stays off here: the consuming project's own compile grades the C#.
+        var sdkDeferredWrapperProbe = skipWrapperCompilation && sdkMode && wouldCompileWrapper
+            && resolution != null && xcframeworkPath != null;
+        if ((shouldCompileWrapper && resolution != null &&
+             (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
+            || sdkDeferredWrapperProbe)
         {
-            var loopResolution = resolution;
+            var loopResolution = resolution!;
             var loopSimDepPaths = resolvedDependencies?
                 .Where(d => d.SimulatorFrameworkSearchPath != null)
                 .Select(d => d.SimulatorFrameworkSearchPath!)
@@ -1271,11 +1283,11 @@ public static class BindingsGeneratorCommand
             loopSimDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
                 loopSimDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
 
-            verifyRecoverCompile = req =>
+            WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory)
             {
                 var collector = new WrapperSliceCollector();
                 var result = SwiftWrapperCompiler.Compile(
-                    req.OutputDirectory, loopResolution.ModuleName,
+                    compileDirectory, loopResolution.ModuleName,
                     loopResolution.FrameworkSearchPath, loopResolution.DylibPath, logger,
                     internalTypeNames: req.InternalTypeNames,
                     additionalFrameworkSearchPaths: loopSimDepPaths,
@@ -1290,7 +1302,11 @@ public static class BindingsGeneratorCommand
                     linkLibraries: linkLibraries,
                     collector: collector);
                 return collector.ToDiagnostics(result);
-            };
+            }
+
+            verifyRecoverCompile = sdkDeferredWrapperProbe
+                ? req => SdkWrapperProbe.Run(req, CompilePrimarySlice, logger)
+                : req => CompilePrimarySlice(req, req.OutputDirectory);
         }
         else if (directLoopMode)
         {
@@ -1376,7 +1392,7 @@ public static class BindingsGeneratorCommand
         // writes; null whenever no C# leg runs.
         string? csharpVerificationCsprojPath = null;
         if (CanVerifyCSharpInLoop(
-                verifyRecoverCompile != null || directLoopMode,
+                (verifyRecoverCompile != null && !sdkDeferredWrapperProbe) || directLoopMode,
                 noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
         {
             // Both modes verify the same artifact — the emitted C# for this module, built through the

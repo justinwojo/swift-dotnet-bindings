@@ -1594,6 +1594,46 @@ public class ClosureCdeclEmitterTests
         Assert.Contains("__collection_1.map { Swift.UnsafeMutableRawPointer($0) }", swift);
     }
 
+    // A typed pointer crosses a callback's C slot as Swift.UnsafeMutableRawPointer. Swift passes an
+    // UnsafeMutablePointer<T> there implicitly, but an UnsafePointer<T> needs
+    // UnsafeMutableRawPointer(mutating:), and a raw pointer coming back from managed code converts to
+    // neither typed pointer implicitly. Without these conversions the wrapper compile failed, which
+    // withdrew the member (repository build) or failed the whole package (SDK build).
+    [Theory]
+    [InlineData("Swift.UnsafePointer", "Swift.UnsafeMutableRawPointer(mutating: p0)")]
+    [InlineData("Swift.UnsafeMutablePointer", "cdecl_handler(p0, ")]
+    public void SwiftClosureAdapter_TypedPointerArgument_MatchesItsRawCdeclSlot(string pointer, string expectedCall)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var closureType = new ClosureTypeSpec(
+            new NamedTypeSpec(pointer, new NamedTypeSpec("Swift.Int")), new NamedTypeSpec("Swift.Int32"));
+
+        Assert.True(ClosureEmitter.IsClosureCdeclCompatible(closureType, closureHandler));
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "handler", closureType, closureHandler, isOptional: false));
+
+        Assert.Contains("@convention(c) (Swift.UnsafeMutableRawPointer, Swift.UnsafeMutableRawPointer?) -> Swift.Int32", swift);
+        Assert.Contains($"p0: {pointer}<Swift.Int>", swift);
+        Assert.Contains(expectedCall, swift);
+    }
+
+    [Theory]
+    [InlineData("Swift.UnsafePointer", "Swift.UnsafePointer((cdecl_provider(providerContext!)).assumingMemoryBound(to: Swift.Int.self))")]
+    [InlineData("Swift.UnsafeMutablePointer", "(cdecl_provider(providerContext!)).assumingMemoryBound(to: Swift.Int.self)")]
+    public void SwiftClosureAdapter_TypedPointerResult_IsReboundToItsPointee(string pointer, string expectedReturn)
+    {
+        var closureHandler = new ClosureHandler(CreateTypeDatabase());
+        var closureType = new ClosureTypeSpec(
+            TupleTypeSpec.Empty, new NamedTypeSpec(pointer, new NamedTypeSpec("Swift.Int")));
+
+        var swift = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "provider", closureType, closureHandler, isOptional: false));
+
+        Assert.Contains("@convention(c) (Swift.UnsafeMutableRawPointer?) -> Swift.UnsafeMutableRawPointer", swift);
+        Assert.Contains($"-> {pointer}<Swift.Int> in", swift);
+        Assert.Contains(expectedReturn, swift);
+    }
+
     [Fact]
     public void SwiftClosureAdapter_OptionalAnyErrorNamedExistential_UsesOneWordBorrowedPayloadAndSwift6Any()
     {
