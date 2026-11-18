@@ -2513,11 +2513,13 @@ public sealed class ModuleEmissionContext
         out bool sameDeclaration,
         DeclId? owner = null)
     {
-        sameDeclaration = _wrapperStructuralIdentities.Contains(
-            (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty));
+        sameDeclaration = false;
         var identity = (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty);
         if (!_wrapperStructuralIdentities.Add(identity))
+        {
+            sameDeclaration = true;
             return false;
+        }
 
         if (!string.IsNullOrEmpty(symbol) && !AddWrapperSymbolInternal(symbol, owner, ArtifactRole.SwiftWrapper))
         {

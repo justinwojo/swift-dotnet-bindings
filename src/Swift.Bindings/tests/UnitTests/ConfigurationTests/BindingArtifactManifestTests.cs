@@ -1089,6 +1089,45 @@ public class BindingArtifactManifestTests
             item => item.DiagnosticId == DirectSwiftSelfExposure.DiagnosticId);
     }
 
+    /// <summary>
+    /// A row withdrawn as another recovery unit (a proxy removed with its protocol's managed
+    /// conformance) still names that unit as its root after the wrapper compile rewrites the report
+    /// from the manifest.
+    /// </summary>
+    [Fact]
+    public void Store_WrapperRoundTrip_KeepsTheRecoveryUnitARowWasWithdrawnAs()
+    {
+        using var temp = new TempDirectory();
+        var conformance = RecoveryUnitId.Create(
+            DeclId.Create("Demo", "", BindingItemKind.Type, "Configuration"),
+            RecoveryScope.ManagedProtocolConformance).Canonical;
+        var report = NewReport();
+        report.SkippedItems.Add(new SkippedItem
+        {
+            Kind = BindingItemKind.Type,
+            Name = "ConfigurationProxy",
+            ContainingType = "Demo.Configuration",
+            Reason = SkipReason.EmitterFault,
+            DeclId = DeclId.Create("Demo", "Configuration", BindingItemKind.Type, "ConfigurationProxy").Canonical,
+            RecoveryUnit = conformance,
+        });
+        BindingArtifactManifestStore.Write(
+            new BindingArtifactManifest { Module = "Demo", Generation = GenerationSection.From(report) },
+            temp.Path, NullLogger.Instance);
+
+        BindingArtifactManifestStore.ReadModifyWrite(
+            temp.Path,
+            "Demo",
+            value => value.Wrapper = new WrapperSection { Status = PhaseStatus.Success },
+            NullLogger.Instance);
+
+        var persisted = JsonConvert.DeserializeObject<BindingReport>(
+            File.ReadAllText(Path.Combine(temp.Path, BindingArtifactManifestStore.ReportFileName)),
+            new JsonSerializerSettings { Converters = new List<JsonConverter> { new StringEnumConverter() } })!;
+        var row = Assert.Single(persisted.SkippedItems, r => r.Name == "ConfigurationProxy");
+        Assert.Equal(conformance, row.RootCauseId);
+    }
+
     [Fact]
     public void Store_WrapperRoundTrip_WithdrawsTheRowOfAMarkerRoutingSettled()
     {
