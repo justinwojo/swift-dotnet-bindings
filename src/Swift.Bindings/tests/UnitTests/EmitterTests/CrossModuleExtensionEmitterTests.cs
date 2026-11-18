@@ -1025,9 +1025,28 @@ public class CrossModuleExtensionEmitterTests
     public void Emit_MemberTheInterfacePrePassBound_NotReportedAndTheRestReported()
     {
         var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
-        var generic = CreateMethodDecl("doWork", "TestModule", classDecl);
+        // Both paths decline this one (the ABI path for its mutating flag); the pre-pass bound it.
+        var bound = CreateMethodDecl("doWork", "TestModule", classDecl);
+        bound.IsMutating = true;
+        classDecl.Methods.Add(bound);
+        // Overloads of the same name the pre-pass did not bind keep their rows: a generic one of
+        // the same arity, which the pre-pass never binds, and one taking a parameter.
+        var generic = CreateMethodDecl("doWork", "TestModule", classDecl, mangledName: "$s10TestModule6doWorkyyxlF");
         generic.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
         classDecl.Methods.Add(generic);
+        var overload = CreateMethodDecl("doWork", "TestModule", classDecl, mangledName: "$s10TestModule6doWorkyySiF");
+        overload.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        overload.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "count",
+            PrivateName = "count",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+        });
+        classDecl.Methods.Add(overload);
         classDecl.Subscripts.Add(new SubscriptDecl
         {
             Name = "subscript",
@@ -1070,8 +1089,9 @@ public class CrossModuleExtensionEmitterTests
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
                 ThreadContext(emissionContext)));
 
-        var row = Assert.Single(report.SkippedItems);
-        Assert.Equal(BindingItemKind.Subscript, row.Kind);
+        Assert.Equal(3, report.SkippedItems.Count);
+        Assert.Contains(report.SkippedItems, r => r.Kind == BindingItemKind.Subscript);
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Kind == BindingItemKind.Method && r.Name == "doWork"));
     }
 
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)

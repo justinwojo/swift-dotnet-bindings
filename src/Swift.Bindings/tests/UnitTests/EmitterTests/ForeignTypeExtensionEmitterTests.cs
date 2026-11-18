@@ -1293,6 +1293,45 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Contains(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
     }
 
+    /// <summary>
+    /// On a receiver the cross-module path carries, that path may bind the member (or an overload of
+    /// it) from the ABI and reports it when it does not, so the pre-pass's withdrawal leaves no row.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_AbsentAppleReturnOnACarriedReceiver_LeftToTheCrossModulePath()
+    {
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.Types.Add(new ClassDecl
+        {
+            Name = "UIView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+            MangledName = "$s5UIKit6UIViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var method = CreateExtMethod("makeLevel", "public func makeLevel() -> UIKit.UIWindowLevel");
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, CreateTypeDatabase(), Logger, ctx);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete();
+        ReportCollector.Reset();
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report!.SkippedItems);
+    }
+
     [Fact]
     public void ProcessForeignTypeExtensions_PropertyWithAbsentAppleType_WithdrawnAndReported()
     {

@@ -504,11 +504,22 @@ public static partial class CrossModuleExtensionEmitter
             || member is not (MethodDecl { IsConstructor: false } or PropertyDecl)
             || !emissionContext.ForeignExtClasses.TryGetValue(receiverName, out var classInfo))
             return false;
-        var swiftName = member is MethodDecl method ? method.OriginalSwiftName ?? method.Name : member.Name;
+        var method = member as MethodDecl;
+        // The pre-pass declines every generic method, so a generic overload is never its binding.
+        if (method is { IsGeneric: true })
+            return false;
+        var swiftName = method is not null ? method.OriginalSwiftName ?? method.Name : member.Name;
+        // Overloads share a name, so a method must also take as many parameters as the one the
+        // pre-pass bound; CSSignature[0] is the return slot.
+        var arity = method is null ? -1 : Math.Max(0, method.CSSignature.Count - 1);
         return classInfo.Members.Any(m =>
-            string.Equals(m.ExtMethod.MethodName, swiftName, StringComparison.Ordinal)
-            || string.Equals(m.ExtMethod.MethodName, member.Name, StringComparison.Ordinal));
+            m.ExtMethod.IsProperty == (method is null)
+            && (string.Equals(m.ExtMethod.MethodName, swiftName, StringComparison.Ordinal)
+                || string.Equals(m.ExtMethod.MethodName, member.Name, StringComparison.Ordinal))
+            && (method is null || LabelCount(m.ExtMethod.PrintedName) == arity));
     }
+
+    private static int LabelCount(string printedName) => printedName.Count(c => c == ':');
 
     /// <summary>
     /// Absent-Apple ingress gate for a cross-module extension method. When the signature (return or

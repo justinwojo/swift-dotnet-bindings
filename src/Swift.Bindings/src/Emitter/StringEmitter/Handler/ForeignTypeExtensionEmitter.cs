@@ -109,10 +109,15 @@ public static class ForeignTypeExtensionEmitter
     private static void RecordWithdrawal(
         ModuleEmissionContext ctx,
         ModuleDecl moduleDecl,
+        string foreignTypeQualifiedName,
         BindingItemKind kind,
         string memberName,
         string details)
     {
+        // A carried receiver's losses are reported by the cross-module path, which may bind this
+        // member (or an overload of it) from the ABI.
+        if (IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName))
+            return;
         ReportCollector.RecordMemberSkipped(
             kind, memberName, moduleDecl, SkipReason.AbsentFrameworkType, details);
         ctx.AddForeignExtWithdrawal(
@@ -202,6 +207,9 @@ public static class ForeignTypeExtensionEmitter
             ctx.ForeignExtDuplicateClaimCount++;
             return;
         }
+        // On a carried receiver the cross-module path reports what neither path binds.
+        if (IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName))
+            return;
         RecordUnbound(
             ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
             SkipReason.EmitterFault,
@@ -535,7 +543,7 @@ public static class ForeignTypeExtensionEmitter
         if (ReferencesAbsentAppleType(propertyTypeSpec, typeDatabase, out var absentPropType))
         {
             RecordWithdrawal(
-                ctx, moduleDecl, BindingItemKind.Property, extMethod.MethodName,
+                ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Property, extMethod.MethodName,
                 $"Foreign extension on '{foreignTypeQualifiedName}': property type '{absentPropType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -682,7 +690,7 @@ public static class ForeignTypeExtensionEmitter
         if (ReferencesAbsentAppleType(returnTypeSpec, typeDatabase, out var absentReturnType))
         {
             RecordWithdrawal(
-                ctx, moduleDecl, BindingItemKind.Method, extMethod.MethodName,
+                ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Method, extMethod.MethodName,
                 $"Foreign extension on '{foreignTypeQualifiedName}': return type '{absentReturnType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -764,7 +772,7 @@ public static class ForeignTypeExtensionEmitter
                 // An absent Apple-framework parameter is a surface gap, not an unmarshalable shape:
                 // report it so the withdrawal is observable rather than a silent LogDebug drop.
                 RecordWithdrawal(
-                    ctx, moduleDecl, BindingItemKind.Method, extMethod.MethodName,
+                    ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Method, extMethod.MethodName,
                     $"Foreign extension on '{foreignTypeQualifiedName}': parameter type '{absentParamType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             }
             else
