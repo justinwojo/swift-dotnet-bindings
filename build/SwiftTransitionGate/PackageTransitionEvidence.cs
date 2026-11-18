@@ -43,7 +43,9 @@ public sealed record TransitionRuleOutcome(ImmutableArray<string> Problems, Asse
 /// Policy, not baseline: there is nothing to reseed. The rules, per assembly:
 /// <list type="bullet">
 /// <item>the evidence is <see cref="TransitionEvidenceState.PresentValid"/>;</item>
-/// <item>no R2, R3, R4 or R5 violation, with R3 read against the manifests' plans;</item>
+/// <item>no R2, R3, R4 or R5 violation, with R3 read against the manifests' plans, except an R4
+/// Swift-convention callback every member handing it to Swift guards
+/// (<see cref="ResidualGuardCheck.AcceptedReverseCallbacks"/>);</item>
 /// <item>every R1 hazard is guarded (<see cref="ResidualGuardCheck"/>), and the hazards are exactly
 /// those the manifests' guard records list when any manifest carries one;</item>
 /// <item>the plans have no routing or evidence gap, and the assembly imports as many bridge twins
@@ -122,8 +124,8 @@ public static class PackageTransitionEvidence
 
     /// <summary>
     /// The transition gate's rules over one assembly, read against the plans and guards its own
-    /// manifests carry (<paramref name="read"/>): R2–R5 (R3 against the manifests' plans), R1 through
-    /// the residual-guard check, the guard-record cross-check when a manifest carries guard records,
+    /// manifests carry (<paramref name="read"/>): R2–R5 (R3 against the manifests' plans), R1 and
+    /// guarded R4 callbacks through the residual-guard check, the guard-record cross-check when a manifest carries guard records,
     /// and the plans' routing and evidence gaps. <paramref name="directory"/> receives the manifests'
     /// records as sidecars; it is created if missing and left for the caller to remove.
     /// </summary>
@@ -158,10 +160,14 @@ public static class PackageTransitionEvidence
             new SwiftTransitionScanOptions { ReferenceDirectories = assembly.ReferenceDirectories, PlanSource = source });
         foreach (var error in report.InspectionErrors)
             problems.Add($"{where}: {error.Member} could not be inspected: {error.Message}");
-        foreach (var violation in report.Violations.Where(v => v.Rule != TransitionRule.R1))
-            problems.Add($"{where}: {violation.Rule} {violation.Member}{(violation.EntryPoint is { } e ? $" ({e})" : "")}: {violation.Reason}");
 
         var guarded = ResidualGuardCheck.Check(assembly.Image, report);
+        // R1 is judged by the residual-guard check below, and so is an R4 Swift-convention callback
+        // that every member handing it to Swift guards (ResidualGuardCheck.AcceptedReverseCallbacks).
+        var acceptedCallbacks = ResidualGuardCheck.AcceptedReverseCallbacks(report, guarded);
+        foreach (var violation in report.Violations.Where(v => v.Rule != TransitionRule.R1 && !ResidualGuardCheck.IsAcceptedReverseCallback(v, acceptedCallbacks)))
+            problems.Add($"{where}: {violation.Rule} {violation.Member}{(violation.EntryPoint is { } e ? $" ({e})" : "")}: {violation.Reason}");
+
         foreach (var violation in guarded.Violations)
             problems.Add($"{where}: residual guard {violation.Rule} {violation.Member}: {violation.Reason}");
         foreach (var error in guarded.Errors)

@@ -1105,7 +1105,13 @@ namespace BindingsGeneration
                 // (typically a class type-metadata word) into the receiving slot.
                 bool needsGenericOptOverride =
                     optProjForHandle.InnerProjection is BlittableProjection blitInner
-                    && blitInner.IsGenericParameter;
+                    && blitInner.IsGenericParameter
+                    // ...unless the generic parameter is class-bound: its Optional is one nullable
+                    // pointer Swift reads directly, so the single-word load below is the value.
+                    && !(!_env.MethodDecl.UsesCdeclWrapper && !_env.MethodDecl.HasOptionalPointerWrapper
+                         && !_env.MethodDecl.UsesWrapperLibrary && !_env.MethodDecl.IsAsync && !_requiresOpaqueReturnWrapper
+                         && !argumentDecl.IsInOut
+                         && MarshallingHelpers.IsOptionalOfClassBoundGenericParameter(_env, argumentDecl.SwiftTypeSpec));
 
                 if (needsLargeOptOverride || needsCdeclOptOverride || needsGenericOptOverride)
                 {
@@ -1495,10 +1501,11 @@ namespace BindingsGeneration
                         ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, moduleName, useCdecl, useBoxedContext);
                     }
                     // Check if this closure needs indirect return marshalling
-                    else if (_env.ClosureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec))
+                    else if (ClosureEmitter.UsesIndirectReturnCallback(closureTypeSpec, _env.ClosureHandler, useCdecl))
                     {
-                        // A non-cdecl escaping closure with an indirect (bound-generic / non-frozen)
-                        // return reaches this branch with a boxed context (see shared gate above).
+                        // A non-cdecl escaping closure with an address-only return reaches this branch
+                        // with a boxed context (see shared gate above); Swift passes the result buffer
+                        // in its indirect-result register.
                         ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
                         ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl, useBoxedContext);
                     }

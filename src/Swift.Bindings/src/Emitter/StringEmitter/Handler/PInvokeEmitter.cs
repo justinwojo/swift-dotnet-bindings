@@ -346,6 +346,13 @@ namespace BindingsGeneration
                         AddParameter("IntPtr", $"tupleResult{i}Ptr");
                     }
                 }
+                else if (MarshallingHelpers.ReturnsGenericAsSwiftReference(_env))
+                {
+                    // A class-bound generic result is one reference Swift returns directly; the
+                    // body stores it into the result buffer (BuildPInvokeCallStatement).
+                    SetReturnType("IntPtr");
+                    return;
+                }
                 else
                 {
                     AddParameter("SwiftIndirectResult", _env.SyntheticLocals.SwiftIndirectResult);
@@ -846,7 +853,12 @@ namespace BindingsGeneration
                     // local holding that address. The mutation is read back from the payload after
                     // the call.
                     var payloadName = NameProvider.GetPayloadName(csName);
-                    AddParameter("IntPtr", payloadName);
+                    // A class-bound generic parameter on a Swift-convention call is the reference
+                    // itself, which the body reads out of the payload (see
+                    // MarshallingHelpers.PassesGenericAsSwiftReference).
+                    AddParameter("IntPtr", MarshallingHelpers.PassesGenericAsSwiftReference(_env, argument)
+                        ? NameProvider.GetGenericReferenceName(payloadName)
+                        : payloadName);
                     continue;
                 }
 

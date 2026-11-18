@@ -49,13 +49,24 @@ public static class SwiftLoweringProbe
     public const string NotDeclaredReason =
         "other: no ABI descriptor of an imported module declares it (an @_alwaysEmitIntoClient or non-public member is not in a module's ABI), so no probe call can reach it";
 
+    /// <summary>The class of reasons a target no client of the public interface can name is unobserved for.</summary>
+    public const string NotPublicCategory = "not public from the interface";
+
     /// <summary>Why a <c>@usableFromInline internal</c> target is unobserved.</summary>
     public const string UsableFromInlineReason =
-        "not public from the interface: it is @usableFromInline internal, which no client can call";
+        NotPublicCategory + ": it is @usableFromInline internal, which no client can call";
 
     /// <summary>Why an SPI target is unobserved.</summary>
     public const string SpiReason =
-        "not public from the interface: it is SPI, which the public interface leaves out";
+        NotPublicCategory + ": it is SPI, which the public interface leaves out";
+
+    /// <summary>
+    /// Why a plain internal target is unobserved: a descriptor of a module built for testing lists its
+    /// internal declarations, and the module's interface, which a client compiles against, names
+    /// neither the target nor (for a member of one) its internal type.
+    /// </summary>
+    public const string InternalReason =
+        NotPublicCategory + ": it is internal, which the public interface leaves out";
 
     /// <summary>Why an <c>@_alwaysEmitIntoClient</c> target is unobserved.</summary>
     public const string AlwaysEmitIntoClientReason =
@@ -165,6 +176,11 @@ public static class SwiftLoweringProbe
             var descriptors = Descriptors(request.ModuleName, request.FrameworkSearchPath, request.DependencySearchPaths, request.CompiledTriple,
                 request.BoundDescriptor is { } given && File.Exists(given.AbiJsonPath) ? given.AbiJsonPath : null);
             var boundDescriptor = descriptors[0].Path;
+            // The interface a client compiles against, beside each descriptor (or the one given with it).
+            string? InterfaceOf(string descriptor) => descriptor == request.BoundDescriptor?.AbiJsonPath
+                ? request.BoundDescriptor.InterfacePath
+                : Path.ChangeExtension(Path.ChangeExtension(descriptor, null), ".swiftinterface");
+            var interfaceNames = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             foreach (var (module, path) in descriptors)
             {
                 if (path is null || targets.All(t => index.Find(t) is not null))
@@ -172,6 +188,8 @@ public static class SwiftLoweringProbe
                 try
                 {
                     index.Load(path);
+                    if (InterfaceNames(InterfaceOf(path)) is { } names)
+                        interfaceNames.TryAdd(module, names);
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or JsonException)
                 {
@@ -184,11 +202,9 @@ public static class SwiftLoweringProbe
             var resolved = targets.Where(t => index.Find(t) is not null).ToList();
             var imports = new List<string>(WrapperImports(request.WrapperSources));
             if (boundDescriptor is not null)
-                imports.AddRange(InterfaceImports(boundDescriptor == request.BoundDescriptor?.AbiJsonPath
-                    ? request.BoundDescriptor.InterfacePath
-                    : Path.ChangeExtension(Path.ChangeExtension(boundDescriptor, null), ".swiftinterface")));
+                imports.AddRange(InterfaceImports(InterfaceOf(boundDescriptor)));
             var plan = Plan(targets, index, Demangle(resolved, runner, timeoutMs), request.ModuleName, imports,
-                boundDescriptor is null ? NoDescriptorReason(request.ModuleName) : NotDeclaredReason);
+                boundDescriptor is null ? NoDescriptorReason(request.ModuleName) : NotDeclaredReason, interfaceNames);
             foreach (var (target, why) in plan.Unprobed)
                 unseen[target] = why;
             calls = plan.Calls.Length;
@@ -289,7 +305,7 @@ public static class SwiftLoweringProbe
         }
     }
 
-    private static readonly string[] Categories = ["not public from the interface", "inlined", "unsupported in the probe", "other"];
+    private static readonly string[] Categories = [NotPublicCategory, "inlined", "unsupported in the probe", "other"];
 
     /// <summary>
     /// The class of an unobserved target's reason: the probe's own classes (not public from the interface,
@@ -407,11 +423,14 @@ public static class SwiftLoweringProbe
     /// <summary>
     /// The probe of <paramref name="targets"/>: a call for each one <paramref name="index"/> declares
     /// and the probe can write, in target order; for every other, why not (<paramref name="undeclared"/>
-    /// for a target no descriptor declares).
+    /// for a target no descriptor declares). <paramref name="interfaceNames"/> holds, by module, the
+    /// names its interface spells: a declaration of a module listed there that the interface names
+    /// neither itself nor a type it is declared in is internal, and gets no call.
     /// </summary>
     internal static ProbePlan Plan(
         IReadOnlyList<string> targets, AbiDescriptorIndex index, IReadOnlyDictionary<string, string> demangled,
-        string boundModule, IEnumerable<string> imports, string undeclared)
+        string boundModule, IEnumerable<string> imports, string undeclared,
+        IReadOnlyDictionary<string, IReadOnlySet<string>>? interfaceNames = null)
     {
         var calls = ImmutableArray.CreateBuilder<ProbeCall>();
         var unprobed = new SortedDictionary<string, string>(StringComparer.Ordinal);
@@ -424,7 +443,8 @@ public static class SwiftLoweringProbe
                 continue;
             }
             var function = $"_sbProbe_{calls.Count}";
-            if (CallWriter.TryWrite(target, declaration, demangled.GetValueOrDefault(target), function, out var text, out var inType, out var inlining, out var why))
+            if (CallWriter.TryWrite(target, declaration, demangled.GetValueOrDefault(target), function, interfaceNames?.GetValueOrDefault(declaration.Module),
+                    out var text, out var inType, out var inlining, out var why))
             {
                 calls.Add(new ProbeCall(target, function, text, inlining, inType));
                 modules.Add(declaration.Module);
@@ -498,6 +518,30 @@ public static class SwiftLoweringProbe
                 AddImport(modules, line);
         }
         return modules;
+    }
+
+    /// <summary>An identifier as the interface and the descriptor spell it (a backquoted one without its quotes).</summary>
+    internal static readonly Regex PlainIdentifier = new(@"^[\p{L}_][\p{L}\p{N}_]*$", RegexOptions.Compiled);
+
+    private static readonly Regex InterfaceIdentifier = new(@"[\p{L}_][\p{L}\p{N}_]*", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Every identifier a module's interface spells, its private interface (SPI included) beside it
+    /// too; null when there is no interface to read, so nothing is judged internal by its absence.
+    /// </summary>
+    internal static IReadOnlySet<string>? InterfaceNames(string? interfacePath)
+    {
+        if (interfacePath is null || !File.Exists(interfacePath))
+            return null;
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var path in new[] { interfacePath, Path.ChangeExtension(interfacePath, ".private.swiftinterface") })
+        {
+            if (!File.Exists(path))
+                continue;
+            foreach (Match match in InterfaceIdentifier.Matches(File.ReadAllText(path)))
+                names.Add(match.Value);
+        }
+        return names;
     }
 
     /// <summary>The modules a module interface imports, other than the compiler's own underscored ones.</summary>
@@ -649,8 +693,36 @@ public static class SwiftLoweringProbe
         private static readonly Regex SourceName = new(@"(?<![\w.])[A-Za-z_]\w*", RegexOptions.Compiled);
         private static readonly Regex DynamicSelf = new(@"(?<![\w.])Self(?!\w)", RegexOptions.Compiled);
 
+        /// <summary>
+        /// Whether the interface of the declaration's module names neither a type of that module the
+        /// declaration is in, nor, for a method or a property's accessor, the member itself: a module
+        /// built for testing lists its internal declarations in its descriptor, and a client of its
+        /// interface can name none of them. Only a name the descriptor spells as a plain identifier is
+        /// asked about; an initializer, a subscript, an operator and a member the compiler synthesized
+        /// (which the interface never spells) are not, so their calls are still written.
+        /// </summary>
+        private static bool IsUnnamedByInterface(AbiDeclaration declaration, JsonElement storage, IReadOnlySet<string> names)
+        {
+            bool Unnamed(string? name) => name is not null && PlainIdentifier.IsMatch(name) && !names.Contains(name);
+
+            foreach (var type in declaration.Ancestors.Where(a => Kind(a) == "TypeDecl"))
+            {
+                if ((Str(type, "moduleName") ?? declaration.Module) == declaration.Module && Unnamed(Str(type, "name")))
+                    return true;
+            }
+            var node = declaration.Node;
+            if (Bool(node, "implicit"))
+                return false;
+            return Kind(node) switch
+            {
+                "Function" => Unnamed(Str(node, "name")),
+                "Accessor" when storage.ValueKind == JsonValueKind.Object && Kind(storage) == "Var" && !Bool(storage, "implicit") => Unnamed(Str(storage, "name")),
+                _ => false,
+            };
+        }
+
         public static bool TryWrite(
-            string target, AbiDeclaration declaration, string? demangled, string function,
+            string target, AbiDeclaration declaration, string? demangled, string function, IReadOnlySet<string>? interfaceNames,
             out string text, out string? inType, out string? inlining, out string why)
         {
             text = why = string.Empty;
@@ -668,6 +740,11 @@ public static class SwiftLoweringProbe
                 return false;
             }
             var storage = Kind(node) == "Accessor" ? ancestors.LastOrDefault() : default;
+            if (interfaceNames is not null && IsUnnamedByInterface(declaration, storage, interfaceNames))
+            {
+                why = InternalReason;
+                return false;
+            }
             if (HasAttribute(node, "AlwaysEmitIntoClient") || (storage.ValueKind == JsonValueKind.Object && HasAttribute(storage, "AlwaysEmitIntoClient")))
                 inlining = AlwaysEmitIntoClient;
             else if (HasAttribute(node, "Transparent"))

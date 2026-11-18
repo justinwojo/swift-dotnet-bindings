@@ -12,6 +12,10 @@
 //   PinnedEndpointA`. A wrapper specialized for `PinnedEndpointB` calls
 //   `PinnedTransition<PinnedEndpointB>(to:)`, which that initializer is not a member of. The
 //   specialization for `PinnedEndpointA` does meet it, and stays declined.
+// - `PinnedUrlOrSequenceSession` has a `URL` initializer beside a generic one whose input must be
+//   a `Sequence` of samples. A Swift call with a `URL` argument can bind the generic parameter
+//   only to `URL` itself, and `URL` conforms to `Sequence` nowhere in the SDKs, so
+//   `PinnedUrlOrSequenceSession(input:)` with a `URL` reaches the `URL` initializer alone.
 //
 // Every default is computed, so no wrapper can spell it out: the default-omitting member exists
 // only when no rival takes the reduced call.
@@ -77,5 +81,35 @@ public struct PinnedTransition<Value: PinnedEndpoint> {
 extension PinnedTransition where Value == PinnedEndpointA {
     public init(to target: Value, mode: Int = PinnedTransitionDefaults.mode, timing: Int = PinnedTransitionDefaults.timing) {
         summary = "mode:\(target.endpointTag):\(mode):\(timing)"
+    }
+}
+
+public struct PinnedUrlOrSequenceConfiguration {
+    public var detail: Int
+
+    public init() { detail = 3 }
+    public init(detail: Int) { self.detail = detail }
+}
+
+public struct PinnedUrlOrSequenceSample {
+    public let index: Int
+    public init(index: Int) { self.index = index }
+}
+
+public final class PinnedUrlOrSequenceSession {
+    /// `url:<absoluteString>:<detail>` from the `URL` initializer, `samples:<count>:<detail>` from
+    /// the sequence one.
+    public let summary: String
+
+    init(summary: String) { self.summary = summary }
+
+    public convenience init(input: URL, configuration: PinnedUrlOrSequenceConfiguration = PinnedUrlOrSequenceConfiguration()) throws {
+        self.init(summary: "url:\(input.absoluteString):\(configuration.detail)")
+    }
+
+    public convenience init<S: Sequence>(input: S, configuration: PinnedUrlOrSequenceConfiguration = PinnedUrlOrSequenceConfiguration()) throws
+        where S.Element == PinnedUrlOrSequenceSample
+    {
+        self.init(summary: "samples:\(Array(input).count):\(configuration.detail)")
     }
 }

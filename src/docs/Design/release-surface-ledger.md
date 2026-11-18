@@ -82,6 +82,11 @@ member runs the declaration it names, with the default Swift supplies. The
 (listed under `suppressedAmbiguousOverloads` in `binding-emission-report.json`). The constrained
 initializer has no open-generic form, so it adds one `Unsupported` skip marker to the corpus.
 
+`PinnedUrlOrSequenceSession` reproduces the third: a `URL` initializer beside a generic one whose
+input must be a `Sequence` of samples. `PinnedUrlOrSequenceSession(NSUrl)` and the full form are
+additions, and `PinnedOverloadScopesTests` checks that both run the `URL` initializer. C# has no
+generic constructors, so the generic initializer adds one `Unsupported` skip marker.
+
 ## SwiftBindings.Runtime
 
 `nuke pack --version 0.21.0-dev` diffs the Runtime against `SwiftBindings.Runtime 0.20.2` from
@@ -117,12 +122,15 @@ by member. The candidate is compared in its shipped state: the wrapper is compil
 lowering receipt collected and the bridges routed, as a package build does. Each assembly was
 censused with `swift-transition-gate` and its residual-guard summary. The member counts are the
 candidate after the overload-pinning fixes below; before them RealityFoundation lost 19 members and
-MusicKit 6. RealityFoundation and MusicKit were regenerated again with the fixed generator and
-compiled, and their removals are exactly the rows below that are not marked fixed.
+MusicKit 6. All four modules were regenerated, routed and compiled again on the branch with the
+packaging-blocker fixes: no member was removed against the earlier census, RealityFoundation gained
+`PhotogrammetrySession(NSUrl)` and the four `FromToByAction` factories, MusicKit the five
+`ApplicationMusicPlayer.Queue` factories, and the guarded members are unchanged. The removals are
+exactly the rows below that are not marked fixed.
 
 | Module | Public members, sdk-v0.20.2 | Public members, branch | Added | Removed | Guarded, shipped (unrouted) | Skip markers cleared | Markers gained |
 |---|---|---|---|---|---|---|---|
-| RealityFoundation | 5642 | 5704 | 77 | 15 | 4 (27) | 27 | 0 |
+| RealityFoundation | 5642 | 5705 | 77 | 14 | 4 (27) | 27 | 0 |
 | RealityKit | 294 | 294 | 1 | 1 | 0 (1) | 1 | 0 |
 | MusicKit | 2240 | 2245 | 6 | 1 | 0 (1) | 3 | 0 |
 | AppIntents | 1798 | 1802 | 7 | 3 | 8 (29) | 32 | 0 |
@@ -142,7 +150,7 @@ generic `!0` properties such as `IntentParameter<T>.WrappedValue`.
 | RealityFoundation | `PhotogrammetrySession.Request.TryGetModelFile(…)` | A `URL` payload in a multi-value case: the extractor handed Objective-C an unbridged Swift storage word. Now skipped because the case's payload bridge does not return a multi-value payload. | all | unsafe-before (137e9592) |
 | RealityFoundation | `FromToByAction<Transform>` factories `FromRealityFoundationTransform(Transform)` and `(Transform, Transform)` | The default-omitting call `FromToByAction<Transform>(to:timing:isAdditive:)` is also taken by `init(to:by:mode:timing:isAdditive:)` from `extension FromToByAction where Value == Transform`, so the wrapper could run a different Swift initializer than the one it names. The full forms remain. | all | intended (25909710) |
 | RealityFoundation | `FromToByAction<JointTransforms>` factories `FromRealityFoundationJointTransforms(JointTransforms)` and `(JointTransforms, JointTransforms)`; `FromToByAction<BlendShapeWeights>` factories `FromRealityFoundationBlendShapeWeights(…)` ×2 | Declined for the same rival, which exists only where `Value == Transform` and so cannot take a call on these specializations. | all | regression, fixed on this branch: a sibling that pins a type parameter to another concrete type is not a rival of a specialization (`SwiftOverloadCallPinning.PinsAnotherSpecialization`, fixture `PinnedTransition`) |
-| RealityFoundation | `PhotogrammetrySession(NSUrl)` | The default-omitting form of `init(input: URL, configuration: = .init())` is declined because `init<S: Sequence>(input: S, configuration:) where S.Element == PhotogrammetrySample` is counted as a rival. `URL` is not such a sequence, so Swift resolves the call to the URL initializer. The full `PhotogrammetrySession(NSUrl, Configuration)` remains. | all | **regression, release blocker**: ruling the generic sibling out needs proof that `URL` does not conform to `Sequence`, which the pinning replay cannot see for a type from another module. Workaround: pass `new PhotogrammetrySession.Configuration()`. |
+| RealityFoundation | `PhotogrammetrySession(NSUrl)` | The default-omitting form of `init(input: URL, configuration: = .init())` is declined because `init<S: Sequence>(input: S, configuration:) where S.Element == PhotogrammetrySample` is counted as a rival. `URL` is not such a sequence, so Swift resolves the call to the URL initializer. The full `PhotogrammetrySession(NSUrl, Configuration)` remains. | all | regression, fixed on this branch: a generic sibling whose parameter takes the argument is not a rival when the argument's type provably lacks a protocol the parameter requires. `URL`'s record in `FoundationDatabase.xml` now carries a closed conformance claim, checked against the installed SDKs by `ClosedConformanceSdkAuditTests` (`SwiftOverloadCallPinning.RejectsAsTypeParameter`, fixture `PinnedUrlOrSequenceSession`). Confirmed present in the regenerated RealityFoundation. |
 | RealityKit | `ARView.LayerClass` | `class var layerClass: AnyClass`, an existential metatype returned as a five-word container. | all | unsafe-before (c0f36040) |
 | MusicKit | `ApplicationMusicPlayer.Queue` factories `FromSwiftSwiftArrayMusicKit{Album,Playlist,Song,Track}…(SwiftArray<…>)` and `FromMusicKitApplicationMusicPlayerQueueEntries(…)` | `ApplicationMusicPlayer.Queue` repeats `MusicPlayer.Queue`'s `required init(for:startingAt:)` and `init(_:startingAt:)` as overrides, but the pinning replay compared their result types (each initializer returns its own class) and kept the superclass initializer as a rival. | all | regression, fixed on this branch: an overriding initializer hides the one it overrides whatever its result type (fixture `PinnedInitDerived`) |
 | MusicKit | `MusicCatalogSearchSuggestionsRequest.Create(string)` | Became `new MusicCatalogSearchSuggestionsRequest(string)`: the default-omitting form of `init(term:includingTopResultsOfTypes:)` is now bound as a constructor. The full initializer is skipped (its parameter is `[any MusicCatalogSearchable.Type]`, c0f36040). | all | intended; source-breaking rename, noted in the release notes |
@@ -167,10 +175,11 @@ include `SelfRegister`, then throw on Mono. The package pipeline must route.
 ### Packaging blockers: bindings the SDK generates that its own checks refuse
 
 A dry build of the downstream package set (the Apple framework packages and ten third-party
-libraries, .NET 10 + Xcode 26.3, iOS and tvOS simulator, build only) against this branch's packages
-built and packed every library, but nine test apps fail to build and one sibling package fails to
-pack. In every case the binding carries a valid transition manifest that the same SDK wrote, and the
-pack-time check (`SWIFTBIND133`) or the consumer check (`SWIFTBIND132`) refuses it. At
+libraries, .NET 10 + Xcode 26.3, iOS and tvOS simulator, build only) against this branch's packages,
+before the fixes recorded under Dispositions, built and packed every library, but nine test apps
+failed to build and one sibling package failed to pack. In every case the binding carried a valid
+transition manifest that the same SDK wrote, and the pack-time check (`SWIFTBIND133`) or the
+consumer check (`SWIFTBIND132`) refused it. At
 `sdk-v0.20.2` no such check existed and all of them built, so each is a whole-package regression
 for its consumers on every Mono app and every .NET 11 app that is not NativeAOT. There are three
 causes.
@@ -182,8 +191,8 @@ member of a generic type, a protocol-existential argument, …), the generator k
 Swift-convention call and hands Swift the closure as an
 `[UnmanagedCallersOnly(CallConvs = [CallConvSwift])]` callback. It guards the member with shape
 `ReverseCallback`, which `SwiftTransitionGuard` refuses only on the CoreCLR interpreter x64. The
-transition rules treat every Swift-convention `UnmanagedCallersOnly` method as an R4 violation
-whether or not a guard covers it, and both checks refuse an assembly with any R4 violation.
+transition rules treated every Swift-convention `UnmanagedCallersOnly` method as an R4 violation
+whether or not a guard covered it, and both checks refused an assembly with any R4 violation.
 
 - `SwiftBindings.Apple.RealityFoundation` does not pack: `Entity.PlayAudio(AudioGeneratorConfiguration, Func<…>)`,
   `PrepareAudio(…)` and their two new overloads, 4 callbacks. RealityKit's app fails through it.
@@ -191,30 +200,39 @@ whether or not a guard covers it, and both checks refuse an assembly with any R4
   callbacks each), on closure parameters of methods and on closure-typed property setters of
   nested configuration structs.
 
-The BindingTests corpus has no member of this shape (its compile-check assembly scans R4 = 0), so
-neither the compile gate nor the transition gate met it. The two policies disagree about whether a
-guarded Swift-convention reverse callback may ship. Either the generator stops emitting such
-members until a reverse-callback bridge template exists (they become skipped with a reason), or R4
-accepts a reverse callback whose only construction site is a guarded member (they stay public and
-refuse on the x64 interpreter).
+The BindingTests corpus had no member of this shape (its compile-check assembly scanned R4 = 0),
+so neither the compile gate nor the transition gate met it.
 
 **2. Lowering predicted differently from what swiftc compiles (one library).** The SDK routed two
 members through bridges whose plans disagree with the collected lowering receipt: an initializer
 whose swiftc lowering is `swiftcc ptr (ptr noalias, ptr noalias, ptr, i64, ptr, i64, ptr, ptr swiftself)`,
 and a getter the plan lowers through an indirect (sret) result while swiftc returns `ptr`. The
 consumer check refuses each as "planned through `SBSR_…`, but its lowering evidence does not make it
-executable". The routing should not have planned a bridge the receipt does not authorize; the
-predictor's disagreement is a second defect.
+executable".
 
 **3. Evidence collection cannot name some types (one library, four modules).** The receipt
 collector's probe fails on types the module surfaces under another name or through Objective-C
 (`no type named '…' in module '…'`, `swiftc shows no $s…`), yet the plans still route those members:
 42, 89, 61 and 9 refused checks across the four modules.
 
-**Release blockers**, owner decision on the R4 policy; causes 2 and 3 are SDK defects (routing must
-fall back to the guarded direct call when the receipt does not authorize a bridge). Each fix needs a
-first-party BindingTests fixture of its shape. The downstream patches and the full failure table are
-outside this repository.
+#### Dispositions
+
+| Cause | Disposition | Commits |
+|---|---|---|
+| 1. Swift-convention reverse callbacks (R4) | **Guarded acceptance**, one check for the transition gate, SWIFTBIND133 and SWIFTBIND132 (all three run `ResidualGuardCheck.AcceptedReverseCallbacks`). A private Swift-convention callback whose address stays in a private static field and reaches Swift only through members guarded for every shape of its signature passes R4. A public, exported, escaping, unguarded or under-guarded callback, or one whose signature carries `SwiftSelf<T>`, still fails R4 in all three. **Root fixes** for values that crossed wrongly: result completions with metadata-backed payloads take the `@_cdecl` adapter; Swift-lane address-only results are written through the indirect-result register; `Optional` value-wrapper arguments and results go through `Optional<T>`; class results return at +1; results Swift explodes across return registers are refused at generation. **Engine refusals:** `ReverseCallback` on the CoreCLR interpreter x64. A callback that takes both an error and an indirect result also carries `SpecialBeforeArguments`, which CoreCLR without a JIT refuses on arm64: the interpreter, and ReadyToRun iOS and tvOS apps, which share its mask. | `bdd363fe`, `bced45db`, `9ac60e18`, `b5ebaa13`, `5bd79fcb` |
+| 2. Lowering predicted differently from swiftc | **Predictor fixed**: a class-bound generic value, and its Optional, is passed and returned as one reference, including Apple protocols that are class-bound only through their own refinement. A plan the receipt contradicts stays fatal rather than falling back: the guarded direct import would make the same wrong call. | `0b43aed1` |
+| 3. Evidence collection cannot name some types | A forward plan to a target the public module interface cannot name (internal, `@usableFromInline`, SPI) is refused as `NotPublicFromInterface` and stays a guarded direct import, instead of an evidence gap that refuses the package. | `28a9b4bf` |
+
+Downstream dry build (.NET 10 + Xcode 26.3, iOS and tvOS simulator, build only, local feed of this
+branch's packages):
+
+| | Library builds | App builds | Sibling packs |
+|---|---|---|---|
+| Before | all pass | 9 fail SWIFTBIND132 | RealityFoundation fails SWIFTBIND133 |
+| After | 27 / 27 | 32 / 32 (26 iOS, 6 tvOS) | 2 / 2 |
+
+The packaging blockers are closed. Each cause has a first-party BindingTests fixture or unit
+fixture of its shape; the downstream patches and logs are outside this repository.
 
 ## Totals
 
@@ -223,15 +241,14 @@ outside this repository.
 | BindingTests corpus | 3 | 0 | 2 | 0 | 1 | 0 | 0 |
 | SwiftBindings.Runtime | 0 | | | | | | |
 | SwiftBindings.Apple | 0 | | | | | | |
-| RealityFoundation | 21 | 12 | 2 | 0 | 2 | 4 | 1 |
+| RealityFoundation | 21 | 12 | 2 | 0 | 2 | 5 | 0 |
 | RealityKit | 1 | 1 | 0 | 0 | 0 | 0 | 0 |
 | MusicKit | 6 | 0 | 0 | 0 | 1 | 5 | 0 |
 | AppIntents | 11 | 2 | 8 | 0 | 1 | 0 | 0 |
-| **All** | **42** | **15** | **12** | **0** | **5** | **9** | **1** |
+| **All** | **42** | **15** | **12** | **0** | **5** | **10** | **0** |
 
-The 9 fixed rows are public again; 33 members remain removed, reshaped or guarded. Release blockers
-remain: `PhotogrammetrySession(NSUrl)`, and the three packaging causes above (the RealityFoundation
-package refused at pack time and nine downstream test apps refused at build time).
+The 10 fixed rows are public again; 32 members remain removed, reshaped or guarded. The three
+packaging causes above are closed: every downstream library packs and every test app builds.
 
 ## defect-closure-3: pending
 

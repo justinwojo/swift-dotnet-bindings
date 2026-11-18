@@ -1074,9 +1074,8 @@ public static partial class ClosureEmitter
             if (IsTypedAddressCollection(named))
                 return true;
 
-            // The initializer reuse is intentionally limited to the two proven Result shapes:
-            // Result<Optional<Class>, any Error> and Result<Optional<Any>, any Error>. Swift owns
-            // enum layout and exposes a typed temporary; managed code copies via Result metadata.
+            // Result passes as the address of a typed temporary: Swift owns the enum's layout and
+            // managed code copies through the Result's metadata (IsSupportedResultErrorCallbackInput).
             if (IsSupportedResultErrorCallbackInput(named, closureHandler))
                 return true;
 
@@ -1174,27 +1173,53 @@ public static partial class ClosureEmitter
         named.ContainsGenericParameters && named.Name is "Swift.Array" or "Swift.Dictionary" or "Swift.Set";
 
     /// <summary>
-    /// The two Result callback-input families authorized for the ordinary closure adapter.
-    /// MethodClosureBridge keeps ownership of method siblings; this predicate only makes the
-    /// representation available to other already-eligible producers such as constructors.
+    /// The <c>Result</c> callback inputs the ordinary closure adapter hands the managed callback as
+    /// the address of a typed Swift temporary, which the callback copies through the Result's own
+    /// metadata (<c>SwiftMarshal.MarshalFromSwift&lt;SwiftResult&lt;T, E&gt;&gt;</c>) before the
+    /// adapter destroys it. Swift owns the enum's layout, so nothing is reconstructed from registers.
     /// </summary>
+    /// <remarks>
+    /// Admitted: a success payload that is <c>Optional&lt;Class&gt;</c> or <c>Optional&lt;Any&gt;</c>,
+    /// or a nominal type whose projection carries Swift metadata (a class, a non-frozen or a
+    /// non-scalar frozen struct, an enum with payloads); a failure that is <c>any Error</c> or such a
+    /// nominal type. MethodClosureBridge keeps ownership of the members it is eligible for; this
+    /// predicate serves the producers after it, so a completion beside a parameter MCB cannot pass
+    /// (a <c>URL</c>, say) crosses through the @_cdecl adapter instead of a Swift-convention callback.
+    /// Scalars, simple enums, strings, tuples and nested generics stay out: their C# projections
+    /// are not the Swift values the Result metadata copies.
+    /// </remarks>
     internal static bool IsSupportedResultErrorCallbackInput(TypeSpec typeSpec, ClosureHandler closureHandler)
     {
-        if (!MethodClosureBridge.IsSwiftResultWithAnyErrorFailure(typeSpec) ||
-            typeSpec is not NamedTypeSpec result ||
-            result.GenericParameters[0] is not NamedTypeSpec
-            {
-                Name: "Swift.Optional",
-                GenericParameters.Count: 1
-            } optional)
-        {
+        if (typeSpec is not NamedTypeSpec { Name: "Swift.Result", GenericParameters.Count: 2 } result ||
+            typeSpec.IsInOut)
             return false;
-        }
 
-        var success = optional.GenericParameters[0];
-        return success is NamedTypeSpec { Name: "Swift.Any" } ||
-            success is ProtocolListTypeSpec { Protocols.Count: 0 } ||
-            closureHandler.IsClassType(success);
+        var success = result.GenericParameters[0];
+        var failure = result.GenericParameters[1];
+        var successAdmitted = success is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+            ? optional.GenericParameters[0] is NamedTypeSpec { Name: "Swift.Any" } ||
+              optional.GenericParameters[0] is ProtocolListTypeSpec { Protocols.Count: 0 } ||
+              closureHandler.IsClassType(optional.GenericParameters[0])
+            : IsMetadataBackedResultPayload(success, closureHandler);
+        return successAdmitted &&
+            (MethodClosureBridge.IsAnyErrorExistential(failure) || IsMetadataBackedResultPayload(failure, closureHandler));
+    }
+
+    /// <summary>
+    /// A nominal Result payload whose C# projection is the Swift value itself, copied through its
+    /// metadata: a class, a struct that is not a scalar, or an enum with payloads.
+    /// </summary>
+    private static bool IsMetadataBackedResultPayload(TypeSpec payload, ClosureHandler closureHandler)
+    {
+        if (payload is not NamedTypeSpec named || named.IsAny || named.IsInOut || named.ContainsGenericParameters)
+            return false;
+        if (IsSwiftPrimitive(named.Name) || named.Name == "Swift.Bool" || named.Name == "Swift.String" ||
+            named.Name.Contains("Pointer") || named.Name == "Swift.OpaquePointer" ||
+            closureHandler.IsSimpleEnum(named) || closureHandler.IsObjCBridgeableValue(named) ||
+            closureHandler.IsObjCBridgedClass(named))
+            return false;
+        return closureHandler.IsClassType(named) || closureHandler.IsNonFrozenStruct(named) ||
+            closureHandler.IsFrozenStruct(named) || closureHandler.IsComplexEnum(named);
     }
 
     /// <summary>

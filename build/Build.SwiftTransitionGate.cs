@@ -182,6 +182,7 @@ partial class Build
             // The residual-guard check over every scanned assembly, so a packed or shipped package DLL
             // gets the same account of its known-unsafe transitions as the compile-check tree.
             var residualFailed = new List<string>();
+            var acceptedCallbacks = new Dictionary<string, IReadOnlySet<string>>(StringComparer.Ordinal);
             foreach (var report in reports)
             {
                 var ledger = thunkOnly is not null && report.Path == thunkOnly.Assembly.ToString()
@@ -191,27 +192,47 @@ partial class Build
                         .Select(l => (AbsolutePath?)l.LedgerDirectory).SingleOrDefault()
                     : null;
                 if (!CheckResidualGuards((AbsolutePath)report.Path, report, ledger,
-                        HandWrittenResidualTypes(Path.GetFileName(report.Path)), output))
+                        HandWrittenResidualTypes(Path.GetFileName(report.Path)), output, out var accepted))
                     residualFailed.Add(Path.GetFileName(report.Path));
+                acceptedCallbacks[report.Path] = accepted;
             }
+
+            // R4 fails unless every member handing the Swift-convention callback to Swift is guarded
+            // for ReverseCallback (ResidualGuardCheck.AcceptedReverseCallbacks), the rule SWIFTBIND132
+            // and SWIFTBIND133 apply to a shipped assembly.
+            var unacceptedR4 = reports
+                .SelectMany(r => r.Violations.Where(v => v.Rule == TransitionRule.R4 &&
+                    !ResidualGuardCheck.IsAcceptedReverseCallback(v, acceptedCallbacks[r.Path])))
+                .ToList();
+            var acceptedR4 = reports.Sum(r => r.Violations.Count(v => v.Rule == TransitionRule.R4)) - unacceptedR4.Count;
+            Log.Information("R4: {Accepted} Swift-convention callback(s) accepted behind guarded hand-offs, {Unaccepted} unaccepted",
+                acceptedR4, unacceptedR4.Count);
+            foreach (var violation in unacceptedR4)
+                Log.Error("  R4 unaccepted {Member}: {Reason}", violation.Member, violation.Reason);
 
             // Fail-closed when the thunk-only artifact stopped being scanned or stopped being thunk-only.
             var censusFailures = thunkOnly is null ? new List<string>() : CheckThunkOnlyCensus(thunkOnly, reports);
             foreach (var failure in censusFailures)
                 Log.Error("  thunk-only census: {Failure}", failure);
 
-            if (!reports.All(r => r.Passed))
+            // A report fails on its inspection errors and every violation but an accepted R4, which
+            // unacceptedR4 accounts for (R1 stays red while guarded residuals remain).
+            if (reports.Any(r => !r.InspectionErrors.IsEmpty
+                    || r.Violations.Any(v => !ResidualGuardCheck.IsAcceptedReverseCallback(v, acceptedCallbacks[r.Path]))))
             {
                 var totals = SwiftTransitionReport.CountByRule(reports.SelectMany(r => r.Violations));
                 var errors = reports.Sum(r => r.InspectionErrors.Length);
                 throw new Exception(
-                    "Swift transition gate: " + string.Join(", ", totals.Select(kv => $"{kv.Key}={kv.Value}")) +
+                    "Swift transition gate: " + string.Join(", ", totals.Select(kv =>
+                        kv.Key == TransitionRule.R4 ? $"R4={kv.Value} ({acceptedR4} accepted, {unacceptedR4.Count} unaccepted)" : $"{kv.Key}={kv.Value}")) +
                     $", inspection errors={errors}" +
                     (crossCheckPassed is null ? "" : $", ledger cross-check {(crossCheckPassed.Value ? "passed" : "FAILED")}") +
                     $", residual guards {(residualFailed.Count == 0 ? "passed" : "FAILED for " + string.Join(", ", residualFailed))}" +
                     (thunkOnly is null ? "" : $", thunk-only census {(censusFailures.Count == 0 ? "passed" : "FAILED")}") +
                     ". Each listed transition is one the .NET 11 interpreter can mis-place or crash on — see the lines above.");
             }
+            if (unacceptedR4.Count > 0)
+                throw new Exception($"Swift transition gate: {unacceptedR4.Count} unaccepted R4 callback(s) — see the lines above.");
             if (crossCheckPassed == false)
                 throw new Exception("Swift transition gate: the transition ledger cross-check failed — see the lines above.");
             if (residualFailed.Count > 0)
@@ -329,8 +350,17 @@ partial class Build
             if (!result.Passed)
                 failed.Add(name);
 
-            if (!CheckResidualGuards(assembly, report, ledgerDirectory, HandWrittenResidualTypes(name), output))
+            if (!CheckResidualGuards(assembly, report, ledgerDirectory, HandWrittenResidualTypes(name), output, out var acceptedCallbacks))
                 failed.Add($"{name} (residual guards)");
+
+            // R4 as the packaged checks read it: a Swift-convention callback passes only when every
+            // member handing it to Swift is guarded for ReverseCallback.
+            var callbacks = report.Violations
+                .Where(v => v.Rule == TransitionRule.R4 && !ResidualGuardCheck.IsAcceptedReverseCallback(v, acceptedCallbacks)).ToList();
+            foreach (var violation in callbacks)
+                Log.Error("  R4 {Member}: {Reason}", violation.Member, violation.Reason);
+            if (callbacks.Count > 0)
+                failed.Add($"{name} (R4)");
 
             // R3 is enforced here although the other rules are not yet: a twin is only ever emitted
             // from its plan, so the two must agree from the first twin on.
@@ -600,10 +630,15 @@ partial class Build
     /// shipping runtime.
     /// </summary>
     static bool CheckResidualGuards(AbsolutePath assembly, AssemblyTransitionReport report, AbsolutePath? ledgerDirectory,
-        IReadOnlyCollection<string> handWritten, AbsolutePath output)
+        IReadOnlyCollection<string> handWritten, AbsolutePath output) =>
+        CheckResidualGuards(assembly, report, ledgerDirectory, handWritten, output, out _);
+
+    static bool CheckResidualGuards(AbsolutePath assembly, AssemblyTransitionReport report, AbsolutePath? ledgerDirectory,
+        IReadOnlyCollection<string> handWritten, AbsolutePath output, out IReadOnlySet<string> acceptedCallbacks)
     {
         var name = Path.GetFileNameWithoutExtension(assembly);
         var result = ResidualGuardCheck.Check(assembly, report);
+        acceptedCallbacks = ResidualGuardCheck.AcceptedReverseCallbacks(report, result);
         var problems = ledgerDirectory is null
             ? System.Collections.Immutable.ImmutableArray<string>.Empty
             : ResidualGuardCheck.CrossCheckSidecars(result, ledgerDirectory, handWritten);
@@ -612,8 +647,8 @@ partial class Build
         var path = output / $"swift-transition-residual-guards.{name}.txt";
         File.WriteAllText(path, summary);
         var passed = result.Passed && problems.IsEmpty;
-        Log.Information("[{Assembly}] residual guards: {Verdict} ({Hazards} hazard(s), {Holders} holder(s), {Guards} guard call(s)); {Path}",
-            name, passed ? "passed" : "FAILED", result.Hazards.Length, result.Holders.Length, result.GuardCalls, path);
+        Log.Information("[{Assembly}] residual guards: {Verdict} ({Hazards} hazard(s), {Holders} holder(s), {Guards} guard call(s), {Accepted} guarded R4 callback(s)); {Path}",
+            name, passed ? "passed" : "FAILED", result.Hazards.Length, result.Holders.Length, result.GuardCalls, acceptedCallbacks.Count, path);
         foreach (var violation in result.Violations)
             Log.Error("  {Rule} {Member}: {Reason}", violation.Rule, violation.Member, violation.Reason);
         foreach (var error in result.Errors)

@@ -415,6 +415,42 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
+    /// True when Swift returns <paramref name="returnType"/> from a direct-lane closure in a shape the
+    /// callback cannot produce. A thick closure's result is owned by Swift and comes back in one of
+    /// three ways: a reference in the return register, an address-only value written into the buffer
+    /// Swift passes in its indirect-result register, or a loadable value exploded across the return
+    /// registers. The callback models the first two and scalars the declaration already carries; an
+    /// exploded value (a frozen struct, a <c>String</c>, an <c>Array</c>, an <c>Optional</c> over a
+    /// loadable payload, a no-payload enum's tag) would be answered with a pointer to a buffer, which
+    /// compiles and hands Swift the wrong registers.
+    /// </summary>
+    internal static bool IsUnmodelledDirectLaneReturn(TypeSpec returnType, ClosureHandler closureHandler, out string shape)
+    {
+        shape = string.Empty;
+        if (returnType.IsEmptyTuple)
+            return false;
+
+        if (closureHandler.ClassifyDirectClosureArg(returnType).Abi is DirectClosureArgAbi.ExplodedWords or DirectClosureArgAbi.Unmodelled)
+        {
+            shape = returnType.ToString();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// True when a non-throwing closure callback writes its result into a caller-provided buffer
+    /// instead of returning it. On the <c>@_cdecl</c> lane that is the adapter's contract for every
+    /// non-primitive result; on the Swift lane only an address-only result travels that way, in
+    /// Swift's indirect-result register, while a reference comes back in the return register.
+    /// </summary>
+    internal static bool UsesIndirectReturnCallback(ClosureTypeSpec closureTypeSpec, ClosureHandler closureHandler, bool useCdecl)
+        => useCdecl
+            ? closureHandler.RequiresIndirectReturnMarshalling(closureTypeSpec)
+            : IsSwiftLaneIndirectResult(closureTypeSpec, closureHandler, useCdecl);
+
+    /// <summary>
     /// Shared tail of the three entry points: a closure only reaches the direct trampoline when it is
     /// a supported non-async closure that needs a reverse thunk at all, and only then do its
     /// argument lowering and its return matter here.
@@ -452,6 +488,9 @@ public static partial class ClosureEmitter
             shape = spec.ReturnType.ToString();
             return true;
         }
+
+        if (IsUnmodelledDirectLaneReturn(spec.ReturnType, closureHandler, out shape))
+            return true;
 
         return HasUnmodelledDirectLaneArg(spec, closureHandler, out shape);
     }

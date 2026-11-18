@@ -206,6 +206,17 @@ public sealed record SwiftCallTarget
     /// </summary>
     public string? Forwards { get; init; }
 
+    /// <summary>
+    /// Why a client of the defining module's public interface cannot name the callee: the member, or
+    /// a type of its module it is declared in, is internal, <c>@usableFromInline internal</c>,
+    /// unavailable or SPI. Null when a client can. Such a callee is reached by its symbol alone, so
+    /// only evidence read from its definition, never a client's, can show how it is called.
+    /// It says who can name the callee, not how it is called: it is not part of the target's identity
+    /// (two producers that read the declaration through different interfaces never conflict over it),
+    /// and it never changes a plan.
+    /// </summary>
+    public string? NotPublic { get; init; }
+
     public bool Equals(SwiftCallTarget? other) =>
         other is not null
         && Kind == other.Kind && Accessor == other.Accessor && Entry == other.Entry

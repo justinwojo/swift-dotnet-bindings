@@ -205,6 +205,34 @@ internal sealed class SwiftTransitionGuards
     }
 
     /// <summary>
+    /// The shapes of a Swift-convention reverse callback: <see cref="SwiftTransitionFacts.ReverseCallback"/>,
+    /// and <see cref="SwiftTransitionFacts.SpecialBeforeArguments"/> as well when it takes both the
+    /// error register and an indirect result. Both lead its managed parameters, and a reverse thunk
+    /// that places special registers by position (the .NET 11 CoreCLR interpreter stores the error
+    /// register into the first slot) cannot carry the two. The IL reading is
+    /// <c>SwiftTransitionShapes.OfReverse</c> in the transition gate; the two must agree.
+    /// </summary>
+    internal static SwiftTransitionFacts ReverseFactsOf(SeparatedSyntaxList<ParameterSyntax> parameters)
+    {
+        bool error = false, indirect = false;
+        foreach (var parameter in parameters)
+        {
+            if (parameter.Type is not { } type)
+                continue;
+            switch (RegisterRole(type, parameter.Modifiers))
+            {
+                case "SwiftError":
+                    error = true;
+                    break;
+                case "SwiftIndirectResult":
+                    indirect = true;
+                    break;
+            }
+        }
+        return error && indirect ? SwiftTransitionFacts.ReverseCallback | SwiftTransitionFacts.SpecialBeforeArguments : SwiftTransitionFacts.ReverseCallback;
+    }
+
+    /// <summary>
     /// Which Swift register type <paramref name="type"/> is, if any. The error register is passed as
     /// <c>SwiftError*</c>, or as <c>ref</c>/<c>out</c> <c>SwiftError</c>, which a <c>LibraryImport</c>
     /// stub pins to that pointer.
@@ -273,7 +301,7 @@ internal sealed class SwiftTransitionGuards
                         // A Swift-convention callback: Swift calls it with the closure context in the self
                         // register, so every member that hands Swift its address reaches that shape.
                         var callback = SwiftTransitionSyntax.MemberOf(method);
-                        found.Add((new SwiftTransitionHazard(MaskName(callback, ""), SwiftTransitionKind.ReverseCallback, callback, "", SwiftTransitionFacts.ReverseCallback), method));
+                        found.Add((new SwiftTransitionHazard(MaskName(callback, ""), SwiftTransitionKind.ReverseCallback, callback, "", ReverseFactsOf(method.ParameterList.Parameters)), method));
                         break;
                     }
                     var callConv = attributes.FirstOrDefault(a => SwiftTransitionSyntax.IsAttribute(a, "UnmanagedCallConv"));

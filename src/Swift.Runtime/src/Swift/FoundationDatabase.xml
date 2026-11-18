@@ -4,8 +4,15 @@
         <entity managedNameSpace="Swift.Foundation" managedTypeName="Data">
             <typedeclaration kind="struct" name="Data" module="Foundation" mangledName="s10Foundation4DataV" frozen="true" requiresMemoryManagement="false" nativeType="Foundation.NSData" />
         </entity>
+        <!-- closedConformances: every protocol URL conforms to in the platform SDKs of the supported
+             Xcode releases (Foundation's own conformances, those CoreTransferable, AppIntents,
+             AppIntentsTypeSupport and CoreVideo add, and everything they refine), so a protocol
+             outside it is one no SDK module makes URL conform to. Call pinning reads it to rule a
+             protocol-constrained sibling out. ClosedConformanceSdkAuditTests checks it against
+             the installed SDKs; add what a new SDK declares, never remove. -->
         <entity managedNameSpace="Swift.Foundation" managedTypeName="URL">
-            <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" objcBridgeable="true" />
+            <typedeclaration kind="struct" name="URL" module="Foundation" mangledName="$s10Foundation3URLV" frozen="false" requiresMemoryManagement="true" nativeType="Foundation.NSUrl" objcBridgeable="true"
+                closedConformances="Swift.Copyable,Swift.Escapable,Swift.Equatable,Swift.Hashable,Swift.Sendable,Swift.SendableMetatype,Swift.Encodable,Swift.Decodable,Swift.CustomStringConvertible,Swift.CustomDebugStringConvertible,Swift._ObjectiveCBridgeable,Swift._CustomPlaygroundQuickLookable,Swift._ExpressibleByFileReferenceLiteral,Foundation.ReferenceConvertible,CoreTransferable.Transferable,AppIntents._IntentValue,AppIntents.CustomURLRepresentationParameterConvertible,AppIntentsTypeSupport.IntentValueConvertible,AppIntentsTypeSupport.IntentValueExpressing,CoreVideo.CVAttachmentValueRepresentable" />
         </entity>
         <entity managedNameSpace="" managedTypeName="double">
             <typedeclaration kind="struct" name="Date" module="Foundation" mangledName="$s10Foundation4DateV" frozen="true" requiresMemoryManagement="false" />

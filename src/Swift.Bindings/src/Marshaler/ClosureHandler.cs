@@ -2456,6 +2456,32 @@ public partial class ClosureHandler
         IsObjCBridgeableValue(named.GenericParameters[0]);
 
     /// <summary>
+    /// True for <c>Optional&lt;T&gt;</c> where <c>T</c> is a Swift value type projected as a generated
+    /// value-wrapper class: a resilient struct or a payload-carrying enum. The managed spelling
+    /// <c>T?</c> is then only a nullable-reference annotation, so a reader or writer keyed on it sees
+    /// <c>T</c> and loses Swift's empty case; callback code must go through <c>SwiftOptional&lt;T&gt;</c>.
+    /// <c>Foundation.Data</c> is excluded: it projects to <c>byte[]</c> and has its own arms.
+    /// <c>Swift.AnyHashable</c> is excluded too: the database records it as a resilient struct, but the
+    /// runtime projects it as a hand-written C# struct, so its <c>T?</c> is a real <c>Nullable&lt;T&gt;</c>.
+    /// </summary>
+    public bool IsOptionalValueWrapper(TypeSpec typeSpec, out NamedTypeSpec inner)
+    {
+        if (typeSpec is NamedTypeSpec { ContainsGenericParameters: true, Name: "Swift.Optional" } named &&
+            named.GenericParameters.Count == 1 &&
+            named.GenericParameters[0] is NamedTypeSpec payload &&
+            payload.Name != "Foundation.Data" &&
+            payload.Name != "Swift.AnyHashable" &&
+            (IsNonFrozenStruct(payload) || IsComplexEnum(payload)))
+        {
+            inner = payload;
+            return true;
+        }
+
+        inner = null!;
+        return false;
+    }
+
+    /// <summary>
     /// Checks if a type is a complex enum (enum with associated values) in the type database.
     /// Complex enums are non-blittable and require heap allocation for closure parameter passing.
     /// </summary>

@@ -37,8 +37,10 @@ public static partial class ClosureEmitter
         var delegateType = closureHandler.GetCSharpDelegateType(closureTypeSpec);
         var returnCSharpType = closureHandler.TranslateTypeSpecToCSharp(closureTypeSpec.ReturnType, isReturnType: true);
 
-        // Build parameter list: void* indirectResult, arguments..., context
-        var parameters = new List<string> { "void* indirectResult" };
+        // Build parameter list. Cdecl: void* indirectResult, arguments..., context (the @_cdecl
+        // adapter passes the buffer as its first argument). Swift: the shared reverse order places the
+        // SwiftIndirectResult (Swift's indirect-result register) and the context.
+        var parameters = useCdecl ? new List<string> { "void* indirectResult" } : new List<string>();
         var argTypes = new List<TypeSpec>();
         int argIndex = 0;
         foreach (var arg in closureTypeSpec.EachArgument())
@@ -65,7 +67,7 @@ public static partial class ClosureEmitter
         if (useCdecl)
             parameters.Add("IntPtr contextPtr");
         else
-            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: false);
+            parameters = ReverseSwiftCallbackSignature.Parameters(parameters, throws: false, indirectResult: true);
         var parametersString = string.Join(", ", parameters);
 
         // Existential-argument proxy suppression: see EmitEscapingClosureCallback. An existential
@@ -140,6 +142,11 @@ public static partial class ClosureEmitter
         // these today; see IsSupportedClosureReturnType.)
         bool isObjCBridged = closureHandler.IsObjCBridgedClass(closureTypeSpec.ReturnType);
         bool isClassReturn = closureHandler.IsClassType(closureTypeSpec.ReturnType);
+        // Optional<resilient struct / payload enum>: both lanes size and later move the buffer as
+        // Optional<T>, while the delegate's `T?` is only a nullable-reference annotation over the
+        // wrapper class. Writing through T's metadata never stores Swift's empty case (and a null
+        // result has no payload to write), so the whole Optional is built and copied in.
+        bool isOptionalValueWrapper = closureHandler.IsOptionalValueWrapper(closureTypeSpec.ReturnType, out var optionalPayload);
 
         // No per-case delegate-type rewrite here: GetCSharpDelegateType is the SINGLE computation the
         // public signature and this cast both read, and it already spells a [String] closure return as
@@ -216,6 +223,19 @@ public static partial class ClosureEmitter
                 *(IntPtr*)indirectResult = result.Handle;
                 """;
         }
+        else if (isOptionalValueWrapper)
+        {
+            var payloadType = closureHandler.TranslateTypeSpecToCSharp(optionalPayload);
+            marshalBlock = $$"""
+                // Optional value wrapper: write Optional<{{payloadType}}>, including its empty case.
+                using var _swiftOpt = result is null
+                    ? SwiftOptional<{{payloadType}}>.NewNone()
+                    : SwiftOptional<{{payloadType}}>.NewSome(result);
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{payloadType}}>>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
+                """;
+        }
         else if (isClassReturn)
         {
             marshalBlock = """
@@ -246,6 +266,8 @@ public static partial class ClosureEmitter
         // the process. Wrap the body so any unhandled exception becomes a controlled FailFast
         // BEFORE Swift touches the buffer.
         var argPrologue = BuildDirectLaneWordBufferPrologue(closureTypeSpec, closureHandler, useCdecl);
+        if (!useCdecl)
+            argPrologue = ReverseSwiftCallbackSignature.IndirectResultBuffer + "\n" + PrologueContinuationIndent + argPrologue;
         csWriter.WriteLines($$"""
             [global::System.Runtime.InteropServices.UnmanagedCallersOnly(CallConvs = new[] { {{callConvType}} })]
             private static unsafe void {{callbackName}}({{parametersString}})
@@ -320,14 +342,14 @@ public static partial class ClosureEmitter
         ClosureTypeSpec closureTypeSpec,
         ClosureHandler closureHandler)
     {
-        var types = new List<string> { "void*" }; // indirect result buffer
+        var types = new List<string>(); // the rule places the indirect result
         foreach (var arg in closureTypeSpec.EachArgument())
         {
             types.Add(GetCallbackParameterType(arg, closureHandler));
             AppendDirectLaneExtraWordTypes(types, arg, closureHandler, useCdecl: false);
         }
 
-        return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: false, returnType: "void");
+        return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: false, returnType: "void", indirectResult: true);
     }
 
     /// <summary>

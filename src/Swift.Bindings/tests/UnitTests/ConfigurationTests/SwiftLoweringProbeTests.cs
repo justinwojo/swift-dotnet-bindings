@@ -202,6 +202,81 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Equal(Scale, Assert.Single(plan.Calls).Target);
     }
 
+    private const string Helper = "$s10Foundation4DateV3LibE6helperSiyF";
+    private const string Synthesized = "$s3Lib7AccountC4hash4intoys6HasherVz_tF";
+
+    /// <summary>
+    /// <see cref="Descriptor"/> as a module built for testing describes it, with a member the compiler
+    /// synthesized, which no interface spells, and a member this module adds to another module's type.
+    /// </summary>
+    private static SwiftLoweringProbe.ProbePlan PlanAgainst(IReadOnlySet<string>? interfaceNames, params string[] targets)
+    {
+        var descriptor = Descriptor();
+        var children = descriptor["ABIRoot"]!["children"]!.AsArray();
+        var synthesized = Function("hash(into:)", Synthesized, [], "()", "Swift.Hasher");
+        synthesized["implicit"] = true;
+        children[0]!["children"]!.AsArray().Add((JsonNode)synthesized);
+        var date = TypeDecl("Date", "Struct", [], Function("helper()", Helper, [], "Swift.Int"));
+        date["moduleName"] = "Foundation";
+        children.Add((JsonNode)date);
+        using var index = new AbiDescriptorIndex();
+        index.LoadText(descriptor.ToJsonString());
+        var names = interfaceNames is null ? null : new Dictionary<string, IReadOnlySet<string>> { ["Lib"] = interfaceNames };
+        return SwiftLoweringProbe.Plan(targets, index, new Dictionary<string, string>(), "Lib", [], SwiftLoweringProbe.NotDeclaredReason, names);
+    }
+
+    /// <summary>
+    /// A declaration whose type, or whose own name, the module's interface never spells is internal:
+    /// it gets no call, and its reason is not public from the interface. An initializer, an accessor of
+    /// a spelled property, a synthesized member and a member of another module's type are not judged
+    /// by a name the interface need not spell.
+    /// </summary>
+    [Fact]
+    public void Plan_ADeclarationTheInterfaceDoesNotName_IsInternal_AndGetsNoCall()
+    {
+        string[] targets = [Scale, Getter, Init, Open, Synthesized, Helper];
+        IReadOnlySet<string> withoutAccount = new HashSet<string> { "Base", "value", "count", "scale", "helper" };
+
+        var plan = PlanAgainst(withoutAccount, targets);
+
+        // Every member of the internal Account, initializer included, is internal.
+        foreach (var target in new[] { Scale, Getter, Init, Synthesized })
+            Assert.Equal(SwiftLoweringProbe.InternalReason, plan.Unprobed[target]);
+        Assert.Equal(new[] { Open, Helper }.Order(StringComparer.Ordinal), plan.Calls.Select(c => c.Target).Order(StringComparer.Ordinal));
+        Assert.Equal(SwiftLoweringProbe.NotPublicCategory, SwiftLoweringProbe.ReasonCategory(SwiftLoweringProbe.InternalReason));
+
+        // A public Account with an internal scale(_:) and an internal count. This module's interface
+        // spells its extension of Date by the member's name, never needing Date's own declaration.
+        IReadOnlySet<string> withoutMembers = new HashSet<string> { "Account", "Base", "value", "helper" };
+        plan = PlanAgainst(withoutMembers, targets);
+
+        Assert.Equal(SwiftLoweringProbe.InternalReason, plan.Unprobed[Scale]);
+        Assert.Equal(SwiftLoweringProbe.InternalReason, plan.Unprobed[Getter]);
+        Assert.Equal(new[] { Init, Open, Synthesized, Helper }.Order(StringComparer.Ordinal), plan.Calls.Select(c => c.Target).Order(StringComparer.Ordinal));
+
+        // With no interface to read, nothing is judged internal by its absence.
+        Assert.Empty(PlanAgainst(null, targets).Unprobed);
+    }
+
+    [Fact]
+    public void InterfaceNames_AreEveryIdentifierOfThePublicAndPrivateInterface_OrNoneWithoutOne()
+    {
+        var path = Path.Combine(_dir, "arm64-apple-ios.swiftinterface");
+        Assert.Null(SwiftLoweringProbe.InterfaceNames(path));
+        Assert.Null(SwiftLoweringProbe.InterfaceNames(null));
+
+        File.WriteAllText(path, "public final class Host {\n  public func `default`() -> Swift.Int32\n  public var größe: Swift.Int { get }\n}\n");
+        File.WriteAllText(Path.Combine(_dir, "arm64-apple-ios.private.swiftinterface"), "@_spi(Internal) public func gated()\n");
+
+        var names = SwiftLoweringProbe.InterfaceNames(path)!;
+        Assert.Contains("Host", names);
+        Assert.Contains("default", names);
+        Assert.Contains("größe", names);
+        Assert.Contains("Int32", names);
+        Assert.Contains("gated", names);
+        Assert.DoesNotContain("hidden", names);
+    }
+
     [Theory]
     [InlineData(Modify, "_modify accessor")]
     [InlineData(Pack, "parameter pack")]
@@ -437,7 +512,29 @@ public sealed class SwiftLoweringProbeTests : IDisposable
 
     private sealed record Fixture(string SearchPath, string FrontendArgs, SwiftOracleModule Module, JsonDocument Descriptor);
 
-    private static readonly Lazy<Fixture> _fixture = new(() =>
+    private static readonly Lazy<Fixture> _fixture = new(() => BuildFixture("ProbeKit", Library));
+
+    /// <summary>
+    /// A library built for testing (<c>-enable-testing</c>), as some binary frameworks ship: its ABI
+    /// descriptor also lists the internal declarations, which its public interface leaves out.
+    /// </summary>
+    private const string TestableLibrary = """
+        public final class Host {
+            public init() {}
+            public func shown() -> Int32 { 1 }
+            static func hidden(_ value: Int32) -> Int32 { value }
+            var tally: Int32 { 0 }
+        }
+        final class InternalRecord {
+            init() {}
+            func describe(_ value: Int32) -> Int32 { value }
+            static func make() -> InternalRecord { InternalRecord() }
+        }
+        """;
+
+    private static readonly Lazy<Fixture> _testable = new(() => BuildFixture("RecordKit", TestableLibrary, ["-enable-testing"]));
+
+    private static Fixture BuildFixture(string name, string library, IEnumerable<string>? extraArguments = null)
     {
         var root = Path.Combine(Path.GetTempPath(), $"swlp_fixture_{Guid.NewGuid():N}");
         AppDomain.CurrentDomain.ProcessExit += (_, _) =>
@@ -447,28 +544,31 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         };
         var build = Path.Combine(root, "build");
         Directory.CreateDirectory(build);
-        var source = Path.Combine(build, "ProbeKit.swift");
-        File.WriteAllText(source, Library);
+        var source = Path.Combine(build, name + ".swift");
+        File.WriteAllText(source, library);
         var target = SwiftOracleTarget.SimulatorArm64;
-        var module = SwiftLoweringOracle.Compile("ProbeKit", [source], target, build);
+        var module = SwiftLoweringOracle.Compile(name, [source], target, build, extraArguments);
         // The framework a binary distribution ships: the public interface and the ABI descriptor.
         var search = Path.Combine(root, "frameworks");
-        var modules = Path.Combine(search, "ProbeKit.framework", "Modules", "ProbeKit.swiftmodule");
+        var modules = Path.Combine(search, name + ".framework", "Modules", name + ".swiftmodule");
         Directory.CreateDirectory(modules);
-        File.Copy(Path.Combine(SwiftLoweringOracle.InterfaceDirectory(build), "ProbeKit.swiftinterface"), Path.Combine(modules, "arm64-apple-ios-simulator.swiftinterface"));
+        File.Copy(Path.Combine(SwiftLoweringOracle.InterfaceDirectory(build), name + ".swiftinterface"), Path.Combine(modules, "arm64-apple-ios-simulator.swiftinterface"));
         File.Copy(module.AbiJsonPath, Path.Combine(modules, "arm64-apple-ios-simulator.abi.json"));
         var frontend = $"-target {target.Triple} -sdk \"{SwiftLoweringOracle.SdkPath(target.Sdk)}\" -strict-concurrency=minimal " +
                        $"-F \"{search}\" -module-cache-path \"{Path.Combine(root, "module-cache")}\" ";
         return new Fixture(search, frontend, module,
             JsonDocument.Parse(File.ReadAllText(module.AbiJsonPath), new JsonDocumentOptions { MaxDepth = 1024 }));
-    });
+    }
 
     /// <summary>
     /// The mangled name the fixture's descriptor gives the member <paramref name="printedName"/> of
     /// <paramref name="owner"/> (null for a global), or its <paramref name="accessor"/>; of overloads, the
     /// one whose mangled name contains <paramref name="containing"/>.
     /// </summary>
-    private static string Symbol(string? owner, string printedName, string? accessor = null, string? containing = null)
+    private static string Symbol(string? owner, string printedName, string? accessor = null, string? containing = null) =>
+        SymbolIn(_fixture.Value, owner, printedName, accessor, containing);
+
+    private static string SymbolIn(Fixture fixture, string? owner, string printedName, string? accessor = null, string? containing = null)
     {
         var found = new List<string>();
         void Walk(JsonElement node, string? type)
@@ -491,7 +591,7 @@ public sealed class SwiftLoweringProbeTests : IDisposable
                     Walk(child, next);
             }
         }
-        Walk(_fixture.Value.Descriptor.RootElement.GetProperty("ABIRoot"), null);
+        Walk(fixture.Descriptor.RootElement.GetProperty("ABIRoot"), null);
         return found.Where(s => containing is null || s.Contains(containing, StringComparison.Ordinal)).ToList() is [var single]
             ? single
             : throw new InvalidOperationException($"the descriptor declares {found.Count} {owner}.{printedName}");
@@ -585,6 +685,38 @@ public sealed class SwiftLoweringProbeTests : IDisposable
         Assert.Equal(SwiftLoweringProbe.UsableFromInlineReason, result.Unseen[hidden]);
         Assert.Equal(SwiftLoweringProbe.NotDeclaredReason, result.Unseen[always]);
         Assert.Equal(3, result.Unseen.Count);
+    }
+
+    /// <summary>
+    /// A library built for testing lists its internal declarations in its descriptor. No client of its
+    /// public interface can name an internal type, a member of one, or an internal member of a public
+    /// type: each is unobserved as not public from the interface, with no call written for it, and the
+    /// public member is still shown.
+    /// </summary>
+    [SkippableFact]
+    public void Run_AnInternalDeclarationOfATestableDescriptor_IsNotPublicFromTheInterface()
+    {
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var fixture = _testable.Value;
+        var shown = SymbolIn(fixture, "Host", "shown()");
+        var internals = new[]
+        {
+            SymbolIn(fixture, "Host", "hidden(_:)"),
+            SymbolIn(fixture, "Host", "tally", "get"),
+            SymbolIn(fixture, "InternalRecord", "describe(_:)"),
+            SymbolIn(fixture, "InternalRecord", "make()"),
+        };
+
+        var result = SwiftLoweringProbe.Run(
+            new SwiftLoweringProbe.Request(internals.Append(shown).ToList(), "RecordKit", fixture.SearchPath, null, [], fixture.FrontendArgs,
+                "RecordKitLoweringProbe", SwiftOracleTarget.SimulatorArm64.Triple, _dir),
+            new SystemCommandRunner(), NullLogger.Instance, 300_000);
+
+        Assert.All(internals, t => Assert.Equal("not public from the interface: it is internal, which the public interface leaves out", result.Unseen.GetValueOrDefault(t)));
+        Assert.Equal(internals.Length, result.Unseen.Count);
+        Assert.NotEmpty(SwiftLoweringEvidenceCollector.Signatures([shown], result.Modules));
+        Assert.Equal(1, result.Calls);
+        Assert.Equal(1, result.Compiles);
     }
 
     /// <summary>

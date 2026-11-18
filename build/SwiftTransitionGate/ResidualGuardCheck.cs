@@ -88,6 +88,22 @@ public static class SwiftTransitionShapes
         return shapes;
     }
 
+    /// <summary>
+    /// The shapes of a Swift-convention reverse callback, read from its native carriers:
+    /// <see cref="ReverseCallback"/>, and <see cref="SpecialBeforeArguments"/> as well when it takes
+    /// both the error register and an indirect result. Both lead its managed parameters, and a
+    /// reverse thunk that places special registers by position (the .NET 11 CoreCLR interpreter
+    /// stores the error register into the first slot) cannot carry the two. This matches the
+    /// generator's reading of the callback's declaration (<c>SwiftTransitionGuards.ReverseFactsOf</c>).
+    /// </summary>
+    public static ulong OfReverse(IReadOnlyList<(int Index, CarrierVerdict Verdict)> carriers)
+    {
+        var parameters = carriers.Where(c => c.Index >= 0).Select(c => c.Verdict.Kind).ToList();
+        return parameters.Contains(CarrierKind.SwiftError) && parameters.Contains(CarrierKind.SwiftIndirectResult)
+            ? ReverseCallback | SpecialBeforeArguments
+            : ReverseCallback;
+    }
+
     /// <summary>The shapes by name; a bit this table does not know is spelled in hex.</summary>
     public static string Describe(ulong shapes)
     {
@@ -113,7 +129,14 @@ public sealed record ResidualGuardViolation(string Rule, string Member, string R
 /// it has no holder to guard, and only code outside the assembly could run it, which the check
 /// refuses when that code can see it.
 /// </summary>
-public sealed record ResidualHazard(TransitionSiteKind Kind, string Member, string? EntryPoint, int? IlOffset, ulong Shapes, bool Referenced = true);
+/// <para>
+/// For a Swift-convention callback, <see cref="Confined"/> is whether its address can reach Swift only
+/// through the hand-offs this check found: the callback is private, and every address taken of it is
+/// held in a local or stored straight into a private static field no other code writes, whose loads
+/// are not stored anywhere else or returned. A callback that is not confined is reachable some other
+/// way, which no guard of its hand-offs answers for.
+/// </para>
+public sealed record ResidualHazard(TransitionSiteKind Kind, string Member, string? EntryPoint, int? IlOffset, ulong Shapes, bool Referenced = true, bool Confined = true);
 
 /// <summary>
 /// A method that must refuse before it runs: it holds a hazard (<see cref="Direct"/>), or code outside
@@ -191,6 +214,53 @@ public static class ResidualGuardCheck
         var state = new State(pe, pe.GetMetadataReader());
         return state.Run(report);
     }
+
+    /// <summary>
+    /// The R4 violations a guard answers for: each Swift-convention callback (by its member name)
+    /// whose only R4 reason is the Swift convention, which the assembly hands Swift from at least one
+    /// of its own members, and whose every hand-off this check found guarded for
+    /// <see cref="SwiftTransitionShapes.ReverseCallback"/> (and for
+    /// <see cref="SwiftTransitionShapes.SpecialBeforeArguments"/> where its signature takes both an
+    /// error and an indirect result, <see cref="SwiftTransitionShapes.OfReverse"/>). That is the reverse counterpart of an R1
+    /// hazard reached only through a guarded holder: the callback still exists, and on the engines
+    /// that refuse <see cref="SwiftTransitionShapes.ReverseCallback"/> every member that could hand it
+    /// to Swift throws before it does.
+    /// </summary>
+    /// <remarks>
+    /// Fail-closed: nothing is accepted from a check that did not pass (an unguarded, uncovered or
+    /// late hand-off, a type initializer that hands one over, a hand-off no method of the assembly
+    /// creates, or anything it could not inspect). A callback no member of the assembly hands over,
+    /// one whose address can leave its hand-offs (<see cref="ResidualHazard.Confined"/>), one that
+    /// is also exported as a native entry point, and one whose reverse signature carries
+    /// <c>SwiftSelf&lt;T&gt;</c> stay R4 failures: nothing guards the first two, and no guard makes
+    /// the third safe.
+    /// </remarks>
+    public static IReadOnlySet<string> AcceptedReverseCallbacks(AssemblyTransitionReport report, ResidualGuardResult result)
+    {
+        var accepted = new HashSet<string>(StringComparer.Ordinal);
+        if (!result.Passed)
+            return accepted;
+        var handedOver = result.Hazards
+            .Where(h => h.Kind == TransitionSiteKind.UnmanagedCallersOnly && h.Referenced && h.Confined
+                        && (h.Shapes & ~SwiftTransitionShapes.SpecialBeforeArguments) == SwiftTransitionShapes.ReverseCallback)
+            .Select(h => h.Member)
+            .ToHashSet(StringComparer.Ordinal);
+        foreach (var violation in report.Violations)
+        {
+            if (violation.Rule == TransitionRule.R4 && violation.Site == TransitionSiteKind.UnmanagedCallersOnly
+                && !violation.Classes.IsDefault && violation.Classes.SequenceEqual([SwiftTransitionScanner.SwiftConventionCallbackClass])
+                && handedOver.Contains(violation.Member))
+                accepted.Add(violation.Member);
+        }
+        return accepted;
+    }
+
+    /// <summary>
+    /// Whether <paramref name="violation"/> fails its assembly: every violation except an R1 (which
+    /// the residual-guard check judges) and an R4 <paramref name="accepted"/> lists.
+    /// </summary>
+    public static bool IsAcceptedReverseCallback(TransitionViolation violation, IReadOnlySet<string> accepted) =>
+        violation.Rule == TransitionRule.R4 && accepted.Contains(violation.Member);
 
     /// <summary>A readable summary: the counts, every holder, and every violation.</summary>
     public static string ToSummary(ResidualGuardResult result)
@@ -355,10 +425,16 @@ public static class ResidualGuardCheck
                 holder.Local |= site.Shapes;
                 hazardSites.Add((site, holder.Handle));
             }
-            var callbacks = CallbackHandOffs(report);
-            foreach (var (_, executes) in callbacks)
+            var callbacks = CallbackHandOffs(report, out var exposed);
+            // Each callback's shapes, from its own reverse signature.
+            var callbackShapes = new Dictionary<string, ulong>(StringComparer.Ordinal);
+            foreach (var site in report.Sites)
+                if (site.Kind == TransitionSiteKind.UnmanagedCallersOnly && site.Convention == TransitionConvention.Swift)
+                    callbackShapes[site.Member] = callbackShapes.GetValueOrDefault(site.Member) | site.Shapes | SwiftTransitionShapes.ReverseCallback;
+            ulong ShapesOf(string callback) => callbackShapes.GetValueOrDefault(callback, SwiftTransitionShapes.ReverseCallback);
+            foreach (var (callback, executes) in callbacks)
                 foreach (var method in executes)
-                    method.Local |= SwiftTransitionShapes.ReverseCallback;
+                    method.Local |= ShapesOf(callback);
 
             Propagate();
             var hazards = new List<ResidualHazard>();
@@ -371,8 +447,9 @@ public static class ResidualGuardCheck
             {
                 var referenced = false;
                 foreach (var method in executes.Distinct())
-                    referenced |= AttributeHolders(atExecutor: true, SwiftTransitionShapes.ReverseCallback, callback, method);
-                hazards.Add(new ResidualHazard(TransitionSiteKind.UnmanagedCallersOnly, callback, null, null, SwiftTransitionShapes.ReverseCallback, referenced));
+                    referenced |= AttributeHolders(atExecutor: true, ShapesOf(callback), callback, method);
+                hazards.Add(new ResidualHazard(TransitionSiteKind.UnmanagedCallersOnly, callback, null, null, ShapesOf(callback), referenced,
+                    Confined: !exposed.Contains(callback)));
             }
 
             var holders = new List<ResidualGuardHolder>();
@@ -697,11 +774,25 @@ public static class ResidualGuardCheck
         /// initializer fills), every method that loads that field. Swift calls the callback with its
         /// context in the self register, so each of them reaches <see cref="SwiftTransitionShapes.ReverseCallback"/>.
         /// </summary>
-        private Dictionary<string, List<Method>> CallbackHandOffs(AssemblyTransitionReport report)
+        /// <paramref name="exposed"/> names each callback whose address can reach Swift some other
+        /// way (<see cref="ResidualHazard.Confined"/>).
+        private Dictionary<string, List<Method>> CallbackHandOffs(AssemblyTransitionReport report, out HashSet<string> exposed)
         {
             var handOffs = new Dictionary<string, List<Method>>(StringComparer.Ordinal);
             List<Method> Of(string callback) => handOffs.TryGetValue(callback, out var list) ? list : handOffs[callback] = new List<Method>();
             var fields = new Dictionary<FieldDefinitionHandle, string>();
+            var leaks = new HashSet<string>(StringComparer.Ordinal);
+            exposed = leaks;
+            // A callback another assembly can name can have its address taken there.
+            foreach (var site in report.Sites)
+            {
+                if (site.Kind != TransitionSiteKind.UnmanagedCallersOnly || site.Convention != TransitionConvention.Swift)
+                    continue;
+                var handle = MetadataTokens.EntityHandle(site.MemberToken);
+                if (handle.Kind != HandleKind.MethodDefinition
+                    || (md.GetMethodDefinition((MethodDefinitionHandle)handle).Attributes & MethodAttributes.MemberAccessMask) != MethodAttributes.Private)
+                    leaks.Add(site.Member);
+            }
             foreach (var site in report.Sites)
             {
                 if (site.Kind != TransitionSiteKind.CallbackAddress || site.Convention != TransitionConvention.Swift || site.Target is not { } callback)
@@ -719,13 +810,41 @@ public static class ResidualGuardCheck
                     continue;
                 }
                 if (at + 1 < taker.Instructions.Length && taker.Instructions[at + 1] is { OpCode: ILOpCode.Stsfld } store
-                    && MetadataTokens.EntityHandle(store.Token) is { Kind: HandleKind.FieldDefinition } field)
-                    fields[(FieldDefinitionHandle)field] = callback;
+                    && StoredField(store.Token) is { } field)
+                {
+                    // Only a private static field keeps the address inside the assembly's own members.
+                    var definition = md.GetFieldDefinition(field);
+                    if ((definition.Attributes & FieldAttributes.FieldAccessMask) != FieldAttributes.Private)
+                        leaks.Add(callback);
+                    fields[field] = callback;
+                }
                 else
+                {
+                    if (Escapes(taker, at))
+                        leaks.Add(callback);
                     Of(callback).Add(taker);
+                }
             }
             if (fields.Count == 0)
                 return handOffs;
+            // The field must hold that address only, and its loads stay where they are read.
+            var stores = fields.Keys.ToDictionary(f => f, _ => 0);
+            foreach (var method in _methods.Values)
+                for (var i = 0; i < method.Instructions.Length; i++)
+                {
+                    var instruction = method.Instructions[i];
+                    if (instruction.OpCode is not (ILOpCode.Stsfld or ILOpCode.Ldsflda or ILOpCode.Ldsfld))
+                        continue;
+                    if (StoredField(instruction.Token) is not { } token || !fields.TryGetValue(token, out var callback))
+                        continue;
+                    if (instruction.OpCode == ILOpCode.Stsfld)
+                        stores[token]++;
+                    else if (instruction.OpCode == ILOpCode.Ldsflda || Escapes(method, i))
+                        leaks.Add(callback);
+                }
+            foreach (var (field, count) in stores)
+                if (count != 1)
+                    leaks.Add(fields[field]);
             var byName = fields.ToLookup(kv => md.GetString(md.GetFieldDefinition(kv.Key).Name), kv => kv.Value, StringComparer.Ordinal);
             foreach (var method in _methods.Values)
             {
@@ -744,6 +863,90 @@ public static class ResidualGuardCheck
             }
             return handOffs;
         }
+
+        /// <summary>
+        /// The field a <c>stsfld</c>/<c>ldsfld</c> token names: a definition, or a reference to a field of
+        /// an instantiation of a generic type this assembly defines, matched by name on that type.
+        /// </summary>
+        private FieldDefinitionHandle? StoredField(int token)
+        {
+            var handle = MetadataTokens.EntityHandle(token);
+            if (handle.Kind == HandleKind.FieldDefinition)
+                return (FieldDefinitionHandle)handle;
+            if (handle.Kind != HandleKind.MemberReference)
+                return null;
+            var reference = md.GetMemberReference((MemberReferenceHandle)handle);
+            if (reference.Parent.Kind != HandleKind.TypeSpecification)
+                return null;
+            var blob = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)reference.Parent).Signature);
+            if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance)
+                return null;
+            blob.ReadSignatureTypeCode();
+            if (blob.ReadTypeHandle() is not { Kind: HandleKind.TypeDefinition } owner)
+                return null;
+            var name = md.GetString(reference.Name);
+            foreach (var field in md.GetTypeDefinition((TypeDefinitionHandle)owner).GetFields())
+                if (md.StringComparer.Equals(md.GetFieldDefinition(field).Name, name))
+                    return field;
+            return null;
+        }
+
+        /// <summary>
+        /// Whether the function pointer instruction <paramref name="at"/> of <paramref name="method"/>
+        /// pushes is stored into a field or through a pointer, returned, or boxed: anything but held for
+        /// the hand-off the method makes itself. A pointer stored in a local is followed to each load
+        /// of that local.
+        /// </summary>
+        private static bool Escapes(Method method, int at, int depth = 0)
+        {
+            var next = at + 1;
+            while (next < method.Instructions.Length && method.Instructions[next].OpCode is
+                       ILOpCode.Conv_i or ILOpCode.Conv_u or ILOpCode.Conv_i8 or ILOpCode.Conv_u8 or ILOpCode.Nop or ILOpCode.Dup)
+            {
+                // A duplicated pointer has two uses; judge the second too.
+                if (method.Instructions[next].OpCode == ILOpCode.Dup && Escapes(method, next, depth + 1))
+                    return true;
+                next++;
+            }
+            if (next >= method.Instructions.Length || depth > 4)
+                return true;
+            var instruction = method.Instructions[next];
+            if (LocalStored(instruction) is { } local)
+            {
+                for (var i = 0; i < method.Instructions.Length; i++)
+                {
+                    if (LocalLoaded(method.Instructions[i]) is not { } loaded || loaded != local)
+                        continue;
+                    // The address of the local lets anything read it.
+                    if (method.Instructions[i].OpCode is ILOpCode.Ldloca or ILOpCode.Ldloca_s || Escapes(method, i, depth + 1))
+                        return true;
+                }
+                return false;
+            }
+            return instruction.OpCode is ILOpCode.Stsfld or ILOpCode.Stfld or ILOpCode.Ret or ILOpCode.Stobj or ILOpCode.Stind_i
+                or ILOpCode.Stind_i8 or ILOpCode.Stind_ref or ILOpCode.Stelem_i or ILOpCode.Stelem_i8 or ILOpCode.Stelem
+                or ILOpCode.Stelem_ref or ILOpCode.Box or ILOpCode.Starg or ILOpCode.Starg_s;
+        }
+
+        private static int? LocalStored(IlInstruction instruction) => instruction.OpCode switch
+        {
+            ILOpCode.Stloc_0 => 0,
+            ILOpCode.Stloc_1 => 1,
+            ILOpCode.Stloc_2 => 2,
+            ILOpCode.Stloc_3 => 3,
+            ILOpCode.Stloc or ILOpCode.Stloc_s => (int)instruction.Int64Operand,
+            _ => null,
+        };
+
+        private static int? LocalLoaded(IlInstruction instruction) => instruction.OpCode switch
+        {
+            ILOpCode.Ldloc_0 => 0,
+            ILOpCode.Ldloc_1 => 1,
+            ILOpCode.Ldloc_2 => 2,
+            ILOpCode.Ldloc_3 => 3,
+            ILOpCode.Ldloc or ILOpCode.Ldloc_s or ILOpCode.Ldloca or ILOpCode.Ldloca_s => (int)instruction.Int64Operand,
+            _ => null,
+        };
 
         private void Propagate()
         {

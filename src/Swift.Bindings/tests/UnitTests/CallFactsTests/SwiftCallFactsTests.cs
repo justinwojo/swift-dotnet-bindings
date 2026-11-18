@@ -572,6 +572,94 @@ public class SwiftCallFactsTests
         Assert.Equal(Box + "4openyyF", open.Id);
     }
 
+    /// <summary>
+    /// A target no client of the module's public interface can name says why: the member or its
+    /// storage is internal or SPI, or a type of the member's own module it is declared in is. The
+    /// visibility flags reach the model from the descriptor and the interface; set them as that pass would.
+    /// </summary>
+    [Fact]
+    public void NotPublic_SaysWhyNoClientOfTheInterfaceCanNameTheTarget()
+    {
+        const string outer = "$s10TestModule5OuterC";
+        const string go = outer + "5InnerV2goyyF";
+        var outerDecl = TypeDecl("Class", "Outer", outer, new[]
+        {
+            TypeDecl("Struct", "Inner", outer + "5InnerV", new[] { Func("go", "go()", go, new[] { Void }, selfKind: "NonMutating") }),
+        });
+        var (module, table, db) = Parse(PointDecl(), BoxDecl(), outerDecl);
+        Assert.All(table.All, f => Assert.Null(f.Target.NotPublic));
+
+        var point = module.Types.Single(t => t.Name == "Point");
+        var box = module.Types.Single(t => t.Name == "Box");
+        box.IsModuleInternal = true;
+        module.Types.Single(t => t.Name == "Outer").IsModuleInternal = true;
+        point.Methods.Single(m => m.Name == "take").IsModuleInternal = true;
+        point.Methods.Single(m => m.Name == "peek").IsSpiProtected = true;
+        point.Properties.Single(p => p.Name == "mirror").IsModuleInternal = true;
+        table = SwiftCallFactsTable.Build(module, db);
+
+        Assert.Equal("TestModule.Box is internal, @usableFromInline internal or unavailable", Facts(table, Box + "4openyyF").Target.NotPublic);
+        Assert.Equal(Facts(table, Box + "4openyyF").Target.NotPublic, Facts(table, Box + "4openyyFTj").Target.NotPublic);
+        Assert.StartsWith("TestModule.Box is", Facts(table, Box + "5counts5Int32Vvg").Target.NotPublic);
+        Assert.StartsWith("TestModule.Outer is", Facts(table, go).Target.NotPublic);
+        Assert.StartsWith("the member is internal", Facts(table, Point + "4takeyyF").Target.NotPublic);
+        Assert.Equal("the member is SPI", Facts(table, Point + "4peekyyF").Target.NotPublic);
+        Assert.StartsWith("the member is internal", Facts(table, Point + "6mirrors5Int32Vvg").Target.NotPublic);
+        Assert.StartsWith("the member is internal", Facts(table, Point + "6mirrors5Int32Vvs").Target.NotPublic);
+        Assert.Null(Facts(table, Point + "6lengths5Int32VyF").Target.NotPublic);
+        Assert.Null(Facts(table, Point + "1xs5Int32Vvg").Target.NotPublic);
+
+        box.IsModuleInternal = false;
+        box.IsSpiProtected = true;
+        table = SwiftCallFactsTable.Build(module, db);
+        Assert.Equal("TestModule.Box is SPI", Facts(table, Box + "4openyyF").Target.NotPublic);
+        Assert.Empty(table.Conflicts);
+    }
+
+    /// <summary>
+    /// The parser marks a type of another module internal to this one, since this module's interface
+    /// does not declare it; a member this module adds to it in an extension is still named by this
+    /// module's interface through it, so only the member's own visibility counts.
+    /// </summary>
+    [Fact]
+    public void NotPublic_DoesNotAskAboutAnotherModulesType()
+    {
+        const string depPoint = "$s3Dep5PointV";
+        const string shifted = "$s3Dep5PointV10TestModuleE7shiftedACyF";
+        var db = new TypeDatabase();
+        RegisterStandardTypes(db);
+        var (dep, _, _) = ParseInto(db, "Dep",
+            TypeDecl("Struct", "Point", depPoint, Array.Empty<string>(), attrs: new[] { "AccessControl", "Frozen" }, module: "Dep"));
+        db.AddDependencyModuleDecl(dep);
+        var depPointName = SwiftTypeName.FromModuleQualifiedName("Dep.Point");
+        var depDb = new ModuleTypeDatabase("Dep", "/fake/Dep");
+        depDb.RegisterType(depPointName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Dep", "Point"),
+            SwiftTypeName = depPointName,
+            MetadataAccessor = depPoint + "Ma",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
+        db.AddModuleDatabase(depDb);
+        var (main, _, _) = ParseInto(db, M,
+            Func("ping", "ping()", "$s10TestModule4pingyyF", new[] { Void }),
+            TypeDecl("Struct", "Point", depPoint, new[]
+            {
+                Func("shifted", "shifted()", shifted, new[] { Nominal("Dep.Point") }, extra: "\"isFromExtension\": true"),
+            }, attrs: new[] { "AccessControl", "Frozen" }, extra: "\"isExternal\": true", module: "Dep"));
+        var point = main.Types.Single(t => t.Name == "Point");
+        Assert.Equal("Dep", point.SwiftTypeName.Module);
+        point.IsModuleInternal = true;
+
+        var table = SwiftCallFactsTable.Build(main, db);
+        Assert.Null(Facts(table, shifted).Target.NotPublic);
+
+        point.Methods.Single(m => m.Name == "shifted").IsModuleInternal = true;
+        table = SwiftCallFactsTable.Build(main, db);
+        Assert.StartsWith("the member is internal", Facts(table, shifted).Target.NotPublic);
+    }
+
     [Fact]
     public void DispatchThunk_IsOnlyDerivedForDispatchedMembers()
     {

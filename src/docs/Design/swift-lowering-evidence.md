@@ -94,6 +94,26 @@ no plans yields nothing. Fixtures that need "at least one executable plan" asser
 carry no evidence. Thick and reverse plans are never executable. An unread argument without a
 reason fails closed. A judged sidecar records `evidenceScope { artifact, slices, basis }`.
 
+**A target no client can name.** Under authorization, `Join` refuses a forward plan, rather than
+leaving it planned and unproven, when the judgement found it neither executable nor contradicted
+and either:
+
+- its facts record why the module interface cannot name the target (`target.notPublic`, carried on
+  the coverage entry as `notPublic`). The member, its storage or a type of its own module that
+  declares it is internal, `@usableFromInline internal`, unavailable or SPI; or
+- every claimed slice that does not show it gives a probe reason of the `not public from the
+  interface:` class.
+
+The entry becomes `Refused` with one `NotPublicFromInterface` refusal. It keeps its symbol, hash,
+callee and evidence, and stays a guarded direct import, so the binding still declares the member.
+No receipt of a consumer's build can show such a target, so a planned entry would only be an
+evidence gap that refuses the whole package (SWIFTBIND133, SWIFTBIND132 and the transition gate
+share that rule). A contradiction still wins, and an executable plan is never refused. A target
+unobserved for any other reason, on any one slice, stays planned and is an evidence gap.
+Qualification keeps such plans planned, because the committed record holds definition IR that can
+show them. `WithoutEvidence` returns a refused entry to planned, so judging a plan set again gives
+the same result.
+
 ## Qualification vs authorization
 
 The two are distinct operations that read the same format.
@@ -236,7 +256,11 @@ slice to IR, with the link's frontend flags under a module name of its own (`<wr
 - **The failure rule.** The probe never fails the build and never withholds the receipt. A target
   it cannot show is recorded as unobserved, with the probe's reason. Each reason starts with its
   class:
-  - `not public from the interface:` an `@usableFromInline internal` or SPI member;
+  - `not public from the interface:` an `@usableFromInline internal` or SPI member, or an internal
+    declaration that a descriptor built with `-enable-testing` lists. The probe reads every
+    identifier of the module's public and private interface; a descriptor declaration whose own
+    name, whose storage's name or whose enclosing type of the same module is not among them is
+    internal and gets no call;
   - `inlined:` `@_transparent`, `@_alwaysEmitIntoClient`, or a call that leaves no declaration;
   - `unsupported in the probe:` no call form, a call that did not compile, or no shipped descriptor;
   - `other:` a client reaches it through another entry, no descriptor declares it, or the probe

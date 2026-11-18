@@ -249,7 +249,8 @@ public static partial class ClosureEmitter
                 closureTypeSpec.ReturnType,
                 delegateCallExpr,
                 closureHandler,
-                returnType);
+                returnType,
+                ownedReference: !useCdecl);
         }
 
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
@@ -506,12 +507,17 @@ public static partial class ClosureEmitter
     /// <param name="resultExpr">The expression that produces the result (e.g., "del(args)" or "swiftResult.Success").</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="callbackReturnType">The callback's declared return type string (e.g., "void*", "byte").</param>
+    /// <param name="ownedReference">
+    /// True on the Swift lane: Swift owns a closure's result, so a returned reference must carry its
+    /// own +1. The <c>@_cdecl</c> adapter takes the pointer unretained, so that lane returns it at +0.
+    /// </param>
     /// <returns>One or more lines of C# code for the return statement.</returns>
     internal static string BuildCallbackReturnStatement(
         TypeSpec returnType,
         string resultExpr,
         ClosureHandler closureHandler,
-        string callbackReturnType)
+        string callbackReturnType,
+        bool ownedReference = false)
     {
         if (MarshallingHelpers.IsBoolType(returnType))
             return $"return (byte)({resultExpr} ? 1 : 0);";
@@ -521,6 +527,10 @@ public static partial class ClosureEmitter
 
         if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && TypeDatabaseExtensions.IsPointerType(retNamedType))
             return $"return (void*){resultExpr};";
+
+        if (callbackReturnType == "void*" && ownedReference &&
+            (closureHandler.IsReferenceType(returnType) || IsOptionalReferenceReturn(returnType, closureHandler)))
+            return BuildOwnedReferenceReturn(returnType, resultExpr, closureHandler);
 
         if (callbackReturnType == "void*" && closureHandler.IsClassType(returnType))
             return $"return (void*){resultExpr}.Payload.DangerousGetHandle();";
@@ -665,6 +675,23 @@ public static partial class ClosureEmitter
                 """;
         }
 
+        // Optional<resilient struct / payload enum> in a returned buffer: same reason as the
+        // indirect-return writer — `T?` is an annotation over the wrapper class, so the buffer must be
+        // filled through Optional<T>, empty case included.
+        if (callbackReturnType == "void*" && closureHandler.IsOptionalValueWrapper(returnType, out var optionalPayload))
+        {
+            var payloadType = closureHandler.TranslateTypeSpecToCSharp(optionalPayload);
+            return $$"""
+                    var _result = {{resultExpr}};
+                            using var _resultOpt = _result is null ? SwiftOptional<{{payloadType}}>.NewNone() : SwiftOptional<{{payloadType}}>.NewSome(_result);
+                            var _resultMetadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{payloadType}}>>();
+                            var _resultBuffer = (void*)NativeMemory.Alloc(_resultMetadata.Size);
+                            var _resultSpan = new Span<byte>(_resultBuffer, (int)_resultMetadata.Size);
+                            SwiftMarshal.MarshalToSwift(_resultOpt, ref _resultSpan);
+                            return _resultBuffer;
+                """;
+        }
+
         if (callbackReturnType == "void*" && !closureHandler.CanUseDirectCallbackReturn(returnType))
         {
             var csharpRetType = closureHandler.TranslateTypeSpecToCSharp(returnType, isReturnType: true);
@@ -679,6 +706,31 @@ public static partial class ClosureEmitter
         }
 
         return $"return {resultExpr};";
+    }
+
+    /// <summary>
+    /// Return statement for a reference result on the Swift lane: the handle Swift receives carries a
+    /// +1 of its own, taken while the managed wrapper is still alive. A Swift class is retained with
+    /// <c>swift_retain</c>, an Objective-C object with <c>swift_unknownObjectRetain</c>; a <c>null</c>
+    /// Optional returns the null pointer that is Swift's empty case.
+    /// </summary>
+    private static string BuildOwnedReferenceReturn(TypeSpec returnType, string resultExpr, ClosureHandler closureHandler)
+    {
+        var isOptional = IsOptionalReferenceReturn(returnType, closureHandler);
+        var referenceType = isOptional ? ((NamedTypeSpec)returnType).GenericParameters[0] : returnType;
+        var isSwiftClass = closureHandler.IsClassType(referenceType);
+        var handleRead = isSwiftClass
+            ? "_ownedResult.Payload.DangerousGetHandle()"
+            : "(global::System.IntPtr)_ownedResult.Handle";
+        var retain = isSwiftClass ? "global::Swift.Runtime.Arc.Retain" : "global::Swift.Runtime.Arc.UnknownObjectRetain";
+        var nullCheck = isOptional ? "if (_ownedResult is null) return null;\n        " : string.Empty;
+        return $$"""
+            var _ownedResult = {{resultExpr}};
+                    {{nullCheck}}var _ownedHandle = {{handleRead}};
+                    {{retain}}(_ownedHandle);
+                    global::System.GC.KeepAlive(_ownedResult);
+                    return (void*)_ownedHandle;
+            """;
     }
 
     /// <summary>
@@ -764,6 +816,20 @@ public static partial class ClosureEmitter
                             using var {{local}}Str = new Swift.SwiftString({{local}});
                             var {{spanLocal}} = new Span<byte>((void*){{bufferExpr}}, (int)Swift.Runtime.SwiftObjectHelper<Swift.SwiftString>.GetTypeMetadata().Size);
                             ((Swift.Runtime.ISwiftObject){{local}}Str).MarshalToSwift(ref {{spanLocal}});
+                """;
+        }
+
+        // Optional<resilient struct / payload enum>: the buffer is an Optional<T>, but the managed
+        // `T?` is only an annotation over the wrapper class, so the generic write below would use T's
+        // metadata and never store the empty case. Build the whole Optional and copy it in.
+        if (csharpTypeOverride is null && closureHandler.IsOptionalValueWrapper(returnType, out var optionalPayload))
+        {
+            var payloadType = closureHandler.TranslateTypeSpecToCSharp(optionalPayload);
+            return $$"""
+                    var {{local}} = {{resultExpr}};
+                            using var {{local}}Opt = {{local}} is null ? SwiftOptional<{{payloadType}}>.NewNone() : SwiftOptional<{{payloadType}}>.NewSome({{local}});
+                            var {{spanLocal}} = new Span<byte>((void*){{bufferExpr}}, (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{payloadType}}>>().Size);
+                            SwiftMarshal.MarshalToSwift({{local}}Opt, ref {{spanLocal}});
                 """;
         }
 
@@ -1085,7 +1151,7 @@ public static partial class ClosureEmitter
                 return $"arg{argIndex} != null ? SwiftMarshal.MarshalCallbackArg<Swift.Foundation.Data>(new IntPtr(arg{argIndex})).ToByteArray() : null";
             }
 
-            // Result<Optional<Class/Any>, any Error> on the ordinary @_cdecl adapter arrives at
+            // A Result on the ordinary @_cdecl adapter (IsSupportedResultErrorCallbackInput) arrives at
             // an initialized Swift value. MarshalFromSwift performs the required metadata-driven
             // heap copy; the resulting SwiftResult owns that copy after Swift destroys its
             // temporary. The borrowed helper is deliberately not used because suppressing the
@@ -1137,6 +1203,19 @@ public static partial class ClosureEmitter
                 var innerMarshal = closureHandler.BorrowedCallbackArgMarshal(
                     inner, innerType, $"new IntPtr(arg{argIndex})");
                 return $"arg{argIndex} != null ? {innerMarshal} : null";
+            }
+
+            // Optional<resilient struct / payload enum> on the direct lane: Swift passes the address of
+            // its own Optional (the payload is address-only, so the Optional is too). The delegate
+            // spelling `T?` is a nullable-reference annotation over a wrapper class, so the generic
+            // borrowed read would treat the Optional as its payload and read an empty one as a value.
+            // The runtime reads the case through Optional<T>'s metadata and copies the payload out.
+            if (!useCdecl &&
+                closureHandler.ClassifyDirectClosureArg(typeSpec).Abi == DirectClosureArgAbi.Indirect &&
+                closureHandler.IsOptionalValueWrapper(namedType, out var wrappedPayload))
+            {
+                var payloadType = closureHandler.TranslateTypeSpecToCSharp(wrappedPayload);
+                return $"SwiftMarshal.MarshalOptionalCallbackArg<{payloadType}>({valueAddress})";
             }
 
             // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI (null = .none, non-null = pointer to inner value)
@@ -1470,11 +1549,12 @@ public static partial class ClosureEmitter
             }
         }
 
-        var returnType = closureTypeSpec.ReturnType.IsEmptyTuple
+        var swiftIndirectResult = IsSwiftLaneIndirectResult(closureTypeSpec, closureHandler, useCdecl);
+        var returnType = closureTypeSpec.ReturnType.IsEmptyTuple || swiftIndirectResult
             ? "void"
             : GetEscapingClosureCallbackReturnType(closureTypeSpec, closureHandler);
         if (!useCdecl)
-            return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: true, returnType);
+            return ReverseSwiftCallbackSignature.FunctionPointerType(types, throws: true, returnType, indirectResult: swiftIndirectResult);
 
         // Cdecl: the @_cdecl adapter's C order — arguments, error out-parameter, IntPtr context.
         types.Add("SwiftError*");

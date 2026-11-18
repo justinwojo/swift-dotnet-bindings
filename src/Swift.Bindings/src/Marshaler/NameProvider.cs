@@ -1367,6 +1367,12 @@ public static class NameProvider
 
     public static string GetMetadataName(string typeName) => $"{typeName}Metadata";
     public static string GetPayloadName(string argumentName) => $"{argumentName}Payload";
+
+    /// <summary>
+    /// The local holding the reference a class-bound generic argument's payload holds, which a
+    /// Swift-convention call passes in place of the payload's address.
+    /// </summary>
+    public static string GetGenericReferenceName(string payloadName) => $"{payloadName}Reference";
     public static string GetProtocolWitnessTableName(string typeName, string protocolName) => $"{typeName}{protocolName}PWT";
 
     /// <summary>

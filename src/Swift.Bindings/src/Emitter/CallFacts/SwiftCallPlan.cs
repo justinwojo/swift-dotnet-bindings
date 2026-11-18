@@ -318,6 +318,9 @@ public sealed record SwiftPlanOutcome(SwiftCallPlan? Plan, ImmutableArray<SwiftP
     /// <summary>When planned, what the managed caller of the twin must preserve around the call.</summary>
     public ImmutableArray<SwiftMarshallingObligation> Obligations { get; init; } = ImmutableArray<SwiftMarshallingObligation>.Empty;
 
+    /// <summary>Why a client of the module's public interface cannot name the target, from its facts (<see cref="SwiftCallTarget.NotPublic"/>).</summary>
+    public string? NotPublic { get; init; }
+
     public static SwiftPlanOutcome Refused(params SwiftPlanRefusal[] refusals) =>
         new(null, refusals.ToImmutableArray(), null);
 }
