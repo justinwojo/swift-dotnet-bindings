@@ -518,3 +518,13 @@ public struct GvpPat<T: GvpDependencyPat> {
 public func makeDependencyGvpPat(count: Int32) -> GvpPat<GvpDependencyConcrete> {
     GvpPat<GvpDependencyConcrete>(count: count)
 }
+
+// MARK: - Requirement inherited by an empty cross-module child
+//
+// The consuming module declares `LocalAccepting: DepAccepting` with no requirements of
+// its own (SwiftBindingsTestLib/CrossModule/CrossModuleInheritedRequirement.swift): every
+// requirement a conformer has to supply comes from this module. A C# conformer of the
+// child must still be dispatched into through this requirement.
+public protocol DepAccepting {
+    func accept(_ value: Int32) -> Bool
+}

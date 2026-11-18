@@ -52,6 +52,9 @@ partial class Build
         new("17FutureGatedBufferV", ReachedThroughThunk: false),
         new("14GuardedOperandV1poi", ReachedThroughThunk: false),
         new("17FutureBridgedHostC11futureLabel", ReachedThroughThunk: true, ReachedThroughBridge: true),
+        // The opaque-parameter overload pair: its concrete specialization reaches the initializer
+        // from Swift code, and only keeps the floor if the availability key finds the overload.
+        new("11FlooredHostV8wrapping", ReachedThroughThunk: false),
     };
 
     /// <summary>

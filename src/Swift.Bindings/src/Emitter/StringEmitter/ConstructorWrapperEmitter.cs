@@ -272,10 +272,17 @@ public static class ConstructorWrapperEmitter
     /// their sugared names, which the enclosing extension on the type puts in scope.
     /// </summary>
     internal static string RenderOpenGenericTypeReference(TypeDecl typeDecl)
-    {
-        static string Sugared(GenericArgumentDecl p) =>
-            string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName;
+        => RenderGenericTypeReference(typeDecl, p => string.IsNullOrEmpty(p.SugaredTypeName) ? p.TypeName : p.SugaredTypeName);
 
+    /// <summary>
+    /// Spells <paramref name="typeDecl"/> with each nesting level carrying the generic parameters it
+    /// declares, each written as <paramref name="argument"/> renders it. The open spelling passes the
+    /// sugared parameter names; a closed spelling passes the concrete argument, so a type nested in
+    /// a generic parent closes on the parent (<c>Module.Outer&lt;X&gt;.Inner</c>), never on the leaf
+    /// (<c>Module.Outer.Inner&lt;X&gt;</c>, which names no type).
+    /// </summary>
+    internal static string RenderGenericTypeReference(TypeDecl typeDecl, Func<GenericArgumentDecl, string> argument)
+    {
         var chain = new List<TypeDecl>();
         for (BaseDecl? current = typeDecl; current is TypeDecl level; current = level.ParentDecl)
             chain.Add(level);
@@ -293,11 +300,11 @@ public static class ConstructorWrapperEmitter
             else
                 // The nesting chain does not spell a dotted path (no level structure to place
                 // arguments on): fall back to the flat spelling of every parameter.
-                return $"{typeDecl.SwiftTypeName.ModuleQualifiedName}<{string.Join(", ", typeDecl.GenericParameters.Select(Sugared))}>";
+                return $"{typeDecl.SwiftTypeName.ModuleQualifiedName}<{string.Join(", ", typeDecl.GenericParameters.Select(argument))}>";
 
             var ownParams = GenericTypeEmitter.GetTypeDeclOwnGenericParams(level);
             if (ownParams.Count > 0)
-                rendered.Append('<').Append(string.Join(", ", ownParams.Select(Sugared))).Append('>');
+                rendered.Append('<').Append(string.Join(", ", ownParams.Select(argument))).Append('>');
             outerName = levelName;
         }
         return rendered.ToString();

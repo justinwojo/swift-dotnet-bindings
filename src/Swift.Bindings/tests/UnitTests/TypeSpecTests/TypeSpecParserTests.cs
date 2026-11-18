@@ -247,6 +247,27 @@ public class TypeSpecParserTests : IClassFixture<TypeSpecParserTests.TestFixture
         Assert.Equal("A<B>.C<D>.E", ns.ToString());
     }
 
+    // After a generic base every dotted segment is a member type, never a module: the tokenizer
+    // reads `Op.Options` as one name, and a renderer that strips a "module" prefix from a segment
+    // turned `PinBox<PinTag>.Op.Options` into `PinBox<PinTag>.Options`, which names nothing.
+    [Theory]
+    [InlineData("M.Box<M.Tag>.Op.Options", "M.Box<M.Tag>.Op.Options")]
+    [InlineData("M.Box<M.Tag>.Op.Options.Flag?", "Swift.Optional<M.Box<M.Tag>.Op.Options.Flag>")]
+    [InlineData("M.Box<M.Tag>.Op.Inner<Swift.Int>.Leaf", "M.Box<M.Tag>.Op.Inner<Swift.Int>.Leaf")]
+    public static void TestEmbeddedClassChainSplitsDottedMemberSegments(string text, string expected)
+    {
+        var spec = TypeSpecParser.Parse(text);
+        Assert.NotNull(spec);
+        Assert.Equal(expected, spec.ToString());
+
+        var chain = spec is NamedTypeSpec { Name: "Swift.Optional" } optional
+            ? Assert.IsType<NamedTypeSpec>(Assert.Single(optional.GenericParameters))
+            : Assert.IsType<NamedTypeSpec>(spec);
+        for (var segment = chain.InnerType; segment is not null; segment = segment.InnerType)
+            Assert.DoesNotContain('.', segment.Name);
+        Assert.Equal(text.TrimEnd('?'), ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(chain));
+    }
+
     [Fact]
     public static void TestEmbeddedClassAsClosureArgument()
     {

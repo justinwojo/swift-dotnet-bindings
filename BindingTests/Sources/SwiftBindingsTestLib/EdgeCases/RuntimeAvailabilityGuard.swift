@@ -240,3 +240,55 @@ internal class FutureBridgedHost {
     @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
     public static func futureLabel() -> String { "future-bridged" }
 }
+
+// MARK: - Overloads on an opaque parameter keep their extension's floor
+//
+// Two initializers that differ only by the constraint of a `some P` parameter share a
+// printed name, so the availability fact for each is keyed by its parameter types. In
+// the ABI descriptor an opaque parameter prints as a generic parameter (`τ_0_0`), not as
+// `some P`; without a rule that maps it back to its constraint, neither overload found
+// its extension's floor. The wrapper then called a floored initializer without
+// `@available`, failed to compile and withdrew the member (AppIntents'
+// `AppIntentError.init(wrapping:)`, carrying iOS 16 instead of its iOS 27 floor).
+//
+// `FlooredHost` carries both spellings — a single constraint and a composition — at a
+// floor no OS satisfies, so the guard must fire; `FlooredAdopter` carries them at a floor
+// every runtime satisfies but the deployment target does not, so the call must run and
+// reach its own initializer.
+
+public protocol FloorWrappable {}
+public protocol FloorFaultMarker {}
+
+/// The composition overloads' argument.
+public enum FlooredFault: Error, FloorFaultMarker {
+    case broken
+}
+
+public struct FlooredHost: FloorWrappable {
+    /// Which initializer built the value.
+    public let source: Int32
+
+    public init() { source = 0 }
+}
+
+@available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+extension FlooredHost {
+    public init(wrapping value: some FloorWrappable) { source = 1 }
+    public init(wrapping fault: some (Error & FloorFaultMarker)) { source = 2 }
+}
+
+/// The same overload pair at a floor every runtime satisfies but the deployment target does
+/// not, on a host of its own (a concrete specialization is named after its argument type, so a
+/// second pair on `FlooredHost` would name the same C# member). The specialization must bind,
+/// carry its floor, and reach the single-constraint overload.
+public struct FlooredAdopter {
+    public let source: Int32
+
+    public init() { source = 0 }
+}
+
+@available(iOS 17.0, macOS 14.0, tvOS 17.0, macCatalyst 17.0, *)
+extension FlooredAdopter {
+    public init(adopting value: some FloorWrappable) { source = 11 }
+    public init(adopting fault: some (Error & FloorFaultMarker)) { source = 12 }
+}

@@ -1,5 +1,5 @@
 {
-  "git_sha": "6c853112",
+  "git_sha": "7b0979ed",
   "entries": [
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
@@ -275,6 +275,18 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "method \u0027EquatableTicket.init\u0027 \u2014 synthesized Codable member pruned by design (Synthesized Codable member (Encoder/Decoder are unresolvable existential protocols).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027FlooredAdopter.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027FlooredHost.init\u0027 \u2014 parameter or return type not yet supported (C# does not support generic constructors with method-own type parameters.)",
       "count": 1
     },
     {
@@ -1295,6 +1307,54 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "property \u0027ObjCExistentialOutOfScopeGateBox.dictProp\u0027 \u2014 protocol-typed parameter/return not yet projected (Property has an @objc protocol existential in an unsupported nested position (container/tuple/closure).)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.Options.first\u0027 \u2014 parameter or return type not yet supported (on Options\u003CPinTag\u003E: unsupported return type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.Options.first\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027first\u0027 on generic type \u0027Options\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.Options.rawValue\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027rawValue\u0027 on generic type \u0027Options\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.Options.second\u0027 \u2014 parameter or return type not yet supported (on Options\u003CPinTag\u003E: unsupported return type)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.Options.second\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027second\u0027 on generic type \u0027Options\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.label\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027label\u0027 on generic type \u0027Op\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Op.tag\u0027 \u2014 type not exported in the module\u0027s public ABI (Single-specialization constrained-extension property \u0027tag\u0027 on generic type \u0027Op\u0027 is suppressed at the open-generic class level; emitted as a closed-generic extension method via ConstrainedExtensionEmitter.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "property \u0027PinBox.Unit.rawValue\u0027 \u2014 type not exported in the module\u0027s public ABI (Constrained-extension property \u0027rawValue\u0027 on generic type \u0027Unit\u0027 requires a dependent-member same-type constraint on a parent associated type (e.g. \u0060where Value.ValueType == Concrete\u0060); not re-surfaceable as a closed-generic extension method and would emit an unsatisfiable protocol-group conformance at the open-generic level.)",
       "count": 1
     },
     {

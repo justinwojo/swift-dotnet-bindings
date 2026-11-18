@@ -36,6 +36,35 @@ public class MemberSignatureNormalizerTests
     // Collection sugar must fold to the nominal generic form so the
     // swiftinterface side (typically prints `[T]` / `[K: V]`) and the ABI
     // side (which may print either) converge on the same disamb tail.
+    // A protocol composition has no canonical order — the interface prints the order the source
+    // used, the ABI descriptor sorts its requirements — so its members are normalized and sorted.
+    [InlineData("Error & FloorQ", "Error&FloorQ")]
+    [InlineData("(Error & FloorQ)", "Error&FloorQ")]
+    [InlineData("TestModule.FloorQ & Swift.Error", "Error&FloorQ")]
+    [InlineData("any TestModule.P & TestModule.Q", "P&Q")]
+    [InlineData("Array<any P & Q>", "Array<P&Q>")]
+    [InlineData("(A & B) -> Void", "(A & B) -> Void")]
+    // An opaque parameter keeps `some` over its whole constraint, so it never shares a key with
+    // the existential of the same constraint, and keeps its optionality, so `(some P)?` never
+    // shares one with `some P`. The ABI side spells an opaque parameter `(some P & Q)`.
+    [InlineData("some (TestModule.Q & TestModule.P)", "some P&Q")]
+    [InlineData("some P & Q", "some P&Q")]
+    [InlineData("some (TestModule.P)", "some P")]
+    [InlineData("(some P & Q)", "some P&Q")]
+    [InlineData("(some Q & P)?", "some P&Q?")]
+    [InlineData("(some P)?", "some P?")]
+    [InlineData("(any P)?", "(any P)")]
+    [InlineData("Array<some P & Q>", "Array<some P&Q>")]
+    [InlineData("[(some P)]", "Array<some P>")]
+    [InlineData("some ((P))", "some P")]
+    [InlineData("(some P)??", "some P??")]
+    [InlineData("(any Q & P)?", "P&Q?")]
+    [InlineData("any Q & P", "P&Q")]
+    [InlineData("some (B & (A & C))", "some A&B&C")]
+    [InlineData("(some C & B & A)", "some A&B&C")]
+    [InlineData("P & (P & Q)", "P&Q")]
+    // Ordinal: UTF-16 code units, the order the Swift producer sorts by too.
+    [InlineData("\uFF21 & \U00010400", "\U00010400&\uFF21")]
     [InlineData("[Int]", "Array<Int>")]
     [InlineData("[Swift.Int]", "Array<Int>")]
     [InlineData("[Swift.String: Swift.Int]", "Dictionary<String,Int>")]
@@ -46,14 +75,14 @@ public class MemberSignatureNormalizerTests
     [InlineData("inout Int", "Int")]
     [InlineData("borrowing Foo", "Foo")]
     [InlineData("consuming Foo", "Foo")]
-    [InlineData("some UIScene", "UIScene")]
+    [InlineData("some UIScene", "some UIScene")]
     [InlineData("any Sendable", "Sendable")]
     [InlineData("__owned Bar", "Bar")]
     [InlineData("__shared Bar", "Bar")]
     [InlineData("UIKit.UIViewController", "UIViewController")]
     [InlineData("`class`", "class")]
     [InlineData("Int = 0", "Int")]
-    [InlineData("inout some Foundation.URL", "URL")]
+    [InlineData("inout some Foundation.URL", "some URL")]
     [InlineData("", "")]
     [InlineData("   ", "")]
     // Variadic ellipsis is stripped because the swiftinterface producer's
@@ -76,8 +105,8 @@ public class MemberSignatureNormalizerTests
     [InlineData("Foo<(A) -> B, C>", "Foo<(A) -> B, C>")]   // closure generic arg: unsplit
     [InlineData("(Swift.Int, Foundation.URL)", "URL)")]    // tuple: last-dot + stray ')'
     [InlineData("(Swift.Int) -> Swift.Void", "Void")]      // closure type: last-dot of head
-    [InlineData("any Mod.P & Other.Q", "Q")]               // composition: last-dot
-    [InlineData("some Mod.P<Swift.Int>", "P<Int>")]        // opaque + generic
+    [InlineData("any Mod.P & Other.Q", "P&Q")]             // composition: members sorted, joined by '&'
+    [InlineData("some Mod.P<Swift.Int>", "some P<Int>")]   // opaque + generic: `some` stays
     [InlineData("Swift.Dictionary<Swift.String, Swift.Array<Foundation.URL>>", "Dictionary<String,Array<URL>>")]
     [InlineData("Wrapper<(Swift.Int, Swift.String), Swift.Bool>", "Wrapper<String),Bool>")]
     [InlineData("ObjectiveC.NSString", "NSString")]
@@ -190,7 +219,7 @@ public class MemberSignatureNormalizerTests
             "Set<Int>",
             "some UIScene",
         });
-        Assert.Equal("URL,Set<Int>,UIScene", sig);
+        Assert.Equal("URL,Set<Int>,some UIScene", sig);
     }
 
     [Fact]
@@ -209,7 +238,7 @@ public class MemberSignatureNormalizerTests
     [Theory]
     [InlineData("for url: Foundation.URL", "URL")]
     [InlineData("for url: Foundation.URL, options: Set<Int>", "URL,Set<Int>")]
-    [InlineData("confirmIn scene: some UIScene, options: Set<Int>", "UIScene,Set<Int>")]
+    [InlineData("confirmIn scene: some UIScene, options: Set<Int>", "some UIScene,Set<Int>")]
     [InlineData("", "")]
     public void ExtractParamTypesFromSwiftClause_ReturnsNormalizedTypeList(string clause, string expectedJoined)
     {

@@ -51,6 +51,34 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_FrozenNonSimpleBlittableRawEnum_ReadsAPointerOnlyFromTheWrapper()
+    {
+        // Swift's init(rawValue:) on a frozen payload-free enum returns Optional<Self> in the
+        // enum's own lowering (one discriminator byte for two cases), never a pointer. FromRawValue
+        // stores what it receives in a SwiftSafeHandle, so it must come from a wrapper that
+        // returns a heap copy of the case, not from a direct CallConvSwift import of the init.
+        var database = CreateXCFrameworkTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var initializer = CreateRawValueInitializer(declaration, module);
+        declaration.Methods.Add(initializer);
+
+        var (output, swift) = EmitEnum(declaration, database);
+        var factoryStart = output.IndexOf(" FromRawValue(", StringComparison.Ordinal);
+        Assert.True(factoryStart >= 0, output);
+        Assert.Contains("SBW_TestModule_Stage_InitWithRawValue", output);
+        Assert.DoesNotContain($"EntryPoint = \"{initializer.MangledName}\"", output);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Stage_InitWithRawValue\")", swift);
+        Assert.Contains("-> Swift.UnsafeMutableRawPointer?", swift);
+        Assert.Contains(".allocate(capacity: 1)", swift);
+    }
+
+    [Fact]
     public void Emit_SimpleEnum_EmitsCSharpEnumValueType()
     {
         var typeDatabase = CreateTypeDatabase();
