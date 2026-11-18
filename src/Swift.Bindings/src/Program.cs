@@ -1133,7 +1133,7 @@ namespace BindingsGeneration
                     if (recovery.Denylist.Length > 0)
                     {
                         logger.LogWarning(
-                            "SWIFTBIND112: verify-recover withdrew {Count} leaf/accessor unit(s) " +
+                            "SWIFTBIND112: verify-recover withdrew {Count} unit(s) " +
                             "from {Module} over {Rounds} round(s) to reach a clean {Planes} compile.",
                             recovery.Denylist.Length, decl.Name, recovery.Rounds, planes);
                     }

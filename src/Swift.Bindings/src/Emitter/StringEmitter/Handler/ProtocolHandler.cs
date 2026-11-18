@@ -828,6 +828,15 @@ namespace BindingsGeneration
                     var conformanceSkipCause = context.EmissionContext.GetConformanceSkipReason(
                         protocolDecl.SwiftTypeName?.ModuleQualifiedName ?? protocolDecl.Name)
                         ?? EveryProtocolSkipCause.ForDroppedProtocol(protocolDecl);
+                    // A conformance the verify-recover loop withdrew is a recovery withdrawal, not a
+                    // structural decline: its row carries the withdrawal wording and the recovery unit
+                    // it names, so it reads (and classifies) like every other loop withdrawal.
+                    if (conformanceSkipCause.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, StringComparison.Ordinal))
+                    {
+                        ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,
+                            protocolDecl, SkipReason.EmitterFault, conformanceSkipCause);
+                        break;
+                    }
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,
                         protocolDecl, SkipReason.EveryProtocolConformanceSkipped,
                         $"Protocol proxy skipped: EveryProtocol conformance was not emitted ({conformanceSkipCause}).");

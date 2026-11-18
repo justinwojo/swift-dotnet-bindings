@@ -138,6 +138,209 @@ public class ForeignTypeExtensionEmitterTests
 
     #endregion
 
+    #region Declined members are reported, and survive the containment session restart
+
+    /// <summary>
+    /// Runs the pre-pass the way generation does: outside containment, whose fresh report session then
+    /// discards everything the pre-pass wrote, so only <see cref="ForeignTypeExtensionEmitter.RepublishWithdrawals"/>
+    /// can carry a row into the report that is written.
+    /// </summary>
+    private static BindingReport RunPrePassAcrossASessionRestart(
+        ModuleDecl moduleDecl, Dictionary<string, List<ProtocolExtensionMethodDecl>> extensions, ModuleEmissionContext ctx)
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(moduleDecl, extensions, CreateTypeDatabase(), Logger, ctx);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+        return report;
+    }
+
+    public static TheoryData<string, SkipReason> DeclinedShapes => new()
+    {
+        { "constrained", SkipReason.ConstrainedExtensionWrapper },
+        { "deprecated", SkipReason.UnsupportedSignature },
+        { "static", SkipReason.UnsupportedSignature },
+        { "async", SkipReason.UnsupportedSignature },
+        { "throwing", SkipReason.UnsupportedSignature },
+    };
+
+    [Theory]
+    [MemberData(nameof(DeclinedShapes))]
+    public void ProcessForeignTypeExtensions_DeclinedShape_ReportedAgainstTheReceiver(string shape, SkipReason expected)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = shape switch
+        {
+            "async" => CreateExtMethod("refresh", "public func refresh() async"),
+            "throwing" => CreateExtMethod("refresh", "public func refresh() throws"),
+            _ => CreateExtMethod("refresh", "public func refresh()"),
+        };
+        if (shape == "constrained") method.WhereConstraints = new List<string> { "Element : Comparable" };
+        if (shape == "deprecated") method.IsDeprecated = true;
+        if (shape == "static") method.IsStatic = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("refresh", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(expected, row.Reason);
+        Assert.Contains("UIKit.UIView", row.Details);
+    }
+
+    /// <summary>
+    /// A signature the per-kind binders cannot marshal (here a generic method) is reported against the
+    /// member, whichever of their many internal gates declined it.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_UnmarshallableSignature_Reported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateExtMethod("convert", "public func convert<T>(_ value: T) -> Swift.Int");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("convert", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+    }
+
+    /// <summary>
+    /// A member listed twice binds once through its first claim; the second listing is the same member,
+    /// already bound, so it is not reported as skipped.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_SameMemberListedTwice_BoundOnceAndNotReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl,
+            new()
+            {
+                ["UIKit.UIView"] = new()
+                {
+                    CreateExtMethod("refresh", "public func refresh()"),
+                    CreateExtMethod("refresh", "public func refresh()"),
+                },
+            },
+            ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
+    /// A member a module adds to a foreign Swift enum or struct is not bound by this path. It is
+    /// reported, against the receiver it extends, rather than dropped without a trace.
+    /// </summary>
+    [Theory]
+    [InlineData("Enum")]
+    [InlineData("Struct")]
+    public void ProcessForeignTypeExtensions_MemberOfForeignSwiftValueType_Reported(string declaredKind)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = declaredKind;
+        var property = CreateExtMethod("translation", "public var translation: Swift.Int { get }");
+        property.IsProperty = true;
+        var method = CreateExtMethod("describe", "public func describe() -> Swift.Int");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { property, method } }, ctx);
+
+        Assert.Equal(0, ctx.ForeignExtEmittedCount);
+        Assert.Equal(
+            new[] { "describe|Method", "translation|Property" },
+            report.SkippedItems.Select(r => $"{r.Name}|{r.Kind}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.All(report.SkippedItems, r =>
+        {
+            Assert.Equal("Foundation.AttributeScopes", r.ContainingType);
+            Assert.Equal(SkipReason.UnsupportedSignature, r.Reason);
+            Assert.Contains(declaredKind.ToLowerInvariant(), r.Details);
+        });
+    }
+
+    /// <summary>
+    /// A frozen-struct or class receiver the parser kept is bound by the cross-module extension path,
+    /// so this path leaves its members alone rather than report a member that is in fact bound.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_ReceiverCarriedByTheCrossModulePath_NotReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.Measurement"] = "Struct";
+        moduleDecl.Types.Add(new StructDecl
+        {
+            Name = "Measurement",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Foundation.Measurement"),
+            MangledName = "$s10Foundation11MeasurementV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "",
+        });
+        var property = CreateExtMethod("doubled", "public var doubled: Swift.Int { get }");
+        property.IsProperty = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.Measurement"] = new() { property } }, ctx);
+
+        Assert.Empty(report.SkippedItems);
+    }
+
+    /// <summary>
+    /// What the parser parked with a dropped receiver is published once emission settles, and a member
+    /// the interface also lists on that receiver gets one row, not two.
+    /// </summary>
+    [Fact]
+    public void RepublishWithdrawals_ParserParkedMembers_ReportedOnce()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Type, "TranslationAttributes", "Not bound: parked"));
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Property, "translation", "Not bound: parked"));
+        var property = CreateExtMethod("translation", "public var translation: Swift.Int { get }");
+        property.IsProperty = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { property } }, ctx);
+
+        Assert.Equal(
+            new[] { "TranslationAttributes|Type", "translation|Property" },
+            report.SkippedItems.Select(r => $"{r.Name}|{r.Kind}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        Assert.All(report.SkippedItems, r =>
+        {
+            Assert.Equal("Foundation.AttributeScopes", r.ContainingType);
+            Assert.Equal("Not bound: parked", r.Details);
+        });
+    }
+
+    #endregion
+
     #region ProcessForeignTypeExtensions: property getter
 
     [Fact]

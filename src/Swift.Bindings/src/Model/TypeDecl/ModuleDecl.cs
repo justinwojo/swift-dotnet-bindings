@@ -100,5 +100,29 @@ namespace BindingsGeneration
         /// <c>SwiftABIParser</c> before any of its re-export gates drop the node.
         /// </summary>
         public Dictionary<string, string> ForeignTypeDeclKinds { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Declarations this module adds to another module's type that the parser could not keep,
+        /// because it dropped the foreign receiver that hosts them (an enum receiver, a non-frozen or
+        /// non-trivial struct receiver, a re-exported receiver, or a receiver the binder faulted on).
+        /// The parser runs long before the report session the emitter writes, so it parks each one
+        /// here and the emitter publishes it as a skip row once emission settles
+        /// (<c>ForeignTypeExtensionEmitter.RepublishWithdrawals</c>). Without this a member the
+        /// interface declares would vanish from the binding with nothing in the report to say so.
+        /// </summary>
+        public List<UnboundForeignReceiverMember> UnboundForeignReceiverMembers { get; } = new();
     }
+
+    /// <summary>
+    /// One declaration of the module being bound that lives on a foreign receiver the parser dropped.
+    /// </summary>
+    /// <param name="ForeignTypeQualifiedName">The receiver, module-qualified (<c>Foundation.AttributeScopes</c>).</param>
+    /// <param name="Kind">What the declaration is; a nested type is <see cref="BindingItemKind.Type"/>.</param>
+    /// <param name="Name">The declaration's own name.</param>
+    /// <param name="Details">Why the receiver, and with it this declaration, was not bound.</param>
+    public sealed record UnboundForeignReceiverMember(
+        string ForeignTypeQualifiedName,
+        BindingItemKind Kind,
+        string Name,
+        string Details);
 }

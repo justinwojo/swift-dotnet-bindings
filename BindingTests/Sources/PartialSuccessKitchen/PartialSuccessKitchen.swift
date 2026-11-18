@@ -144,3 +144,15 @@ internal enum KitchenInternalRawValue: String {
     case alpha
     case beta = "B"
 }
+
+// S15 — declarations this module adds to another module's Swift enum (Foundation's caseless
+// AttributeScopes): a nested type and a property. Only class and frozen-struct receivers are bound
+// across modules, so the parser drops the receiver; both declarations must still be reported as
+// skipped, not lost with it.
+@available(iOS 15, macOS 12, tvOS 15, *)
+extension AttributeScopes {
+    public struct KitchenAttributes {
+        public init() {}
+    }
+    public var kitchen: KitchenAttributes.Type { KitchenAttributes.self }
+}

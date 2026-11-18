@@ -37,6 +37,12 @@
 // makes the SWIFTBIND111-absent check non-vacuous: it proves the generator's diagnostic channel is
 // captured here, so an escalation genuinely could not slip through unread.
 //
+// One coarse withdrawal is declared rather than forbidden: KitchenConfiguration refines a protocol of a
+// module the generator does not load, so its EveryProtocol conformance is left to the wrapper compile.
+// In the hostile slice that conformance fails and the loop withdraws its managed-conformance unit (the
+// conformance, its witness-table getters and the C# proxy). The gate asserts exactly that unit and that
+// row, and that the control slice binds the same conformance; any other coarse withdrawal still fails.
+//
 // It is fail-closed on all of the above.
 
 using System;
@@ -99,6 +105,13 @@ partial class Build
     const string ResilienceControlBoxDeclaration = "public partial class KitchenBox<TElement> : global::Swift.Runtime.ISwiftObject, global::System.IDisposable, IKitchenValue, global::Swift.Runtime.IExistentialBoxable";
     const string ResilienceBoxHostileSymbol = "KitchenBox_hostileWidget";
     const string ResilienceBoxHostileOrigin = "|KitchenBox|Property|hostileWidget|";
+
+    // The protocol whose managed conformance the hostile slice withdraws (see the fixture header), the
+    // proxy the withdrawal takes with it, and the unit the emission report must name.
+    const string ResilienceConformanceProtocol = "KitchenConfiguration";
+    const string ResilienceConformanceProxy = ResilienceConformanceProtocol + "Proxy";
+    const string ResilienceConformanceUnit =
+        ResilienceModule + "||Type|" + ResilienceConformanceProtocol + "||None|||!managed-protocol-conformance";
 
     AbsolutePath ResilienceSourceDir => BindingTestsDir / "Sources" / ResilienceModule;
     AbsolutePath ResilienceScratch => RootDirectory / "artifacts" / "resilience-kitchen";
@@ -177,6 +190,10 @@ partial class Build
         // A lost concrete witness must remove its managed conformance without shrinking the
         // independent protocol's complete reverse capability or another protocol's shared carrier.
         AssertResilienceProtocolClosure(hostileOut, controlOut);
+
+        // A conformance whose parent lives in an unloaded module binds when it compiles (control) and is
+        // withdrawn as its own managed-conformance unit, with an attributable row, when it does not.
+        AssertResilienceConformanceWithdrawal(hostileOut, controlOut);
 
         // (4) Healthy siblings survive with names + collision suffixes identical to the control run.
         AssertResilienceHealthySiblingsStable(hostileOut, controlOut);
@@ -420,6 +437,11 @@ partial class Build
             recoveryWithdrawalRows++;
             var name = Str("Name");
             var rootCauseId = Str("RootCauseId");
+            // The declared conformance withdrawal: its row names the proxy it removed, and
+            // AssertResilienceConformanceWithdrawal proves the withdrawn unit was exactly that
+            // conformance's managed-conformance unit. Nothing else may be coarser than a leaf.
+            if (IsResilienceConformanceWithdrawalRow(name, Str("ContainingType"), Str("Details")))
+                continue;
             if (!ResilienceLocalizedScopeSuffixes.Any(s => rootCauseId.EndsWith(s, StringComparison.Ordinal)))
                 throw new Exception($"resilience-kitchen: recovery-loop withdrawal '{name}' resolved to a NON-localized scope "
                     + $"(RootCauseId='{rootCauseId}'; expected a '!leaf-api' or '!accessor-group' root). The ratchet requires "
@@ -488,7 +510,9 @@ partial class Build
         var lines = new HashSet<(string File, string Declaration)>();
         foreach (var file in Directory.EnumerateFiles(outputDir, $"{ResilienceModule}*.cs", SearchOption.TopDirectoryOnly))
         {
-            foreach (var raw in File.ReadLines(file))
+            // The conformance proxy exists only in the control; AssertResilienceConformanceWithdrawal
+            // proves its presence there and its absence in the hostile run.
+            foreach (var raw in WithoutResilienceConformanceProxy(File.ReadLines(file)))
             {
                 var trimmed = raw.Trim();
                 if (!trimmed.StartsWith("public ", StringComparison.Ordinal)) continue;
@@ -662,6 +686,114 @@ partial class Build
                 throw new Exception($"resilience-kitchen: {label} lost the retained reverse-capability dependent.");
         }
         Log.Information("  ✓ concrete conformance withdrawal agrees with report; both reverse layouts, callbacks, shared carrier and retained dependent survive.");
+    }
+
+    static bool IsResilienceConformanceWithdrawalRow(string name, string containingType, string details)
+        => name == ResilienceConformanceProxy
+            && containingType == $"{ResilienceModule}.{ResilienceConformanceProtocol}"
+            && details.StartsWith("Withdrawn by wrapper verify-recover", StringComparison.Ordinal)
+            && details.Contains("(managed-protocol-conformance)", StringComparison.Ordinal);
+
+    // Yields the lines of a generated file without the conformance proxy's class block (the class line
+    // through its matching close brace). Fails closed on an unbalanced block.
+    static IEnumerable<string> WithoutResilienceConformanceProxy(IEnumerable<string> lines)
+    {
+        var depth = 0;
+        var inProxy = false;
+        var opened = false;
+        foreach (var line in lines)
+        {
+            if (!inProxy && System.Text.RegularExpressions.Regex.IsMatch(line, $@"\bclass {ResilienceConformanceProxy}\b"))
+            {
+                inProxy = true;
+                opened = false;
+                depth = 0;
+            }
+            if (!inProxy)
+            {
+                yield return line;
+                continue;
+            }
+            foreach (var c in line)
+            {
+                if (c == '{') { depth++; opened = true; }
+                else if (c == '}') depth--;
+            }
+            if (opened && depth == 0)
+                inProxy = false;
+        }
+        if (inProxy)
+            throw new Exception($"resilience-kitchen: unbalanced {ResilienceConformanceProxy} class block in a generated file.");
+    }
+
+    void AssertResilienceConformanceWithdrawal(AbsolutePath hostileOut, AbsolutePath controlOut)
+    {
+        var extensionHead = $"extension EveryProtocol: {ResilienceModule}.{ResilienceConformanceProtocol}";
+        var witnessGetter = $"SBW_Get_EveryProtocol_{ResilienceConformanceProtocol}_WitnessTable";
+        var interfaceFile = $"{ResilienceModule}.Types.I{ResilienceConformanceProtocol}.cs";
+
+        foreach (var (label, directory, hostile) in new[] { ("hostile", hostileOut, true), ("control", controlOut, false) })
+        {
+            string Live(string text) => string.Join("\n", text.Split('\n')
+                .Where(line => !line.TrimStart().StartsWith("//", StringComparison.Ordinal)));
+            var swift = Live(File.ReadAllText(directory / $"{ResilienceModule}.Wrapper.swift"));
+            var managed = Live(string.Concat(Directory
+                .EnumerateFiles(directory, $"{ResilienceModule}*.cs", SearchOption.TopDirectoryOnly)
+                .Select(File.ReadAllText)));
+
+            // The protocol's own interface is not part of the withdrawal.
+            if (!File.Exists(directory / interfaceFile) ||
+                !File.ReadAllText(directory / interfaceFile).Contains($"public interface I{ResilienceConformanceProtocol}", StringComparison.Ordinal))
+                throw new Exception($"resilience-kitchen: {label} lost the I{ResilienceConformanceProtocol} interface — only the conformance may be withdrawn.");
+
+            var bound = new[]
+            {
+                swift.Contains(extensionHead, StringComparison.Ordinal),
+                swift.Contains(witnessGetter, StringComparison.Ordinal),
+                managed.Contains(witnessGetter, StringComparison.Ordinal),
+                System.Text.RegularExpressions.Regex.IsMatch(managed, $@"\bclass {ResilienceConformanceProxy}\b"),
+                managed.Contains($"typeof(global::{ResilienceModule}.SwiftInterop.{ResilienceConformanceProxy})", StringComparison.Ordinal),
+            };
+            if (hostile ? bound.Any(b => b) : !bound.All(b => b))
+                throw new Exception($"resilience-kitchen: {label} {ResilienceConformanceProtocol} conformance artifacts "
+                    + $"[extension, Swift getter, C# getter, proxy, registration] = [{string.Join(", ", bound)}]; expected all "
+                    + (hostile ? "absent (withdrawn by the wrapper compile)." : "present (the conformance compiles and must bind)."));
+
+            using var report = JsonDocument.Parse(File.ReadAllText(directory / "binding-report.json"));
+            var rows = report.RootElement.GetProperty("SkippedItems").EnumerateArray()
+                .Where(row => row.GetProperty("ContainingType").GetString() == $"{ResilienceModule}.{ResilienceConformanceProtocol}")
+                .ToArray();
+            if (!hostile)
+            {
+                if (rows.Length != 0)
+                    throw new Exception($"resilience-kitchen: control reports {rows.Length} skip row(s) under {ResilienceConformanceProtocol}; the bound conformance must lose nothing.");
+                continue;
+            }
+
+            string Str(JsonElement row, string prop) => row.TryGetProperty(prop, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString()! : "";
+            if (rows.Length != 1 ||
+                !IsResilienceConformanceWithdrawalRow(Str(rows[0], "Name"), Str(rows[0], "ContainingType"), Str(rows[0], "Details")) ||
+                Str(rows[0], "Reason") != "EmitterFault" ||
+                Str(rows[0], "RecoveryStage") != "SwiftCompile" ||
+                Str(rows[0], "CauseOwner") != "Generator")
+                throw new Exception($"resilience-kitchen: hostile {ResilienceConformanceProtocol} withdrawal is not one attributable row "
+                    + "(expected the proxy, EmitterFault, wrapper withdrawal wording naming the managed-protocol-conformance unit, "
+                    + $"SwiftCompile, Generator); got {rows.Length} row(s): {string.Join(" | ", rows.Select(r => r.GetRawText()))}");
+
+            using var emission = JsonDocument.Parse(File.ReadAllText(directory / "binding-emission-report.json"));
+            var unitIds = emission.RootElement.GetProperty("withdrawalEvidence").GetProperty("unitIds")
+                .EnumerateArray().Select(u => u.GetString()).ToArray();
+            if (!unitIds.Contains(ResilienceConformanceUnit, StringComparer.Ordinal))
+                throw new Exception($"resilience-kitchen: hostile withdrawal evidence lacks '{ResilienceConformanceUnit}' "
+                    + $"(units: {string.Join(", ", unitIds)}).");
+            var coarse = unitIds.Where(u => u is not null &&
+                !ResilienceLocalizedScopeSuffixes.Any(sfx => u.EndsWith(sfx, StringComparison.Ordinal)) &&
+                u != ResilienceConformanceUnit).ToArray();
+            if (coarse.Length > 0)
+                throw new Exception($"resilience-kitchen: hostile withdrawal evidence holds undeclared coarse unit(s): {string.Join(", ", coarse)}.");
+        }
+        Log.Information("  ✓ {Protocol}: conformance bound in the control, withdrawn as {Unit} with one attributable row in the hostile run.",
+            ResilienceConformanceProtocol, ResilienceConformanceUnit);
     }
 
     void AssertResiliencePositiveControls(AbsolutePath outputDir)

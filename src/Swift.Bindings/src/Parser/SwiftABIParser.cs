@@ -1424,6 +1424,7 @@ namespace BindingsGeneration
             catch (NotImplementedException e)
             {
                 droppedWithError = true;
+                RecordUnboundChildrenOfFaultedReceiver(node, parentDecl, moduleDecl, e.Message);
                 _logger.LogWarning($"Not implemented '{node.Name}' ({node.MangledName}): {e.Message}");
                 RecordDropLedger(
                     node, parentDecl, IngestionCause.UnhandledDeclaration,
@@ -1433,6 +1434,7 @@ namespace BindingsGeneration
             catch (Exception e)
             {
                 droppedWithError = true;
+                RecordUnboundChildrenOfFaultedReceiver(node, parentDecl, moduleDecl, e.Message);
                 _logger.LogWarning($"Error while processing node '{node.Name} ({node.MangledName})': {e.Message}");
                 RecordDropLedger(
                     node, parentDecl, IngestionCause.ParseFault,
@@ -1552,6 +1554,11 @@ namespace BindingsGeneration
                              foreignShape.Flags.HasFlag(TypeRecordFlags.RequiresMemoryManagement)))
                         {
                             _logger.LogInformation($"Skipping cross-module extension on non-frozen or non-trivial (RequiresMemoryManagement) foreign struct '{node.Name}' (canonical module: {node.ModuleName}) — only frozen value structs without managed payload are supported by the cross-module struct trampoline path.");
+                            RecordUnboundForeignReceiverChildren(
+                                node, probeName.ModuleQualifiedName, moduleDecl,
+                                $"it extends the foreign struct '{probeName.ModuleQualifiedName}', which is not a frozen "
+                                + "trivial value; the cross-module struct path reads `self` by value and is only "
+                                + "ABI-safe for frozen structs without a managed payload.");
                             return null;
                         }
                     }
@@ -1560,6 +1567,14 @@ namespace BindingsGeneration
                 else if (!_resolver.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
+                    if (hasCurrentModuleExtensionChildren)
+                    {
+                        var receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+                        RecordUnboundForeignReceiverChildren(
+                            node, receiverName, moduleDecl,
+                            $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and "
+                            + "frozen-struct receivers are routed to the cross-module extension path.");
+                    }
                     return null;
                 }
                 // else: foreign type from a system / common-Apple module with no extension
@@ -4876,6 +4891,80 @@ namespace BindingsGeneration
         /// carries a <c>$s...</c> mangled name, so it never reaches the missing-mangled-name gate
         /// this helper guards.
         /// </summary>
+        /// <summary>
+        /// A foreign type node the binder faulted on takes with it every declaration the module being
+        /// parsed adds to it. The fault itself is in the ingestion ledger, but that names the receiver,
+        /// not the members a reader of the interface would look for, so each of them is parked for a
+        /// skip row as well. A node with no such children, or one of the module's own, records nothing.
+        /// </summary>
+        private void RecordUnboundChildrenOfFaultedReceiver(Node node, BaseDecl parentDecl, ModuleDecl moduleDecl, string fault)
+        {
+            if (node.Kind != "TypeDecl" || string.IsNullOrEmpty(node.ModuleName) ||
+                string.IsNullOrEmpty(moduleDecl.Name) || node.ModuleName == moduleDecl.Name)
+                return;
+            string receiverName;
+            try
+            {
+                receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+            }
+            catch (Exception)
+            {
+                receiverName = $"{node.ModuleName}.{node.Name}";
+            }
+            RecordUnboundForeignReceiverChildren(
+                node, receiverName, moduleDecl,
+                $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and frozen-struct "
+                + $"receivers are routed to the cross-module extension path, and the receiver could not be bound "
+                + $"as a type of its own ({fault}).");
+        }
+
+        /// <summary>
+        /// Parks every declaration of the module being parsed that lives on the dropped foreign
+        /// receiver <paramref name="node"/> — and on foreign types nested in it — so the emitter can
+        /// report each as skipped. A nested type of the module's own is reported as one row: its
+        /// members go with it, as they do for any skipped type.
+        /// </summary>
+        private static void RecordUnboundForeignReceiverChildren(
+            Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why)
+        {
+            foreach (var child in node.Children ?? Array.Empty<Node>())
+            {
+                if (string.IsNullOrEmpty(child.Name))
+                    continue;
+                bool isOwn = child.ModuleName == moduleDecl.Name;
+                if (child.Kind == "TypeDecl" && !isOwn)
+                {
+                    RecordUnboundForeignReceiverChildren(
+                        child, $"{receiverQualifiedName}.{child.Name}", moduleDecl, why);
+                    continue;
+                }
+                if (!isOwn)
+                    continue;
+                BindingItemKind? kind = child.Kind switch
+                {
+                    "TypeDecl" => BindingItemKind.Type,
+                    "Function" or "Constructor" => IsOperator(child.Name) ? BindingItemKind.Operator : BindingItemKind.Method,
+                    "Var" when child.DeclKind != "EnumElement" => BindingItemKind.Property,
+                    "Subscript" => BindingItemKind.Subscript,
+                    _ => null,
+                };
+                if (kind is null)
+                    continue;
+                moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+                    receiverQualifiedName, kind.Value, child.Name,
+                    $"Not bound: {why}"));
+            }
+        }
+
+        private static string DescribeReceiverKind(Node node) => node.DeclKind switch
+        {
+            "Enum" => "enum",
+            "Struct" => "struct",
+            "Class" => "class",
+            "Protocol" => "protocol",
+            _ => "type",
+        };
+
         /// <summary>
         /// Records the declared kind of the foreign type <paramref name="node"/> and of every type nested
         /// in it, keyed by module-qualified name. The nested ones are walked here because the gates that

@@ -550,6 +550,75 @@ public class AbiIngestionContractTests
         Assert.Equal("Struct", result.ModuleDecl.ForeignTypeDeclKinds["Foundation.NSWidget.Options"]);
     }
 
+    /// <summary>
+    /// A foreign receiver the parser cannot keep (a Swift enum, from a system module or a third-party
+    /// one) takes with it every declaration this module adds to it. Each of them is parked on the
+    /// module so the emitter can report it, instead of vanishing with the receiver; a nested type of
+    /// the module's own is one entry, and a foreign type nested in the receiver is walked for its own.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation", "s:10Foundation15AttributeScopesO")]
+    [InlineData("OtherLib", "s:8OtherLib15AttributeScopesO")]
+    public void ParseModule_DroppedForeignEnumReceiver_ParksTheModulesDeclarationsOnIt(string foreignModule, string usr)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var ownNestedType = CreateNode(
+            "TypeDecl", declKind: "Struct", name: "TranslationAttributes",
+            mangledName: "$s" + usr[2..] + "10TestModuleE21TranslationAttributesV");
+        var ownProperty = CreateNode("Var", declKind: "Var", name: "translation", mangledName: "$s_translation");
+        var ownMethodOnNestedForeign = CreateNode("Function", declKind: "Func", name: "describe()", mangledName: "$s_describe");
+        var foreignNested = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "FoundationAttributes", moduleName: foreignModule,
+            mangledName: "$s" + usr[2..] + "20FoundationAttributesO", isExternal: true,
+            children: [ownMethodOnNestedForeign]);
+        var foreignOnly = CreateNode("Var", declKind: "Var", name: "foundation", moduleName: foreignModule, mangledName: "$s_foundation");
+        var receiver = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "AttributeScopes", moduleName: foreignModule,
+            mangledName: "$s" + usr[2..], usr: usr, declAttributes: [], isExternal: true,
+            children: [ownNestedType, ownProperty, foreignNested, foreignOnly]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, receiver);
+
+        var result = fixture.Parser.ParseModule();
+
+        var parked = result.ModuleDecl.UnboundForeignReceiverMembers
+            .Select(u => $"{u.ForeignTypeQualifiedName}|{u.Kind}|{u.Name}")
+            .OrderBy(x => x, StringComparer.Ordinal)
+            .ToArray();
+        Assert.Equal(
+            new[]
+            {
+                $"{foreignModule}.AttributeScopes.FoundationAttributes|Method|describe()",
+                $"{foreignModule}.AttributeScopes|Property|translation",
+                $"{foreignModule}.AttributeScopes|Type|TranslationAttributes",
+            },
+            parked);
+        Assert.All(result.ModuleDecl.UnboundForeignReceiverMembers, u => Assert.StartsWith("Not bound: ", u.Details));
+    }
+
+    /// <summary>
+    /// A foreign receiver with nothing of this module's on it parks nothing, whatever the parser does
+    /// with the receiver itself.
+    /// </summary>
+    [Fact]
+    public void ParseModule_ForeignReceiverWithoutTheModulesDeclarations_ParksNothing()
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var foreign = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "AttributeScopes", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib15AttributeScopesO", usr: "s:8OtherLib15AttributeScopesO",
+            declAttributes: [], isExternal: true,
+            children: [CreateNode("Var", declKind: "Var", name: "foundation", moduleName: "OtherLib", mangledName: "$s_f")]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, foreign);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Empty(result.ModuleDecl.UnboundForeignReceiverMembers);
+    }
+
     #region Harness
 
     private static ParserFixture CreateParser(int? jsonFormatVersion, ILogger logger, params Node[] nodes)

@@ -521,6 +521,52 @@ public sealed class InEmissionDriver : IWrapperRecoveryDriver
         return outcome;
     }
 
+    /// <inheritdoc />
+    /// <remarks>
+    /// <para>
+    /// The one coarse scope this driver authorizes is a module-local protocol's
+    /// <see cref="RecoveryScope.ManagedProtocolConformance"/> blamed by the Swift wrapper compile, and
+    /// only when every blocking unit of the round is one. Its closure is the units themselves.
+    /// </para>
+    /// <para>
+    /// That is sound without the recovery graph because nothing here withdraws the dependents by
+    /// reference. The withdrawal is an input to the next render, where the EveryProtocol plan
+    /// fixpoint treats the conformance exactly like a structurally skipped one (WillSkipConformance):
+    /// child protocols lose their conformance as unwitnessed, the sibling plans drop it, the C# proxy
+    /// and its registration are suppressed, and every member that would wrap a C# implementation in
+    /// that proxy takes the suppressed-proxy path. Those are the paths every predicted conformance
+    /// skip already takes. A conformance the render does not withdraw (the fragment was not the
+    /// emitter's) re-blames an already-denied unit, which the controller reads as no progress and
+    /// fails closed.
+    /// </para>
+    /// </remarks>
+    public CoarseWithdrawalAuthorization AuthorizeCoarseWithdrawal(
+        IReadOnlyList<RecoveryUnitId> blocking, IReadOnlySet<RecoveryUnitId> denylist)
+    {
+        ArgumentNullException.ThrowIfNull(blocking);
+        return AuthorizesConformanceWithdrawal(blocking, _decl.Name, OriginOf)
+            ? CoarseWithdrawalAuthorization.Authorize(blocking)
+            : CoarseWithdrawalAuthorization.Unauthorized;
+    }
+
+    /// <summary>
+    /// Whether a round's coarse culprits are all module-local managed protocol conformances the Swift
+    /// wrapper compile named — the only coarse withdrawal this driver authorizes.
+    /// </summary>
+    internal static bool AuthorizesConformanceWithdrawal(
+        IReadOnlyList<RecoveryUnitId> blocking,
+        string moduleName,
+        Func<RecoveryUnitId, EmitterFaultOrigin> originOf)
+    {
+        ArgumentNullException.ThrowIfNull(blocking);
+        ArgumentNullException.ThrowIfNull(originOf);
+        return blocking.Count > 0 && blocking.All(unit =>
+            unit.Scope == RecoveryScope.ManagedProtocolConformance
+            && unit.Decl.Kind == BindingItemKind.Type
+            && string.Equals(unit.Decl.Module, moduleName, StringComparison.Ordinal)
+            && originOf(unit) == EmitterFaultOrigin.RecoveryWithdrawal);
+    }
+
     // The origin each denied unit was first attributed under, defaulting to the Swift-wrapper wording
     // for any unit not yet recorded (the wave-1 Swift-only path never records, so it always defaults).
     private EmitterFaultOrigin OriginOf(RecoveryUnitId unit) =>
