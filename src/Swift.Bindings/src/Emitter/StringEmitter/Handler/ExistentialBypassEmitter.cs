@@ -795,6 +795,9 @@ public static class ExistentialBypassEmitter
 
         swiftWriter.WriteLine();
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, methodAvailability);
+        // The wrapper calls the member synchronously, so it has to share a main-actor member's (or
+        // a main-actor type's) isolation, as every other member wrapper does.
+        EmitMainActorIfNeeded(swiftWriter, env);
         // @_silgen_name keeps Swift CC because the method wrapper takes the parent class as
         // self and may pass non-@objc class types in passthroughArgs — neither is C-representable
         // under @_cdecl. Symbol uses the SBSW_ prefix so PInvokeEmitHelper.SelectCallingConvention
@@ -1170,6 +1173,9 @@ public static class ExistentialBypassEmitter
 
         swiftWriter.WriteLine();
         WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+        // A main-actor type's initializer is main-actor isolated too; the free wrapper below
+        // touches only the buffer and stays nonisolated.
+        EmitMainActorIfNeeded(swiftWriter, env);
         // @_silgen_name keeps Swift CC because passthroughArgs may carry non-@objc class
         // types that swiftc rejects under @_cdecl. Symbol uses the SBSW_ prefix so
         // PInvokeEmitHelper.SelectCallingConvention routes the P/Invoke to CallConvSwift.
@@ -1196,6 +1202,20 @@ public static class ExistentialBypassEmitter
         swiftWriter.WriteLine("typedPtr.deallocate()");
         swiftWriter.Indent--;
         swiftWriter.WriteLine("}");
+    }
+
+    /// <summary>
+    /// Writes <c>@MainActor</c> when the wrapped member is main-actor isolated, itself or through
+    /// its parent type (<see cref="WrapperValidation.NeedsMainActorAnnotation"/>). Swift refuses a
+    /// synchronous call to such a member from a nonisolated function; the attribute changes no ABI.
+    /// </summary>
+    private static void EmitMainActorIfNeeded(SwiftWriter swiftWriter, MethodEnvironment env)
+    {
+        if (WrapperValidation.NeedsMainActorAnnotation(
+                env.ParentDecl, env.MethodDecl.IsMainActorIsolated, env.MethodDecl.IsNonisolated))
+        {
+            swiftWriter.WriteLine("@MainActor");
+        }
     }
 
     /// <summary>

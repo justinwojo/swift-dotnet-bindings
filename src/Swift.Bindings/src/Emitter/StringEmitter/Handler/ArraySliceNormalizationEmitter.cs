@@ -740,6 +740,12 @@ public static class ArraySliceNormalizationEmitter
                 declaringType: declaringType is null ? null : SyntheticSwiftDeclaringType.Of(declaringType),
                 availability: SyntheticSwiftFunction.FloorsOf(availability));
 
+        // The wrapper calls the original member synchronously, so it shares a main-actor member's
+        // (or main-actor type's) isolation, as the ordinary method wrapper does. Inside the type's
+        // own extension a type-level isolation is inherited, and the attribute is then redundant.
+        bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(
+            parentTypeDecl, originalMethodDecl.IsMainActorIsolated, originalMethodDecl.IsNonisolated);
+
         swiftWriter.WriteLine();
 
         if (isFreeFunction || (useCdecl && !isFreeFunction))
@@ -774,6 +780,8 @@ public static class ArraySliceNormalizationEmitter
             }
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            if (needsMainActor)
+                swiftWriter.WriteLine("@MainActor");
             string[] declarationLines =
             [
                 $"{annotation}(\"{wrapperSymbol}\")",
@@ -853,6 +861,8 @@ public static class ArraySliceNormalizationEmitter
             swiftWriter.Indent++;
 
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            if (needsMainActor)
+                swiftWriter.WriteLine("@MainActor");
             string[] declarationLines =
             [
                 $"@_silgen_name(\"{wrapperSymbol}\")",
