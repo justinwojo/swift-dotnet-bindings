@@ -437,11 +437,17 @@ partial class Build
             recoveryWithdrawalRows++;
             var name = Str("Name");
             var rootCauseId = Str("RootCauseId");
-            // The declared conformance withdrawal: its row names the proxy it removed, and
-            // AssertResilienceConformanceWithdrawal proves the withdrawn unit was exactly that
-            // conformance's managed-conformance unit. Nothing else may be coarser than a leaf.
+            // The declared conformance withdrawal: its row names the proxy it removed, and its root
+            // must be that conformance's managed-conformance unit, the one the withdrawal evidence
+            // records (AssertResilienceConformanceWithdrawal). Nothing else may be coarser than a leaf.
             if (IsResilienceConformanceWithdrawalRow(name, Str("ContainingType"), Str("Details")))
+            {
+                if (!rootCauseId.EndsWith("!managed-protocol-conformance", StringComparison.Ordinal))
+                    throw new Exception($"resilience-kitchen: the conformance withdrawal row '{name}' names root "
+                        + $"'{rootCauseId}', not its protocol's managed-conformance unit, so it cannot be joined to "
+                        + "the withdrawal evidence.");
                 continue;
+            }
             if (!ResilienceLocalizedScopeSuffixes.Any(s => rootCauseId.EndsWith(s, StringComparison.Ordinal)))
                 throw new Exception($"resilience-kitchen: recovery-loop withdrawal '{name}' resolved to a NON-localized scope "
                     + $"(RootCauseId='{rootCauseId}'; expected a '!leaf-api' or '!accessor-group' root). The ratchet requires "

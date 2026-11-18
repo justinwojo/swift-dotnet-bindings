@@ -189,6 +189,26 @@ public static class ForeignTypeExtensionEmitter
     /// and same-named members of different receivers each keep a row, and keeps it on the context for
     /// <see cref="RepublishWithdrawals"/> (see <see cref="RecordWithdrawal"/> for why both halves).
     /// </summary>
+    /// <summary>
+    /// A member whose wrapper claim was lost: the same declaration listed twice is already bound and
+    /// is only counted; a different declaration whose wrapper renders the same symbol is reported.
+    /// </summary>
+    private static void RecordLostClaim(
+        ModuleEmissionContext ctx, ModuleDecl moduleDecl, string foreignTypeQualifiedName,
+        ProtocolExtensionMethodDecl extMethod, string symbol, bool sameDeclaration)
+    {
+        if (sameDeclaration)
+        {
+            ctx.ForeignExtDuplicateClaimCount++;
+            return;
+        }
+        RecordUnbound(
+            ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
+            SkipReason.EmitterFault,
+            $"Foreign extension on '{foreignTypeQualifiedName}': its wrapper symbol '{symbol}' is already taken by "
+            + "another member of the receiver, so this member was not bound.");
+    }
+
     private static void RecordUnbound(
         ModuleEmissionContext ctx, ModuleDecl moduleDecl, DeclId memberId, SkipReason reason, string details)
     {
@@ -227,7 +247,8 @@ public static class ForeignTypeExtensionEmitter
                 firstDot < 0 ? string.Empty : unbound.ForeignTypeQualifiedName[..firstDot],
                 firstDot < 0 ? unbound.ForeignTypeQualifiedName : unbound.ForeignTypeQualifiedName[(firstDot + 1)..],
                 unbound.Kind,
-                unbound.Name);
+                unbound.Name,
+                symbol: unbound.Symbol);
             ReportCollector.RecordMemberSkipped(memberId, moduleDecl, SkipReason.UnsupportedSignature, unbound.Details);
         }
     }
@@ -545,9 +566,9 @@ public static class ForeignTypeExtensionEmitter
         // so there is no MethodWrapperEmitter counterpart to align with. The structural claim
         // is preventive against a future emitter joining the same surface.
         var getterSourceKey = $"get {extMethod.MethodName}::{extMethod.RawSignature}";
-        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, getterSourceKey, getterSymbol))
+        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, getterSourceKey, getterSymbol, out var getterIsDuplicate))
         {
-            ctx.ForeignExtDuplicateClaimCount++;
+            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, getterSymbol, getterIsDuplicate);
             return;
         }
 
@@ -574,7 +595,16 @@ public static class ForeignTypeExtensionEmitter
         // Emit setter if applicable (only for primitives)
         if (extMethod.HasSetter)
         {
-            if (IsPrimitiveSetter(propertyTypeSpec, typeDatabase))
+            // The getter is bound by now; a setter this path cannot bind is a loss of its own.
+            var setterId = DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod) with { Accessor = AccessorKind.Setter };
+            if (!IsPrimitiveSetter(propertyTypeSpec, typeDatabase))
+            {
+                RecordUnbound(ctx, moduleDecl, setterId, SkipReason.UnsupportedSignature,
+                    $"Foreign extension on '{foreignTypeQualifiedName}': the setter of '{extMethod.MethodName}' takes a "
+                    + "value the foreign-extension path does not marshal into a setter (only primitive values are); "
+                    + "the getter is bound.");
+            }
+            else
             {
                 var setterSymbol = $"SBSW_{flatTypeName}_set_{extMethod.MethodName}";
                 // "set " prefix in sourceKey keeps the setter structurally distinct from the
@@ -582,8 +612,14 @@ public static class ForeignTypeExtensionEmitter
                 // but the structural-identity tuple must match the rendering split for cross-
                 // emitter dedup to stay correct.
                 var setterSourceKey = $"set {extMethod.MethodName}::{extMethod.RawSignature}";
-                if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, setterSourceKey, setterSymbol))
+                if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, setterSourceKey, setterSymbol, out var setterIsDuplicate))
+                {
+                    if (!setterIsDuplicate)
+                        RecordUnbound(ctx, moduleDecl, setterId, SkipReason.EmitterFault,
+                            $"Foreign extension on '{foreignTypeQualifiedName}': the setter's wrapper symbol '{setterSymbol}' "
+                            + "is already taken by another member of the receiver; the getter is bound, the setter is not.");
                     return;
+                }
 
                 EmitSwiftPropertySetter(foreignTypeQualifiedName, extMethod, propertyTypeSpec, setterSymbol, afterColon, typeDatabase, ctx, availabilityAnnotations);
 
@@ -739,9 +775,9 @@ public static class ForeignTypeExtensionEmitter
         // emitter rewrite). Two genuine overloads on the same foreign type stay distinct
         // because RawSignature embeds the parameter types verbatim.
         var sourceKey = $"method {extMethod.MethodName}::{extMethod.RawSignature}";
-        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, sourceKey, symbolName))
+        if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, sourceKey, symbolName, out var isDuplicate))
         {
-            ctx.ForeignExtDuplicateClaimCount++;
+            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, symbolName, isDuplicate);
             return;
         }
 

@@ -243,6 +243,53 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     /// <summary>
+    /// Two different members whose wrappers render the same symbol cannot both bind; the one that
+    /// loses the claim is reported against the receiver rather than taken for a duplicate listing.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_DifferentMembersSharingAWrapperSymbol_LoserReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var property = CreateExtMethod("rank", "public var rank: Swift.Int32 { get }");
+        property.IsProperty = true;
+        var method = CreateExtMethod("get_rank", "public func get_rank() -> Swift.Int32");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { property, method } }, ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("get_rank", row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
+        Assert.Equal(SkipReason.EmitterFault, row.Reason);
+        Assert.Contains("SBSW_UIKit_UIView_get_rank", row.Details);
+    }
+
+    /// <summary>
+    /// A settable property whose value this path marshals only out of a getter keeps its getter, and
+    /// its setter is reported rather than dropped.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_SetterOfANonPrimitiveValue_ReportedAndGetterBound()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var property = CreateExtMethod("snapshotView", "public var snapshotView: UIKit.UIView { get set }");
+        property.IsProperty = true;
+        property.HasSetter = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { property } }, ctx);
+
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("snapshotView", row.Name);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Equal(AccessorKind.Setter, DeclId.Parse(row.DeclId!).Accessor);
+    }
+
+    /// <summary>
     /// A member a module adds to a foreign Swift enum or struct is not bound by this path. It is
     /// reported, against the receiver it extends, rather than dropped without a trace.
     /// </summary>
@@ -337,6 +384,24 @@ public class ForeignTypeExtensionEmitterTests
             Assert.Equal("Foundation.AttributeScopes", r.ContainingType);
             Assert.Equal("Not bound: parked", r.Details);
         });
+    }
+
+    /// <summary>
+    /// Overloads parked with a dropped receiver share a name but not a symbol, and each loss keeps a row.
+    /// </summary>
+    [Fact]
+    public void RepublishWithdrawals_ParkedOverloads_EachReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_Int32"));
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_String"));
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new(), ctx);
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "describe"));
     }
 
     #endregion

@@ -120,9 +120,12 @@ namespace BindingsGeneration
     /// <param name="Kind">What the declaration is; a nested type is <see cref="BindingItemKind.Type"/>.</param>
     /// <param name="Name">The declaration's own name.</param>
     /// <param name="Details">Why the receiver, and with it this declaration, was not bound.</param>
+    /// <param name="Symbol">The declaration's mangled name, which keeps overloads sharing
+    /// <paramref name="Name"/> on separate rows.</param>
     public sealed record UnboundForeignReceiverMember(
         string ForeignTypeQualifiedName,
         BindingItemKind Kind,
         string Name,
-        string Details);
+        string Details,
+        string? Symbol = null);
 }

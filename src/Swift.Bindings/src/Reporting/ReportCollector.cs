@@ -414,7 +414,8 @@ public static class ReportCollector
         BaseDecl? containingDecl,
         SkipReason reason,
         string? details = null,
-        SourcePosition? position = null)
+        SourcePosition? position = null,
+        RecoveryUnitId? recoveryUnit = null)
         => RecordMemberSkippedInternal(
             MemberDiagnosticIdentity.FromMember(kind, name, containingDecl),
             displayName: name,
@@ -424,7 +425,8 @@ public static class ReportCollector
             // Legacy entry: caller passes the containing decl, not the member, so the best
             // available source is the parent's position (member-line positions belong on the
             // member decl itself, which this entry doesn't have access to).
-            position ?? containingDecl?.Position);
+            position ?? containingDecl?.Position,
+            recoveryUnit: recoveryUnit);
 
     /// <summary>
     /// Id-keyed entry point, for a member with no parsed declaration (one a module adds to another
@@ -1032,7 +1034,8 @@ public static class ReportCollector
         SkipReason reason,
         string? details,
         SourcePosition? position = null,
-        string? containingTypeName = null)
+        string? containingTypeName = null,
+        RecoveryUnitId? recoveryUnit = null)
     {
         var session = Current;
         if (session == null)
@@ -1053,6 +1056,7 @@ public static class ReportCollector
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
                 Position = position,
                 DeclId = identity.ToDeclId().Canonical,
+                RecoveryUnit = recoveryUnit?.Canonical,
             });
         }
     }

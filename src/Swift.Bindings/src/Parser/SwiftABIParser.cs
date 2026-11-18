@@ -1516,6 +1516,10 @@ namespace BindingsGeneration
                 if (node.ModuleName == "Swift" && TypeDatabaseExtensions.IsKnownGenericType(node.Name))
                 {
                     _logger.LogInformation($"Skipping foreign Swift stdlib generic '{node.Name}' (canonical module: Swift) — runtime-provided; a local type would shadow Swift.Swift{node.Name}<...>.");
+                    RecordUnboundForeignReceiverChildren(
+                        node, $"Swift.{node.Name}", moduleDecl,
+                        $"it extends the Swift standard-library generic 'Swift.{node.Name}', which Swift.Runtime "
+                        + "supplies; members added to it are not bound.");
                     return null;
                 }
 
@@ -1567,14 +1571,13 @@ namespace BindingsGeneration
                 else if (!_resolver.IsSystemReexportAllowedModule(node.ModuleName))
                 {
                     _logger.LogInformation($"Skipping re-exported type '{node.Name}' (canonical module: {node.ModuleName}, current module: {moduleDecl.Name}).");
-                    if (hasCurrentModuleExtensionChildren)
-                    {
-                        var receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
-                        RecordUnboundForeignReceiverChildren(
-                            node, receiverName, moduleDecl,
-                            $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and "
-                            + "frozen-struct receivers are routed to the cross-module extension path.");
-                    }
+                    // Walked whatever the immediate children are: a declaration of this module can sit
+                    // on a foreign type nested in this one, and that type is dropped with it.
+                    var receiverName = GetSwiftTypeName(parentDecl, node.Name, node.ModuleName).ModuleQualifiedName;
+                    RecordUnboundForeignReceiverChildren(
+                        node, receiverName, moduleDecl,
+                        $"it extends the foreign {DescribeReceiverKind(node)} '{receiverName}'; only class and "
+                        + "frozen-struct receivers are routed to the cross-module extension path.");
                     return null;
                 }
                 // else: foreign type from a system / common-Apple module with no extension
@@ -1638,6 +1641,17 @@ namespace BindingsGeneration
                 if (IsObjCRootedIdentity(node))
                 {
                     _logger.LogDebug($"Skipping ObjC-rooted declaration '{node.Name}' with no Swift mangled name (resolved via supplement / out-of-module when referenced).");
+                    // The interface's foreign-extension path binds or reports this module's methods and
+                    // properties on the class; what it never carries goes with the node unless parked.
+                    if (!string.IsNullOrEmpty(node.ModuleName) && node.ModuleName != moduleDecl.Name)
+                    {
+                        var objcReceiver = typeName.ModuleQualifiedName;
+                        RecordUnboundForeignReceiverChildren(
+                            node, objcReceiver, moduleDecl,
+                            $"it is declared in an extension of the Objective-C class '{objcReceiver}', and the "
+                            + "foreign-extension path binds only methods and properties there.",
+                            onlyBeyondInterfaceExtensionPath: true);
+                    }
                     return null;
                 }
 
@@ -4922,10 +4936,14 @@ namespace BindingsGeneration
         /// Parks every declaration of the module being parsed that lives on the dropped foreign
         /// receiver <paramref name="node"/> — and on foreign types nested in it — so the emitter can
         /// report each as skipped. A nested type of the module's own is reported as one row: its
-        /// members go with it, as they do for any skipped type.
+        /// members go with it, as they do for any skipped type. With
+        /// <paramref name="onlyBeyondInterfaceExtensionPath"/>, only the kinds the interface's
+        /// foreign-extension path never carries are parked (nested types, initializers, subscripts and
+        /// operators): that path binds or reports the receiver's methods and properties itself.
         /// </summary>
         private static void RecordUnboundForeignReceiverChildren(
-            Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why)
+            Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why,
+            bool onlyBeyondInterfaceExtensionPath = false)
         {
             foreach (var child in node.Children ?? Array.Empty<Node>())
             {
@@ -4935,10 +4953,15 @@ namespace BindingsGeneration
                 if (child.Kind == "TypeDecl" && !isOwn)
                 {
                     RecordUnboundForeignReceiverChildren(
-                        child, $"{receiverQualifiedName}.{child.Name}", moduleDecl, why);
+                        child, $"{receiverQualifiedName}.{child.Name}", moduleDecl, why,
+                        onlyBeyondInterfaceExtensionPath);
                     continue;
                 }
                 if (!isOwn)
+                    continue;
+                if (onlyBeyondInterfaceExtensionPath &&
+                    !(child.Kind is "TypeDecl" or "Constructor" or "Subscript" ||
+                      (child.Kind == "Function" && IsOperator(child.Name))))
                     continue;
                 BindingItemKind? kind = child.Kind switch
                 {
@@ -4952,7 +4975,8 @@ namespace BindingsGeneration
                     continue;
                 moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
                     receiverQualifiedName, kind.Value, child.Name,
-                    $"Not bound: {why}"));
+                    $"Not bound: {why}",
+                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName));
             }
         }
 

@@ -834,7 +834,8 @@ namespace BindingsGeneration
                     if (conformanceSkipCause.StartsWith(EmitterFaultRecord.WithdrawalDetailsPrefix, StringComparison.Ordinal))
                     {
                         ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,
-                            protocolDecl, SkipReason.EmitterFault, conformanceSkipCause);
+                            protocolDecl, SkipReason.EmitterFault, conformanceSkipCause,
+                            recoveryUnit: EveryProtocolEmitter.ConformanceUnit(protocolDecl));
                         break;
                     }
                     ReportCollector.RecordMemberSkipped(BindingItemKind.Type, suppressedProxyClassName,

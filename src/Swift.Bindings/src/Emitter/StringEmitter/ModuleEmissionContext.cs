@@ -2497,7 +2497,24 @@ public sealed class ModuleEmissionContext
         string sourceKey,
         string symbol,
         DeclId? owner = null)
+        => TryClaimWrapperSymbol(typeName, methodName, sourceKey, symbol, out _, owner);
+
+    /// <summary>
+    /// <see cref="TryClaimWrapperSymbol(string, string, string, string, DeclId?)"/>, also telling a
+    /// lost claim's two causes apart: <paramref name="sameDeclaration"/> is true when this very
+    /// declaration (same receiver, name and source key) was already claimed, and false when a
+    /// different declaration rendered the same symbol.
+    /// </summary>
+    public bool TryClaimWrapperSymbol(
+        string typeName,
+        string methodName,
+        string sourceKey,
+        string symbol,
+        out bool sameDeclaration,
+        DeclId? owner = null)
     {
+        sameDeclaration = _wrapperStructuralIdentities.Contains(
+            (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty));
         var identity = (typeName ?? string.Empty, methodName ?? string.Empty, sourceKey ?? string.Empty);
         if (!_wrapperStructuralIdentities.Add(identity))
             return false;
