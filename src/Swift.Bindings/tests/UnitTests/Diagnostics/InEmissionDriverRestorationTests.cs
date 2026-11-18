@@ -330,6 +330,82 @@ public class InEmissionDriverRestorationTests : IDisposable
         Assert.Equal(0, harness.AttemptBisection(EmptyDenylist).ProbesUsed);
     }
 
+    // ── member ownership: a failing member inside a nested type is withdrawn alone ──────────────
+
+    /// <summary>
+    /// A specialization the module emits for a member of a NESTED type (<c>Box.init&lt;T&gt;</c> made
+    /// concrete for <c>Box.Entry</c>) is that member's output. A swiftc error inside it must be charged
+    /// to the member, so recovery withdraws it and the rest of the module ships, rather than to the
+    /// enclosing type's surface, which recovery refuses to withdraw and so fails the whole module.
+    /// The compile is stubbed to reject exactly the specialization's wrapper function, at its own line,
+    /// with the same provenance a real compile hands the driver.
+    /// </summary>
+    [Fact]
+    public void FailingNestedTypeSpecialization_IsChargedToItsMember_AndWithdrawnAlone()
+    {
+        using var harness = new DriverHarness(this,
+            compileOverride: req => RejectWrapperLine(req, "@_cdecl(\"SBW_CSM_ContainmentFixture_Box_"),
+            withNestedConformerCollision: true);
+
+        var attribution = harness.RenderRaw(EmptyDenylist);
+
+        Assert.NotNull(attribution);
+        Assert.False(attribution!.HasUnattributedError, "the specialization's error reached no owner");
+        var culprit = Assert.Single(attribution.Culprits);
+        Assert.Equal(RecoveryScope.LeafApi, culprit.Scope);
+        Assert.Equal(BindingItemKind.Method, culprit.Decl.Kind);
+        Assert.Equal("Box", culprit.Decl.DeclPath);
+
+        var (csharp, report) = harness.RenderWithReport(new HashSet<RecoveryUnitId> { culprit });
+
+        Assert.DoesNotContain("FromContainmentFixtureBoxEntry(", csharp, StringComparison.Ordinal);
+        Assert.DoesNotContain("SBW_CSM_ContainmentFixture_Box_", harness.SwiftOutput(), StringComparison.Ordinal);
+        // The rest of the module, the nested type and the specialized member's container included, still binds.
+        AssertExercisedTheMachinery(csharp);
+        Assert.Contains("class Box", csharp, StringComparison.Ordinal);
+        Assert.Contains("Entry", csharp, StringComparison.Ordinal);
+        Assert.Contains(report.SkippedItems, item =>
+            item.Reason == SkipReason.EmitterFault && item.Name == culprit.Decl.Name);
+    }
+
+    /// <summary>
+    /// A stubbed compile that fails with one located error on the first wrapper line containing
+    /// <paramref name="marker"/>, and is clean once no wrapper file contains it. The provenance it hands
+    /// back is the identity strip, which is what the driver remaps a real diagnostic through.
+    /// </summary>
+    private static WrapperCompileDiagnostics RejectWrapperLine(WrapperRecoveryCompileRequest request, string marker)
+    {
+        foreach (var path in Directory.EnumerateFiles(request.OutputDirectory, "*.swift", SearchOption.AllDirectories)
+            .OrderBy(p => p, StringComparer.Ordinal))
+        {
+            var content = File.ReadAllText(path);
+            var offset = content.IndexOf(marker, StringComparison.Ordinal);
+            if (offset < 0)
+                continue;
+            var line = content.AsSpan(0, offset).Count('\n') + 1;
+            var lineCount = content.Count(c => c == '\n') + (content.EndsWith('\n') ? 0 : 1);
+            var fileName = Path.GetRelativePath(request.OutputDirectory, path);
+            var diagnostic = new DiagnosticGroup
+            {
+                Primary = new CompilerDiagnostic
+                {
+                    File = path, Line = line, Column = 1, Severity = DiagnosticSeverity.Error,
+                    Message = "injected: the member's wrapper does not compile",
+                },
+            };
+            var provenance = new WrapperFileProvenance(
+                fileName, content, content, Enumerable.Range(0, lineCount).ToList(), GuardRewrote: false)
+            {
+                CompileInputPaths = new[] { path },
+            };
+            return WrapperCompileDiagnostics.Failed(
+                new[] { new WrapperSliceDiagnostics("simulator", false, new[] { diagnostic }) },
+                new[] { provenance });
+        }
+        return WrapperCompileDiagnostics.Clean(
+            result: null, Array.Empty<WrapperSliceDiagnostics>(), Array.Empty<WrapperFileProvenance>());
+    }
+
     // ── assertions ────────────────────────────────────────────────────────────────────────────
 
     private static readonly HashSet<RecoveryUnitId> EmptyDenylist = new();
@@ -518,6 +594,31 @@ public class InEmissionDriverRestorationTests : IDisposable
                 .OrderBy(rel => rel, StringComparer.Ordinal)
                 .Select(rel => $"// >>> {rel}\n{File.ReadAllText(Path.Combine(_scratch, rel))}"));
         }
+
+        /// <summary>Like <see cref="Render"/>, also returning the render's settled report.</summary>
+        public (string CSharp, BindingReport Report) RenderWithReport(IReadOnlySet<RecoveryUnitId> denylist)
+        {
+            BindingReport? report;
+            ReportCollector.Reset();
+            try
+            {
+                Assert.Null(_driver.RenderCompileAttribute(denylist));
+            }
+            finally
+            {
+                report = ReportCollector.Complete();
+                ReportCollector.Reset();
+            }
+            Assert.NotNull(report);
+            return (CSharpOutput(), report!);
+        }
+
+        private string CSharpOutput() => string.Concat(Directory
+            .EnumerateFiles(_scratch, "*", SearchOption.AllDirectories)
+            .Where(p => p.EndsWith(".cs", StringComparison.Ordinal))
+            .Select(p => Path.GetRelativePath(_scratch, p))
+            .OrderBy(rel => rel, StringComparer.Ordinal)
+            .Select(rel => $"// >>> {rel}\n{File.ReadAllText(Path.Combine(_scratch, rel))}"));
 
         /// <summary>
         /// Runs one render WITHOUT asserting convergence, returning its attribution. Used to populate the

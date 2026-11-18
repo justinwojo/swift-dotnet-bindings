@@ -161,6 +161,49 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Equal(1, ctx.ForeignExtEmittedCount);
     }
 
+    /// <summary>
+    /// Foundation holds Swift enums as well as ObjC classes. An extension on one
+    /// (<c>Foundation.AttributeScopes</c>, a caseless Swift enum) must not take the class-receiver
+    /// path, whose wrapper reads <c>self</c> through <c>Unmanaged&lt;T&gt;</c> and does not compile
+    /// for a value type. The ABI dump's declared kind decides, not the module.
+    /// </summary>
+    [Theory]
+    [InlineData("Enum", 0)]
+    [InlineData("Struct", 0)]
+    [InlineData("Protocol", 0)]
+    [InlineData("Class", 1)]
+    public void ProcessForeignTypeExtensions_DeclaredKindDecides_NotTheModule(string declaredKind, int expectedEmitted)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = declaredKind;
+        var typeDatabase = CreateTypeDatabase();
+
+        var property = CreateExtMethod("depth", "public var depth: Swift.Int { get }");
+        property.IsProperty = true;
+
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["Foundation.AttributeScopes"] = new() { property }
+        };
+
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+            moduleDecl, extensions, typeDatabase, Logger, ctx);
+
+        Assert.Equal(expectedEmitted, ctx.ForeignExtEmittedCount);
+        if (expectedEmitted == 0)
+            Assert.DoesNotContain(ctx.ForeignExtSwiftWrapperLines, l => l.Contains("Unmanaged<Foundation.AttributeScopes>", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void IsForeignObjCClassType_WithoutADeclaredKind_KeepsTheModuleAnswer()
+    {
+        var kinds = new Dictionary<string, string> { ["Foundation.Other"] = "Enum" };
+        Assert.True(ForeignTypeExtensionEmitter.IsForeignObjCClassType("UIKit.UIView", kinds));
+        Assert.True(ForeignTypeExtensionEmitter.IsForeignObjCClassType("UIKit.UIView"));
+        Assert.False(ForeignTypeExtensionEmitter.IsForeignObjCClassType("Swift.Int"));
+    }
+
     [Fact]
     public void ProcessForeignTypeExtensions_FrozenStructPropertyGetter_Skipped()
     {
@@ -281,6 +324,85 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Contains("SBSW_", result);
         Assert.Contains("UIView", result);
         Assert.Contains("Unmanaged", result);
+    }
+
+    /// <summary>
+    /// Each member the module adds to a foreign type is its own recovery unit: its wrapper and its C#
+    /// surface are written as that member's fragments, so a swiftc error in one is charged to it, not to
+    /// the module. Withdrawing that unit leaves the member out of both planes, records the withdrawal
+    /// for the settled report, and keeps its sibling on the same foreign type.
+    /// </summary>
+    [Fact]
+    public void ForeignExtensionMember_IsItsOwnRecoveryUnit_AndWithdrawsAlone()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var typeDatabase = CreateTypeDatabase();
+        var configure = CreateExtMethod("configure", "public func configure()");
+        var reset = CreateExtMethod("reset", "public func reset()");
+        var extensions = new Dictionary<string, List<ProtocolExtensionMethodDecl>>
+        {
+            ["UIKit.UIView"] = new() { configure, reset }
+        };
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(moduleDecl, extensions, typeDatabase, Logger, ctx);
+        var configureId = DeclIdFactory.ForForeignExtensionMember("UIKit.UIView", configure);
+        var root = FragmentOwners.ForModule(moduleDecl);
+
+        var swiftOutput = new StringWriter();
+        var swiftWriter = new SwiftWriter(swiftOutput);
+        ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, ctx);
+        var swift = swiftOutput.ToString();
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+        ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, typeDatabase, "TestModule", ctx);
+        var csharp = csOutput.ToString();
+
+        RecoveryUnitId OwnerAt(BufferedSourceWriter writer, string text, string marker)
+        {
+            var offset = text.IndexOf(marker, StringComparison.Ordinal);
+            Assert.True(offset >= 0, $"'{marker}' was not emitted");
+            var tile = writer.Fragments.BuildTiling(text.Length, root).Single(t => t.Start <= offset && offset < t.End);
+            return RecoveryUnitClassifier.ClassifyArtifact(tile.Owner.Artifact).Unit;
+        }
+        var swiftUnit = OwnerAt(swiftWriter, swift, "_configure");
+        var csharpUnit = OwnerAt(csWriter, csharp, "Configure(");
+        Assert.Equal(RecoveryScope.LeafApi, swiftUnit.Scope);
+        Assert.Equal(configureId, swiftUnit.Decl);
+        Assert.Equal(swiftUnit, csharpUnit);
+        Assert.NotEqual(swiftUnit, OwnerAt(swiftWriter, swift, "_reset"));
+
+        var withdrawnSwift = new StringWriter();
+        var withdrawnCSharp = new StringWriter();
+        BindingReport report = null;
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            using (EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+                new HashSet<RecoveryUnitId> { swiftUnit }, static _ => EmitterFaultOrigin.RecoveryWithdrawal)))
+            {
+                ForeignTypeExtensionEmitter.EmitSwiftWrappers(new SwiftWriter(withdrawnSwift), ctx);
+                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(new CSharpWriter(withdrawnCSharp), typeDatabase, "TestModule", ctx, moduleDecl);
+            }
+        }
+        finally
+        {
+            report = ReportCollector.Complete();
+            ReportCollector.Reset();
+        }
+
+        Assert.DoesNotContain("_configure", withdrawnSwift.ToString(), StringComparison.Ordinal);
+        Assert.DoesNotContain("Configure(", withdrawnCSharp.ToString(), StringComparison.Ordinal);
+        Assert.Contains("_reset", withdrawnSwift.ToString(), StringComparison.Ordinal);
+        Assert.Contains("Reset(", withdrawnCSharp.ToString(), StringComparison.Ordinal);
+        var withdrawal = Assert.Single(report.SkippedItems, item => item.Reason == SkipReason.EmitterFault);
+        Assert.Equal("configure", withdrawal.Name);
+        // Keyed by the denied unit's own identity, so an overload or a same-named member of another
+        // receiver keeps its own row.
+        Assert.Equal(configureId.Canonical, withdrawal.DeclId);
+        Assert.Equal("UIKit.UIView", withdrawal.ContainingType);
+        // The row belongs to this attempt alone: nothing outlives it to be republished after a later
+        // render that ships the member.
+        Assert.Empty(ctx.ForeignExtWithdrawals);
     }
 
     [Fact]
@@ -1028,7 +1150,7 @@ public class ForeignTypeExtensionEmitterTests
         var report = ReportCollector.Complete();
         ReportCollector.Reset();
 
-        var row = Assert.Single(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+        var row = Assert.Single(report.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
         Assert.Equal("configure", row.Name);
         Assert.Equal(BindingItemKind.Method, row.Kind);
         Assert.Contains("UIWindowLevel", row.Details);
@@ -1054,7 +1176,7 @@ public class ForeignTypeExtensionEmitterTests
         var report = ReportCollector.Complete();
         ReportCollector.Reset();
 
-        Assert.Single(report!.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
+        Assert.Single(report.SkippedItems, s => s.Reason == SkipReason.AbsentFrameworkType);
         Assert.Equal(1, report.SkippedMembers);
     }
 

@@ -1778,6 +1778,36 @@ public class ConcreteSpecializationEngineTests
     }
 
     [Fact]
+    public void EmitConcreteSpecializationsForGenericParent_ContainerProperty_RegistersItsGetterSymbolUnderTheProperty()
+    {
+        // The closed getter is the property's surface: its fragments and denial use the property,
+        // so its wrapper symbol must too, or a symbol-anchored swiftc error seeds a method unit the
+        // property's denial never reads and recovery cannot withdraw it.
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.TypedBag"), "TestLib", "TypedBag");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Bag"), "TestLib", "Bag",
+            flags: TypeRecordFlags.Frozen);
+
+        var engine = new ConcreteSpecializationEngine(db);
+        engine.IndexModuleConformances(CreateModuleWithConformer("TestLib", "TestLib.ConcreteItem", "TestLib.Processable"));
+
+        var typeDecl = CreateGenericStructWithContainerProperty(
+            "Bag", "items", "TestLib.Processable",
+            new NamedTypeSpec("TestLib.TypedBag", new NamedTypeSpec("τ_0_0")));
+        var context = new ModuleEmissionContext();
+
+        ConcreteProtocolSpecializationEmitter.EmitConcreteSpecializationsForGenericParent(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(new StringWriter()),
+            typeDecl, db, context, engine, NullLogger.Instance);
+
+        var getterSymbols = context.WrapperSymbolOwners.Where(e => e.Key.StartsWith("SBW_CSM_", StringComparison.Ordinal)).ToList();
+        Assert.NotEmpty(getterSymbols);
+        var property = typeDecl.Properties.Single(p => p.Name == "items");
+        Assert.All(getterSymbols, e => Assert.Equal(DeclIdFactory.ForProperty(property), e.Value.Decl));
+    }
+
+    [Fact]
     public void FindSpecializableMethods_ParentOnlyPlainMethod_NonResolvableParent_ReturnsEmpty()
     {
         // Parent-only methods require the parent's PAT generic to have hint-resolved

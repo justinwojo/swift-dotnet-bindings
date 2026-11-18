@@ -49,8 +49,8 @@ public static class ForeignTypeExtensionEmitter
 
         foreach (var (foreignTypeQualifiedName, members) in foreignExtensions)
         {
-            // Gate: foreign type must be an ObjC class (not a primitive, struct, or protocol)
-            if (!IsForeignObjCClassType(foreignTypeQualifiedName))
+            // Gate: foreign type must be an ObjC class (not a primitive, struct, enum or protocol)
+            if (!IsForeignObjCClassType(foreignTypeQualifiedName, moduleDecl.ForeignTypeDeclKinds))
             {
                 logger.LogDebug("Skipping foreign extension on non-ObjC type: {Type}", foreignTypeQualifiedName);
                 continue;
@@ -72,8 +72,18 @@ public static class ForeignTypeExtensionEmitter
             {
                 var memberAvailability = LookupMemberAvailability(
                     availabilityAnnotations, availabilityTypeKey, extMethod);
-                TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod,
-                    typeDatabase, logger, ctx, memberAvailability);
+                // Everything the member writes is owned by it, so a wrapper of it that does not compile
+                // is withdrawn with the member rather than charged to the module.
+                ctx.CurrentForeignExtOwner = DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod);
+                try
+                {
+                    TryProcessMember(moduleDecl, foreignTypeQualifiedName, extMethod,
+                        typeDatabase, logger, ctx, memberAvailability);
+                }
+                finally
+                {
+                    ctx.CurrentForeignExtOwner = null;
+                }
             }
         }
 
@@ -134,7 +144,7 @@ public static class ForeignTypeExtensionEmitter
     public static void EmitSwiftWrappers(SwiftWriter swiftWriter, ModuleEmissionContext? ctx = null)
     {
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
-        if (ctx.ForeignExtSwiftWrapperLines.Count == 0)
+        if (ctx.ForeignExtSwiftWrapperEntries.Count == 0)
             return;
 
         // Emit any additional imports needed for foreign type modules
@@ -145,17 +155,53 @@ public static class ForeignTypeExtensionEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine("// --- Foreign type extension method wrappers ---");
-        foreach (var line in ctx.ForeignExtSwiftWrapperLines)
+        // Each member's lines are contiguous; write them as that member's wrapper fragment, and not at
+        // all once recovery has withdrawn the member.
+        var entries = ctx.ForeignExtSwiftWrapperEntries;
+        for (var i = 0; i < entries.Count;)
         {
-            swiftWriter.WriteLine(line);
+            var owner = entries[i].Owner;
+            var end = i;
+            while (end < entries.Count && Nullable.Equals(entries[end].Owner, owner))
+                end++;
+            if (owner is { } id)
+            {
+                if (!IsWithdrawn(id, moduleDecl: null, record: false))
+                {
+                    using var scope = swiftWriter.BeginFragment(FragmentOwners.ForDeclId(id, ArtifactRole.SwiftWrapper));
+                    for (var j = i; j < end; j++)
+                        swiftWriter.WriteLine(entries[j].Line);
+                }
+            }
+            else
+            {
+                for (var j = i; j < end; j++)
+                    swiftWriter.WriteLine(entries[j].Line);
+            }
+            i = end;
         }
+    }
+
+    /// <summary>
+    /// True when recovery has withdrawn the foreign-extension member <paramref name="owner"/> this
+    /// attempt. The skip row goes to this attempt's report session, not to the context's pre-pass
+    /// withdrawals: those outlive the attempt, and a bisection probe that withdrew the member would
+    /// otherwise leave a row behind for a member the settled render ships.
+    /// </summary>
+    private static bool IsWithdrawn(DeclId owner, ModuleDecl? moduleDecl, bool record)
+    {
+        if (!EmitterFaultGate.IsDenied(owner, out var details))
+            return false;
+        if (record)
+            ReportCollector.RecordMemberSkipped(owner, moduleDecl, SkipReason.EmitterFault, details);
+        return true;
     }
 
     /// <summary>
     /// Emits C# static extension classes for all processed foreign types.
     /// Called from ModuleHandler.Emit() after types have been emitted.
     /// </summary>
-    public static void EmitCSharpExtensionClasses(CSharpWriter csWriter, ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext? ctx = null)
+    public static void EmitCSharpExtensionClasses(CSharpWriter csWriter, ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext? ctx = null, ModuleDecl? moduleDecl = null)
     {
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (ctx.ForeignExtClasses.Count == 0)
@@ -164,7 +210,13 @@ public static class ForeignTypeExtensionEmitter
         // Ordinal for reproducible emission order independent of the host culture.
         foreach (var (foreignTypeQualifiedName, classInfo) in ctx.ForeignExtClasses.OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
-            EmitExtensionClass(csWriter, classInfo, typeDatabase, moduleName, ctx);
+            // A member recovery withdrew keeps no C# surface (its wrapper is gone too).
+            var members = classInfo.Members
+                .Where(m => m.Owner is not { } owner || !IsWithdrawn(owner, moduleDecl, record: true))
+                .ToList();
+            if (members.Count == 0)
+                continue;
+            EmitExtensionClass(csWriter, classInfo, members, typeDatabase, moduleName, ctx);
         }
     }
 
@@ -399,6 +451,7 @@ public static class ForeignTypeExtensionEmitter
         var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
         classInfo.Members.Add(new ForeignExtensionMemberInfo
         {
+            Owner = ctx.CurrentForeignExtOwner,
             SymbolName = getterSymbol,
             CSharpMethodName = csharpMethodName,
             ExtMethod = extMethod,
@@ -428,6 +481,7 @@ public static class ForeignTypeExtensionEmitter
 
                 classInfo.Members.Add(new ForeignExtensionMemberInfo
                 {
+                    Owner = ctx.CurrentForeignExtOwner,
                     SymbolName = setterSymbol,
                     CSharpMethodName = $"Set{ToPascalCase(extMethod.MethodName)}",
                     ExtMethod = extMethod,
@@ -588,6 +642,7 @@ public static class ForeignTypeExtensionEmitter
         var classInfo = GetOrCreateClassInfo(foreignTypeQualifiedName, moduleDecl.Name, ctx);
         classInfo.Members.Add(new ForeignExtensionMemberInfo
         {
+            Owner = ctx.CurrentForeignExtOwner,
             SymbolName = symbolName,
             CSharpMethodName = ToPascalCase(extMethod.MethodName),
             ExtMethod = extMethod,
@@ -896,6 +951,7 @@ public static class ForeignTypeExtensionEmitter
     /// Emits a single C# static extension class for a foreign type.
     /// </summary>
     private static void EmitExtensionClass(CSharpWriter csWriter, ForeignExtensionClassInfo classInfo,
+        IReadOnlyList<ForeignExtensionMemberInfo> members,
         ITypeDatabase typeDatabase, string moduleName, ModuleEmissionContext ctx)
     {
         var foreignTypeName = classInfo.ForeignTypeQualifiedName;
@@ -918,11 +974,12 @@ public static class ForeignTypeExtensionEmitter
 
         // Resolve the emitted C# name per member up front so label-only Swift overloads
         // (which collapse to identical C# signatures — CS0111) get disambiguated before emission.
-        var emittedNames = ResolveExtensionMemberNames(classInfo, typeDatabase);
+        var emittedNames = ResolveExtensionMemberNames(members, typeDatabase);
 
-        // Emit each member
-        foreach (var member in classInfo.Members)
+        // Emit each member, as its own fragment
+        foreach (var member in members)
         {
+            using var scope = BeginMemberFragment(csWriter, member);
             EmitExtensionMember(csWriter, member, emittedNames[member], csharpSelfType, wrapperLibPath, typeDatabase, moduleName);
         }
 
@@ -931,8 +988,9 @@ public static class ForeignTypeExtensionEmitter
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
-        foreach (var member in classInfo.Members)
+        foreach (var member in members)
         {
+            using var scope = BeginMemberFragment(csWriter, member);
             EmitNativeMethod(csWriter, member, wrapperLibPath, typeDatabase, ctx);
         }
 
@@ -942,6 +1000,10 @@ public static class ForeignTypeExtensionEmitter
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }
+
+    /// <summary>The C# fragment of one foreign-extension member; inert for a member no owner names.</summary>
+    private static BufferedSourceWriter.FragmentScope BeginMemberFragment(CSharpWriter csWriter, ForeignExtensionMemberInfo member) =>
+        member.Owner is { } owner ? csWriter.BeginFragment(FragmentOwners.ForDeclId(owner)) : default;
 
     /// <summary>
     /// Resolves the emitted C# method name for every member, disambiguating label-only
@@ -962,11 +1024,11 @@ public static class ForeignTypeExtensionEmitter
     /// positional index instead of silently re-introducing the CS0111 this method removes.
     /// </summary>
     private static Dictionary<ForeignExtensionMemberInfo, string> ResolveExtensionMemberNames(
-        ForeignExtensionClassInfo classInfo, ITypeDatabase typeDatabase)
+        IReadOnlyList<ForeignExtensionMemberInfo> classMembers, ITypeDatabase typeDatabase)
     {
         var resolved = new Dictionary<ForeignExtensionMemberInfo, string>();
 
-        var groups = classInfo.Members
+        var groups = classMembers
             .GroupBy(m => BuildEmittedSignatureKey(m, m.CSharpMethodName, typeDatabase))
             .Select(g => g.ToList())
             .ToList();
@@ -1255,15 +1317,32 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Checks if a foreign type qualified name represents an ObjC class type.
     /// Only ObjC classes (UIView, UILabel, etc.) are supported — not primitives,
-    /// structs, or other Swift value types.
+    /// structs, enums or other Swift value types: every wrapper this emitter writes
+    /// passes the receiver as an object reference (<c>Unmanaged&lt;T&gt;</c>).
+    ///
+    /// The type's kind decides. The bound module's ABI dump declares the kind of every
+    /// foreign type it extends (<paramref name="declaredKinds"/>); a type it declares as
+    /// anything but a class is rejected whatever module holds it, since a module such as
+    /// Foundation mixes ObjC classes with Swift enums and structs (<c>AttributeScopes</c>).
+    /// Only when the dump is silent does the module heuristic
+    /// (<see cref="TypeDatabaseExtensions.IsObjCModuleType"/>) answer on its own.
     ///
     /// Unqualified names (no module prefix) are rejected because IsObjCModuleType
     /// requires a module to check. SPM-built .swiftinterface files always use
     /// fully-qualified names for foreign types (e.g., "UIKit.UIView"), so this
     /// limitation only affects the safety-net unqualified parser path.
     /// </summary>
-    private static bool IsForeignObjCClassType(string foreignTypeQualifiedName)
+    internal static bool IsForeignObjCClassType(
+        string foreignTypeQualifiedName,
+        IReadOnlyDictionary<string, string>? declaredKinds = null)
     {
+        if (declaredKinds is not null
+            && declaredKinds.TryGetValue(foreignTypeQualifiedName, out var declaredKind)
+            && !string.Equals(declaredKind, "Class", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
         // Use TypeDatabaseExtensions.IsObjCModuleType via a temporary NamedTypeSpec.
         // This handles both qualified ("UIKit.UIView") and rejects unqualified names
         // (NamedTypeSpec.HasModule() returns false → IsObjCModuleType returns false).

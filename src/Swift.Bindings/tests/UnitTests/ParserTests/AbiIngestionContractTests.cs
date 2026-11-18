@@ -497,6 +497,59 @@ public class AbiIngestionContractTests
         Assert.Contains(logger.Entries, e => e.Message.Contains("SWIFTBIND046") && e.Message.Contains("Ghost"));
     }
 
+    /// <summary>
+    /// The digester writes a type-declaration node for every foreign type the module extends, with
+    /// the type's real kind. The parser keeps that kind by module-qualified name whatever it does with
+    /// the node afterwards (a third-party re-export is dropped, a system one is kept under its own
+    /// module), because a foreign extension is bound by its receiver's kind, not its module's.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation", "AttributeScopes", "Enum", "s:10Foundation15AttributeScopesO")]
+    [InlineData("Foundation", "URL", "Struct", "s:10Foundation3URLV")]
+    [InlineData("OtherLib", "Widget", "Class", "s:8OtherLib6WidgetC")]
+    public void ParseModule_ForeignTypeNode_RecordsItsDeclaredKind(
+        string foreignModule, string typeName, string declKind, string usr)
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var foreign = CreateNode(
+            "TypeDecl", declKind: declKind, name: typeName, moduleName: foreignModule,
+            mangledName: "$s" + usr[2..], usr: usr, declAttributes: [], isExternal: true);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, foreign);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Equal(declKind, result.ModuleDecl.ForeignTypeDeclKinds[$"{foreignModule}.{typeName}"]);
+        Assert.DoesNotContain(result.ModuleDecl.ForeignTypeDeclKinds.Keys, k => k.EndsWith(".Local", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// A value type nested in an ObjC-rooted foreign class is recorded too, although the parser drops
+    /// the class itself without visiting its children: an extension on the nested type is bound by
+    /// its kind like any other.
+    /// </summary>
+    [Fact]
+    public void ParseModule_ValueTypeNestedInObjCRootedForeignClass_RecordsItsDeclaredKind()
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var nested = CreateNode(
+            "TypeDecl", declKind: "Struct", name: "Options", moduleName: "Foundation",
+            mangledName: "$sSo8NSWidgetC10FoundationE7OptionsV", isExternal: true);
+        var objcClass = CreateNode(
+            "TypeDecl", declKind: "Class", name: "NSWidget", moduleName: "Foundation",
+            mangledName: "", usr: "c:objc(cs)NSWidget", declAttributes: ["ObjC"], isExternal: true,
+            children: [nested]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, local, objcClass);
+
+        var result = fixture.Parser.ParseModule();
+
+        Assert.Equal("Class", result.ModuleDecl.ForeignTypeDeclKinds["Foundation.NSWidget"]);
+        Assert.Equal("Struct", result.ModuleDecl.ForeignTypeDeclKinds["Foundation.NSWidget.Options"]);
+    }
+
     #region Harness
 
     private static ParserFixture CreateParser(int? jsonFormatVersion, ILogger logger, params Node[] nodes)

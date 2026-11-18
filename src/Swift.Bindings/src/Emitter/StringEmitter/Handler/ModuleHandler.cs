@@ -415,7 +415,7 @@ namespace BindingsGeneration
 
                 // Emit foreign type extension Swift wrappers and C# extension classes
                 ForeignTypeExtensionEmitter.EmitSwiftWrappers(swiftWriter, emissionCtx);
-                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx);
+                ForeignTypeExtensionEmitter.EmitCSharpExtensionClasses(csWriter, env.TypeDatabase, moduleDecl.Name, emissionCtx, moduleDecl);
 
                 // Emit typed KeyPath singletons rooted on this module's
                 // closed AppIntents.AppEntity conformers (KeyPath roots for the

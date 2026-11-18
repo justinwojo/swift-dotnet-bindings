@@ -169,6 +169,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             var method = spec.Method;
 
+            // Every specialization is emitted on behalf of its generic method, so its text is owned by
+            // that method: a wrapper that fails to compile is then withdrawn with the method on the
+            // retry, instead of being charged to the enclosing type's surface (which recovery refuses
+            // to withdraw). A method already withdrawn emits no specialization either.
+            if (EmissionSeam.TryDenyUpFront(method))
+                continue;
+            using var methodCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(method));
+            using var methodSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(method));
+
             // Accessors stay gated: they use different emission paths (property accessors).
             // Constructors likewise — Phase A only covers plain instance/static async methods.
             // Mutating methods are now supported for struct instance methods via
@@ -337,7 +346,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         HashSet<string> emittedSignatures,
         CsmOverloadLedger overloadLedger,
         ILogger logger,
-        bool isExtension = false)
+        bool isExtension = false,
+        DeclId? surfaceOwner = null)
     {
         bool isConstructor = method.IsConstructor;
         bool isStatic = method.MethodType == MethodType.Static || isConstructor;
@@ -428,7 +438,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // The `SBW_CSM_` prefix is a dedicated namespace for per-conformer specialization
         // wrappers; no other emitter produces an `SBW_CSM_` symbol. Per-kind method
         // bucket is collision-safe.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(method)))
+        // A synthesized property getter registers under its property, the unit its fragments and
+        // denial use, so a symbol-anchored diagnostic withdraws the same unit an interval hit does.
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, surfaceOwner ?? DeclIdFactory.ForMethod(method)))
             return false;
 
         // Merge availability (method + parent + all conformers) once — both Swift and C#
@@ -4367,6 +4379,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var method = spec.Method;
                 if (method.IsAccessor) continue;
 
+                // Owned by the generic method, as on the non-generic-parent path above.
+                if (EmissionSeam.TryDenyUpFront(method))
+                    continue;
+                using var methodCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(method));
+                using var methodSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(method));
+
                 // Per-method where-clause filter: some methods (notably `init()` and
                 // constrained extension methods) carry stricter parent-generic constraints
                 // than the parent type declares. Without skipping these for non-satisfying
@@ -4470,10 +4488,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (!engine.ParentTupleSatisfiesMethodConstraints(specProp.Getter, typeDecl, parentTuple))
                     continue;
 
+                // The closed getter is the property's surface, so it is withdrawn and attributed with it.
+                if (EmissionSeam.TryDenyUpFront(specProp.Property))
+                    continue;
+                using var propertyCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(specProp.Property));
+                using var propertySwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(specProp.Property));
+
                 var emitted = TryEmitConcreteOverload(
                     csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
                     moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                    emittedSignatures, overloadLedger, logger, isExtension: true);
+                    emittedSignatures, overloadLedger, logger, isExtension: true,
+                    surfaceOwner: DeclIdFactory.ForProperty(specProp.Property));
 
                 // Emission fact: this closed getter recovers the open-generic property that
                 // PropertyHandler skipped (AnyTypeFallback) on the shell. Annotate the skip row so the

@@ -256,6 +256,11 @@ public static class ReportCollector
             {
                 foreach (var item in report.SkippedItems)
                 {
+                    // A member recovery withdrew is a loss whatever its same-named siblings emitted: the
+                    // name key cannot tell overloads apart, and the withdrawn member's own projection was
+                    // denied with it.
+                    if (item.Reason == SkipReason.EmitterFault)
+                        continue;
                     if (session.RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
                         item.RecoveredBy = recoverers.OrderBy(x => x, StringComparer.Ordinal).ToList();
                 }
@@ -420,6 +425,28 @@ public static class ReportCollector
             // available source is the parent's position (member-line positions belong on the
             // member decl itself, which this entry doesn't have access to).
             position ?? containingDecl?.Position);
+
+    /// <summary>
+    /// Id-keyed entry point, for a member with no parsed declaration (one a module adds to another
+    /// module's type): <paramref name="memberId"/> is the identity its recovery unit was denied under,
+    /// so overloads and same-named members of different receivers each keep their own row.
+    /// </summary>
+    public static void RecordMemberSkipped(
+        DeclId memberId,
+        BaseDecl? containingDecl,
+        SkipReason reason,
+        string? details = null)
+        => RecordMemberSkippedInternal(
+            MemberDiagnosticIdentity.FromDeclId(memberId),
+            displayName: memberId.Name ?? string.Empty,
+            containingDecl,
+            reason,
+            details,
+            containingDecl?.Position,
+            // The id names the receiver the member extends, which is not the declaring module.
+            containingTypeName: string.IsNullOrEmpty(memberId.DeclPath)
+                ? null
+                : string.IsNullOrEmpty(memberId.Module) ? memberId.DeclPath : $"{memberId.Module}.{memberId.DeclPath}");
 
     /// <summary>
     /// Decl-aware entry point — captures the full method signature so two
@@ -1004,7 +1031,8 @@ public static class ReportCollector
         BaseDecl? containingDecl,
         SkipReason reason,
         string? details,
-        SourcePosition? position = null)
+        SourcePosition? position = null,
+        string? containingTypeName = null)
     {
         var session = Current;
         if (session == null)
@@ -1019,7 +1047,7 @@ public static class ReportCollector
             {
                 Kind = identity.Kind,
                 Name = displayName,
-                ContainingType = GetContainingTypeName(containingDecl),
+                ContainingType = containingTypeName ?? GetContainingTypeName(containingDecl),
                 Reason = reason,
                 Details = details,
                 RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
