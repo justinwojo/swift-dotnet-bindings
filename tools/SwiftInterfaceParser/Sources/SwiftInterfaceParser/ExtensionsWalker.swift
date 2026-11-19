@@ -112,7 +112,11 @@ final class ExtensionsWalker: SyntaxVisitor {
     // MARK: - Extension entry point
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        currentWhereClause = node.genericWhereClause.map { collapseWhitespace($0.trimmedDescription) } ?? ""
+        // The constraints that tell apart identical declarations of differently constrained
+        // extensions: generic arguments on the extended type, then the `where` clause.
+        let headerArguments = Self.genericArguments(node.extendedType.dottedDescription)
+        let whereText = node.genericWhereClause.map { collapseWhitespace($0.trimmedDescription) } ?? ""
+        currentWhereClause = [headerArguments, whereText].filter { !$0.isEmpty }.joined(separator: " ")
         // Same-line `{` gate (`openBraces > 0` requirement).
         guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
                                           leftBrace: node.memberBlock.leftBrace,
@@ -241,7 +245,7 @@ final class ExtensionsWalker: SyntaxVisitor {
             kindReason = "subscripts declared in an extension of another module's type are not bound"
         } else if let t = decl.as(TypeAliasDeclSyntax.self) {
             kind = "typealias"
-            name = t.name.text
+            name = Self.withoutBackticks(t.name.text)
             printedName = name
             modifiers = t.modifiers
             kindReason = "typealiases declared in an extension of another module's type are not bound"
@@ -250,7 +254,7 @@ final class ExtensionsWalker: SyntaxVisitor {
                   decl.is(StructDeclSyntax.self) || decl.is(ClassDeclSyntax.self) || decl.is(EnumDeclSyntax.self)
                     || decl.is(ActorDeclSyntax.self) || decl.is(ProtocolDeclSyntax.self) {
             kind = "type"
-            name = nominal.name.text
+            name = Self.withoutBackticks(nominal.name.text)
             printedName = name
             modifiers = withModifiers.modifiers
             kindReason = "types nested in an extension of another module's type are not bound"
@@ -291,6 +295,13 @@ final class ExtensionsWalker: SyntaxVisitor {
     }
 
     /// `Mod.Box<Swift.Int>` → `Mod.Box`: generic arguments removed at every level.
+    /// The generic argument clause of an extended type (`<Swift.Int32>` of `Swift.Array<Swift.Int32>`),
+    /// whitespace collapsed, or "" when it has none.
+    static func genericArguments(_ text: String) -> String {
+        guard let open = text.firstIndex(of: "<") else { return "" }
+        return text[open...].split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
     static func withoutGenericArguments(_ text: String) -> String {
         var result = ""
         var depth = 0

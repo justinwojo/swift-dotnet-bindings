@@ -3942,6 +3942,7 @@ namespace BindingsGeneration
             var decl = new SubscriptDecl
             {
                 Name = "subscript",
+                PrintedName = node.PrintedName,
                 MangledName = node.MangledName,
                 ReturnTypeSpec = returnTypeSpec,
                 IndexParameters = indexParameters,
@@ -4998,7 +4999,7 @@ namespace BindingsGeneration
         /// foreign-extension path never carries are parked (nested types, initializers, subscripts and
         /// operators): that path binds or reports the receiver's methods and properties itself.
         /// </summary>
-        private static void RecordUnboundForeignReceiverChildren(
+        private void RecordUnboundForeignReceiverChildren(
             Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why,
             bool onlyBeyondInterfaceExtensionPath = false)
         {
@@ -5038,8 +5039,10 @@ namespace BindingsGeneration
                     child.@static ?? false,
                     // The first child is the result type; the rest are the parameters.
                     child.Kind is "Function" or "Constructor" or "Subscript"
-                        ? string.Join(", ", (child.Children ?? Array.Empty<Node>()).Skip(1).Select(c => c.PrintedName))
-                        : null));
+                        ? (child.Children ?? Array.Empty<Node>()).Skip(1).Select(c => c.PrintedName).ToList()
+                        : null,
+                    child.Kind is "Function" or "Subscript" ? child.Children?.FirstOrDefault()?.PrintedName : null,
+                    IsPublic: !IsNodeModuleInternal(child)));
             }
         }
 

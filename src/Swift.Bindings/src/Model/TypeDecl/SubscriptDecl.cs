@@ -31,6 +31,12 @@ public record SubscriptDecl : BaseDecl
     public required IReadOnlyList<AccessorDecl> Accessors { get; init; }
 
     /// <summary>
+    /// The subscript's name with its argument labels as the ABI prints them (<c>subscript(_:)</c>),
+    /// or null when the parser had none.
+    /// </summary>
+    public string? PrintedName { get; init; }
+
+    /// <summary>
     /// The mangled name of the subscript declaration.
     /// </summary>
     public required string MangledName { get; set; }

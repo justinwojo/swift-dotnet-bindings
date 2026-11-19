@@ -955,6 +955,7 @@ public class SwiftSyntaxInterfaceFactsProducerTests
             "  public typealias Alias = Swift.Int\n" +
             "  public struct Nested {}\n" +
             "  public final func sealed()\n" +
+            "  public struct `repeat` {}\n" +
             "  internal func hidden()\n" +
             "}\n" +
             "extension ObjectiveC.NSObject {\n" +
@@ -995,6 +996,7 @@ public class SwiftSyntaxInterfaceFactsProducerTests
                     "Foundation.Date|typealias|Alias|Alias|False",
                     "Foundation.Date|type|Nested|Nested|False",
                     "Foundation.Date|method|sealed|sealed()|False",
+                    "Foundation.Date|type|repeat|repeat|False",
                     "Swift.Array|method|total|total()|False",
                     "Foundation.Date|method|later|later()|False",
                     "Foundation.Date|method|repeat|repeat(count:)|False",
@@ -1007,8 +1009,38 @@ public class SwiftSyntaxInterfaceFactsProducerTests
             Assert.Equal(
                 new[] { "where Key == Swift.Int", "where Key == Swift.String" },
                 dropped.Where(d => d.ExtendedTypeName == "Swift.Dictionary").Select(d => d.WhereClause));
+            // The header's generic arguments constrain the extension like a `where` clause.
+            Assert.Equal("<Swift.Int>", Assert.Single(dropped, d => d.Name == "total").WhereClause);
             Assert.DoesNotContain(dropped, d => d.Name == "hidden");
             Assert.DoesNotContain(facts.ExtensionMemberCandidates!, c => c.MethodName is "total" or "later" or "sealed");
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// An extension of another module's type is not an extension of this module's protocol of the
+    /// same name: only an extension of the interface's own protocol is a protocol extension.
+    /// </summary>
+    [SkippableFact]
+    public void ExtensionOfAnotherModulesTypeNamedLikeALocalProtocol_IsNotAProtocolExtension()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExtensionOfAnotherModulesTypeNamedLikeALocalProtocol_IsNotAProtocolExtension));
+        var path = WriteTempFile(
+            "// swift-module-flags: -module-name Kit\n" +
+            "public protocol Array {}\n" +
+            "extension Kit.Array {\n" +
+            "  public func own() -> Swift.Int\n" +
+            "}\n" +
+            "extension Swift.Array where Element == Swift.Int32 {\n" +
+            "  public static func foreign() -> Swift.Int\n" +
+            "}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+
+            var members = facts.ProtocolExtensionMethods!.SelectMany(p => p.Value).Select(m => m.MethodName).ToList();
+            Assert.Contains("own", members);
+            Assert.DoesNotContain("foreign", members);
         }
         finally { File.Delete(path); }
     }

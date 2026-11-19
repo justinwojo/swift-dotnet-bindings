@@ -960,7 +960,7 @@ namespace BindingsGeneration
                     // no other path binds or reports them.
                     ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(
                         decl, facts.ResolveForeignDroppedExtensionCandidates(moduleName, moduleTypeNames),
-                        logger, emissionContext);
+                        typeDatabase, logger, emissionContext);
                 }
 
                 // Every member, including the extension members injected above, is in place. A class

@@ -296,6 +296,16 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// The protocol named <paramref name="qualifiedName"/> whose extension members
+    /// <see cref="ReportUnextractedMembers"/> reports, or null when it reports none of that name.
+    /// </summary>
+    internal static ProtocolDecl? ReportedForeignProtocol(ModuleDecl moduleDecl, string qualifiedName)
+        => ModuleProtocols(moduleDecl).FirstOrDefault(p =>
+            string.Equals(QualifiedName(p), qualifiedName, StringComparison.Ordinal)
+            && p.ExtensionMembers.Count > 0 && !p.IsModuleInternal
+            && ForeignParentRequirements(moduleDecl, p) is not null);
+
+    /// <summary>
     /// The requirement names of the other modules' protocols this protocol inherits (through its own
     /// module's protocols), read from those modules' declarations (<see cref="ForeignProtocolRequirements"/>),
     /// or null when one of them is a protocol whose requirements cannot be read. An extension member of such a protocol may supply the default for one of them, so

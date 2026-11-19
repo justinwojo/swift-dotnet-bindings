@@ -205,12 +205,14 @@ public static class ForeignTypeExtensionEmitter
         // overload the ABI does not list keeps a row of its own.
         var unpaired = ForeignOverloadPairing.Unpaired(
             declared,
-            moduleDecl.UnboundForeignReceiverMembers,
+            // An internal member the ABI lists (`@usableFromInline`) is never the public one declared.
+            moduleDecl.UnboundForeignReceiverMembers.Where(parked => parked.IsPublic),
             (member, parked) => parked.Describes(foreignTypeQualifiedName,
                 member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method,
                 member.MethodName, member.PrintedName, member.IsStatic),
-            member => member.IsProperty ? null : ForeignOverloadPairing.ParameterTypesOf(member.RawSignature, $"func {member.MethodName}"),
-            parked => parked.ParameterTypes,
+            member => member.IsProperty ? null : ForeignOverloadPairing.SignatureOf(member.RawSignature, "func", member.MethodName),
+            parked => parked.Signature,
+            typeDatabase,
             ctx.ForeignExtPairedAbiMembers);
         foreach (var member in unpaired)
         {
@@ -233,6 +235,7 @@ public static class ForeignTypeExtensionEmitter
     public static void RecordDroppedExtensionCandidates(
         ModuleDecl moduleDecl,
         IEnumerable<DroppedExtensionCandidate> dropped,
+        ITypeDatabase typeDatabase,
         ILogger logger,
         ModuleEmissionContext? ctx = null)
     {
@@ -261,25 +264,29 @@ public static class ForeignTypeExtensionEmitter
                 ? ForeignProtocolRequirements.Of(moduleDecl, receiver)
                 : null;
             if (requirements is not null)
-                declared.RemoveAll(d => requirements.Declares(RequirementKeyOf(d.Candidate, d.Kind)));
+                declared.RemoveAll(d => SuppliesRequirement(requirements, d.Candidate, d.Kind));
 
             // Another path binds or reports what the ABI lists: the cross-module path on a carried
             // receiver, the parser's parked members otherwise. Each listed member accounts for one
             // declared member, paired by shape and then by parameter types.
-            var unpaired = IsCarriedCrossModuleReceiver(moduleDecl.Types, receiver)
+            var listed = CarriedReceiverRows.ListedForDeclarations(moduleDecl, receiver);
+            var unpaired = listed is not null
                 ? ForeignOverloadPairing.Unpaired(
                     declared,
-                    CarriedReceiverRows.ListedForDeclarations(moduleDecl, receiver),
-                    (d, listed) => listed.HasShapeOf(d.Kind, d.Candidate.Name, d.Candidate.PrintedName, d.Candidate.IsStatic),
-                    d => ParameterTypesOf(d.Candidate, d.Kind),
-                    listed => listed.ParameterTypes,
-                    ctx.ForeignExtPairedAbiMembers)
+                    listed,
+                    (d, member) => member.HasShapeOf(d.Kind, d.Candidate.Name, d.Candidate.PrintedName, d.Candidate.IsStatic),
+                    d => SignatureOf(d.Candidate, d.Kind),
+                    member => member.Signature,
+                    typeDatabase)
                 : ForeignOverloadPairing.Unpaired(
                     declared,
-                    moduleDecl.UnboundForeignReceiverMembers,
-                    (d, parked) => parked.Describes(receiver, d.Kind, d.Candidate.Name, d.Candidate.PrintedName, d.Candidate.IsStatic),
-                    d => ParameterTypesOf(d.Candidate, d.Kind),
-                    parked => parked.ParameterTypes,
+                    moduleDecl.UnboundForeignReceiverMembers.Where(parked => parked.IsPublic),
+                    // A subscript's labels are compared with its types: the ABI may print them erased.
+                    (d, parked) => parked.Describes(receiver, d.Kind, d.Candidate.Name,
+                        d.Kind == BindingItemKind.Subscript ? null : d.Candidate.PrintedName, d.Candidate.IsStatic),
+                    d => SignatureOf(d.Candidate, d.Kind),
+                    parked => parked.Signature,
+                    typeDatabase,
                     ctx.ForeignExtPairedAbiMembers);
 
             var firstDot = receiver.IndexOf('.');
@@ -311,26 +318,32 @@ public static class ForeignTypeExtensionEmitter
         _ => null,
     };
 
-    private static string? ParameterTypesOf(DroppedExtensionCandidate candidate, BindingItemKind kind) => kind switch
+    private static OverloadSignature? SignatureOf(DroppedExtensionCandidate candidate, BindingItemKind kind) => kind switch
     {
-        BindingItemKind.Method or BindingItemKind.Operator => ForeignOverloadPairing.ParameterTypesOf(
-            candidate.RawSignature, candidate.Name == "init" && candidate.Kind == "initializer" ? "init" : $"func {candidate.Name}"),
-        BindingItemKind.Subscript => ForeignOverloadPairing.ParameterTypesOf(candidate.RawSignature, "subscript"),
+        BindingItemKind.Method when candidate.Kind == "initializer" => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "init"),
+        BindingItemKind.Method or BindingItemKind.Operator => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "func", candidate.Name),
+        BindingItemKind.Subscript => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "subscript",
+            labels: CarriedReceiverRows.LabelsOf(candidate.PrintedName)),
         _ => null,
     };
 
-    private static string RequirementKeyOf(DroppedExtensionCandidate candidate, BindingItemKind kind)
+    private static bool SuppliesRequirement(
+        ForeignProtocolRequirements.Requirements requirements, DroppedExtensionCandidate candidate, BindingItemKind kind)
     {
-        var isAsync = kind is BindingItemKind.Method or BindingItemKind.Operator
-            && ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature);
-        return kind switch
+        var prefix = candidate.IsStatic ? "static " : string.Empty;
+        switch (kind)
         {
-            BindingItemKind.Property => ForeignProtocolRequirements.PropertyKey(candidate.Name, candidate.IsStatic),
-            BindingItemKind.Subscript => ForeignProtocolRequirements.SubscriptKey(
-                ParameterTypesOf(candidate, kind), candidate.IsStatic),
-            BindingItemKind.Operator => (candidate.IsStatic ? "static " : string.Empty) + candidate.Name,
-            _ => (candidate.IsStatic ? "static " : string.Empty) + candidate.PrintedName + (isAsync ? " async" : string.Empty),
-        };
+            case BindingItemKind.Property:
+                return requirements.Declares(ForeignProtocolRequirements.PropertyKey(candidate.Name, candidate.IsStatic));
+            case BindingItemKind.Subscript:
+                return requirements.Declares(ForeignProtocolRequirements.SubscriptKey(SignatureOf(candidate, kind), candidate.IsStatic));
+            case BindingItemKind.Operator:
+                return requirements.DeclaresOperator(prefix + candidate.Name,
+                    ForeignProtocolRequirements.OperatorKey(candidate.Name, SignatureOf(candidate, kind), candidate.IsStatic));
+            default:
+                return requirements.Declares(prefix + candidate.PrintedName
+                    + (ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature) ? " async" : string.Empty));
+        }
     }
 
     /// <summary>

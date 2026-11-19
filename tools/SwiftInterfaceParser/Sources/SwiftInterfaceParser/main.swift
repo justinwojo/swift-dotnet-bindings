@@ -104,12 +104,19 @@ let objcRuntimeNames = ObjCRuntimeNamesWalker.parse(filePath: path, source: sour
 // qualified type name, then match against the protocol-names set.
 var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]] = [:]
 let protocolNameSet = Set(protocolNames)
+// An extension of another module's type is not an extension of this module's protocol of the same
+// name; when the interface names its module, only an unqualified or same-module target is one.
+let interfaceModuleName = ProtocolFactsWalker.extractModuleName(from: source)
 if !protocolNameSet.isEmpty {
     for candidate in extensionMemberCandidates {
         let qualified = candidate.extendedTypeName
         let typePath: String
+        var isOwnModule = true
         if let firstDot = qualified.firstIndex(of: ".") {
             typePath = String(qualified[qualified.index(after: firstDot)...])
+            if let own = interfaceModuleName {
+                isOwnModule = String(qualified[..<firstDot]) == own
+            }
         } else {
             typePath = qualified
         }
@@ -120,7 +127,7 @@ if !protocolNameSet.isEmpty {
         // extension and never reaches the protocol-extension defaults index, so LocalProtocol's
         // requirement is emitted as an abstract member that conformers relying on the default
         // cannot implement. Admit it when a `Self : Q` constraint names a protocol declared here.
-        guard protocolNameSet.contains(typePath)
+        guard (isOwnModule && protocolNameSet.contains(typePath))
             || selfConstraintProtocolNames(candidate.whereConstraints).contains(where: protocolNameSet.contains)
         else { continue }
         let info = ProtocolExtensionMethodInfo(

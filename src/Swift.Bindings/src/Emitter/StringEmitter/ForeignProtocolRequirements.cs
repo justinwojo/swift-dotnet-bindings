@@ -56,10 +56,32 @@ internal static class ForeignProtocolRequirements
     internal sealed class Requirements
     {
         private readonly HashSet<string> _keys = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, HashSet<string>> _typedOperators = new(StringComparer.Ordinal);
 
         internal void Add(string key) => _keys.Add(key);
 
-        internal void UnionWith(Requirements other) => _keys.UnionWith(other._keys);
+        /// <summary>Adds an operator requirement's typed key (<see cref="OperatorKey"/>) under its spelling key.</summary>
+        internal void AddTypedOperator(string key, string typedKey)
+        {
+            if (!_typedOperators.TryGetValue(key, out var typed))
+                _typedOperators[key] = typed = new HashSet<string>(StringComparer.Ordinal);
+            typed.Add(typedKey);
+        }
+
+        internal void UnionWith(Requirements other)
+        {
+            _keys.UnionWith(other._keys);
+            foreach (var (key, typed) in other._typedOperators)
+                foreach (var typedKey in typed)
+                    AddTypedOperator(key, typedKey);
+        }
+
+        /// <summary>
+        /// Whether an operator requirement is this operator: by its types where the requirement's
+        /// declaration showed them, by its spelling alone otherwise.
+        /// </summary>
+        internal bool DeclaresOperator(string key, string typedKey)
+            => _typedOperators.TryGetValue(key, out var typed) ? typed.Contains(typedKey) : Declares(key);
 
         /// <summary>
         /// Whether a requirement has this member's key (<see cref="MethodKey"/>, <see cref="PropertyKey"/>).
@@ -92,13 +114,27 @@ internal static class ForeignProtocolRequirements
     internal static string PropertyKey(string name, bool isStatic) => (isStatic ? "static " : string.Empty) + name;
 
     /// <summary>
-    /// A subscript's requirement key: its parameter types (<see cref="ForeignOverloadPairing.Normalize"/>),
-    /// since a subscript's parameters carry no argument labels to tell two apart. Null types (a clause
-    /// that does not read) give a key no requirement has.
+    /// A subscript's requirement key: its parameter and return types
+    /// (<see cref="ForeignOverloadPairing.Normalize"/>, a <c>Self.</c> qualifier dropped), since a
+    /// subscript's parameters seldom carry argument labels. A signature that does not read gives a key
+    /// no requirement has.
     /// </summary>
-    internal static string SubscriptKey(string? parameterTypes, bool isStatic)
-        => (isStatic ? "static " : string.Empty) + "subscript("
-            + (ForeignOverloadPairing.Normalize(parameterTypes) ?? "?") + ")";
+    internal static string SubscriptKey(OverloadSignature? signature, bool isStatic)
+        => (isStatic ? "static " : string.Empty) + "subscript" + TypesKey(signature);
+
+    /// <summary>An operator's requirement key with its parameter and return types (see <see cref="SubscriptKey"/>).</summary>
+    internal static string OperatorKey(string name, OverloadSignature? signature, bool isStatic)
+        => (isStatic ? "static " : string.Empty) + name + TypesKey(signature);
+
+    private static string TypesKey(OverloadSignature? signature)
+    {
+        static string Type(string? type) => SelfQualifier.Replace(ForeignOverloadPairing.Normalize(type) ?? "?", string.Empty);
+        return signature?.Parameters is not { } parameters
+            ? "(?)"
+            : $"({string.Join(",", parameters.Select(Type))})->{Type(signature.Return)}";
+    }
+
+    private static readonly Regex SelfQualifier = new(@"\bSelf\.", RegexOptions.Compiled);
 
     /// <summary>
     /// The requirement key of an extension member the interface reader extracted, from its printed
@@ -137,6 +173,8 @@ internal static class ForeignProtocolRequirements
                 continue;
             foreach (var key in declaration.Names)
                 names.Add(key);
+            foreach (var (key, typed) in declaration.TypedOperators ?? Array.Empty<(string, string)>())
+                names.AddTypedOperator(key, typed);
             foreach (var inherited in declaration.Inherited)
                 if (!Collect(moduleDecl, Qualify(inherited, declaration.Module), names, visited))
                     return false;
@@ -145,7 +183,11 @@ internal static class ForeignProtocolRequirements
         return false;
     }
 
-    private sealed record Declaration(string Module, IReadOnlyList<string> Names, IReadOnlyList<string> Inherited);
+    private sealed record Declaration(string Module, IReadOnlyList<string> Names, IReadOnlyList<string> Inherited)
+    {
+        /// <summary>The operator requirements whose declarations show their types: spelling key, typed key.</summary>
+        public IReadOnlyList<(string Key, string Typed)>? TypedOperators { get; init; }
+    }
 
     private static Declaration? Lookup(ModuleDecl moduleDecl, string module, string protocolName)
     {
@@ -156,7 +198,8 @@ internal static class ForeignProtocolRequirements
                 .Select(ProtocolExtensionEmitter.RequirementKeyOf)
                 .Concat(bound.Properties.Select(ProtocolExtensionEmitter.RequirementKeyOf))
                 .Concat(bound.Subscripts.Select(s => SubscriptKey(
-                    string.Join(", ", s.IndexParameters.Select(a => a.SwiftTypeSpec?.ToString() ?? string.Empty)), s.IsStatic)))
+                    ForeignOverloadPairing.ListedSignature(null, s.IndexParameters.Select(a => a.SwiftTypeSpec?.ToString()),
+                        s.ReturnTypeSpec?.ToString()), s.IsStatic)))
                 .OfType<string>()
                 .ToList();
             return new Declaration(module, memberNames, bound.InheritedProtocols.Select(i => i.Name).ToList());
@@ -222,6 +265,7 @@ internal static class ForeignProtocolRequirements
     private static Declaration? Parse(string text, string protocolName)
     {
         var names = new List<string>();
+        var typedOperators = new List<(string, string)>();
         var inherited = new List<string>();
         var found = false;
         var searchFrom = 0;
@@ -236,16 +280,17 @@ internal static class ForeignProtocolRequirements
                 if (FuncName.Match(line) is { Success: true } func)
                 {
                     var labels = ParameterLabels(line, func.Index + func.Length, out var clauseEnd);
-                    names.Add(MethodKey(func.Groups[1].Value.Trim('`'), labels, isStatic,
-                        labels is not null && AsyncEffect.IsMatch(line[clauseEnd..])));
+                    var name = func.Groups[1].Value.Trim('`');
+                    var key = MethodKey(name, labels, isStatic, labels is not null && AsyncEffect.IsMatch(line[clauseEnd..]));
+                    names.Add(key);
+                    if (IsOperator(name) && ForeignOverloadPairing.SignatureOf(line, "func", name) is { Parameters: not null } signature)
+                        typedOperators.Add((key, OperatorKey(name, signature, isStatic)));
                 }
                 else if (VarName.Match(line) is { Success: true } variable)
                     names.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
                 else if (SubscriptDeclaration.IsMatch(line))
                 {
-                    var types = ForeignOverloadPairing.ParameterTypesOf(line, "subscript");
-                    if (types is not null)
-                        names.Add(SubscriptKey(types, StaticSubscript.IsMatch(line)));
+                    names.Add(SubscriptKey(ForeignOverloadPairing.SignatureOf(line, "subscript"), StaticSubscript.IsMatch(line)));
                 }
                 else if (Initializer.Match(line) is { Success: true } init)
                 {
@@ -256,7 +301,10 @@ internal static class ForeignProtocolRequirements
             }
         }
         if (found)
-            return new Declaration(string.Empty, names.Distinct(StringComparer.Ordinal).ToList(), inherited.Distinct(StringComparer.Ordinal).ToList());
+            return new Declaration(string.Empty, names.Distinct(StringComparer.Ordinal).ToList(), inherited.Distinct(StringComparer.Ordinal).ToList())
+            {
+                TypedOperators = typedOperators,
+            };
 
         var alias = new Regex($@"\bpublic\s+typealias\s+{Regex.Escape(protocolName)}\s*=\s*([^\n]+)").Match(text);
         if (!alias.Success || !alias.Groups[1].Value.Contains('&'))

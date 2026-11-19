@@ -676,7 +676,7 @@ public class ForeignTypeExtensionEmitterTests
         moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
         moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
             "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_with",
-            "describe(with:)", IsStatic: false, ParameterTypes: "Swift.Int32"));
+            "describe(with:)", IsStatic: false, ParameterTypes: new[] { "Swift.Int32" }));
         var other = CreateLabeledExtMethod("describe", "describe(with:)", "public func describe(with value: Swift.String)");
         var same = CreateLabeledExtMethod("describe", "describe(with:)", "public func describe(with value: Swift.Int32)");
 
@@ -716,6 +716,18 @@ public class ForeignTypeExtensionEmitterTests
             ParentDecl = carried,
             ModuleDecl = moduleDecl,
         });
+        carried.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            PrintedName = "subscript(a:)",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Double"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("a", "Swift.Double", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_subscript_a_Double",
+            ParentDecl = carried,
+            ModuleDecl = moduleDecl,
+        });
         DroppedExtensionCandidate Candidate(string kind, string name, string printedName, string signature) => new()
         {
             ExtendedTypeName = receiver, Kind = kind, Name = name, PrintedName = printedName,
@@ -729,6 +741,8 @@ public class ForeignTypeExtensionEmitterTests
             Candidate("initializer", "init", "init(other:)", "public init(other: Swift.Int32)"),
             Candidate("subscript", "subscript", "subscript(_:)", "public subscript(i: Swift.String) -> Swift.Int32"),
             Candidate("subscript", "subscript", "subscript(_:)", "public subscript(i: Swift.Int32) -> Swift.Int32"),
+            Candidate("subscript", "subscript", "subscript(b:)", "public subscript(b x: Swift.Double) -> Swift.Double"),
+            Candidate("subscript", "subscript", "subscript(a:)", "public subscript(a x: Swift.Double) -> Swift.Double"),
         });
 
         Assert.Equal(
@@ -736,6 +750,7 @@ public class ForeignTypeExtensionEmitterTests
             {
                 "not read: public init(other: Swift.Int32)",
                 "not read: public init(seed: Swift.String)",
+                "not read: public subscript(b x: Swift.Double) -> Swift.Double",
                 "not read: public subscript(i: Swift.String) -> Swift.Int32",
             },
             report.SkippedItems.Select(r => r.Details![(r.Details!.IndexOf("not read", StringComparison.Ordinal))..^1])
@@ -800,17 +815,166 @@ public class ForeignTypeExtensionEmitterTests
             ModuleDecl = moduleDecl,
         });
         moduleDecl.DependencyProtocols["Dep"] = new List<ProtocolDecl> { protocol };
-        DroppedExtensionCandidate Candidate(string type) => new()
+        DroppedExtensionCandidate Candidate(string type, string result) => new()
         {
             ExtendedTypeName = "Dep.Indexed", Kind = "subscript", Name = "subscript",
-            PrintedName = "subscript(_:)", RawSignature = $"public subscript(i: {type}) -> Swift.Int",
-            IsStatic = false, Reason = "not read",
+            PrintedName = "subscript(_:)", RawSignature = $"public subscript(i: {type}) -> {result}",
+            IsStatic = false, Reason = $"not read: {type} -> {result}",
         };
 
-        var report = RecordAndRepublish(moduleDecl, ctx, new[] { Candidate("Swift.Int"), Candidate("Swift.String") });
+        var report = RecordAndRepublish(moduleDecl, ctx, new[]
+        {
+            Candidate("Swift.Int", "Swift.Int"), Candidate("Swift.String", "Swift.Int"), Candidate("Swift.Int", "Swift.String"),
+        });
+
+        var rows = report.SkippedItems.Where(r => r.Kind == BindingItemKind.Subscript).ToList();
+        Assert.Equal(
+            new[] { "Swift.Int -> Swift.String", "Swift.String -> Swift.Int" },
+            rows.Select(r => r.Details![(r.Details!.IndexOf("not read: ", StringComparison.Ordinal) + 10)..^1])
+                .OrderBy(d => d, StringComparer.Ordinal).ToArray());
+        Assert.All(rows, r => Assert.Equal("Dep.Indexed", r.ContainingType));
+    }
+
+    /// <summary>
+    /// A parked member pairs with an interface overload only when it is public and their types may be
+    /// one spelling: the same types, or a name the databases do not hold where the ABI resolves a
+    /// typealias. A tuple where the interface names a known type, or an internal sibling, is another
+    /// member, and the interface overload keeps its row.
+    /// </summary>
+    [Theory]
+    [InlineData("(Swift.Int, Swift.Int)", true, "Swift.Int", 2)]
+    [InlineData("Swift.Int", false, "Swift.Int", 2)]
+    [InlineData("Swift.Int", true, "Swift.Int", 1)]
+    [InlineData("Foundation.Date", true, "Foundation.KitchenAlias", 1)]
+    public void RepublishWithdrawals_ParkedMember_PairsOnlyWithAPublicMemberItMayBe(
+        string parkedType, bool parkedIsPublic, string interfaceType, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "f", "Not bound: parked", "$s_f",
+            "f(x:)", IsStatic: false, ParameterTypes: new[] { parkedType }, ReturnType: "()", IsPublic: parkedIsPublic));
+        var member = CreateLabeledExtMethod("f", "f(x:)", $"public func f(x: {interfaceType})");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { member } }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "f"));
+    }
+
+    /// <summary>Overloads that differ only in their return type are two members.</summary>
+    [Fact]
+    public void RepublishWithdrawals_ParkedReturnOnlyOverload_KeepsTheOtherOverloadsRow()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "f", "Not bound: parked", "$s_f_String",
+            "f()", IsStatic: false, ParameterTypes: Array.Empty<string>(), ReturnType: "Swift.String"));
+        var integer = CreateLabeledExtMethod("f", "f()", "public func f() -> Swift.Int32");
+        var text = CreateLabeledExtMethod("f", "f()", "public func f() -> Swift.String");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { integer, text } }, ctx);
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+    }
+
+    /// <summary>
+    /// A foreign protocol the parser kept for its extension members has those members reported by the
+    /// protocol-extension path, so a declaration the interface reader did not take is left to it when
+    /// the ABI lists it there, and keeps a row of its own when it does not.
+    /// </summary>
+    [Fact]
+    public void RecordDroppedExtensionCandidates_RetainedForeignProtocol_LeavesListedMembersToItsReport()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var protocol = new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Combine.Cancellable"),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        protocol.ExtensionMembers.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            PrintedName = "subscript(_:)",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("i", "Swift.Int32", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_ext_subscript",
+            ParentDecl = protocol,
+            ModuleDecl = moduleDecl,
+        });
+        moduleDecl.Protocols.Add(protocol);
+        DroppedExtensionCandidate Candidate(string type) => new()
+        {
+            ExtendedTypeName = "Combine.Cancellable", Kind = "subscript", Name = "subscript",
+            PrintedName = "subscript(_:)", RawSignature = $"public subscript(i: {type}) -> Swift.Int32",
+            IsStatic = false, Reason = $"not read: {type}",
+        };
+
+        var report = RecordAndRepublish(moduleDecl, ctx, new[] { Candidate("Swift.Int32"), Candidate("Swift.String") });
 
         var row = Assert.Single(report.SkippedItems, r => r.Kind == BindingItemKind.Subscript);
-        Assert.Equal("Dep.Indexed", row.ContainingType);
+        Assert.Contains("Swift.String", row.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An operator requirement whose declaration shows its types is supplied only by an operator of
+    /// those types; one shown by its spelling alone is supplied by any operator of that spelling.
+    /// </summary>
+    [Theory]
+    [InlineData("Self", true)]
+    [InlineData("Swift.Int32", false)]
+    public void Requirements_TypedOperator_DeclaresOnlyTheSameTypes(string rightType, bool expected)
+    {
+        var requirements = new ForeignProtocolRequirements.Requirements();
+        requirements.Add("static +");
+        requirements.AddTypedOperator("static +", ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true));
+        var spellingOnly = new ForeignProtocolRequirements.Requirements();
+        spellingOnly.Add("static +");
+        var member = ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf($"public static func + (lhs: Self, rhs: {rightType}) -> Self", "func", "+"), isStatic: true);
+
+        Assert.Equal(expected, requirements.DeclaresOperator("static +", member));
+        Assert.True(spellingOnly.DeclaresOperator("static +", member));
+    }
+
+    /// <summary>
+    /// What a declaration's signature reads: parameter types (a default value left out), the return
+    /// type after any effects, an escaped name found, and no types for a method generic of its own.
+    /// </summary>
+    [Theory]
+    [InlineData("public func `repeat`(count: Swift.Int = 1) throws -> Swift.Int", "func", "repeat", "Swift.Int", "Swift.Int")]
+    [InlineData("public func f(x: (Swift.Int32, Swift.Int32))", "func", "f", "(Swift.Int32, Swift.Int32)", "()")]
+    [InlineData("public func f(x: Swift.String = \"a)b\") -> Swift.Int", "func", "f", "Swift.String", "Swift.Int")]
+    [InlineData("public init?(seed: Swift.Int, other: [Swift.String])", "init", null, "Swift.Int|[Swift.String]", null)]
+    [InlineData("public subscript(a x: Swift.Int) -> Swift.Int { get }", "subscript", null, "Swift.Int", "Swift.Int")]
+    [InlineData("public func g<T>(x: T) -> T where T : Swift.Equatable", "func", "g", null, "T")]
+    [InlineData("public func h() async -> Swift.Int where Self : Swift.Equatable", "func", "h", "", "Swift.Int")]
+    public void SignatureOf_ReadsTypesAndReturn(string declaration, string keyword, string name, string parameters, string returnType)
+    {
+        var signature = ForeignOverloadPairing.SignatureOf(declaration, keyword, name);
+
+        Assert.NotNull(signature);
+        Assert.Equal(parameters, signature!.Parameters is null ? null : string.Join("|", signature.Parameters));
+        Assert.Equal(returnType, signature.Return);
     }
 
     private static BindingReport RecordAndRepublish(
@@ -818,7 +982,7 @@ public class ForeignTypeExtensionEmitterTests
     {
         ReportCollector.Reset();
         ReportCollector.Start(moduleDecl);
-        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, candidates, Logger, ctx);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, candidates, CreateTypeDatabase(), Logger, ctx);
         ReportCollector.Reset();
         ReportCollector.Start(moduleDecl);
         ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
@@ -915,7 +1079,7 @@ public class ForeignTypeExtensionEmitterTests
 
         ReportCollector.Reset();
         ReportCollector.Start(moduleDecl);
-        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, new[] { candidate }, Logger, ctx);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, new[] { candidate }, CreateTypeDatabase(), Logger, ctx);
         ReportCollector.Reset();
         ReportCollector.Start(moduleDecl);
         ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);

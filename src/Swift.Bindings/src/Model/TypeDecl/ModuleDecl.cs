@@ -131,9 +131,14 @@ namespace BindingsGeneration
     /// <param name="PrintedName">The declaration's name with its argument labels as the ABI prints it
     /// (<c>describe(with:)</c>), or null when the parser had none. Tells overloads of one name apart.</param>
     /// <param name="IsStatic">Whether the declaration is static (or a class member), or null when unknown.</param>
-    /// <param name="ParameterTypes">The declaration's parameter types as the ABI prints them,
-    /// comma-separated, or null for a declaration without parameters to compare (a property, a type).
-    /// Tells apart overloads that share their labels.</param>
+    /// <param name="ParameterTypes">The declaration's parameter types as the ABI prints them, or null
+    /// for a declaration without parameters (a property, a type). With <paramref name="ReturnType"/>,
+    /// tells apart overloads that share their labels.</param>
+    /// <param name="ReturnType">The declaration's result type as the ABI prints it, or null for an
+    /// initializer or a declaration without one.</param>
+    /// <param name="IsPublic">Whether the declaration is part of the module's public surface (not
+    /// <c>@usableFromInline</c> internal or SPI). Only a public declaration is a member an interface
+    /// declaration can be.</param>
     public sealed record UnboundForeignReceiverMember(
         string ForeignTypeQualifiedName,
         BindingItemKind Kind,
@@ -142,8 +147,16 @@ namespace BindingsGeneration
         string? Symbol = null,
         string? PrintedName = null,
         bool? IsStatic = null,
-        string? ParameterTypes = null)
+        IReadOnlyList<string>? ParameterTypes = null,
+        string? ReturnType = null,
+        bool IsPublic = true)
     {
+        /// <summary>What tells this declaration apart from overloads of its shape, or null when it has no parameters.</summary>
+        internal OverloadSignature? Signature => ParameterTypes is null
+            ? null
+            : ForeignOverloadPairing.ListedSignature(
+                Kind == BindingItemKind.Subscript ? CarriedReceiverRows.LabelsOf(PrintedName) : null, ParameterTypes, ReturnType);
+
         /// <summary>
         /// Whether this parked declaration has the shape of the interface member <paramref name="name"/>:
         /// same kind, name and receiver, and, where the parser recorded them, the same labels and
