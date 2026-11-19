@@ -1136,6 +1136,11 @@
             "schemaVersion": 1,
             "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk@27.0",
             "exceptions": []
+          },
+          {
+            "schemaVersion": 1,
+            "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
           }
         ],
         "compile": "ok",
@@ -1155,6 +1160,11 @@
             "schemaVersion": 1,
             "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk@27.0",
             "exceptions": []
+          },
+          {
+            "schemaVersion": 1,
+            "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
           }
         ],
         "compile": "ok",
@@ -1173,6 +1183,11 @@
           {
             "schemaVersion": 1,
             "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.0.sdk@27.0",
+            "exceptions": []
+          },
+          {
+            "schemaVersion": 1,
+            "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
             "exceptions": []
           }
         ],
