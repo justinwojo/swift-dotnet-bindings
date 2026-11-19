@@ -119,7 +119,8 @@ public static class MsbuildSarifCSharpVerifier
                     diagnostics.Add(consoleDiag);
             }
 
-            return CSharpVerificationResult.FromDiagnostics(diagnostics, buildSucceeded: exitCode == 0);
+            return CSharpVerificationResult.FromDiagnostics(
+                diagnostics, buildSucceeded: exitCode == 0, buildOutput: stderr + "\n" + stdout);
         }
         finally
         {

@@ -1,7 +1,11 @@
 {
-  "git_sha": "c21f7a9a",
+  "git_sha": "8af79afc",
   "review_count": 0,
   "by_reason": [
+    {
+      "key": "AnyTypeFallback",
+      "count": 1
+    },
     {
       "key": "ConformanceProtocolHasAssociatedTypes",
       "count": 4
@@ -12,7 +16,7 @@
     },
     {
       "key": "EveryProtocolConformanceSkipped",
-      "count": 2
+      "count": 3
     },
     {
       "key": "ModuleInternal",
@@ -24,7 +28,7 @@
     },
     {
       "key": "ParentTypeSuppressed",
-      "count": 3
+      "count": 12
     },
     {
       "key": "Pattern2InternalTypeReach",
@@ -40,21 +44,25 @@
     },
     {
       "key": "UnsupportedSignature",
-      "count": 5
+      "count": 10
+    },
+    {
+      "key": "UnsupportedType",
+      "count": 3
     }
   ],
   "by_disposition": [
     {
       "key": "ExpectedNonPublic",
-      "count": 12
+      "count": 13
     },
     {
       "key": "ExpectedStructural",
-      "count": 11
+      "count": 20
     },
     {
       "key": "KnownLimitation",
-      "count": 14
+      "count": 23
     }
   ]
 }

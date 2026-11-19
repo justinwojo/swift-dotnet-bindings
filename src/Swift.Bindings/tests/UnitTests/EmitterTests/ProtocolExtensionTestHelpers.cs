@@ -107,9 +107,9 @@ internal static class ProtocolExtensionTestHelpers
                     var trimmed = p.Trim();
                     var colonIdx = trimmed.IndexOf(':');
                     if (colonIdx < 0) return "_";
-                    var label = trimmed.Substring(0, colonIdx).Trim();
-                    if (label.StartsWith("_ ")) return "_";
-                    return label;
+                    // The interface reader prints each parameter's first name (its argument label).
+                    var names = trimmed.Substring(0, colonIdx).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+                    return names.Length == 0 ? "_" : names[0];
                 });
                 printedName = $"{methodName}({string.Join("", labels.Select(l => l + ":"))})";
             }

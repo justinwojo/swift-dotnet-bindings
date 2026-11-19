@@ -62,6 +62,23 @@ public static class MemberEmissionValidator
     }
 
     /// <summary>
+    /// Whether <paramref name="property"/> is the projected value (<c>$name</c>) of a property-wrapper
+    /// property its type declares publicly.
+    /// </summary>
+    internal static bool IsProjectionOfPublicWrappedProperty(PropertyDecl property, out string wrappedName)
+    {
+        wrappedName = string.Empty;
+        if (property.OriginalSwiftName is not { Length: > 1 } original || original[0] != '$')
+            return false;
+        var name = original[1..];
+        if (property.ParentDecl is not TypeDecl parent
+            || !parent.Properties.Any(p => p.Name == name && p.IsStatic == property.IsStatic && !p.IsModuleInternal))
+            return false;
+        wrappedName = name;
+        return true;
+    }
+
+    /// <summary>
     /// Checks if a property can be emitted. Returns null if valid, SkipReason if not.
     /// </summary>
     public static SkipReason? CanEmitProperty(
@@ -88,6 +105,17 @@ public static class MemberEmissionValidator
             { SpecializationEngine = specializationEngine };
         var closureHandler = new ClosureHandler(typeDatabase);
         var boundGenericsHandler = new BoundGenericsHandler(typeDatabase);
+
+        // A property-wrapper projection (`$url`) of a public wrapped property is public too, but the
+        // interface prints only the wrapped property, so the parser's negative-space check marks the
+        // projection internal. Projected values are not bound (the wrapped property is validated on its
+        // own), and the row says so instead of calling a public member internal.
+        if (property.IsModuleInternal && IsProjectionOfPublicWrappedProperty(property, out var wrappedName))
+        {
+            skipDetails = $"Property-wrapper projection of the public property '{wrappedName}': the projected " +
+                          "value of a property wrapper is not bound.";
+            return SkipReason.UnsupportedSignature;
+        }
 
         // Skip internal properties — not accessible from the wrapper module
         if (property.IsModuleInternal)

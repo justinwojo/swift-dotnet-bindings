@@ -1257,6 +1257,61 @@ public class ModuleHandlerTests
     private static string LineContaining(string output, string needle) =>
         output.Split('\n').Select(l => l.TrimEnd('\r')).FirstOrDefault(l => l.Contains(needle));
 
+    [Theory]
+    [InlineData("&&", OperatorKind.Binary)]
+    [InlineData("||", OperatorKind.Binary)]
+    [InlineData("!", OperatorKind.Unary)]
+    public void Emit_ModuleLevelOperator_RecordsAMemberRow(string symbol, OperatorKind kind)
+    {
+        // An operator function declared at module level has no C# home (C# declares an operator in
+        // one of its operand types, and cannot overload && or || at all). It used to fall out of the
+        // model with no row; it must be reported.
+        BindingReport report;
+        try
+        {
+            EmitModuleWithDependencies("TestModule", new List<string>(), customizeModule: m =>
+            {
+                var method = new MethodDecl
+                {
+                    Name = symbol,
+                    MangledName = "$s10TestModule2aaoiyS2b_SbtF",
+                    MethodType = MethodType.Static,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>(),
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = m,
+                    ModuleDecl = m,
+                    Throws = false,
+                    IsAsync = false,
+                    IsSynthesizedAccessor = false,
+                };
+                m.Operators.Add(new OperatorDecl
+                {
+                    Name = symbol,
+                    OperatorSymbol = symbol,
+                    Kind = kind,
+                    IsPrefix = kind == OperatorKind.Unary,
+                    UnderlyingMethod = method,
+                    ParentDecl = m,
+                    ModuleDecl = m,
+                });
+                ReportCollector.Start(m);
+            });
+            report = ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        var row = Assert.Single(report.SkippedItems, i => i.Name == symbol);
+        Assert.Equal(BindingItemKind.Operator, row.Kind);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Contains("module-level operator", row.Details);
+        // The skipped operator is one of the module's members, so coverage cannot read 100%.
+        Assert.True(report.TotalMembers >= report.EmittedMembers + 1);
+    }
+
     [Fact]
     public void Emit_GatedSwiftObjectType_WrapsFactoryRegistrationInAvailabilityGuard()
     {

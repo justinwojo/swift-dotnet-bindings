@@ -215,7 +215,10 @@ public static class ProtocolExtensionEmitter
             var requirementKey = AbiOverloadKey(requirement);
             if (requirement.IsAsync && !extensionIsAsync)
                 requirementKey = requirementKey.Replace(" async -> ", " -> ", StringComparison.Ordinal);
-            return requirementKey == overloadKey;
+            // Module qualifiers are left out: the ABI names a moved type by the module that first
+            // defined it (`@_originallyDefinedIn`: RealityKit.Entity) where the interface names its
+            // current module (RealityFoundation.Entity), and that is the same parameter type.
+            return WithoutModuleQualifiers(requirementKey) == WithoutModuleQualifiers(overloadKey);
         }
 
         var byName = new Dictionary<string, ProtocolDecl>(StringComparer.Ordinal);
@@ -241,10 +244,12 @@ public static class ProtocolExtensionEmitter
             var name = pending.Pop();
             if (!byName.TryGetValue(InModule(moduleDecl, name), out var protocol))
             {
-                // A protocol of another module: its requirements are not visible here, so the member
-                // may be the default of one of them, and a row could be false.
+                // A protocol of another module: the member is the default of one of its requirements
+                // when that module declares a requirement of its name and labels, and may be when
+                // its requirements cannot be read (a row could then be false).
                 if (name != protocolQualifiedName
-                    && (KnownForeignRequirements(name) is not { } known || known.Contains(extMethod.MethodName)))
+                    && (ForeignProtocolRequirements.Of(moduleDecl, name) is not { } known
+                        || known.Declares(ForeignProtocolRequirements.KeyOf(extMethod))))
                     return true;
                 continue;
             }
@@ -265,6 +270,15 @@ public static class ProtocolExtensionEmitter
     private static string QualifiedName(TypeDecl type) => type.SwiftTypeName.ModuleQualifiedName;
 
     /// <summary>
+    /// A signature key with the module dropped from each qualified type name (<c>M.T.U</c> becomes
+    /// <c>T.U</c>), so nested types of different parents stay apart.
+    /// </summary>
+    internal static string WithoutModuleQualifiers(string key) => Qualifier.Replace(key, string.Empty);
+
+    private static readonly System.Text.RegularExpressions.Regex Qualifier =
+        new(@"(?<![\w.])[A-Za-z_]\w*\.(?=[A-Za-z_])", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
     /// A type name as this module qualifies its own types: module selectors (<c>M::</c>) dropped, and
     /// a name with no module of its own taken to be this module's. A name another module qualifies
     /// keeps that module, so it never resolves to a local type with the same short name.
@@ -283,19 +297,19 @@ public static class ProtocolExtensionEmitter
 
     /// <summary>
     /// The requirement names of the other modules' protocols this protocol inherits (through its own
-    /// module's protocols), or null when one of them is a protocol whose requirements this module
-    /// cannot see. An extension member of such a protocol may supply the default for one of them, so
+    /// module's protocols), read from those modules' declarations (<see cref="ForeignProtocolRequirements"/>),
+    /// or null when one of them is a protocol whose requirements cannot be read. An extension member of such a protocol may supply the default for one of them, so
     /// it is not reported as unextracted.
     /// </summary>
-    private static HashSet<string>? ForeignParentRequirements(ModuleDecl moduleDecl, ProtocolDecl protocol)
+    private static ForeignProtocolRequirements.Requirements? ForeignParentRequirements(ModuleDecl moduleDecl, ProtocolDecl protocol)
     {
         var local = ModuleProtocols(moduleDecl).Select(QualifiedName).ToHashSet(StringComparer.Ordinal);
-        var names = new HashSet<string>(StringComparer.Ordinal);
+        var names = new ForeignProtocolRequirements.Requirements();
         foreach (var inherited in ProtocolAndInheritedInModule(moduleDecl, protocol).SelectMany(p => p.InheritedProtocols))
         {
             if (local.Contains(InModule(moduleDecl, inherited.Name)))
                 continue;
-            if (KnownForeignRequirements(inherited.Name) is not { } known)
+            if (ForeignProtocolRequirements.Of(moduleDecl, inherited.Name) is not { } known)
                 return null;
             names.UnionWith(known);
         }
@@ -303,41 +317,17 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// The requirement names of another module's protocol whose requirements are known here (the
-    /// standard library's, and Foundation's that Apple frameworks commonly refine), or null for any
-    /// other protocol of another module.
+    /// The requirement key (<see cref="ForeignProtocolRequirements.Requirements"/>) of an ABI member:
+    /// a method's or initializer's name, labels and effects, a property's name; null for a subscript,
+    /// which no requirement key describes.
     /// </summary>
-    private static IReadOnlySet<string>? KnownForeignRequirements(string name)
+    internal static string? RequirementKeyOf(BaseDecl member) => member switch
     {
-        var plain = ModuleSelector.Replace(name.Trim(), string.Empty);
-        if (plain.StartsWith("Swift.", StringComparison.Ordinal))
-            plain = plain["Swift.".Length..];
-        return KnownForeignProtocolRequirements.TryGetValue(plain, out var names) ? names : null;
-    }
-
-    private static readonly Dictionary<string, HashSet<string>> KnownForeignProtocolRequirements = new(StringComparer.Ordinal)
-    {
-        ["Sendable"] = new(), ["SendableMetatype"] = new(), ["Copyable"] = new(), ["Escapable"] = new(),
-        ["BitwiseCopyable"] = new(), ["AnyObject"] = new(), ["Error"] = new(),
-        ["Equatable"] = new() { "==" },
-        ["Hashable"] = new() { "==", "hash", "hashValue" },
-        ["Comparable"] = new() { "==", "<", "<=", ">", ">=" },
-        ["CustomStringConvertible"] = new() { "description" },
-        ["CustomDebugStringConvertible"] = new() { "debugDescription" },
-        ["Identifiable"] = new() { "id" },
-        ["Encodable"] = new() { "encode" },
-        ["Decodable"] = new() { "init" },
-        ["Codable"] = new() { "encode", "init" },
-        ["RawRepresentable"] = new() { "init", "rawValue" },
-        ["CaseIterable"] = new() { "allCases" },
-        ["Foundation.CustomLocalizedStringResourceConvertible"] = new() { "localizedStringResource" },
-    };
-
-    private static string SwiftNameOf(BaseDecl member) => member switch
-    {
-        MethodDecl method => method.GetSwiftName(),
-        PropertyDecl property => property.GetSwiftName(),
-        _ => member.Name,
+        MethodDecl method => ForeignProtocolRequirements.MethodKey(
+            method.IsConstructor ? "init" : method.GetSwiftName(), method.CSSignature.Skip(1).Select(SwiftLabel),
+            isStatic: !method.IsConstructor && method.MethodType == MethodType.Static, method.IsAsync),
+        PropertyDecl property => ForeignProtocolRequirements.PropertyKey(property.GetSwiftName(), property.IsStatic),
+        _ => null,
     };
 
     private static readonly System.Text.RegularExpressions.Regex ModuleSelector = new(@"\b\w+::", System.Text.RegularExpressions.RegexOptions.Compiled);
@@ -464,7 +454,7 @@ public static class ProtocolExtensionEmitter
             var protocolName = QualifiedName(protocol);
             foreach (var (member, shape) in candidates)
             {
-                if (foreignRequirements.Contains(member is MethodDecl { IsConstructor: true } ? "init" : SwiftNameOf(member)))
+                if (RequirementKeyOf(member) is { } key && foreignRequirements.Declares(key))
                     continue;
                 if (DeclIdFactory.ForDecl(member) is not { } memberId)
                     continue;
@@ -481,7 +471,10 @@ public static class ProtocolExtensionEmitter
     /// <summary>What the interface reader extracted for one protocol, keyed for overload matching.</summary>
     private sealed class ExtractedMembers
     {
-        /// <summary>Name, labels and parameter types of each method whose signature parsed.</summary>
+        /// <summary>
+        /// Name, labels and parameter types of each method whose signature parsed, module qualifiers
+        /// dropped (the ABI names a type moved by <c>@_originallyDefinedIn</c> by its first module).
+        /// </summary>
         public HashSet<string> OverloadKeys { get; } = new(StringComparer.Ordinal);
 
         /// <summary>Name and labels of each method whose signature did not parse; matched by labels alone.</summary>
@@ -493,7 +486,7 @@ public static class ProtocolExtensionEmitter
         public HashSet<string> PropertyNames { get; } = new(StringComparer.Ordinal);
 
         public bool Matches(MethodDecl method)
-            => OverloadKeys.Contains(AbiOverloadKey(method))
+            => OverloadKeys.Contains(WithoutModuleQualifiers(AbiOverloadKey(method)))
                 || UnparsedLabelKeys.Contains(AbiLabelKey(method));
     }
 
@@ -518,7 +511,7 @@ public static class ProtocolExtensionEmitter
                 }
                 entry.CountByLabels[member.PrintedName] = entry.CountByLabels.GetValueOrDefault(member.PrintedName) + 1;
                 if (ExtensionOverloadKey(member, typeDatabase, logger) is { } overloadKey)
-                    entry.OverloadKeys.Add(overloadKey);
+                    entry.OverloadKeys.Add(WithoutModuleQualifiers(overloadKey));
                 else
                     entry.UnparsedLabelKeys.Add(member.PrintedName);
             }

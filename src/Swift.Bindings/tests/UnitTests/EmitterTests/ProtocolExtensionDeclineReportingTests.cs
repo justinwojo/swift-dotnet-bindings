@@ -27,8 +27,11 @@ public class ProtocolExtensionDeclineReportingTests
         ModuleDecl moduleDecl,
         Dictionary<string, List<ProtocolExtensionMethodDecl>> extMethods,
         TypeDatabase typeDatabase,
-        ModuleEmissionContext ctx)
+        ModuleEmissionContext ctx,
+        bool installStandardSdk = true)
     {
+        // Another module's protocol is read from its interface in the run's SDK.
+        using var sdk = installStandardSdk ? FakeSdkInterfaces.Standard() : null;
         ReportCollector.Start(moduleDecl);
         try
         {
@@ -343,6 +346,26 @@ public class ProtocolExtensionDeclineReportingTests
         var row = Assert.Single(skipped);
         Assert.Equal(SkipReason.ProtocolExtensionUncarried, row.Reason);
         Assert.Contains("Bool", row.DeclId ?? string.Empty);
+    }
+
+    [Fact]
+    public void DefaultOfARequirementWhoseTypeMovedModules_HasNoRow()
+    {
+        // A type moved between modules (`@_originallyDefinedIn`) is named by its original module in
+        // the ABI and by its current one in the interface: `remove(_: OldKit.Marker)` and
+        // `remove(_ x: TestModule.Marker)` are one requirement and its default. The overload beside it
+        // that takes another type is still its own member.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        moduleDecl.Protocols.Add(TestDecls.Protocol("Adoptable", "TestModule",
+            TestDecls.Method("remove", parameters: new[] { Arg("_", "OldKit.Marker") }, module: "TestModule")));
+        var extMethods = CreateExtensionMethodDict("TestModule.Adoptable",
+            CreateExtMethod("remove", "public func remove(_ x: TestModule.Marker)"),
+            CreateExtMethod("remove", "public func remove(_ x: Swift.Bool)"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped);
+        Assert.Contains("Swift.Bool", row.DeclId ?? string.Empty);
     }
 
     [Fact]
@@ -764,6 +787,222 @@ public class ProtocolExtensionDeclineReportingTests
 
         Assert.Empty(skipped);
     }
+
+    [Fact]
+    public void DefaultOfAForeignRequirementReadFromTheSdk_HasNoRow_AndItsSiblingIsReported()
+    {
+        // protocol KitchenConfiguration: AppExtensionConfiguration, whose interface declares
+        // `accept(connection:)`. The extension's `accept(connection:)` supplies that requirement's default,
+        // so the requirement is the surface; `describe()` is no requirement anywhere and has no C# home.
+        // With the requirements unread, both used to go without a row.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("KitchenConfiguration", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ExtensionFoundation.AppExtensionConfiguration"));
+        AddExtensionMember(protocol, AbiExtensionMethod("accept", "$s10TestModule20KitchenConfigurationPAAE6accept10connectionSbSo15NSXPCConnectionC_tF",
+            new NamedTypeSpec("Swift.Bool"), Arg("connection", "Foundation.NSXPCConnection")));
+        AddExtensionMember(protocol, AbiExtensionMethod("describe", "$s10TestModule20KitchenConfigurationPAAE8describeSSyF",
+            new NamedTypeSpec("Swift.String")));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.KitchenConfiguration",
+            CreateExtMethod("accept", "nonisolated public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool"),
+            CreateExtMethod("describe", "public func describe() -> Swift.String"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        Assert.DoesNotContain(skipped, s => s.Name == "accept");
+        Assert.Single(skipped, s => s.Name == "describe");
+    }
+
+    [Theory]
+    [InlineData("Swift.Hashable", "hash", "public func hash(into hasher: inout Swift.Hasher)")] // inherited: Hashable : Equatable
+    [InlineData("Swift.Hashable", "==", "public static func == (lhs: Self, rhs: Self) -> Swift.Bool")]
+    [InlineData("Swift.Codable", "init", "public init(from decoder: any Swift.Decoder) throws")] // a typealias composition: Decodable & Encodable
+    [InlineData("Swift.Codable", "encode", "public func encode(to encoder: any Swift.Encoder) throws")]
+    [InlineData("Identifiable", "id", null)]            // unqualified: looked up in the standard library
+    [InlineData("Swift::Identifiable", "id", null)]     // a module selector
+    public void DefaultOfAStandardLibraryRequirement_HasNoRow(string parent, string requirement, string? signature)
+    {
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec(parent));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed",
+            signature is null
+                ? CreateExtProperty(requirement, $"public var {requirement}: Swift.Int {{ get }}")
+                : Static(CreateExtMethod(requirement, signature)),
+            CreateExtMethod("relabel", "public func relabel()"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped);
+        Assert.Equal("relabel", row.Name);
+    }
+
+    private static ProtocolExtensionMethodDecl Static(ProtocolExtensionMethodDecl member)
+    {
+        member.IsStatic = member.RawSignature.Contains("static ", StringComparison.Ordinal);
+        return member;
+    }
+
+    [Theory]
+    [InlineData("public static func hash(into hasher: inout Swift.Hasher)")]  // a static method beside an instance requirement
+    [InlineData("public func encode(to encoder: any Swift.Encoder) async")]   // an async method beside a sync requirement
+    public void MemberOfAForeignRequirementsNameAndLabelsWithOtherEffects_IsReported(string signature)
+    {
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Hashable"));
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Codable"));
+        moduleDecl.Protocols.Add(protocol);
+        var start = signature.IndexOf("func ", StringComparison.Ordinal) + "func ".Length;
+        var name = signature[start..signature.IndexOf('(')];
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed", Static(CreateExtMethod(name, signature)));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Single(skipped, s => s.Name == name);
+    }
+
+    [Fact]
+    public void ExtensionSubscriptOfAProtocolRefiningAForeignProtocolWithSubscripts_IsReported()
+    {
+        // Collection declares subscripts; an extension subscript is not taken for any of them.
+        using var sdk = FakeSdkInterfaces.Create(("Swift", false, FakeSdkInterfaces.Swift + """
+
+            public protocol Collection {
+              subscript(position: Swift.Int) -> Swift.Int { get }
+            }
+            """));
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Shelf", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Collection"));
+        AddExtensionMember(protocol, new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl> { Arg("_", "Swift.Int") },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s10TestModule5ShelfPAAEyS2icig",
+            ParentDecl = null,
+            ModuleDecl = moduleDecl,
+            IsFromExtension = true,
+            IsProtocolRequirement = false,
+        });
+        moduleDecl.Protocols.Add(protocol);
+
+        var skipped = Inject(moduleDecl, new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), typeDatabase,
+            new ModuleEmissionContext(), installStandardSdk: false);
+
+        Assert.Single(skipped, s => s.Kind == BindingItemKind.Subscript);
+    }
+
+    [Theory]
+    [InlineData("public func hash(seed: Swift.Int)")]                 // a method of a requirement's name, other labels
+    [InlineData("public func encode(into encoder: any Swift.Encoder)")]
+    public void OverloadOfAForeignRequirementsNameWithOtherLabels_IsReported(string signature)
+    {
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Hashable"));
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Codable"));
+        moduleDecl.Protocols.Add(protocol);
+        var name = signature["public func ".Length..signature.IndexOf('(')];
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed", CreateExtMethod(name, signature));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Single(skipped, s => s.Name == name);
+    }
+
+    [Fact]
+    public void MethodOfAForeignRequirementPropertysName_IsReported()
+    {
+        // `id` is a property requirement of Identifiable; a method `id()` supplies nothing.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Identifiable"));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed", CreateExtMethod("id", "public func id() -> Swift.Int"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Single(skipped, s => s.Name == "id");
+    }
+
+    [Fact]
+    public void UnextractedOverloadOfAForeignRequirementsName_IsReported()
+    {
+        // The ABI holds `accept(connection:)`, the requirement's default, and `accept(other:)`, which the
+        // reader did not extract; only the second is an addition with no C# home.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("KitchenConfiguration", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("ExtensionFoundation.AppExtensionConfiguration"));
+        AddExtensionMember(protocol, AbiExtensionMethod("accept", "$s10TestModule20KitchenConfigurationPAAE6accept10connectionSbSo15NSXPCConnectionC_tF",
+            new NamedTypeSpec("Swift.Bool"), Arg("connection", "Foundation.NSXPCConnection")));
+        AddExtensionMember(protocol, AbiExtensionMethod("accept", "$s10TestModule20KitchenConfigurationPAAE6accept5otherSbSi_tF",
+            new NamedTypeSpec("Swift.Bool"), Arg("other", "Swift.Int")));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.KitchenConfiguration",
+            CreateExtMethod("accept", "nonisolated public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped);
+        Assert.Contains("other", row.DeclId ?? string.Empty);
+    }
+
+    [Fact]
+    public void DefaultOfARequirementOfAProtocolAModuleReexportsPublicly_HasNoRow()
+    {
+        // Xcode 27.2 prints a re-export as `@_exported public import M`; the protocol is read from M.
+        using var sdk = FakeSdkInterfaces.Create(
+            ("Swift", false, FakeSdkInterfaces.Swift),
+            ("Umbrella", true, "@_exported public import ExtensionFoundation\nimport Swift"),
+            ("ExtensionFoundation", true, FakeSdkInterfaces.ExtensionFoundation));
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("KitchenConfiguration", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Umbrella.AppExtensionConfiguration"));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.KitchenConfiguration",
+            CreateExtMethod("accept", "nonisolated public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool"),
+            CreateExtMethod("describe", "public func describe() -> Swift.String"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext(), installStandardSdk: false);
+
+        var row = Assert.Single(skipped);
+        Assert.Equal("describe", row.Name);
+    }
+
+    [Fact]
+    public void SelectiveReexportOfAnotherName_IsNotFollowedForTheProtocol()
+    {
+        // `@_exported import protocol Decoy.Other` brings in `Other` alone; Decoy's own
+        // AppExtensionConfiguration (no requirements) must not stand in for the real one.
+        using var sdk = FakeSdkInterfaces.Create(
+            ("Swift", false, FakeSdkInterfaces.Swift),
+            ("Umbrella", true, "@_exported import protocol Decoy.Other\n@_exported public import ExtensionFoundation"),
+            ("Decoy", true, "public protocol Other {\n}\npublic protocol AppExtensionConfiguration {\n}"),
+            ("ExtensionFoundation", true, FakeSdkInterfaces.ExtensionFoundation));
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("KitchenConfiguration", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Umbrella.AppExtensionConfiguration"));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.KitchenConfiguration",
+            CreateExtMethod("accept", "nonisolated public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext(), installStandardSdk: false);
+
+        Assert.Empty(skipped);
+    }
+
+    [Theory]
+    [InlineData("take(_:Kit.OuterA.Token) -> ()", "take(_:Kit.OuterB.Token) -> ()", false)] // nested types of different parents
+    [InlineData("remove(_:OldKit.Marker) -> ()", "remove(_:NewKit.Marker) -> ()", true)]    // a type moved between modules
+    [InlineData("map(_:Swift.Array<OldKit.Outer.Item>) -> ()", "map(_:Swift.Array<NewKit.Outer.Item>) -> ()", true)]
+    public void SignatureKeysCompareWithoutTheirModules(string left, string right, bool equal)
+        => Assert.Equal(equal,
+            ProtocolExtensionEmitter.WithoutModuleQualifiers(left) == ProtocolExtensionEmitter.WithoutModuleQualifiers(right));
 
     [Fact]
     public void MemberOfAProtocolRefiningOnlyAMarkerProtocol_IsStillReported()

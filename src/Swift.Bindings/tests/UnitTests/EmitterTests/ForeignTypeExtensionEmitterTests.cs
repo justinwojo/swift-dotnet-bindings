@@ -357,6 +357,90 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     /// <summary>
+    /// A foreign protocol the parser kept for its extension members (<c>extension Combine.Cancellable</c>)
+    /// is not a receiver the cross-module path carries: that path binds classes and structs only. Its
+    /// members are reported here rather than left to a path that drops them without a row.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_MemberOfAKeptForeignProtocol_Reported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Combine.Cancellable"] = "Protocol";
+        moduleDecl.Types.Add(new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Combine.Cancellable"),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var method = CreateExtMethod("storeWhileEntityActive", "public func storeWhileEntityActive(_ entity: TestModule.Anchor)");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Combine.Cancellable"] = new() { method } }, ctx);
+
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal("storeWhileEntityActive", row.Name);
+        Assert.Equal("Combine.Cancellable", row.ContainingType);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Contains("protocol", row.Details);
+    }
+
+    /// <summary>
+    /// On a kept foreign protocol whose interface the run can read, a member supplying the default of
+    /// the protocol's own requirement (<c>cancel()</c>) is reached through that requirement and has no
+    /// row; an addition, and an overload with other labels, keep theirs.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_DefaultOfAKeptForeignProtocolsRequirement_HasNoRow()
+    {
+        using var sdk = FakeSdkInterfaces.Create(("Combine", true, """
+            public protocol Cancellable {
+              func cancel()
+            }
+            """));
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Combine.Cancellable"] = "Protocol";
+        moduleDecl.Types.Add(new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Combine.Cancellable"),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            AssociatedTypes = new List<AssociatedTypeDecl>(),
+            InheritedProtocols = new List<NamedTypeSpec>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var members = new List<ProtocolExtensionMethodDecl>
+        {
+            CreateExtMethod("cancel", "public func cancel()"),
+            CreateLabeledExtMethod("cancel", "cancel(after:)", "public func cancel(after delay: Swift.Int)"),
+            CreateExtMethod("storeWhileEntityActive", "public func storeWhileEntityActive(_ entity: TestModule.Anchor)"),
+        };
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Combine.Cancellable"] = members }, ctx);
+
+        Assert.Equal(2, report.SkippedItems.Count);
+        Assert.Single(report.SkippedItems, r => r.Name == "storeWhileEntityActive");
+        Assert.Single(report.SkippedItems, r => r.Name == "cancel");
+    }
+
+    /// <summary>
     /// A declined member of a class receiver the parser kept (an Objective-C-module Swift class) is left to
     /// the cross-module path, which may bind it from the ABI (a static method, say) and reports it only
     /// when it does not.
@@ -1571,6 +1655,13 @@ public class ForeignTypeExtensionEmitterTests
             PrintedName = $"{methodName}()",
             WhereConstraints = new List<string>()
         };
+    }
+
+    private static ProtocolExtensionMethodDecl CreateLabeledExtMethod(string methodName, string printedName, string rawSignature)
+    {
+        var method = CreateExtMethod(methodName, rawSignature);
+        method.PrintedName = printedName;
+        return method;
     }
 
     private static TypeDatabase CreateTypeDatabase(Action<ModuleTypeDatabase> seedTestModule = null)

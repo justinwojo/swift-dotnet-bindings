@@ -1262,6 +1262,7 @@ namespace BindingsGeneration
             moduleDecl.Types = decls.OfType<TypeDecl>().ToList();
             moduleDecl.Dependencies = dependencies;
             moduleDecl.Protocols = decls.OfType<ProtocolDecl>().ToList();
+            moduleDecl.Operators = decls.OfType<OperatorDecl>().ToList();
 
             foreach (var type in moduleDecl.Types)
             {

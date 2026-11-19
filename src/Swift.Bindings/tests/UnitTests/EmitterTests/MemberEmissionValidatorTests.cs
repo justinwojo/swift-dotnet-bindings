@@ -671,6 +671,90 @@ public class MemberEmissionValidatorTests
         Assert.Contains("Internal", skipDetails!);
     }
 
+    [Theory]
+    [InlineData(false, true)]   // public wrapped property: the projection is a public member, reported as unbound
+    [InlineData(true, false)]   // internal wrapped property: the projection is internal too
+    public void CanEmitProperty_PropertyWrapperProjection_NamesTheWrappedProperty(bool wrappedIsInternal, bool expectProjectionRow)
+    {
+        // `@Wrapper public var url` gives the type a public `$url` too, but the interface prints only
+        // `url`, so the parser marks `$url` internal. Reporting it as an internal member misstates a
+        // public declaration; the row must say it is the projection of a bound public property.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var host = new StructDecl
+        {
+            Name = "Host",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Host"),
+            MangledName = "$s10TestModule4HostV",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = false,
+            MetadataAccessor = "$s10TestModule4HostVMa",
+        };
+        PropertyDecl Property(string name, string original, bool isInternal) => new()
+        {
+            Name = name,
+            OriginalSwiftName = original,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            IsModuleInternal = isInternal,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = host,
+            ModuleDecl = moduleDecl,
+        };
+        host.Properties.Add(Property("url", null, wrappedIsInternal));
+        var projection = Property("projectedurl", "$url", isInternal: true);
+        host.Properties.Add(projection);
+
+        var result = MemberEmissionValidator.CanEmitProperty(projection, typeDatabase, out var skipDetails, out _);
+
+        if (expectProjectionRow)
+        {
+            Assert.Equal(SkipReason.UnsupportedSignature, result);
+            Assert.Contains("projection of the public property 'url'", skipDetails!);
+        }
+        else
+        {
+            Assert.Equal(SkipReason.ModuleInternal, result);
+        }
+    }
+
+    [Fact]
+    public void ReportCollector_PropertyWrapperProjectionRow_IsNamedAsSwiftSpellsIt()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var projection = new PropertyDecl
+        {
+            Name = "projectedurl",
+            OriginalSwiftName = "$url",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        ReportCollector.Start(moduleDecl);
+        try
+        {
+            ReportCollector.RecordMemberSkipped(projection, SkipReason.UnsupportedSignature, "projection");
+            var report = ReportCollector.Complete();
+            Assert.Contains(report!.SkippedItems, i => i.Name == "$url");
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+    }
+
     [Fact]
     public void CanEmitProperty_PublicProperty_NotGated()
     {

@@ -122,8 +122,15 @@ public sealed record CSharpVerificationResult(
     /// <see cref="CSharpVerificationOutcome.Inconclusive"/>; a build that produced no errors is
     /// <see cref="CSharpVerificationOutcome.Clean"/>.
     /// </summary>
+    /// <param name="diagnostics">The build's structured diagnostics.</param>
+    /// <param name="buildSucceeded">Whether the build exited zero.</param>
+    /// <param name="buildOutput">The build's console output, when there is one. Read only to name the
+    /// cause of an inconclusive failure: an error of another family (a build task's own code, such as a
+    /// <c>SWIFTBIND</c> target error) or a host failure that prints no diagnostic at all (a
+    /// <c>global.json</c> naming an SDK the host lacks). The reason travels into SWIFTBIND114 and the
+    /// failure report, so a verify build that cannot answer always says what stopped it.</param>
     public static CSharpVerificationResult FromDiagnostics(
-        IReadOnlyList<CSharpCompileDiagnostic> diagnostics, bool buildSucceeded)
+        IReadOnlyList<CSharpCompileDiagnostic> diagnostics, bool buildSucceeded, string? buildOutput = null)
     {
         var ordered = diagnostics.OrderBy(d => d.OrderKey).ToList();
         if (ordered.Any(d => d.IsCompilerError))
@@ -134,9 +141,43 @@ public sealed record CSharpVerificationResult(
 
         // Non-zero exit with no CS error: the compiler never rendered a verdict on the C#.
         var infra = ordered.Where(d => d.IsRestoreOrInfrastructure).ToList();
-        var reason = infra.Count > 0
-            ? $"build failed before the C# compile with {infra.Count} restore/infrastructure error(s) (first: {infra[0].Id})"
-            : "build failed with no C# source-level error reported";
+        var otherError = ordered.FirstOrDefault(d => d.Severity == CSharpDiagnosticSeverity.Error);
+        string reason;
+        if (infra.Count > 0)
+            reason = $"build failed before the C# compile with {infra.Count} restore/infrastructure error(s) " +
+                     $"(first: {infra[0].Id}: {Clip(infra[0].Message)})";
+        else if (otherError is not null)
+            reason = $"build failed with no C# source-level error reported (first build error: " +
+                     $"{otherError.Id}: {Clip(otherError.Message)})";
+        else if (FirstOutputLine(buildOutput) is { } line)
+            reason = $"build failed with no diagnostic reported (build output: {Clip(line)})";
+        else
+            reason = "build failed with no C# source-level error reported";
         return new CSharpVerificationResult(CSharpVerificationOutcome.Inconclusive, ordered, reason);
     }
+
+    // The line of a diagnostic-free failure that says what went wrong: the first error line, else
+    // the first other failure line ("could not", "not found"), neither of them a warning, else the
+    // first non-blank line.
+    private static readonly System.Text.RegularExpressions.Regex ErrorLine = new(
+        @"\berror\b(?!\(s\))", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex FailureLine = new(
+        @"could not|not found|cannot|failed", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static readonly System.Text.RegularExpressions.Regex WarningLine = new(
+        @"\bwarning(?:\s+[A-Za-z]+\d+)?\s*:", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    private static string? FirstOutputLine(string? output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return null;
+        var lines = output.Split('\n').Select(l => l.Trim()).Where(l => l.Length > 0).ToList();
+        return lines.FirstOrDefault(l => ErrorLine.IsMatch(l) && !WarningLine.IsMatch(l))
+            ?? lines.FirstOrDefault(l => FailureLine.IsMatch(l) && !WarningLine.IsMatch(l))
+            ?? lines[0];
+    }
+
+    private static string Clip(string text)
+        => text.Length <= 240 ? text : text[..240] + "…";
 }

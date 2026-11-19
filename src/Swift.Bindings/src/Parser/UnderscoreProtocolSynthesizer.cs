@@ -395,7 +395,16 @@ internal static class UnderscoreProtocolSynthesizer
     /// declaration is not present or its braces are unbalanced.
     /// </summary>
     private static bool TryExtractProtocolBlock(string source, string protocolName, out string header, out string body)
+        => TryExtractProtocolBlock(source, protocolName, out header, out body, out _);
+
+    /// <summary>
+    /// The header (through the opening brace) and body of the first <c>public protocol</c>
+    /// <paramref name="protocolName"/> in <paramref name="source"/>, and the index just past the body,
+    /// where a search for a later declaration of the same name resumes.
+    /// </summary>
+    internal static bool TryExtractProtocolBlock(string source, string protocolName, out string header, out string body, out int end)
     {
+        end = 0;
         header = string.Empty;
         body = string.Empty;
 
@@ -460,6 +469,7 @@ internal static class UnderscoreProtocolSynthesizer
             return false;
 
         body = source.Substring(bodyStart, i - bodyStart);
+        end = i;
         return true;
     }
 

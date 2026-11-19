@@ -2568,6 +2568,33 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_SingleCaseEnumNestedInGenericType_RecordsATypeSkipRow()
+    {
+        // `Box<Value>.Unit { case only }`: generic through its parent, so it never takes the C#
+        // enum projection, and with one payload-free case it has zero runtime size. The refusal
+        // used to run after the enum was recorded as emitted, which drops a type-skip row, so the
+        // enum vanished with no row. It must be reported, naming the generic ancestor.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var box = CreateEnumDecl("Box", moduleDecl, isFrozen: true);
+        box.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Value", new(), new()));
+        var unit = CreateEnumDecl("Unit", moduleDecl, isFrozen: true);
+        unit.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Box.Unit");
+        unit.ParentDecl = box;
+        unit.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Value", new(), new()));
+        unit.Cases.Add(CreateCase("only"));
+        box.Types.Add(unit);
+
+        var (csOutput, _, report) = EmitReported(unit, typeDatabase);
+
+        Assert.DoesNotContain("class Unit", csOutput);
+        var row = Assert.Single(report!.SkippedItems, i => i.Name.EndsWith("Unit", StringComparison.Ordinal));
+        Assert.Equal(SkipReason.UnsupportedType, row.Reason);
+        Assert.Contains("zero runtime size", row.Details);
+        Assert.Contains("TestModule.Box", row.Details);
+    }
+
+    [Fact]
     public void Emit_NamespaceEnum_DoesNotEmitForNonZeroCaseEnum()
     {
         var typeDatabase = CreateTypeDatabase();
