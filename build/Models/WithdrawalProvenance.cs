@@ -36,7 +36,67 @@ public sealed record WithdrawalProvenance(string SourceAndDirtyHash, string Gene
     }
 }
 
-public sealed record WithdrawalToolchain(string Platform, string Architecture, string TargetTriple, string Sdk);
+/// <summary>
+/// The toolchain a withdrawal policy is exact for. <see cref="Sdk"/> is
+/// <see cref="WithdrawalToolchainIdentity.Compose"/>'s identity, never an install path: the same Xcode
+/// installed at another path produces the same output and the same key.
+/// </summary>
+public sealed record WithdrawalToolchain(string Platform, string Architecture, string TargetTriple, string Sdk)
+{
+    /// <summary>The exact policy key of <paramref name="target"/> generated on this toolchain.</summary>
+    public string PolicyProfile(string target) => target + "/" + Platform + "/" + Architecture + "/" + TargetTriple + "/" + Sdk;
+}
+
+/// <summary>
+/// Names what decides a generation's output: the SDK the interfaces and the wrapper compile read
+/// (name, version and build), the Swift compiler that verifies and compiles the wrapper, and the
+/// Xcode build that ships both with its linker. Where Xcode is installed changes none of them, so the
+/// identity holds no path; two installs of one Xcode build share one identity, and a different SDK
+/// build, compiler or Xcode build is a different identity.
+/// </summary>
+public static class WithdrawalToolchainIdentity
+{
+    static readonly System.Text.RegularExpressions.Regex SwiftLang =
+        new(@"\((swiftlang-[0-9][0-9.]* clang-[0-9][0-9.]*)\)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+    static readonly System.Text.RegularExpressions.Regex XcodeBuild =
+        new(@"^Build version ([0-9]+[A-Za-z][0-9]+[a-z]?)$", System.Text.RegularExpressions.RegexOptions.CultureInvariant |
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+    static readonly System.Text.RegularExpressions.Regex Token =
+        new(@"^[A-Za-z0-9.]+$", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <param name="sdkName">The canonical SDK name passed to <c>xcrun --sdk</c> (e.g. <c>iphonesimulator</c>).</param>
+    /// <param name="sdkVersion"><c>xcrun --sdk … --show-sdk-version</c>.</param>
+    /// <param name="sdkBuild"><c>xcrun --sdk … --show-sdk-build-version</c>.</param>
+    /// <param name="xcodebuildVersion"><c>xcodebuild -version</c>'s output.</param>
+    /// <param name="swiftcVersion"><c>xcrun swiftc --version</c>'s output.</param>
+    public static string Compose(string sdkName, string sdkVersion, string sdkBuild, string xcodebuildVersion, string swiftcVersion)
+    {
+        foreach (var (label, value) in new[] { ("SDK name", sdkName), ("SDK version", sdkVersion), ("SDK build", sdkBuild) })
+            if (string.IsNullOrWhiteSpace(value) || !Token.IsMatch(value.Trim()))
+                throw new InvalidDataException($"Unreadable withdrawal toolchain {label}: '{value}'");
+        var xcode = XcodeBuild.Match(xcodebuildVersion ?? "");
+        if (!xcode.Success)
+            throw new InvalidDataException($"Unreadable Xcode build version: '{xcodebuildVersion}'");
+        var swift = SwiftLang.Match(swiftcVersion ?? "");
+        if (!swift.Success)
+            throw new InvalidDataException($"Unreadable Swift compiler version: '{swiftcVersion}'");
+        return $"{sdkName.Trim()}{sdkVersion.Trim()}({sdkBuild.Trim()})+Xcode({xcode.Groups[1].Value})+{swift.Groups[1].Value.Replace(' ', '+')}";
+    }
+
+    /// <summary>
+    /// True when <paramref name="profile"/> (target/platform/arch/triple/toolchain) keys its toolchain
+    /// by identity rather than by install path. A target name may carry <c>@platform</c>; the
+    /// toolchain segment carries no path, no bundle or SDK directory and no <c>@version</c>.
+    /// </summary>
+    public static bool IsPathFree(string profile)
+    {
+        var segments = profile.Split('/');
+        var toolchain = segments[^1];
+        return segments.Length == 5 && segments.All(segment => segment.Length > 0) &&
+            !toolchain.Contains(".app", StringComparison.Ordinal) && !toolchain.Contains(".sdk", StringComparison.Ordinal) &&
+            !toolchain.Contains('@');
+    }
+}
 
 public static class WithdrawalEvidenceArchive
 {

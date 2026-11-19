@@ -43,9 +43,13 @@ partial class Build
 
     WithdrawalToolchain CaptureWithdrawalToolchain(ApplePlatform platform)
     {
-        var sdk = RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-path");
-        var sdkVersion = RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-version");
-        return new(platform.Name, platform.SimulatorTarget.Split('-')[0], platform.SimulatorTarget, sdk + "@" + sdkVersion);
+        // Keyed on what the toolchain is, not where it is installed (WithdrawalToolchainIdentity).
+        var sdk = WithdrawalToolchainIdentity.Compose(platform.SimulatorSdkName,
+            RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-version"),
+            RunAppleCapture("xcrun", $"--sdk {platform.SimulatorSdkName} --show-sdk-build-version"),
+            RunAppleCapture("xcodebuild", "-version"),
+            RunAppleCapture("xcrun", "swiftc --version"));
+        return new(platform.Name, platform.SimulatorTarget.Split('-')[0], platform.SimulatorTarget, sdk);
     }
 
     void ArchivePriorWithdrawalEvidence(AbsolutePath outputBase, ValidationTarget target)
@@ -635,7 +639,7 @@ partial class Build
                     var evidence = WithdrawalGate.Read(reportPath,
                         target.FrameworkModule ?? target.Name, expectedPlanes, WithdrawalGate.ParseIdentity);
                     prevBaseline.Gate.Libraries.TryGetValue(target.Name, out var accepted);
-                    var profile = target.Name + "/" + target.Platform + "/" + provenance.Architecture + "/" + provenance.TargetTriple + "/" + provenance.Sdk;
+                    var profile = finalToolchains[target.Platform].PolicyProfile(target.Name);
                     if (accepted?.WithdrawalPolicy == null && accepted?.WithdrawalPolicyAlternatives == null)
                     {
                         WithdrawalGate.RequireZero(evidence);
