@@ -66,8 +66,8 @@ public static class WrapperProbeArchitectures
 
     /// <summary>
     /// Compiles every architecture of <paramref name="architectures"/> (the first is the loop's own
-    /// compile) and folds the outcomes. An extra architecture that throws before swiftc ran is logged and
-    /// left to the post-loop compile, which reports it with the build's own diagnostic.
+    /// compile) and folds the outcomes. An extra architecture that throws, or fails without a compiler error,
+    /// is logged and left to the post-loop compile, which reports it with the build's own diagnostic.
     /// </summary>
     public static WrapperCompileDiagnostics Probe(
         IReadOnlyList<string> architectures,
@@ -80,16 +80,30 @@ public static class WrapperProbeArchitectures
         };
         foreach (var architecture in architectures.Skip(1))
         {
+            WrapperCompileDiagnostics outcome;
             try
             {
-                outcomes.Add((architecture, compileArchitecture(architecture)));
+                outcome = compileArchitecture(architecture);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogWarning(
                     "The wrapper probe could not compile the {Architecture} slice ({Message}); the wrapper compile reports it.",
                     architecture, ex.Message);
+                continue;
             }
+            // A failure with no compiler error (a timeout, a missing tool, an unreadable slice) names no
+            // member to withdraw. It is the extra architecture's build failing, which the wrapper compile
+            // already handles as best effort, so it must not fail the round the primary passed.
+            if (!outcome.AllSlicesClean
+                && !outcome.Diagnostics.Any(g => g.Primary.Severity == Diagnostics.DiagnosticSeverity.Error))
+            {
+                logger.LogWarning(
+                    "The wrapper probe's {Architecture} compile failed without a compiler error; the wrapper compile reports it.",
+                    architecture);
+                continue;
+            }
+            outcomes.Add((architecture, outcome));
         }
         return Fold(outcomes);
     }

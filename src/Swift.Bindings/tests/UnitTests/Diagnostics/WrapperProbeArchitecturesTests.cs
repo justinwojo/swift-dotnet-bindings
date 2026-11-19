@@ -149,6 +149,38 @@ public class WrapperProbeArchitecturesTests
     }
 
     [Fact]
+    public void Probe_AnExtraFailureWithoutACompilerError_IsLeftToTheWrapperCompile()
+    {
+        // A swiftc timeout on the extra architecture: recorded as a failed slice with no diagnostic.
+        // It names no member, so it must not fail the round the primary passed.
+        var outcome = WrapperProbeArchitectures.Probe(
+            ["arm64", "x86_64"],
+            architecture => architecture == "arm64"
+                ? Clean("sim", Provenance("A.swift", "/out/A.swift"))
+                : WrapperCompileDiagnostics.Failed(
+                    [new WrapperSliceDiagnostics("sim", false, [])], [Provenance("A.swift", "/scratch/A.swift")]),
+            NullLogger.Instance);
+
+        Assert.True(outcome.AllSlicesClean);
+        Assert.Equal(["sim"], outcome.Slices.Select(s => s.SliceId));
+    }
+
+    [Fact]
+    public void Probe_AnExtraFailureWithACompilerError_FailsTheRound()
+    {
+        var x64Error = Error("A.swift", 4, "cannot find 'onlyOnArm' in scope");
+        var outcome = WrapperProbeArchitectures.Probe(
+            ["arm64", "x86_64"],
+            architecture => architecture == "arm64"
+                ? Clean("sim", Provenance("A.swift", "/out/A.swift"))
+                : Failed("sim", x64Error, Provenance("A.swift", "/scratch/A.swift")),
+            NullLogger.Instance);
+
+        Assert.False(outcome.AllSlicesClean);
+        Assert.Equal([x64Error], outcome.Diagnostics);
+    }
+
+    [Fact]
     public void Probe_APrimaryCompileThatThrows_Propagates()
     {
         Assert.Throws<InvalidOperationException>(() => WrapperProbeArchitectures.Probe(

@@ -21,13 +21,15 @@ using System.Linq;
 /// Two targets then write the same <c>obj</c> dll at once (CS2012, "being used by another process").
 ///
 /// The fix has two halves. The orchestrator builds the shared projects once, before the fan-out. Each
-/// target's project tree then imports <see cref="ConsumerPropsContent"/> (a <c>Directory.Build.props</c>
-/// at the root of the validate output), which makes the shared projects read-only inputs of that build:
-/// <c>BuildProjectReferences=false</c> resolves each reference through <c>GetTargetPath</c> to the
-/// prebuilt output instead of building it, and <c>RestoreRecursive=false</c> restores only the
-/// generated project, not the referenced ones. <see cref="Snapshot"/> and <see cref="Diff"/> are the
-/// tripwire that proves it: any file under a shared project's <c>bin</c> or <c>obj</c> that changes
-/// between the prebuild and the end of the fan-out fails the run.
+/// target's project tree then imports <see cref="ConsumerPropsContent"/> and
+/// <see cref="ConsumerTargetsContent"/> (a <c>Directory.Build.props</c> and <c>Directory.Build.targets</c> at
+/// the root of the validate output), which make the shared projects read-only inputs of that build and
+/// nothing else: a reference to a shared project resolves through <c>GetTargetPath</c> to the prebuilt
+/// output instead of building it, and restore covers the generated project and its own references (a
+/// mixed binding's ObjC companion, which lives in the target's output and is that target's alone) but
+/// not the shared ones. <see cref="Snapshot"/> and <see cref="Diff"/> are the tripwire that proves it: any
+/// file under a shared project's <c>bin</c> or <c>obj</c> that changes between the prebuild and the end
+/// of the fan-out fails the run.
 /// </summary>
 public static class SharedBuildProducts
 {
@@ -41,26 +43,63 @@ public static class SharedBuildProducts
     ];
 
     /// <summary>
-    /// <c>Directory.Build.props</c> for the root of a parallel validate's output tree. MSBuild imports
-    /// the nearest one above each generated project, so every per-target build (the generator's
-    /// verification build and the compile gate's) consumes the prebuilt shared projects without
-    /// restoring or building them.
+    /// <c>Directory.Build.props</c> for the root of a parallel validate's output tree: restore covers only
+    /// the projects a build names, never the shared projects behind them. MSBuild imports the nearest one
+    /// above each generated project, so it reaches every per-target build (the generator's verification
+    /// build and the compile gate's).
     /// </summary>
     public const string ConsumerPropsContent =
         """
         <Project>
           <!-- Written by nuke validate. The shared in-tree projects (Swift.Runtime, SwiftBindings.Apple,
-               Swift.Analyzers, SwiftBindings.Tasks) are built once before the parallel fan-out. Every
-               generated binding below consumes their prebuilt outputs: references resolve through
-               GetTargetPath instead of building, and restore leaves the referenced projects alone, so no
-               two targets ever write the same shared build product. -->
+               Swift.Analyzers, SwiftBindings.Tasks) are restored and built once before the parallel
+               fan-out. Restore below this directory covers only the projects a build names (see the
+               Directory.Build.targets beside this file), so no two targets rewrite a shared project's
+               restore outputs. -->
           <PropertyGroup>
-            <BuildProjectReferences>false</BuildProjectReferences>
             <RestoreRecursive>false</RestoreRecursive>
           </PropertyGroup>
         </Project>
 
         """;
+
+    /// <summary>
+    /// <c>Directory.Build.targets</c> for the same root. A reference to one of
+    /// <paramref name="sharedProjectDirectories"/> (full paths) resolves through <c>GetTargetPath</c>, so
+    /// the build reads the prebuilt output without building it; every other reference builds as usual,
+    /// and is added to the referencing project's restore, which the props otherwise keep to the project
+    /// itself.
+    /// </summary>
+    public static string ConsumerTargetsContent(IEnumerable<string> sharedProjectDirectories)
+    {
+        var isShared = string.Join(" or ", sharedProjectDirectories.Select(directory =>
+            $"'%(RootDir)%(Directory)' == '{EscapeForCondition(Path.TrimEndingDirectorySeparator(Path.GetFullPath(directory)) + "/")}'"));
+        return $"""
+            <Project>
+              <!-- Written by nuke validate: see the Directory.Build.props beside this file. -->
+              <Target Name="_ValidateConsumePrebuiltSharedProjects" BeforeTargets="ResolveProjectReferences">
+                <ItemGroup>
+                  <_MSBuildProjectReferenceExistent Condition="{isShared}">
+                    <Targets>GetTargetPath</Targets>
+                  </_MSBuildProjectReferenceExistent>
+                </ItemGroup>
+              </Target>
+              <Target Name="_ValidateRestoreOwnReferences" AfterTargets="_FilterRestoreGraphProjectInputItems">
+                <ItemGroup>
+                  <_ValidateOwnReference Include="@(ProjectReference->'%(FullPath)')" />
+                  <_ValidateOwnReference Remove="@(_ValidateOwnReference)" Condition="{isShared}" />
+                  <FilteredRestoreGraphProjectInputItems Include="@(_ValidateOwnReference)" />
+                </ItemGroup>
+              </Target>
+            </Project>
+
+            """;
+    }
+
+    // MSBuild unescapes %XX in conditions, so a path character the condition or the XML would read
+    // (a quote, a percent sign, a property or item sigil, an ampersand or angle bracket) goes in escaped.
+    private static string EscapeForCondition(string value) =>
+        string.Concat(value.Select(c => "%$@'();?*&<>\"".Contains(c) ? $"%{(int)c:X2}" : c.ToString()));
 
     /// <summary>One file's identity for the tripwire: size and last write time.</summary>
     public readonly record struct FileStamp(long Length, long LastWriteUtcTicks);

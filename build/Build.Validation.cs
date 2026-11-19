@@ -1923,8 +1923,8 @@ partial class Build
 
     /// <summary>
     /// Builds the shared in-tree projects every generated binding references (see
-    /// <see cref="SharedBuildProducts"/>), writes the consumer props that make the per-target builds
-    /// read them without restoring or building them, and snapshots their outputs. Runs on every
+    /// <see cref="SharedBuildProducts"/>), writes the consumer props and targets that make the per-target
+    /// builds read them without restoring or building them, and snapshots their outputs. Runs on every
     /// validate, not only when the generator changed: the generator stamp does not cover
     /// Swift.Analyzers or SwiftBindings.Tasks, and an incremental build of current projects is cheap.
     /// </summary>
@@ -1951,6 +1951,8 @@ partial class Build
         }
         Directory.CreateDirectory(outputBase);
         File.WriteAllText(outputBase / "Directory.Build.props", SharedBuildProducts.ConsumerPropsContent);
+        File.WriteAllText(outputBase / "Directory.Build.targets",
+            SharedBuildProducts.ConsumerTargetsContent(SharedBuildProductDirectories));
         var snapshot = SharedBuildProducts.Snapshot(SharedBuildProductDirectories);
         Log.Information("Shared build products: built once for the fan-out ({Count} files under {Projects} projects)",
             snapshot.Count, SharedBuildProducts.ProjectDirectories.Count);

@@ -12,20 +12,89 @@ namespace BindingsGeneration.Tests;
 
 /// <summary>
 /// The parallel validate's shared build products (<see cref="SharedBuildProducts"/>): the consumer props
-/// that keep each per-target build from restoring or building the in-tree runtime and supplement, the
-/// project list the tripwire watches, and the tripwire's diff.
+/// and targets that keep each per-target build from restoring or building the in-tree runtime and
+/// supplement while still building the target's own references, the project list the tripwire watches,
+/// and the tripwire's diff.
 /// </summary>
 public class SharedBuildProductsTests
 {
     [Fact]
-    public void ConsumerProps_ResolveReferencesWithoutBuildingOrRestoringThem()
+    public void ConsumerProps_KeepRestoreToTheProjectsABuildNames()
     {
         var properties = XDocument.Parse(SharedBuildProducts.ConsumerPropsContent).Root!
             .Elements("PropertyGroup").Elements()
             .ToDictionary(e => e.Name.LocalName, e => e.Value);
 
-        Assert.Equal("false", properties["BuildProjectReferences"]);
         Assert.Equal("false", properties["RestoreRecursive"]);
+        Assert.False(properties.ContainsKey("BuildProjectReferences"));
+    }
+
+    [Fact]
+    public void ConsumerTargets_ReadTheSharedProjectPrebuilt_AndBuildTheTargetsOwnReference()
+    {
+        // The shape of a mixed binding under validate: the generated project references a shared
+        // project (the runtime, prebuilt once) and its own ObjC companion, which only that target's
+        // build produces. Built the way the generator's verification build runs it (different global
+        // properties from the prebuild), the companion must restore and build, and the shared project's
+        // bin and obj must not change.
+        var root = Path.Combine(Path.GetTempPath(), "shared-products-msbuild-" + Guid.NewGuid().ToString("N"));
+        try
+        {
+            var shared = Path.Combine(root, "repo", "Shared");
+            var target = Path.Combine(root, "out", "Target");
+            WriteLibrary(shared, "Shared", "public static class SharedApi { public static int Value => 1; }");
+            WriteLibrary(Path.Combine(target, "Companion"), "Companion",
+                "public static class CompanionApi { public static int Value => 2; }");
+            WriteLibrary(target, "Binding",
+                "public static class BindingApi { public static int Sum => SharedApi.Value + CompanionApi.Value; }",
+                "../../repo/Shared/Shared.csproj", "Companion/Companion.csproj");
+
+            var prebuild = RunDotnet($"build \"{Path.Combine(shared, "Shared.csproj")}\" -nologo");
+            Assert.True(prebuild.ExitCode == 0, prebuild.Output);
+            File.WriteAllText(Path.Combine(root, "out", "Directory.Build.props"), SharedBuildProducts.ConsumerPropsContent);
+            File.WriteAllText(Path.Combine(root, "out", "Directory.Build.targets"),
+                SharedBuildProducts.ConsumerTargetsContent(new[] { shared }));
+            var before = SharedBuildProducts.Snapshot(new[] { shared });
+
+            var build = RunDotnet($"build \"{Path.Combine(target, "Binding.csproj")}\" -p:TreatWarningsAsErrors=false -nologo");
+
+            Assert.True(build.ExitCode == 0, build.Output);
+            Assert.True(File.Exists(Path.Combine(target, "bin", "Debug", "net10.0", "Binding.dll")), build.Output);
+            Assert.Empty(SharedBuildProducts.Diff(before, SharedBuildProducts.Snapshot(new[] { shared })));
+        }
+        finally
+        {
+            if (Directory.Exists(root))
+                Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static void WriteLibrary(string directory, string name, string source, params string[] references)
+    {
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, name + ".cs"), source);
+        var referenceItems = string.Concat(references.Select(r => $"<ProjectReference Include=\"{r}\" />"));
+        File.WriteAllText(Path.Combine(directory, name + ".csproj"),
+            "<Project Sdk=\"Microsoft.NET.Sdk\"><PropertyGroup><TargetFramework>net10.0</TargetFramework>" +
+            $"<EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup><ItemGroup><Compile Include=\"{name}.cs\" />" +
+            $"{referenceItems}</ItemGroup></Project>");
+    }
+
+    private static (int ExitCode, string Output) RunDotnet(string arguments)
+    {
+        var start = new System.Diagnostics.ProcessStartInfo("dotnet", arguments)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        };
+        // A build inside the test host must not join the host's build server or node reuse.
+        start.Environment["MSBUILDDISABLENODEREUSE"] = "1";
+        start.Environment["DOTNET_CLI_USE_MSBUILD_SERVER"] = "0";
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEndAsync();
+        process.WaitForExit();
+        return (process.ExitCode, stdout.Result + stderr.Result);
     }
 
     [Fact]
