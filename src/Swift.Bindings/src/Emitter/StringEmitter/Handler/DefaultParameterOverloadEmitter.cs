@@ -1389,9 +1389,10 @@ public static class DefaultParameterOverloadEmitter
     /// specialized source was built from — is never its own rival.
     ///
     /// <para>Methods compare full projected signatures, so a sibling that only shares the arity does
-    /// not cost the overload. Constructors keep the arity rule: a trimmed initializer can emit under a
-    /// factory name that a sibling's projected key does not carry, so its real C# name cannot be
-    /// rebuilt here.</para>
+    /// not cost the overload. Constructors compare a sibling of equal arity by parameter types alone:
+    /// a trimmed initializer can emit under a factory name that a sibling's projected key does not
+    /// carry, so its real C# name cannot be rebuilt here, and treating the names as equal is the
+    /// conservative reading.</para>
     /// </summary>
     private static bool TryFindSignatureCollision(
         MethodDecl sourceDecl,
@@ -1428,8 +1429,23 @@ public static class DefaultParameterOverloadEmitter
             {
                 if (sibling.CSSignature.Count - 1 != overloadParamCount)
                     continue;
-                collidingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
-                return true;
+                // The C# name of either side cannot be rebuilt here (an initializer may emit as a
+                // constructor or under a factory name), so compare the parameter types as though
+                // both took the same name. A sibling of equal arity costs the candidate unless a
+                // parameter position provably separates the two (no argument converts to both);
+                // implicit conversions can tie any other pair (`(int, long)` against `(long, int)`).
+                var ctorSiblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
+                var siblingShape = OverloadAmbiguityGuard.ParseKey(
+                    ctorSiblingKey, OverloadAmbiguityGuard.RequiredCountFor(sibling, env.TypeDatabase, ctorSiblingKey));
+                var candidateUnnamed = candidateShape with { Name = string.Empty };
+                var siblingUnnamed = siblingShape with { Name = string.Empty };
+                if (!OverloadAmbiguityGuard.AreSeparated(candidateUnnamed.ParameterTypes, siblingUnnamed.ParameterTypes)
+                    || OverloadAmbiguityGuard.AreAmbiguous(candidateUnnamed, siblingUnnamed))
+                {
+                    collidingKey = ctorSiblingKey;
+                    return true;
+                }
+                continue;
             }
 
             // A module-internal sibling declares no C# member.

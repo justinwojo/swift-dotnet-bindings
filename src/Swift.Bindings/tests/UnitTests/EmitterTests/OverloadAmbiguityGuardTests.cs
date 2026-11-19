@@ -240,4 +240,36 @@ public class OverloadAmbiguityGuardTests
     }
 
     #endregion
+
+    #region AreSeparated
+
+    [Theory]
+    // A position whose two types admit no common argument tells every full call apart.
+    [InlineData("global::Foundation.NSUrl,string?", "byte[],global::Kit.Config", true)]
+    [InlineData("string,nint", "nint,nint", true)]
+    [InlineData("bool", "int", true)]
+    [InlineData("int[]", "bool[]", true)]
+    [InlineData("string", "global::Kit.Config", true)]
+    // Numeric types share arguments through implicit conversions and constants, so any mix ties:
+    // (int, long) against (long, int) is ambiguous for two int arguments, and the guard does not
+    // try to rank the rest.
+    [InlineData("int,long", "long,int", false)]
+    [InlineData("int,nint", "nint,nint", false)]
+    [InlineData("int", "uint", false)]
+    // Named types may be related (a base and its derived class), interfaces, enums or carry
+    // conversions, so they never separate a pair on their own.
+    [InlineData("global::Kit.Derived,global::Kit.Base", "global::Kit.Base,global::Kit.Derived", false)]
+    [InlineData("int", "global::Kit.Mode", false)]
+    [InlineData("byte[]", "global::System.Collections.Generic.IReadOnlyList<byte>", false)]
+    [InlineData("string", "global::Kit.IThing", false)]
+    [InlineData("string", "object", false)]
+    [InlineData("string", "global::Foundation.NSString", false)]
+    [InlineData("string,int", "string,int,int", false)]
+    public void AreSeparated_OnlyWhenSomePositionAdmitsNoCommonArgument(string a, string b, bool expected)
+    {
+        Assert.Equal(expected, OverloadAmbiguityGuard.AreSeparated(a.Split(','), b.Split(',')));
+        Assert.Equal(expected, OverloadAmbiguityGuard.AreSeparated(b.Split(','), a.Split(',')));
+    }
+
+    #endregion
 }

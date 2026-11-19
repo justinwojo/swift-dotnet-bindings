@@ -591,8 +591,10 @@ partial class Build
     // The iOS/tvOS simulator wrapper slices are universal (arm64 + x86_64): the
     // Apple-framework-direct pack folds an x86_64 simulator arch in so Intel /
     // Rosetta sim consumers (iossimulator-x64, tvossimulator-x64) resolve the
-    // wrapper. xcodebuild names a slice dir by the arch set it carries, so the
-    // simulator slice ids are the fat `{platform}-arm64_x86_64-simulator` form,
+    // wrapper. A slice dir is named by the arch set it carries (by xcodebuild when
+    // the SDK assembles the wrapper, by the generator in the same form when a
+    // lowering-receipt run compiles every slice itself), so the simulator slice
+    // ids are the fat `{platform}-arm64_x86_64-simulator` form the Apple packages ship,
     // matching ExpectedSourceXcframeworkLayout below. Device slices stay arm64-
     // only (no x86_64 device target); macOS / Mac Catalyst wrapper slices remain
     // arm64-only in the Apple-direct path.

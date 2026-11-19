@@ -545,6 +545,63 @@ public class UnderscoreProtocolSynthesizerTests
     }
 
     [Fact]
+    public void Synthesize_ModuleSelectorSpelling_ReadsLikeTheDottedSpelling()
+    {
+        // Swift 6.4 (Xcode 27) prints every qualified name in an interface with module
+        // selectors, on each component of a nested name too. The same shapes the dotted tests
+        // above cover, spelled as the Xcode 27.2 AppIntents interface spells them: the
+        // protocol's bounds, a local conformer, a nested local conformer, a foreign conformer
+        // listed after a `@retroactive` conformance, and a conditional conformance.
+        var module = CreateEmptyModule("AppIntents");
+        var entityIdentifier = AddStruct(module, "EntityIdentifier", isFrozen: false);
+        var outer = AddClass(module, "Outer");
+        var inner = AddNestedClass(outer, module, "Inner");
+        var box = AddStruct(module, "Box", isFrozen: false);
+        var moduleTypes = new Dictionary<NamedTypeSpec, TypeDecl>();
+        var typeDatabase = new TypeDatabase();
+        var path = WriteInterface(
+            """
+            @_alwaysEmitConformanceMetadata public protocol _IntentValue : Swift::Sendable {
+              associatedtype ValueType : AppIntents::_IntentValue = Self
+              associatedtype Specification : AppIntents::ResolverSpecification
+              static var defaultResolverSpecification: Self.Specification { get }
+            }
+            @available(iOS 16.0, *)
+            extension AppIntents::EntityIdentifier : AppIntents::_IntentValue {
+              public typealias Specification = AppIntents::EmptyResolverSpecification<AppIntents::EntityIdentifier>
+            }
+            extension AppIntents::Outer.AppIntents::Inner : AppIntents::_IntentValue {}
+            extension Swift::Duration : @retroactive Foundation::CustomLocalizedStringResourceConvertible, AppIntents::_IntentValue {}
+            extension AppIntents::Box : AppIntents::_IntentValue where Element : AppIntents::_IntentValue {}
+            """);
+
+        try
+        {
+            UnderscoreProtocolSynthesizer.Synthesize(
+                "AppIntents", path, module, moduleTypes, typeDatabase, NullLogger.Instance);
+
+            var decl = Assert.Single(module.Protocols);
+            Assert.Equal(
+                new[] { "Swift.Sendable" },
+                decl.InheritedProtocols.OfType<NamedTypeSpec>().Select(n => n.Name).ToArray());
+            var specification = Assert.Single(decl.AssociatedTypes, a => a.Name == "Specification");
+            Assert.Contains("AppIntents.ResolverSpecification", specification.Constraints);
+
+            Assert.Contains(entityIdentifier.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            Assert.Contains(inner.Conformances, c => c.Protocol.ModuleQualifiedName == "AppIntents._IntentValue");
+            Assert.Empty(outer.Conformances);
+            Assert.Empty(box.Conformances);
+            var protocolName = SwiftTypeName.FromModuleQualifiedName("AppIntents._IntentValue");
+            Assert.True(typeDatabase.HasStrippedConformance(
+                SwiftTypeName.FromModuleQualifiedName("Swift.Duration"), protocolName));
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
     public void Synthesize_StrippedConformanceIsIdempotent()
     {
         // A conformer that appears under a multi-protocol extension list must not gain a
