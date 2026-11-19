@@ -192,8 +192,8 @@ public static class DeclIdFactory
         var signature = member.IsProperty ? null : member.RawSignature;
         if (!includeConstraints)
             return signature;
-        // Report equality ignores the discriminator, so a static property and an instance property of
-        // one name keep separate rows only through the symbol.
+        // A static property's symbol says so, as it did before report equality read the discriminator;
+        // kept so these ids stay stable.
         if (member.IsProperty && member.IsStatic)
             signature = "static";
         if (member.WhereConstraints.Count == 0)

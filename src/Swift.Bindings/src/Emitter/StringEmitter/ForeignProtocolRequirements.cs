@@ -58,7 +58,25 @@ internal static class ForeignProtocolRequirements
         private readonly HashSet<string> _keys = new(StringComparer.Ordinal);
         private readonly Dictionary<string, HashSet<string>> _typedOperators = new(StringComparer.Ordinal);
 
+        // The types of the method requirements under each key; null once one declaration under the key
+        // shows no concrete types, which leaves its labels to decide.
+        private readonly Dictionary<string, HashSet<string>?> _typedMethods = new(StringComparer.Ordinal);
+
         internal void Add(string key) => _keys.Add(key);
+
+        /// <summary>
+        /// Adds the types of a method requirement (<see cref="MethodTypesKey"/>) under its key, or records
+        /// that its types are not known (null), so that its labels decide.
+        /// </summary>
+        internal void AddTypedMethod(string key, string? typedKey)
+        {
+            if (typedKey is null)
+                _typedMethods[key] = null;
+            else if (!_typedMethods.TryGetValue(key, out var typed))
+                _typedMethods[key] = new HashSet<string>(StringComparer.Ordinal) { typedKey };
+            else
+                typed?.Add(typedKey);
+        }
 
         /// <summary>Adds an operator requirement's typed key (<see cref="OperatorKey"/>) under its spelling key.</summary>
         internal void AddTypedOperator(string key, string typedKey)
@@ -74,7 +92,50 @@ internal static class ForeignProtocolRequirements
             foreach (var (key, typed) in other._typedOperators)
                 foreach (var typedKey in typed)
                     AddTypedOperator(key, typedKey);
+            foreach (var (key, typed) in other._typedMethods)
+            {
+                if (typed is null)
+                    AddTypedMethod(key, null);
+                else
+                    foreach (var typedKey in typed)
+                        AddTypedMethod(key, typedKey);
+            }
         }
+
+        /// <summary>
+        /// Whether a method or initializer requirement is this member: by its key
+        /// (<see cref="Declares"/>), then by its types (<see cref="MethodTypesKey"/>) where both the
+        /// member's and every requirement's under that key are concrete, so an overload with a
+        /// requirement's labels and other types is not taken for it. Where either side's types are
+        /// generic, <c>Self</c>, associated or unreadable, the labels decide.
+        /// </summary>
+        internal bool DeclaresMethod(string memberKey, string? typedKey)
+        {
+            if (!Declares(memberKey))
+                return false;
+            if (typedKey is null)
+                return true;
+            const string async = " async";
+            var held = (memberKey.EndsWith(async, StringComparison.Ordinal)
+                    ? new[] { memberKey }
+                    : new[] { memberKey, memberKey + async })
+                .Where(_keys.Contains)
+                .ToList();
+            // A key matched only through a requirement whose labels did not read (`name(*)`).
+            if (held.Count == 0)
+                return true;
+            return held.Any(key => !_typedMethods.TryGetValue(key, out var typed) || typed is null || typed.Contains(typedKey));
+        }
+
+        /// <summary>
+        /// Whether a requirement is the extension member <paramref name="member"/>: a property by its
+        /// key, a method by its key and, where both show concrete types, its types.
+        /// </summary>
+        internal bool DeclaresMember(ProtocolExtensionMethodDecl member)
+            => member.IsProperty || IsOperator(member.MethodName)
+                ? Declares(KeyOf(member))
+                : DeclaresMethod(KeyOf(member),
+                    MethodTypesKey(ForeignOverloadPairing.SignatureOf(member.RawSignature, "func", member.MethodName)));
 
         /// <summary>
         /// Whether an operator requirement is this operator: by its types where the requirement's
@@ -137,6 +198,50 @@ internal static class ForeignProtocolRequirements
     private static readonly Regex SelfQualifier = new(@"\bSelf\.", RegexOptions.Compiled);
 
     /// <summary>
+    /// The parameter and return types of a method or initializer (an initializer's return is not
+    /// compared), or null when one of them is not a concrete type both sides spell alike: a generic
+    /// parameter, <c>Self</c> or a type named through it, an associated type (a name without a module),
+    /// or a type that does not read. Requirement and member are then told apart by their labels.
+    /// </summary>
+    internal static string? MethodTypesKey(OverloadSignature? signature)
+    {
+        if (signature?.Parameters is not { } parameters)
+            return null;
+        var types = signature.Return is null ? parameters : parameters.Append(signature.Return);
+        if (!types.All(IsConcrete))
+            return null;
+        static string Type(string type) => ForeignOverloadPairing.Normalize(type) ?? "?";
+        return $"({string.Join(",", parameters.Select(Type))})->{(signature.Return is null ? "init" : Type(signature.Return))}";
+    }
+
+    private static bool IsConcrete(string type)
+    {
+        TypeSpec? parsed;
+        try
+        {
+            parsed = TypeSpecParser.Parse(Ownership.Replace(SwiftModuleSelectors.ToDotted(type), " ").Trim());
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+        return parsed is not null && IsConcrete(parsed);
+    }
+
+    private static bool IsConcrete(TypeSpec type) => type switch
+    {
+        NamedTypeSpec named => (named.Name.Contains('.') ? !named.Name.StartsWith("Self.", StringComparison.Ordinal)
+                : named.Name is "Any" or "AnyObject" or "Void")
+            && !named.Name.Contains('τ')
+            && named.GenericParameters.All(IsConcrete),
+        TupleTypeSpec tuple => tuple.Elements.All(IsConcrete),
+        ClosureTypeSpec closure => IsConcrete(closure.Arguments) && IsConcrete(closure.ReturnType),
+        _ => false,
+    };
+
+    private static readonly Regex Ownership = new(@"(?:@\w+(?:\([^)]*\))?|\b(?:inout|__owned|__shared|borrowing|consuming|sending)\b)", RegexOptions.Compiled);
+
+    /// <summary>
     /// The requirement key of an extension member the interface reader extracted, from its printed
     /// name (<c>name(label:)</c>) and signature.
     /// </summary>
@@ -156,12 +261,14 @@ internal static class ForeignProtocolRequirements
         var plain = Plain(protocolName);
         if (plain.Length == 0 || plain[0] == '~')
             return true;
-        var dot = plain.LastIndexOf('.');
-        var shortName = dot < 0 ? plain : plain[(dot + 1)..];
-        var module = dot < 0 ? null : plain[..plain.IndexOf('.')];
-        if (LanguageConstraints.Contains(shortName) && (module is null or "Swift"))
+        // The module, then the protocol's path in it: a protocol nested in a type (`M.Outer.P`) is
+        // another protocol than a top-level one of its leaf name (`M.P`).
+        var dot = plain.IndexOf('.');
+        var path = dot < 0 ? plain : plain[(dot + 1)..];
+        var module = dot < 0 ? null : plain[..dot];
+        if (LanguageConstraints.Contains(path) && (module is null or "Swift"))
             return true;
-        if (!visited.Add(module is null ? plain : $"{module}.{shortName}"))
+        if (!visited.Add(module is null ? plain : $"{module}.{path}"))
             return true;
 
         var candidates = module is not null
@@ -169,12 +276,14 @@ internal static class ForeignProtocolRequirements
             : ImplicitModules.Concat(moduleDecl.Dependencies ?? new List<string>()).Distinct(StringComparer.Ordinal).ToArray();
         foreach (var candidate in candidates)
         {
-            if (Lookup(moduleDecl, candidate, shortName) is not { } declaration)
+            if (Lookup(moduleDecl, candidate, path) is not { } declaration)
                 continue;
             foreach (var key in declaration.Names)
                 names.Add(key);
             foreach (var (key, typed) in declaration.TypedOperators ?? Array.Empty<(string, string)>())
                 names.AddTypedOperator(key, typed);
+            foreach (var (key, typed) in declaration.TypedMethods ?? Array.Empty<(string, string?)>())
+                names.AddTypedMethod(key, typed);
             foreach (var inherited in declaration.Inherited)
                 if (!Collect(moduleDecl, Qualify(inherited, declaration.Module), names, visited))
                     return false;
@@ -187,29 +296,40 @@ internal static class ForeignProtocolRequirements
     {
         /// <summary>The operator requirements whose declarations show their types: spelling key, typed key.</summary>
         public IReadOnlyList<(string Key, string Typed)>? TypedOperators { get; init; }
+
+        /// <summary>The method and initializer requirements: key, and types (<see cref="MethodTypesKey"/>) or null.</summary>
+        public IReadOnlyList<(string Key, string? Typed)>? TypedMethods { get; init; }
     }
 
-    private static Declaration? Lookup(ModuleDecl moduleDecl, string module, string protocolName)
+    /// <summary>
+    /// The declaration of the protocol at <paramref name="path"/> in <paramref name="module"/>: its name,
+    /// after the names of the types it is nested in (<c>Outer.P</c>), if any.
+    /// </summary>
+    private static Declaration? Lookup(ModuleDecl moduleDecl, string module, string path)
     {
         if (moduleDecl.DependencyProtocols.TryGetValue(module, out var protocols)
-            && protocols.FirstOrDefault(p => p.Name == protocolName) is { } bound)
+            && protocols.FirstOrDefault(p => string.Equals(
+                p.SwiftTypeName.ModuleQualifiedName, $"{module}.{path}", StringComparison.Ordinal)) is { } bound)
         {
             var memberNames = bound.Methods.Where(m => !m.IsAccessor)
                 .Select(ProtocolExtensionEmitter.RequirementKeyOf)
                 .Concat(bound.Properties.Select(ProtocolExtensionEmitter.RequirementKeyOf))
-                .Concat(bound.Subscripts.Select(s => SubscriptKey(
-                    ForeignOverloadPairing.ListedSignature(null, s.IndexParameters.Select(a => a.SwiftTypeSpec?.ToString()),
-                        s.ReturnTypeSpec?.ToString()), s.IsStatic)))
+                .Concat(bound.Subscripts.Select(ProtocolExtensionEmitter.RequirementKeyOf))
                 .OfType<string>()
                 .ToList();
-            return new Declaration(module, memberNames, bound.InheritedProtocols.Select(i => i.Name).ToList());
+            return new Declaration(module, memberNames, bound.InheritedProtocols.Select(i => i.Name).ToList())
+            {
+                TypedMethods = bound.Methods.Where(m => !m.IsAccessor)
+                    .Select(m => (ProtocolExtensionEmitter.RequirementKeyOf(m)!, ProtocolExtensionEmitter.RequirementTypesKeyOf(m)))
+                    .ToList(),
+            };
         }
-        return LookupInInterfaces(module, protocolName, new HashSet<string>(StringComparer.Ordinal));
+        return LookupInInterfaces(module, path, new HashSet<string>(StringComparer.Ordinal));
     }
 
     // The module's interface in each SDK of the run; a protocol a module re-exports from another
     // (`@_exported import M`) is followed there.
-    private static Declaration? LookupInInterfaces(string module, string protocolName, HashSet<string> visitedModules)
+    private static Declaration? LookupInInterfaces(string module, string path, HashSet<string> visitedModules)
     {
         if (!visitedModules.Add(module) || SdkPublicModuleNames.Current is not { } sdk)
             return null;
@@ -217,14 +337,14 @@ internal static class ForeignProtocolRequirements
         {
             if (InterfaceText(root, module) is not { } text)
                 continue;
-            if (Declarations.GetOrAdd($"{root}\n{module}\n{protocolName}", _ => Parse(text, protocolName)) is { } found)
+            if (Declarations.GetOrAdd($"{root}\n{module}\n{path}", _ => Parse(text, module, path)) is { } found)
                 return found with { Module = module };
             foreach (Match exported in ExportedImport.Matches(text))
             {
                 // A selective re-export (`@_exported import protocol M.P`) brings in that one name.
-                if (exported.Groups["name"].Success && exported.Groups["name"].Value != protocolName)
+                if (exported.Groups["name"].Success && exported.Groups["name"].Value != path)
                     continue;
-                if (LookupInInterfaces(exported.Groups["module"].Value, protocolName, visitedModules) is { } reexported)
+                if (LookupInInterfaces(exported.Groups["module"].Value, path, visitedModules) is { } reexported)
                     return reexported;
             }
         }
@@ -260,19 +380,28 @@ internal static class ForeignProtocolRequirements
             .FirstOrDefault();
     }
 
-    // Every top-level declaration of the protocol is read (an interface prints one per `#if` arm),
-    // or the protocols a same-named `typealias` composes.
-    private static Declaration? Parse(string text, string protocolName)
+    // Every declaration of the protocol at `path` is read (an interface prints one per `#if` arm),
+    // or the protocols a same-named `typealias` composes. A declaration nested in other types than
+    // the path names is another protocol of the same leaf name.
+    private static Declaration? Parse(string text, string module, string path)
     {
+        var leafAt = path.LastIndexOf('.');
+        var protocolName = path[(leafAt + 1)..];
+        var enclosing = leafAt < 0 ? string.Empty : path[..leafAt];
         var names = new List<string>();
         var typedOperators = new List<(string, string)>();
+        var typedMethods = new List<(string, string?)>();
         var inherited = new List<string>();
         var found = false;
         var searchFrom = 0;
-        while (UnderscoreProtocolSynthesizer.TryExtractProtocolBlock(text[searchFrom..], protocolName, out var header, out var body, out var end))
+        var headerPattern = new Regex($@"\bpublic\s+protocol\s+{Regex.Escape(protocolName)}\b[^{{]*\{{");
+        while (searchFrom < text.Length && headerPattern.Match(text, searchFrom) is { Success: true } at
+            && UnderscoreProtocolSynthesizer.TryExtractProtocolBlock(text[at.Index..], protocolName, out var header, out var body, out var end))
         {
+            searchFrom = at.Index + end;
+            if (!string.Equals(EnclosingTypes(text, at.Index, module), enclosing, StringComparison.Ordinal))
+                continue;
             found = true;
-            searchFrom += end;
             inherited.AddRange(InheritanceClause(header));
             foreach (var line in body.Split('\n'))
             {
@@ -285,6 +414,8 @@ internal static class ForeignProtocolRequirements
                     names.Add(key);
                     if (IsOperator(name) && OperatorKey(name, ForeignOverloadPairing.SignatureOf(line, "func", name), isStatic) is { } typed)
                         typedOperators.Add((key, typed));
+                    else if (!IsOperator(name))
+                        typedMethods.Add((key, labels is null ? null : MethodTypesKey(ForeignOverloadPairing.SignatureOf(line, "func", name))));
                 }
                 else if (VarName.Match(line) is { Success: true } variable)
                     names.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
@@ -296,8 +427,10 @@ internal static class ForeignProtocolRequirements
                 else if (Initializer.Match(line) is { Success: true } init)
                 {
                     var labels = ParameterLabels(line, init.Index + init.Length - 1, out var clauseEnd);
-                    names.Add(MethodKey("init", labels, isStatic: false,
-                        labels is not null && AsyncEffect.IsMatch(line[clauseEnd..])));
+                    var key = MethodKey("init", labels, isStatic: false,
+                        labels is not null && AsyncEffect.IsMatch(line[clauseEnd..]));
+                    names.Add(key);
+                    typedMethods.Add((key, labels is null ? null : MethodTypesKey(ForeignOverloadPairing.SignatureOf(line, "init"))));
                 }
             }
         }
@@ -305,14 +438,63 @@ internal static class ForeignProtocolRequirements
             return new Declaration(string.Empty, names.Distinct(StringComparer.Ordinal).ToList(), inherited.Distinct(StringComparer.Ordinal).ToList())
             {
                 TypedOperators = typedOperators,
+                TypedMethods = typedMethods,
             };
 
-        var alias = new Regex($@"\bpublic\s+typealias\s+{Regex.Escape(protocolName)}\s*=\s*([^\n]+)").Match(text);
-        if (!alias.Success || !alias.Groups[1].Value.Contains('&'))
+        var alias = new Regex($@"\bpublic\s+typealias\s+{Regex.Escape(protocolName)}\s*=\s*([^\n]+)").Matches(text)
+            .FirstOrDefault(m => string.Equals(EnclosingTypes(text, m.Index, module), enclosing, StringComparison.Ordinal));
+        if (alias is null || !alias.Groups[1].Value.Contains('&'))
             return null;
         return new Declaration(string.Empty, Array.Empty<string>(),
             alias.Groups[1].Value.Split('&').Select(p => p.Trim()).Where(p => p.Length > 0).ToList());
     }
+
+    /// <summary>
+    /// The names of the types a declaration at <paramref name="index"/> of an interface of
+    /// <paramref name="module"/> is nested in, outermost first and joined by dots (<c>Outer.Inner</c>),
+    /// or "" at the top level: each brace a type or extension declaration opens names its type, and a
+    /// declaration inside any other body is nested in no type (<c>?</c>).
+    /// </summary>
+    private static string EnclosingTypes(string text, int index, string module)
+    {
+        var scopes = new List<string?>();
+        var segmentStart = 0;
+        for (var i = 0; i < index; i++)
+        {
+            if (text[i] == '/' && i + 1 < index && text[i + 1] == '/')
+            {
+                while (i < index && text[i] != '\n')
+                    i++;
+                continue;
+            }
+            if (SwiftParameterClause.IsStringLiteralStart(text, i))
+            {
+                i = SwiftParameterClause.SkipStringLiteral(text, i) - 1;
+                continue;
+            }
+            if (text[i] == '{')
+            {
+                var opened = TypeDeclaration.Match(text, segmentStart, i - segmentStart);
+                scopes.Add(opened.Success ? opened.Groups[1].Value : null);
+                segmentStart = i + 1;
+            }
+            else if (text[i] == '}')
+            {
+                if (scopes.Count > 0)
+                    scopes.RemoveAt(scopes.Count - 1);
+                segmentStart = i + 1;
+            }
+        }
+        if (scopes.Any(scope => scope is null))
+            return "?";
+        return string.Join(".", scopes.Select(scope =>
+            scope!.StartsWith(module + ".", StringComparison.Ordinal) ? scope[(module.Length + 1)..] : scope));
+    }
+
+    // The type a brace opens: the last type or extension declaration before it (right to left).
+    private static readonly Regex TypeDeclaration = new(
+        @"\b(?:struct|class|enum|actor|extension)\s+(?!(?:func|var|let|subscript|init|deinit|typealias)\b)([\p{L}_][\w.]*)",
+        RegexOptions.Compiled | RegexOptions.RightToLeft);
 
     /// <summary>
     /// The argument labels of the parameter clause starting at <paramref name="from"/> (after the

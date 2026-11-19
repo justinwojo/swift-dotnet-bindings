@@ -408,6 +408,68 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     /// <summary>
+    /// Combine.Cancellable requires <c>cancel(after: Swift.Int)</c>; the extension adds
+    /// <c>cancel(after: Swift.String)</c>, with the requirement's labels and another type. It is an
+    /// addition nothing binds, so it keeps its row; the requirement's own default has none.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_OverloadWithAForeignRequirementsLabelsAndOtherTypes_IsReported()
+    {
+        using var sdk = FakeSdkInterfaces.Create(("Combine", true, """
+            public protocol Cancellable {
+              func cancel(after delay: Swift.Int)
+            }
+            """));
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Combine.Cancellable"] = "Protocol";
+        var members = new List<ProtocolExtensionMethodDecl>
+        {
+            CreateLabeledExtMethod("cancel", "cancel(after:)", "public func cancel(after delay: Swift.Int)"),
+            CreateLabeledExtMethod("cancel", "cancel(after:)", "public func cancel(after delay: Swift.String)"),
+        };
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { ["Combine.Cancellable"] = members }, ctx);
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "cancel");
+        Assert.Contains("Swift.String", row.DeclId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Combine declares a top-level <c>Cancellable</c> (requires <c>cancel()</c>) and a nested
+    /// <c>Outer.Cancellable</c> (requires <c>reset()</c>). An extension member that is not a requirement
+    /// of its own receiver is an addition and keeps its row, whatever the other protocol of the same
+    /// leaf name requires; the receiver's own requirement's default has none.
+    /// </summary>
+    [Theory]
+    [InlineData("Combine.Cancellable", "reset", 1)]        // reset() is the nested protocol's requirement only
+    [InlineData("Combine.Outer.Cancellable", "cancel", 1)] // cancel() is the top-level protocol's requirement only
+    [InlineData("Combine.Cancellable", "cancel", 0)]
+    [InlineData("Combine.Outer.Cancellable", "reset", 0)]
+    public void ProcessForeignTypeExtensions_ProtocolNestedInAType_IsNotTakenForATopLevelOneOfTheSameName(
+        string receiver, string member, int expectedRows)
+    {
+        using var sdk = FakeSdkInterfaces.Create(("Combine", true, """
+            public protocol Cancellable {
+              func cancel()
+            }
+            public struct Outer {
+              public protocol Cancellable {
+                func reset()
+              }
+            }
+            """));
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Protocol";
+        var members = new List<ProtocolExtensionMethodDecl> { CreateExtMethod(member, $"public func {member}()") };
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { [receiver] = members }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == member));
+    }
+
+    /// <summary>
     /// On a kept foreign protocol whose interface the run can read, a member supplying the default of
     /// the protocol's own requirement (<c>cancel()</c>) is reached through that requirement and has no
     /// row; an addition, and an overload with other labels, keep theirs.

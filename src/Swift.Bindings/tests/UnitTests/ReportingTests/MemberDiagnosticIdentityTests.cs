@@ -445,11 +445,12 @@ public class MemberDiagnosticIdentityTests
     }
 
     [Fact]
-    public void GenericContextAndDiscriminator_AreCarriedButExcludedFromEquality()
+    public void GenericContextIsCarriedButExcludedFromEquality_AndStaticnessSeparates()
     {
-        // These two components exist so ToDeclId is lossless. They are deliberately NOT part of
-        // MemberDiagnosticIdentity's equality: this type is the report's dedup key, and folding in
-        // an axis it never had would split report rows that used to collapse into one.
+        // The generic context exists so ToDeclId is lossless and is NOT part of equality: overloads
+        // that differ in it are already separated by their mangled symbols. Staticness is part of
+        // equality: an instance and a static property of one name are two declarations, and a
+        // property identity has no mangled symbol to tell them apart.
         var withContext = MemberDiagnosticIdentity.Create(
             module: "TestModule", declPath: "Loader",
             kind: BindingItemKind.Method, baseName: "map",
@@ -469,8 +470,8 @@ public class MemberDiagnosticIdentityTests
             TestModelFactory.CreateProperty("count", moduleDecl, isStatic: true));
 
         Assert.Equal("static", @static.Discriminator);
-        Assert.Equal(instance, @static);
-        // …while the DeclIds those identities carry still tell the two declarations apart.
+        Assert.NotEqual(instance, @static);
+        Assert.NotEqual(instance.ToStableString(), @static.ToStableString());
         Assert.NotEqual(instance.ToDeclId(), @static.ToDeclId());
     }
 

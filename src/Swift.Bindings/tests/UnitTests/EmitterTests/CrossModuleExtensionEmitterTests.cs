@@ -1443,6 +1443,144 @@ public class CrossModuleExtensionEmitterTests
     }
 
     /// <summary>
+    /// The pre-pass bound <c>attach(_: Swift.Int)</c> and declined <c>attach(_: TestModule.Int)</c>, an
+    /// overload whose type is a local type of the same name; the ABI lists neither. Types that differ
+    /// only by module are two members, so the declined one keeps its row.
+    /// </summary>
+    [Fact]
+    public void Settle_DeclinedOverloadWhoseTypeDiffersFromABoundOneOnlyByModule_KeepsItsRow()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var emissionContext = new ModuleEmissionContext();
+        PrePassBound(emissionContext, "attach", "attach(_:)", "public func attach(_ value: Swift.Int)");
+        PrePassDeclined(emissionContext, "attach", "attach(_:)", "public func attach(_ value: TestModule.Int)");
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "attach");
+        Assert.Contains("TestModule.Int", row.DeclId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The ABI lists <c>attach(_: Swift.Int)</c> and an overload of another type, both mutating, so the
+    /// cross-module path declines both; the pre-pass bound the <c>Swift.Int</c> one and declined the
+    /// other. The other is declined by both paths and keeps one row, whether its type differs only by
+    /// module (a local type named <c>Int</c>) or outright.
+    /// </summary>
+    [Theory]
+    [InlineData("TestModule.Int")]
+    [InlineData("Swift.Double")]
+    public void Emit_AbiOverloadOfAMemberThePrePassBound_WhoseTypeDiffersOnlyByModule_KeepsItsRow(string otherType)
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var same = CreateMethodDecl("attach", "TestModule", classDecl, mangledName: "$s10TestModule6attachyySiF");
+        same.IsMutating = true;
+        same.CSSignature.Add(Argument("_", "Swift.Int", moduleDecl));
+        classDecl.Methods.Add(same);
+        var other = CreateMethodDecl("attach", "TestModule", classDecl, mangledName: "$s10TestModule6attachyyAA3IntVF");
+        other.IsMutating = true;
+        other.CSSignature.Add(Argument("_", otherType, moduleDecl));
+        classDecl.Methods.Add(other);
+        var emissionContext = new ModuleEmissionContext();
+        PrePassBound(emissionContext, "attach", "attach(_:)", "public func attach(_ value: Swift.Int)");
+        PrePassDeclined(emissionContext, "attach", "attach(_:)", $"public func attach(_ value: {otherType})");
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "attach");
+        Assert.Contains(otherType, row.DeclId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The pre-pass declined an instance <c>var preview</c> and a <c>static var preview</c> of a carried
+    /// receiver; the ABI lists neither. They are two members, each with its own row.
+    /// </summary>
+    [Fact]
+    public void Settle_StaticAndInstancePropertyOfOneName_KeepARowEach()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var emissionContext = new ModuleEmissionContext();
+        foreach (var isStatic in new[] { false, true })
+        {
+            var member = PrePassMember("preview",
+                "preview", $"public {(isStatic ? "static " : "")}var preview: Swift.Int {{ get }}");
+            member.IsProperty = true;
+            member.IsStatic = isStatic;
+            emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+                "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger), Bound: false,
+                DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
+                SkipReason.UnsupportedSignature, "declined by the pre-pass."));
+        }
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "preview"));
+    }
+
+    /// <summary>
+    /// A receiver the cross-module path turns away (a non-frozen struct) with an instance
+    /// <c>var status</c> and a <c>static var status</c> in the ABI: two members, two rows.
+    /// </summary>
+    [Fact]
+    public void Emit_TurnedAwayReceiversStaticAndInstancePropertyOfOneName_KeepARowEach()
+    {
+        var (csWriter, swiftWriter, _, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: false, requiresMemoryManagement: false);
+        foreach (var isStatic in new[] { false, true })
+        {
+            structDecl.Properties.Add(new PropertyDecl
+            {
+                Name = "status",
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+                IsStatic = isStatic,
+                HasStorage = false,
+                Accessors = new List<AccessorDecl>(),
+                ParentDecl = structDecl,
+                ModuleDecl = moduleDecl,
+            });
+        }
+
+        var report = RunReported(moduleDecl, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger));
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "status"));
+    }
+
+    /// <summary>
+    /// A type moved between modules (<c>@_originallyDefinedIn</c>) is named by its original module in the
+    /// ABI and by its current one in the interface. The ABI's <c>attach(_: OldKit.Marker)</c>, which the
+    /// cross-module path declines, is the <c>attach(_: TestModule.Marker)</c> the pre-pass bound, so it
+    /// has no row.
+    /// </summary>
+    [Fact]
+    public void Emit_AbiMemberWhoseTypeMovedModules_IsTheMemberThePrePassBound()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var listed = CreateMethodDecl("attach", "TestModule", classDecl, mangledName: "$s10TestModule6attachyy6OldKit6MarkerVF");
+        listed.IsMutating = true;
+        listed.CSSignature.Add(Argument("_", "OldKit.Marker", moduleDecl));
+        classDecl.Methods.Add(listed);
+        var emissionContext = new ModuleEmissionContext();
+        PrePassBound(emissionContext, "attach", "attach(_:)", "public func attach(_ value: TestModule.Marker)");
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.DoesNotContain(report.SkippedItems, r => r.Name == "attach");
+    }
+
+    /// <summary>
     /// A named type no database holds may be a typealias the ABI spells by what it resolves to, a
     /// generic one included, and so may a name that only looks like an Objective-C class; a type a
     /// database holds under another name is another member.

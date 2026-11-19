@@ -39,7 +39,7 @@ internal static class CarriedReceiverRows
             isGeneric,
             member.MethodName,
             member.PrintedName,
-            signature is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(signature))
+            signature)
         {
             Types = types,
             AliasCandidates = types is null ? null : AliasCandidatesIn(types, typeDatabase),
@@ -131,7 +131,7 @@ internal static class CarriedReceiverRows
                     isGeneric,
                     method.GetSwiftName(),
                     ProtocolExtensionEmitter.AbiLabelKey(method),
-                    comparable is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(comparable))
+                    comparable)
                 {
                     Types = comparable is null ? null : AbiTypeSlots(method),
                 };
@@ -280,19 +280,30 @@ internal static class CarriedReceiverRows
 
     /// <summary>
     /// Whether an interface member and an ABI member are one declaration. Types decide between
-    /// overloads of one name, labels and flags. When each side declares that shape once, the two are
-    /// the same member if every type that reads differently is one the interface may spell through a
-    /// typealias the ABI resolves (<see cref="CarriedMemberIdentity.TypesMayBeSpellingsOf"/>); a known
-    /// nominal type against another type is two members, each with its own row.
+    /// overloads of one name, labels and flags, compared by <see cref="ModuleQualifiedKeys.Match"/>:
+    /// types that read the same only without module qualifiers are one member only when no other
+    /// member of that shape on either side reads that way. When each side declares that shape once,
+    /// the two are the same member if every type that reads differently is one the interface may spell
+    /// through a typealias the ABI resolves (<see cref="CarriedMemberIdentity.TypesMayBeSpellingsOf"/>);
+    /// a known nominal type against another type is two members, each with its own row.
     /// </summary>
     private static bool Corresponds(
         CarriedMemberIdentity declared, IReadOnlyList<CarriedPrePassOutcome> declaredOnReceiver,
         CarriedMemberIdentity abi, IReadOnlyList<CarriedMemberIdentity> abiOnReceiver)
-        => declared.SameMember(abi)
+        => (declared.SameShape(abi)
+                && (declared.IsProperty
+                    || declared.SignatureKey is null
+                    || abi.SignatureKey is null
+                    || ModuleQualifiedKeys.Match(
+                        declared.SignatureKey, KeysOfShape(declaredOnReceiver.Select(o => o.Identity), declared),
+                        abi.SignatureKey, KeysOfShape(abiOnReceiver, abi))))
             || (declared.SameShape(abi)
                 && declared.TypesMayBeSpellingsOf(abi)
                 && declaredOnReceiver.Count(o => o.Identity.SameShape(declared)) == 1
                 && abiOnReceiver.Count(a => a.SameShape(abi)) == 1);
+
+    private static IEnumerable<string> KeysOfShape(IEnumerable<CarriedMemberIdentity> side, CarriedMemberIdentity shape)
+        => side.Where(i => i.SameShape(shape) && i.SignatureKey is not null).Select(i => i.SignatureKey!);
 
     private static List<CarriedPrePassOutcome> OutcomesOn(IReadOnlyList<CarriedPrePassOutcome> outcomes, string receiver)
         => outcomes.Where(o => string.Equals(o.Receiver, receiver, StringComparison.Ordinal)).ToList();
@@ -462,9 +473,10 @@ internal static class CarriedReceiverRows
 
 /// <summary>
 /// A member's identity across the interface text and the ABI: kind, staticness, name, labels,
-/// async-ness, genericity and, where both sides parse it, parameter and return types with module
-/// qualifiers dropped (the ABI names a type moved by <c>@_originallyDefinedIn</c> by its first
-/// module). Swift overloads on every one of these.
+/// async-ness, genericity and, where both sides parse it, parameter and return types, module-qualified.
+/// Swift overloads on every one of these. Across the two sides the types are compared by
+/// <see cref="ModuleQualifiedKeys"/> (the ABI names a type moved by <c>@_originallyDefinedIn</c> by its
+/// first module).
 /// </summary>
 internal sealed record CarriedMemberIdentity(
     bool IsProperty,
@@ -476,8 +488,8 @@ internal sealed record CarriedMemberIdentity(
     string? SignatureKey)
 {
     /// <summary>
-    /// Whether both identities name the same declaration. Types decide only when both sides
-    /// parsed them; otherwise name, labels and the flags do.
+    /// Whether both identities, read on the same side, name the same declaration. Types decide,
+    /// module-qualified, only when both parsed them; otherwise name, labels and the flags do.
     /// </summary>
     public bool SameMember(CarriedMemberIdentity other)
         => SameShape(other)

@@ -210,7 +210,7 @@ public static class ForeignTypeExtensionEmitter
         var pairing = ctx.ForeignReceiverPairing!;
         var reportedProtocol = ProtocolExtensionEmitter.ReportedForeignProtocol(moduleDecl, foreignTypeQualifiedName) is not null;
         var unpaired = members
-            .Where(m => requirements?.Declares(ForeignProtocolRequirements.KeyOf(m)) != true)
+            .Where(m => requirements?.DeclaresMember(m) != true)
             .Where(m => reportedProtocol || !pairing.IsPaired(m))
             .ToList();
         foreach (var member in unpaired)
@@ -335,8 +335,9 @@ public static class ForeignTypeExtensionEmitter
                 return requirements.DeclaresOperator(prefix + candidate.Name,
                     ForeignProtocolRequirements.OperatorKey(candidate.Name, SignatureOf(candidate, kind), candidate.IsStatic));
             default:
-                return requirements.Declares(prefix + candidate.PrintedName
-                    + (ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature) ? " async" : string.Empty));
+                return requirements.DeclaresMethod(prefix + candidate.PrintedName
+                        + (ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature) ? " async" : string.Empty),
+                    ForeignProtocolRequirements.MethodTypesKey(SignatureOf(candidate, kind)));
         }
     }
 

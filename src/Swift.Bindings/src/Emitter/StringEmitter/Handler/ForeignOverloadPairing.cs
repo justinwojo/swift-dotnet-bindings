@@ -17,7 +17,9 @@ internal sealed record OverloadSignature(string? Labels, IReadOnlyList<string>? 
 /// <summary>
 /// Pairs the members an interface declares on another module's type with the members the ABI lists
 /// there, so each listed member accounts for one declared member and no more. A listed member pairs
-/// first with a declared member whose signature reads the same, then with one whose differing types
+/// first with a declared member whose signature reads the same module-qualified, then with one that
+/// reads the same without module qualifiers where that reading is unique on both sides
+/// (<see cref="ModuleQualifiedKeys"/>), then with one whose differing types
 /// may be typealiases the ABI resolves (<see cref="CarriedReceiverRows.MayBeSpelledAs"/>), and only
 /// when a side's types cannot be read, with any remaining one of its shape.
 /// </summary>
@@ -41,20 +43,31 @@ internal static class ForeignOverloadPairing
         var pool = listed.ToList();
         var pairs = new Dictionary<int, TListed>();
         var mine = declared.Select(declaredSignature).ToList();
-        var pass = new Func<OverloadSignature?, OverloadSignature?, bool>[]
+        bool Unqualified(int i, TListed l)
+            => sameShape(declared[i], l) && Comparable(mine[i], listedSignature(l))
+                && SameSignature(mine[i]!, listedSignature(l)!, qualified: false);
+        var pass = new Func<int, TListed?>[]
         {
-            (d, l) => Comparable(d, l) && SameSignature(d!, l!),
-            (d, l) => Comparable(d, l) && MayBeSpelledAs(d!, l!, typeDatabase),
-            (d, l) => !Comparable(d, l),
+            i => pool.FirstOrDefault(l => sameShape(declared[i], l) && Comparable(mine[i], listedSignature(l))
+                && SameSignature(mine[i]!, listedSignature(l)!, qualified: true)),
+            // Types that read the same only without module qualifiers are one member only when that
+            // reading is unique among what is left on both sides (ModuleQualifiedKeys).
+            i => pool.Where(l => Unqualified(i, l)).ToList() is var candidates
+                && ModuleQualifiedKeys.UniqueOnBothSides(candidates,
+                    Enumerable.Range(0, declared.Count).Where(j => j != i && !pairs.ContainsKey(j)), Unqualified)
+                    ? candidates[0]
+                    : null,
+            i => pool.FirstOrDefault(l => sameShape(declared[i], l) && Comparable(mine[i], listedSignature(l))
+                && MayBeSpelledAs(mine[i]!, listedSignature(l)!, typeDatabase)),
+            i => pool.FirstOrDefault(l => sameShape(declared[i], l) && !Comparable(mine[i], listedSignature(l))),
         };
-        foreach (var matches in pass)
+        foreach (var matchOf in pass)
         {
             for (var i = 0; i < declared.Count && pool.Count > 0; i++)
             {
                 if (pairs.ContainsKey(i))
                     continue;
-                var match = pool.FirstOrDefault(l => sameShape(declared[i], l) && matches(mine[i], listedSignature(l)));
-                if (match is null)
+                if (matchOf(i) is not { } match)
                     continue;
                 pool.Remove(match);
                 pairs[i] = match;
@@ -66,15 +79,15 @@ internal static class ForeignOverloadPairing
     private static bool Comparable(OverloadSignature? declared, OverloadSignature? listed)
         => declared?.Parameters is not null && listed?.Parameters is not null;
 
-    private static bool SameSignature(OverloadSignature declared, OverloadSignature listed)
+    private static bool SameSignature(OverloadSignature declared, OverloadSignature listed, bool qualified)
         => LabelsAgree(declared.Labels, listed.Labels, allowErased: false)
             && declared.Parameters!.Count == listed.Parameters!.Count
-            && declared.Parameters.Zip(listed.Parameters).All(p => SameType(p.First, p.Second))
-            && (declared.Return is null || listed.Return is null || SameType(declared.Return, listed.Return));
+            && declared.Parameters.Zip(listed.Parameters).All(p => SameType(p.First, p.Second, qualified))
+            && (declared.Return is null || listed.Return is null || SameType(declared.Return, listed.Return, qualified));
 
     private static bool MayBeSpelledAs(OverloadSignature declared, OverloadSignature listed, ITypeDatabase typeDatabase)
     {
-        bool Type(string d, string l) => SameType(d, l) || CarriedReceiverRows.MayBeSpelledAs(d, l, typeDatabase);
+        bool Type(string d, string l) => SameType(d, l, qualified: false) || CarriedReceiverRows.MayBeSpelledAs(d, l, typeDatabase);
         return LabelsAgree(declared.Labels, listed.Labels, allowErased: true)
             && declared.Parameters!.Count == listed.Parameters!.Count
             && declared.Parameters.Zip(listed.Parameters).All(p => Type(p.First, p.Second))
@@ -87,8 +100,8 @@ internal static class ForeignOverloadPairing
         => declared is null || listed is null || string.Equals(declared, listed, StringComparison.Ordinal)
             || (allowErased && listed.Split(':', StringSplitOptions.RemoveEmptyEntries).All(l => l == "_"));
 
-    private static bool SameType(string declared, string listed)
-        => string.Equals(Normalize(declared), Normalize(listed), StringComparison.Ordinal);
+    private static bool SameType(string declared, string listed, bool qualified)
+        => string.Equals(Normalize(declared, qualified), Normalize(listed, qualified), StringComparison.Ordinal);
 
     /// <summary>
     /// The signature of the declaration <paramref name="keyword"/> introduces in
@@ -142,9 +155,10 @@ internal static class ForeignOverloadPairing
         return new OverloadSignature(labels, comparable ? types.Select(t => t!).ToList() : null, returnType);
     }
 
-    /// <summary>A type compared across the two sides: sugar spelled out, module qualifiers,
-    /// attributes, ownership and whitespace dropped, and every spelling of void made one.</summary>
-    internal static string? Normalize(string? type)
+    /// <summary>A type compared across the two sides: sugar spelled out, attributes, ownership and
+    /// whitespace dropped, module qualifiers dropped unless <paramref name="qualified"/>, and every
+    /// spelling of void made one.</summary>
+    internal static string? Normalize(string? type, bool qualified = false)
     {
         if (type is null)
             return null;
@@ -158,8 +172,8 @@ internal static class ForeignOverloadPairing
         {
             // A type the parser does not read is compared as written.
         }
-        text = Whitespace.Replace(ProtocolExtensionEmitter.WithoutModuleQualifiers(text), string.Empty);
-        return text is "Void" or "()" ? "()" : text;
+        text = Whitespace.Replace(qualified ? text : ProtocolExtensionEmitter.WithoutModuleQualifiers(text), string.Empty);
+        return text is "Void" or "()" or "Swift.Void" ? "()" : text;
     }
 
     // The return type after the parameter clause ending at `end`: effects skipped, up to a `where`

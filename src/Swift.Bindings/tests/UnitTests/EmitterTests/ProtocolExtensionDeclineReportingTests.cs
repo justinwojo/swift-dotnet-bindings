@@ -418,6 +418,52 @@ public class ProtocolExtensionDeclineReportingTests
     }
 
     [Fact]
+    public void ExtensionOverloadWhoseTypeDiffersFromARequirementsOnlyByModule_IsNotTakenForItsDefault()
+    {
+        // `attach(_: Swift.Int)` is the requirement's default; `attach(_: TestModule.Int)` takes a local
+        // type of the same name, so it is a member of its own whose types differ only by module.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        moduleDecl.Protocols.Add(TestDecls.Protocol("Adoptable", "TestModule",
+            TestDecls.Method("attach", parameters: new[] { Arg("_", "Swift.Int") }, module: "TestModule")));
+        var extMethods = CreateExtensionMethodDict("TestModule.Adoptable",
+            CreateExtMethod("attach", "public func attach(_ x: Swift.Int)"),
+            CreateExtMethod("attach", "public func attach(_ x: TestModule.Int)"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped);
+        Assert.Contains("TestModule.Int", row.DeclId ?? string.Empty);
+    }
+
+    /// <summary>
+    /// A local protocol refining a foreign one, so the members the reader does not extract are
+    /// reported. The ABI lists <c>attach(_: Swift.Int)</c> and <c>attach(_: TestModule.Int)</c>, in
+    /// either order; the reader extracted only the first. The second, whose type differs only by
+    /// module, is unextracted and keeps its row.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void UnextractedOverloadWhoseTypeDiffersOnlyByModule_IsReported(bool swiftIntListedFirst)
+    {
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Hashable"));
+        var swiftInt = AbiExtensionMethod("attach", "$s10TestModule5KeyedPAAE6attachyySiF", null, Arg("_", "Swift.Int"));
+        var localInt = AbiExtensionMethod("attach", "$s10TestModule5KeyedPAAE6attachyyAA3IntVF", null, Arg("_", "TestModule.Int"));
+        foreach (var member in swiftIntListedFirst ? new[] { swiftInt, localInt } : new[] { localInt, swiftInt })
+            AddExtensionMember(protocol, member);
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed",
+            CreateExtMethod("attach", "public func attach(_ x: Swift.Int)"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        Assert.Single(skipped, s => s.Name == "attach" && (s.DeclId ?? "").Contains("TestModule.Int")
+            && s.Details?.Contains("does not extract") == true);
+    }
+
+    [Fact]
     public void ExtensionOverloadSharingARequirementsLabels_IsNotTakenForItsDefault()
     {
         var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
@@ -912,14 +958,25 @@ public class ProtocolExtensionDeclineReportingTests
         Assert.Single(skipped, s => s.Name == name);
     }
 
-    [Fact]
-    public void ExtensionSubscriptOfAProtocolRefiningAForeignProtocolWithSubscripts_IsReported()
+    /// <summary>
+    /// Collection declares subscripts. An extension subscript of exactly a requirement's types (the
+    /// protocol's <c>Self</c>, which the ABI spells <c>τ_0_0</c>, included) supplies that requirement's
+    /// default and is reached through it, so it has no row; a subscript of other types is a member of
+    /// its own and keeps its row.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Int", "Swift.Int", 0)]
+    [InlineData("Swift.Bool", "Swift.Int", 1)]
+    [InlineData("τ_0_0.Index", "τ_0_0.Element", 0)]
+    [InlineData("τ_0_0.Index", "Swift.Int", 1)]
+    public void ExtensionSubscriptOfAProtocolRefiningAForeignProtocolWithSubscripts_IsReportedUnlessItIsARequirementsDefault(
+        string indexType, string returnType, int expectedRows)
     {
-        // Collection declares subscripts; an extension subscript is not taken for any of them.
         using var sdk = FakeSdkInterfaces.Create(("Swift", false, FakeSdkInterfaces.Swift + """
 
             public protocol Collection {
               subscript(position: Swift.Int) -> Swift.Int { get }
+              subscript(bounds: Self.Index) -> Self.Element { get }
             }
             """));
         var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
@@ -928,8 +985,8 @@ public class ProtocolExtensionDeclineReportingTests
         AddExtensionMember(protocol, new SubscriptDecl
         {
             Name = "subscript",
-            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
-            IndexParameters = new List<ArgumentDecl> { Arg("_", "Swift.Int") },
+            ReturnTypeSpec = new NamedTypeSpec(returnType),
+            IndexParameters = new List<ArgumentDecl> { Arg("_", indexType) },
             IsStatic = false,
             Accessors = new List<AccessorDecl>(),
             MangledName = "$s10TestModule5ShelfPAAEyS2icig",
@@ -943,7 +1000,7 @@ public class ProtocolExtensionDeclineReportingTests
         var skipped = Inject(moduleDecl, new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), typeDatabase,
             new ModuleEmissionContext(), installStandardSdk: false);
 
-        Assert.Single(skipped, s => s.Kind == BindingItemKind.Subscript);
+        Assert.Equal(expectedRows, skipped.Count(s => s.Kind == BindingItemKind.Subscript));
     }
 
     [Theory]
@@ -962,6 +1019,47 @@ public class ProtocolExtensionDeclineReportingTests
         var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
 
         Assert.Single(skipped, s => s.Name == name);
+    }
+
+    [Fact]
+    public void OverloadWithAForeignRequirementsLabelsAndOtherTypes_IsReported()
+    {
+        // Hashable requires `hash(into: inout Swift.Hasher)`; `hash(into: inout Swift.Int)` has its
+        // labels and another type, so it is not that requirement's default and nothing binds it.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Hashable"));
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Keyed",
+            CreateExtMethod("hash", "public func hash(into counter: inout Swift.Int)"),
+            CreateExtMethod("hash", "public func hash(into hasher: inout Swift.Hasher)"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped, s => s.Name == "hash");
+        Assert.Contains("Swift.Int", row.DeclId ?? string.Empty);
+    }
+
+    /// <summary>
+    /// The ABI lists <c>hash(into:)</c> in an extension of a protocol refining Hashable, and the reader
+    /// extracted nothing. Of the requirement's types it is the requirement's default; of other types it
+    /// is an addition with its own row.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Hasher", 0)]
+    [InlineData("Swift.Int", 1)]
+    public void UnextractedMethodWithAForeignRequirementsLabels_IsReportedUnlessItHasItsTypes(string type, int expectedRows)
+    {
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Keyed", "TestModule");
+        protocol.InheritedProtocols.Add(new NamedTypeSpec("Swift.Hashable"));
+        AddExtensionMember(protocol, AbiExtensionMethod("hash", "$s10TestModule5KeyedPAAE4hash4intoys6HasherVz_tF", null, Arg("into", type)));
+        moduleDecl.Protocols.Add(protocol);
+
+        var skipped = Inject(moduleDecl, new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), typeDatabase,
+            new ModuleEmissionContext());
+
+        Assert.Equal(expectedRows, skipped.Count(s => s.Name == "hash"));
     }
 
     [Fact]
