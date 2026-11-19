@@ -149,6 +149,99 @@ internal static class OverloadAmbiguityGuard
     }
 
     /// <summary>
+    /// True when two parameter lists of the SAME length are provably told apart by every call
+    /// that supplies all arguments: some position's two types admit no common argument. Only
+    /// types whose conversions are closed and known by name decide a position — numeric
+    /// primitives (one family: a constant converts to any of them), <c>bool</c>, <c>string</c>
+    /// and arrays of those, against each other or against a plain named class (<c>NSUrl</c>
+    /// against <c>byte[]</c>). Two named types, a numeric type against a named type (which may be
+    /// an enum, which a <c>0</c> converts to), interfaces, generics, pointers and
+    /// <c>object</c> may all share an argument, so they never separate the pair.
+    ///
+    /// <para>The <c>null</c> and untyped <c>default</c> literals are not counted: they fit
+    /// every reference type (and <c>default</c> every type), so counting them would refuse every
+    /// pair of overloads of equal arity, which C# APIs declare routinely and callers
+    /// disambiguate with a cast or a typed argument.</para>
+    /// </summary>
+    internal static bool AreSeparated(IReadOnlyList<string> a, IReadOnlyList<string> b)
+    {
+        if (a.Count != b.Count)
+            return false;
+        for (int i = 0; i < a.Count; i++)
+        {
+            if (AdmitNoCommonArgument(a[i], b[i]))
+                return true;
+        }
+        return false;
+    }
+
+    private enum ClosedFamily { None, Numeric, Bool, String, Array, PlainNamed }
+
+    private static bool AdmitNoCommonArgument(string left, string right)
+    {
+        var l = Classify(left, out var leftElement);
+        var r = Classify(right, out var rightElement);
+        if (l == ClosedFamily.None || r == ClosedFamily.None)
+            return false;
+        if (l == ClosedFamily.PlainNamed && r == ClosedFamily.PlainNamed)
+            return false;
+        // A numeric argument may convert to a named enum (the constant 0).
+        if (l == ClosedFamily.Numeric && r == ClosedFamily.PlainNamed || r == ClosedFamily.Numeric && l == ClosedFamily.PlainNamed)
+            return false;
+        if (l == ClosedFamily.Array && r == ClosedFamily.Array)
+            return AdmitNoCommonArgument(leftElement!, rightElement!) && IsValueFamily(leftElement!) && IsValueFamily(rightElement!);
+        return l != r;
+    }
+
+    private static bool IsValueFamily(string typeName) =>
+        Classify(typeName, out _) is ClosedFamily.Numeric or ClosedFamily.Bool;
+
+    private static ClosedFamily Classify(string typeName, out string? arrayElement)
+    {
+        arrayElement = null;
+        var name = typeName.Trim();
+        if (name.StartsWith("global::", StringComparison.Ordinal))
+            name = name["global::".Length..];
+        if (name.EndsWith('?'))
+            name = name[..^1];
+        if (name.EndsWith("[]", StringComparison.Ordinal))
+        {
+            arrayElement = name[..^2];
+            return Classify(arrayElement, out _) is ClosedFamily.Numeric or ClosedFamily.Bool or ClosedFamily.String
+                ? ClosedFamily.Array
+                : ClosedFamily.None;
+        }
+        if (name.StartsWith("System.", StringComparison.Ordinal))
+            name = name["System.".Length..];
+        switch (name)
+        {
+            case "sbyte" or "byte" or "short" or "ushort" or "int" or "uint" or "long" or "ulong"
+                or "nint" or "nuint" or "float" or "double" or "decimal" or "char"
+                or "SByte" or "Byte" or "Int16" or "UInt16" or "Int32" or "UInt32" or "Int64" or "UInt64"
+                or "IntPtr" or "UIntPtr" or "Single" or "Double" or "Decimal" or "Char":
+                return ClosedFamily.Numeric;
+            case "bool" or "Boolean":
+                return ClosedFamily.Bool;
+            case "string" or "String":
+                return ClosedFamily.String;
+        }
+        // A plain class name: no generic arguments, pointer, tuple or array, not object, not an
+        // interface by .NET naming, and outside System (whose types carry conversions and
+        // interfaces arrays and strings implement).
+        if (name.Length == 0 || name is "object" or "Object" or "dynamic" || typeTextHasStructure(name)
+            || typeName.TrimStart().StartsWith("System.", StringComparison.Ordinal)
+            || typeName.TrimStart().StartsWith("global::System.", StringComparison.Ordinal)
+            || name.EndsWith("NSString", StringComparison.Ordinal))
+        {
+            return ClosedFamily.None;
+        }
+        var simple = name[(name.LastIndexOf('.') + 1)..];
+        return simple.Length > 1 && simple[0] == 'I' && char.IsUpper(simple[1]) ? ClosedFamily.None : ClosedFamily.PlainNamed;
+
+        static bool typeTextHasStructure(string n) => n.IndexOfAny(['<', '>', '*', '(', ')', ',', '[', ']', ' ']) >= 0;
+    }
+
+    /// <summary>
     /// Records the resolution-relevant shape of a projected signature that was just reserved into
     /// <see cref="MethodEnvironment.EmittedProjectedSignatures"/>. A reservation with no recorded
     /// shape is read back as fully-required (no optional parameters), which can only ever make the
