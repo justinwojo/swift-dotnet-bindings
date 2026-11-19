@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "git_sha": "7b0979ed",
+  "git_sha": "11a9e29c",
   "entries": [
     {
       "module": "SwiftBindingsTestLib",
@@ -21429,6 +21429,56 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.IncrementThroughRawPointer(long,Action\u003CSystem.IntPtr, Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC019incrementThroughRawF0ys5Int64VAF_ySv_ys5Int32VXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.NestedPointerCallbackHost()",
+      "symbol": "thunk_SwiftBindingsTestLib_7548455e"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReadThroughInnerRawPointer(Action\u003CAction\u003CSystem.IntPtr\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC019readThroughInnerRawF0ySdyySVXEXEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReadThroughInnerTypedPointer(int,Action\u003Cint, Action\u003CSystem.IntPtr\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC021readThroughInnerTypedF0ys5Int32VAF_yAF_ySPyAFGXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReadThroughRawPointer(double,Action\u003CSystem.IntPtr, Action\u003Cdouble\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC014readThroughRawF0yS2d_ySV_ySdXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReadThroughTypedPointer(int,Action\u003CSystem.IntPtr, Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC016readThroughTypedF0ys5Int32VAF_ySPyAFG_yAFXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReadThroughTypedPointerReportingSendably(int,Action\u003CSystem.IntPtr, Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC016readThroughTypedF17ReportingSendablyys5Int32VAF_ySPyAFG_yAFYbXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.ReportSendably(int,Action\u003Cint, Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC14reportSendablyys5Int32VAF_yAF_yAFYbXEtXEtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.WriteThroughInnerMutablePointer(Action\u003CAction\u003CSystem.IntPtr\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC024writeThroughInnerMutableF0yyyySpys5Int64VGXEXEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NestedPointerCallbackHost.WriteThroughMutablePointer(Action\u003CSystem.IntPtr, Action\u003Cint\u003E\u003E)",
+      "symbol": "$s20SwiftBindingsTestLib25NestedPointerCallbackHostC019writeThroughMutableF0ys5Int32VySpyAFG_yAFXEtXEF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "NestedProtoOuter.Label",
       "symbol": "SBW_Get_SwiftBindingsTestLib_NestedProtoOuter_label|SBW_Set_SwiftBindingsTestLib_NestedProtoOuter_label"
     },
@@ -33296,6 +33346,86 @@
       "module": "SwiftBindingsTestLib",
       "signature": "TypedErrorOwnerB.Inner.Inner()",
       "symbol": "SBW_SwiftBindingsTestLib_Inner_init_AC5AAC47"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.ReadSample(int,double,global::System.Func\u003CIntPtr, double\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerClosureHost_readSample_0B8E61B3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.ReadThroughProperty(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_5e9723ce"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.Reader",
+      "symbol": "$s20SwiftBindingsTestLib23TypedPointerClosureHostC6readers5Int32VSPyAFGcSgvg|SBW_Set_SwiftBindingsTestLib_TypedPointerClosureHost_reader"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.SeededTotal",
+      "symbol": "thunk_SwiftBindingsTestLib_33159075"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.SumReturned(nint,global::System.Func\u003CIntPtr\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerClosureHost_sumReturned_945EFE4B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.TypedPointerClosureHost(int,global::System.Func\u003CIntPtr, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerClosureHost_init_F3D02673"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.WeightReturned(global::System.Func\u003CSwift.SwiftResult\u003CIntPtr, SwiftError\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerClosureHost_weightReturned_F1AC3E92"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerClosureHost.WriteReturned(int,global::System.Func\u003CIntPtr\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerClosureHost_writeReturned_D9BA65E9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerEcho(int,global::System.Func\u003CIntPtr, IntPtr\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_typedPointerEcho_9819489B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerRenderNode.Install(global::System.Func\u003CIntPtr, IntPtr, uint, IntPtr, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerRenderNode_install_D0C3D216"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerRenderNode.Render(nint,uint)",
+      "symbol": "thunk_SwiftBindingsTestLib_dd66b243"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerRenderNode.RenderOnce(nint,uint,global::System.Func\u003CIntPtr, IntPtr, uint, IntPtr, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerRenderNode_renderOnce_B24C118F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerRenderNode.TypedPointerRenderNode()",
+      "symbol": "thunk_SwiftBindingsTestLib_6fc559b7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerSample.Id",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_TypedPointerSample_id|SBW_Set_SwiftBindingsTestLib_TypedPointerSample_id"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerSample.TypedPointerSample(int,double)",
+      "symbol": "SBW_SwiftBindingsTestLib_TypedPointerSample_init_A8B91141"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TypedPointerSample.Weight",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_TypedPointerSample_weight|SBW_Set_SwiftBindingsTestLib_TypedPointerSample_weight"
     },
     {
       "module": "SwiftBindingsTestLib",

@@ -506,6 +506,80 @@ public class NestedClosureBridgeTests
         Assert.Contains("innerTrampoline_1_0", swift);
     }
 
+    /// <summary>
+    /// The inner trampoline force-casts the boxed closure back to a plain Swift function type. A
+    /// boxed non-escaping or <c>@Sendable</c> closure does not cast to it (the cast traps the first
+    /// time the callback fires), and the ABI JSON omits <c>@Sendable</c>, so the box site must box a
+    /// forwarding closure of exactly the type the trampoline casts to.
+    /// </summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void TryEmit_InnerClosureIsBoxedAsTheTypeTheTrampolineCastsTo(int innerArgCount)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        var innerArgs = new List<TypeSpec>();
+        for (int i = 0; i < innerArgCount; i++)
+            innerArgs.Add(new NamedTypeSpec(i == 0 ? "Swift.Int32" : "Swift.Bool"));
+        var innerClosure = new ClosureTypeSpec(new TupleTypeSpec(innerArgs), new NamedTypeSpec("Swift.Int"));
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32"), innerClosure }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "body");
+        var env = new MethodEnvironment(method, typeDatabase);
+        var swiftOutput = new StringWriter();
+        Assert.True(NestedClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput), env, parentDecl));
+        var swift = swiftOutput.ToString();
+
+        var cast = System.Text.RegularExpressions.Regex.Match(swift, @"takeUnretainedValue\(\) as! (?<type>.+)$",
+            System.Text.RegularExpressions.RegexOptions.Multiline);
+        Assert.True(cast.Success, swift);
+        var castType = cast.Groups["type"].Value.TrimEnd();
+        var forwarded = string.Join(", ", System.Linq.Enumerable.Range(0, innerArgCount).Select(a => $"${a}"));
+        Assert.Contains($"passRetained(({{ __op1({forwarded}) }} as {castType}) as Swift.AnyObject)", swift);
+    }
+
+    /// <summary>
+    /// A pointer the inner closure takes crosses its C slot as a raw pointer (typed) or as itself
+    /// (raw); the trampoline rebinds a typed pointer to its pointee and never treats either as an
+    /// object reference, which does not compile for a pointer.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.UnsafePointer", "Swift.UnsafePointer((__ip0).assumingMemoryBound(to: Swift.Int32.self))")]
+    [InlineData("Swift.UnsafeMutablePointer", "(__ip0).assumingMemoryBound(to: Swift.Int32.self)")]
+    [InlineData("Swift.UnsafeRawPointer", "innerClosure(__ip0)")]
+    public void TryEmit_InnerClosurePointerArgument_ConvertsFromTheCSlot(string pointer, string expected)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("DataRequest", moduleDecl);
+
+        TypeSpec pointerType = pointer == "Swift.UnsafeRawPointer"
+            ? new NamedTypeSpec(pointer)
+            : new NamedTypeSpec(pointer, new NamedTypeSpec("Swift.Int32"));
+        var innerClosure = new ClosureTypeSpec(new TupleTypeSpec(new[] { pointerType }), TupleTypeSpec.Empty);
+        var outerClosureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32"), innerClosure }),
+            TupleTypeSpec.Empty);
+
+        var method = CreateMethodDecl("onEvent", parentDecl, moduleDecl,
+            TupleTypeSpec.Empty, outerClosureType, "body");
+        Assert.True(NestedClosureBridge.IsEligible(method, new ClosureHandler(typeDatabase), typeDatabase));
+        var swiftOutput = new StringWriter();
+        Assert.True(NestedClosureBridge.TryEmit(new CSharpWriter(new StringWriter()), new SwiftWriter(swiftOutput),
+            new MethodEnvironment(method, typeDatabase), parentDecl));
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains(expected, swift);
+        Assert.DoesNotContain("fromOpaque(__ip0)", swift);
+    }
+
     [Fact]
     public void IsEligible_InnerClosureWithPrimitiveReturn_ReturnsTrue()
     {

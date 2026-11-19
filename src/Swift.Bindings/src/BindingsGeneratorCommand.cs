@@ -1260,22 +1260,48 @@ public static class BindingsGeneratorCommand
         // verify-recover covers the simulator slice, and a device-only failure still fails the build closed
         // through the unchanged post-loop compile.
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? verifyRecoverCompile = null;
-        if (shouldCompileWrapper && resolution != null &&
-            (wrapperArchitectures?.ToLowerInvariant() ?? "simulator") == "simulator")
+        // The SDK's two-pass flow: this pass only renders the wrapper (--skip-wrapper-compilation) and
+        // _CompileSwiftWrapper compiles it later. Without a loop here, one member whose wrapper does not
+        // compile fails that later compile, and with it the whole package (SWIFTBIND051), where the
+        // repository path withdraws the member and reports it. So this pass runs the same Swift-plane
+        // loop against a probe compile of the primary slice, built in a scratch directory from a copy of
+        // the rendered sources: the loop settles the on-disk source exactly as it does in the repository
+        // path, and nothing the probe builds lands in the SDK's intermediate directory, so the later
+        // compile, its fingerprint and the consumer metadata see only the settled source. The C# plane
+        // stays off here: the consuming project's own compile grades the C#. The probe compiles the
+        // platform's primary slice (SwiftWrapperCompiler.Compile: the simulator where the platform has
+        // one), so it runs only when the resolved slice is that slice and the deferred compile builds it
+        // too; a device-only resolution or a device-only wrapper keeps the deferred compile as its only
+        // grade.
+        var sdkDeferredWrapperProbe = skipWrapperCompilation && sdkMode && wouldCompileWrapper
+            && resolution != null && xcframeworkPath != null
+            && DeferredCompileBuildsProbeSlice(platformInfo.HasSimulatorVariant, resolution.IsSimulatorSlice, wrapperArchNormalized);
+        if ((shouldCompileWrapper && resolution != null && wrapperArchNormalized == "simulator")
+            || sdkDeferredWrapperProbe)
         {
-            var loopResolution = resolution;
+            var loopResolution = resolution!;
+            // The dependency search paths of the slice the loop compiles. A platform without a simulator
+            // (macOS, Mac Catalyst) resolves its dependencies on the device side, as CompileAll's primary
+            // compile reads them.
+            var loopOnSimulator = platformInfo.HasSimulatorVariant;
             var loopSimDepPaths = resolvedDependencies?
-                .Where(d => d.SimulatorFrameworkSearchPath != null)
-                .Select(d => d.SimulatorFrameworkSearchPath!)
+                .Select(d => loopOnSimulator ? d.SimulatorFrameworkSearchPath : d.DeviceFrameworkSearchPath)
+                .Where(path => path != null)
+                .Select(path => path!)
                 .ToList();
             loopSimDepPaths = XCFrameworkResolver.MergeWrapperDependencySearchPaths(
-                loopSimDepPaths, xcframeworkPath!, XCFrameworkPlatformTarget.Simulator, logger, platformInfo);
+                loopSimDepPaths, xcframeworkPath!,
+                loopOnSimulator ? XCFrameworkPlatformTarget.Simulator : XCFrameworkPlatformTarget.Device,
+                logger, platformInfo);
+            // The dependency collision list the same compile patches with. Only an explicit device-only
+            // wrapper compiles that platform's primary slice against the device list.
+            var loopDeviceCollisions = !loopOnSimulator && wrapperArchNormalized == "device";
 
-            verifyRecoverCompile = req =>
+            WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory)
             {
                 var collector = new WrapperSliceCollector();
                 var result = SwiftWrapperCompiler.Compile(
-                    req.OutputDirectory, loopResolution.ModuleName,
+                    compileDirectory, loopResolution.ModuleName,
                     loopResolution.FrameworkSearchPath, loopResolution.DylibPath, logger,
                     internalTypeNames: req.InternalTypeNames,
                     additionalFrameworkSearchPaths: loopSimDepPaths,
@@ -1285,12 +1311,18 @@ public static class BindingsGeneratorCommand
                     swiftInterfacePath: loopResolution.SwiftInterfacePath,
                     skipThunkCompilation: skipThunkCompilation,
                     resolvedArchitecture: loopResolution.SelectedArchitecture,
-                    depModuleNamesForCollision: req.DepModuleCollisions.Simulator,
+                    depModuleNamesForCollision: loopDeviceCollisions
+                        ? req.DepModuleCollisions.Device
+                        : req.DepModuleCollisions.Simulator,
                     linkFrameworks: linkFrameworks,
                     linkLibraries: linkLibraries,
                     collector: collector);
                 return collector.ToDiagnostics(result);
-            };
+            }
+
+            verifyRecoverCompile = sdkDeferredWrapperProbe
+                ? req => SdkWrapperProbe.Run(req, CompilePrimarySlice, logger)
+                : req => CompilePrimarySlice(req, req.OutputDirectory);
         }
         else if (directLoopMode)
         {
@@ -1376,7 +1408,7 @@ public static class BindingsGeneratorCommand
         // writes; null whenever no C# leg runs.
         string? csharpVerificationCsprojPath = null;
         if (CanVerifyCSharpInLoop(
-                verifyRecoverCompile != null || directLoopMode,
+                (verifyRecoverCompile != null && !sdkDeferredWrapperProbe) || directLoopMode,
                 noVerifyCSharp, mixedObjcResolution, mixedBridgeRecords))
         {
             // Both modes verify the same artifact — the emitted C# for this module, built through the
@@ -3464,6 +3496,17 @@ public static class BindingsGeneratorCommand
         /// <summary>An explicitly requested architecture is absent from the source slice (SWIFTBIND052).</summary>
         UnsatisfiableRequest,
     }
+
+    /// <summary>
+    /// Whether the SDK's deferred wrapper compile builds the slice the render pass's probe compiles —
+    /// the platform's primary slice, the simulator where the platform has one. The probe grades only
+    /// that slice, so it may withdraw members only when the shipped wrapper is built from it too: a
+    /// device-resolved framework or a device-only wrapper (<c>--wrapper-architectures device</c>) on
+    /// a platform with a simulator is graded by the deferred compile alone.
+    /// </summary>
+    internal static bool DeferredCompileBuildsProbeSlice(
+        bool platformHasSimulator, bool resolvedSimulatorSlice, string wrapperArchitectures) =>
+        !platformHasSimulator || (resolvedSimulatorSlice && wrapperArchitectures != "device");
 
     /// <summary>
     /// The direct-mode wrapper CPU-arch decision: which architecture the wrapper's PRIMARY compile
