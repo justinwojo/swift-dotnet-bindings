@@ -31,7 +31,8 @@ A full validate (no `--filter`, `--tier` or `--quick`) writes `surface-capture.j
 `surface-evidence/`. The capture holds the source commit and dirty state (read before and after
 the run), the toolchain identity (toolchain profile, `xcodebuild -version`, `swiftc --version`,
 `dotnet --version`), the input lock (a tree hash of every `.libraries` xcframework a target
-generated from), and, per target, the output-tree hash and the generation, C# compile and Swift
+generated from, and of every xcframework beside it in the same library directory, since validate
+hands the generator the siblings a target reaches through its imports), and, per target, the output-tree hash and the generation, C# compile and Swift
 compile results validate recorded, plus the SDK, architecture and triple it generated against.
 Paths in the capture are relative to the output base, so a copied output base stays valid.
 Any later validate run deletes the capture from its output base before regenerating.
@@ -42,14 +43,31 @@ is the live `build/validation-libraries.json` and its SHA-256 now, the roster is
 the tip capture is the one this invocation's validate wrote. `--surface-request <file>` instead
 reads an externally built request (all request paths resolve relative to the request file); exactly
 one of the two must be given. Either way the request must name the live manifest's SHA-256 and
-contain exactly its expanded targets with the same metadata; the library, module and target counts
-are logged, not fixed.
+contain exactly its expanded targets with the same metadata, surface lane and platform preprocessor
+symbols; the library, module and target counts are logged, not fixed.
+
+Each target is parsed with its platform's preprocessor symbols (the workload's `__UNIFIED__`,
+`__MOBILE__`, `__IOS__`/`__TVOS__`/`__MACCATALYST__`/`__MACOS__`, `__IOS__` on Mac Catalyst too, and
+the SDK's platform identifier), so platform-gated public API is accounted where the binding compiles
+it. A target the manifest declares pure Objective-C (an empty `verificationPlanes`, the predicate
+validate's withdrawal qualification uses) is on the `objc-api-definition` lane: it has no Swift
+surface, so its surface is its bgen API definition (`ObjcBindingApiDefinition`, read with bgen's
+visibility: every declaration public unless `[Internal]`) and core sources (`ObjcBindingCoreSource`),
+and a selector change is a shape change. Its artifact manifest must be the explicit pure-ObjC result
+validate requires, and a Swift emission report or API manifest on it makes the target incomplete.
+Every other target is `swift-managed` and still needs a complete artifact manifest and an API
+manifest. Bgen inputs are read for every target, so a mixed target's ObjC companion is inventoried
+too; API-definition members never join the Swift API manifest.
 
 The receipt is recorded only when the comparison is complete and:
 
 - the request's tip capture is this invocation's validate capture, every tip target directory is
-  this invocation's output base, and each target tree, re-hashed at record time, still matches the
-  hash validate captured;
+  this invocation's output base, and every target tree of this invocation's validate, re-hashed at
+  record time, still matches the hash validate captured;
+- each capture's labels agree with the hashed records validate wrote beside it: the source commit
+  (HEAD at start and end), capture ID, toolchain and input lock in `validate-run.json`, and each
+  target stage's verdict and output-tree hash in its command record. An old side relabelled as the
+  baseline's source is refused even when every record still matches its hash;
 - the old capture's source commit starts with the baseline's `git_sha`. If it does not (the
   baseline's `git_sha` predates this procedure, or the baseline was edited by hand), the target
   refuses unless `--surface-bootstrap-justification "<why>"` is given; the receipt is then recorded

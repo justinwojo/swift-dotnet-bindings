@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Text.RegularExpressions;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
@@ -20,6 +21,15 @@ public sealed record SurfaceSyntaxScanResult(
 
 public static class SurfaceSyntaxScanner
 {
+    // Syntax trees parsed from an Objective-C API definition (bgen input). bgen turns every
+    // top-level declaration of such a file into a public type unless it is marked [Internal].
+    private static readonly ConditionalWeakTable<SyntaxTree, object> ApiDefinitionTrees = new();
+
+    /// <param name="apiDefinitionFiles">
+    /// The subset of <paramref name="sourceFiles"/> that are Objective-C API definitions
+    /// (<c>ObjcBindingApiDefinition</c> items). Their declarations carry no access modifiers; bgen
+    /// generates the public surface from them, so they are read with bgen's visibility.
+    /// </param>
     public static SurfaceSyntaxScanResult Scan(
         string captureId,
         SurfaceTargetKey targetKey,
@@ -27,8 +37,10 @@ public static class SurfaceSyntaxScanner
         string module,
         IReadOnlyList<string> sourceFiles,
         IReadOnlyList<string>? preprocessorSymbols = null,
-        string? evidenceRoot = null)
+        string? evidenceRoot = null,
+        IReadOnlyCollection<string>? apiDefinitionFiles = null)
     {
+        var apiDefinitions = (apiDefinitionFiles ?? []).Select(Path.GetFullPath).ToHashSet(StringComparer.Ordinal);
         var parseOptions = new CSharpParseOptions(
             LanguageVersion.Preview,
             preprocessorSymbols: preprocessorSymbols ?? []);
@@ -40,6 +52,8 @@ public static class SurfaceSyntaxScanner
         {
             var text = File.ReadAllText(path);
             var tree = CSharpSyntaxTree.ParseText(text, parseOptions, path);
+            if (apiDefinitions.Contains(Path.GetFullPath(path)))
+                ApiDefinitionTrees.AddOrUpdate(tree, ApiDefinitionMarker);
             return (Path: path, Tree: tree, Root: tree.GetCompilationUnitRoot());
         }).ToList();
         var compilation = CSharpCompilation.Create(
@@ -881,8 +895,25 @@ public static class SurfaceSyntaxScanner
         };
     }
 
+    private static readonly object ApiDefinitionMarker = new();
+
+    private static bool IsApiDefinition(SyntaxNode node)
+        => ApiDefinitionTrees.TryGetValue(node.SyntaxTree, out _);
+
+    // bgen's [Internal] keeps a declaration out of the generated public surface.
+    private static bool IsBgenInternal(MemberDeclarationSyntax member)
+        => member.AttributeLists.SelectMany(list => list.Attributes)
+            .Select(attribute => attribute.Name.ToString())
+            .Any(name => name is "Internal" or "InternalAttribute"
+                || name.EndsWith(".Internal", StringComparison.Ordinal)
+                || name.EndsWith(".InternalAttribute", StringComparison.Ordinal));
+
     private static bool IsConsumerVisible(SyntaxNode node)
     {
+        if (IsApiDefinition(node)
+            && (node is MemberDeclarationSyntax self && IsBgenInternal(self)
+                || node.Ancestors().OfType<BaseTypeDeclarationSyntax>().Any(IsBgenInternal)))
+            return false;
         if (node is EnumMemberDeclarationSyntax)
             return node.Ancestors().OfType<EnumDeclarationSyntax>().All(IsConsumerVisible);
         if (node is not MemberDeclarationSyntax member) return false;
@@ -913,7 +944,12 @@ public static class SurfaceSyntaxScanner
         var inInterface = member.Parent is InterfaceDeclarationSyntax;
         var isTopLevelType = member is BaseTypeDeclarationSyntax or DelegateDeclarationSyntax
             && member.Parent is CompilationUnitSyntax or BaseNamespaceDeclarationSyntax;
-        return GetAccessibility(member.GetModifiers(), isTopLevelType, inInterface);
+        var accessibility = GetAccessibility(member.GetModifiers(), isTopLevelType, inInterface);
+        // An API definition declares its types without modifiers; bgen emits each as public.
+        if (isTopLevelType && accessibility == "internal" && IsApiDefinition(member)
+            && !HasModifier(member.GetModifiers(), SyntaxKind.InternalKeyword))
+            return "public";
+        return accessibility;
     }
 
     private static string GetAccessibility(

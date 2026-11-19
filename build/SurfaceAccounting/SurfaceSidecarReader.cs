@@ -38,7 +38,13 @@ public sealed record SurfaceSidecarResult(
 
 public static class SurfaceSidecarReader
 {
-    public static SurfaceSidecarResult Read(string targetDirectory)
+    /// <param name="pureObjCModule">
+    /// The module of a roster target declared pure Objective-C (no verification planes). Such a
+    /// target runs no Swift generation phase: its artifact manifest must be the explicit pure-ObjC
+    /// result validate itself requires, and it must carry no Swift emission report and no API
+    /// manifest. Null for every other target, whose artifact manifest must be complete.
+    /// </param>
+    public static SurfaceSidecarResult Read(string targetDirectory, string? pureObjCModule = null)
     {
         var reportPath = Path.Combine(targetDirectory, "binding-report.json");
         var emissionPath = Path.Combine(targetDirectory, "binding-emission-report.json");
@@ -82,7 +88,12 @@ public static class SurfaceSidecarReader
         }
 
         var withdrawn = new List<(string Display, SurfaceFileReference Evidence)>();
-        if (File.Exists(emissionPath))
+        if (pureObjCModule is not null)
+        {
+            if (File.Exists(emissionPath))
+                errors.Add("pure-ObjC target has a Swift binding-emission-report.json");
+        }
+        else if (File.Exists(emissionPath))
         {
             using var emission = SurfaceCanonicalJson.ParseStrictFile(emissionPath);
             var root = emission.RootElement;
@@ -118,7 +129,18 @@ public static class SurfaceSidecarReader
             var schema = RequiredInt(root, "SchemaVersion", artifactPath);
             if (schema != 3) errors.Add($"unsupported binding-artifact-manifest schema {schema}");
             var status = RequiredString(root, "Status", artifactPath);
-            if (!string.Equals(status, "Complete", StringComparison.Ordinal))
+            if (pureObjCModule is not null)
+            {
+                try
+                {
+                    WithdrawalGate.RequirePureObjCManifest(artifactPath, pureObjCModule);
+                }
+                catch (InvalidDataException ex)
+                {
+                    errors.Add(ex.Message);
+                }
+            }
+            else if (!string.Equals(status, "Complete", StringComparison.Ordinal))
                 errors.Add($"binding-artifact-manifest status is '{status}'");
             var artifactModule = RequiredString(root, "Module", artifactPath);
             if (module.Length == 0) module = artifactModule;
@@ -131,6 +153,8 @@ public static class SurfaceSidecarReader
         }
 
         var manifestRows = ReadApiManifests(targetDirectory, module, errors, out var manifestFileCount);
+        if (pureObjCModule is not null && manifestFileCount > 0)
+            errors.Add("pure-ObjC target has a Swift API manifest");
         return new SurfaceSidecarResult(module, manifestRows, skipped, withdrawn, counters, errors, manifestFileCount);
     }
 

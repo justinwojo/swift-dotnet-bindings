@@ -3,11 +3,16 @@
 
 #nullable enable
 
+// Reflection JSON is fine in the Nuke host; the unit-test project link-compiles this file
+// under its AOT analyzers.
+#pragma warning disable IL2026, IL3050
+
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 
 /// <summary>The checkout state <c>nuke validate</c> read: HEAD, <c>git status --porcelain</c> and <c>git diff HEAD</c>.</summary>
 public sealed record SurfaceSourceState(string? Commit, string Porcelain, string Diff)
@@ -56,6 +61,8 @@ public static class SurfaceCaptureBuilder
     public const string CaptureFileName = "surface-capture.json";
     public const string InputLockFileName = "input-lock.json";
     public const string EvidenceDirectoryName = "surface-evidence";
+    public const string RunRecordRelativePath = EvidenceDirectoryName + "/validate-run.json";
+    public const string RunCommand = "nuke validate";
     private const string UnknownCommit = "0000000000000000000000000000000000000000";
 
     public static SurfaceValidateCapture Write(SurfaceCaptureBuildInput input)
@@ -159,15 +166,16 @@ public static class SurfaceCaptureBuilder
                 target.GeneratorExitCode ?? -1, input.StartedAt, input.FinishedAt));
         }
 
-        var runRelative = $"{EvidenceDirectoryName}/validate-run.json";
-        commands.Add(WriteRecord(outputBase, runRelative, new
+        commands.Add(WriteRecord(outputBase, RunRecordRelativePath, new
         {
+            capture_id = captureId,
             source_at_start = new { start.Commit, start.Porcelain },
             source_at_end = new { end.Commit, end.Porcelain },
             toolchain = input.Toolchain,
+            input_lock_sha256 = inputLockSha,
             manifest_sha256 = input.ManifestSha256,
             run_failures = input.RunFailures,
-        }, "nuke validate", input.RunFailures.Count == 0 ? 0 : 1, input.StartedAt, input.FinishedAt));
+        }, RunCommand, input.RunFailures.Count == 0 ? 0 : 1, input.StartedAt, input.FinishedAt));
 
         var capture = new SurfaceValidateCapture
         {
@@ -194,6 +202,34 @@ public static class SurfaceCaptureBuilder
         };
         File.WriteAllText(Path.Combine(outputBase, CaptureFileName), SurfaceCanonicalJson.Serialize(capture) + "\n");
         return capture;
+    }
+
+    /// <summary>
+    /// The library inputs to lock for a run whose generator read <paramref name="generatorInputs"/>:
+    /// each one under <paramref name="librariesDirectory"/>, and every xcframework beside it. Validate
+    /// also hands the generator the sibling xcframeworks a target reaches through its import graph
+    /// (and its wrapper dependencies), which no target declares, so the lock covers every
+    /// xcframework in each library directory a target generated from.
+    /// </summary>
+    public static IReadOnlyList<SurfaceLibraryInput> LibraryInputs(
+        IEnumerable<string> generatorInputs, string librariesDirectory, string rootDirectory)
+    {
+        var libraries = Path.TrimEndingDirectorySeparator(Path.GetFullPath(librariesDirectory)) + Path.DirectorySeparatorChar;
+        var paths = new SortedSet<string>(StringComparer.Ordinal);
+        foreach (var input in generatorInputs.Select(Path.GetFullPath))
+        {
+            if (!input.StartsWith(libraries, StringComparison.Ordinal)) continue;
+            paths.Add(Path.TrimEndingDirectorySeparator(input));
+            var libraryDirectory = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(input))!;
+            if (Directory.Exists(libraryDirectory))
+                foreach (var sibling in Directory.EnumerateDirectories(libraryDirectory, "*.xcframework"))
+                    paths.Add(Path.GetFullPath(sibling));
+        }
+        return paths.Select(path => new SurfaceLibraryInput(
+                Path.GetFileName(Path.GetDirectoryName(path)!),
+                Path.GetRelativePath(rootDirectory, path).Replace(Path.DirectorySeparatorChar, '/'),
+                path))
+            .ToList();
     }
 
     /// <summary>Reads the capture a validate run wrote into <paramref name="outputBase"/>.</summary>
@@ -229,6 +265,128 @@ public static class SurfaceCaptureBuilder
                 mismatches.Add($"{stage.TargetName}: output tree {actual} differs from validate's {stage.OutputTreeSha256}");
         }
         return mismatches;
+    }
+
+    /// <summary>
+    /// Checks a capture's labels against the hashed records validate wrote beside it, and returns
+    /// one line per disagreement. The capture's source commit, ID, toolchain and input lock must be
+    /// the ones its <c>validate-run.json</c> records (HEAD at start and end), and each target stage
+    /// must be the verdict and output-tree hash its own command record holds. A capture whose labels
+    /// were edited (an old side relabelled as the baseline's source) fails here even when every
+    /// record still matches its hash.
+    /// </summary>
+    public static IReadOnlyList<string> VerifyRecords(SurfaceCaptureRequest capture)
+    {
+        var problems = new List<string>();
+        var runs = capture.Commands.Where(c => string.Equals(c.LogRelativePath, RunRecordRelativePath, StringComparison.Ordinal)).ToList();
+        if (runs.Count != 1 || !string.Equals(runs[0].Command, RunCommand, StringComparison.Ordinal))
+        {
+            problems.Add($"capture '{capture.CaptureId}' does not hold exactly one `{RunCommand}` record at {RunRecordRelativePath}");
+            return problems;
+        }
+        using (var run = ReadRecord(capture, runs[0], problems))
+        {
+            if (run is not null)
+            {
+                var root = run.RootElement;
+                var startCommit = Text(root, "source_at_start", "commit");
+                var endCommit = Text(root, "source_at_end", "commit");
+                if (!string.Equals(startCommit, capture.SourceSha, StringComparison.Ordinal)
+                    || !string.Equals(endCommit, capture.SourceSha, StringComparison.Ordinal))
+                    problems.Add($"capture '{capture.CaptureId}' names source {capture.SourceSha}, its validate record ran at " +
+                        $"{startCommit ?? "<none>"} (start) and {endCommit ?? "<none>"} (end)");
+                if (!string.Equals(Text(root, "capture_id"), capture.CaptureId, StringComparison.Ordinal))
+                    problems.Add($"capture '{capture.CaptureId}' is not the capture its validate record names ({Text(root, "capture_id") ?? "<none>"})");
+                if (!string.Equals(Text(root, "input_lock_sha256"), capture.InputLockSha256, StringComparison.Ordinal))
+                    problems.Add($"capture '{capture.CaptureId}' input lock differs from its validate record");
+                string? toolchainSha = null;
+                if (root.TryGetProperty("toolchain", out var toolchain) && toolchain.ValueKind == JsonValueKind.Object)
+                {
+                    try
+                    {
+                        var identity = toolchain.Deserialize<SurfaceToolchainIdentity>(SurfaceCanonicalJson.OutputOptions);
+                        toolchainSha = identity is null ? null : SurfaceCanonicalJson.Hash(identity);
+                    }
+                    catch (JsonException) { }
+                }
+                if (!string.Equals(toolchainSha, capture.ToolchainSha256, StringComparison.Ordinal))
+                    problems.Add($"capture '{capture.CaptureId}' toolchain differs from its validate record");
+            }
+        }
+
+        foreach (var stage in capture.TargetStages)
+        {
+            var relative = $"{EvidenceDirectoryName}/commands/{stage.TargetName}.json";
+            var records = capture.Commands.Where(c => string.Equals(c.LogRelativePath, relative, StringComparison.Ordinal)).ToList();
+            if (records.Count != 1)
+            {
+                problems.Add($"capture '{capture.CaptureId}' target '{stage.TargetName}' has no single command record at {relative}");
+                continue;
+            }
+            using var record = ReadRecord(capture, records[0], problems);
+            if (record is null) continue;
+            SurfaceValidateTargetResult? result = null;
+            try
+            {
+                var root = record.RootElement;
+                result = new SurfaceValidateTargetResult(
+                    Text(root, "target") ?? "",
+                    root.GetProperty("provenance").Deserialize<SurfaceCaptureTargetProvenance>(SurfaceCanonicalJson.OutputOptions)!,
+                    Text(root, "generation") ?? "",
+                    root.GetProperty("generator_exit_code").ValueKind == JsonValueKind.Number
+                        ? root.GetProperty("generator_exit_code").GetInt32() : null,
+                    Text(root, "compile") ?? "",
+                    Text(root, "dep_compile"),
+                    Text(root, "swift_compile") ?? "",
+                    root.GetProperty("errors").GetInt32(),
+                    root.GetProperty("lines").GetInt32());
+            }
+            catch (Exception ex) when (ex is KeyNotFoundException or InvalidOperationException or JsonException)
+            {
+                problems.Add($"capture '{capture.CaptureId}' target '{stage.TargetName}' command record is malformed: {ex.Message}");
+            }
+            if (result is null) continue;
+            if (!string.Equals(result.TargetName, stage.TargetName, StringComparison.Ordinal)
+                || !string.Equals(Text(record.RootElement, "output_tree_sha256"), stage.OutputTreeSha256, StringComparison.Ordinal)
+                || Stages(result) != (stage.Generation, stage.CSharpCompile, stage.SwiftCompile))
+                problems.Add($"capture '{capture.CaptureId}' target '{stage.TargetName}' stage receipt differs from its command record");
+        }
+        return problems;
+    }
+
+    private static JsonDocument? ReadRecord(SurfaceCaptureRequest capture, SurfaceCommandReceipt command, List<string> problems)
+    {
+        var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(capture.EvidenceDirectory));
+        var path = Path.GetFullPath(Path.Combine(root, command.LogRelativePath));
+        if (!path.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal) || !File.Exists(path))
+        {
+            problems.Add($"capture '{capture.CaptureId}' record {command.LogRelativePath} is missing");
+            return null;
+        }
+        if (!string.Equals(SurfaceCanonicalJson.Sha256File(path), command.LogSha256, StringComparison.Ordinal))
+        {
+            problems.Add($"capture '{capture.CaptureId}' record {command.LogRelativePath} differs from its hash");
+            return null;
+        }
+        try
+        {
+            return SurfaceCanonicalJson.ParseStrictFile(path);
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidDataException)
+        {
+            problems.Add($"capture '{capture.CaptureId}' record {command.LogRelativePath} is not valid JSON: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static string? Text(JsonElement element, params string[] path)
+    {
+        foreach (var name in path)
+        {
+            if (element.ValueKind != JsonValueKind.Object || !element.TryGetProperty(name, out element))
+                return null;
+        }
+        return element.ValueKind == JsonValueKind.String ? element.GetString() : null;
     }
 
     /// <summary>Maps validate's status vocabulary onto the stage receipt's.</summary>

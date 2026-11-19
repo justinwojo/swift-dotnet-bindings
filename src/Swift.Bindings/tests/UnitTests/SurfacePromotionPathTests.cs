@@ -126,6 +126,24 @@ public class SurfacePromotionPathTests
         Assert.NotEqual(old.Capture.InputLockSha256, changed.Capture.InputLockSha256);
     }
 
+    [Fact]
+    public void Capture_InputLockCoversSiblingXcframeworksNoTargetDeclares()
+    {
+        using var fixture = new PromotionPathFixture();
+        var sibling = Path.Combine(fixture.Root, ".libraries", "TestLibrary", "Support.xcframework");
+        Directory.CreateDirectory(sibling);
+        File.WriteAllText(Path.Combine(sibling, "Info.plist"), "support");
+        var librariesDir = Path.Combine(fixture.Root, ".libraries");
+
+        var inputs = SurfaceCaptureBuilder.LibraryInputs([fixture.InputDirectory], librariesDir, fixture.Root);
+
+        Assert.Equal(
+            [".libraries/TestLibrary/Support.xcframework", ".libraries/TestLibrary/TestModule.xcframework"],
+            inputs.Select(i => i.RelativePath));
+        Assert.All(inputs, i => Assert.Equal("TestLibrary", i.Library));
+        Assert.Empty(SurfaceCaptureBuilder.LibraryInputs([Path.Combine(fixture.Root, "elsewhere", "X.xcframework")], librariesDir, fixture.Root));
+    }
+
     // --- Request builder ---
 
     [Fact]
@@ -210,6 +228,172 @@ public class SurfacePromotionPathTests
         var error = Assert.Throws<InvalidDataException>(() =>
             SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip));
         Assert.Contains(".libraries/TestLibrary/TestModule.xcframework", error.Message, StringComparison.Ordinal);
+    }
+
+    // --- Pure-ObjC roster targets ---
+
+    [Fact]
+    public void PureObjC_TargetIsComparedThroughItsApiDefinition()
+    {
+        using var fixture = new PromotionPathFixture(pureObjC: true);
+        fixture.WriteCapture(fixture.OldBase, OldCommit);
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit);
+
+        var request = SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip);
+        Assert.Equal(SurfaceLanes.ObjCApiDefinition,
+            request.Targets.Single(t => t.Key.TargetName == PromotionPathFixture.ObjCTarget).SurfaceLane);
+        Assert.All(request.Targets.Where(t => t.Key.TargetName != PromotionPathFixture.ObjCTarget),
+            t => Assert.Equal(SurfaceLanes.SwiftManaged, t.SurfaceLane));
+        SurfaceRequestBuilder.ValidateLiveRoster(request, fixture.ManifestPath);
+
+        var result = SurfaceAccountingEngine.Analyze(request);
+
+        Assert.True(result.Comparison.Summary.Complete);
+        Assert.Equal(3, result.Comparison.Summary.ComparableTargets);
+        var coverage = result.Tip.Coverage.Single(c => c.TargetKey.TargetName == PromotionPathFixture.ObjCTarget);
+        Assert.Empty(coverage.Errors);
+        var members = result.Tip.Members.Where(m => m.TargetKey.TargetName == PromotionPathFixture.ObjCTarget)
+            .Select(m => m.PublicKey.Display).ToList();
+        Assert.Contains(members, d => d.Contains("Widget", StringComparison.Ordinal) && d.Contains("Spin", StringComparison.Ordinal));
+        Assert.Contains(members, d => d.Contains("WidgetKind", StringComparison.Ordinal) && d.Contains("Fancy", StringComparison.Ordinal));
+        Assert.DoesNotContain(members, d => d.Contains("Secret", StringComparison.Ordinal) || d.Contains("Hidden", StringComparison.Ordinal));
+        Assert.DoesNotContain(members, d => d.Contains("Generated", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PureObjC_ApiDefinitionChangesAreAccounted()
+    {
+        using var fixture = new PromotionPathFixture(pureObjC: true);
+        fixture.WriteCapture(fixture.OldBase, OldCommit);
+        var changed = ObjCApiDefinition
+            .Replace("[Export(\"spin:\")]", "[Export(\"spinTimes:\")]", StringComparison.Ordinal)
+            .Replace("[Export(\"name\")] string Name { get; set; }", "", StringComparison.Ordinal);
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit, objCApiDefinition: changed);
+
+        var result = SurfaceAccountingEngine.Analyze(
+            SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip));
+
+        var summary = result.Comparison.Summary;
+        Assert.True(summary.Complete);
+        Assert.Equal(1, summary.PublicRemovals);
+        Assert.Equal(1, summary.ShapeChanges);
+        Assert.All(result.Comparison.Changes, c => Assert.Equal(PromotionPathFixture.ObjCTarget, c.TargetKey.TargetName));
+    }
+
+    [Theory]
+    [InlineData("emission-report", "binding-emission-report.json")]
+    [InlineData("api-manifest", "Swift API manifest")]
+    [InlineData("complete-status", "pure-ObjC")]
+    public void PureObjC_TargetWithSwiftEvidenceIsNotComparable(string variant, string expectedError)
+    {
+        using var fixture = new PromotionPathFixture(pureObjC: true);
+        fixture.WriteCapture(fixture.OldBase, OldCommit);
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit);
+        var directory = Path.Combine(fixture.TipBase, PromotionPathFixture.ObjCTarget);
+        switch (variant)
+        {
+            case "emission-report":
+                File.WriteAllText(Path.Combine(directory, "binding-emission-report.json"), "{\"module\":\"ObjCModule\",\"withdrawnUnits\":[]}");
+                break;
+            case "api-manifest":
+                File.WriteAllText(Path.Combine(directory, "ObjCModule.api-manifest.json"), "{\"schema_version\":1,\"module\":\"ObjCModule\",\"members\":[]}");
+                break;
+            default:
+                File.WriteAllText(Path.Combine(directory, "binding-artifact-manifest.json"), PureObjCArtifactManifest("Complete"));
+                break;
+        }
+        var request = SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip);
+        request = request with
+        {
+            TipCapture = request.TipCapture with
+            {
+                TargetStages = request.TipCapture.TargetStages.Select(s => s.TargetName == PromotionPathFixture.ObjCTarget
+                    ? s with { OutputTreeSha256 = SurfaceAccountingEngine.HashDirectoryTree(directory) } : s).ToList(),
+            },
+        };
+
+        var result = SurfaceAccountingEngine.Analyze(request);
+
+        Assert.False(result.Comparison.Summary.Complete);
+        var coverage = result.Tip.Coverage.Single(c => c.TargetKey.TargetName == PromotionPathFixture.ObjCTarget);
+        Assert.Contains(coverage.Errors, e => e.Contains(expectedError, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void PureObjC_SwiftTargetWithThePureObjCArtifactIsNotComparable()
+    {
+        using var fixture = new PromotionPathFixture(pureObjC: true);
+        fixture.WriteCapture(fixture.OldBase, OldCommit);
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit);
+        var request = SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip);
+        // The ObjC target read as Swift-managed: its Partial artifact and missing API manifest stay errors.
+        request = request with
+        {
+            Targets = request.Targets.Select(t => t.Key.TargetName == PromotionPathFixture.ObjCTarget
+                ? t with { SurfaceLane = SurfaceLanes.SwiftManaged } : t).ToList(),
+        };
+
+        var result = SurfaceAccountingEngine.Analyze(request);
+
+        Assert.False(result.Comparison.Summary.Complete);
+        var errors = result.Tip.Coverage.Single(c => c.TargetKey.TargetName == PromotionPathFixture.ObjCTarget).Errors;
+        Assert.Contains(errors, e => e.Contains("status is 'Partial'", StringComparison.Ordinal));
+        Assert.Contains(errors, e => e.Contains("missing API manifest", StringComparison.Ordinal));
+        Assert.Throws<InvalidDataException>(() => SurfaceRequestBuilder.ValidateLiveRoster(request, fixture.ManifestPath));
+    }
+
+    [Fact]
+    public void LiveRoster_PureObjCTargetsAreOnTheApiDefinitionLane()
+    {
+        var request = LiveManifestRequest(out var manifestPath);
+        var objc = request.Targets.Where(t => t.SurfaceLane == SurfaceLanes.ObjCApiDefinition).ToList();
+        Assert.NotEmpty(objc);
+
+        var relabelled = request with
+        {
+            Targets = request.Targets.Select(t => t.Key.TargetName == objc[0].Key.TargetName
+                ? t with { SurfaceLane = SurfaceLanes.SwiftManaged } : t).ToList(),
+        };
+        var error = Assert.Throws<InvalidDataException>(() => SurfaceRequestBuilder.ValidateLiveRoster(relabelled, manifestPath));
+        Assert.Contains(objc[0].Key.TargetName, error.Message, StringComparison.Ordinal);
+    }
+
+    // --- Platform-gated public API ---
+
+    [Fact]
+    public void Request_PlatformGatedApiIsAccountedOnThePlatformsThatCompileIt()
+    {
+        using var fixture = new PromotionPathFixture();
+        const string Gated = "public class C { public void M() { }\n#if __IOS__ || __TVOS__ || __MACCATALYST__\npublic void Mobile() { }\n#endif\n}";
+        fixture.WriteCapture(fixture.OldBase, OldCommit, source: Gated);
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit);
+
+        var request = SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip);
+        var result = SurfaceAccountingEngine.Analyze(request);
+
+        var removal = Assert.Single(result.Comparison.Changes, c => c.Classification == "removal");
+        Assert.Equal("TestModule", removal.TargetKey.TargetName);
+        Assert.Contains("__IOS__", request.Targets.Single(t => t.Key.TargetName == "TestModule").PreprocessorSymbols);
+        Assert.DoesNotContain("__IOS__", request.Targets.Single(t => t.Key.TargetName == "TestModule@macos").PreprocessorSymbols);
+    }
+
+    [Theory]
+    [InlineData("ios", "__IOS__")]
+    [InlineData("tvos", "__TVOS__")]
+    [InlineData("maccatalyst", "__MACCATALYST__")]
+    [InlineData("maccatalyst", "__IOS__")]
+    [InlineData("macos", "__MACOS__")]
+    public void Request_PlatformSymbolsMatchTheWorkload(string platform, string symbol)
+        => Assert.Contains(symbol, SurfaceLanes.PreprocessorSymbols(platform));
+
+    [Fact]
+    public void LiveRoster_RejectsATargetWithoutItsPlatformSymbols()
+    {
+        var request = LiveManifestRequest(out var manifestPath);
+        request = request with { Targets = [request.Targets[0] with { PreprocessorSymbols = [] }, .. request.Targets.Skip(1)] };
+
+        var error = Assert.Throws<InvalidDataException>(() => SurfaceRequestBuilder.ValidateLiveRoster(request, manifestPath));
+        Assert.Contains("differs from the live manifest", error.Message, StringComparison.Ordinal);
     }
 
     // --- Live manifest roster (no frozen constants) ---
@@ -351,6 +535,70 @@ public class SurfacePromotionPathTests
         Assert.Equal((OldCommit, "first formal promotion"), (decision.BootstrapOldSource, decision.BootstrapJustification));
     }
 
+    [Fact]
+    public void Receipt_OldCaptureRelabelledAsTheBaselineSourceIsRefused()
+    {
+        using var fixture = new PromotionPathFixture();
+        var (request, tip) = fixture.Request();
+        const string BaselineCommit = "3333333333333333333333333333333333333333";
+        request = request with
+        {
+            OldCapture = request.OldCapture with
+            {
+                SourceSha = BaselineCommit,
+                TargetStages = request.OldCapture.TargetStages.Select(s => s with { SourceSha = BaselineCommit }).ToList(),
+            },
+        };
+        SurfaceAccountingEngine.Analyze(request);
+
+        var decision = SurfacePromotionReceipt.Decide(request, tip, fixture.TipBase, BaselineCommit[..9], null);
+
+        Assert.Equal(SurfaceReceiptVerdict.Refused, decision.Verdict);
+        Assert.Contains(OldCommit, decision.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Receipt_OldStageVerdictThatDisagreesWithItsCommandRecordIsRefused()
+    {
+        using var fixture = new PromotionPathFixture();
+        fixture.WriteCapture(fixture.OldBase, OldCommit, failing: ("ok", 0, "known_errors", "ok"));
+        // A hand-edited copy marks the old capture complete and the target's C# as compiled.
+        var path = Path.Combine(fixture.OldBase, SurfaceCaptureBuilder.CaptureFileName);
+        var edited = SurfaceCaptureBuilder.Read(fixture.OldBase);
+        edited = edited with
+        {
+            Capture = edited.Capture with
+            {
+                Complete = true,
+                IncompletenessReasons = [],
+                TargetStages = edited.Capture.TargetStages
+                    .Select(s => s with { CSharpCompile = "success", Reason = null }).ToList(),
+            },
+        };
+        File.WriteAllText(path, SurfaceCanonicalJson.Serialize(edited) + "\n");
+        var tip = fixture.WriteCapture(fixture.TipBase, TipCommit);
+        var request = SurfaceRequestBuilder.Build(fixture.ManifestPath, fixture.OldBase, fixture.TipBase, tip);
+
+        var decision = SurfacePromotionReceipt.Decide(request, tip, fixture.TipBase, OldCommit[..9], null);
+
+        Assert.Equal(SurfaceReceiptVerdict.Refused, decision.Verdict);
+        Assert.Contains("TestModule", decision.Message, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Receipt_InvocationTreeOutsideTheRequestAlteredAfterValidateIsRefused()
+    {
+        using var fixture = new PromotionPathFixture();
+        var (request, tip) = fixture.Request();
+        request = request with { Targets = request.Targets.Where(t => t.Key.TargetName == "TestModule").ToList() };
+        File.AppendAllText(Path.Combine(fixture.TipBase, "TestModule@macos", "TestModule.cs"), "\n// edited after validate\n");
+
+        var decision = SurfacePromotionReceipt.Decide(request, tip, fixture.TipBase, OldCommit[..9], null);
+
+        Assert.Equal(SurfaceReceiptVerdict.Refused, decision.Verdict);
+        Assert.Contains("TestModule@macos", decision.Message, StringComparison.Ordinal);
+    }
+
     [Theory]
     [InlineData("111111111", true)]
     [InlineData("1111111", true)]
@@ -454,6 +702,8 @@ public class SurfacePromotionPathTests
                     Key = new SurfaceTargetKey(t.LibraryName, t.FrameworkModule!, t.Platform, t.Name),
                     OldDirectory = "old/" + t.Name,
                     TipDirectory = "tip/" + t.Name,
+                    SurfaceLane = SurfaceLanes.For(t),
+                    PreprocessorSymbols = SurfaceLanes.PreprocessorSymbols(t.Platform),
                     Mode = t.Mode,
                     Tier = t.Tier,
                     KnownErrors = t.KnownErrors,
@@ -468,11 +718,58 @@ public class SurfacePromotionPathTests
         };
     }
 
-    private static void WriteTree(string directory)
+    private static void WriteTree(string directory, string source = Source)
     {
         Directory.CreateDirectory(directory);
-        SurfaceAccountingTestFixture.WriteTarget(directory, Source, [], []);
+        SurfaceAccountingTestFixture.WriteTarget(directory, source, [], []);
     }
+
+    private const string ObjCApiDefinition = """
+        using Foundation;
+        namespace ObjCModule {
+            [BaseType(typeof(NSObject))]
+            interface Widget {
+                [Export("spin:")] void Spin(nint times);
+                [Export("name")] string Name { get; set; }
+                [Internal, Export("secret")] void Secret();
+            }
+            [Internal]
+            interface Hidden { [Export("x")] void X(); }
+        }
+        """;
+
+    // What the generator writes for a pure-ObjC target: an ObjC binding project over a bgen API
+    // definition and core sources, the ObjC-only artifact manifest and report, and no Swift
+    // emission report or API manifest.
+    private static void WriteObjCTree(string directory, string apiDefinition)
+    {
+        if (Directory.Exists(directory)) Directory.Delete(directory, recursive: true);
+        Directory.CreateDirectory(directory);
+        File.WriteAllText(Path.Combine(directory, "ObjCModule.csproj"), """
+            <Project>
+              <PropertyGroup><EnableDefaultCompileItems>false</EnableDefaultCompileItems></PropertyGroup>
+              <ItemGroup>
+                <ObjcBindingApiDefinition Include="ApiDefinition.cs" />
+                <ObjcBindingCoreSource Include="StructsAndEnums.cs" Condition="Exists('StructsAndEnums.cs')" />
+              </ItemGroup>
+            </Project>
+            """);
+        File.WriteAllText(Path.Combine(directory, "ApiDefinition.cs"), apiDefinition);
+        File.WriteAllText(Path.Combine(directory, "StructsAndEnums.cs"),
+            "namespace ObjCModule { public enum WidgetKind : long { Plain = 0, Fancy = 1 } }");
+        Directory.CreateDirectory(Path.Combine(directory, "obj.objc"));
+        File.WriteAllText(Path.Combine(directory, "obj.objc", "Widget.g.cs"), "namespace ObjCModule { public class Generated { } }");
+        File.WriteAllText(Path.Combine(directory, "binding-report.json"), """
+            {"ModuleName":"ObjCModule","TotalTypes":1,"EmittedTypes":1,"SkippedTypes":0,"TotalMembers":2,
+             "EmittedMembers":2,"SkippedMembers":0,"SynthesizedMembers":0,"SkippedItems":[]}
+            """);
+        File.WriteAllText(Path.Combine(directory, "binding-artifact-manifest.json"), PureObjCArtifactManifest("Partial"));
+    }
+
+    private static string PureObjCArtifactManifest(string status)
+        => "{\"SchemaVersion\":3,\"Module\":\"ObjCModule\",\"Status\":\"" + status + "\"," +
+           "\"PartialReason\":\"Pure-ObjC binding: no Swift generation phase runs, so the manifest carries only the ObjC skip section.\"," +
+           "\"Generation\":null,\"Emission\":null,\"Wrapper\":null,\"ObjC\":{}}";
 
     private static string RepoRoot { get; } = LocateRepoRoot();
 
@@ -487,19 +784,26 @@ public class SurfacePromotionPathTests
     private sealed class PromotionPathFixture : IDisposable
     {
         public static readonly string[] TargetNames = ["TestModule", "TestModule@macos"];
+        public const string ObjCTarget = "ObjCModule";
+        private readonly bool pureObjC;
         public string Root { get; } = Path.Combine(Path.GetTempPath(), $"surface-promotion-tests-{Guid.NewGuid():N}");
         public string ManifestPath => Path.Combine(Root, "build", "validation-libraries.json");
         public string InputDirectory => Path.Combine(Root, ".libraries", "TestLibrary", "TestModule.xcframework");
         public string OldBase => Path.Combine(Root, "old-base");
         public string TipBase => Path.Combine(Root, "tip-base");
 
-        public PromotionPathFixture()
+        /// <param name="pureObjC">Adds a roster library declared pure ObjC (empty verificationPlanes).</param>
+        public PromotionPathFixture(bool pureObjC = false)
         {
+            this.pureObjC = pureObjC;
             Directory.CreateDirectory(Path.GetDirectoryName(ManifestPath)!);
+            var objCLibrary = pureObjC
+                ? """,{"name":"ObjCLibrary","mode":"manual","tier":1,"products":[{"framework":"ObjCModule","verificationPlanes":[]}]}"""
+                : "";
             File.WriteAllText(ManifestPath, """
                 {"libraries":[{"name":"TestLibrary","mode":"source","tier":1,"platforms":["ios","macos"],
-                  "products":[{"framework":"TestModule"}]}]}
-                """);
+                  "products":[{"framework":"TestModule"}]}
+                """ + objCLibrary + "]}");
             Directory.CreateDirectory(InputDirectory);
             File.WriteAllText(Path.Combine(InputDirectory, "Info.plist"), "input");
         }
@@ -519,15 +823,21 @@ public class SurfacePromotionPathTests
             string porcelain = "",
             string? endCommit = null,
             IReadOnlyList<string>? runFailures = null,
-            (string Generation, int ExitCode, string Compile, string Swift)? failing = null)
+            (string Generation, int ExitCode, string Compile, string Swift)? failing = null,
+            string objCApiDefinition = ObjCApiDefinition,
+            string source = Source)
         {
             var start = new DateTimeOffset(2026, 11, 19, 12, 0, 0, TimeSpan.Zero);
-            var targets = TargetNames.Select(name =>
+            var names = pureObjC ? TargetNames.Append(ObjCTarget) : TargetNames;
+            var targets = names.Select(name =>
             {
-                WriteTree(Path.Combine(outputBase, name));
+                if (name == ObjCTarget) WriteObjCTree(Path.Combine(outputBase, name), objCApiDefinition);
+                else WriteTree(Path.Combine(outputBase, name), source);
                 var platform = name.Contains('@') ? name.Split('@')[1] : "ios";
                 var (sdk, triple) = Provenance(platform);
-                var (generation, exitCode, compile, swift) = name == "TestModule" && failing is { } f ? f : ("ok", 0, "ok", "ok");
+                var (generation, exitCode, compile, swift) = name == "TestModule" && failing is { } f ? f
+                    : name == ObjCTarget ? ("ok", 0, "ok", "no_wrapper")
+                    : ("ok", 0, "ok", "ok");
                 return new SurfaceValidateTargetResult(name,
                     new SurfaceCaptureTargetProvenance(name, platform, sdk, "arm64", triple),
                     generation, exitCode, compile, "none", swift, 0, 10);

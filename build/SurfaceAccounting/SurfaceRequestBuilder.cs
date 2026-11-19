@@ -8,6 +8,39 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 
+/// <summary>
+/// How a target's generated public surface is read. A roster target declared pure Objective-C
+/// (an empty <c>verificationPlanes</c>, the same predicate validate's withdrawal qualification
+/// uses) has no Swift surface: its surface is the bgen API definition it generated, and it
+/// produces no Swift emission report or API manifest. Every other target is Swift-managed.
+/// </summary>
+public static class SurfaceLanes
+{
+    public const string SwiftManaged = "swift-managed";
+    public const string ObjCApiDefinition = "objc-api-definition";
+
+    public static string For(ValidationTarget target)
+        => target.VerificationPlanes is { Count: 0 } ? ObjCApiDefinition : SwiftManaged;
+
+    public static bool IsKnown(string lane) => lane is SwiftManaged or ObjCApiDefinition;
+
+    /// <summary>
+    /// The platform symbols a binding project of <paramref name="platform"/> compiles with: the
+    /// workload's (Xamarin.Shared.props: <c>__UNIFIED__</c>, <c>__MOBILE__</c> off macOS, the
+    /// platform's own, and <c>__IOS__</c> on Mac Catalyst too) and the SDK's platform identifier.
+    /// Generated code gates public API on them (<c>#if __IOS__ || __TVOS__ || __MACCATALYST__</c>).
+    /// </summary>
+    public static IReadOnlyList<string> PreprocessorSymbols(string platform)
+        => (platform switch
+        {
+            "ios" => new[] { "__UNIFIED__", "__MOBILE__", "__IOS__", "IOS" },
+            "tvos" => new[] { "__UNIFIED__", "__MOBILE__", "__TVOS__", "TVOS" },
+            "maccatalyst" => new[] { "__UNIFIED__", "__MOBILE__", "__IOS__", "__MACCATALYST__", "MACCATALYST" },
+            "macos" => new[] { "__UNIFIED__", "__MACOS__", "MACOS" },
+            _ => throw new InvalidDataException($"No preprocessor symbols are known for platform '{platform}'."),
+        }).Order(StringComparer.Ordinal).ToList();
+}
+
 /// <summary>The live corpus a request was checked against.</summary>
 public sealed record SurfaceRosterSummary(string ManifestSha256, int Libraries, int Modules, int Targets);
 
@@ -77,6 +110,8 @@ public static class SurfaceRequestBuilder
                 Key = new SurfaceTargetKey(expected.LibraryName, expected.FrameworkModule ?? expected.Name, expected.Platform, expected.Name),
                 OldDirectory = Path.Combine(oldBase, expected.Name),
                 TipDirectory = Path.Combine(tipBase, expected.Name),
+                SurfaceLane = SurfaceLanes.For(expected),
+                PreprocessorSymbols = SurfaceLanes.PreprocessorSymbols(expected.Platform),
                 Mode = expected.Mode,
                 Tier = expected.Tier,
                 KnownErrors = expected.KnownErrors,
@@ -121,6 +156,9 @@ public static class SurfaceRequestBuilder
         if (request.ExpectedTargetCount != expanded.Count)
             throw new InvalidDataException(
                 $"The request expects {request.ExpectedTargetCount} target(s); the live manifest expands to {expanded.Count}.");
+        if (request.PreprocessorSymbols.Count > 0)
+            throw new InvalidDataException(
+                "The request sets corpus-wide preprocessor symbols; a target's symbols are its platform's, set per target.");
 
         var requested = new Dictionary<string, SurfaceTargetRequest>(StringComparer.Ordinal);
         foreach (var target in request.Targets)
@@ -136,6 +174,9 @@ public static class SurfaceRequestBuilder
             if (!string.Equals(actual.Key.Library, expected.LibraryName, StringComparison.Ordinal)
                 || !string.Equals(actual.Key.FrameworkModule, expected.FrameworkModule, StringComparison.Ordinal)
                 || !string.Equals(actual.Key.Platform, expected.Platform, StringComparison.Ordinal)
+                || !string.Equals(actual.SurfaceLane, SurfaceLanes.For(expected), StringComparison.Ordinal)
+                || !actual.PreprocessorSymbols.Order(StringComparer.Ordinal)
+                    .SequenceEqual(SurfaceLanes.PreprocessorSymbols(expected.Platform), StringComparer.Ordinal)
                 || !string.Equals(actual.Mode, expected.Mode, StringComparison.Ordinal)
                 || actual.Tier != expected.Tier
                 || actual.KnownErrors != expected.KnownErrors
@@ -244,13 +285,20 @@ public static class SurfacePromotionReceipt
             return new(SurfaceReceiptVerdict.Refused,
                 $"This invocation's validate capture is incomplete: {string.Join("; ", own.IncompletenessReasons)}.");
 
-        var drift = SurfaceCaptureBuilder.VerifyOutputTrees(invocationCapture, outputBase)
-            .Where(line => request.Targets.Any(t => line.StartsWith(t.Key.TargetName + ":", StringComparison.Ordinal)))
-            .ToList();
+        var drift = SurfaceCaptureBuilder.VerifyOutputTrees(invocationCapture, outputBase);
         if (drift.Count > 0)
             return new(SurfaceReceiptVerdict.Refused,
                 "Validate's output changed after it was captured, so the comparison no longer describes the candidate: " +
                 string.Join("; ", drift));
+
+        // The old side's source is what its own hashed validate record says, never a label the
+        // request or a copied surface-capture.json could carry on its own.
+        var relabelled = SurfaceCaptureBuilder.VerifyRecords(request.OldCapture)
+            .Concat(SurfaceCaptureBuilder.VerifyRecords(request.TipCapture))
+            .ToList();
+        if (relabelled.Count > 0)
+            return new(SurfaceReceiptVerdict.Refused,
+                "A capture's labels disagree with the validate records it was written with: " + string.Join("; ", relabelled));
 
         var oldSource = request.OldCapture.SourceSha;
         if (MatchesBaselineSource(oldSource, baselineGitSha))

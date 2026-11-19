@@ -910,16 +910,13 @@ partial class Build
                 r?.Gen ?? "unknown", r?.GeneratorExitCode, r?.Compile ?? "unknown", r?.DepCompile,
                 r?.SwiftCompile ?? "unknown", r?.Errors ?? 0, r?.Lines ?? 0);
         }).ToList();
-        // Every .libraries xcframework a target generated from: its own and its dependencies'.
+        // Every .libraries xcframework a target generated from: its own, its dependencies', and the
+        // siblings validate hands the generator from the same library directory.
         // Apple-framework targets read the SDK, which the toolchain identity covers.
-        var inputs = targets.Where(t => t.Mode != "apple-framework")
+        var inputs = SurfaceCaptureBuilder.LibraryInputs(targets.Where(t => t.Mode != "apple-framework")
             .Select(t => (string)t.XcframeworkPath)
-            .Concat(targets.SelectMany(t => results.GetValueOrDefault(t.Name)?.WithdrawalProvenance?.InputHashes.Keys ?? Enumerable.Empty<string>()))
-            .Where(path => path.StartsWith(LibrariesDir + "/", StringComparison.Ordinal))
-            .Distinct(StringComparer.Ordinal)
-            .Select(path => new SurfaceLibraryInput(Path.GetFileName(Path.GetDirectoryName(path)!)!,
-                Path.GetRelativePath(RootDirectory, path).Replace(Path.DirectorySeparatorChar, '/'), path))
-            .ToList();
+            .Concat(targets.SelectMany(t => results.GetValueOrDefault(t.Name)?.WithdrawalProvenance?.InputHashes.Keys ?? Enumerable.Empty<string>())),
+            LibrariesDir, RootDirectory);
         var dotnetVersion = ProcessTasks.StartProcess("dotnet", "--version", workingDirectory: RootDirectory, logOutput: false)
             .AssertZeroExitCode().Output.StdToText().Trim();
         var capture = SurfaceCaptureBuilder.Write(new SurfaceCaptureBuildInput
