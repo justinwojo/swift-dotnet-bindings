@@ -644,30 +644,11 @@ public static class ForeignTypeExtensionEmitter
     private static string TryComputeMethodParamSig(ProtocolExtensionMethodDecl extMethod)
     {
         var sig = extMethod.RawSignature;
-        var openIdx = sig.IndexOf('(');
-        if (openIdx < 0) return string.Empty;
-        var closeIdx = FindMatchingParen(sig, openIdx);
-        if (closeIdx < 0) return string.Empty;
-        var inside = sig.Substring(openIdx + 1, closeIdx - openIdx - 1).Trim();
+        if (SwiftParameterClause.Find(sig) is not { } clause) return string.Empty;
+        var inside = sig.Substring(clause.Open + 1, clause.Close - clause.Open - 1).Trim();
         if (string.IsNullOrEmpty(inside)) return string.Empty;
         return MemberSignatureNormalizer.BuildSignature(
             MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(inside));
-    }
-
-    private static int FindMatchingParen(string s, int openIdx)
-    {
-        int depth = 0;
-        for (int i = openIdx; i < s.Length; i++)
-        {
-            var c = s[i];
-            if (c == '(') depth++;
-            else if (c == ')')
-            {
-                depth--;
-                if (depth == 0) return i;
-            }
-        }
-        return -1;
     }
 
     /// <summary>
@@ -1870,21 +1851,11 @@ public static class ForeignTypeExtensionEmitter
         if (parenStart < 0)
             return null;
 
-        int depth = 0;
-        int parenEnd = parenStart;
-        for (int i = parenStart; i < line.Length; i++)
-        {
-            if (line[i] == '(') depth++;
-            if (line[i] == ')')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    parenEnd = i;
-                    break;
-                }
-            }
-        }
+        // A string literal in a default value neither opens nor closes the list; a list that does
+        // not close has no end to read to.
+        var parenEnd = SwiftParameterClause.ClosingParen(line, parenStart);
+        if (parenEnd < 0)
+            return null;
 
         var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
 

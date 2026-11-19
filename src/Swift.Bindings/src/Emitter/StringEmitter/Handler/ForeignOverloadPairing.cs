@@ -189,13 +189,12 @@ internal static class ForeignOverloadPairing
         var depth = 0;
         for (var j = open; j < declaration.Length; j++)
         {
-            var c = declaration[j];
-            if (c == '"')
+            if (SwiftParameterClause.IsStringLiteralStart(declaration, j))
             {
-                for (j++; j < declaration.Length && declaration[j] != '"'; j++)
-                    if (declaration[j] == '\\') j++;
+                j = SwiftParameterClause.SkipStringLiteral(declaration, j) - 1;
                 continue;
             }
+            var c = declaration[j];
             if (c is '(' or '[' or '<') depth++;
             else if ((c is ')' or ']' || (c == '>' && declaration[j - 1] != '-')) && --depth == 0)
                 return j + 1;

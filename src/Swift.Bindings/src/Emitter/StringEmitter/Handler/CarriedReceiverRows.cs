@@ -214,14 +214,12 @@ internal static class CarriedReceiverRows
         var inDefault = false;
         for (var j = open; j < signature.Length; j++)
         {
-            var c = signature[j];
-            if (c == '"')
+            if (SwiftParameterClause.IsStringLiteralStart(signature, j))
             {
-                // Skip the literal, escapes included.
-                for (j++; j < signature.Length && signature[j] != '"'; j++)
-                    if (signature[j] == '\\') j++;
+                j = SwiftParameterClause.SkipStringLiteral(signature, j) - 1;
                 continue;
             }
+            var c = signature[j];
             if (c is '(' or '[' or '<') depth++;
             else if (c is ')' or ']' || (c == '>' && signature[j - 1] != '-'))
             {

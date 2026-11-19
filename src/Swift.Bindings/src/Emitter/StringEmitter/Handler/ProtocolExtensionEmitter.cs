@@ -436,9 +436,12 @@ public static class ProtocolExtensionEmitter
                         abiMethodCounts[labelKey] = abiMethodCounts.GetValueOrDefault(labelKey) + 1;
                         if (IsRequirementSignature(moduleDecl, protocol, method))
                             break;
-                        // A method the reader extracted is injection's.
+                        // A method the reader extracted is injection's. A method the pairing gave to a
+                        // declaration the reader dropped is reported here, whatever an extracted
+                        // declaration's labels match: the dropped pass leaves its row to this one.
                         var origin = pairing.PairedWith(method)?.Origin ?? ForeignReceiverPairing.Origins.None;
-                        if (origin.HasFlag(ForeignReceiverPairing.Origins.Extracted) || reader?.Matches(method) == true)
+                        if (origin.HasFlag(ForeignReceiverPairing.Origins.Extracted)
+                            || (origin != ForeignReceiverPairing.Origins.Dropped && reader?.Matches(method) == true))
                             break;
                         if (!methodGroups.TryGetValue(labelKey, out var group))
                             methodGroups[labelKey] = group = (new List<MethodDecl>(), new List<MethodDecl>());
@@ -1205,25 +1208,9 @@ public static class ProtocolExtensionEmitter
         if (parenStart < 0)
             return null;
 
-        // Find matching close paren
-        int depth = 0;
-        int parenEnd = parenStart;
-        for (int i = parenStart; i < line.Length; i++)
-        {
-            if (line[i] == '(') depth++;
-            if (line[i] == ')')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    parenEnd = i;
-                    break;
-                }
-            }
-        }
-
-        // An unbalanced list (a parenthesis inside a default-value literal) has no end to read to.
-        if (parenEnd == parenStart)
+        // A string literal in a default value neither opens nor closes the list.
+        var parenEnd = SwiftParameterClause.ClosingParen(line, parenStart);
+        if (parenEnd < 0)
             return null;
 
         var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
@@ -1978,22 +1965,11 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static bool HasMethodLevelWhereClause(string rawSignature)
     {
-        // Find the outermost closing paren of the parameter list
-        int depth = 0;
-        int closeParen = -1;
-        for (int i = 0; i < rawSignature.Length; i++)
-        {
-            if (rawSignature[i] == '(') depth++;
-            if (rawSignature[i] == ')')
-            {
-                depth--;
-                if (depth == 0) { closeParen = i; break; }
-            }
-        }
-        if (closeParen < 0) return false;
+        if (SwiftParameterClause.Find(rawSignature) is not { } clause)
+            return false;
 
         // Check for "where" after the closing paren
-        var afterParen = rawSignature.Substring(closeParen + 1);
+        var afterParen = rawSignature.Substring(clause.Close + 1);
         return afterParen.Contains(" where ", StringComparison.Ordinal);
     }
 
@@ -2049,29 +2025,7 @@ public static class ProtocolExtensionEmitter
     /// Returns null if parsing fails.
     /// </summary>
     private static string? ExtractQualifiers(string rawSignature)
-    {
-        int depth = 0;
-        int parenEnd = -1;
-        for (int i = 0; i < rawSignature.Length; i++)
-        {
-            if (rawSignature[i] == '(') depth++;
-            if (rawSignature[i] == ')')
-            {
-                depth--;
-                if (depth == 0) { parenEnd = i; break; }
-            }
-        }
-        if (parenEnd < 0) return null;
-
-        var afterParen = rawSignature.Substring(parenEnd + 1);
-        var arrowIdx = SwiftTypeListText.IndexOfTopLevelArrow(afterParen);
-        var braceIdx = afterParen.IndexOf('{');
-        var endIdx = afterParen.Length;
-        if (arrowIdx >= 0) endIdx = Math.Min(endIdx, arrowIdx);
-        if (braceIdx >= 0) endIdx = Math.Min(endIdx, braceIdx);
-
-        return afterParen.Substring(0, endIdx);
-    }
+        => SwiftParameterClause.Effects(rawSignature);
 
     /// <summary>
     /// Checks if a TypeSpec represents Foundation.Data, a frozen blittable struct

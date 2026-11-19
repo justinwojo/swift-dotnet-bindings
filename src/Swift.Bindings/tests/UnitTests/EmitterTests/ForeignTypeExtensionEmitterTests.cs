@@ -1383,6 +1383,99 @@ public class ForeignTypeExtensionEmitterTests
 
     #endregion
 
+    #region String-literal defaults in a parameter clause
+
+    /// <summary>
+    /// A string default holding a parenthesis or an effect keyword is part of its parameter: it
+    /// neither closes the clause nor makes the method async or throwing, and every parameter after
+    /// it is still read. Before the shared clause reader, <c>")"</c> and <c>"\\"</c> lost the
+    /// required <c>m</c> (a wrapper swiftc rejects), <c>") throws"</c> and <c>") async"</c> declined
+    /// the method as effectful, and <c>"("</c> threw out of the generator.
+    /// </summary>
+    [Theory]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \")\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \") throws\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \") async\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"(\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"\\\\\", m: Swift.Int32)")]
+    public void ProcessForeignTypeExtensions_StringDefaultHoldingClauseSyntax_BindsEveryParameter(string signature)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateLabeledExtMethod("f", "f(n:sep:m:)", signature);
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Empty(report.SkippedItems);
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var call = Assert.Single(ctx.ForeignExtSwiftWrapperLines, l => l.Contains(".f(", StringComparison.Ordinal));
+        // The defaulted separator takes its default; both required parameters are passed.
+        Assert.Contains("f(n: n, m: m)", call);
+        Assert.DoesNotContain("try", call);
+        Assert.DoesNotContain("await", call);
+    }
+
+    [Theory]
+    [InlineData("public func f(x: Swift.String = \") async\")", false, false)]
+    [InlineData("public func f(x: Swift.String = \") throws\")", false, false)]
+    [InlineData("public func f(x: Swift.String = \"(\") async throws", true, true)]
+    [InlineData("public func f(x: Swift.String = \"\\\\\") async", true, false)]
+    public void EffectsOf_StringDefault_AreTheClausesEffects(string signature, bool isAsync, bool throws)
+    {
+        Assert.Equal(isAsync, ProtocolExtensionEmitter.IsAsyncSignature(signature));
+        Assert.Equal(throws, ProtocolExtensionEmitter.IsThrowingSignature(signature));
+    }
+
+    /// <summary>
+    /// On a reported foreign protocol the reader extracted an <c>f(x:)</c> and dropped the ABI-listed
+    /// <c>f(x: Bool)</c>. The pairing gives the ABI entry to the dropped declaration, so the extracted
+    /// one may not also claim it by its labels: each declaration keeps its own row. The extracted
+    /// signature either did not read before the shared clause reader (a string default holding a
+    /// parenthesis) or does not read at all (a <c>borrowing</c> parameter), and an unread signature matches by labels.
+    /// </summary>
+    [Theory]
+    [InlineData("public func f(x: Swift.String = \"(\")")]
+    [InlineData("public func f(x: borrowing Swift.Int32)")]
+    public void EveryPass_ReportedProtocol_ExtractedOverloadOfTheSameLabels_LeavesTheDroppedOverloadItsRow(string extractedSignature)
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Combine.Cancellable";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Protocol";
+        var protocol = new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        var listed = AbiMethod("f", moduleDecl, protocol, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "Swift.Bool", moduleDecl));
+        protocol.ExtensionMembers.Add(listed);
+        moduleDecl.Protocols.Add(protocol);
+        ProtocolExtensionMethodDecl Text()
+        {
+            var member = CreateLabeledExtMethod("f", "f(x:)", extractedSignature);
+            member.ProtocolQualifiedName = receiver;
+            return member;
+        }
+        var flag = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: Swift.Bool)");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { Text() } }, new[] { flag }, new() { [receiver] = new() { Text() } });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Contains(rows, r => (r.DeclId ?? string.Empty).Contains("Bool", StringComparison.Ordinal)
+            || r.Details.Contains("Bool", StringComparison.Ordinal));
+    }
+
+    #endregion
+
     #region ProcessForeignTypeExtensions: property getter
 
     [Fact]

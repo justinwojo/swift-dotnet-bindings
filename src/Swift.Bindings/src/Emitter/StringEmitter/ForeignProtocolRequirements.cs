@@ -355,6 +355,11 @@ internal static class ForeignProtocolRequirements
         var depth = 0;
         for (; i < line.Length; i++)
         {
+            if (SwiftParameterClause.IsStringLiteralStart(line, i))
+            {
+                i = SwiftParameterClause.SkipStringLiteral(line, i) - 1;
+                continue;
+            }
             var c = line[i];
             if (c == open)
                 depth++;
@@ -373,6 +378,11 @@ internal static class ForeignProtocolRequirements
         var start = 0;
         for (var i = 0; i < clause.Length; i++)
         {
+            if (SwiftParameterClause.IsStringLiteralStart(clause, i))
+            {
+                i = SwiftParameterClause.SkipStringLiteral(clause, i) - 1;
+                continue;
+            }
             switch (clause[i])
             {
                 case '(' or '[' or '<' or '{':
@@ -399,6 +409,11 @@ internal static class ForeignProtocolRequirements
         var depth = 0;
         for (var i = 0; i < parameter.Length; i++)
         {
+            if (SwiftParameterClause.IsStringLiteralStart(parameter, i))
+            {
+                i = SwiftParameterClause.SkipStringLiteral(parameter, i) - 1;
+                continue;
+            }
             switch (parameter[i])
             {
                 case '(' or '[' or '<':
