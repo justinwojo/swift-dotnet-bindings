@@ -492,37 +492,24 @@ namespace BindingsGeneration
                             // declaration with the kept arguments and Swift supplies the defaults.
                             // Substitute the reduced decl and fall through to the normal dedup +
                             // handler path (which emits a real C# constructor/method for it).
+                            //
+                            // The full member is still refused, and only its trimmed form reaches the
+                            // output, so the refusal is recorded against the full member here: past this
+                            // point every record names the reduced clone, and the full form would leave
+                            // the binding with no row. No drop comment is written — a working trimmed
+                            // overload must not sit under an "unsupported" notice, as on the placeholder
+                            // recovery path.
+                            RecordGateRefusal(methodDecl, validationResult, typeDatabase);
                             methodDecl = reducedDecl;
                             // Fall through — no `continue`.
                         }
                         else
                         {
-                            if (!methodDecl.IsAccessor)
+                            if (RecordGateRefusal(methodDecl, validationResult, typeDatabase))
                             {
-                                if (validationResult.IsSynthesized)
-                                    ReportCollector.RecordMemberSynthesized(methodDecl);
-                                else if (validationResult.IsRoutedElsewhere)
-                                {
-                                    // The open-form member is suppressed because concrete
-                                    // specializations (CSM-async per-conformer overloads, or
-                                    // CSM-sync generic-parent extensions) provide the public
-                                    // surface. Do not emit a `// Unsupported:` comment (it would
-                                    // mislead consumers reading the generated source — the API
-                                    // IS callable via the alternate overloads) and do not record
-                                    // as a skipped member.
-                                }
-                                else
-                                {
-                                    // Report-only enrichment; the comment emitter below writes the
-                                    // unenriched string into generated source, which is compared.
-                                    ReportCollector.RecordMemberSkipped(
-                                        methodDecl, validationResult.Reason ?? SkipReason.Unknown,
-                                        (validationResult.Details ?? "") + UnresolvedAppleTypes.DescribeSuffix(
-                                            methodDecl, typeDatabase, methodDecl.ModuleDecl?.Name));
-                                    UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details, containingDecl: methodDecl.ParentDecl);
-                                    if (validationResult.Reason == SkipReason.EmitterFault)
-                                        withdrawnDefaultSources.Add(methodDecl);
-                                }
+                                UnsupportedCommentEmitter.EmitMemberSkipped(csWriter, methodDecl.Name, BindingItemKind.Method, validationResult.Reason ?? SkipReason.Unknown, validationResult.Details, containingDecl: methodDecl.ParentDecl);
+                                if (validationResult.Reason == SkipReason.EmitterFault)
+                                    withdrawnDefaultSources.Add(methodDecl);
                             }
                             continue;
                         }
@@ -1031,6 +1018,36 @@ namespace BindingsGeneration
             }
 
             return false;
+        }
+
+        /// <summary>
+        /// Records why the emission gate refused <paramref name="methodDecl"/>, and returns true when the
+        /// refusal is a skip the generated source should also name. A synthesized member is recorded as
+        /// synthesized; one routed to concrete specializations is not recorded at all, since those
+        /// specializations are its public surface; an accessor is reported with its property.
+        /// </summary>
+        private static bool RecordGateRefusal(MethodDecl methodDecl, ValidationResult validationResult, ITypeDatabase typeDatabase)
+        {
+            if (methodDecl.IsAccessor)
+                return false;
+            if (validationResult.IsSynthesized)
+            {
+                ReportCollector.RecordMemberSynthesized(methodDecl);
+                return false;
+            }
+            // The open-form member is suppressed because concrete specializations (CSM-async
+            // per-conformer overloads, or CSM-sync generic-parent extensions) provide the public
+            // surface. Neither a `// Unsupported:` comment (it would mislead consumers reading the
+            // generated source — the API IS callable via the alternate overloads) nor a skip row.
+            if (validationResult.IsRoutedElsewhere)
+                return false;
+            // Report-only enrichment; the comment the caller writes carries the unenriched string,
+            // since the generated source is compared.
+            ReportCollector.RecordMemberSkipped(
+                methodDecl, validationResult.Reason ?? SkipReason.Unknown,
+                (validationResult.Details ?? "") + UnresolvedAppleTypes.DescribeSuffix(
+                    methodDecl, typeDatabase, methodDecl.ModuleDecl?.Name));
+            return true;
         }
 
         /// <summary>

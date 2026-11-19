@@ -151,6 +151,57 @@ partial class Build
                 toolchain with { TargetTriple = "arm64-apple-ios-device" }, toolchain with { Sdk = "new-sdk" } })
                 Reject(() => provenance.Verify("source", "generator", "selection", changedToolchain));
             Reject(() => (provenance with { Architecture = "x86_64" }).Verify("source", "generator", "selection", toolchain));
+            // A policy keys the toolchain by identity, never by install path: two installs of one
+            // Xcode build share a key, and any change to the SDK, compiler or Xcode build misses.
+            const string xcode263 = "Xcode 26.3\nBuild version 17C529";
+            const string swift624 = "swift-driver version: 1.127.15 Apple Swift version 6.2.4 (swiftlang-6.2.4.1.4 clang-1700.6.4.2)\nTarget: arm64-apple-macosx26.0";
+            var identity = WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C57", xcode263, swift624);
+            Check(identity == "iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2");
+            var keyed = new WithdrawalToolchain("ios", "arm64", "arm64-apple-ios15.0-simulator", identity);
+            Check(keyed.PolicyProfile("Fixture") == "Fixture/ios/arm64/arm64-apple-ios15.0-simulator/" + identity);
+            Check(WithdrawalToolchainIdentity.IsPathFree(keyed.PolicyProfile("Fixture")));
+            foreach (var other in new[]
+            {
+                WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C58", xcode263, swift624),
+                WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.4", "23C57", xcode263, swift624),
+                WithdrawalToolchainIdentity.Compose("appletvsimulator", "26.2", "23C57", xcode263, swift624),
+                WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C57", "Xcode 26.3\nBuild version 17C530", swift624),
+                WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C57", xcode263,
+                    "Apple Swift version 6.2.4 (swiftlang-6.2.4.1.5 clang-1700.6.4.2)"),
+            })
+            {
+                Check(other != identity);
+                Reject(() => WithdrawalGate.SelectPolicy(new WithdrawalPolicy(1, keyed.PolicyProfile("Fixture"), []), [],
+                    (keyed with { Sdk = other }).PolicyProfile("Fixture")));
+            }
+            Reject(() => WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "", xcode263, swift624));
+            Reject(() => WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C57", "Xcode 26.3", swift624));
+            Reject(() => WithdrawalToolchainIdentity.Compose("iphonesimulator", "26.2", "23C57", xcode263, "Apple Swift version 6.2.4"));
+            Reject(() => WithdrawalToolchainIdentity.Compose("/Applications/Xcode.app/iPhoneSimulator.sdk", "26.2", "23C57", xcode263, swift624));
+            Check(!WithdrawalToolchainIdentity.IsPathFree("Fixture/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/" +
+                "Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2"));
+            Check(!WithdrawalToolchainIdentity.IsPathFree("Fixture/ios/arm64/arm64-apple-ios15.0-simulator/iPhoneSimulator26.2.sdk@26.2"));
+            Check(WithdrawalToolchainIdentity.IsPathFree(keyed.PolicyProfile("Fixture@macos")));
+
+            // Every committed policy names its own target and a path-free toolchain identity, and
+            // no library holds two policies for one toolchain.
+            var committed = ValidationBaseline.Load(BaselinePath);
+            foreach (var (library, entry) in committed.Gate.Libraries)
+            {
+                var policies = (entry.WithdrawalPolicy == null ? Array.Empty<WithdrawalPolicy>() : new[] { entry.WithdrawalPolicy })
+                    .Concat(entry.WithdrawalPolicyAlternatives ?? []).ToArray();
+                foreach (var policy in policies)
+                {
+                    if (!policy.Profile.StartsWith(library + "/", StringComparison.Ordinal) ||
+                        !WithdrawalToolchainIdentity.IsPathFree(policy.Profile) ||
+                        !System.Text.RegularExpressions.Regex.IsMatch(policy.Profile,
+                            @"/[a-z]+[0-9][0-9.]*\([0-9A-Za-z.]+\)\+Xcode\([0-9A-Za-z]+\)\+swiftlang-[0-9.]+\+clang-[0-9.]+$"))
+                        throw new Exception($"Committed withdrawal policy for {library} is not keyed on a toolchain identity: {policy.Profile}");
+                    assertions++;
+                }
+                if (policies.Select(policy => policy.Profile).Distinct(StringComparer.Ordinal).Count() != policies.Length)
+                    throw new Exception($"Committed withdrawal policies for {library} repeat a toolchain");
+            }
             Reject(() => provenance.Verify("changed", "generator", "selection", toolchain));
             File.AppendAllText(provenanceInput, "changed");
             Reject(() => provenance.Verify("source", "generator", "selection", toolchain));

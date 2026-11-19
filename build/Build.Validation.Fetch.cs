@@ -43,6 +43,14 @@ partial class Build
         {
             var version = lib.Version ?? "manual";
 
+            // An Apple framework ships in the SDK the validate run selects: there is nothing to fetch.
+            if (lib.Mode == "apple-framework")
+            {
+                Log.Debug("{Name}: in the SDK (apple-framework)", lib.Name);
+                skipped++;
+                continue;
+            }
+
             if (!Force && IsCached(lib.Name, version)
                 && !BehaviorTierArtifactMissing(lib)
                 && !PlatformSetMissing(lib))
@@ -88,7 +96,7 @@ partial class Build
         Log.Information("=== Summary ===");
         if (fetched > 0) Log.Information("Fetched: {Count}", fetched);
         if (cached > 0) Log.Debug("Cached: {Count}", cached);
-        if (skipped > 0) Log.Debug("Skipped (manual): {Count}", skipped);
+        if (skipped > 0) Log.Debug("Skipped (manual or in the SDK): {Count}", skipped);
         if (failed > 0) Log.Error("Failed: {Count}", failed);
 
         Assert.True(failed == 0, $"{failed} library fetch(es) failed");

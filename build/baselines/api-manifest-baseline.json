@@ -11724,6 +11724,66 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.Count",
+      "symbol": "thunk_SwiftBindingsTestLib_5e3fd761"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.CountNative",
+      "symbol": "thunk_SwiftBindingsTestLib_5e3fd761"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings()",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_B5BF0F9C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(IProvidedCountSource)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_BC3994DB"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(global::System.Func\u003Cnint\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_15F10B4E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_B8BF1455"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(nint,IEnumerable\u003Cnint\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_C023618B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(nint,IProvidedCountSource)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_F2437B9D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.ExistentialClosureInitSiblings(nint,nint,global::System.Func\u003Cnint\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_ExistentialClosureInitSiblings_init_C07CC3C2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.Source",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ExistentialClosureInitSiblings_source"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.Version",
+      "symbol": "thunk_SwiftBindingsTestLib_9d935d34"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ExistentialClosureInitSiblings.VersionNative",
+      "symbol": "thunk_SwiftBindingsTestLib_9d935d34"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ExistentialReturnBypassHost.ExistentialReturnBypassHost(string)",
       "symbol": "SBW_SwiftBindingsTestLib_ExistentialReturnBypassHost_init_A068AE36"
     },
@@ -12211,6 +12271,21 @@
       "module": "SwiftBindingsTestLib",
       "signature": "FixedMeasure.Measure()",
       "symbol": "thunk_SwiftBindingsTestLib_7bde4c42"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FixedProvidedCountSource.FixedProvidedCountSource(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_FixedProvidedCountSource_init_3007367C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FixedProvidedCountSource.ProvidedCount",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_FixedProvidedCountSource_providedCount"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FixedProvidedCountSource.ProvidedCountNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_FixedProvidedCountSource_providedCount"
     },
     {
       "module": "SwiftBindingsTestLib",

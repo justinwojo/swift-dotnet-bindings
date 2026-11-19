@@ -432,12 +432,10 @@ partial class Build
         BtOutputDir.CreateDirectory();
         if (CompileOnly)
         {
-            var healthyPlatform = platformOverride ?? ResolvedPlatform;
+            var healthyToolchain = CaptureWithdrawalToolchain(platformOverride ?? ResolvedPlatform);
             healthyWithdrawalProvenance = new WithdrawalProvenance(WithdrawalSourceFingerprint(),
                 WithdrawalProvenance.HashFile(GeneratorDll), WithdrawalProvenance.HashText(ModuleName + "\n" + DepModuleName),
-                healthyPlatform.Name, healthyPlatform.SimulatorTarget.Split('-')[0], healthyPlatform.SimulatorTarget,
-                RunAppleCapture("xcrun", $"--sdk {healthyPlatform.SimulatorSdkName} --show-sdk-path") + "@" +
-                RunAppleCapture("xcrun", $"--sdk {healthyPlatform.SimulatorSdkName} --show-sdk-version"),
+                healthyToolchain.Platform, healthyToolchain.Architecture, healthyToolchain.TargetTriple, healthyToolchain.Sdk,
                 new[] { (string)BtXcframeworkDir, (string)BtDepXcframeworkDir }.ToDictionary(path => path, WithdrawalProvenance.HashTree));
         }
 

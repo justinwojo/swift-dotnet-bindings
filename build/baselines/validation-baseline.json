@@ -5,18 +5,18 @@
       "AppIntents": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 56483,
+        "lines": 54167,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -24,18 +24,18 @@
       "ActivityKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5158,
+        "lines": 5258,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -43,18 +43,18 @@
       "CryptoKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48280,
+        "lines": 48437,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -62,18 +62,18 @@
       "CryptoKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48280,
+        "lines": 48437,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -81,18 +81,18 @@
       "CryptoKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48280,
+        "lines": 48437,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -100,18 +100,18 @@
       "CryptoKit@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 48122,
+        "lines": 48283,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -119,18 +119,18 @@
       "FamilyControls": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2010,
+        "lines": 1898,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -138,18 +138,18 @@
       "LiveCommunicationKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 10960,
+        "lines": 10573,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
@@ -168,18 +168,18 @@
       "LiveCommunicationKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 45,
+        "lines": 37,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
@@ -198,18 +198,18 @@
       "LiveCommunicationKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 9744,
+        "lines": 9381,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
@@ -228,18 +228,18 @@
       "MusicKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 88363,
+        "lines": 86071,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -247,18 +247,18 @@
       "MusicKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 79746,
+        "lines": 77558,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -266,18 +266,18 @@
       "MusicKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 79980,
+        "lines": 77776,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -285,18 +285,18 @@
       "MusicKit@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 87524,
+        "lines": 85243,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -304,18 +304,18 @@
       "ProximityReader": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 39247,
+        "lines": 38208,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -323,18 +323,18 @@
       "ProximityReader@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 39247,
+        "lines": 38208,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -342,18 +342,18 @@
       "RealityKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 11275,
+        "lines": 11113,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -361,7 +361,7 @@
       "RealityFoundation": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "RealityFoundation|BlendTreeAnimation|Property|blendLayer||None|||!accessor-group",
@@ -637,13 +637,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 237746,
+        "lines": 233329,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -651,18 +651,18 @@
       "RoomPlan": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 14651,
+        "lines": 14254,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -670,18 +670,18 @@
       "StoreKit2": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 39218,
+        "lines": 38533,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -689,18 +689,18 @@
       "StoreKit2@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 35238,
+        "lines": 34821,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -708,18 +708,18 @@
       "StoreKit2@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 39218,
+        "lines": 38533,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -727,18 +727,18 @@
       "StoreKit2@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 34167,
+        "lines": 33577,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -746,7 +746,7 @@
       "TipKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -812,13 +812,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12799,
+        "lines": 12511,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -887,7 +887,7 @@
       "TipKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -953,13 +953,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 11343,
+        "lines": 11022,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -1028,7 +1028,7 @@
       "TipKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -1094,13 +1094,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12799,
+        "lines": 12511,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -1169,7 +1169,7 @@
       "TipKit@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -1235,13 +1235,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 10319,
+        "lines": 10038,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
@@ -1310,18 +1310,18 @@
       "Translation": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 4368,
+        "lines": 4277,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1329,7 +1329,7 @@
       "WeatherKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
@@ -1345,13 +1345,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 30345,
+        "lines": 30389,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1359,7 +1359,7 @@
       "WeatherKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
@@ -1375,13 +1375,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 30345,
+        "lines": 30389,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1389,7 +1389,7 @@
       "WeatherKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
@@ -1405,13 +1405,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 30345,
+        "lines": 30389,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1419,7 +1419,7 @@
       "WeatherKit@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "WeatherKit|Trend|Property|deviation||None|||!accessor-group",
@@ -1435,13 +1435,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 30345,
+        "lines": 30389,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1449,18 +1449,18 @@
       "WorkoutKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12565,
+        "lines": 12141,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1468,18 +1468,18 @@
       "WorkoutKit@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12733,
+        "lines": 12306,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1487,18 +1487,18 @@
       "WorkoutKit@maccatalyst": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12565,
+        "lines": 12141,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1506,18 +1506,18 @@
       "Alamofire": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Alamofire/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Alamofire/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 62628,
+        "lines": 61073,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Alamofire/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Alamofire/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1525,18 +1525,18 @@
       "BlinkID": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "BlinkID/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "BlinkID/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 57912,
+        "lines": 56110,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "BlinkID/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "BlinkID/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1544,18 +1544,18 @@
       "BlinkIDUX": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "BlinkIDUX/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "BlinkIDUX/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 17136,
+        "lines": 16626,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "BlinkIDUX/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "BlinkIDUX/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1563,18 +1563,18 @@
       "BRLMPrinterKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "BRLMPrinterKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "BRLMPrinterKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 3000,
+        "lines": 2992,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "BRLMPrinterKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "BRLMPrinterKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1582,18 +1582,18 @@
       "CryptoSwift": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CryptoSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "CryptoSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 28798,
+        "lines": 27540,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CryptoSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "CryptoSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1601,18 +1601,18 @@
       "GRDB": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "GRDB/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "GRDB/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 127162,
+        "lines": 136019,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "GRDB/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "GRDB/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1620,18 +1620,18 @@
       "KeychainAccess": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "KeychainAccess/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "KeychainAccess/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5530,
+        "lines": 5301,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "KeychainAccess/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "KeychainAccess/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1639,18 +1639,18 @@
       "Kingfisher": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Kingfisher/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Kingfisher/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 65713,
+        "lines": 64402,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Kingfisher/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Kingfisher/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1658,18 +1658,18 @@
       "Lottie": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Lottie/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Lottie/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 41022,
+        "lines": 41629,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Lottie/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Lottie/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1677,18 +1677,18 @@
       "Mappedin": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Mappedin/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Mappedin/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 60030,
+        "lines": 58394,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Mappedin/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Mappedin/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1696,18 +1696,18 @@
       "MicroblinkPlatform": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "MicroblinkPlatform/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "MicroblinkPlatform/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5231,
+        "lines": 5001,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "MicroblinkPlatform/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "MicroblinkPlatform/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1715,18 +1715,18 @@
       "Mixpanel": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Mixpanel/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Mixpanel/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 12153,
+        "lines": 11652,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Mixpanel/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Mixpanel/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1734,90 +1734,75 @@
       "Nuke": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.0.sdk@27.0",
-            "exceptions": []
-          },
-          {
-            "schemaVersion": 1,
-            "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Nuke/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ],
         "compile": "ok",
         "errors": 0,
-        "lines": 28600,
+        "lines": 27315,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@macos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX26.2.sdk@26.2",
+          "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0/macosx26.2(25C58)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.0.sdk@27.0",
-            "exceptions": []
-          },
-          {
-            "schemaVersion": 1,
-            "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "profile": "Nuke@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ],
         "compile": "ok",
         "errors": 0,
-        "lines": 28600,
+        "lines": 27315,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "Nuke@tvos": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator26.2.sdk@26.2",
+          "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator26.2(23K50)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.0.sdk@27.0",
-            "exceptions": []
-          },
-          {
-            "schemaVersion": 1,
-            "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "profile": "Nuke@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator/appletvsimulator27.2(24K122)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ],
         "compile": "ok",
         "errors": 0,
-        "lines": 28600,
+        "lines": 27315,
         "dep_compile": "none",
         "swift_compile": "ok"
       },
       "RxSwift": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "RxSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "RxSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 15868,
+        "lines": 14888,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "RxSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "RxSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1825,18 +1810,18 @@
       "SkeletonView": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SkeletonView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SkeletonView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 9125,
+        "lines": 8611,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SkeletonView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SkeletonView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1844,18 +1829,18 @@
       "SmartCardIO": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SmartCardIO/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SmartCardIO/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6966,
+        "lines": 6700,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SmartCardIO/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SmartCardIO/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1863,18 +1848,18 @@
       "SnapKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SnapKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SnapKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 15757,
+        "lines": 15086,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SnapKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SnapKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1882,18 +1867,18 @@
       "Starscream": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Starscream/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Starscream/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 25302,
+        "lines": 24438,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Starscream/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Starscream/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1901,18 +1886,18 @@
       "Stripe": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Stripe/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Stripe/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 75,
+        "lines": 53,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Stripe/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Stripe/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1920,18 +1905,18 @@
       "StripeApplePay": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeApplePay/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeApplePay/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6369,
+        "lines": 6232,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeApplePay/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeApplePay/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1939,18 +1924,18 @@
       "StripeCameraCore": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeCameraCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeCameraCore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 78,
+        "lines": 59,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeCameraCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeCameraCore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1958,18 +1943,18 @@
       "StripeCardScan": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeCardScan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeCardScan/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2737,
+        "lines": 2618,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeCardScan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeCardScan/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1977,18 +1962,18 @@
       "StripeConnect": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeConnect/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeConnect/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 8780,
+        "lines": 8579,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeConnect/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeConnect/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -1996,18 +1981,18 @@
       "StripeCore": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeCore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5033,
+        "lines": 4816,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeCore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeCore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2015,18 +2000,18 @@
       "StripeCryptoOnramp": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeCryptoOnramp/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeCryptoOnramp/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 90,
+        "lines": 68,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeCryptoOnramp/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeCryptoOnramp/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2034,18 +2019,18 @@
       "StripeFinancialConnections": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeFinancialConnections/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeFinancialConnections/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6251,
+        "lines": 6200,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeFinancialConnections/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeFinancialConnections/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2053,18 +2038,18 @@
       "StripeIdentity": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeIdentity/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeIdentity/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1481,
+        "lines": 1438,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeIdentity/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeIdentity/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2072,18 +2057,18 @@
       "StripeIssuing": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeIssuing/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeIssuing/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2950,
+        "lines": 2900,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeIssuing/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeIssuing/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2091,18 +2076,18 @@
       "StripePayments": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripePayments/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripePayments/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 74565,
+        "lines": 71959,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripePayments/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripePayments/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2110,18 +2095,18 @@
       "StripePaymentSheet": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripePaymentSheet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripePaymentSheet/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 35832,
+        "lines": 35140,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripePaymentSheet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripePaymentSheet/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2129,18 +2114,18 @@
       "StripePaymentsUI": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripePaymentsUI/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripePaymentsUI/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 8019,
+        "lines": 8004,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripePaymentsUI/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripePaymentsUI/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2148,18 +2133,18 @@
       "StripeUICore": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "StripeUICore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "StripeUICore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 129,
+        "lines": 107,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "StripeUICore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "StripeUICore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2181,18 +2166,18 @@
       "DeviceKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "DeviceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "DeviceKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6845,
+        "lines": 6726,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "DeviceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "DeviceKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2200,18 +2185,18 @@
       "Swinject": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Swinject/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Swinject/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 7889,
+        "lines": 7450,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Swinject/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Swinject/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2219,18 +2204,18 @@
       "PhoneNumberKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "PhoneNumberKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "PhoneNumberKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 17650,
+        "lines": 17265,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "PhoneNumberKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "PhoneNumberKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2238,18 +2223,18 @@
       "Valet": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Valet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Valet/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 4674,
+        "lines": 4518,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Valet/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Valet/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2257,18 +2242,18 @@
       "SwiftyBeaver": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SwiftyBeaver/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SwiftyBeaver/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 11640,
+        "lines": 9610,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SwiftyBeaver/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SwiftyBeaver/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2276,18 +2261,18 @@
       "Reachability": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Reachability/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Reachability/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1543,
+        "lines": 1496,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Reachability/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Reachability/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2295,18 +2280,18 @@
       "NVActivityIndicatorView": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "NVActivityIndicatorView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "NVActivityIndicatorView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 8845,
+        "lines": 8569,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "NVActivityIndicatorView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "NVActivityIndicatorView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2314,18 +2299,18 @@
       "ObjectMapper": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "ObjectMapper/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "ObjectMapper/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 7611,
+        "lines": 7305,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "ObjectMapper/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "ObjectMapper/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2333,18 +2318,18 @@
       "BonMot": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "BonMot/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "BonMot/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 17690,
+        "lines": 16983,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "BonMot/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "BonMot/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2352,18 +2337,18 @@
       "Parchment": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Parchment/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Parchment/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 22795,
+        "lines": 22367,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Parchment/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Parchment/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2371,18 +2356,18 @@
       "KeychainSwift": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "KeychainSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "KeychainSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1184,
+        "lines": 1118,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "KeychainSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "KeychainSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2390,18 +2375,18 @@
       "SwipeCellKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SwipeCellKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SwipeCellKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 10798,
+        "lines": 10494,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SwipeCellKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SwipeCellKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2409,18 +2394,18 @@
       "FSPagerView": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FSPagerView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FSPagerView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 4911,
+        "lines": 4941,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FSPagerView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FSPagerView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2428,18 +2413,18 @@
       "SwiftyGif": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SwiftyGif/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SwiftyGif/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1460,
+        "lines": 1401,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SwiftyGif/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SwiftyGif/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2447,7 +2432,7 @@
       "Quick": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": [
             {
               "unitId": "Quick|AsyncSpec|Method|init|:Quick.AsyncSpec,invocation:Swift.Optional<Foundation.NSInvocation>|None||$s5Quick9AsyncSpecC10invocationACSo12NSInvocationCSg_tcfC|!leaf-api",
@@ -2463,13 +2448,13 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 6048,
+        "lines": 5973,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Quick/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": [
               {
                 "unitId": "Quick|AsyncSpec|Method|init|:Quick.AsyncSpec,invocation:Swift.Optional<Foundation.NSInvocation>|None||$s5Quick9AsyncSpecC10invocationACSo12NSInvocationCSg_tcfC|!leaf-api",
@@ -2488,18 +2473,18 @@
       "DifferenceKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "DifferenceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "DifferenceKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 3071,
+        "lines": 2901,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "DifferenceKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "DifferenceKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2507,18 +2492,18 @@
       "TinyConstraints": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "TinyConstraints/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "TinyConstraints/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1695,
+        "lines": 1617,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "TinyConstraints/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "TinyConstraints/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2526,18 +2511,18 @@
       "AMPopTip": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "AMPopTip/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "AMPopTip/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5168,
+        "lines": 5113,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "AMPopTip/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "AMPopTip/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2545,18 +2530,18 @@
       "XMLCoder": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "XMLCoder/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "XMLCoder/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 14889,
+        "lines": 14256,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "XMLCoder/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "XMLCoder/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2564,18 +2549,18 @@
       "AnimatedCollectionViewLayout": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "AnimatedCollectionViewLayout/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "AnimatedCollectionViewLayout/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 3823,
+        "lines": 3669,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "AnimatedCollectionViewLayout/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "AnimatedCollectionViewLayout/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2583,18 +2568,18 @@
       "SVGView": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "SVGView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "SVGView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 15719,
+        "lines": 15072,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "SVGView/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "SVGView/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2623,18 +2608,18 @@
       "CocoaLumberjackSwift": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CocoaLumberjackSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "CocoaLumberjackSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1551,
+        "lines": 1290,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CocoaLumberjackSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "CocoaLumberjackSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2656,18 +2641,18 @@
       "FirebaseAnalytics": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseAnalytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseAnalytics/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 267,
+        "lines": 245,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseAnalytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseAnalytics/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2689,18 +2674,18 @@
       "FirebaseAuth": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseAuth/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 25157,
+        "lines": 23546,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseAuth/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2729,18 +2714,18 @@
       "FirebaseCoreInternal": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseCoreInternal/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseCoreInternal/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2205,
+        "lines": 2125,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseCoreInternal/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseCoreInternal/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2748,18 +2733,18 @@
       "FirebaseCrashlytics": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseCrashlytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseCrashlytics/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1520,
+        "lines": 1504,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseCrashlytics/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseCrashlytics/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2767,18 +2752,18 @@
       "FirebaseDatabase": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseDatabase/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseDatabase/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1452,
+        "lines": 1433,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseDatabase/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseDatabase/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2786,18 +2771,18 @@
       "FirebaseFirestore": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseFirestore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseFirestore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 75252,
+        "lines": 40050,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseFirestore/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseFirestore/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2805,25 +2790,25 @@
       "FirebaseFirestoreInternal": {
         "compile": "ok",
         "errors": 0,
-        "lines": 2439,
+        "lines": 2392,
         "dep_compile": "none",
         "swift_compile": "no_wrapper"
       },
       "FirebaseFunctions": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseFunctions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseFunctions/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1885,
+        "lines": 1924,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseFunctions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseFunctions/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2831,18 +2816,18 @@
       "FirebaseInAppMessaging": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseInAppMessaging/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseInAppMessaging/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1800,
+        "lines": 1768,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseInAppMessaging/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseInAppMessaging/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2871,18 +2856,18 @@
       "FirebaseMLModelDownloader": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseMLModelDownloader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseMLModelDownloader/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2005,
+        "lines": 1863,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseMLModelDownloader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseMLModelDownloader/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2897,18 +2882,18 @@
       "FirebaseRemoteConfig": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseRemoteConfig/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseRemoteConfig/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1743,
+        "lines": 1677,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseRemoteConfig/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseRemoteConfig/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2916,18 +2901,18 @@
       "FirebaseRemoteConfigInterop": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseRemoteConfigInterop/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseRemoteConfigInterop/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 2014,
+        "lines": 1979,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseRemoteConfigInterop/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseRemoteConfigInterop/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2935,18 +2920,18 @@
       "FirebaseSessions": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseSessions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseSessions/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1903,
+        "lines": 1911,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseSessions/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseSessions/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2954,18 +2939,18 @@
       "FirebaseSharedSwift": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseSharedSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseSharedSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 4606,
+        "lines": 4365,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseSharedSwift/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseSharedSwift/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2973,18 +2958,18 @@
       "FirebaseStorage": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "FirebaseStorage/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "FirebaseStorage/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 8971,
+        "lines": 9117,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "FirebaseStorage/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "FirebaseStorage/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -2999,18 +2984,18 @@
       "GTMAppAuth": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "GTMAppAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "GTMAppAuth/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 5129,
+        "lines": 4990,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "GTMAppAuth/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "GTMAppAuth/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3032,18 +3017,18 @@
       "Promises": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "Promises/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "Promises/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1362,
+        "lines": 1287,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "Promises/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "Promises/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3051,18 +3036,18 @@
       "CodeScanner": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "CodeScanner/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "CodeScanner/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 1124,
+        "lines": 1077,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "CodeScanner/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "CodeScanner/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3070,18 +3055,18 @@
       "AlertToast": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "AlertToast/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "AlertToast/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 241,
+        "lines": 212,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "AlertToast/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "AlertToast/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3089,18 +3074,18 @@
       "RichTextKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "RichTextKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "RichTextKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 31225,
+        "lines": 30541,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "RichTextKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "RichTextKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3108,18 +3093,18 @@
       "WhatsNewKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "WhatsNewKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "WhatsNewKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 9746,
+        "lines": 9486,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "WhatsNewKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "WhatsNewKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3127,18 +3112,18 @@
       "YouTubePlayerKit": {
         "withdrawal_policy": {
           "schemaVersion": 1,
-          "profile": "YouTubePlayerKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-26.3.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator26.2.sdk@26.2",
+          "profile": "YouTubePlayerKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator26.2(23C57)+Xcode(17C529)+swiftlang-6.2.4.1.4+clang-1700.6.4.2",
           "exceptions": []
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 36693,
+        "lines": 36235,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
           {
             "schemaVersion": 1,
-            "profile": "YouTubePlayerKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "profile": "YouTubePlayerKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
             "exceptions": []
           }
         ]
@@ -3146,51 +3131,51 @@
     }
   },
   "skip_metrics": {
-    "total_emitted_members": 25108,
-    "total_skipped_members": 10095,
-    "skip_rate_pct": 28.7,
+    "total_emitted_members": 24073,
+    "total_skipped_members": 12685,
+    "skip_rate_pct": 34.5,
     "skip_reasons": {
-      "ConformanceProtocolNotInTypeDatabase": 4045,
-      "ParentTypeSuppressed": 2303,
-      "UnsupportedSignature": 1418,
-      "ConformanceProtocolHasAssociatedTypes": 1410,
-      "ModuleInternal": 1095,
+      "ConformanceProtocolNotInTypeDatabase": 4107,
+      "UnsupportedSignature": 2661,
+      "ParentTypeSuppressed": 2353,
+      "ConformanceProtocolHasAssociatedTypes": 1423,
+      "ModuleInternal": 1023,
       "SynthesizedCodable": 971,
-      "NetUnavailableType": 780,
-      "UnsupportedClosure": 620,
-      "ProtocolWitnessNotDispatchable": 559,
-      "AnyTypeFallback": 418,
-      "ConformanceNotFullyImplementable": 403,
-      "GenericProtocolConstraint": 394,
-      "EveryProtocolConformanceSkipped": 372,
-      "UnsupportedType": 358,
-      "PropertyWrapperDeclinedDirectPInvoke": 297,
-      "UnsatisfiedGenericConstraint": 263,
+      "ProtocolExtensionUncarried": 970,
+      "NetUnavailableType": 781,
+      "UnsupportedType": 682,
+      "UnsupportedClosure": 626,
+      "GenericProtocolConstraint": 514,
+      "ProtocolWitnessNotDispatchable": 513,
+      "AnyTypeFallback": 441,
+      "ConformanceNotFullyImplementable": 388,
+      "EveryProtocolConformanceSkipped": 375,
+      "UnsatisfiedGenericConstraint": 266,
       "Pattern2InternalTypeReach": 198,
-      "DuplicateSignature": 196,
-      "NonBlittableCallConvSwift": 138,
+      "DuplicateSignature": 190,
+      "NonBlittableCallConvSwift": 137,
       "GenericTypeCallback": 129,
-      "SwiftUIConstraint": 109,
-      "ConstrainedExtensionWrapper": 104,
-      "UnsupportedExistential": 101,
-      "ObjCUnresolvableType": 77,
+      "SwiftUIConstraint": 122,
+      "ConstrainedExtensionWrapper": 99,
       "StaticProtocolMember": 67,
-      "EmitterFault": 61,
+      "ObjCUnresolvableType": 63,
+      "SuppressedProxyMemberDegraded": 63,
+      "UnsupportedExistential": 63,
+      "PropertyWrapperDeclinedDirectPInvoke": 61,
       "OwnedByAppleSupplement": 60,
-      "SuppressedProxyMemberDegraded": 57,
       "SwiftUIView": 53,
       "ObjCUnsupportedConstruct": 37,
+      "EmitterFault": 31,
       "ProtocolProxyVtableEmpty": 27,
       "ObjCMissingNativeSymbol": 26,
       "ObjCEmptyCategory": 21,
-      "MissingWrapperSymbol": 15,
-      "SkippedTypeReference": 12,
+      "AbsentFrameworkType": 19,
+      "SkippedTypeReference": 15,
       "IndeterminatePwtShape": 9,
       "ParentModuleInternalNoFallback": 7,
-      "AbsentFrameworkType": 6,
       "ObjCVariadicFunction": 6,
-      "ObjCDuplicateSelector": 5,
       "ObjCAccessibilityConflict": 5,
+      "ObjCDuplicateSelector": 5,
       "UnderscorePrefixInternal": 4,
       "UnsupportedAsyncStream": 4,
       "NonCopyableThroughCopyingLane": 2
@@ -3216,6 +3201,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 22561
+    "swift_bindings_unit_pass_floor": 22575
   }
 }

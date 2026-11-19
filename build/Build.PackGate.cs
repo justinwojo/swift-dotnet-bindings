@@ -1418,12 +1418,15 @@ partial class Build
         // Plain net10.0 (not workload TFM) keeps this hermetic — no Apple workload,
         // no codesign, no AOT runtime pack lookup. The buildTransitive .targets fire
         // during evaluation regardless of TFM, so this is sufficient to verify the
-        // PublishAot conditional + item injection.
+        // PublishAot conditional + item injection. The probe compiles nothing, so NuGet's audit of
+        // the ILCompiler package PublishAot pulls in (an advisory against the SDK's own compiler
+        // fails the restore under the repo's warnings-as-errors) is not what it tests.
         var csproj = $"""
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <TargetFramework>net10.0</TargetFramework>
                 <PublishAot>true</PublishAot>
+                <NuGetAudit>false</NuGetAudit>
               </PropertyGroup>
               <ItemGroup>
                 <PackageReference Include="SwiftBindings.Runtime" Version="{runtimeVersion}" />
