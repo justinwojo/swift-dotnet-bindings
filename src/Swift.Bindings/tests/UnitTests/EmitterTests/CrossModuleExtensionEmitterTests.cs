@@ -1140,6 +1140,7 @@ public class CrossModuleExtensionEmitterTests
     public void Emit_OverloadOfAMemberThePrePassBound_KeepsItsRow(string differsBy, int expectedRows)
     {
         var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
         // The ABI lists move(to: Swift.Int32) -> Swift.Int32 (or a variant of it), mutating, so
         // the cross-module path declines it.
         var declined = CreateMethodDecl("move", "TestModule", classDecl, mangledName: "$s10TestModule4moveys5Int32VAEF");
@@ -1156,6 +1157,11 @@ public class CrossModuleExtensionEmitterTests
         classDecl.Methods.Add(declined);
         var emissionContext = new ModuleEmissionContext();
         PrePassBound(emissionContext, "move", "move(to:)", "public func move(to point: Swift.Int32) -> Swift.Int32");
+        // Types decide between overloads of one shape, so the interface declares the ABI's variant too.
+        if (differsBy == "parameter type")
+            PrePassDeclined(emissionContext, "move", "move(to:)", "public func move(to point: Swift.Double) -> Swift.Int32");
+        if (differsBy == "return type")
+            PrePassDeclined(emissionContext, "move", "move(to:)", "public func move(to point: Swift.Int32) -> Swift.String");
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
@@ -1352,6 +1358,37 @@ public class CrossModuleExtensionEmitterTests
         Assert.Equal(same, CarriedReceiverRows.IdentityOf(abi)!.SameMember(interfaceMember));
     }
 
+    /// <summary>
+    /// The interface may spell a type through a typealias the ABI resolves. A member each side
+    /// declares once under one name, labels and flags is the same member whatever its types read:
+    /// the pre-pass decline is left to the ABI path, and the pre-pass binding stands for the ABI's.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Settle_MemberWhoseTypesEachSideSpellsDifferently_IsOneMember(bool prePassBound)
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var listed = CreateMethodDecl("generate", "TestModule", classDecl, mangledName: "$s10TestModule8generateyySo6UIFontCF");
+        listed.CSSignature.Add(Argument("font", "UIKit.UIFont", moduleDecl));
+        listed.IsMutating = true;
+        classDecl.Methods.Add(listed);
+        var emissionContext = new ModuleEmissionContext();
+        var member = PrePassMember("generate", "generate(font:)", "public func generate(font: OrigModule.OrigType.Font)");
+        emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            SkipReason.UnsupportedSignature, "declined by the pre-pass."));
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        // Bound: neither row. Declined: the cross-module path's row alone.
+        Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "generate"));
+    }
+
     private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()
     {
         ProtocolQualifiedName = "",
@@ -1364,6 +1401,17 @@ public class CrossModuleExtensionEmitterTests
         PrintedName = printedName,
         WhereConstraints = new List<string>(),
     };
+
+    /// <summary>Records that the interface pre-pass declined a member of <c>OrigModule.OrigType</c>.</summary>
+    private static void PrePassDeclined(ModuleEmissionContext ctx, string name, string printedName, string signature)
+    {
+        var member = PrePassMember(name, printedName, signature);
+        ctx.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType",
+            CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
+            Bound: false,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+    }
 
     /// <summary>Records that the interface pre-pass bound a member of <c>OrigModule.OrigType</c>.</summary>
     private static void PrePassBound(ModuleEmissionContext ctx, string name, string printedName, string signature)

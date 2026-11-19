@@ -160,13 +160,13 @@ internal static class CarriedReceiverRows
     /// which the ABI path declined. A shape the pre-pass never reads is never bound by it.
     /// </summary>
     internal static bool PrePassBound(ModuleEmissionContext ctx, string receiver, BaseDecl member)
-        => IdentityOf(member) is { } identity && PrePassBound(ctx.CarriedPrePassOutcomes, receiver, identity);
-
-    private static bool PrePassBound(
-        IReadOnlyList<CarriedPrePassOutcome> outcomes, string receiver, CarriedMemberIdentity identity)
-        => outcomes.Any(o => o.Bound
-            && string.Equals(o.Receiver, receiver, StringComparison.Ordinal)
-            && o.Identity.SameMember(identity));
+    {
+        if (IdentityOf(member) is not { } identity)
+            return false;
+        var onReceiver = OutcomesOn(ctx.CarriedPrePassOutcomes, receiver);
+        var listed = member.ParentDecl is TypeDecl type ? ListedOn(type, member.ModuleDecl?.Name).ToList() : [identity];
+        return onReceiver.Any(o => o.Bound && Corresponds(o.Identity, onReceiver, identity, listed));
+    }
 
     /// <summary>
     /// Writes the pre-pass declines of every carried receiver that the ABI does not list into the
@@ -181,37 +181,53 @@ internal static class CarriedReceiverRows
         var abiMembers = new Dictionary<string, List<CarriedMemberIdentity>>(StringComparer.Ordinal);
         foreach (var outcome in outcomes)
         {
-            if (outcome.Bound || PrePassBound(outcomes, outcome.Receiver, outcome.Identity))
+            var onReceiver = OutcomesOn(outcomes, outcome.Receiver);
+            if (outcome.Bound || onReceiver.Any(o => o.Bound && o.Identity.SameMember(outcome.Identity)))
                 continue;
             if (!abiMembers.TryGetValue(outcome.Receiver, out var listed))
                 abiMembers[outcome.Receiver] = listed = AbiMembersOf(moduleDecl, outcome.Receiver);
-            if (listed.Any(a => a.SameMember(outcome.Identity)))
+            if (listed.Any(a => Corresponds(outcome.Identity, onReceiver, a, listed)))
                 continue;
             ReportCollector.RecordMemberSkipped(outcome.MemberId, moduleDecl, outcome.Reason, outcome.Details);
         }
     }
 
     /// <summary>
+    /// Whether an interface member and an ABI member are one declaration. Types decide between
+    /// overloads of one name, labels and flags; when each side declares that shape once, the two
+    /// are the same member however each spells its types (the interface may print a typealias the
+    /// ABI resolves).
+    /// </summary>
+    private static bool Corresponds(
+        CarriedMemberIdentity declared, IReadOnlyList<CarriedPrePassOutcome> declaredOnReceiver,
+        CarriedMemberIdentity abi, IReadOnlyList<CarriedMemberIdentity> abiOnReceiver)
+        => declared.SameMember(abi)
+            || (declared.SameShape(abi)
+                && declaredOnReceiver.Count(o => o.Identity.SameShape(declared)) == 1
+                && abiOnReceiver.Count(a => a.SameShape(abi)) == 1);
+
+    private static List<CarriedPrePassOutcome> OutcomesOn(IReadOnlyList<CarriedPrePassOutcome> outcomes, string receiver)
+        => outcomes.Where(o => string.Equals(o.Receiver, receiver, StringComparison.Ordinal)).ToList();
+
+    /// <summary>
     /// The members the current module adds to <paramref name="receiver"/> that the ABI lists, in
     /// the set the cross-module path walks.
     /// </summary>
     private static List<CarriedMemberIdentity> AbiMembersOf(ModuleDecl moduleDecl, string receiver)
+        => ReceiversNamed(moduleDecl.Types, receiver).SelectMany(t => ListedOn(t, moduleDecl.Name)).ToList();
+
+    private static IEnumerable<CarriedMemberIdentity> ListedOn(TypeDecl type, string? moduleName)
     {
-        var listed = new List<CarriedMemberIdentity>();
-        foreach (var type in ReceiversNamed(moduleDecl.Types, receiver))
+        foreach (var method in type.Methods)
         {
-            foreach (var method in type.Methods)
-            {
-                if (method.ModuleDecl?.Name == moduleDecl.Name && IdentityOf(method) is { } identity)
-                    listed.Add(identity);
-            }
-            foreach (var property in type.Properties)
-            {
-                if (property.ModuleDecl?.Name == moduleDecl.Name && IdentityOf(property) is { } identity)
-                    listed.Add(identity);
-            }
+            if (method.ModuleDecl?.Name == moduleName && IdentityOf(method) is { } identity)
+                yield return identity;
         }
-        return listed;
+        foreach (var property in type.Properties)
+        {
+            if (property.ModuleDecl?.Name == moduleName && IdentityOf(property) is { } identity)
+                yield return identity;
+        }
     }
 
     private static IEnumerable<TypeDecl> ReceiversNamed(IEnumerable<TypeDecl> types, string receiver)
@@ -247,6 +263,14 @@ internal sealed record CarriedMemberIdentity(
     /// parsed them; otherwise name, labels and the flags do.
     /// </summary>
     public bool SameMember(CarriedMemberIdentity other)
+        => SameShape(other)
+            && (IsProperty
+                || SignatureKey is null
+                || other.SignatureKey is null
+                || string.Equals(SignatureKey, other.SignatureKey, StringComparison.Ordinal));
+
+    /// <summary>Whether both identities agree on everything but their types.</summary>
+    public bool SameShape(CarriedMemberIdentity other)
     {
         if (IsProperty != other.IsProperty
             || IsStatic != other.IsStatic
@@ -254,13 +278,9 @@ internal sealed record CarriedMemberIdentity(
             return false;
         if (IsProperty)
             return true;
-        if (IsAsync != other.IsAsync
-            || IsGeneric != other.IsGeneric
-            || !string.Equals(LabelKey, other.LabelKey, StringComparison.Ordinal))
-            return false;
-        return SignatureKey is null
-            || other.SignatureKey is null
-            || string.Equals(SignatureKey, other.SignatureKey, StringComparison.Ordinal);
+        return IsAsync == other.IsAsync
+            && IsGeneric == other.IsGeneric
+            && string.Equals(LabelKey, other.LabelKey, StringComparison.Ordinal);
     }
 }
 
