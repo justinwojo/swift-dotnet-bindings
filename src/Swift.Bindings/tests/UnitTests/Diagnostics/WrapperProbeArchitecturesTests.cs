@@ -165,8 +165,10 @@ public class WrapperProbeArchitecturesTests
         Assert.Equal(["sim"], outcome.Slices.Select(s => s.SliceId));
     }
 
-    [Fact]
-    public void Probe_AnExtraFailureFromAMissingModule_IsLeftToTheWrapperCompile()
+    [Theory]
+    [InlineData("no such module 'Dependency'")]
+    [InlineData("could not find module 'Dependency' for target 'x86_64-apple-ios-simulator'; found: arm64-apple-ios-simulator")]
+    public void Probe_AnExtraFailureFromAMissingModule_IsLeftToTheWrapperCompile(string message)
     {
         // A dependency that ships no x86_64 slice: the extra architecture cannot build at all, which the
         // wrapper compile handles; the probe must not turn it into a failed round.
@@ -174,7 +176,7 @@ public class WrapperProbeArchitecturesTests
             ["arm64", "x86_64"],
             architecture => architecture == "arm64"
                 ? Clean("sim", Provenance("A.swift", "/out/A.swift"))
-                : Failed("sim", Error("A.swift", 2, "no such module 'Dependency'"), Provenance("A.swift", "/scratch/A.swift")),
+                : Failed("sim", Error("A.swift", 2, message), Provenance("A.swift", "/scratch/A.swift")),
             NullLogger.Instance);
 
         Assert.True(outcome.AllSlicesClean);

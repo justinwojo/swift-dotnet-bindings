@@ -111,7 +111,18 @@ public static class WrapperProbeArchitectures
 
     private static bool NamesAMember(WrapperCompileDiagnostics outcome) =>
         outcome.Diagnostics.Any(g => g.Primary.Severity == Diagnostics.DiagnosticSeverity.Error)
-        && !outcome.Diagnostics.Any(g => Diagnostics.DiagnosticAttributor.IsGlobalInputError(g.Primary));
+        && !outcome.Diagnostics.Any(g => Diagnostics.DiagnosticAttributor.IsGlobalInputError(g.Primary)
+            || IsModuleMissingForArchitecture(g.Primary));
+
+    // The frontend's wording when a module exists but ships no slice for the target being compiled
+    // ("could not find module 'X' for target 'x86_64-apple-ios-simulator'; found: arm64-…"): on an
+    // extra architecture it is the same input gap as a missing module.
+    private static readonly System.Text.RegularExpressions.Regex ModuleMissingForArchitecture = new(
+        @"could not find module '[^']+' for target", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static bool IsModuleMissingForArchitecture(Diagnostics.CompilerDiagnostic diagnostic) =>
+        diagnostic.Severity == Diagnostics.DiagnosticSeverity.Error
+        && ModuleMissingForArchitecture.IsMatch(diagnostic.Message);
 
     /// <summary>
     /// One outcome over every architecture: clean only when each architecture compiled clean, carrying
