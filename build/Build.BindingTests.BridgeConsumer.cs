@@ -37,7 +37,11 @@
 //
 // tvOS (--tvos) binds a fixture that ships the slices a tvOS library ships: arm64 for the device and a
 // universal arm64 + x86_64 simulator slice. Each build's receipt must cover all three, and the app runs
-// on the arm64 tvOS simulator.
+// on the arm64 tvOS simulator. The iOS fixture ships its simulator slice the same way.
+//
+// The fixture declares one member on arm64 only (bridgeConsumerArmOnly). Every family ships an x86_64
+// half, so each binding build must withdraw it on every slice, with its report row, and still ship a
+// wrapper with every architecture; a generation graded on arm64 alone binds it (the positive control).
 //
 // Opt-in. .NET 11 runs it with --coreclr-interp. Never part of the default run or --compile-only.
 
@@ -75,6 +79,11 @@ partial class Build
     const string BcfRuntimeLibrary = "SwiftBindingsRuntime";
     // The x86_64 half of a tvOS simulator slice, which tvOS libraries ship for Intel hosts.
     const string BcfTvosSimulatorX64Target = "x86_64-apple-tvos15.0-simulator";
+    // The x86_64 half of an iOS simulator slice, which iOS libraries ship for Intel hosts.
+    const string BcfIosSimulatorX64Target = "x86_64-apple-ios15.0-simulator";
+    // The fixture's arm64-only member, as the generator names it in Swift and in C#.
+    const string BcfArmOnlyMember = "bridgeConsumerArmOnly";
+    const string BcfArmOnlyMethod = "BridgeConsumerArmOnly";
     // The generator's test-only switch that refuses a verified bridge relink (SwiftBridgeFinalizer.ForceRollbackVariable).
     const string BcfForceRollbackVariable = "SWIFT_BINDINGS_FORCE_BRIDGE_ROLLBACK";
 
@@ -129,7 +138,7 @@ partial class Build
             ? [ApplePlatform.MacCatalyst.SimulatorTarget, ApplePlatform.MacCatalystX64.SimulatorTarget]
             : Tvos
                 ? [ApplePlatform.TvOS.DeviceTarget!, ApplePlatform.TvOS.SimulatorTarget, BcfTvosSimulatorX64Target]
-                : [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget];
+                : [ApplePlatform.IOS.DeviceTarget!, ApplePlatform.IOS.SimulatorTarget, BcfIosSimulatorX64Target];
     }
 
     /// <summary>One routed bridge the host expects on a measured call.</summary>
@@ -467,6 +476,7 @@ partial class Build
             File.Copy(journal, family.Receipts / $"{tag}-{journal.Name}", overwrite: true);
 
             AssertBridgeConsumerFullyRouted(copyLabel, plans);
+            AssertBridgeConsumerArmOnlyWithdrawn(copyLabel, bindingDir);
             // The assembly this build compiled the binding into sits beside its swift-binding/ directory.
             var assemblyName = mode == BcfMode.Direct ? BcfAppName : BcfModule;
             if (!outer)
@@ -563,10 +573,9 @@ partial class Build
 
     // MARK: - Fixture module and the oracle
 
-    // The family's fixture framework. iOS: a two-slice (device + simulator) xcframework, each slice
-    // linking the register sentinel. Mac Catalyst: one universal (arm64 + x86_64) slice, as real
-    // libraries ship it; the sentinel is arm64 code, so only the arm64 half links it. tvOS: an arm64
-    // device slice and a universal (arm64 + x86_64) simulator slice, as real tvOS libraries ship them.
+    // The family's fixture framework. Mac Catalyst: one universal (arm64 + x86_64) slice, as real
+    // libraries ship it; the sentinel is arm64 code, so only the arm64 half links it. iOS and tvOS: an
+    // arm64 device slice and a universal (arm64 + x86_64) simulator slice, as real libraries ship them.
     AbsolutePath BuildBridgeConsumerXcframework(BcfFamily family)
     {
         var buildRoot = family.Root / "build";
@@ -605,12 +614,13 @@ partial class Build
                 var sdkPath = XcRun.GetSdkPath(slice.Sdk);
                 var sentinelObject = sliceDir / "bridge-sentinel-arm64.o";
                 XcRunTool($"clang -c \"{sentinel}\" -o \"{sentinelObject}\" -target {slice.Target} -isysroot \"{sdkPath}\"");
-                if (family.Tvos && !slice.Device)
+                if (!slice.Device)
                 {
-                    // The tvOS simulator slice is universal; the arm64 sentinel links into its arm64 half only.
+                    // The simulator slice is universal; the arm64 sentinel links into its arm64 half only.
                     create = create.AddFrameworkPath(BuildFatFrameworkSlice(sliceDir, "universal", swiftSources,
                         armTarget: slice.Target, armSuffix: slice.Suffix,
-                        x64Target: BcfTvosSimulatorX64Target, x64Suffix: "x86_64-apple-tvos-simulator",
+                        x64Target: family.Tvos ? BcfTvosSimulatorX64Target : BcfIosSimulatorX64Target,
+                        x64Suffix: family.Tvos ? "x86_64-apple-tvos-simulator" : "x86_64-apple-ios-simulator",
                         sdkName: slice.Sdk, minOs: apple.MinOsVersion, plistPlatform: slice.Plist,
                         module: BcfModule, armExtraSources: [sentinelObject.ToString()]));
                     continue;
@@ -632,29 +642,26 @@ partial class Build
     AbsolutePath RecordBridgeConsumerOracle(BcfFamily family, AbsolutePath xcframework)
     {
         var planDir = family.Root / "plan-generation";
-        planDir.CreateDirectory();
         Log.Information("=== bridge-consumer {Platform}: generating once to learn the fixture's call plans ===", family.Platform);
-        var args = new List<string>
-        {
-            $"\"{GeneratorDll}\"",
-            $"--xcframework \"{xcframework}\"",
-            $"-o \"{planDir}\"",
-            $"--platform {family.Platform}",
-            $"--target-framework {RuntimeLane.Framework}-{family.Platform}",
-            "--skip-wrapper-compilation",
-            "--no-verify-csharp",
-        };
-        var proc = ProcessTasks.StartProcess("dotnet", string.Join(" ", args), workingDirectory: RootDirectory, logOutput: false);
-        proc.WaitForExit();
-        var log = family.Receipts / "plan-generation.log";
-        File.WriteAllLines(log, proc.Output.Select(o => o.Text));
-        if (proc.ExitCode != 0)
-            throw new Exception($"--bridge-consumer: the generator exited {proc.ExitCode}; log at {log}.");
+        // Graded on every architecture the fixture ships, as the SDK's generation pass grades it, so
+        // the wrapper the oracle compiles for each slice is the one the SDK settles on.
+        GenerateBridgeConsumerPlans(family, xcframework, planDir, "auto", family.Receipts / "plan-generation.log");
         var sidecar = planDir / $"{BcfModule}.swift-call-plans.json";
         var wrapper = planDir / $"{BcfModule}.Wrapper.swift";
         foreach (var required in new[] { sidecar, wrapper })
             if (!File.Exists(required))
                 throw new Exception($"--bridge-consumer: the generator wrote no {required.Name} in {planDir}.");
+        AssertBridgeConsumerArmOnlyWithdrawn($"{family.Platform} plan generation", planDir);
+
+        // Positive control: graded on arm64 alone, the same generation binds the arm64-only member, so
+        // its withdrawal above is the x86_64 slice's doing and not a member the generator cannot bind.
+        var armOnlyDir = family.Root / "plan-generation-arm64";
+        GenerateBridgeConsumerPlans(family, xcframework, armOnlyDir, "arm64", family.Receipts / "plan-generation-arm64.log");
+        if (!BcfEmitsArmOnlyMember(armOnlyDir))
+            throw new Exception($"--bridge-consumer {family.Platform}: graded on arm64 alone, the generator did not bind {BcfArmOnlyMember}; " +
+                "the positive control for its withdrawal on x86_64 is gone.");
+        Log.Information("  {Platform} positive control: graded on arm64 alone, {Member} binds", family.Platform, BcfArmOnlyMember);
+        armOnlyDir.DeleteDirectory();
 
         var evidence = family.Root / "oracle-lowering-evidence.json";
         var reports = family.Receipts / "oracle";
@@ -695,6 +702,55 @@ partial class Build
             foreach (var line in File.ReadAllLines(report).Where(l => l.StartsWith("evidence:", StringComparison.Ordinal)))
                 Log.Information("  {Triple}: {Line}", Path.GetFileNameWithoutExtension(report), line);
         return evidence;
+    }
+
+    // One generation of the fixture, shaped like the SDK's generation pass: the wrapper is rendered and
+    // graded by the verify-recover probe on every architecture targetArchitectures decides, not compiled.
+    void GenerateBridgeConsumerPlans(BcfFamily family, AbsolutePath xcframework, AbsolutePath outputDir, string targetArchitectures, AbsolutePath log)
+    {
+        outputDir.CreateDirectory();
+        var args = new List<string>
+        {
+            $"\"{GeneratorDll}\"",
+            $"--xcframework \"{xcframework}\"",
+            $"-o \"{outputDir}\"",
+            $"--platform {family.Platform}",
+            $"--target-framework {RuntimeLane.Framework}-{family.Platform}",
+            "--wrapper-architectures all",
+            $"--target-architectures {targetArchitectures}",
+            "--skip-wrapper-compilation",
+            "--sdk-mode",
+            "--no-verify-csharp",
+        };
+        var proc = ProcessTasks.StartProcess("dotnet", string.Join(" ", args), workingDirectory: RootDirectory, logOutput: false);
+        proc.WaitForExit();
+        File.WriteAllLines(log, proc.Output.Select(o => o.Text));
+        if (proc.ExitCode != 0)
+            throw new Exception($"--bridge-consumer: the generator exited {proc.ExitCode}; log at {log}.");
+    }
+
+    // Whether any C# the generation emitted under bindingDir declares the arm64-only member.
+    static bool BcfEmitsArmOnlyMember(AbsolutePath bindingDir) =>
+        Directory.GetFiles(bindingDir, "*.cs", SearchOption.AllDirectories)
+            .Any(f => Regex.IsMatch(File.ReadAllText(f), $@"\b{BcfArmOnlyMethod}\s*\("));
+
+    // Every family ships an x86_64 half the arm64-only member does not compile on: the generation must
+    // withdraw it on every slice, record the withdrawal in the emission report, and emit no C# for it.
+    static void AssertBridgeConsumerArmOnlyWithdrawn(string label, AbsolutePath bindingDir)
+    {
+        var reports = Directory.GetFiles(bindingDir, "binding-emission-report.json", SearchOption.AllDirectories);
+        if (reports.Length != 1)
+            throw new Exception($"--bridge-consumer {label}: expected one binding-emission-report.json under {bindingDir}, found {reports.Length}.");
+        using var report = JsonDocument.Parse(File.ReadAllText(reports[0]));
+        var rows = report.RootElement.TryGetProperty("withdrawnUnits", out var units)
+            ? units.EnumerateArray().Select(u => u.GetString() ?? "").Where(u => u.Contains(BcfArmOnlyMember, StringComparison.Ordinal)).ToList()
+            : [];
+        if (rows.Count == 0)
+            throw new Exception($"--bridge-consumer {label}: {reports[0]} records no withdrawal of {BcfArmOnlyMember}, " +
+                "which the fixture declares on arm64 only; the wrapper probe did not grade the x86_64 slice.");
+        if (BcfEmitsArmOnlyMember(bindingDir))
+            throw new Exception($"--bridge-consumer {label}: the binding still declares {BcfArmOnlyMethod} after withdrawing it.");
+        Log.Information("  {Label}: {Member} withdrawn on every slice ({Rows})", label, BcfArmOnlyMember, string.Join("; ", rows));
     }
 
     // The SDK's wrapper compile collects the module's lowering receipt from the IR of the wrapper it
@@ -842,7 +898,7 @@ partial class Build
         }
         else if (images.Count < 2)
             throw new Exception($"--bridge-consumer: {nupkg.Name} carries {images.Count} wrapper slice(s); expected the device and simulator slices.");
-        else if (family.Tvos)
+        else
         {
             // The wrapper's simulator slice must carry every architecture the fixture's does.
             var simulator = images.Where(i => i.Contains("simulator", StringComparison.Ordinal)).ToList();

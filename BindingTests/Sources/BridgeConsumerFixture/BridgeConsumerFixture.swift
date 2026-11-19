@@ -191,3 +191,14 @@ public func bridgeConsumerItems(count: Int, first: Int64) -> [BridgeItem] {
     let items = (0..<count).map { BridgeItem(value: first + Int64($0)) }
     return BridgeItemStorage(items: items) as! [BridgeItem]
 }
+
+// MARK: - A member one architecture lacks
+
+#if arch(arm64)
+/// Declared on arm64 only, as a library's architecture-conditional API is. Its closure parameter
+/// needs a @_cdecl wrapper, which the x86_64 half of a universal slice cannot compile: the binding
+/// must withdraw it on every slice, with its report row, rather than ship a wrapper without x86_64.
+public func bridgeConsumerArmOnly(_ transform: (Int64) -> Int64) -> Int64 {
+    transform(41)
+}
+#endif
