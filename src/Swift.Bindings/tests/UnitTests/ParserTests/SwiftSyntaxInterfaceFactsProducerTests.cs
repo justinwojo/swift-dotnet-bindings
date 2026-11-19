@@ -1045,6 +1045,26 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         finally { File.Delete(path); }
     }
 
+    /// <summary>A module whose name is not ASCII still owns the extensions of its own protocols.</summary>
+    [SkippableFact]
+    public void ExtensionOfOwnProtocol_InAModuleWithANonAsciiName_IsAProtocolExtension()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExtensionOfOwnProtocol_InAModuleWithANonAsciiName_IsAProtocolExtension));
+        var path = WriteTempFile(
+            "// swift-module-flags: -module-name Kït\n" +
+            "public protocol Marker {}\n" +
+            "extension Kït.Marker {\n" +
+            "  public static func own() -> Swift.Int\n" +
+            "}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+
+            Assert.Contains("own", facts.ProtocolExtensionMethods!.SelectMany(p => p.Value).Select(m => m.MethodName));
+        }
+        finally { File.Delete(path); }
+    }
+
     #endregion
 
     #region @objc(CustomName) extraction

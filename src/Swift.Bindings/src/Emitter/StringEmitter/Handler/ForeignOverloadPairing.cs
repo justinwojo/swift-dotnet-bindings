@@ -34,7 +34,7 @@ internal static class ForeignOverloadPairing
         Func<TDeclared, TListed, bool> sameShape,
         Func<TDeclared, OverloadSignature?> declaredSignature,
         Func<TListed, OverloadSignature?> listedSignature,
-        ITypeDatabase? typeDatabase,
+        ITypeDatabase typeDatabase,
         ISet<object>? claimed = null)
         where TListed : class
     {
@@ -73,7 +73,7 @@ internal static class ForeignOverloadPairing
             && declared.Parameters.Zip(listed.Parameters).All(p => SameType(p.First, p.Second))
             && (declared.Return is null || listed.Return is null || SameType(declared.Return, listed.Return));
 
-    private static bool MayBeSpelledAs(OverloadSignature declared, OverloadSignature listed, ITypeDatabase? typeDatabase)
+    private static bool MayBeSpelledAs(OverloadSignature declared, OverloadSignature listed, ITypeDatabase typeDatabase)
     {
         bool Type(string d, string l) => SameType(d, l) || CarriedReceiverRows.MayBeSpelledAs(d, l, typeDatabase);
         return LabelsAgree(declared.Labels, listed.Labels, allowErased: true)
@@ -167,7 +167,7 @@ internal static class ForeignOverloadPairing
     // clause, a body or the end; null when no arrow follows.
     private static string? ReturnTypeAfter(string declaration, int end)
     {
-        var tail = Effects.Replace(declaration[end..], string.Empty).TrimStart();
+        var tail = WithoutEffects(declaration[end..]);
         if (!tail.StartsWith("->", StringComparison.Ordinal))
             return null;
         tail = tail[2..];
@@ -202,6 +202,22 @@ internal static class ForeignOverloadPairing
                 return j + 1;
         }
         return -1;
+    }
+
+    // The text after the effects that open it: `async`, `reasync`, `rethrows`, and `throws` with any
+    // typed error, whose type may itself hold parentheses.
+    private static string WithoutEffects(string text)
+    {
+        while (true)
+        {
+            text = text.TrimStart();
+            var effect = Effect.Match(text);
+            if (!effect.Success)
+                return text;
+            text = text[effect.Length..].TrimStart();
+            if (effect.Value == "throws" && text.StartsWith('(') && ClauseEnd(text, 0) is var end and > 0)
+                text = text[end..];
+        }
     }
 
     // Each parameter's type: the text after its first top-level colon.
@@ -249,6 +265,6 @@ internal static class ForeignOverloadPairing
     private static readonly Regex Attribute = new(@"@\w+(?:\([^)]*\))?", RegexOptions.Compiled);
     private static readonly Regex Ownership = new(@"\b(?:inout|__owned|__shared|borrowing|consuming|sending)\b", RegexOptions.Compiled);
     private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
-    private static readonly Regex Effects = new(@"^\s*(?:(?:async|reasync|rethrows|throws(?:\s*\([^)]*\))?)\s*)*", RegexOptions.Compiled);
+    private static readonly Regex Effect = new(@"^(?:async|reasync|rethrows|throws)(?![\w`])", RegexOptions.Compiled);
     private static readonly Regex WhereAt = new(@"^(?:\s)where\b", RegexOptions.Compiled);
 }

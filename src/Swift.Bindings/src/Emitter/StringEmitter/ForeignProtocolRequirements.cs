@@ -80,8 +80,8 @@ internal static class ForeignProtocolRequirements
         /// Whether an operator requirement is this operator: by its types where the requirement's
         /// declaration showed them, by its spelling alone otherwise.
         /// </summary>
-        internal bool DeclaresOperator(string key, string typedKey)
-            => _typedOperators.TryGetValue(key, out var typed) ? typed.Contains(typedKey) : Declares(key);
+        internal bool DeclaresOperator(string key, string? typedKey)
+            => _typedOperators.TryGetValue(key, out var typed) ? typedKey is not null && typed.Contains(typedKey) : Declares(key);
 
         /// <summary>
         /// Whether a requirement has this member's key (<see cref="MethodKey"/>, <see cref="PropertyKey"/>).
@@ -116,21 +116,21 @@ internal static class ForeignProtocolRequirements
     /// <summary>
     /// A subscript's requirement key: its parameter and return types
     /// (<see cref="ForeignOverloadPairing.Normalize"/>, a <c>Self.</c> qualifier dropped), since a
-    /// subscript's parameters seldom carry argument labels. A signature that does not read gives a key
-    /// no requirement has.
+    /// subscript's parameters seldom carry argument labels. Null when the signature's types do not
+    /// read (a generic subscript among them): two such subscripts are not known to be one.
     /// </summary>
-    internal static string SubscriptKey(OverloadSignature? signature, bool isStatic)
-        => (isStatic ? "static " : string.Empty) + "subscript" + TypesKey(signature);
+    internal static string? SubscriptKey(OverloadSignature? signature, bool isStatic)
+        => TypesKey(signature) is { } types ? (isStatic ? "static " : string.Empty) + "subscript" + types : null;
 
     /// <summary>An operator's requirement key with its parameter and return types (see <see cref="SubscriptKey"/>).</summary>
-    internal static string OperatorKey(string name, OverloadSignature? signature, bool isStatic)
-        => (isStatic ? "static " : string.Empty) + name + TypesKey(signature);
+    internal static string? OperatorKey(string name, OverloadSignature? signature, bool isStatic)
+        => TypesKey(signature) is { } types ? (isStatic ? "static " : string.Empty) + name + types : null;
 
-    private static string TypesKey(OverloadSignature? signature)
+    private static string? TypesKey(OverloadSignature? signature)
     {
         static string Type(string? type) => SelfQualifier.Replace(ForeignOverloadPairing.Normalize(type) ?? "?", string.Empty);
-        return signature?.Parameters is not { } parameters
-            ? "(?)"
+        return signature?.Parameters is not { } parameters || signature.Return is null
+            ? null
             : $"({string.Join(",", parameters.Select(Type))})->{Type(signature.Return)}";
     }
 
@@ -283,14 +283,15 @@ internal static class ForeignProtocolRequirements
                     var name = func.Groups[1].Value.Trim('`');
                     var key = MethodKey(name, labels, isStatic, labels is not null && AsyncEffect.IsMatch(line[clauseEnd..]));
                     names.Add(key);
-                    if (IsOperator(name) && ForeignOverloadPairing.SignatureOf(line, "func", name) is { Parameters: not null } signature)
-                        typedOperators.Add((key, OperatorKey(name, signature, isStatic)));
+                    if (IsOperator(name) && OperatorKey(name, ForeignOverloadPairing.SignatureOf(line, "func", name), isStatic) is { } typed)
+                        typedOperators.Add((key, typed));
                 }
                 else if (VarName.Match(line) is { Success: true } variable)
                     names.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
                 else if (SubscriptDeclaration.IsMatch(line))
                 {
-                    names.Add(SubscriptKey(ForeignOverloadPairing.SignatureOf(line, "subscript"), StaticSubscript.IsMatch(line)));
+                    if (SubscriptKey(ForeignOverloadPairing.SignatureOf(line, "subscript"), StaticSubscript.IsMatch(line)) is { } subscriptKey)
+                        names.Add(subscriptKey);
                 }
                 else if (Initializer.Match(line) is { Success: true } init)
                 {

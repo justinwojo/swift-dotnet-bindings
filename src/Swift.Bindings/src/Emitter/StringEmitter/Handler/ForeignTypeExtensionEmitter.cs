@@ -336,7 +336,8 @@ public static class ForeignTypeExtensionEmitter
             case BindingItemKind.Property:
                 return requirements.Declares(ForeignProtocolRequirements.PropertyKey(candidate.Name, candidate.IsStatic));
             case BindingItemKind.Subscript:
-                return requirements.Declares(ForeignProtocolRequirements.SubscriptKey(SignatureOf(candidate, kind), candidate.IsStatic));
+                return ForeignProtocolRequirements.SubscriptKey(SignatureOf(candidate, kind), candidate.IsStatic) is { } subscriptKey
+                    && requirements.Declares(subscriptKey);
             case BindingItemKind.Operator:
                 return requirements.DeclaresOperator(prefix + candidate.Name,
                     ForeignProtocolRequirements.OperatorKey(candidate.Name, SignatureOf(candidate, kind), candidate.IsStatic));

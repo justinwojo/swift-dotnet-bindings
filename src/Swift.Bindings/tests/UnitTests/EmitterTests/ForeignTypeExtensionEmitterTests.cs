@@ -946,7 +946,7 @@ public class ForeignTypeExtensionEmitterTests
         var requirements = new ForeignProtocolRequirements.Requirements();
         requirements.Add("static +");
         requirements.AddTypedOperator("static +", ForeignProtocolRequirements.OperatorKey("+",
-            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true));
+            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true)!);
         var spellingOnly = new ForeignProtocolRequirements.Requirements();
         spellingOnly.Add("static +");
         var member = ForeignProtocolRequirements.OperatorKey("+",
@@ -954,6 +954,25 @@ public class ForeignTypeExtensionEmitterTests
 
         Assert.Equal(expected, requirements.DeclaresOperator("static +", member));
         Assert.True(spellingOnly.DeclaresOperator("static +", member));
+    }
+
+    /// <summary>
+    /// A subscript or operator whose types do not read (a generic one) has no typed key, so it never
+    /// matches a requirement and keeps its row.
+    /// </summary>
+    [Fact]
+    public void RequirementKeys_UnreadableSignature_MatchNoRequirement()
+    {
+        var generic = ForeignOverloadPairing.SignatureOf("public subscript<T>(v: T) -> Swift.Int32", "subscript");
+        Assert.Null(ForeignProtocolRequirements.SubscriptKey(generic, isStatic: false));
+
+        var requirements = new ForeignProtocolRequirements.Requirements();
+        requirements.Add("static +");
+        requirements.AddTypedOperator("static +", ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true)!);
+        var genericOperator = ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("public static func + <T>(lhs: Self, rhs: T) -> Self", "func", "+"), isStatic: true);
+        Assert.False(requirements.DeclaresOperator("static +", genericOperator));
     }
 
     /// <summary>
@@ -968,6 +987,7 @@ public class ForeignTypeExtensionEmitterTests
     [InlineData("public subscript(a x: Swift.Int) -> Swift.Int { get }", "subscript", null, "Swift.Int", "Swift.Int")]
     [InlineData("public func g<T>(x: T) -> T where T : Swift.Equatable", "func", "g", null, "T")]
     [InlineData("public func h() async -> Swift.Int where Self : Swift.Equatable", "func", "h", "", "Swift.Int")]
+    [InlineData("public func e() throws(Kit.Failure<(Swift.Int32, Swift.Int32)>) -> Swift.Int32", "func", "e", "", "Swift.Int32")]
     public void SignatureOf_ReadsTypesAndReturn(string declaration, string keyword, string name, string parameters, string returnType)
     {
         var signature = ForeignOverloadPairing.SignatureOf(declaration, keyword, name);

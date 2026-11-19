@@ -385,7 +385,7 @@ internal static class CarriedReceiverRows
     /// Without a database every named type may be one; structure (tuple, closure, generic arguments
     /// of a known type) still has to agree.
     /// </summary>
-    internal static bool MayBeSpelledAs(string declared, string listed, ITypeDatabase? typeDatabase)
+    internal static bool MayBeSpelledAs(string declared, string listed, ITypeDatabase typeDatabase)
     {
         TypeSpec? Parse(string text)
         {
