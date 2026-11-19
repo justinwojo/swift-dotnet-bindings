@@ -721,6 +721,75 @@ public class SwiftOverloadCallPinningTests
     }
 
     [Theory]
+    // An existential is no function, so neither a closure parameter nor an optional one takes it.
+    [InlineData("() -> Swift.Array<TestLib.Source>", false)]
+    [InlineData("Swift.Optional<() -> Swift.Array<TestLib.Source>>", false)]
+    // An array takes no existential either.
+    [InlineData("Swift.Array<TestLib.Source>", false)]
+    // A type the database does not know may alias a function type.
+    [InlineData("TestLib.UnknownAlias", true)]
+    public void Existential_ReachesNoFunctionParameter(string siblingType, bool refused)
+    {
+        // init(version: = compute(), entries: any Resource) beside init(version: = compute(), entries:
+        // <sibling>): the shim omits the defaulted version and passes the existential. No implicit
+        // conversion turns an existential value into a function, so the closure-taking sibling cannot
+        // take the call; swiftc binds it to the existential initializer.
+        var types = TestLibDatabase();
+        var target = Method("init", disfavored: false,
+            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", "any TestLib.Resource"));
+        var sibling = Method("init", disfavored: false,
+            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", siblingType));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
+    // A function conforms to no protocol of a module, so an existential of one cannot take it.
+    [InlineData("any TestLib.Resource", false)]
+    [InlineData("Swift.Optional<any TestLib.Resource>", false)]
+    // A composition takes a function only when every member does.
+    [InlineData("any TestLib.Resource & Swift.Sendable", false)]
+    // Any takes a function, and so may a standard-library marker protocol (Sendable takes a
+    // @Sendable function), alone or composed.
+    [InlineData("Swift.Any", true)]
+    [InlineData("any Swift.Sendable", true)]
+    [InlineData("any Swift.Sendable & Swift.Copyable", true)]
+    public void Function_ReachesNoExistentialOfAProtocol(string siblingType, bool refused)
+    {
+        // init(version: = compute(), entries: () -> [Source]) beside init(version: = compute(),
+        // entries: <sibling>): the shim passes the closure, which only Any or a protocol a function
+        // can conform to would accept. The database records the marker protocols as protocols, so
+        // only their module keeps them possible targets.
+        var types = TestLibDatabase();
+        var swift = new ModuleTypeDatabase("Swift", "/tmp/Swift.dylib");
+        foreach (var marker in new[] { "Sendable", "Copyable" })
+        {
+            var markerName = SwiftTypeName.FromModuleQualifiedName("Swift." + marker);
+            swift.RegisterType(markerName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", marker),
+                SwiftTypeName = markerName,
+                MetadataAccessor = string.Empty,
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Protocol,
+            });
+        }
+        types.AddModuleDatabase(swift);
+        var target = Method("init", disfavored: false,
+            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", "() -> Swift.Array<TestLib.Source>"));
+        var sibling = Method("init", disfavored: false,
+            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", siblingType));
+        Host(target, sibling);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, arg => arg.HasDefaultArg, types);
+
+        Assert.Equal(refused, plan.IsRefused);
+    }
+
+    [Theory]
     // The SDK makes URL no sequence, so the generic initializer cannot take one.
     [InlineData("Foundation.URL", "Swift.Sequence", false)]
     // A protocol URL does conform to leaves the generic initializer able to take it.

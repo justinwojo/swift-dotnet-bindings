@@ -61,7 +61,8 @@ internal sealed class SwiftCallPinPlan
 /// struct or enum other than its own, from a value type into a class, from an existential into a value
 /// type, from a struct or enum into a protocol it provably does not conform to, from a struct or
 /// enum into a type parameter whose required protocol it provably does not conform to, between
-/// function types of different arity, or between a function and a non-function). The target counts
+/// function types of different arity, or between a function and a non-function, an existential
+/// being no function and a function conforming to no protocol a module declares). The target counts
 /// as winning only on rules that hold whatever else the solver weighs: it is synchronous where the
 /// sibling is async (wrappers call a synchronous target from a synchronous body); it is favored
 /// where the sibling is disfavored; it is async where the sibling is not and neither is favored
@@ -620,7 +621,9 @@ internal static class SwiftOverloadCallPinning
     /// known named type is a function, a function is no closed standard-library type, and a
     /// function value or closure never fits a function type of different arity — save the one-tuple
     /// parameter Swift destructures. An autoclosure parameter takes a plain value and is not judged
-    /// here. A named type the database does not know may be an alias of a function type.
+    /// here. An existential is no function either: no implicit conversion opens one into a function
+    /// type, whatever its protocol. A named type the database does not know may be an alias of a
+    /// function type.
     /// </summary>
     private static bool RejectsAsFunction(TypeSpec paramSpec, CallArg arg, NominalKinds kinds)
     {
@@ -638,19 +641,32 @@ internal static class SwiftOverloadCallPinning
             {
                 ClosureTypeSpec valueFunction => !MayDestructure(paramFunction) && !MayDestructure(valueFunction)
                     && paramFunction.ArgumentCount() != valueFunction.ArgumentCount(),
-                NamedTypeSpec named => IsKnownNominal(SplitType(named.ToString()).Head, kinds),
+                NamedTypeSpec named => IsKnownNominal(SplitType(named.ToString()).Head, kinds)
+                    || IsExistentialValue(named, kinds),
                 ProtocolListTypeSpec => true,
                 _ => false,
             };
         }
-        if (arg.ValueSpec != null && UnwrapOptional(arg.ValueSpec).Spec is ClosureTypeSpec
-            && param is NamedTypeSpec target && !IsGenericName(target.Name))
+        if (arg.ValueSpec != null && UnwrapOptional(arg.ValueSpec).Spec is ClosureTypeSpec)
         {
-            // A function converts to Any or an existential at most.
-            return IsClosed(target.Name) || kinds.Of(target.Name) is TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class;
+            // A function converts to Any or an existential at most, and conforms to no protocol a
+            // module declares; only the standard library's marker protocols (a @Sendable function
+            // is Sendable) take one, so a protocol of the Swift module stays a possible target. A
+            // composition takes a function only when every member does.
+            return param switch
+            {
+                NamedTypeSpec target when !IsGenericName(target.Name) => IsClosed(target.Name) || TakesNoFunction(target.Name, kinds),
+                ProtocolListTypeSpec composition => composition.Protocols.Keys.Any(member => TakesNoFunction(member.Name, kinds)),
+                _ => false,
+            };
         }
         return false;
     }
+
+    /// <summary>A nominal type a function value never converts to: a struct, enum or class, or a protocol outside the Swift module.</summary>
+    private static bool TakesNoFunction(string name, NominalKinds kinds) =>
+        kinds.Of(name) is TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class
+        || (kinds.Of(name) == TypeRecordKind.Protocol && !name.StartsWith("Swift.", StringComparison.Ordinal));
 
     /// <summary>
     /// Whether a parameter typed with a bare type parameter cannot take a value of a struct or enum
@@ -684,6 +700,10 @@ internal static class SwiftOverloadCallPinning
         }
         return false;
     }
+
+    /// <summary>A value of protocol type, spelled <c>any P</c> or as the bare protocol name.</summary>
+    private static bool IsExistentialValue(NamedTypeSpec value, NominalKinds kinds) =>
+        !IsGenericName(value.Name) && (value.IsAny || kinds.Of(value.Name) == TypeRecordKind.Protocol);
 
     private static bool IsKnownNominal(string head, NominalKinds kinds) =>
         !IsGenericName(head) && (IsClosed(head) || head == "Swift.Optional" || kinds.Of(head) is TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class);
