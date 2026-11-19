@@ -724,7 +724,9 @@ public sealed class ModuleEmissionContext
     /// already paired with a member the interface declares, so each accounts for one interface
     /// member across the foreign-extension pre-pass and the dropped-declaration report.
     /// </summary>
-    internal ISet<object> ForeignExtPairedAbiMembers { get; } = new HashSet<object>(ReferenceEqualityComparer.Instance);
+    internal ISet<object> ForeignExtPairedAbiMembers => _foreignExtPairedAbiMembers;
+
+    private readonly HashSet<object> _foreignExtPairedAbiMembers = new(ReferenceEqualityComparer.Instance);
 
     private readonly List<ProtocolExtensionDecline> _protocolExtDeclines = new();
 
