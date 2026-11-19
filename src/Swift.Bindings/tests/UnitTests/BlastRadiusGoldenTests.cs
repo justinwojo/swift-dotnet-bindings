@@ -88,14 +88,21 @@ public class BlastRadiusGoldenTests
     }
 
     [Fact]
+    public void ADifferenceWithNoHunks_IsAChange()
+    {
+        var binary = "Binary files /a/baseline.nm.txt and /b/consumer.nm.txt differ\n";
+        Assert.Equal(new[] { "Binary files /a/baseline.nm.txt and /b/consumer.nm.txt differ" },
+            BlastRadiusGolden.Changes(binary));
+        Assert.False(BlastRadiusGolden.Matches(Golden("nm.diff"), binary));
+    }
+
+    [Fact]
     public void CommittedGoldens_StillMeasureTheSupplement()
     {
         // A golden with no changes would pass a measurement that also has none: pin what each holds.
+        // The strings goldens are pinned by the measurement tests above.
         Assert.Equal(new[] { "-BlastRadius.Baseline:", "+BlastRadius.Consumer:" },
             BlastRadiusGolden.Changes(Golden("otool-L.diff")));
         Assert.Empty(BlastRadiusGolden.Changes(Golden("nm.diff")));
-        Assert.Equal(new[] { "+SwiftBindings.Apple" }, BlastRadiusGolden.Changes(Golden("strings-swift.diff")));
-        Assert.Equal(new[] { "+SwiftBindings.Apple", "+SwiftBindings.Apple.dll" },
-            BlastRadiusGolden.Changes(Golden(BlastRadiusGolden.Xcode27StringsGolden)));
     }
 }

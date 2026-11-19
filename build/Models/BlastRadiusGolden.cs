@@ -12,9 +12,9 @@ using System.Linq;
 /// SwiftBindings.Apple into an app adds to or removes from the executable, as unified diffs of
 /// the baseline app's and the consumer app's <c>otool -L</c>, <c>nm -gU</c> and Swift strings.
 /// A diff's added and removed lines are that blast radius. Its context lines are what both
-/// executables already carry, which the host's own runtime decides: the .NET 10 macOS runtime
-/// libraries autolink <c>libswiftCompatibility56</c>, so every .NET 10 executable holds its
-/// <c>swift_task_*</c> hook strings and every .NET 11 one does not. So the gate compares the
+/// executables already carry, which the host's own runtime decides: the macOS runtime libraries
+/// of the pinned .NET 10 workloads autolink <c>libswiftCompatibility56</c>, so their executables
+/// hold its <c>swift_task_*</c> hook strings, and those of the .NET 11 workload do not. So the gate compares the
 /// changed lines, in order, and nothing else.
 /// </summary>
 public static class BlastRadiusGolden
@@ -40,8 +40,10 @@ public static class BlastRadiusGolden
 
     /// <summary>
     /// The added and removed lines of a single-file unified diff, in order, each with its
-    /// <c>+</c>/<c>-</c> marker. The file headers (everything before the first hunk), the hunk
-    /// headers (whose counts include the context) and the context lines are dropped.
+    /// <c>+</c>/<c>-</c> marker. The <c>---</c>/<c>+++</c> file headers, the hunk headers (whose
+    /// counts include the context) and the context lines are dropped. Any other line before the
+    /// first hunk, such as <c>diff</c>'s "Binary files ... differ", is kept as a change, so a
+    /// difference the diff could not show as hunks never compares equal to an empty golden.
     /// </summary>
     public static IReadOnlyList<string> Changes(string unifiedDiff)
     {
@@ -55,7 +57,9 @@ public static class BlastRadiusGolden
                 inHunk = true;
                 continue;
             }
-            if (inHunk && line.Length > 0 && (line[0] == '+' || line[0] == '-'))
+            if (inHunk ? line.Length > 0 && (line[0] == '+' || line[0] == '-')
+                       : line.Length > 0 && !line.StartsWith("--- ", StringComparison.Ordinal) &&
+                         !line.StartsWith("+++ ", StringComparison.Ordinal))
                 changes.Add(line);
         }
         return changes;
