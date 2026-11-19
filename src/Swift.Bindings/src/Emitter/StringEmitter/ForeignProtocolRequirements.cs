@@ -50,9 +50,8 @@ internal static class ForeignProtocolRequirements
     /// name with its argument labels (<c>hash(into:)</c>, <c>init(from:)</c>), so an overload with other
     /// labels is not taken for a requirement; <c>static </c> before a static member and <c> async</c>
     /// after an async method. A method whose labels the interface line does not show whole is kept as
-    /// <c>name(*)</c> and matches any labels. Subscripts are not kept: a key of their labels would not
-    /// tell two subscripts apart (their parameters carry no argument labels), so an extension
-    /// subscript is never taken for a requirement's default.
+    /// <c>name(*)</c> and matches any labels. A subscript is keyed by its parameter types
+    /// (<see cref="SubscriptKey"/>), since its parameters carry no argument labels.
     /// </summary>
     internal sealed class Requirements
     {
@@ -91,6 +90,15 @@ internal static class ForeignProtocolRequirements
 
     /// <summary>A property's requirement key.</summary>
     internal static string PropertyKey(string name, bool isStatic) => (isStatic ? "static " : string.Empty) + name;
+
+    /// <summary>
+    /// A subscript's requirement key: its parameter types (<see cref="ForeignOverloadPairing.Normalize"/>),
+    /// since a subscript's parameters carry no argument labels to tell two apart. Null types (a clause
+    /// that does not read) give a key no requirement has.
+    /// </summary>
+    internal static string SubscriptKey(string? parameterTypes, bool isStatic)
+        => (isStatic ? "static " : string.Empty) + "subscript("
+            + (ForeignOverloadPairing.Normalize(parameterTypes) ?? "?") + ")";
 
     /// <summary>
     /// The requirement key of an extension member the interface reader extracted, from its printed
@@ -147,6 +155,8 @@ internal static class ForeignProtocolRequirements
             var memberNames = bound.Methods.Where(m => !m.IsAccessor)
                 .Select(ProtocolExtensionEmitter.RequirementKeyOf)
                 .Concat(bound.Properties.Select(ProtocolExtensionEmitter.RequirementKeyOf))
+                .Concat(bound.Subscripts.Select(s => SubscriptKey(
+                    string.Join(", ", s.IndexParameters.Select(a => a.SwiftTypeSpec?.ToString() ?? string.Empty)), s.IsStatic)))
                 .OfType<string>()
                 .ToList();
             return new Declaration(module, memberNames, bound.InheritedProtocols.Select(i => i.Name).ToList());
@@ -231,6 +241,12 @@ internal static class ForeignProtocolRequirements
                 }
                 else if (VarName.Match(line) is { Success: true } variable)
                     names.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
+                else if (SubscriptDeclaration.IsMatch(line))
+                {
+                    var types = ForeignOverloadPairing.ParameterTypesOf(line, "subscript");
+                    if (types is not null)
+                        names.Add(SubscriptKey(types, StaticSubscript.IsMatch(line)));
+                }
                 else if (Initializer.Match(line) is { Success: true } init)
                 {
                     var labels = ParameterLabels(line, init.Index + init.Length - 1, out var clauseEnd);
@@ -388,6 +404,8 @@ internal static class ForeignProtocolRequirements
     private static readonly Regex VarName = new(@"\bvar\s+(`[^`]+`|\w+)\s*:", RegexOptions.Compiled);
     private static readonly Regex Initializer = new(@"(?:^|\s)init[?!]?\s*[(<]", RegexOptions.Compiled);
     private static readonly Regex StaticMember = new(@"\b(?:static|class)\s+(?:[\w@]+\s+)*(?:func|var)\b", RegexOptions.Compiled);
+    private static readonly Regex SubscriptDeclaration = new(@"(?:^|\s)subscript\s*[(<]", RegexOptions.Compiled);
+    private static readonly Regex StaticSubscript = new(@"\b(?:static|class)\s+(?:[\w@]+\s+)*subscript\b", RegexOptions.Compiled);
     private static readonly Regex AsyncEffect = new(@"^\s*(?:re)?async\b", RegexOptions.Compiled);
     private static readonly Regex ExportedImport = new(@"(?m)^\s*@_exported\s+(?:(?:public|package|internal)\s+)?import\s+(?:(?:struct|class|enum|protocol|typealias|func|var|let)\s+(?<module>\w+)\.(?:\w+\.)*(?<name>\w+)|(?<module>\w+))", RegexOptions.Compiled);
 }

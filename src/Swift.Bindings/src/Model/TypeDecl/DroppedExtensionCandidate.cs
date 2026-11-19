@@ -32,6 +32,10 @@ public sealed class DroppedExtensionCandidate
 
     public bool IsStatic { get; init; }
 
+    /// <summary>The enclosing extension's <c>where</c> clause, or empty. Two declarations with one
+    /// header in differently constrained extensions are two members.</summary>
+    public string WhereClause { get; init; } = string.Empty;
+
     /// <summary>Why the reader did not take it, in words for the skip row.</summary>
     public required string Reason { get; init; }
 }

@@ -1236,7 +1236,7 @@ public class CrossModuleExtensionEmitterTests
         var member = PrePassMember("reset", "reset()", "public static func reset()");
         member.IsStatic = true;
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
-            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, TypeDatabaseKnowingInt32(), Logger), Bound: false,
+            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), Bound: false,
             DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
             SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
 
@@ -1440,6 +1440,27 @@ public class CrossModuleExtensionEmitterTests
                 ThreadContext(emissionContext)));
 
         Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "f"));
+    }
+
+    /// <summary>
+    /// A named type no database holds may be a typealias the ABI spells by what it resolves to, a
+    /// generic one included, and so may a name that only looks like an Objective-C class; a type a
+    /// database holds under another name is another member.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.KitchenList<Swift.Int32>", "Swift.Array<Swift.Int32>", true)]
+    [InlineData("Foundation.NSKitchenInterval", "Swift.Double", true)]
+    [InlineData("Swift.Int32", "Swift.Double", false)]
+    public void TypesMayBeSpellingsOf_NamesNoDatabaseHolds_MayBeTypealiases(string declaredType, string abiType, bool expected)
+    {
+        var (_, _, _, moduleDecl, classDecl, _, _) = CreateSetup();
+        var listed = CreateMethodDecl("f", "TestModule", classDecl, mangledName: "$s10TestModule1f1xyF");
+        listed.CSSignature.Add(Argument("x", TypeSpecParser.Parse(abiType)!, moduleDecl));
+        var member = PrePassMember("f", "f(x:)", $"public func f(x: {declaredType})");
+
+        var declared = CarriedReceiverRows.IdentityOf(member, TypeDatabaseKnowingInt32(), Logger);
+
+        Assert.Equal(expected, declared.TypesMayBeSpellingsOf(CarriedReceiverRows.IdentityOf(listed)!));
     }
 
     /// <summary>A type database that knows <c>Swift.Int32</c> as a nominal type, as the standard library's does.</summary>

@@ -274,6 +274,9 @@ internal sealed class DroppedExtensionCandidateJson
     [JsonPropertyName("isStatic")]
     public bool IsStatic { get; set; }
 
+    [JsonPropertyName("whereClause")]
+    public string WhereClause { get; set; } = string.Empty;
+
     [JsonPropertyName("reason")]
     public string Reason { get; set; } = string.Empty;
 }

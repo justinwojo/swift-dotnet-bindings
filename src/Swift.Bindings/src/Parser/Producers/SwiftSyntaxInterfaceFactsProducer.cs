@@ -460,6 +460,7 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
                 PrintedName = c.PrintedName,
                 RawSignature = c.RawSignature,
                 IsStatic = c.IsStatic,
+                WhereClause = c.WhereClause,
                 Reason = c.Reason,
             }).ToList();
 

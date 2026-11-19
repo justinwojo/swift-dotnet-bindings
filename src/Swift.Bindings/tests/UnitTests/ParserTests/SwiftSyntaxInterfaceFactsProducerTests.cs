@@ -966,6 +966,13 @@ public class SwiftSyntaxInterfaceFactsProducerTests
             "extension Foundation.Date\n" +
             "{\n" +
             "  public func later()\n" +
+            "  public func `repeat`(count: Swift.Int)\n" +
+            "}\n" +
+            "extension Swift.Dictionary where Key == Swift.Int {\n" +
+            "  public subscript(k: Swift.Int) -> Swift.Int { get }\n" +
+            "}\n" +
+            "extension Swift.Dictionary where Key == Swift.String {\n" +
+            "  public subscript(k: Swift.Int) -> Swift.Int { get }\n" +
             "}\n");
         try
         {
@@ -990,9 +997,16 @@ public class SwiftSyntaxInterfaceFactsProducerTests
                     "Foundation.Date|method|sealed|sealed()|False",
                     "Swift.Array|method|total|total()|False",
                     "Foundation.Date|method|later|later()|False",
+                    "Foundation.Date|method|repeat|repeat(count:)|False",
+                    "Swift.Dictionary|subscript|subscript|subscript(_:)|False",
+                    "Swift.Dictionary|subscript|subscript|subscript(_:)|False",
                 },
                 dropped.Select(d => $"{d.ExtendedTypeName}|{d.Kind}|{d.Name}|{d.PrintedName}|{d.IsStatic}"));
             Assert.All(dropped, d => Assert.False(string.IsNullOrWhiteSpace(d.Reason)));
+            // Two declarations of one shape in differently constrained extensions stay apart.
+            Assert.Equal(
+                new[] { "where Key == Swift.Int", "where Key == Swift.String" },
+                dropped.Where(d => d.ExtendedTypeName == "Swift.Dictionary").Select(d => d.WhereClause));
             Assert.DoesNotContain(dropped, d => d.Name == "hidden");
             Assert.DoesNotContain(facts.ExtensionMemberCandidates!, c => c.MethodName is "total" or "later" or "sealed");
         }

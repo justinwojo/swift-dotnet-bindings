@@ -267,13 +267,12 @@ namespace BindingsGeneration
             var firstDotIdx = qualified.IndexOf('.');
             var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
 
-            // Protocol extensions are NOT foreign — surfaced via ProtocolExtensionMethods.
-            if (ProtocolNames.Contains(typePath))
-                return false;
-
+            // A target qualified by another module is foreign whatever this module names its own
+            // declarations; an extension of this module's protocol is surfaced via
+            // ProtocolExtensionMethods instead.
             if (firstDotIdx >= 0)
                 return !string.Equals(qualified.Substring(0, firstDotIdx), moduleName, StringComparison.Ordinal);
-            return !moduleTypeNames.Contains(typePath);
+            return !moduleTypeNames.Contains(typePath) && !ProtocolNames.Contains(typePath);
         }
 
         /// <summary>
@@ -284,8 +283,10 @@ namespace BindingsGeneration
         /// is not <paramref name="moduleName"/>.</item>
         /// <item>Unqualified extension target (<c>X</c>) is foreign when neither
         /// <paramref name="moduleTypeNames"/> nor <see cref="ProtocolNames"/> contains it.</item>
-        /// <item>Protocol extensions (target appears in <see cref="ProtocolNames"/>) are
-        /// excluded — they are surfaced via <see cref="ProtocolExtensionMethods"/>.</item>
+        /// <item>Extensions of this module's protocols (an unqualified target, or one qualified by
+        /// <paramref name="moduleName"/>, naming one of <see cref="ProtocolNames"/>) are excluded —
+        /// they are surfaced via <see cref="ProtocolExtensionMethods"/>. Another module's type is
+        /// foreign whatever this module names its protocols.</item>
         /// </list>
         /// Result key is the verbatim <see cref="ExtensionMemberCandidate.ExtendedTypeName"/>;
         /// values are <see cref="ProtocolExtensionMethodDecl"/> instances with

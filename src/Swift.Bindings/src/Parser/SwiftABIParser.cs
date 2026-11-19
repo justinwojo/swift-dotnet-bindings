@@ -5035,7 +5035,11 @@ namespace BindingsGeneration
                     $"Not bound: {why}",
                     string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName,
                     string.IsNullOrEmpty(child.PrintedName) ? null : child.PrintedName,
-                    child.@static ?? false));
+                    child.@static ?? false,
+                    // The first child is the result type; the rest are the parameters.
+                    child.Kind is "Function" or "Constructor" or "Subscript"
+                        ? string.Join(", ", (child.Children ?? Array.Empty<Node>()).Skip(1).Select(c => c.PrintedName))
+                        : null));
             }
         }
 

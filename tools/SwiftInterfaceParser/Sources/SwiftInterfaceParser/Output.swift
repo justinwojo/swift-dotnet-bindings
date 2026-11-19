@@ -157,6 +157,8 @@ struct DroppedExtensionCandidateInfo: Encodable {
     let printedName: String
     let rawSignature: String
     let isStatic: Bool
+    /// The enclosing extension's `where` clause, or "".
+    let whereClause: String
     let reason: String
 }
 

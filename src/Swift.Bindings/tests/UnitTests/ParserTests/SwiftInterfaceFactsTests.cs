@@ -469,6 +469,35 @@ public class SwiftInterfaceFactsTests
         Assert.Empty(result);
     }
 
+    /// <summary>
+    /// A protocol of this module named like another module's type does not hide that type's
+    /// extensions: the module qualifier decides, for members and for dropped declarations alike.
+    /// </summary>
+    [Fact]
+    public void ResolveForeignExtensions_OtherModulesTypeNamedLikeALocalProtocol_IsIncluded()
+    {
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ProtocolNames = new HashSet<string> { "Measurement" },
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("Foundation.Measurement", "describe"),
+            },
+            DroppedExtensionCandidates = new List<DroppedExtensionCandidate>
+            {
+                new()
+                {
+                    ExtendedTypeName = "Foundation.Measurement", Kind = "initializer", Name = "init",
+                    PrintedName = "init(seed:)", RawSignature = "public init(seed: Swift.Int)",
+                    IsStatic = false, Reason = "not read",
+                },
+            },
+        };
+
+        Assert.Single(facts.ResolveForeignExtensions("Mod", new HashSet<string>()));
+        Assert.Single(facts.ResolveForeignDroppedExtensionCandidates("Mod", new HashSet<string>()));
+    }
+
     [Fact]
     public void ResolveForeignExtensions_GroupsCandidates_BySameExtendedTypeName()
     {

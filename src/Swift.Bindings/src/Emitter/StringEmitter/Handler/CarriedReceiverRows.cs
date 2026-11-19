@@ -60,7 +60,7 @@ internal static class CarriedReceiverRows
             switch (type)
             {
                 case NamedTypeSpec named:
-                    if (named.GenericParameters.Count == 0 && !IsNominal(named, typeDatabase))
+                    if (!IsNominal(named, typeDatabase))
                         candidates.Add(named.Name);
                     foreach (var argument in named.GenericParameters)
                         Visit(argument);
@@ -80,25 +80,23 @@ internal static class CarriedReceiverRows
         return candidates;
     }
 
-    /// <summary>Whether the type database knows <paramref name="named"/> as a nominal type of that name.</summary>
+    /// <summary>
+    /// Whether a type database holds <paramref name="named"/> as a nominal type of that name. Only the
+    /// records the databases hold count: a record the resolver would synthesize for an unknown name
+    /// that looks like an ObjC class says nothing about whether the name is a typealias.
+    /// </summary>
     private static bool IsNominal(NamedTypeSpec named, ITypeDatabase typeDatabase)
     {
         if (named.Name == "Self")
             return false;
         var spelled = ProtocolExtensionEmitter.WithoutModuleQualifiers(named.Name);
-        foreach (var name in named.Name.Contains('.') ? [named.Name] : new[] { named.Name, $"Swift.{named.Name}" })
+        foreach (var name in named.Name.Contains('.') ? [named.Name] : new[] { $"Swift.{named.Name}" })
         {
-            try
-            {
-                if (typeDatabase.TryGetTypeRecord(new NamedTypeSpec(name), out var record))
-                    return string.Equals(
-                        ProtocolExtensionEmitter.WithoutModuleQualifiers(record.SwiftTypeName.ModuleQualifiedName),
-                        spelled, StringComparison.Ordinal);
-            }
-            catch (Exception)
-            {
-                // A name the resolver cannot read is not known to be nominal.
-            }
+            if (SwiftTypeName.TryFromModuleQualifiedName(name, out var typeName)
+                && typeDatabase.TryPeekTypeRecord(typeName, out var record))
+                return string.Equals(
+                    ProtocolExtensionEmitter.WithoutModuleQualifiers(record.SwiftTypeName.ModuleQualifiedName),
+                    spelled, StringComparison.Ordinal);
         }
         return false;
     }
@@ -196,7 +194,7 @@ internal static class CarriedReceiverRows
         return "";
     }
 
-    private static string TypesOfClause(string signature, int open)
+    internal static string TypesOfClause(string signature, int open)
     {
         var types = new System.Text.StringBuilder();
         var depth = 0;
@@ -309,39 +307,68 @@ internal static class CarriedReceiverRows
     }
 
     /// <summary>
-    /// Whether the ABI lists, on the carried receiver <paramref name="receiver"/>, a public member this
-    /// module adds that the cross-module path then binds or reports: a method or property of the same
-    /// name, labels and staticness, or an initializer, subscript, operator or nested type of the same
-    /// name.
+    /// The public members this module adds to the carried receiver <paramref name="receiver"/> that
+    /// the ABI lists and the cross-module path binds or reports, of the kinds an interface declaration
+    /// the extension reader does not take can be: methods, initializers, properties, subscripts,
+    /// operators and nested types.
     /// </summary>
-    internal static bool AbiLists(
-        ModuleDecl moduleDecl, string receiver, BindingItemKind kind, string name, string printedName, bool isStatic)
+    internal static IEnumerable<ListedMember> ListedForDeclarations(ModuleDecl moduleDecl, string receiver)
     {
+        bool Own(BaseDecl d) => d.ModuleDecl?.Name == moduleDecl.Name;
+        static string Types(IEnumerable<ArgumentDecl> arguments)
+            => string.Join(", ", arguments.Select(a => a.SwiftTypeSpec?.ToString() ?? string.Empty));
         foreach (var type in ReceiversNamed(moduleDecl.Types, receiver))
         {
-            bool Own(BaseDecl d) => d.ModuleDecl?.Name == moduleDecl.Name;
-            var listed = kind switch
+            foreach (var method in type.Methods)
             {
-                BindingItemKind.Method when name == "init" => type.Methods.Any(m =>
-                    m.IsConstructor && Own(m) && !m.IsModuleInternal && !m.IsSpiProtected),
-                BindingItemKind.Method => type.Methods.Any(m =>
-                    !m.IsConstructor && !m.IsAccessor && Own(m) && !m.IsModuleInternal && !m.IsSpiProtected
-                    && (m.MethodType == MethodType.Static) == isStatic
-                    && string.Equals(ProtocolExtensionEmitter.AbiLabelKey(m), printedName, StringComparison.Ordinal)),
-                BindingItemKind.Property => type.Properties.Any(p =>
-                    Own(p) && !p.IsModuleInternal && !p.IsSpiProtected && p.IsStatic == isStatic
-                    && string.Equals(p.GetSwiftName(), name, StringComparison.Ordinal)),
-                BindingItemKind.Subscript => type.Subscripts.Any(s => Own(s) && !s.IsModuleInternal),
-                BindingItemKind.Operator => type.Operators.Any(o =>
-                    Own(o) && string.Equals(o.Name, name, StringComparison.Ordinal)),
-                BindingItemKind.Type => type.Types.Any(t =>
-                    Own(t) && string.Equals(t.Name, name, StringComparison.Ordinal)),
-                _ => false,
-            };
-            if (listed)
-                return true;
+                if (method.IsAccessor || !Own(method) || method.IsModuleInternal || method.IsSpiProtected)
+                    continue;
+                var labels = ProtocolExtensionEmitter.AbiLabelKey(method);
+                var name = method.IsConstructor ? "init" : method.GetSwiftName();
+                yield return new ListedMember(BindingItemKind.Method, name,
+                    method.IsConstructor ? "init" + labels[labels.IndexOf('(')..] : labels,
+                    !method.IsConstructor && method.MethodType == MethodType.Static,
+                    Types(method.CSSignature.Skip(1)));
+            }
+            foreach (var property in type.Properties)
+            {
+                if (Own(property) && !property.IsModuleInternal && !property.IsSpiProtected)
+                    yield return new ListedMember(BindingItemKind.Property, property.GetSwiftName(), null, property.IsStatic, null);
+            }
+            foreach (var subscript in type.Subscripts)
+            {
+                if (Own(subscript) && !subscript.IsModuleInternal && !subscript.IsSpiProtected)
+                    yield return new ListedMember(BindingItemKind.Subscript, "subscript", null, subscript.IsStatic,
+                        Types(subscript.IndexParameters));
+            }
+            foreach (var op in type.Operators)
+            {
+                if (Own(op))
+                    yield return new ListedMember(BindingItemKind.Operator, op.OperatorSymbol, null,
+                        op.UnderlyingMethod.MethodType == MethodType.Static, Types(op.UnderlyingMethod.CSSignature.Skip(1)));
+            }
+            foreach (var nested in type.Types)
+            {
+                if (Own(nested) && !nested.IsModuleInternal)
+                    yield return new ListedMember(BindingItemKind.Type, nested.Name, null, false, null);
+            }
         }
-        return false;
+    }
+
+    /// <summary>
+    /// A member the ABI lists on a carried receiver: its kind, name, labels (null when not compared),
+    /// staticness and parameter types (null when there are none to compare).
+    /// </summary>
+    internal sealed class ListedMember(BindingItemKind kind, string name, string? printedName, bool isStatic, string? parameterTypes)
+    {
+        public string? ParameterTypes { get; } = parameterTypes;
+
+        /// <summary>Whether an interface declaration of this kind, name, labels and staticness may be this member.</summary>
+        public bool HasShapeOf(BindingItemKind declaredKind, string declaredName, string declaredPrintedName, bool declaredIsStatic)
+            => kind == declaredKind
+                && string.Equals(name, declaredName, StringComparison.Ordinal)
+                && (printedName is null || string.Equals(printedName, declaredPrintedName, StringComparison.Ordinal))
+                && (kind is BindingItemKind.Type or BindingItemKind.Operator || isStatic == declaredIsStatic);
     }
 
     private static IEnumerable<TypeDecl> ReceiversNamed(IEnumerable<TypeDecl> types, string receiver)
@@ -422,7 +449,7 @@ internal sealed record CarriedMemberIdentity(
             return true;
         switch (declared)
         {
-            case NamedTypeSpec { GenericParameters.Count: 0 } named when aliases.Contains(named.Name):
+            case NamedTypeSpec named when aliases.Contains(named.Name):
                 return true;
             case NamedTypeSpec named when abi is NamedTypeSpec other
                 && string.Equals(ProtocolExtensionEmitter.WithoutModuleQualifiers(named.Name),

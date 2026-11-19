@@ -88,6 +88,9 @@ import SwiftParser
 final class ExtensionsWalker: SyntaxVisitor {
     private(set) var extensionMemberCandidates: [ExtensionMemberCandidateInfo] = []
     private(set) var droppedExtensionCandidates: [DroppedExtensionCandidateInfo] = []
+    /// The `where` clause of the extension being walked, so two members with one header in
+    /// differently constrained extensions stay two records.
+    private var currentWhereClause = ""
 
     private let converter: SourceLocationConverter
 
@@ -96,12 +99,8 @@ final class ExtensionsWalker: SyntaxVisitor {
         super.init(viewMode: .sourceAccurate)
     }
 
-    static func parse(filePath: String, source: String) -> [ExtensionMemberCandidateInfo] {
-        parseAll(filePath: filePath, source: source).candidates
-    }
-
     /// The candidates and the public declarations the walker saw and did not take.
-    static func parseAll(filePath: String, source: String)
+    static func parse(filePath: String, source: String)
         -> (candidates: [ExtensionMemberCandidateInfo], dropped: [DroppedExtensionCandidateInfo]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: filePath, tree: tree)
@@ -113,6 +112,7 @@ final class ExtensionsWalker: SyntaxVisitor {
     // MARK: - Extension entry point
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        currentWhereClause = node.genericWhereClause.map { collapseWhitespace($0.trimmedDescription) } ?? ""
         // Same-line `{` gate (`openBraces > 0` requirement).
         guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
                                           leftBrace: node.memberBlock.leftBrace,
@@ -195,13 +195,15 @@ final class ExtensionsWalker: SyntaxVisitor {
     private func recordDroppedDecl(_ decl: DeclSyntax, extendedType: String, reason: String?) {
         let kind: String
         let name: String
-        var printedName: String
+        let printedName: String
         let modifiers: DeclModifierListSyntax
-        var kindReason: String
+        let kindReason: String
         if let f = decl.as(FunctionDeclSyntax.self) {
-            let isOperator = !RegexShape.isWordIdentifier(f.name.text)
+            // An escaped name (`` `repeat` ``) is an identifier, not an operator.
+            let unescaped = Self.withoutBackticks(f.name.text)
+            let isOperator = !(unescaped.first.map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false)
             kind = isOperator ? "operator" : "method"
-            name = f.name.text
+            name = unescaped
             // An operator's parameters carry no argument labels; the ABI prints `+(_:_:)`.
             printedName = isOperator
                 ? "\(name)(\(String(repeating: "_:", count: f.signature.parameterClause.parameters.count)))"
@@ -209,7 +211,9 @@ final class ExtensionsWalker: SyntaxVisitor {
             modifiers = f.modifiers
             kindReason = isOperator
                 ? "operators declared in an extension are not read by the foreign-extension path"
-                : "its modifiers are not a shape the foreign-extension path reads"
+                : unescaped != f.name.text
+                    ? "its name is escaped with backticks, which the foreign-extension path does not read"
+                    : "its modifiers are not a shape the foreign-extension path reads"
         } else if let v = decl.as(VariableDeclSyntax.self) {
             guard let binding = v.bindings.first,
                   let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { return }
@@ -254,7 +258,6 @@ final class ExtensionsWalker: SyntaxVisitor {
             return
         }
         guard Self.isPublic(modifiers) else { return }
-        if printedName.isEmpty { printedName = name }
         droppedExtensionCandidates.append(DroppedExtensionCandidateInfo(
             extendedTypeName: extendedType,
             kind: kind,
@@ -262,6 +265,7 @@ final class ExtensionsWalker: SyntaxVisitor {
             printedName: printedName,
             rawSignature: collapseWhitespace(Self.signatureText(decl)),
             isStatic: hasModifier(modifiers, "static") || hasModifier(modifiers, "class"),
+            whereClause: currentWhereClause,
             reason: reason ?? kindReason
         ))
     }
