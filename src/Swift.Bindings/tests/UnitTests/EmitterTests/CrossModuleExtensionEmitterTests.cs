@@ -1265,6 +1265,59 @@ public class CrossModuleExtensionEmitterTests
         Assert.Equal(new[] { "doWork", "later" }, report.SkippedItems.Select(i => i.Name).ToArray());
     }
 
+    /// <summary>
+    /// The ABI folds a generic receiver's parameters into each method's generic signature, so a
+    /// method that declares none of its own is the interface's non-generic member: the pre-pass
+    /// decline is left to the cross-module path, and a member the pre-pass bound has no ABI row.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Settle_MethodOfAGenericReceiver_MatchesTheInterfaceMember(bool prePassBound)
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        classDecl.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Element", new(), new()));
+        moduleDecl.Types.Add(classDecl);
+        var listed = CreateMethodDecl("reset", "TestModule", classDecl, mangledName: "$s10TestModule5resetyyF");
+        listed.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Element", new(), new()));
+        listed.IsMutating = true;
+        classDecl.Methods.Add(listed);
+        var emissionContext = new ModuleEmissionContext();
+        var member = PrePassMember("reset", "reset()", "public func reset()");
+        emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            SkipReason.UnsupportedSignature, "declined by the pre-pass."));
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        // Bound: neither row. Declined: the cross-module path's row alone.
+        Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "reset"));
+    }
+
+    /// <summary>
+    /// A parameter of type <c>some P</c> is a generic parameter of the method in the ABI, so the
+    /// interface member that spells it is generic; a parameter whose label is <c>some</c> is not.
+    /// </summary>
+    [Theory]
+    [InlineData("public func draw(_ content: some SwiftUI.View)", true)]
+    [InlineData("public func draw(_ content: Swift.Int)", false)]
+    [InlineData("public func draw(some content: Swift.Int)", false)]
+    public void IdentityOf_OpaqueParameter_IsGenericLikeItsAbiEntry(string signature, bool generic)
+    {
+        var member = PrePassMember("draw", "draw(_:)", signature);
+        var identity = CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger);
+        Assert.Equal(generic, identity.IsGeneric);
+
+        var (_, _, _, moduleDecl, classDecl, _, _) = CreateSetup();
+        var abi = CreateMethodDecl("draw", "TestModule", classDecl, mangledName: "$s10TestModule4drawyyxlF");
+        abi.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "some View", new(), new()));
+        abi.CSSignature.Add(Argument("_", "τ_0_0", moduleDecl));
+        Assert.Equal(generic, CarriedReceiverRows.IdentityOf(abi)!.SameMember(identity));
+    }
+
     private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()
     {
         ProtocolQualifiedName = "",

@@ -27,8 +27,10 @@ internal static class CarriedReceiverRows
         if (member.IsProperty)
             return new CarriedMemberIdentity(true, member.IsStatic, false, false, member.MethodName, member.MethodName, null);
         // A generic parameter is spelled by its source name in the interface and by its depth and
-        // index in the ABI, so a generic member's types do not compare; its labels and flags do.
-        var isGeneric = member.RawSignature.Contains($"func {member.MethodName}<", StringComparison.Ordinal);
+        // index in the ABI, so a generic member's types do not compare; its labels and flags do. A
+        // parameter of type `some P` is a generic parameter of the method in the ABI.
+        var isGeneric = member.RawSignature.Contains($"func {member.MethodName}<", StringComparison.Ordinal)
+            || OpaqueParameter.IsMatch(ParameterClause(member.RawSignature, member.MethodName));
         var signature = isGeneric ? null : ProtocolExtensionEmitter.ExtensionOverloadKey(member, typeDatabase, logger);
         return new CarriedMemberIdentity(
             IsProperty: false,
@@ -55,20 +57,58 @@ internal static class CarriedReceiverRows
                 // An instance method of an isolated type is called async across the isolation
                 // boundary, but its declaration, which the interface prints, is synchronous.
                 var isAsync = method.IsAsync && !method.IsAsyncByIsolation;
+                // The ABI folds a generic receiver's parameters into each method's generic signature;
+                // only the method's own make it generic, as the interface declares it.
+                var isGeneric = WrapperValidation.HasMethodOwnGenericParameters(method);
                 var signature = ProtocolExtensionEmitter.AbiOverloadKey(method);
                 if (method.IsAsync && !isAsync)
                     signature = signature.Replace(" async -> ", " -> ", StringComparison.Ordinal);
+                // A receiver's generic parameter is spelled by depth and index here and by name there.
+                var comparable = !isGeneric && !signature.Contains("τ_", StringComparison.Ordinal);
                 return new CarriedMemberIdentity(
                     IsProperty: false,
                     method.MethodType == MethodType.Static,
                     isAsync,
-                    method.IsGeneric,
+                    isGeneric,
                     method.GetSwiftName(),
                     ProtocolExtensionEmitter.AbiLabelKey(method),
-                    method.IsGeneric ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(signature));
+                    comparable ? ProtocolExtensionEmitter.WithoutModuleQualifiers(signature) : null);
             default:
                 return null;
         }
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex OpaqueParameter =
+        new(@"(?<![\w.])some\s+(?![A-Za-z_]\w*\s*:)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    /// <summary>
+    /// The parenthesized parameter clause of <paramref name="name"/>'s declaration in
+    /// <paramref name="signature"/>, or "" when it cannot be found.
+    /// </summary>
+    private static string ParameterClause(string signature, string name)
+    {
+        var at = signature.IndexOf($"func {name}", StringComparison.Ordinal);
+        if (at < 0)
+            return "";
+        var angle = 0;
+        for (var i = at + 5 + name.Length; i < signature.Length; i++)
+        {
+            var c = signature[i];
+            if (c == '<') angle++;
+            else if (c == '>' && angle > 0) angle--;
+            else if (c == '(' && angle == 0)
+            {
+                var depth = 0;
+                for (var j = i; j < signature.Length; j++)
+                {
+                    if (signature[j] == '(') depth++;
+                    else if (signature[j] == ')' && --depth == 0)
+                        return signature[i..(j + 1)];
+                }
+                return "";
+            }
+        }
+        return "";
     }
 
     /// <summary>
