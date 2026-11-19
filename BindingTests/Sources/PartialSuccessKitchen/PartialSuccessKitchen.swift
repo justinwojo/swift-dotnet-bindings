@@ -206,3 +206,12 @@ public final class KitchenAnchor { public init() {} }
 extension Cancellable {
     public func kitchenStoreWhileAlive(_ anchor: KitchenAnchor) {}
 }
+
+// S20 — an initializer whose only parameter is a defaulted closure the direct callback cannot
+// answer (a throwing closure returning Optional<Data>, which Swift reads back exploded across the
+// return registers). The default-argument ladder still emits the trimmed `init()` shim, which
+// calls Swift without the closure; the full form is refused and its row must reach the report
+// beside that shim, not vanish with it.
+public final class KitchenDefaultedLoader {
+    public init(loader: @escaping () throws -> Data? = { nil }) {}
+}
