@@ -911,6 +911,15 @@ namespace BindingsGeneration
                 // host producer; downstream phases consume facts.* directly.
                 var protocolNames = facts.ProtocolNames;
 
+                // The declarations the interface makes on each foreign receiver (and each protocol's
+                // extracted extension methods) are paired with the members listed there once, before
+                // any pass writes their rows; each pass reads the verdict for its own declarations.
+                var moduleTypeNames = new HashSet<string>(decl.Types.Select(t => t.Name));
+                var foreignExtensions = facts.ResolveForeignExtensions(moduleName, moduleTypeNames);
+                var foreignDroppedCandidates = facts.ResolveForeignDroppedExtensionCandidates(moduleName, moduleTypeNames).ToList();
+                emissionContext.ForeignReceiverPairing = ForeignReceiverPairing.Compute(
+                    decl, foreignExtensions, foreignDroppedCandidates, facts.ProtocolExtensionMethods, typeDatabase);
+
                 // Inject protocol extension methods onto conforming types.
                 ProtocolExtensionDefaultsIndex? extensionDefaultsIndex = null;
                 if (protocolNames.Count > 0)
@@ -946,16 +955,18 @@ namespace BindingsGeneration
                 // Foreign type extension members are partitioned from facts.ExtensionMemberCandidates
                 // using the parsed module's name + own type set; the partitioning lives on facts so
                 // both producers feed it identical inputs.
-                if (facts.ExtensionMemberCandidates.Count > 0)
+                if (foreignExtensions.Count > 0)
                 {
-                    var moduleTypeNames = new HashSet<string>(decl.Types.Select(t => t.Name));
-                    var foreignExtensions = facts.ResolveForeignExtensions(moduleName, moduleTypeNames);
-                    if (foreignExtensions.Count > 0)
-                    {
-                        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
-                            decl, foreignExtensions, typeDatabase, logger, emissionContext,
-                            facts.AvailabilityAnnotations);
-                    }
+                    ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(
+                        decl, foreignExtensions, typeDatabase, logger, emissionContext,
+                        facts.AvailabilityAnnotations);
+                }
+                // The extension declarations the interface reader did not take keep a row where
+                // no other path binds or reports them.
+                if (foreignDroppedCandidates.Count > 0)
+                {
+                    ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(
+                        decl, foreignDroppedCandidates, typeDatabase, logger, emissionContext);
                 }
 
                 // Every member, including the extension members injected above, is in place. A class

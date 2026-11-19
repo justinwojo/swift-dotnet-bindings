@@ -94,13 +94,17 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 /// <item><b>v8</b> — Swift 6.4 module selectors are parsed structurally and rendered
 ///   as dotted ABI names. Older hosts silently corrupt scopes and signatures on
 ///   these interfaces; rejecting a stale helper prevents partial public facts.</item>
+/// <item><b>v9</b> — <c>extensionMemberCandidates</c> also carries <c>class func</c> members (as
+///   static), and <c>droppedExtensionCandidates</c> records every public extension declaration the
+///   host did not take as a candidate. A v8 host drops those with no record, so a member of a
+///   foreign receiver no other path reports vanishes from the binding silently.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 8;
+    public const int ExpectedSchemaVersion = 9;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }
@@ -244,6 +248,37 @@ internal sealed class InterfaceFactsJsonPayload
 
     [JsonPropertyName("extensionMemberCandidates")]
     public List<ExtensionMemberCandidateJson>? ExtensionMemberCandidates { get; set; }
+
+    [JsonPropertyName("droppedExtensionCandidates")]
+    public List<DroppedExtensionCandidateJson>? DroppedExtensionCandidates { get; set; }
+}
+
+/// <summary>Wire shape for <see cref="DroppedExtensionCandidate"/>.</summary>
+internal sealed class DroppedExtensionCandidateJson
+{
+    [JsonPropertyName("extendedTypeName")]
+    public string ExtendedTypeName { get; set; } = string.Empty;
+
+    [JsonPropertyName("kind")]
+    public string Kind { get; set; } = string.Empty;
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("printedName")]
+    public string PrintedName { get; set; } = string.Empty;
+
+    [JsonPropertyName("rawSignature")]
+    public string RawSignature { get; set; } = string.Empty;
+
+    [JsonPropertyName("isStatic")]
+    public bool IsStatic { get; set; }
+
+    [JsonPropertyName("whereClause")]
+    public string WhereClause { get; set; } = string.Empty;
+
+    [JsonPropertyName("reason")]
+    public string Reason { get; set; } = string.Empty;
 }
 
 /// <summary>Wire shape for <see cref="ProtocolExtensionMethodDecl"/>. Mirrors the

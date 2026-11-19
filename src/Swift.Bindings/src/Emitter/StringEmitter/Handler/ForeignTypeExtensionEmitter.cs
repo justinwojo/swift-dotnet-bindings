@@ -46,6 +46,10 @@ public static class ForeignTypeExtensionEmitter
         ctx ??= ModuleEmissionContext.CreateImplicitFallback();
         if (foreignExtensions.Count == 0)
             return;
+        // Rows are decided by the module's pairing; a caller that runs the pre-pass alone pairs its members.
+        ctx.ForeignReceiverPairing ??= ForeignReceiverPairing.Compute(
+            moduleDecl, foreignExtensions, Array.Empty<DroppedExtensionCandidate>(),
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), typeDatabase);
 
         foreach (var (foreignTypeQualifiedName, members) in foreignExtensions)
         {
@@ -142,6 +146,7 @@ public static class ForeignTypeExtensionEmitter
             CarriedReceiverRows.IdentityOf(extMethod, typeDatabase, logger),
             Bound: false,
             DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
+            extMethod,
             reason,
             details));
 
@@ -193,21 +198,23 @@ public static class ForeignTypeExtensionEmitter
         moduleDecl.ForeignTypeDeclKinds.TryGetValue(foreignTypeQualifiedName, out var receiverKind);
         var receiver = string.IsNullOrEmpty(receiverKind) ? "type" : receiverKind.ToLowerInvariant();
         // On a foreign protocol, a member that supplies the default of one of the protocol's own
-        // requirements is reached through that requirement. When the requirements cannot be read,
-        // every member keeps its row: most members of such an extension are additions.
-        var requirements = receiverKind == "Protocol"
-            ? ForeignProtocolRequirements.Of(moduleDecl, foreignTypeQualifiedName)
-            : null;
-        foreach (var member in members)
+        // requirements is reached through that requirement; a receiver of unknown kind may be a
+        // protocol. When the requirements cannot be read, every member keeps its row: most members
+        // of such an extension are additions.
+        var requirements = RequirementsOfReceiver(moduleDecl, foreignTypeQualifiedName);
+        // The parser parked the members the ABI lists with their dropped receiver and reports them from
+        // there; the receiver's pairing says which interface member each stands for, so an overload the
+        // ABI does not list keeps a row of its own. On a protocol whose extension members the
+        // protocol-extension report covers, every member the reader took keeps its row here, as the
+        // ABI member it stands for may keep one there.
+        var pairing = ctx.ForeignReceiverPairing!;
+        var reportedProtocol = ProtocolExtensionEmitter.ReportedForeignProtocol(moduleDecl, foreignTypeQualifiedName) is not null;
+        var unpaired = members
+            .Where(m => requirements?.Declares(ForeignProtocolRequirements.KeyOf(m)) != true)
+            .Where(m => reportedProtocol || !pairing.IsPaired(m))
+            .ToList();
+        foreach (var member in unpaired)
         {
-            if (requirements?.Declares(ForeignProtocolRequirements.KeyOf(member)) == true)
-                continue;
-            var kind = member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method;
-            if (moduleDecl.UnboundForeignReceiverMembers.Any(u =>
-                    u.Kind == kind &&
-                    string.Equals(u.Name, member.MethodName, StringComparison.Ordinal) &&
-                    string.Equals(u.ForeignTypeQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal)))
-                continue;
             RecordUnbound(
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, member),
                 SkipReason.UnsupportedSignature,
@@ -218,13 +225,129 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// Reports each public declaration the interface reader saw in an extension of another module's
+    /// type and did not take as an extension member (<see cref="DroppedExtensionCandidate"/>), unless
+    /// another path already binds or reports it: the cross-module path for a member the ABI lists on a
+    /// carried receiver, the parser for a member it parked with a dropped receiver, or the protocol's
+    /// requirement for a default it supplies. A typealias has no C# member to lose; it is logged only.
+    /// </summary>
+    public static void RecordDroppedExtensionCandidates(
+        ModuleDecl moduleDecl,
+        IEnumerable<DroppedExtensionCandidate> dropped,
+        ITypeDatabase typeDatabase,
+        ILogger logger,
+        ModuleEmissionContext? ctx = null)
+    {
+        ArgumentNullException.ThrowIfNull(moduleDecl);
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
+        var candidates = dropped.ToList();
+        // Rows are decided by the module's pairing; a caller that reports dropped declarations alone
+        // pairs them.
+        var pairing = ctx.ForeignReceiverPairing ??= ForeignReceiverPairing.Compute(
+            moduleDecl, new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), candidates,
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(), typeDatabase);
+        foreach (var receiverGroup in candidates.GroupBy(d => d.ExtendedTypeName, StringComparer.Ordinal))
+        {
+            var receiver = receiverGroup.Key;
+            var declared = new List<(DroppedExtensionCandidate Candidate, BindingItemKind Kind)>();
+            foreach (var candidate in receiverGroup)
+            {
+                if (KindOf(candidate) is { } kind)
+                    declared.Add((candidate, kind));
+                else
+                    logger.LogDebug("Extension of '{Type}' declares {Kind} '{Name}', which has no member to bind",
+                        receiver, candidate.Kind, candidate.Name);
+            }
+            if (declared.Count == 0)
+                continue;
+
+            // A default of a requirement of the receiver's protocol is reached through the requirement.
+            if (RequirementsOfReceiver(moduleDecl, receiver) is { } requirements)
+                declared.RemoveAll(d => SuppliesRequirement(requirements, d.Candidate, d.Kind));
+
+            // Another path binds or reports what the ABI lists: the cross-module path on a carried
+            // receiver, the protocol-extension report on a reported protocol, the parser's parked
+            // members otherwise. The receiver's pairing says which declaration each listed member is.
+            var unpaired = declared.Where(d => !pairing.IsPaired(d.Candidate)).ToList();
+
+            var firstDot = receiver.IndexOf('.');
+            foreach (var (candidate, kind) in unpaired)
+            {
+                RecordUnbound(
+                    ctx, moduleDecl,
+                    DeclId.Create(
+                        firstDot < 0 ? string.Empty : receiver[..firstDot],
+                        firstDot < 0 ? receiver : receiver[(firstDot + 1)..],
+                        kind,
+                        candidate.Name,
+                        symbol: candidate.WhereClause.Length == 0
+                            ? candidate.RawSignature
+                            : $"{candidate.RawSignature} {candidate.WhereClause}"),
+                    SkipReason.UnsupportedSignature,
+                    $"Foreign extension on '{receiver}': {candidate.Reason}.");
+            }
+        }
+    }
+
+    internal static BindingItemKind? KindOf(DroppedExtensionCandidate candidate) => candidate.Kind switch
+    {
+        "method" or "initializer" => BindingItemKind.Method,
+        "property" => BindingItemKind.Property,
+        "subscript" => BindingItemKind.Subscript,
+        "operator" => BindingItemKind.Operator,
+        "type" => BindingItemKind.Type,
+        _ => null,
+    };
+
+    internal static OverloadSignature? SignatureOf(DroppedExtensionCandidate candidate, BindingItemKind kind) => kind switch
+    {
+        BindingItemKind.Method when candidate.Kind == "initializer" => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "init"),
+        BindingItemKind.Method or BindingItemKind.Operator => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "func", candidate.Name),
+        BindingItemKind.Subscript => ForeignOverloadPairing.SignatureOf(candidate.RawSignature, "subscript",
+            labels: CarriedReceiverRows.LabelsOf(candidate.PrintedName)),
+        _ => null,
+    };
+
+    /// <summary>
+    /// The requirements of <paramref name="receiver"/>'s protocol, which its extension members may
+    /// supply defaults for, or null. The ABI names the receiver's kind only when it lists something on
+    /// it, so a receiver it does not name is looked up too; a type that is not a protocol has no
+    /// requirements to read.
+    /// </summary>
+    internal static ForeignProtocolRequirements.Requirements? RequirementsOfReceiver(ModuleDecl moduleDecl, string receiver)
+    {
+        moduleDecl.ForeignTypeDeclKinds.TryGetValue(receiver, out var receiverKind);
+        return receiverKind is null or "" or "Protocol" ? ForeignProtocolRequirements.Of(moduleDecl, receiver) : null;
+    }
+
+    internal static bool SuppliesRequirement(
+        ForeignProtocolRequirements.Requirements requirements, DroppedExtensionCandidate candidate, BindingItemKind kind)
+    {
+        var prefix = candidate.IsStatic ? "static " : string.Empty;
+        switch (kind)
+        {
+            case BindingItemKind.Property:
+                return requirements.Declares(ForeignProtocolRequirements.PropertyKey(candidate.Name, candidate.IsStatic));
+            case BindingItemKind.Subscript:
+                return ForeignProtocolRequirements.SubscriptKey(SignatureOf(candidate, kind), candidate.IsStatic) is { } subscriptKey
+                    && requirements.Declares(subscriptKey);
+            case BindingItemKind.Operator:
+                return requirements.DeclaresOperator(prefix + candidate.Name,
+                    ForeignProtocolRequirements.OperatorKey(candidate.Name, SignatureOf(candidate, kind), candidate.IsStatic));
+            default:
+                return requirements.Declares(prefix + candidate.PrintedName
+                    + (ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature) ? " async" : string.Empty));
+        }
+    }
+
+    /// <summary>
     /// Whether the parser kept <paramref name="foreignTypeQualifiedName"/> as a type the cross-module
     /// extension path binds, which then reports that receiver's losses itself. Only a class or a struct
     /// counts: that path carries no other kind (<c>CrossModuleExtensionEmitter.Emit</c>), so a foreign
     /// protocol the parser kept for its extension members (<c>extension Combine.Cancellable</c>) is
     /// reported here, or by nobody.
     /// </summary>
-    private static bool IsCarriedCrossModuleReceiver(IEnumerable<TypeDecl> types, string foreignTypeQualifiedName)
+    internal static bool IsCarriedCrossModuleReceiver(IEnumerable<TypeDecl> types, string foreignTypeQualifiedName)
     {
         foreach (var type in types)
         {
@@ -465,7 +588,8 @@ public static class ForeignTypeExtensionEmitter
                     foreignTypeQualifiedName,
                     CarriedReceiverRows.IdentityOf(extMethod, typeDatabase, logger),
                     Bound: true,
-                    DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod)));
+                    DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
+                    extMethod));
             else if (ctx.CarriedPrePassOutcomes.Count == carriedBefore)
                 RecordCarriedDecline(ctx, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
                     SkipReason.UnsupportedSignature, unmarshaled);

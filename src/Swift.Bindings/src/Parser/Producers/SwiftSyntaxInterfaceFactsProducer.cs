@@ -355,6 +355,9 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             ProtocolExtensionMethods = covered.Contains(InterfaceFactKind.ProtocolExtensionMethods)
                 ? ConvertProtocolExtensionMethods(parsed.Facts.ProtocolExtensionMethods)
                 : null,
+            DroppedExtensionCandidates = covered.Contains(InterfaceFactKind.DroppedExtensionCandidates)
+                ? ConvertDroppedExtensionCandidates(parsed.Facts.DroppedExtensionCandidates)
+                : null,
             ExtensionMemberCandidates = covered.Contains(InterfaceFactKind.ExtensionMemberCandidates)
                 ? ConvertExtensionMemberCandidates(parsed.Facts.ExtensionMemberCandidates)
                 : null,
@@ -444,6 +447,22 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
         }
         return result;
     }
+
+    private static List<DroppedExtensionCandidate> ConvertDroppedExtensionCandidates(
+        List<DroppedExtensionCandidateJson>? input)
+        => input is null
+            ? new List<DroppedExtensionCandidate>()
+            : input.Select(c => new DroppedExtensionCandidate
+            {
+                ExtendedTypeName = c.ExtendedTypeName,
+                Kind = c.Kind,
+                Name = c.Name,
+                PrintedName = c.PrintedName,
+                RawSignature = c.RawSignature,
+                IsStatic = c.IsStatic,
+                WhereClause = c.WhereClause,
+                Reason = c.Reason,
+            }).ToList();
 
     private static List<ExtensionMemberCandidate> ConvertExtensionMemberCandidates(
         List<ExtensionMemberCandidateJson>? input)
@@ -571,6 +590,8 @@ public sealed class SwiftSyntaxInterfaceFactsProducer : IInterfaceFactsProducer
             throw new InvalidOperationException("SwiftInterfaceParser declared ProtocolNames coverage but emitted null facts.protocolNames.");
         if (covered.Contains(InterfaceFactKind.ProtocolExtensionMethods) && payload.ProtocolExtensionMethods is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared ProtocolExtensionMethods coverage but emitted null facts.protocolExtensionMethods.");
+        if (covered.Contains(InterfaceFactKind.DroppedExtensionCandidates) && payload.DroppedExtensionCandidates is null)
+            throw new InvalidOperationException("SwiftInterfaceParser declared DroppedExtensionCandidates coverage but emitted null facts.droppedExtensionCandidates.");
         if (covered.Contains(InterfaceFactKind.ExtensionMemberCandidates) && payload.ExtensionMemberCandidates is null)
             throw new InvalidOperationException("SwiftInterfaceParser declared ExtensionMemberCandidates coverage but emitted null facts.extensionMemberCandidates.");
     }

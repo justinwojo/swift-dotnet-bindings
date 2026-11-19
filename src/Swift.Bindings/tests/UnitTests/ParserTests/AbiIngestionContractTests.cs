@@ -643,8 +643,8 @@ public class AbiIngestionContractTests
             mangledName: "$s8OtherLib6ScopesO", usr: "s:8OtherLib6ScopesO", isExternal: true,
             children:
             [
-                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_Int32"),
-                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_String"),
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_Int32") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_String") with { PrintedName = "describe(as:)", @static = true },
             ]);
         using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, receiver);
 
@@ -653,6 +653,39 @@ public class AbiIngestionContractTests
         Assert.Equal(
             new[] { "$s_describe_Int32", "$s_describe_String" },
             result.ModuleDecl.UnboundForeignReceiverMembers.Select(u => u.Symbol).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        // The labels and staticness tell each parked overload from an interface overload of the same name.
+        Assert.Equal(
+            new[] { "describe(as:)|True", "describe(with:)|False" },
+            result.ModuleDecl.UnboundForeignReceiverMembers.Select(u => $"{u.PrintedName}|{u.IsStatic}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// A parked method carries its effect, read from its symbol: an extension member's symbol, which
+    /// the reducer has no rule for, still tells an async overload from a synchronous one, and a symbol
+    /// the demangler cannot read leaves the effect unknown.
+    /// </summary>
+    [Fact]
+    public void ParseModule_DroppedReceiverAsyncOverload_ParkedWithItsEffect()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var receiver = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "Scopes", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib6ScopesO", usr: "s:8OtherLib6ScopesO", isExternal: true,
+            children:
+            [
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tYaF") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tF") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_unreadable") with { PrintedName = "describe(as:)" },
+            ]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, receiver);
+
+        var result = fixture.Parser.ParseModule();
+
+        var effects = result.ModuleDecl.UnboundForeignReceiverMembers.ToDictionary(u => u.Symbol!, u => u.IsAsync);
+        Assert.True(effects["$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tYaF"]);
+        Assert.False(effects["$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tF"]);
+        Assert.Null(effects["$s_describe_unreadable"]);
     }
 
     /// <summary>

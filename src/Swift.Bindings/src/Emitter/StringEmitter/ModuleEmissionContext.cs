@@ -719,6 +719,14 @@ public sealed class ModuleEmissionContext
     public void AddForeignExtWithdrawal(ForeignExtensionWithdrawal withdrawal) =>
         _foreignExtWithdrawals.Add(withdrawal);
 
+    /// <summary>
+    /// Which interface declaration each member listed on a foreign receiver stands for, decided once
+    /// for every declaration on the receiver (<see cref="ForeignReceiverPairing"/>) and read by every
+    /// pass that writes their rows. Set before protocol-extension injection; a pass run without it
+    /// pairs the declarations it was given and keeps that pairing here.
+    /// </summary>
+    internal ForeignReceiverPairing? ForeignReceiverPairing { get; set; }
+
     private readonly List<ProtocolExtensionDecline> _protocolExtDeclines = new();
 
     /// <summary>

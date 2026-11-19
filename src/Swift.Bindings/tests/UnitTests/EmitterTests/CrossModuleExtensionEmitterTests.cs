@@ -1237,12 +1237,12 @@ public class CrossModuleExtensionEmitterTests
         member.IsStatic = true;
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), Bound: false,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), env.TypeDatabase);
 
         Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "reset"));
         if (abiLists)
@@ -1292,12 +1292,12 @@ public class CrossModuleExtensionEmitterTests
         var member = PrePassMember("reset", "reset()", "public func reset()");
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "declined by the pre-pass."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), env.TypeDatabase);
 
         // Bound: neither row. Declined: the cross-module path's row alone.
         Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "reset"));
@@ -1378,15 +1378,108 @@ public class CrossModuleExtensionEmitterTests
         var member = PrePassMember("generate", "generate(font:)", "public func generate(font: OrigModule.OrigType.Font)");
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "declined by the pre-pass."));
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)), env.TypeDatabase);
+
+        // Bound: neither row. Declined: the cross-module path's row alone.
+        Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "generate"));
+    }
+
+    /// <summary>
+    /// An internal overload the ABI lists (<c>@usableFromInline internal</c>) is not the public member the
+    /// interface declares, even when each side lists one member of that shape: the cross-module path
+    /// writes no row for it, so the public member's pre-pass decline is its only row.
+    /// </summary>
+    [Fact]
+    public void Settle_PublicMemberWhoseOnlyAbiSiblingIsInternal_KeepsItsRow()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var listed = CreateMethodDecl("f", "TestModule", classDecl, mangledName: "$s10TestModule1f1xys5Int32V_ADt_tF");
+        listed.CSSignature.Add(Argument("x", TypeSpecParser.Parse("(Swift.Int32, Swift.Int32)")!, moduleDecl));
+        listed.IsModuleInternal = true;
+        classDecl.Methods.Add(listed);
+        var emissionContext = new ModuleEmissionContext();
+        PrePassDeclined(emissionContext, "f", "f(x:)", "@_alwaysEmitIntoClient public func f(x: Swift.Int32)");
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
                 ThreadContext(emissionContext)));
 
-        // Bound: neither row. Declined: the cross-module path's row alone.
-        Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "generate"));
+        Assert.Single(report.SkippedItems, r => r.Name == "f");
+    }
+
+    /// <summary>
+    /// Two public overloads of one shape, one the interface reader declined and another the ABI lists
+    /// with a parameter type no typealias can explain (a tuple where the interface names a known
+    /// type), are two members: each keeps its row, however many of that shape each side lists.
+    /// </summary>
+    [Fact]
+    public void Settle_SameShapeOverloadsWhoseTypesCannotBeOneSpelling_EachKeepARow()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        moduleDecl.Types.Add(classDecl);
+        var listed = CreateMethodDecl("f", "TestModule", classDecl, mangledName: "$s10TestModule1f1xys5Int32V_ADt_tFZ");
+        listed.CSSignature.Add(Argument("x", TypeSpecParser.Parse("(Swift.Int32, Swift.Int32)")!, moduleDecl));
+        listed.MethodType = MethodType.Static;
+        classDecl.Methods.Add(listed);
+        var emissionContext = new ModuleEmissionContext();
+        var member = PrePassMember("f", "f(x:)", "@_alwaysEmitIntoClient public static func f(x: Swift.Int32)");
+        member.IsStatic = true;
+        emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, TypeDatabaseKnowingInt32(), Logger), Bound: false,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
+            SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)), TypeDatabaseKnowingInt32());
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "f"));
+    }
+
+    /// <summary>
+    /// A named type no database holds may be a typealias the ABI spells by what it resolves to, a
+    /// generic one included, and so may a name that only looks like an Objective-C class; a type a
+    /// database holds under another name is another member.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.KitchenList<Swift.Int32>", "Swift.Array<Swift.Int32>", true)]
+    [InlineData("Foundation.NSKitchenInterval", "Swift.Double", true)]
+    [InlineData("Swift.Int32", "Swift.Double", false)]
+    public void TypesMayBeSpellingsOf_NamesNoDatabaseHolds_MayBeTypealiases(string declaredType, string abiType, bool expected)
+    {
+        var (_, _, _, moduleDecl, classDecl, _, _) = CreateSetup();
+        var listed = CreateMethodDecl("f", "TestModule", classDecl, mangledName: "$s10TestModule1f1xyF");
+        listed.CSSignature.Add(Argument("x", TypeSpecParser.Parse(abiType)!, moduleDecl));
+        var member = PrePassMember("f", "f(x:)", $"public func f(x: {declaredType})");
+
+        var declared = CarriedReceiverRows.IdentityOf(member, TypeDatabaseKnowingInt32(), Logger);
+
+        Assert.Equal(expected, declared.TypesMayBeSpellingsOf(CarriedReceiverRows.IdentityOf(listed)!));
+    }
+
+    /// <summary>A type database that knows <c>Swift.Int32</c> as a nominal type, as the standard library's does.</summary>
+    private static TypeDatabase TypeDatabaseKnowingInt32()
+    {
+        var typeDatabase = new TypeDatabase();
+        var swiftModule = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Int32"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Int32"),
+                MetadataAccessor = "$ss5Int32VMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(swiftModule);
+        return typeDatabase;
     }
 
     private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()
@@ -1410,7 +1503,7 @@ public class CrossModuleExtensionEmitterTests
             "OrigModule.OrigType",
             CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
             Bound: false,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member));
     }
 
     /// <summary>Records that the interface pre-pass bound a member of <c>OrigModule.OrigType</c>.</summary>
@@ -1421,14 +1514,17 @@ public class CrossModuleExtensionEmitterTests
             "OrigModule.OrigType",
             CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
             Bound: true,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member));
     }
 
-    private static ArgumentDecl Argument(string label, string type, ModuleDecl moduleDecl) => new()
+    private static ArgumentDecl Argument(string label, string type, ModuleDecl moduleDecl)
+        => Argument(label, new NamedTypeSpec(type), moduleDecl);
+
+    private static ArgumentDecl Argument(string label, TypeSpec type, ModuleDecl moduleDecl) => new()
     {
         Name = label,
         PrivateName = label,
-        SwiftTypeSpec = new NamedTypeSpec(type),
+        SwiftTypeSpec = type,
         IsInOut = false,
         IsGeneric = false,
         ParentDecl = null,
@@ -1436,12 +1532,27 @@ public class CrossModuleExtensionEmitterTests
     };
 
     /// <summary>Runs an emission, then settles the carried-receiver rows as the generator does.</summary>
-    private static BindingReport RunSettled(ModuleDecl moduleDecl, ModuleEmissionContext ctx, System.Action emit)
-        => RunReported(moduleDecl, () =>
+    /// <summary>
+    /// Runs <paramref name="emit"/> and settles the carried rows, after pairing the declarations the
+    /// test recorded as pre-pass outcomes with the receiver's listed members, as generation pairs them
+    /// before the pre-pass runs.
+    /// </summary>
+    private static BindingReport RunSettled(
+        ModuleDecl moduleDecl, ModuleEmissionContext ctx, System.Action emit, ITypeDatabase? typeDatabase = null)
+    {
+        ctx.ForeignReceiverPairing ??= ForeignReceiverPairing.Compute(
+            moduleDecl,
+            ctx.CarriedPrePassOutcomes.GroupBy(o => o.Receiver)
+                .ToDictionary(g => g.Key, g => g.Select(o => o.Declaration).Distinct().ToList()),
+            System.Array.Empty<DroppedExtensionCandidate>(),
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
+            typeDatabase ?? new TypeDatabase());
+        return RunReported(moduleDecl, () =>
         {
             emit();
             ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
         });
+    }
 
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
     {

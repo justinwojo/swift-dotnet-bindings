@@ -33,13 +33,13 @@ public class SwiftInterfaceFactsTests
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
         // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1
         // ClosureParameterAttributes + 1 Finding 23 ObjCRuntimeNames + 1 AsyncAccessorMembers
-        // (the TBD-independent async-accessor oracle) = 32.
+        // (the TBD-independent async-accessor oracle) + 1 DroppedExtensionCandidates = 33.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(32, properties.Count);
+        Assert.Equal(33, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)
@@ -467,6 +467,35 @@ public class SwiftInterfaceFactsTests
         var result = facts.ResolveForeignExtensions("Mod", new HashSet<string>());
 
         Assert.Empty(result);
+    }
+
+    /// <summary>
+    /// A protocol of this module named like another module's type does not hide that type's
+    /// extensions: the module qualifier decides, for members and for dropped declarations alike.
+    /// </summary>
+    [Fact]
+    public void ResolveForeignExtensions_OtherModulesTypeNamedLikeALocalProtocol_IsIncluded()
+    {
+        var facts = SwiftInterfaceFacts.Empty with
+        {
+            ProtocolNames = new HashSet<string> { "Measurement" },
+            ExtensionMemberCandidates = new List<ExtensionMemberCandidate>
+            {
+                MakeCandidate("Foundation.Measurement", "describe"),
+            },
+            DroppedExtensionCandidates = new List<DroppedExtensionCandidate>
+            {
+                new()
+                {
+                    ExtendedTypeName = "Foundation.Measurement", Kind = "initializer", Name = "init",
+                    PrintedName = "init(seed:)", RawSignature = "public init(seed: Swift.Int)",
+                    IsStatic = false, Reason = "not read",
+                },
+            },
+        };
+
+        Assert.Single(facts.ResolveForeignExtensions("Mod", new HashSet<string>()));
+        Assert.Single(facts.ResolveForeignDroppedExtensionCandidates("Mod", new HashSet<string>()));
     }
 
     [Fact]

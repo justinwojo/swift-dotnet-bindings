@@ -29,9 +29,9 @@ import SwiftParser
 ///    `subscript`, `typealias`, `case`, etc. are excluded.
 ///
 /// 4. **STRICT modifier shapes**:
-///      * Func: `(?:public|open)\s+(?:static\s+)?(?:mutating\s+)?func`. Only
-///        `static` and `mutating` are allowed between access and `func`, in that
-///        order. `public final func`, `public override func`,
+///      * Func: `(?:public|open)\s+(?:static\s+|class\s+)?(?:mutating\s+)?func`. Only
+///        `static` (or `class`, read as static) and `mutating` are allowed between access
+///        and `func`, in that order. `public final func`, `public override func`,
 ///        `public nonisolated func` are rejected.
 ///      * Var: `(?:public|open)\s+(?:static\s+)?var`. Only `static` is allowed
 ///        between access and `var`. `public lazy var`, `public weak var` rejected.
@@ -70,6 +70,12 @@ import SwiftParser
 /// 12. **Printed name**: Swift-canonical `name(label1:label2:)` — first-name
 ///     of each parameter. Property printedName is just the property name.
 ///
+/// 14. **Dropped candidates**: every PUBLIC (`public`/`open`) declaration the rules above do
+///     not take — an operator, initializer, subscript, typealias or nested type, a member with
+///     modifiers or effects outside the strict shapes, a backticked name, and every member of an
+///     extension whose header fails rule 1 — is recorded in `droppedExtensionCandidates` with
+///     its kind, name and the reason, so the host reports it instead of losing it silently.
+///
 /// 13. **RawSignature**: the source text of the decl, with newline+leading-
 ///     whitespace runs collapsed into single spaces, so consumer patterns
 ///     (`func name<`, `\basync\b`, `\bthrows\b`, `" where "` substring) fire
@@ -81,6 +87,10 @@ import SwiftParser
 ///     line → keep; otherwise drop.
 final class ExtensionsWalker: SyntaxVisitor {
     private(set) var extensionMemberCandidates: [ExtensionMemberCandidateInfo] = []
+    private(set) var droppedExtensionCandidates: [DroppedExtensionCandidateInfo] = []
+    /// The `where` clause of the extension being walked, so two members with one header in
+    /// differently constrained extensions stay two records.
+    private var currentWhereClause = ""
 
     private let converter: SourceLocationConverter
 
@@ -89,26 +99,39 @@ final class ExtensionsWalker: SyntaxVisitor {
         super.init(viewMode: .sourceAccurate)
     }
 
-    static func parse(filePath: String, source: String) -> [ExtensionMemberCandidateInfo] {
+    /// The candidates and the public declarations the walker saw and did not take.
+    static func parse(filePath: String, source: String)
+        -> (candidates: [ExtensionMemberCandidateInfo], dropped: [DroppedExtensionCandidateInfo]) {
         let tree = Parser.parse(source: source)
         let converter = SourceLocationConverter(fileName: filePath, tree: tree)
         let walker = ExtensionsWalker(converter: converter)
         walker.walk(tree)
-        return walker.extensionMemberCandidates
+        return (walker.extensionMemberCandidates, walker.droppedExtensionCandidates)
     }
 
     // MARK: - Extension entry point
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
+        // The constraints that tell apart identical declarations of differently constrained
+        // extensions: generic arguments on the extended type, then the `where` clause.
+        let headerArguments = Self.genericArguments(node.extendedType.dottedDescription)
+        let whereText = node.genericWhereClause.map { collapseWhitespace($0.trimmedDescription) } ?? ""
+        currentWhereClause = [headerArguments, whereText].filter { !$0.isEmpty }.joined(separator: " ")
         // Same-line `{` gate (`openBraces > 0` requirement).
         guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
                                           leftBrace: node.memberBlock.leftBrace,
                                           converter: converter) else {
+            recordDroppedMembers(node.memberBlock.members,
+                                 extendedType: Self.withoutGenericArguments(node.extendedType.dottedDescription),
+                                 reason: "the extension's body opens on a line after its header, which the interface reader does not read")
             return .visitChildren
         }
         // `[\w.]+` capture on extended type (`ExtensionDeclRegex` shape).
         let extendedType = node.extendedType.dottedDescription
         guard RegexShape.isWordOrDotOnly(extendedType) else {
+            recordDroppedMembers(node.memberBlock.members,
+                                 extendedType: Self.withoutGenericArguments(extendedType),
+                                 reason: "the extension names its type with generic arguments or another form the interface reader does not read")
             return .visitChildren
         }
 
@@ -146,8 +169,148 @@ final class ExtensionsWalker: SyntaxVisitor {
                     }
                 }
             }
-            // Other decls (TypeAliasDecl, NestedTypeDecl, InitDecl, SubscriptDecl, etc.) — ignored.
+            else {
+                // Initializers, subscripts, typealiases and nested types are not extension
+                // candidates; a public one is recorded so it is reported, not lost.
+                recordDroppedDecl(member.decl, extendedType: extendedType, reason: nil)
+            }
         }
+    }
+
+    // MARK: - Dropped declarations
+
+    /// Records every public declaration of an extension body the walker does not read at all.
+    private func recordDroppedMembers(_ members: MemberBlockItemListSyntax, extendedType: String, reason: String) {
+        for member in members {
+            if let ifConfigDecl = member.decl.as(IfConfigDeclSyntax.self) {
+                for clause in ifConfigDecl.clauses {
+                    if let elements = clause.elements?.as(MemberBlockItemListSyntax.self) {
+                        recordDroppedMembers(elements, extendedType: extendedType, reason: reason)
+                    }
+                }
+                continue
+            }
+            recordDroppedDecl(member.decl, extendedType: extendedType, reason: reason)
+        }
+    }
+
+    /// Records `decl` as a dropped candidate when it is public, with `reason` or, when nil, the
+    /// reason its kind is not read.
+    private func recordDroppedDecl(_ decl: DeclSyntax, extendedType: String, reason: String?) {
+        let kind: String
+        let name: String
+        let printedName: String
+        let modifiers: DeclModifierListSyntax
+        let kindReason: String
+        if let f = decl.as(FunctionDeclSyntax.self) {
+            // An escaped name (`` `repeat` ``) is an identifier, not an operator.
+            let unescaped = Self.withoutBackticks(f.name.text)
+            let isOperator = !(unescaped.first.map { $0.isLetter || $0.isNumber || $0 == "_" } ?? false)
+            kind = isOperator ? "operator" : "method"
+            name = unescaped
+            // An operator's parameters carry no argument labels; the ABI prints `+(_:_:)`.
+            printedName = isOperator
+                ? "\(name)(\(String(repeating: "_:", count: f.signature.parameterClause.parameters.count)))"
+                : buildFuncPrintedName(name: name, params: f.signature.parameterClause.parameters)
+            modifiers = f.modifiers
+            kindReason = isOperator
+                ? "operators declared in an extension are not read by the foreign-extension path"
+                : unescaped != f.name.text
+                    ? "its name is escaped with backticks, which the foreign-extension path does not read"
+                    : "its modifiers are not a shape the foreign-extension path reads"
+        } else if let v = decl.as(VariableDeclSyntax.self) {
+            guard let binding = v.bindings.first,
+                  let pattern = binding.pattern.as(IdentifierPatternSyntax.self) else { return }
+            kind = "property"
+            name = Self.withoutBackticks(pattern.identifier.text)
+            printedName = name
+            modifiers = v.modifiers
+            kindReason = "its modifiers are not a shape the foreign-extension path reads"
+        } else if let i = decl.as(InitializerDeclSyntax.self) {
+            kind = "initializer"
+            name = "init"
+            printedName = buildFuncPrintedName(name: name, params: i.signature.parameterClause.parameters)
+            modifiers = i.modifiers
+            kindReason = "initializers declared in an extension of another module's type are not bound"
+        } else if let s = decl.as(SubscriptDeclSyntax.self) {
+            kind = "subscript"
+            name = "subscript"
+            // A subscript parameter has an argument label only when it spells one apart from
+            // its name; the ABI prints `subscript(_:)` for `subscript(i: Int)`.
+            let labels = s.parameterClause.parameters.map { p in
+                p.secondName != nil && p.firstName.text != "_" ? p.firstName.text : "_"
+            }
+            printedName = "subscript(\(labels.map { "\($0):" }.joined()))"
+            modifiers = s.modifiers
+            kindReason = "subscripts declared in an extension of another module's type are not bound"
+        } else if let t = decl.as(TypeAliasDeclSyntax.self) {
+            kind = "typealias"
+            name = Self.withoutBackticks(t.name.text)
+            printedName = name
+            modifiers = t.modifiers
+            kindReason = "typealiases declared in an extension of another module's type are not bound"
+        } else if let nominal = decl.asProtocol(NamedDeclSyntax.self),
+                  let withModifiers = decl.asProtocol(WithModifiersSyntax.self),
+                  decl.is(StructDeclSyntax.self) || decl.is(ClassDeclSyntax.self) || decl.is(EnumDeclSyntax.self)
+                    || decl.is(ActorDeclSyntax.self) || decl.is(ProtocolDeclSyntax.self) {
+            kind = "type"
+            name = Self.withoutBackticks(nominal.name.text)
+            printedName = name
+            modifiers = withModifiers.modifiers
+            kindReason = "types nested in an extension of another module's type are not bound"
+        } else {
+            return
+        }
+        guard Self.isPublic(modifiers) else { return }
+        droppedExtensionCandidates.append(DroppedExtensionCandidateInfo(
+            extendedTypeName: extendedType,
+            kind: kind,
+            name: name,
+            printedName: printedName,
+            rawSignature: collapseWhitespace(Self.signatureText(decl)),
+            isStatic: hasModifier(modifiers, "static") || hasModifier(modifiers, "class"),
+            whereClause: currentWhereClause,
+            reason: reason ?? kindReason
+        ))
+    }
+
+    private static func isPublic(_ modifiers: DeclModifierListSyntax) -> Bool {
+        modifiers.contains { ($0.name.text == "public" || $0.name.text == "open") && $0.detail == nil }
+    }
+
+    /// The declaration's header without its body, so the record stays one line.
+    private static func signatureText(_ decl: DeclSyntax) -> String {
+        if let f = decl.as(FunctionDeclSyntax.self) { return f.with(\.body, nil).with(\.attributes, AttributeListSyntax([])).dottedDescription }
+        if let i = decl.as(InitializerDeclSyntax.self) { return i.with(\.body, nil).with(\.attributes, AttributeListSyntax([])).dottedDescription }
+        if let s = decl.as(SubscriptDeclSyntax.self) { return s.with(\.accessorBlock, nil).with(\.attributes, AttributeListSyntax([])).dottedDescription }
+        if let v = decl.as(VariableDeclSyntax.self) { return v.with(\.attributes, AttributeListSyntax([])).dottedDescription }
+        if let t = decl.as(TypeAliasDeclSyntax.self) { return t.with(\.attributes, AttributeListSyntax([])).dottedDescription }
+        if let nominal = decl.asProtocol(NamedDeclSyntax.self) { return nominal.name.text }
+        return decl.dottedDescription
+    }
+
+    /// `` `default` `` → `default`: the identifier the ABI names.
+    static func withoutBackticks(_ text: String) -> String {
+        text.count >= 2 && text.hasPrefix("`") && text.hasSuffix("`") ? String(text.dropFirst().dropLast()) : text
+    }
+
+    /// `Mod.Box<Swift.Int>` → `Mod.Box`: generic arguments removed at every level.
+    /// The generic argument clause of an extended type (`<Swift.Int32>` of `Swift.Array<Swift.Int32>`),
+    /// whitespace collapsed, or "" when it has none.
+    static func genericArguments(_ text: String) -> String {
+        guard let open = text.firstIndex(of: "<") else { return "" }
+        return text[open...].split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+    }
+
+    static func withoutGenericArguments(_ text: String) -> String {
+        var result = ""
+        var depth = 0
+        for ch in text {
+            if ch == "<" { depth += 1; continue }
+            if ch == ">" { if depth > 0 { depth -= 1 }; continue }
+            if depth == 0 { result.append(ch) }
+        }
+        return result.trimmingCharacters(in: .whitespaces)
     }
 
     // MARK: - Func member
@@ -155,10 +318,16 @@ final class ExtensionsWalker: SyntaxVisitor {
     private func handleFunc(_ node: FunctionDeclSyntax,
                              extendedType: String,
                              whereConstraints: [String]) {
-        // `ExtensionFuncRegex` strict shape: (public|open) + optional static + optional (mutating|consuming|borrowing) + func.
-        guard matchesExtensionFuncShape(node.modifiers) else { return }
         // Operator funcs — `\w+` capture rejects them.
-        guard RegexShape.isWordIdentifier(node.name.text) else { return }
+        guard RegexShape.isWordIdentifier(node.name.text) else {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType, reason: nil)
+            return
+        }
+        // `ExtensionFuncRegex` strict shape: (public|open) + optional static/class + optional (mutating|consuming|borrowing) + func.
+        guard matchesExtensionFuncShape(node.modifiers) else {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType, reason: nil)
+            return
+        }
 
         let methodName = node.name.text
         let printedName = buildFuncPrintedName(name: methodName,
@@ -168,7 +337,9 @@ final class ExtensionsWalker: SyntaxVisitor {
         let rawSignature = collapseWhitespace(detached.dottedDescription)
         let returnsSelf = detectSelfReturn(returnClause: node.signature.returnClause)
         let isMainActor = hasMainActorAttribute(node.attributes)
-        let isStatic = hasModifier(node.modifiers, "static")
+        // A `class func` is a type member as a `static func` is; only a subclass's override
+        // tells them apart, and the foreign-extension path binds neither.
+        let isStatic = hasModifier(node.modifiers, "static") || hasModifier(node.modifiers, "class")
         let isMutating = hasModifier(node.modifiers, "mutating")
         let isDeprecated = hasDeprecatedAttribute(node.attributes)
 
@@ -194,7 +365,10 @@ final class ExtensionsWalker: SyntaxVisitor {
                             extendedType: String,
                             whereConstraints: [String]) {
         // `ExtensionVarRegex` strict shape: (public|open) + optional static + var.
-        guard matchesExtensionVarShape(node.modifiers, bindingKeyword: node.bindingSpecifier) else { return }
+        guard matchesExtensionVarShape(node.modifiers, bindingKeyword: node.bindingSpecifier) else {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType, reason: nil)
+            return
+        }
         // Pick the first binding's identifier name (swiftinterface always produces
         // single-binding `var`/`let`; multi-binding `var a, b: Int` is never produced).
         guard let binding = node.bindings.first,
@@ -204,9 +378,17 @@ final class ExtensionsWalker: SyntaxVisitor {
         // the source representation via `trimmedDescription` is used to detect
         // the escape.
         let sourceText = pattern.identifier.dottedDescription
-        if sourceText.hasPrefix("`") { return }
+        if sourceText.hasPrefix("`") {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType,
+                              reason: "its name is escaped with backticks, which the foreign-extension path does not read")
+            return
+        }
         let propertyName = pattern.identifier.text
-        guard RegexShape.isWordIdentifier(propertyName) else { return }
+        guard RegexShape.isWordIdentifier(propertyName) else {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType,
+                              reason: "its name is not a word identifier the foreign-extension path reads")
+            return
+        }
 
         let anchorLine = accessModifierLine(node.modifiers)
         let rawSignature = buildVarRawSignature(node, binding: binding, anchorLine: anchorLine)
@@ -221,7 +403,11 @@ final class ExtensionsWalker: SyntaxVisitor {
         // the swiftinterface printer emits accessors multi-line (the `throws`/`async`
         // keyword on its own line), and `buildVarRawSignature` keeps only the first
         // accessor line, so a downstream raw-signature scan can't see the effect.
-        if detectEffectfulGetter(binding.accessorBlock) { return }
+        if detectEffectfulGetter(binding.accessorBlock) {
+            recordDroppedDecl(DeclSyntax(node), extendedType: extendedType,
+                              reason: "its getter is async or throws, which the foreign-extension path does not bind")
+            return
+        }
 
         extensionMemberCandidates.append(ExtensionMemberCandidateInfo(
             extendedTypeName: extendedType,
@@ -248,7 +434,7 @@ final class ExtensionsWalker: SyntaxVisitor {
         var iter = modifiers.makeIterator()
         guard RegexShape.advanceToAccess(&iter, ["public", "open"]) else { return false }
         var current = iter.next()
-        if let mod = current, mod.name.text == "static", mod.detail == nil {
+        if let mod = current, mod.name.text == "static" || mod.name.text == "class", mod.detail == nil {
             current = iter.next()
         }
         if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {

@@ -636,6 +636,751 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "describe"));
     }
 
+    /// <summary>
+    /// An interface member is left to the parser's parked row only when that row is the same member:
+    /// an overload of the same name with other labels, or the other staticness, keeps a row of its
+    /// own, and the parked member is reported once.
+    /// </summary>
+    [Theory]
+    [InlineData("public func describe(with value: Swift.Int32)", false, 1)]
+    [InlineData("public func describe(as value: Swift.Int32)", false, 2)]
+    [InlineData("public static func describe(with value: Swift.Int32)", true, 2)]
+    public void RepublishWithdrawals_ParkedOverloadOfAnInterfaceMember_ReportsEachMemberOnce(
+        string interfaceSignature, bool interfaceIsStatic, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_with",
+            "describe(with:)", IsStatic: false));
+        var member = CreateExtMethod("describe", interfaceSignature);
+        member.PrintedName = interfaceSignature.Contains("(as ", StringComparison.Ordinal) ? "describe(as:)" : "describe(with:)";
+        member.IsStatic = interfaceIsStatic;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { member } }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "describe"));
+    }
+
+    /// <summary>
+    /// A parked member pairs with the interface overload whose parameter types read the same, wherever
+    /// that overload is declared: a same-labelled overload of another type keeps its own row.
+    /// </summary>
+    [Fact]
+    public void RepublishWithdrawals_ParkedOverloadWithOtherTypes_KeepsTheInterfaceMembersRow()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_with",
+            "describe(with:)", IsStatic: false, ParameterTypes: new[] { "Swift.Int32" }));
+        var other = CreateLabeledExtMethod("describe", "describe(with:)", "public func describe(with value: Swift.String)");
+        var same = CreateLabeledExtMethod("describe", "describe(with:)", "public func describe(with value: Swift.Int32)");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { other, same } }, ctx);
+
+        var rows = report.SkippedItems.Where(r => r.Name == "describe").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+        Assert.Single(rows, r => r.Details!.Contains("Swift enum", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// On a carried receiver, each initializer or subscript the ABI lists accounts for the one
+    /// declaration of its labels and parameter types; other initializers and subscripts keep rows.
+    /// </summary>
+    [Fact]
+    public void RecordDroppedExtensionCandidates_CarriedInitializerAndSubscriptOverloads_EachListedMemberCoversOne()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.Measurement";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+        var carried = CarriedStruct(moduleDecl, receiver);
+        var init = AbiMethod("init", moduleDecl, carried, isStatic: false, "Foundation.Measurement");
+        init.IsConstructor = true;
+        init.CSSignature.Add(AbiArgument("seed", "Swift.Int32", moduleDecl));
+        carried.Methods.Add(init);
+        carried.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("i", "Swift.Int32", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_subscript_Int32",
+            ParentDecl = carried,
+            ModuleDecl = moduleDecl,
+        });
+        carried.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            PrintedName = "subscript(a:)",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Double"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("a", "Swift.Double", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_subscript_a_Double",
+            ParentDecl = carried,
+            ModuleDecl = moduleDecl,
+        });
+        DroppedExtensionCandidate Candidate(string kind, string name, string printedName, string signature) => new()
+        {
+            ExtendedTypeName = receiver, Kind = kind, Name = name, PrintedName = printedName,
+            RawSignature = signature, IsStatic = false, Reason = $"not read: {signature}",
+        };
+
+        var report = RecordAndRepublish(moduleDecl, ctx, new[]
+        {
+            Candidate("initializer", "init", "init(seed:)", "public init(seed: Swift.String)"),
+            Candidate("initializer", "init", "init(seed:)", "public init(seed: Swift.Int32)"),
+            Candidate("initializer", "init", "init(other:)", "public init(other: Swift.Int32)"),
+            Candidate("subscript", "subscript", "subscript(_:)", "public subscript(i: Swift.String) -> Swift.Int32"),
+            Candidate("subscript", "subscript", "subscript(_:)", "public subscript(i: Swift.Int32) -> Swift.Int32"),
+            Candidate("subscript", "subscript", "subscript(b:)", "public subscript(b x: Swift.Double) -> Swift.Double"),
+            Candidate("subscript", "subscript", "subscript(a:)", "public subscript(a x: Swift.Double) -> Swift.Double"),
+        });
+
+        Assert.Equal(
+            new[]
+            {
+                "not read: public init(other: Swift.Int32)",
+                "not read: public init(seed: Swift.String)",
+                "not read: public subscript(b x: Swift.Double) -> Swift.Double",
+                "not read: public subscript(i: Swift.String) -> Swift.Int32",
+            },
+            report.SkippedItems.Select(r => r.Details![(r.Details!.IndexOf("not read", StringComparison.Ordinal))..^1])
+                .OrderBy(d => d, StringComparer.Ordinal).ToArray());
+    }
+
+    /// <summary>
+    /// Two declarations of one shape in differently constrained extensions are two members, and each
+    /// keeps a row.
+    /// </summary>
+    [Fact]
+    public void RecordDroppedExtensionCandidates_SameDeclarationUnderDifferentConstraints_KeepsARowEach()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        DroppedExtensionCandidate Candidate(string whereClause) => new()
+        {
+            ExtendedTypeName = "Foundation.AttributeScopes", Kind = "subscript", Name = "subscript",
+            PrintedName = "subscript(_:)", RawSignature = "public subscript(i: Swift.Int) -> Swift.Int",
+            WhereClause = whereClause, IsStatic = false, Reason = "not read",
+        };
+
+        var report = RecordAndRepublish(moduleDecl, ctx, new[] { Candidate("where T == Swift.Int"), Candidate("where T == Swift.String") });
+
+        Assert.Equal(2, report.SkippedItems.Count(r => r.Kind == BindingItemKind.Subscript));
+    }
+
+    /// <summary>
+    /// A receiver whose kind the ABI does not name may be a protocol: a declaration that supplies the
+    /// default of one of its requirements (a subscript keyed by its parameter types) is reached
+    /// through the requirement, and the others keep rows.
+    /// </summary>
+    [Fact]
+    public void RecordDroppedExtensionCandidates_ReceiverOfUnknownKind_RequirementDefaultsAreNotReported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var protocol = new ProtocolDecl
+        {
+            Name = "Indexed",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Dep.Indexed"),
+            MangledName = "$s3Dep7IndexedP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("i", "Swift.Int", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_req_subscript",
+            ParentDecl = protocol,
+            ModuleDecl = moduleDecl,
+        });
+        moduleDecl.DependencyProtocols["Dep"] = new List<ProtocolDecl> { protocol };
+        DroppedExtensionCandidate Candidate(string type, string result) => new()
+        {
+            ExtendedTypeName = "Dep.Indexed", Kind = "subscript", Name = "subscript",
+            PrintedName = "subscript(_:)", RawSignature = $"public subscript(i: {type}) -> {result}",
+            IsStatic = false, Reason = $"not read: {type} -> {result}",
+        };
+
+        var report = RecordAndRepublish(moduleDecl, ctx, new[]
+        {
+            Candidate("Swift.Int", "Swift.Int"), Candidate("Swift.String", "Swift.Int"), Candidate("Swift.Int", "Swift.String"),
+        });
+
+        var rows = report.SkippedItems.Where(r => r.Kind == BindingItemKind.Subscript).ToList();
+        Assert.Equal(
+            new[] { "Swift.Int -> Swift.String", "Swift.String -> Swift.Int" },
+            rows.Select(r => r.Details![(r.Details!.IndexOf("not read: ", StringComparison.Ordinal) + 10)..^1])
+                .OrderBy(d => d, StringComparer.Ordinal).ToArray());
+        Assert.All(rows, r => Assert.Equal("Dep.Indexed", r.ContainingType));
+    }
+
+    /// <summary>
+    /// A parked member pairs with an interface overload only when it is public and their types may be
+    /// one spelling: the same types, or a name the databases do not hold where the ABI resolves a
+    /// typealias. A tuple where the interface names a known type, or an internal sibling, is another
+    /// member, and the interface overload keeps its row.
+    /// </summary>
+    [Theory]
+    [InlineData("(Swift.Int, Swift.Int)", true, "Swift.Int", 2)]
+    [InlineData("Swift.Int", false, "Swift.Int", 2)]
+    [InlineData("Swift.Int", true, "Swift.Int", 1)]
+    [InlineData("Foundation.Date", true, "Foundation.KitchenAlias", 1)]
+    public void RepublishWithdrawals_ParkedMember_PairsOnlyWithAPublicMemberItMayBe(
+        string parkedType, bool parkedIsPublic, string interfaceType, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "f", "Not bound: parked", "$s_f",
+            "f(x:)", IsStatic: false, ParameterTypes: new[] { parkedType }, ReturnType: "()", IsPublic: parkedIsPublic));
+        var member = CreateLabeledExtMethod("f", "f(x:)", $"public func f(x: {interfaceType})");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { member } }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "f"));
+    }
+
+    /// <summary>Overloads that differ only in their return type are two members.</summary>
+    [Fact]
+    public void RepublishWithdrawals_ParkedReturnOnlyOverload_KeepsTheOtherOverloadsRow()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "f", "Not bound: parked", "$s_f_String",
+            "f()", IsStatic: false, ParameterTypes: Array.Empty<string>(), ReturnType: "Swift.String"));
+        var integer = CreateLabeledExtMethod("f", "f()", "public func f() -> Swift.Int32");
+        var text = CreateLabeledExtMethod("f", "f()", "public func f() -> Swift.String");
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { integer, text } }, ctx);
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+    }
+
+    /// <summary>
+    /// A foreign protocol the parser kept for its extension members has those members reported by the
+    /// protocol-extension path, so a declaration the interface reader did not take is left to it when
+    /// the ABI lists it there, and keeps a row of its own when it does not.
+    /// </summary>
+    [Fact]
+    public void RecordDroppedExtensionCandidates_RetainedForeignProtocol_LeavesListedMembersToItsReport()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var protocol = new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Combine.Cancellable"),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        protocol.ExtensionMembers.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            PrintedName = "subscript(_:)",
+            ReturnTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            IndexParameters = new List<ArgumentDecl> { AbiArgument("i", "Swift.Int32", moduleDecl) },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>(),
+            MangledName = "$s_ext_subscript",
+            ParentDecl = protocol,
+            ModuleDecl = moduleDecl,
+        });
+        moduleDecl.Protocols.Add(protocol);
+        DroppedExtensionCandidate Candidate(string type) => new()
+        {
+            ExtendedTypeName = "Combine.Cancellable", Kind = "subscript", Name = "subscript",
+            PrintedName = "subscript(_:)", RawSignature = $"public subscript(i: {type}) -> Swift.Int32",
+            IsStatic = false, Reason = $"not read: {type}",
+        };
+
+        var report = RecordAndRepublish(moduleDecl, ctx, new[] { Candidate("Swift.Int32"), Candidate("Swift.String") });
+
+        var row = Assert.Single(report.SkippedItems, r => r.Kind == BindingItemKind.Subscript);
+        Assert.Contains("Swift.String", row.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// An operator requirement whose declaration shows its types is supplied only by an operator of
+    /// those types; one shown by its spelling alone is supplied by any operator of that spelling.
+    /// </summary>
+    [Theory]
+    [InlineData("Self", true)]
+    [InlineData("Swift.Int32", false)]
+    public void Requirements_TypedOperator_DeclaresOnlyTheSameTypes(string rightType, bool expected)
+    {
+        var requirements = new ForeignProtocolRequirements.Requirements();
+        requirements.Add("static +");
+        requirements.AddTypedOperator("static +", ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true)!);
+        var spellingOnly = new ForeignProtocolRequirements.Requirements();
+        spellingOnly.Add("static +");
+        var member = ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf($"public static func + (lhs: Self, rhs: {rightType}) -> Self", "func", "+"), isStatic: true);
+
+        Assert.Equal(expected, requirements.DeclaresOperator("static +", member));
+        Assert.True(spellingOnly.DeclaresOperator("static +", member));
+    }
+
+    /// <summary>
+    /// A subscript or operator whose types do not read (a generic one) has no typed key, so it never
+    /// matches a requirement and keeps its row.
+    /// </summary>
+    [Fact]
+    public void RequirementKeys_UnreadableSignature_MatchNoRequirement()
+    {
+        var generic = ForeignOverloadPairing.SignatureOf("public subscript<T>(v: T) -> Swift.Int32", "subscript");
+        Assert.Null(ForeignProtocolRequirements.SubscriptKey(generic, isStatic: false));
+
+        var requirements = new ForeignProtocolRequirements.Requirements();
+        requirements.Add("static +");
+        requirements.AddTypedOperator("static +", ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("static func + (lhs: Self, rhs: Self) -> Self", "func", "+"), isStatic: true)!);
+        var genericOperator = ForeignProtocolRequirements.OperatorKey("+",
+            ForeignOverloadPairing.SignatureOf("public static func + <T>(lhs: Self, rhs: T) -> Self", "func", "+"), isStatic: true);
+        Assert.False(requirements.DeclaresOperator("static +", genericOperator));
+    }
+
+    /// <summary>
+    /// What a declaration's signature reads: parameter types (a default value left out), the return
+    /// type after any effects, an escaped name found, and no types for a method generic of its own.
+    /// </summary>
+    [Theory]
+    [InlineData("public func `repeat`(count: Swift.Int = 1) throws -> Swift.Int", "func", "repeat", "Swift.Int", "Swift.Int")]
+    [InlineData("public func f(x: (Swift.Int32, Swift.Int32))", "func", "f", "(Swift.Int32, Swift.Int32)", "()")]
+    [InlineData("public func f(x: Swift.String = \"a)b\") -> Swift.Int", "func", "f", "Swift.String", "Swift.Int")]
+    [InlineData("public init?(seed: Swift.Int, other: [Swift.String])", "init", null, "Swift.Int|[Swift.String]", null)]
+    [InlineData("public subscript(a x: Swift.Int) -> Swift.Int { get }", "subscript", null, "Swift.Int", "Swift.Int")]
+    [InlineData("public func g<T>(x: T) -> T where T : Swift.Equatable", "func", "g", null, "T")]
+    [InlineData("public func h() async -> Swift.Int where Self : Swift.Equatable", "func", "h", "", "Swift.Int")]
+    [InlineData("public func e() throws(Kit.Failure<(Swift.Int32, Swift.Int32)>) -> Swift.Int32", "func", "e", "", "Swift.Int32")]
+    public void SignatureOf_ReadsTypesAndReturn(string declaration, string keyword, string name, string parameters, string returnType)
+    {
+        var signature = ForeignOverloadPairing.SignatureOf(declaration, keyword, name);
+
+        Assert.NotNull(signature);
+        Assert.Equal(parameters, signature!.Parameters is null ? null : string.Join("|", signature.Parameters));
+        Assert.Equal(returnType, signature.Return);
+    }
+
+    private static BindingReport RecordAndRepublish(
+        ModuleDecl moduleDecl, ModuleEmissionContext ctx, IEnumerable<DroppedExtensionCandidate> candidates)
+    {
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, candidates, CreateTypeDatabase(), Logger, ctx);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+        return report;
+    }
+
+    private static StructDecl CarriedStruct(ModuleDecl moduleDecl, string receiver)
+    {
+        var carried = new StructDecl
+        {
+            Name = receiver[(receiver.IndexOf('.') + 1)..],
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+            MangledName = "$s_carried",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "",
+        };
+        moduleDecl.Types.Add(carried);
+        return carried;
+    }
+
+    /// <summary>
+    /// A public declaration the interface reader did not take (an initializer, an operator, a member
+    /// with modifiers it does not read) keeps a row unless another path binds or reports it: the
+    /// parser's parked member of a dropped receiver, or the ABI's member of a carried one. A
+    /// typealias has no member to lose.
+    /// </summary>
+    [Theory]
+    [InlineData("initializer", "init", "init(seed:)", "parked-same", 0)]
+    [InlineData("initializer", "init", "init(seed:)", "parked-other-labels", 1)]
+    [InlineData("initializer", "init", "init(seed:)", "none", 1)]
+    [InlineData("operator", "+", "+(_:_:)", "none", 1)]
+    [InlineData("typealias", "Alias", "Alias", "none", 0)]
+    [InlineData("method", "sealed", "sealed()", "carried-listed", 0)]
+    [InlineData("method", "sealed", "sealed()", "carried-unlisted", 1)]
+    public void RecordDroppedExtensionCandidates_ReportsOnlyWhatNoOtherPathCovers(
+        string kind, string name, string printedName, string coverage, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var receiver = "Foundation.AttributeScopes";
+        if (coverage.StartsWith("carried", StringComparison.Ordinal))
+        {
+            receiver = "Foundation.Measurement";
+            moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+            moduleDecl.Types.Add(new StructDecl
+            {
+                Name = "Measurement",
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+                MangledName = "$s10Foundation11MeasurementV",
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
+                Subscripts = new List<SubscriptDecl>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                Conformances = new List<TypeConformance>(),
+                ParentDecl = moduleDecl,
+                ModuleDecl = moduleDecl,
+                IsFrozen = true,
+                MetadataAccessor = "",
+            });
+            if (coverage == "carried-listed")
+                moduleDecl.Types[^1].Methods.Add(AbiMethod(name, moduleDecl, moduleDecl.Types[^1], isStatic: false, "Swift.Void"));
+        }
+        else
+        {
+            moduleDecl.ForeignTypeDeclKinds[receiver] = "Enum";
+        }
+        if (coverage.StartsWith("parked", StringComparison.Ordinal))
+            moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+                receiver, BindingItemKind.Method, "init", "Not bound: parked", "$s_init",
+                coverage == "parked-same" ? "init(seed:)" : "init(other:)", IsStatic: false));
+        var candidate = new DroppedExtensionCandidate
+        {
+            ExtendedTypeName = receiver,
+            Kind = kind,
+            Name = name,
+            PrintedName = printedName,
+            RawSignature = $"public {kind} {printedName}",
+            IsStatic = kind == "operator",
+            Reason = "not read",
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, new[] { candidate }, CreateTypeDatabase(), Logger, ctx);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+
+        var rows = report.SkippedItems.Where(r => r.Name == name && r.Details.Contains("not read", StringComparison.Ordinal)).ToList();
+        Assert.Equal(expectedRows, rows.Count);
+        Assert.All(rows, r => Assert.Equal(receiver, r.ContainingType));
+    }
+
+    #endregion
+
+    #region One pairing per receiver, across every pass that writes its rows
+
+    /// <summary>
+    /// Runs every pass that writes rows for the declarations on a foreign receiver the way generation
+    /// does: the receiver's declarations are paired once, then the protocol-extension report, the
+    /// pre-pass and the dropped-declaration report each read that pairing, and the rows settle.
+    /// </summary>
+    private static BindingReport RunEveryPass(
+        ModuleDecl moduleDecl,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> taken,
+        IReadOnlyList<DroppedExtensionCandidate> dropped,
+        Dictionary<string, List<ProtocolExtensionMethodDecl>> extracted = null)
+    {
+        extracted ??= new Dictionary<string, List<ProtocolExtensionMethodDecl>>();
+        var ctx = new ModuleEmissionContext();
+        var typeDatabase = CreateTypeDatabase();
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ctx.ForeignReceiverPairing = ForeignReceiverPairing.Compute(moduleDecl, taken, dropped, extracted, typeDatabase);
+        ProtocolExtensionEmitter.ReportUnextractedMembers(moduleDecl, extracted, typeDatabase, Logger, ctx);
+        ForeignTypeExtensionEmitter.ProcessForeignTypeExtensions(moduleDecl, taken, typeDatabase, Logger, ctx);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, dropped, typeDatabase, Logger, ctx);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+        return report;
+    }
+
+    private static DroppedExtensionCandidate DroppedMethod(string receiver, string name, string printedName, string signature, string whereClause = "")
+        => new()
+        {
+            ExtendedTypeName = receiver,
+            Kind = "method",
+            Name = name,
+            PrintedName = printedName,
+            RawSignature = signature,
+            WhereClause = whereClause,
+            IsStatic = false,
+            Reason = "the extension header continues on the next line",
+        };
+
+    /// <summary>
+    /// An interface-only overload spelled with a name no database holds (<c>f(x: PairAlias)</c>, which
+    /// may be a typealias) sits in an extension the reader takes; the overload the ABI lists,
+    /// <c>f(x: (Int32, Int32))</c>, sits in one it drops. The listed member is the declaration whose
+    /// types read the same, so the alias overload keeps its row on a carried receiver, whose ABI
+    /// members the cross-module path binds, and the dropped one has none.
+    /// </summary>
+    [Fact]
+    public void EveryPass_CarriedReceiver_OverloadSplitAcrossPasses_TheListedMemberIsTheExactDeclaration()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.Date";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+        var carried = CarriedStruct(moduleDecl, receiver);
+        var listed = AbiMethod("f", moduleDecl, carried, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "(Swift.Int32, Swift.Int32)", moduleDecl));
+        carried.Methods.Add(listed);
+        var alias = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: TestModule.PairAlias)");
+        var tuple = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: (Swift.Int32, Swift.Int32))");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { alias } }, new[] { tuple });
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "f");
+        Assert.Contains("PairAlias", row.DeclId, StringComparison.Ordinal);
+        Assert.Contains("does not list", row.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same split on a receiver the parser dropped: its listed member is parked and keeps its own
+    /// row, the alias overload keeps one, and the dropped declaration the parked member stands for
+    /// has none.
+    /// </summary>
+    [Fact]
+    public void EveryPass_ParkedReceiver_OverloadSplitAcrossPasses_TheListedMemberIsTheExactDeclaration()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.AttributeScopes";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            receiver, BindingItemKind.Method, "f", "Not bound: parked", "$s_f_tuple",
+            "f(x:)", IsStatic: false, ParameterTypes: new[] { "(Swift.Int32, Swift.Int32)" }, ReturnType: "()"));
+        var alias = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: TestModule.PairAlias)");
+        var tuple = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: (Swift.Int32, Swift.Int32))");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { alias } }, new[] { tuple });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+        var aliasRow = Assert.Single(rows, r => r.Details.Contains("not an Objective-C class", StringComparison.Ordinal));
+        Assert.Contains("PairAlias", aliasRow.DeclId, StringComparison.Ordinal);
+        Assert.DoesNotContain(rows, r => r.Details.Contains("next line", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The split the other way round: the reader takes the exact <c>f(x: (Int32, Int32))</c>, which
+    /// the cross-module path binds, and drops the interface-only <c>f(x: PairAlias)</c>. The alias
+    /// overload may be spelled as the tuple, but the exact declaration stands for the listed member,
+    /// so the dropped alias overload keeps its row.
+    /// </summary>
+    [Fact]
+    public void EveryPass_CarriedReceiver_AliasOverloadDropped_KeepsItsRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.Date";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+        var carried = CarriedStruct(moduleDecl, receiver);
+        var listed = AbiMethod("f", moduleDecl, carried, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "(Swift.Int32, Swift.Int32)", moduleDecl));
+        carried.Methods.Add(listed);
+        var tuple = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: (Swift.Int32, Swift.Int32))");
+        var alias = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: TestModule.PairAlias)");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { tuple } }, new[] { alias });
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "f");
+        Assert.Contains("next line", row.Details, StringComparison.Ordinal);
+        Assert.Contains("PairAlias", row.DeclId + row.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The same split on a parked receiver: the taken tuple overload is the parked member, which keeps
+    /// its own row, and the dropped alias overload keeps one of its own.
+    /// </summary>
+    [Fact]
+    public void EveryPass_ParkedReceiver_AliasOverloadDropped_KeepsItsRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.AttributeScopes";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            receiver, BindingItemKind.Method, "f", "Not bound: parked", "$s_f_tuple",
+            "f(x:)", IsStatic: false, ParameterTypes: new[] { "(Swift.Int32, Swift.Int32)" }, ReturnType: "()"));
+        var tuple = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: (Swift.Int32, Swift.Int32))");
+        var alias = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: TestModule.PairAlias)");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { tuple } }, new[] { alias });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+        var aliasRow = Assert.Single(rows, r => r.Details.Contains("next line", StringComparison.Ordinal));
+        Assert.Contains("PairAlias", aliasRow.DeclId + aliasRow.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// The ABI lists only a generic <c>f&lt;T&gt;(x: T)</c>, which the reader dropped; the concrete
+    /// <c>f(x: Int32)</c> it took is interface-only. Types of a generic member do not compare, but a
+    /// generic member is never a concrete declaration, so the concrete one keeps its row.
+    /// </summary>
+    [Fact]
+    public void EveryPass_CarriedReceiver_GenericListedOverload_LeavesTheConcreteDeclarationItsRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.Date";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+        var carried = CarriedStruct(moduleDecl, receiver);
+        var listed = AbiMethod("f", moduleDecl, carried, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "τ_0_0", moduleDecl));
+        listed.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        carried.Methods.Add(listed);
+        var concrete = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: Swift.Int32)");
+        var generic = DroppedMethod(receiver, "f", "f(x:)", "public func f<T>(x: T)");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { concrete } }, new[] { generic });
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "f");
+        Assert.Contains("Int32", row.DeclId, StringComparison.Ordinal);
+        Assert.Contains("does not list", row.Details, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// A generic method whose name the interface escapes (<c>func `repeat`&lt;T&gt;</c>) is the generic
+    /// member the ABI lists, so the dropped declaration has no row of its own.
+    /// </summary>
+    [Fact]
+    public void EveryPass_CarriedReceiver_EscapedGenericDeclaration_IsTheGenericListedMember()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.Date";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+        var carried = CarriedStruct(moduleDecl, receiver);
+        var listed = AbiMethod("repeat", moduleDecl, carried, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "τ_0_0", moduleDecl));
+        listed.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        carried.Methods.Add(listed);
+        var escaped = DroppedMethod(receiver, "repeat", "repeat(x:)", "public func `repeat`<T>(x: T)");
+
+        var report = RunEveryPass(moduleDecl, new(), new[] { escaped });
+
+        Assert.DoesNotContain(report.SkippedItems, r => r.Name == "repeat");
+    }
+
+    /// <summary>
+    /// A parked synchronous <c>f(x: Int32)</c>, the alias overload <c>f(x: PairAlias)</c> the reader
+    /// took, and an <c>f(x: Int32) async</c> it dropped: the async declaration is never the
+    /// synchronous member however its types read, so it keeps its row and the alias overload stands
+    /// for the parked one.
+    /// </summary>
+    [Fact]
+    public void EveryPass_ParkedReceiver_DroppedAsyncOverload_KeepsItsRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Foundation.AttributeScopes";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            receiver, BindingItemKind.Method, "f", "Not bound: parked", "$s_f_sync",
+            "f(x:)", IsStatic: false, ParameterTypes: new[] { "Swift.Int32" }, ReturnType: "()", IsAsync: false));
+        var alias = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: TestModule.PairAlias)");
+        var asyncOverload = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: Swift.Int32) async");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { alias } }, new[] { asyncOverload });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Equal(2, rows.Count);
+        Assert.Single(rows, r => r.Details == "Not bound: parked");
+        Assert.Single(rows, r => r.Details.Contains("next line", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// On a foreign protocol whose extension members the protocol-extension report covers, an
+    /// interface-only <c>f(x: Int32)</c> the reader extracts and the ABI-listed <c>f(x: (Int32, Int32))</c>
+    /// it drops share a name and labels. The listed overload is the dropped declaration, which no path
+    /// binds, so it keeps a row; counting extracted methods per name would take the extracted one for it.
+    /// </summary>
+    [Fact]
+    public void EveryPass_ReportedProtocol_ListedOverloadTheReaderDropped_KeepsItsRow()
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Combine.Cancellable";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Protocol";
+        var protocol = new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        var listed = AbiMethod("f", moduleDecl, protocol, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "(Swift.Int32, Swift.Int32)", moduleDecl));
+        protocol.ExtensionMembers.Add(listed);
+        moduleDecl.Protocols.Add(protocol);
+        ProtocolExtensionMethodDecl Integer()
+        {
+            var member = CreateLabeledExtMethod("f", "f(x:)", "public func f(x: Swift.Int32)");
+            member.ProtocolQualifiedName = receiver;
+            member.WhereConstraints.Add("Self : TestModule.Marker");
+            return member;
+        }
+        var tuple = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: (Swift.Int32, Swift.Int32))", "where Self : TestModule.Marker");
+
+        var report = RunEveryPass(
+            moduleDecl, new() { [receiver] = new() { Integer() } }, new[] { tuple }, new() { [receiver] = new() { Integer() } });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Single(rows, r => r.Details.Contains("Extension member of protocol", StringComparison.Ordinal));
+        Assert.Single(rows, r => r.Details.Contains("not an Objective-C class", StringComparison.Ordinal));
+        Assert.DoesNotContain(rows, r => r.Details.Contains("next line", StringComparison.Ordinal));
+    }
+
     #endregion
 
     #region ProcessForeignTypeExtensions: property getter

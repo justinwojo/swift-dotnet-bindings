@@ -128,10 +128,50 @@ namespace BindingsGeneration
     /// <param name="Details">Why the receiver, and with it this declaration, was not bound.</param>
     /// <param name="Symbol">The declaration's mangled name, which keeps overloads sharing
     /// <paramref name="Name"/> on separate rows.</param>
+    /// <param name="PrintedName">The declaration's name with its argument labels as the ABI prints it
+    /// (<c>describe(with:)</c>), or null when the parser had none. Tells overloads of one name apart.</param>
+    /// <param name="IsStatic">Whether the declaration is static (or a class member), or null when unknown.</param>
+    /// <param name="ParameterTypes">The declaration's parameter types as the ABI prints them, or null
+    /// for a declaration without parameters (a property, a type). With <paramref name="ReturnType"/>,
+    /// tells apart overloads that share their labels.</param>
+    /// <param name="ReturnType">The declaration's result type as the ABI prints it, or null for an
+    /// initializer or a declaration without one.</param>
+    /// <param name="IsPublic">Whether the declaration is part of the module's public surface (not
+    /// <c>@usableFromInline</c> internal or SPI). Only a public declaration is a member an interface
+    /// declaration can be.</param>
+    /// <param name="IsAsync">Whether a method is async, read from its symbol, or null when unknown or not
+    /// a method. Swift overloads on it.</param>
     public sealed record UnboundForeignReceiverMember(
         string ForeignTypeQualifiedName,
         BindingItemKind Kind,
         string Name,
         string Details,
-        string? Symbol = null);
+        string? Symbol = null,
+        string? PrintedName = null,
+        bool? IsStatic = null,
+        IReadOnlyList<string>? ParameterTypes = null,
+        string? ReturnType = null,
+        bool IsPublic = true,
+        bool? IsAsync = null)
+    {
+        /// <summary>What tells this declaration apart from overloads of its shape, or null when it has no parameters.</summary>
+        internal OverloadSignature? Signature => ParameterTypes is null
+            ? null
+            : ForeignOverloadPairing.ListedSignature(
+                Kind == BindingItemKind.Subscript ? CarriedReceiverRows.LabelsOf(PrintedName) : null, ParameterTypes, ReturnType);
+
+        /// <summary>
+        /// Whether this parked declaration has the shape of the interface member <paramref name="name"/>:
+        /// same kind, name and receiver, and, where the parser recorded them, the same labels and
+        /// staticness. Overloads of one shape are told apart by their types
+        /// (<see cref="ForeignOverloadPairing"/>).
+        /// </summary>
+        public bool Describes(string foreignTypeQualifiedName, BindingItemKind kind, string name, string? printedName, bool isStatic)
+            => Kind == kind
+                && string.Equals(Name, name, StringComparison.Ordinal)
+                && string.Equals(ForeignTypeQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal)
+                && (string.IsNullOrEmpty(PrintedName) || string.IsNullOrEmpty(printedName)
+                    || string.Equals(PrintedName, printedName, StringComparison.Ordinal))
+                && (IsStatic is null || IsStatic == isStatic);
+    }
 }

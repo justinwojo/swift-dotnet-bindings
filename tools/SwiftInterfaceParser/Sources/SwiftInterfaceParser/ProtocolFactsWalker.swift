@@ -116,9 +116,9 @@ final class ProtocolFactsWalker: SyntaxVisitor {
 
     /// Scan the first ~64 lines of source for a `// swift-module-flags: ... -module-name X`
     /// directive. Stops at the first non-comment, non-blank line.
-    private static func extractModuleName(from source: String) -> String? {
+    static func extractModuleName(from source: String) -> String? {
         let lines = source.split(separator: "\n", maxSplits: 64, omittingEmptySubsequences: false)
-        let pattern = try? NSRegularExpression(pattern: "-module-name\\s+([A-Za-z_][A-Za-z0-9_]*)", options: [])
+        let pattern = try? NSRegularExpression(pattern: "-module-name\\s+([^\\s]+)", options: [])
         for raw in lines.prefix(64) {
             let line = String(raw)
             let trimmed = line.trimmingCharacters(in: .whitespaces)

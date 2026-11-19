@@ -3942,6 +3942,7 @@ namespace BindingsGeneration
             var decl = new SubscriptDecl
             {
                 Name = "subscript",
+                PrintedName = node.PrintedName,
                 MangledName = node.MangledName,
                 ReturnTypeSpec = returnTypeSpec,
                 IndexParameters = indexParameters,
@@ -4998,7 +4999,7 @@ namespace BindingsGeneration
         /// foreign-extension path never carries are parked (nested types, initializers, subscripts and
         /// operators): that path binds or reports the receiver's methods and properties itself.
         /// </summary>
-        private static void RecordUnboundForeignReceiverChildren(
+        private void RecordUnboundForeignReceiverChildren(
             Node node, string receiverQualifiedName, ModuleDecl moduleDecl, string why,
             bool onlyBeyondInterfaceExtensionPath = false)
         {
@@ -5033,7 +5034,34 @@ namespace BindingsGeneration
                 moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
                     receiverQualifiedName, kind.Value, child.Name,
                     $"Not bound: {why}",
-                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName));
+                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName,
+                    string.IsNullOrEmpty(child.PrintedName) ? null : child.PrintedName,
+                    child.@static ?? false,
+                    // The first child is the result type; the rest are the parameters.
+                    child.Kind is "Function" or "Constructor" or "Subscript"
+                        ? (child.Children ?? Array.Empty<Node>()).Skip(1).Select(c => c.PrintedName).ToList()
+                        : null,
+                    child.Kind is "Function" or "Subscript" ? child.Children?.FirstOrDefault()?.PrintedName : null,
+                    IsPublic: !IsNodeModuleInternal(child),
+                    IsAsync: kind == BindingItemKind.Method && child.Kind == "Function" ? IsAsyncSymbol(child.MangledName) : null));
+            }
+        }
+
+        /// <summary>Whether the function <paramref name="mangledName"/> names is async, or null when it
+        /// is not a Swift function symbol the demangler can read. The reducer has no rule for a member
+        /// of an extension, so the raw tree answers for those.</summary>
+        private bool? IsAsyncSymbol(string? mangledName)
+        {
+            if (string.IsNullOrEmpty(mangledName) || !mangledName.StartsWith("$s", StringComparison.Ordinal))
+                return null;
+            try
+            {
+                return (demangler.Run(mangledName) as FunctionReduction)?.Function?.IsAsync
+                    ?? demangler.ReadAsyncMarker(mangledName);
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 

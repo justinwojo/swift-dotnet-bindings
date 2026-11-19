@@ -230,6 +230,10 @@ namespace BindingsGeneration
         /// protocol.</summary>
         public required List<ExtensionMemberCandidate> ExtensionMemberCandidates { get; init; }
 
+        /// <summary>Public extension declarations the reader saw and did not take as
+        /// <see cref="ExtensionMemberCandidates"/>, each with the reason. Order follows the file.</summary>
+        public required List<DroppedExtensionCandidate> DroppedExtensionCandidates { get; init; }
+
         /// <summary>
         /// Best-effort lookup helper. Searches every position dictionary on this facts
         /// instance for <paramref name="key"/> and returns the first hit. Used by skip-
@@ -246,6 +250,32 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The <see cref="DroppedExtensionCandidates"/> of extensions on another module's type, by the
+        /// same rule <see cref="ResolveForeignExtensions"/> partitions candidates with.
+        /// </summary>
+        public IEnumerable<DroppedExtensionCandidate> ResolveForeignDroppedExtensionCandidates(
+            string moduleName, ISet<string> moduleTypeNames)
+            => DroppedExtensionCandidates.Where(d => IsForeignExtensionTarget(d.ExtendedTypeName, moduleName, moduleTypeNames));
+
+        /// <summary>
+        /// The first-dot rule: a qualified target is foreign when its module is not
+        /// <paramref name="moduleName"/>, an unqualified one when the module declares no type or
+        /// protocol of that name; an extension of the module's own protocol is never foreign.
+        /// </summary>
+        private bool IsForeignExtensionTarget(string qualified, string moduleName, ISet<string> moduleTypeNames)
+        {
+            var firstDotIdx = qualified.IndexOf('.');
+            var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
+
+            // A target qualified by another module is foreign whatever this module names its own
+            // declarations; an extension of this module's protocol is surfaced via
+            // ProtocolExtensionMethods instead.
+            if (firstDotIdx >= 0)
+                return !string.Equals(qualified.Substring(0, firstDotIdx), moduleName, StringComparison.Ordinal);
+            return !moduleTypeNames.Contains(typePath) && !ProtocolNames.Contains(typePath);
+        }
+
+        /// <summary>
         /// Partitions <see cref="ExtensionMemberCandidates"/> into a foreign-type-extension
         /// dictionary using the first-dot rule:
         /// <list type="bullet">
@@ -253,8 +283,10 @@ namespace BindingsGeneration
         /// is not <paramref name="moduleName"/>.</item>
         /// <item>Unqualified extension target (<c>X</c>) is foreign when neither
         /// <paramref name="moduleTypeNames"/> nor <see cref="ProtocolNames"/> contains it.</item>
-        /// <item>Protocol extensions (target appears in <see cref="ProtocolNames"/>) are
-        /// excluded — they are surfaced via <see cref="ProtocolExtensionMethods"/>.</item>
+        /// <item>Extensions of this module's protocols (an unqualified target, or one qualified by
+        /// <paramref name="moduleName"/>, naming one of <see cref="ProtocolNames"/>) are excluded —
+        /// they are surfaced via <see cref="ProtocolExtensionMethods"/>. Another module's type is
+        /// foreign whatever this module names its protocols.</item>
         /// </list>
         /// Result key is the verbatim <see cref="ExtensionMemberCandidate.ExtendedTypeName"/>;
         /// values are <see cref="ProtocolExtensionMethodDecl"/> instances with
@@ -267,25 +299,7 @@ namespace BindingsGeneration
             foreach (var candidate in ExtensionMemberCandidates)
             {
                 var qualified = candidate.ExtendedTypeName;
-                var firstDotIdx = qualified.IndexOf('.');
-                var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
-
-                // Protocol extensions are NOT foreign — surfaced via ProtocolExtensionMethods.
-                if (ProtocolNames.Contains(typePath))
-                    continue;
-
-                bool isForeign;
-                if (firstDotIdx >= 0)
-                {
-                    var modulePrefix = qualified.Substring(0, firstDotIdx);
-                    isForeign = !string.Equals(modulePrefix, moduleName, StringComparison.Ordinal);
-                }
-                else
-                {
-                    isForeign = !moduleTypeNames.Contains(typePath) && !ProtocolNames.Contains(typePath);
-                }
-
-                if (!isForeign)
+                if (!IsForeignExtensionTarget(qualified, moduleName, moduleTypeNames))
                     continue;
 
                 if (!result.TryGetValue(qualified, out var list))
@@ -365,6 +379,7 @@ namespace BindingsGeneration
             ProtocolNames = new HashSet<string>(),
             ProtocolExtensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
             ExtensionMemberCandidates = new List<ExtensionMemberCandidate>(),
+            DroppedExtensionCandidates = new List<DroppedExtensionCandidate>(),
             SpiOnlyConformances = new HashSet<string>(),
         };
     }

@@ -938,6 +938,135 @@ public class SwiftSyntaxInterfaceFactsProducerTests
 
     #endregion
 
+    #region Extension declarations the reader does not take
+
+    [SkippableFact]
+    public void ExtensionDeclarationsOutsideTheCandidateShapes_AreRecordedAsDropped()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExtensionDeclarationsOutsideTheCandidateShapes_AreRecordedAsDropped));
+        var path = WriteTempFile(
+            "import Foundation\n" +
+            "extension Foundation.Date {\n" +
+            "  public static func + (lhs: Foundation.Date, rhs: Swift.Int) -> Foundation.Date\n" +
+            "  public var `default`: Swift.Int { get }\n" +
+            "  public var effectful: Swift.Int { get throws }\n" +
+            "  public init(seed: Swift.Int)\n" +
+            "  public subscript(index: Swift.Int) -> Swift.Int { get }\n" +
+            "  public typealias Alias = Swift.Int\n" +
+            "  public struct Nested {}\n" +
+            "  public final func sealed()\n" +
+            "  public struct `repeat` {}\n" +
+            "  internal func hidden()\n" +
+            "}\n" +
+            "extension ObjectiveC.NSObject {\n" +
+            "  public class func make(x: Swift.Int32) -> Swift.Int32\n" +
+            "}\n" +
+            "extension Swift.Array<Swift.Int> {\n" +
+            "  public func total() -> Swift.Int\n" +
+            "}\n" +
+            "extension Foundation.Date\n" +
+            "{\n" +
+            "  public func later()\n" +
+            "  public func `repeat`(count: Swift.Int)\n" +
+            "}\n" +
+            "extension Swift.Dictionary where Key == Swift.Int {\n" +
+            "  public subscript(k: Swift.Int) -> Swift.Int { get }\n" +
+            "}\n" +
+            "extension Swift.Dictionary where Key == Swift.String {\n" +
+            "  public subscript(k: Swift.Int) -> Swift.Int { get }\n" +
+            "}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+
+            // A `class func` is a type member like a `static func`: taken, as static.
+            var make = Assert.Single(facts.ExtensionMemberCandidates!, c => c.MethodName == "make");
+            Assert.True(make.IsStatic);
+            Assert.Equal("ObjectiveC.NSObject", make.ExtendedTypeName);
+
+            var dropped = facts.DroppedExtensionCandidates!;
+            Assert.Equal(
+                new[]
+                {
+                    "Foundation.Date|operator|+|+(_:_:)|True",
+                    "Foundation.Date|property|default|default|False",
+                    "Foundation.Date|property|effectful|effectful|False",
+                    "Foundation.Date|initializer|init|init(seed:)|False",
+                    "Foundation.Date|subscript|subscript|subscript(_:)|False",
+                    "Foundation.Date|typealias|Alias|Alias|False",
+                    "Foundation.Date|type|Nested|Nested|False",
+                    "Foundation.Date|method|sealed|sealed()|False",
+                    "Foundation.Date|type|repeat|repeat|False",
+                    "Swift.Array|method|total|total()|False",
+                    "Foundation.Date|method|later|later()|False",
+                    "Foundation.Date|method|repeat|repeat(count:)|False",
+                    "Swift.Dictionary|subscript|subscript|subscript(_:)|False",
+                    "Swift.Dictionary|subscript|subscript|subscript(_:)|False",
+                },
+                dropped.Select(d => $"{d.ExtendedTypeName}|{d.Kind}|{d.Name}|{d.PrintedName}|{d.IsStatic}"));
+            Assert.All(dropped, d => Assert.False(string.IsNullOrWhiteSpace(d.Reason)));
+            // Two declarations of one shape in differently constrained extensions stay apart.
+            Assert.Equal(
+                new[] { "where Key == Swift.Int", "where Key == Swift.String" },
+                dropped.Where(d => d.ExtendedTypeName == "Swift.Dictionary").Select(d => d.WhereClause));
+            // The header's generic arguments constrain the extension like a `where` clause.
+            Assert.Equal("<Swift.Int>", Assert.Single(dropped, d => d.Name == "total").WhereClause);
+            Assert.DoesNotContain(dropped, d => d.Name == "hidden");
+            Assert.DoesNotContain(facts.ExtensionMemberCandidates!, c => c.MethodName is "total" or "later" or "sealed");
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// An extension of another module's type is not an extension of this module's protocol of the
+    /// same name: only an extension of the interface's own protocol is a protocol extension.
+    /// </summary>
+    [SkippableFact]
+    public void ExtensionOfAnotherModulesTypeNamedLikeALocalProtocol_IsNotAProtocolExtension()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExtensionOfAnotherModulesTypeNamedLikeALocalProtocol_IsNotAProtocolExtension));
+        var path = WriteTempFile(
+            "// swift-module-flags: -module-name Kit\n" +
+            "public protocol Array {}\n" +
+            "extension Kit.Array {\n" +
+            "  public func own() -> Swift.Int\n" +
+            "}\n" +
+            "extension Swift.Array where Element == Swift.Int32 {\n" +
+            "  public static func foreign() -> Swift.Int\n" +
+            "}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+
+            var members = facts.ProtocolExtensionMethods!.SelectMany(p => p.Value).Select(m => m.MethodName).ToList();
+            Assert.Contains("own", members);
+            Assert.DoesNotContain("foreign", members);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>A module whose name is not ASCII still owns the extensions of its own protocols.</summary>
+    [SkippableFact]
+    public void ExtensionOfOwnProtocol_InAModuleWithANonAsciiName_IsAProtocolExtension()
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(ExtensionOfOwnProtocol_InAModuleWithANonAsciiName_IsAProtocolExtension));
+        var path = WriteTempFile(
+            "// swift-module-flags: -module-name Kït\n" +
+            "public protocol Marker {}\n" +
+            "extension Kït.Marker {\n" +
+            "  public static func own() -> Swift.Int\n" +
+            "}\n");
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+
+            Assert.Contains("own", facts.ProtocolExtensionMethods!.SelectMany(p => p.Value).Select(m => m.MethodName));
+        }
+        finally { File.Delete(path); }
+    }
+
+    #endregion
+
     #region @objc(CustomName) extraction
 
     [SkippableFact]
