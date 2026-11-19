@@ -99,9 +99,10 @@ partial class Build
     // Consumer app TFMs stay versionless, so each workload builds the app against
     // the platform its own Xcode supports: an app pinned to 26.0 selects the 26.0
     // platform pack, which requires exactly Xcode 26.0. NuGet still resolves the
-    // nupkg's 26.0 asset for the newer app platform.
-    const string X64SimIosAppTfm = "net10.0-ios";
-    const string X64SimTvosAppTfm = "net10.0-tvos";
+    // nupkg's 26.0 asset for the newer app platform. The framework follows the lane's
+    // .NET major (ToolchainTargets).
+    string X64SimIosAppTfm => LaneTargets.ConsumerTfm("ios");
+    string X64SimTvosAppTfm => LaneTargets.ConsumerTfm("tvos");
 
     AbsolutePath X64SimGateScratch => RootDirectory / "artifacts" / "x64-sim-gate";
 

@@ -53,8 +53,10 @@ partial class Build
     // evaluates before the project body's TargetFramework is set, so the
     // Contains check sees an empty value). Multi-TFM projects work because
     // each inner build pre-sets TargetFramework. The SDK template uses the
-    // unsuffixed form for the same reason; we mirror it here.
-    const string PackGateConsumerTfm = "net10.0-macos";
+    // unsuffixed form for the same reason; we mirror it here. The framework follows the lane's
+    // .NET major (ToolchainTargets): a .NET 11 user builds a net11.0 app, and the .NET 11
+    // workload's net10.0 Apple packs require Xcode 26.0, so a net10.0 app cannot build there.
+    string PackGateConsumerTfm => LaneTargets.ConsumerTfm("macos");
     const string PackGateConsumerExpected = "Hello, PackGate from Swift!";
 
     AbsolutePath PackGateScratch => RootDirectory / "artifacts" / "pack-gate";
@@ -966,7 +968,7 @@ partial class Build
         File.WriteAllText(consumerRoot / "NuGet.config", nugetConfig);
     }
 
-    static void WritePackGateConsumerLib(AbsolutePath bindingsDir, AbsolutePath helloPackXcfw)
+    void WritePackGateConsumerLib(AbsolutePath bindingsDir, AbsolutePath helloPackXcfw)
     {
         // SwiftFramework points at the freshly-built HelloPack.xcframework.
         // The SDK auto-injects the wrapper xcframework into consuming projects
@@ -987,9 +989,9 @@ partial class Build
         File.WriteAllText(bindingsDir / "PackGateBindings.csproj", csproj);
     }
 
-    static void WritePackGateConsumerApp(AbsolutePath appDir, AbsolutePath bindingsDir)
+    void WritePackGateConsumerApp(AbsolutePath appDir, AbsolutePath bindingsDir)
     {
-        // Plain net10.0-macos console app. RuntimeIdentifier=osx-arm64 so the
+        // Plain <lane framework>-macos console app. RuntimeIdentifier=osx-arm64 so the
         // .app bundle has a single arch matching the wrapper xcframework slice
         // (which we built arm64-only). EnableCodeSigning=false matches the
         // RuntimeTestsApp.Mac pattern — there's nothing here that needs to be

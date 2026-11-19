@@ -8,13 +8,17 @@
        to see what native dylibs / Swift runtime symbols the supplement forces
        into the final binary.
 
-       We target net10.0-macos (arm64) because every supplement type in the
+       We target macOS (arm64) because every supplement type in the
        seeded manifest carries [UnsupportedOSPlatform("maccatalyst")]; macOS is
        the closest stand-in that still publishes as NativeAOT.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net10.0-macos</TargetFramework>
+    <!-- A consumer app builds for the toolchain lane's .NET major. ValidateBlastRadius passes
+         BlastRadiusFramework from its fail-closed lane resolution (net11.0 on a .NET 11 profile,
+         whose net10.0 macOS packs require Xcode 26.0); a direct run stays on net10.0. -->
+    <BlastRadiusFramework Condition="'$(BlastRadiusFramework)' == ''">net10.0</BlastRadiusFramework>
+    <TargetFramework>$(BlastRadiusFramework)-macos</TargetFramework>
     <RuntimeIdentifier>osx-arm64</RuntimeIdentifier>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>

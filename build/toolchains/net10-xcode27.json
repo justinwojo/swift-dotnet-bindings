@@ -2,6 +2,7 @@
   "sdkVersion": "10.0.404",
   "workloadVersion": "10.0.404",
   "xcodeVersion": "27.2",
+  "applePlatformVersion": "27.2",
   "dotnetRoot": "~/.local/share/swift-bindings/toolchains/net10-xcode27.2/dotnet",
   "developerDirectory": "/Applications/Xcode-27.2.0.app/Contents/Developer"
 }

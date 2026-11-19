@@ -47,6 +47,7 @@
     <Compile Include="../../../../build/Tools/SwiftCompilerSettings.cs" Link="Tools/SwiftCompilerSettings.cs" />
     <Compile Include="../../../../build/Tools/ArgumentEscaper.cs" Link="Tools/ArgumentEscaper.cs" />
     <Compile Include="../../../../build/Models/ToolchainProfileContext.cs" Link="Models/ToolchainProfileContext.cs" />
+    <Compile Include="../../../../build/Models/ToolchainTargets.cs" Link="Models/ToolchainTargets.cs" />
     <Compile Include="../../../../build/Helpers/ArtifactParityGate.cs" Link="Parity/ArtifactParityGate.cs" />
     <!-- Link-compile the build-side Mach-O reader so the appstore-hygiene gate's install_name reader
          (Finding 61, replacing the otool scrape) is unit-tested against hand-built Mach-O fixtures

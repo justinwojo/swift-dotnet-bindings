@@ -12,7 +12,14 @@
         "errors": 0,
         "lines": 56483,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "AppIntents/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "ActivityKit": {
         "withdrawal_policy": {
@@ -24,7 +31,14 @@
         "errors": 0,
         "lines": 5158,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "ActivityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "CryptoKit": {
         "withdrawal_policy": {
@@ -36,7 +50,14 @@
         "errors": 0,
         "lines": 48280,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "CryptoKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "CryptoKit@macos": {
         "withdrawal_policy": {
@@ -48,7 +69,14 @@
         "errors": 0,
         "lines": 48280,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "CryptoKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "CryptoKit@maccatalyst": {
         "withdrawal_policy": {
@@ -60,7 +88,14 @@
         "errors": 0,
         "lines": 48280,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "CryptoKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "CryptoKit@tvos": {
         "withdrawal_policy": {
@@ -72,7 +107,14 @@
         "errors": 0,
         "lines": 48122,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "CryptoKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "FamilyControls": {
         "withdrawal_policy": {
@@ -84,7 +126,14 @@
         "errors": 0,
         "lines": 2010,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "FamilyControls/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "LiveCommunicationKit": {
         "withdrawal_policy": {
@@ -96,7 +145,25 @@
         "errors": 0,
         "lines": 10960,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
+                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
+                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
+                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
+                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
+                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              }
+            ]
+          }
+        ]
       },
       "LiveCommunicationKit@macos": {
         "withdrawal_policy": {
@@ -108,7 +175,25 @@
         "errors": 0,
         "lines": 45,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
+                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
+                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
+                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
+                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
+                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              }
+            ]
+          }
+        ]
       },
       "LiveCommunicationKit@maccatalyst": {
         "withdrawal_policy": {
@@ -120,7 +205,25 @@
         "errors": 0,
         "lines": 9744,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
+                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
+                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
+                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
+                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
+                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              }
+            ]
+          }
+        ]
       },
       "MusicKit": {
         "withdrawal_policy": {
@@ -132,7 +235,14 @@
         "errors": 0,
         "lines": 88363,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "MusicKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "MusicKit@macos": {
         "withdrawal_policy": {
@@ -144,7 +254,14 @@
         "errors": 0,
         "lines": 79746,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "MusicKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "MusicKit@maccatalyst": {
         "withdrawal_policy": {
@@ -156,7 +273,14 @@
         "errors": 0,
         "lines": 79980,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "MusicKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "MusicKit@tvos": {
         "withdrawal_policy": {
@@ -168,7 +292,14 @@
         "errors": 0,
         "lines": 87524,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "MusicKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "ProximityReader": {
         "withdrawal_policy": {
@@ -180,7 +311,14 @@
         "errors": 0,
         "lines": 39247,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "ProximityReader/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "ProximityReader@maccatalyst": {
         "withdrawal_policy": {
@@ -192,7 +330,14 @@
         "errors": 0,
         "lines": 39247,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "ProximityReader@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "RealityKit": {
         "withdrawal_policy": {
@@ -204,7 +349,14 @@
         "errors": 0,
         "lines": 11275,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "RealityKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "RealityFoundation": {
         "withdrawal_policy": {
@@ -487,7 +639,14 @@
         "errors": 0,
         "lines": 237746,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "RealityFoundation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "RoomPlan": {
         "withdrawal_policy": {
@@ -499,7 +658,14 @@
         "errors": 0,
         "lines": 14651,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "RoomPlan/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "StoreKit2": {
         "withdrawal_policy": {
@@ -511,7 +677,14 @@
         "errors": 0,
         "lines": 39218,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "StoreKit2/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "StoreKit2@macos": {
         "withdrawal_policy": {
@@ -523,7 +696,14 @@
         "errors": 0,
         "lines": 35238,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "StoreKit2@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "StoreKit2@maccatalyst": {
         "withdrawal_policy": {
@@ -535,7 +715,14 @@
         "errors": 0,
         "lines": 39218,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "StoreKit2@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "StoreKit2@tvos": {
         "withdrawal_policy": {
@@ -547,7 +734,14 @@
         "errors": 0,
         "lines": 34167,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "StoreKit2@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "TipKit": {
         "withdrawal_policy": {
@@ -620,7 +814,75 @@
         "errors": 0,
         "lines": 12799,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "TipKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
+              }
+            ]
+          }
+        ]
       },
       "TipKit@macos": {
         "withdrawal_policy": {
@@ -693,7 +955,75 @@
         "errors": 0,
         "lines": 11343,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "TipKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
+              }
+            ]
+          }
+        ]
       },
       "TipKit@maccatalyst": {
         "withdrawal_policy": {
@@ -766,7 +1096,75 @@
         "errors": 0,
         "lines": 12799,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "TipKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
+              }
+            ]
+          }
+        ]
       },
       "TipKit@tvos": {
         "withdrawal_policy": {
@@ -839,7 +1237,75 @@
         "errors": 0,
         "lines": 10319,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "TipKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "exceptions": [
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildEither|:TipKit.TipOption,second:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV11buildEither6secondQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildExpression|:TipKit.TipOption,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV15buildExpressionyQrxAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildFinalResult|:Swift.Array<any TipKit.TipOption>,arg0:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV16buildFinalResultySayAA0A6Option_pGxAaGRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,accumulated:τ_opaque_0,next:τ_opaque_1|None|<τ_opaque_0\\,τ_opaque_1>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock11accumulated4nextQrx_q_tAA0A6OptionRzAaIR_r0_lFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              },
+              {
+                "unitId": "TipKit|Tips.OptionsBuilder|Method|buildPartialBlock|:TipKit.TipOption,first:τ_opaque_0|None|<τ_opaque_0>|$s6TipKit4TipsO14OptionsBuilderV17buildPartialBlock5firstQrx_tAA0A6OptionRzlFZ|!leaf-api",
+                "reason": "Opaque result-builder generic wrapper remains outside the P2 repair slice.",
+                "reproducer": "nuke validate --filter TipKit",
+                "diagnostic": "Xcode 27.2 run: swiftc reports the same shape as 26.3, e.g. \"static method 'buildExpression' requires that '_MLG0' conform to 'TipOption'\" for each opaque result-builder method; SWIFTBIND112 withdrew 6 units over 2 rounds.",
+                "disposition": "active-transfer:P6",
+                "acceptance": "Xcode 27.2 exact-profile enrolment: same identity and swiftc diagnostic as the accepted 26.3 entry.",
+                "reopenTrigger": "P6 supplies public/route/runtime proof for this identity.",
+                "toolchainScope": "Xcode 27.2; Swift 6.4.2; AppleTVSimulator SDK 27.2; arm64-apple-tvos15.0-simulator"
+              }
+            ]
+          }
+        ]
       },
       "Translation": {
         "withdrawal_policy": {
@@ -851,7 +1317,14 @@
         "errors": 0,
         "lines": 4368,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "Translation/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WeatherKit": {
         "withdrawal_policy": {
@@ -874,7 +1347,14 @@
         "errors": 0,
         "lines": 30345,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WeatherKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WeatherKit@macos": {
         "withdrawal_policy": {
@@ -897,7 +1377,14 @@
         "errors": 0,
         "lines": 30345,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WeatherKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WeatherKit@maccatalyst": {
         "withdrawal_policy": {
@@ -920,7 +1407,14 @@
         "errors": 0,
         "lines": 30345,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WeatherKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WeatherKit@tvos": {
         "withdrawal_policy": {
@@ -943,7 +1437,14 @@
         "errors": 0,
         "lines": 30345,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WeatherKit@tvos/tvos/arm64/arm64-apple-tvos15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/AppleTVSimulator.platform/Developer/SDKs/AppleTVSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WorkoutKit": {
         "withdrawal_policy": {
@@ -955,7 +1456,14 @@
         "errors": 0,
         "lines": 12565,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WorkoutKit/ios/arm64/arm64-apple-ios15.0-simulator//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/iPhoneSimulator.platform/Developer/SDKs/iPhoneSimulator27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WorkoutKit@macos": {
         "withdrawal_policy": {
@@ -967,7 +1475,14 @@
         "errors": 0,
         "lines": 12733,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WorkoutKit@macos/macos/arm64/arm64-apple-macos12.0//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "WorkoutKit@maccatalyst": {
         "withdrawal_policy": {
@@ -979,7 +1494,14 @@
         "errors": 0,
         "lines": 12565,
         "dep_compile": "none",
-        "swift_compile": "ok"
+        "swift_compile": "ok",
+        "withdrawal_policy_alternatives": [
+          {
+            "schemaVersion": 1,
+            "profile": "WorkoutKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi//Applications/Xcode-27.2.0.app/Contents/Developer/Platforms/MacOSX.platform/Developer/SDKs/MacOSX27.2.sdk@27.2",
+            "exceptions": []
+          }
+        ]
       },
       "Alamofire": {
         "withdrawal_policy": {
@@ -2694,6 +3216,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 22491
+    "swift_bindings_unit_pass_floor": 22505
   }
 }

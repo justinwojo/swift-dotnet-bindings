@@ -868,7 +868,7 @@ partial class Build
         File.WriteAllText(fixtureDir / "NuGet.config", PackGateMixedNuGetConfig(nupkgDir, fixtureNupkgDir: null));
     }
 
-    // Single-PackageReference consumer: a net10.0-macos console app that takes ONE
+    // Single-PackageReference consumer: a <lane framework>-macos console app that takes ONE
     // PackageReference to the Swift binding and uses the ObjC type (the companion
     // managed dll arrives EMBEDDED in that package's lib/ and the wrapper native
     // through its runtimes/ — both from the one reference). Builds with a
@@ -906,7 +906,7 @@ partial class Build
             <Project Sdk="Microsoft.NET.Sdk">
               <PropertyGroup>
                 <OutputType>Exe</OutputType>
-                <TargetFramework>net10.0-macos</TargetFramework>
+                <TargetFramework>{PackGateConsumerTfm}</TargetFramework>
                 <RuntimeIdentifier>{PackGateMixedRid}</RuntimeIdentifier>
                 <Nullable>enable</Nullable>
                 <ImplicitUsings>enable</ImplicitUsings>
@@ -976,7 +976,7 @@ partial class Build
             .EnableNoLogo()
             .SetVerbosity(DotNetVerbosity.quiet));
 
-        var appExe = appDir / "bin" / "Release" / "net10.0-macos" / PackGateMixedRid /
+        var appExe = appDir / "bin" / "Release" / PackGateConsumerTfm / PackGateMixedRid /
             "PackGateMixedApp.app" / "Contents" / "MacOS" / "PackGateMixedApp";
         if (!File.Exists(appExe))
             Assert.Fail($"PackGate (mixed/{module}): consumer app binary not produced at {appExe}");
