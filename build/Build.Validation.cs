@@ -231,6 +231,18 @@ partial class Build
             // --- Build Generator ---
             if (!Quick)
                 BuildGeneratorIfChanged(outputBase);
+
+            // --- Shared build products: built once, read-only for every target ---
+            // Each target's generator verifies its binding with a real dotnet build that
+            // ProjectReferences the in-tree runtime and supplement. Built from N parallel
+            // targets, those shared projects were restored and recompiled in place, and two
+            // targets could write one obj dll at once (CS2012). Build them here, before the
+            // fan-out, make every per-target build consume them read-only, and fail the run
+            // if any target still wrote one.
+            IReadOnlyDictionary<string, SharedBuildProducts.FileStamp>? sharedProductsBefore = null;
+            if (!Quick)
+                sharedProductsBefore = PrepareSharedBuildProducts(outputBase,
+                    availableTargets.Select(t => t.Platform).Distinct(StringComparer.Ordinal));
             if (!Quick)
             {
                 withdrawalSourceHash = WithdrawalSourceFingerprint();
@@ -555,6 +567,9 @@ partial class Build
             }
 
             Log.Information("");
+
+            if (sharedProductsBefore != null)
+                AssertSharedBuildProductsUntouched(sharedProductsBefore);
 
             // === Baseline & Regression Detection ===
             bool isFullRun = Filter == null && Tier == 0;
@@ -1901,6 +1916,60 @@ partial class Build
             }
         }
         Log.Information("");
+    }
+
+    IEnumerable<string> SharedBuildProductDirectories =>
+        SharedBuildProducts.ProjectDirectories.Select(relative => (string)(RootDirectory / relative));
+
+    /// <summary>
+    /// Builds the shared in-tree projects every generated binding references (see
+    /// <see cref="SharedBuildProducts"/>), writes the consumer props that make the per-target builds
+    /// read them without restoring or building them, and snapshots their outputs. Runs on every
+    /// validate, not only when the generator changed: the generator stamp does not cover
+    /// Swift.Analyzers or SwiftBindings.Tasks, and an incremental build of current projects is cheap.
+    /// </summary>
+    IReadOnlyDictionary<string, SharedBuildProducts.FileStamp> PrepareSharedBuildProducts(
+        AbsolutePath outputBase, IEnumerable<string> platforms)
+    {
+        foreach (var project in new[] { RuntimeProject, AppleSupplementProject })
+        {
+            var build = ProcessTasks.StartProcess("dotnet", $"build \"{project}\" -v quiet -nologo",
+                logOutput: false);
+            build.WaitForExit();
+            if (build.ExitCode != 0)
+                throw new InvalidOperationException(
+                    $"Shared build product {project} failed to build before the validate fan-out:\n" +
+                    string.Join("\n", build.Output.Select(o => o.Text).TakeLast(20)));
+        }
+        foreach (var platform in platforms)
+        {
+            foreach (var dll in new[] { GetRuntimeDll(platform), GetAppleSupplementDll(platform) })
+                if (!File.Exists(dll))
+                    throw new FileNotFoundException(
+                        $"Shared build product for {platform} is missing after the prebuild; every target " +
+                        "of that platform would reference it", dll);
+        }
+        Directory.CreateDirectory(outputBase);
+        File.WriteAllText(outputBase / "Directory.Build.props", SharedBuildProducts.ConsumerPropsContent);
+        var snapshot = SharedBuildProducts.Snapshot(SharedBuildProductDirectories);
+        Log.Information("Shared build products: built once for the fan-out ({Count} files under {Projects} projects)",
+            snapshot.Count, SharedBuildProducts.ProjectDirectories.Count);
+        return snapshot;
+    }
+
+    void AssertSharedBuildProductsUntouched(IReadOnlyDictionary<string, SharedBuildProducts.FileStamp> before)
+    {
+        var changes = SharedBuildProducts.Diff(before, SharedBuildProducts.Snapshot(SharedBuildProductDirectories));
+        if (changes.Count == 0)
+        {
+            Log.Information("Shared build products: untouched by the {Count}-file fan-out check", before.Count);
+            return;
+        }
+        foreach (var change in changes.Take(40))
+            Log.Error("  shared build product {Change}", change);
+        throw new InvalidOperationException(
+            $"{changes.Count} shared build product file(s) were written during the parallel fan-out. A per-target " +
+            "build restored or built a shared in-tree project, which races with every other target building it.");
     }
 
     string ComputeSourceFingerprint()

@@ -88,6 +88,10 @@
          reference to _build. BCL-only string/version work, so it compiles AOT-clean under this
          project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/ApiCompatBaselineSelector.cs" Link="Models/ApiCompatBaselineSelector.cs" />
+    <!-- Link-compile the parallel validate's shared-build-product contract (consumer props, watched
+         project list, tripwire diff) so its reference-closure coverage is checked against the real
+         csprojs. BCL-only, #nullable enable. -->
+    <Compile Include="../../../../build/Models/SharedBuildProducts.cs" Link="Models/SharedBuildProducts.cs" />
     <!-- Link-compile the offline surface-accounting reader/comparator so the exact public-key,
          accessor, manifest, withdrawal-multiset and fail-closed evidence contracts are exercised
          by the ordinary unit-test gate without a project reference to the Nuke build assembly. -->
