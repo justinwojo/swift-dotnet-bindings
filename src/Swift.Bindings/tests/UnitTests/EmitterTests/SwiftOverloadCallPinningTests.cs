@@ -757,7 +757,13 @@ public class SwiftOverloadCallPinningTests
     [InlineData("Swift.Any", true)]
     [InlineData("any Swift.Sendable", true)]
     [InlineData("any Swift.Sendable & Swift.Copyable", true)]
-    public void Function_ReachesNoExistentialOfAProtocol(string siblingType, bool refused)
+    // An optional function is an Optional, which a module may make conform to its protocol
+    // (extension Optional: Resource); only a concrete nominal type still refuses it.
+    [InlineData("any TestLib.Resource", true, true)]
+    [InlineData("Swift.Optional<any TestLib.Resource>", true, true)]
+    [InlineData("any TestLib.Resource & Swift.Sendable", true, true)]
+    [InlineData("TestLib.ImageResource", false, true)]
+    public void Function_ReachesNoExistentialOfAProtocol(string siblingType, bool refused, bool optionalFunction = false)
     {
         // init(version: = compute(), entries: () -> [Source]) beside init(version: = compute(),
         // entries: <sibling>): the shim passes the closure, which only Any or a protocol a function
@@ -778,8 +784,9 @@ public class SwiftOverloadCallPinningTests
             });
         }
         types.AddModuleDatabase(swift);
+        var function = "() -> Swift.Array<TestLib.Source>";
         var target = Method("init", disfavored: false,
-            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", "() -> Swift.Array<TestLib.Source>"));
+            Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", optionalFunction ? $"Swift.Optional<{function}>" : function));
         var sibling = Method("init", disfavored: false,
             Arg("version", "Swift.Int", "compute()"), ArgOfSpec("entries", siblingType));
         Host(target, sibling);

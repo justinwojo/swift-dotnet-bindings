@@ -62,7 +62,7 @@ internal sealed class SwiftCallPinPlan
 /// type, from a struct or enum into a protocol it provably does not conform to, from a struct or
 /// enum into a type parameter whose required protocol it provably does not conform to, between
 /// function types of different arity, or between a function and a non-function, an existential
-/// being no function and a function conforming to no protocol a module declares). The target counts
+/// being no function and a non-optional function conforming to no protocol a module declares). The target counts
 /// as winning only on rules that hold whatever else the solver weighs: it is synchronous where the
 /// sibling is async (wrappers call a synchronous target from a synchronous body); it is favored
 /// where the sibling is disfavored; it is async where the sibling is not and neither is favored
@@ -647,26 +647,31 @@ internal static class SwiftOverloadCallPinning
                 _ => false,
             };
         }
-        if (arg.ValueSpec != null && UnwrapOptional(arg.ValueSpec).Spec is ClosureTypeSpec)
+        if (arg.ValueSpec != null && UnwrapOptional(arg.ValueSpec) is (ClosureTypeSpec, var functionOptional))
         {
             // A function converts to Any or an existential at most, and conforms to no protocol a
             // module declares; only the standard library's marker protocols (a @Sendable function
             // is Sendable) take one, so a protocol of the Swift module stays a possible target. A
-            // composition takes a function only when every member does.
+            // composition takes a function only when every member does. An optional function is an
+            // Optional, which a module may make conform to its own protocol, so only a concrete
+            // nominal type refuses it.
             return param switch
             {
-                NamedTypeSpec target when !IsGenericName(target.Name) => IsClosed(target.Name) || TakesNoFunction(target.Name, kinds),
-                ProtocolListTypeSpec composition => composition.Protocols.Keys.Any(member => TakesNoFunction(member.Name, kinds)),
+                NamedTypeSpec target when !IsGenericName(target.Name) => IsClosed(target.Name) || TakesNoFunction(target.Name, functionOptional, kinds),
+                ProtocolListTypeSpec composition => composition.Protocols.Keys.Any(member => TakesNoFunction(member.Name, functionOptional, kinds)),
                 _ => false,
             };
         }
         return false;
     }
 
-    /// <summary>A nominal type a function value never converts to: a struct, enum or class, or a protocol outside the Swift module.</summary>
-    private static bool TakesNoFunction(string name, NominalKinds kinds) =>
+    /// <summary>
+    /// A nominal type a function value never converts to: a struct, enum or class, or a protocol
+    /// outside the Swift module unless the function is optional.
+    /// </summary>
+    private static bool TakesNoFunction(string name, bool functionOptional, NominalKinds kinds) =>
         kinds.Of(name) is TypeRecordKind.Struct or TypeRecordKind.Enum or TypeRecordKind.Class
-        || (kinds.Of(name) == TypeRecordKind.Protocol && !name.StartsWith("Swift.", StringComparison.Ordinal));
+        || (!functionOptional && kinds.Of(name) == TypeRecordKind.Protocol && !name.StartsWith("Swift.", StringComparison.Ordinal));
 
     /// <summary>
     /// Whether a parameter typed with a bare type parameter cannot take a value of a struct or enum
