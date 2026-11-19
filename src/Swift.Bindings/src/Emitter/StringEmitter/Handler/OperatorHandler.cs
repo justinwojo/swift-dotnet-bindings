@@ -386,7 +386,7 @@ namespace BindingsGeneration
                     {
                         _logger.LogWarning($"Operator '{symbol}' passes '{unconvertible}', which no operand conversion declares — skipping.");
                         ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
-                            $"The operator's call reads '{unconvertible}', a converted local that no operand conversion declares.");
+                            $"The operator's call reads '{unconvertible}', a converted local the operator body declares only for an Optional object operand.");
                         RollbackOperator();
                         return false;
                     }
@@ -548,19 +548,28 @@ namespace BindingsGeneration
 
                 // Emit null guards for equality/inequality operators on reference types.
                 // Without these, `obj == null` or `obj != null` would call .Payload on null and throw NRE.
+                // An Optional operand is the exception: null is its nil, a value Swift compares, so
+                // it gets no guard and reaches the call.
                 if (isReferenceType && (csOperator == "==" || csOperator == "!="))
                 {
+                    var operandSpecs = methodEnv.MethodDecl.CSSignature.Skip(1).Select(a => a.SwiftTypeSpec).ToArray();
+                    var leftIsNil = operandSpecs.Length > 0 && MarshallingHelpers.IsSwiftOptional(operandSpecs[0]);
+                    var rightIsNil = operandSpecs.Length > 1 && MarshallingHelpers.IsSwiftOptional(operandSpecs[1]);
                     var leftIsNull = NullTest(leftParam.Name, leftType, typeNameWithGenerics);
                     var rightIsNull = NullTest(rightParam.Name, rightType, typeNameWithGenerics);
                     if (csOperator == "==")
                     {
-                        csWriter.WriteLine($"if ({leftIsNull}) return {rightIsNull};");
-                        csWriter.WriteLine($"if ({rightIsNull}) return false;");
+                        if (!leftIsNil)
+                            csWriter.WriteLine($"if ({leftIsNull}) return {rightIsNull};");
+                        if (!rightIsNil)
+                            csWriter.WriteLine($"if ({rightIsNull}) return false;");
                     }
                     else
                     {
-                        csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
-                        csWriter.WriteLine($"if ({rightIsNull}) return true;");
+                        if (!leftIsNil)
+                            csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
+                        if (!rightIsNil)
+                            csWriter.WriteLine($"if ({rightIsNull}) return true;");
                     }
 
                     EmitDisposedOperandEqualityFallback(csWriter, operatorDecl, csOperator, leftParam.Name, leftType, rightParam.Name, rightType, typeNameWithGenerics);
@@ -886,7 +895,11 @@ namespace BindingsGeneration
                     continue;
                 var operand = operands.FirstOrDefault(a =>
                     NameProvider.GetBoundGenericBufferName(NameProvider.GetMarshallingBaseName(a)) == parameter.Name);
-                if (operand is null)
+                // Only an Optional object operand (an ObjC or Swift class, or nil) is read through the
+                // ordinary conversion here: its object pointer is Swift's own representation. Any
+                // other converted shape (a bridged collection, a Result, an inout slot) is refused,
+                // not converted.
+                if (operand is null || operand.IsInOut || !IsOptionalObjectOperand(operand.SwiftTypeSpec, methodEnv))
                 {
                     convertedOperands = Array.Empty<ArgumentDecl>();
                     return parameter.Name;
@@ -896,6 +909,27 @@ namespace BindingsGeneration
             }
             convertedOperands = converted;
             return null;
+        }
+
+        /// <summary>
+        /// An Optional whose payload is a class reference, Objective-C or Swift: the one operand shape
+        /// whose P/Invoke argument is the object pointer Swift itself reads, or null for nil. An
+        /// Objective-C class is recognized as the ordinary member's projection recognizes it
+        /// (<see cref="MarshallingHelpers.IsOptionalObjCBridged"/>, its Apple-framework fallback
+        /// included), less the bridged value types and typed enums that shape also admits.
+        /// </summary>
+        private static bool IsOptionalObjectOperand(TypeSpec typeSpec, MethodEnvironment methodEnv)
+        {
+            var database = methodEnv.TypeDatabase;
+            if (MarshallingHelpers.IsOptionalSwiftClassReference(typeSpec, methodEnv.ParentDecl, database))
+                return true;
+            if (!MarshallingHelpers.IsOptionalObjCBridged(typeSpec, database)
+                || MarshallingHelpers.IsOptionalAppleTypedEnum(typeSpec, database)
+                || DirectOptionalAbi.RendersAsForeignObject(typeSpec, database))
+                return false;
+            var payload = (NamedTypeSpec)((NamedTypeSpec)typeSpec).GenericParameters[0];
+            return !database.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(payload.Name), out var record)
+                || (record.Kind == TypeRecordKind.Class && MarshallingHelpers.IsObjCBridged(record));
         }
 
         /// <summary>
@@ -1230,6 +1264,10 @@ namespace BindingsGeneration
             // Project the operands the same way EmitOperatorWrapper does — the parent operand carries
             // the generic form (typeName), the other operand its own projected public type.
             var (leftType, rightType) = ResolveSynthesizedOperandTypes(existingOperator, typeName, typeDatabase);
+            // As on the declared operator, an Optional operand's null is nil, which the declared
+            // operator passes to Swift: it gets no guard here either.
+            var leftIsNil = MarshallingHelpers.IsSwiftOptional(paramArgs[0].SwiftTypeSpec);
+            var rightIsNil = MarshallingHelpers.IsSwiftOptional(paramArgs[1].SwiftTypeSpec);
 
             if (missingOperator == "!=" && existingSymbol == "==")
             {
@@ -1239,8 +1277,10 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName, negate: true)};");
-                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return true;");
+                    if (!leftIsNil)
+                        csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName, negate: true)};");
+                    if (!rightIsNil)
+                        csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return true;");
                 }
                 csWriter.WriteLine("return !(left == right);");
                 csWriter.Indent--;
@@ -1254,8 +1294,10 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName)};");
-                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return false;");
+                    if (!leftIsNil)
+                        csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName)};");
+                    if (!rightIsNil)
+                        csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return false;");
                 }
                 csWriter.WriteLine("return !(left != right);");
                 csWriter.Indent--;

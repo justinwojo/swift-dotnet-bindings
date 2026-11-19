@@ -1460,6 +1460,8 @@ public class ForeignTypeExtensionEmitterTests
     [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \") async\", m: Swift.Int32)")]
     [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"(\", m: Swift.Int32)")]
     [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"\\\\\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = #\"a\\#\"#)\"#, m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"\\(\")\")\", m: Swift.Int32)")]
     public void ProcessForeignTypeExtensions_StringDefaultHoldingClauseSyntax_BindsEveryParameter(string signature)
     {
         var ctx = new ModuleEmissionContext();
@@ -1482,6 +1484,11 @@ public class ForeignTypeExtensionEmitterTests
     [InlineData("public func f(x: Swift.String = \") throws\")", false, false)]
     [InlineData("public func f(x: Swift.String = \"(\") async throws", true, true)]
     [InlineData("public func f(x: Swift.String = \"\\\\\") async", true, false)]
+    // A raw string's escaped quote (`\#"`) does not close it.
+    [InlineData("public func f(x: Swift.String = #\"a\\#\"#b\"#) async", true, false)]
+    // An interpolation's own string literal and parentheses belong to the default.
+    [InlineData("public func f(x: Swift.String = \"\\(\") throws\")\")", false, false)]
+    [InlineData("public func f(x: Swift.String = #\"\\#(\"#)\")\"#) throws", false, true)]
     public void EffectsOf_StringDefault_AreTheClausesEffects(string signature, bool isAsync, bool throws)
     {
         Assert.Equal(isAsync, ProtocolExtensionEmitter.IsAsyncSignature(signature));

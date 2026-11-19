@@ -37,8 +37,8 @@ internal static class SwiftParameterClause
     /// <summary>
     /// The index just past the string literal opening at <paramref name="start"/> (see
     /// <see cref="IsStringLiteralStart"/>): an ordinary, multi-line (<c>"""</c>) or raw
-    /// (<c>#"…"#</c>) literal, backslash escapes included. <paramref name="text"/>'s length when
-    /// the literal does not close.
+    /// (<c>#"…"#</c>) literal, backslash escapes and interpolations (<c>\(…)</c>, <c>\#(…)</c>)
+    /// included. <paramref name="text"/>'s length when the literal does not close.
     /// </summary>
     public static int SkipStringLiteral(string text, int start)
     {
@@ -55,9 +55,9 @@ internal static class SwiftParameterClause
         while (i < text.Length)
         {
             var c = text[i];
-            if (c == '\\' && hashes == 0)
+            if (c == '\\' && TryEscapeEnd(text, i, hashes) is { } escapeEnd)
             {
-                i += 2;
+                i = escapeEnd;
                 continue;
             }
             if (c == '"' && string.CompareOrdinal(text, i, new string('"', quotes), 0, quotes) == 0)
@@ -72,6 +72,26 @@ internal static class SwiftParameterClause
             i++;
         }
         return text.Length;
+    }
+
+    // Past the escape at the backslash `start` of a literal opened with `hashes` hashes: the
+    // delimiter is the backslash and as many hashes (`\`, `\#`), and an interpolation (`\(…)`,
+    // `\#(…)`) runs to its closing parenthesis, string literals inside it included. Null when the
+    // backslash is plain text (a raw string's `\` without its hashes).
+    private static int? TryEscapeEnd(string text, int start, int hashes)
+    {
+        var i = start + 1;
+        for (var run = 0; run < hashes; run++, i++)
+        {
+            if (i >= text.Length || text[i] != '#')
+                return null;
+        }
+        if (i >= text.Length)
+            return text.Length;
+        if (text[i] != '(')
+            return i + 1;
+        var close = ClosingParen(text, i);
+        return close < 0 ? text.Length : close + 1;
     }
 
     /// <summary>

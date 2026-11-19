@@ -112,17 +112,17 @@ public class OperatorOptionalObjectTests
 
     private static NamedTypeSpec Optional(string inner) => new("Swift.Optional", new NamedTypeSpec(inner));
 
-    private static OperatorDecl Operator(string symbol, TypeDecl parent, TypeSpec result, TypeSpec? rhs = null, bool throws = false)
+    private static OperatorDecl Operator(string symbol, TypeDecl parent, TypeSpec result, TypeSpec? rhs = null, bool throws = false, bool rhsInOut = false)
     {
         var self = new NamedTypeSpec(parent.SwiftTypeName.ToString());
-        ArgumentDecl Arg(TypeSpec spec, string name) => new()
+        ArgumentDecl Arg(TypeSpec spec, string name, bool inOut = false) => new()
         {
-            SwiftTypeSpec = spec, Name = name, PrivateName = name, IsInOut = false, IsGeneric = false,
+            SwiftTypeSpec = spec, Name = name, PrivateName = name, IsInOut = inOut, IsGeneric = false,
             ParentDecl = parent, ModuleDecl = s_module,
         };
         var signature = new List<ArgumentDecl> { Arg(result, string.Empty), Arg(self, "lhs") };
         if (rhs is not null)
-            signature.Add(Arg(rhs, "rhs"));
+            signature.Add(Arg(rhs, "rhs", rhsInOut));
         var method = new MethodDecl
         {
             Name = symbol,
@@ -227,6 +227,8 @@ public class OperatorOptionalObjectTests
     [InlineData(false, ObjCClass, "GetLiveObjCHandleOrZero(rhs)")]
     [InlineData(true, SwiftClass, "rhs")]
     [InlineData(false, SwiftClass, "rhs")]
+    // An Apple ObjC class with no record of its own, recognized by the projection's framework fallback.
+    [InlineData(true, "Foundation.NSDecimalNumber", "GetLiveObjCHandleOrZero(rhs)")]
     public async Task OptionalObjectOperand_DeclaresTheBufferTheCallReads(bool classParent, string operandType, string handleSource)
     {
         var database = await CreateDatabaseAsync();
@@ -242,6 +244,90 @@ public class OperatorOptionalObjectTests
         var call = Regex.Match(body, @"PInvoke_op_BitwiseAnd\([^;]*\brhsBuffer\b");
         Assert.True(call.Success, $"the call passes the declared buffer:\n{body}");
         Assert.True(declaration.Index < call.Index, "the buffer is declared before the call");
+    }
+
+    /// <summary>
+    /// An equality operator's null guards answer for an operand C# null cannot reach Swift with. An
+    /// Optional operand's null is nil, a value Swift compares, so it reaches the call: the guard is
+    /// kept for the non-optional receiver only.
+    /// </summary>
+    [Theory]
+    [InlineData("==")]
+    [InlineData("!=")]
+    public async Task EqualityOperator_OptionalOperandsNil_ReachesSwift(string symbol)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(isClass: true);
+
+        var (emitted, cs) = Emit(Operator(symbol, parent, new NamedTypeSpec("Swift.Bool"), Optional(ObjCClass)), database);
+
+        Assert.True(emitted, cs);
+        var body = Body(cs);
+        Assert.Matches(@"if \(\(?(object\?\))?lhs is null\) return", body);
+        Assert.DoesNotMatch(@"if \(\(?(object\?\))?rhs is null\) return", body);
+        Assert.Matches(@"PInvoke_op_\w+\([^;]*\brhsBuffer\b", body);
+    }
+
+    /// <summary>
+    /// The partner C# requires for a declared <c>==</c> (or <c>!=</c>) is synthesized as its negation,
+    /// and it keeps no null guard for an Optional operand either: the declared operator passes nil on.
+    /// </summary>
+    [Theory]
+    [InlineData("==", "!=")]
+    [InlineData("!=", "==")]
+    public async Task SynthesizedEqualityPartner_OptionalOperandsNil_ReachesTheDeclaredOperator(string declared, string synthesized)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(isClass: true);
+        var op = Operator(declared, parent, new NamedTypeSpec("Swift.Bool"), Optional(ObjCClass));
+        var cs = new StringWriter();
+
+        new OperatorHandler(NullLogger.Instance).EmitSynthesizedPairedOperator(new CSharpWriter(cs), op, synthesized, "Box", database, isReferenceType: true);
+
+        var body = cs.ToString();
+        Assert.Contains($"operator {synthesized}(", body);
+        Assert.Matches(@"if \(\(?(object\?\))?left is null\) return", body);
+        Assert.DoesNotMatch(@"if \(\(?(object\?\))?right is null\) return", body);
+    }
+
+    /// <summary>
+    /// Only an Optional object operand is converted by the operator body: its object pointer is what
+    /// Swift reads. An Optional collection of ObjC objects renders as an <c>NSArray</c> on the direct
+    /// path, which is not Swift's array storage, so that operator is refused with a row rather than
+    /// passed the wrong object.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task OptionalCollectionOperand_IsRefusedNotConverted(bool classParent)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(classParent);
+        var operand = new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Array", new NamedTypeSpec(ObjCClass)));
+
+        var (emitted, cs) = Emit(Operator("&", parent, new NamedTypeSpec("Swift.Int"), operand), database);
+
+        Assert.False(emitted, cs);
+        Assert.DoesNotContain("rhsBuffer = ", cs);
+        Assert.Contains("passes 'rhsBuffer', which no operand conversion declares", cs);
+    }
+
+    /// <summary>
+    /// An <c>inout</c> Optional object operand is the address of a writable Optional slot, not the
+    /// object pointer the conversion produces: the operator is refused with a row.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InOutOptionalObjectOperand_IsRefusedNotConverted(bool classParent)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(classParent);
+
+        var (emitted, cs) = Emit(Operator("&", parent, new NamedTypeSpec("Swift.Int"), Optional(ObjCClass), rhsInOut: true), database);
+
+        Assert.False(emitted, cs);
+        Assert.DoesNotContain("rhsBuffer = ", cs);
     }
 
     /// <summary>
