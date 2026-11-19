@@ -1496,11 +1496,14 @@ partial class Build
                 name => name!,
                 name => File.ReadAllBytes(measurementsDir / name!));
 
-            // The newer macOS host records managed assembly filenames in its executable.
-            // Keep the legacy golden unchanged and qualify that exact loader-string shape
-            // separately; native linkage and symbol goldens remain shared and strict.
+            // The macOS host of the Xcode 27 workloads (.NET 10 and .NET 11 alike) records
+            // managed assembly filenames in its executable. Keep the legacy golden unchanged
+            // and qualify that exact loader-string shape separately, keyed on the profile's
+            // Apple platform version; native linkage and symbol goldens remain shared and strict.
+            var newerMacHost = LaneTargets.ApplePlatformVersion is { } appleVersion &&
+                int.Parse(appleVersion.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture) >= 27;
             var goldenNames = gates.ToDictionary(name => name, name =>
-                name == "strings-swift.diff" && ProfileContext.Profile == "net10-xcode27"
+                name == "strings-swift.diff" && newerMacHost
                     ? "strings-swift.net10-xcode27.diff" : name);
             foreach (var gate in gates)
             {
@@ -1508,10 +1511,17 @@ partial class Build
                     throw new Exception($"Expected golden diff missing: {measurementsDir / goldenNames[gate]}. Commit the baseline output before gating.");
             }
 
-            Log.Information("Running blast-radius measurement script...");
+            // The measured apps build for the lane's .NET major. The framework comes from the
+            // fail-closed lane resolution, never from the raw launcher variable.
+            var environment = new Dictionary<string, string>(EnvironmentInfo.Variables, StringComparer.Ordinal)
+            {
+                ["BlastRadiusFramework"] = LaneTargets.ManagedFramework,
+            };
+            Log.Information("Running blast-radius measurement script ({Framework}-macos)...", LaneTargets.ManagedFramework);
             var proc = ProcessTasks.StartProcess(
                 "bash", $"\"{script}\"",
                 workingDirectory: RootDirectory,
+                environmentVariables: environment,
                 logOutput: true);
             proc.WaitForExit();
             if (proc.ExitCode != 0)

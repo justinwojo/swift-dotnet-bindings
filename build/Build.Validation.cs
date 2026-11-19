@@ -102,6 +102,10 @@ partial class Build
                 Log.Information("");
             }
 
+            // Resolve the lane's targets before any generation, so a malformed profile fails
+            // here with its own error instead of inside a worker as missing provenance.
+            Log.Information("Lane targets: {Framework}, Apple platform {Version}",
+                LaneTargets.ManagedFramework, LaneTargets.ApplePlatformVersion ?? "pinned per target");
             var manifest = WithDerivedDependencies(ValidationManifest.Load(ManifestPath));
             var targets = manifest.ExpandTargets(Filter, Tier, LibrariesDir);
             var baselineAtStart = File.ReadAllBytes(BaselinePath);
@@ -1123,8 +1127,7 @@ partial class Build
             };
             if (platform.HasSimulatorPlistVariant && platform.Name != "maccatalyst")
                 genArgs.Add("--platform-target simulator");
-            if (!string.IsNullOrWhiteSpace(target.PlatformVersion))
-                genArgs.Add($"--platform-version {target.PlatformVersion}");
+            genArgs.AddRange(LaneTargets.AppleFrameworkGeneratorArguments(platform.TfmSuffix, target.PlatformVersion));
             if (!string.IsNullOrWhiteSpace(target.NamespacePattern))
                 genArgs.Add($"--namespace-pattern \"{target.NamespacePattern}\"");
             foreach (var depDbPath in depDatabasePaths)
@@ -1277,8 +1280,7 @@ partial class Build
         };
         if (platform.HasSimulatorPlistVariant && platform.Name != "maccatalyst")
             genArgs.Add("--platform-target simulator");
-        if (!string.IsNullOrWhiteSpace(depPlatformVersion))
-            genArgs.Add($"--platform-version {depPlatformVersion}");
+        genArgs.AddRange(LaneTargets.AppleFrameworkGeneratorArguments(platform.TfmSuffix, depPlatformVersion));
         if (!string.IsNullOrWhiteSpace(depNamespacePattern))
             genArgs.Add($"--namespace-pattern \"{depNamespacePattern}\"");
         genArgs.Add($"-o \"{depOutdir}\"");

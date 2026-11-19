@@ -62,7 +62,8 @@ partial class Build
     // workload builds it against the platform its own Xcode supports (an app pinned
     // to 26.0 selects the 26.0 platform pack, which requires exactly Xcode 26.0);
     // NuGet resolves the package's net10.0-macos26.0 asset, its only macOS asset.
-    const string X64PackConsumerTfm = "net10.0-macos";
+    // The app's framework follows the lane's .NET major (ToolchainTargets).
+    string X64PackConsumerTfm => LaneTargets.ConsumerTfm("macos");
 
     // Round-trip the committed fixture exercises (class ARC + String + by-value
     // int + top-level func). The consumer prints these so the gate can assert the
@@ -488,7 +489,7 @@ partial class Build
             rid, expectedArch);
     }
 
-    static void WriteX64PackConsumerApp(
+    void WriteX64PackConsumerApp(
         AbsolutePath appDir, AbsolutePath nupkgDir, AbsolutePath bindingsOut, string rid)
     {
         // Plain net10.0-macos console app at the chosen RID. PackageReferences the

@@ -111,6 +111,10 @@ partial class Build
             throw new InvalidDataException($"An unprofiled restore suppressed [{string.Join(", ", leaked)}].");
     }
 
+    ToolchainTargets? laneTargets;
+    /// <summary>The managed framework and Apple platform version this lane's consumers build for.</summary>
+    ToolchainTargets LaneTargets => laneTargets ??= ToolchainTargets.FromEnvironment(RootDirectory / "build" / "toolchains");
+
     ToolchainProfileContext? profileContext;
     ToolchainProfileContext ProfileContext => profileContext ??= ToolchainProfileContext.Create(
         Environment.GetEnvironmentVariable("SWIFT_BINDINGS_TOOLCHAIN_PROFILE"),

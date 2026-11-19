@@ -48,7 +48,8 @@ partial class Build
     // Single-TFM projects: the version suffix (e.g. -macos26.2) breaks the
     // SDK's `_SwiftBindingPlatform` detection in single-TFM mode. The SDK
     // template uses the unsuffixed form for the same reason; mirror it here.
-    const string BehaviorTierConsumerTfm = "net10.0-macos";
+    // The framework follows the lane's .NET major (ToolchainTargets).
+    string BehaviorTierConsumerTfm => LaneTargets.ConsumerTfm("macos");
 
     AbsolutePath BehaviorTierScratch => RootDirectory / "artifacts" / "behavior-tier";
 
