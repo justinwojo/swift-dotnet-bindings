@@ -2349,6 +2349,7 @@ namespace BindingsGeneration
             // on disk. A build interrupted before this point has already removed the previous receipt;
             // one interrupted after it leaves a receipt of the wrapper that is on disk.
             var routingFailed = false;
+            string? unroutedCause = null;
             if (hasWrapperXcfw && outcome.ExitCode == 0)
             {
                 routingFailed = !CommitReceiptAndRouteBridges(
@@ -2374,7 +2375,7 @@ namespace BindingsGeneration
                         },
                         () => XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
                             outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet)),
-                    ref compilationResult, logger);
+                    ref compilationResult, logger, out unroutedCause);
                 hasWrapperXcfw = !routingFailed
                     && compilationResult?.XCFrameworkPath != null
                     && Directory.Exists(compilationResult.XCFrameworkPath);
@@ -2382,9 +2383,75 @@ namespace BindingsGeneration
 
             XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
                 outputDirectory, hasWrapperXcfw, wrapperModuleName,
-                compilationResult?.SliceCount ?? 0, logger, contractualUnmet);
+                compilationResult?.SliceCount ?? 0, logger, contractualUnmet, unroutedCause);
 
-            return reconciliationFailure != null || routingFailed ? 1 : outcome.ExitCode;
+            return reconciliationFailure != null || routingFailed || unroutedCause != null ? 1 : outcome.ExitCode;
+        }
+
+        /// <summary>
+        /// Why a build that was asked to route its bridges wrote no receipt, when the module still has
+        /// imports a receipt could route (a guard sidecar transition still <c>pending</c>); null when
+        /// routing was not asked for, nothing is pending, or the selected compiler is not a qualified
+        /// family (no receipt of it could authorize a bridge, so nothing was routable). Logs the error.
+        /// </summary>
+        internal static string? UnroutedBridgesCause(WrapperRoutingRequest request, ILogger logger, Func<string?>? compilerProbe = null)
+        {
+            if (!request.RouteBridges || request.ReceiptPath is null)
+                return null;
+            var pending = PendingRoutableMembers(request.OutputDirectory, request.ModuleName);
+            if (pending.Count == 0)
+                return null;
+            var compiler = request.Lowering?.Compiler ?? (compilerProbe ?? SwiftToolchainProbe.Compiler)();
+            if (!string.IsNullOrWhiteSpace(compiler) && !SwiftLoweringQualification.IsQualified(compiler))
+                return null;
+            string why;
+            if (request.Lowering is null)
+                why = request.NotCollectedReason ?? (string.IsNullOrWhiteSpace(compiler)
+                    ? "the selected Swift compiler could not be identified (xcrun swiftc --version)"
+                    : "no lowering evidence was collected");
+            else
+                why = request.Lowering.Receipt(request.UnmergedExtraArchs, out var notWritten) is null
+                    ? notWritten ?? "the receipt could not be built"
+                    : $"the receipt could not be written to {request.ReceiptPath}";
+            logger.LogError(
+                "{Code}: {Module}: {Count} member(s) the wrapper compile was asked to route through native bridges stay guarded ({Members}), " +
+                "because no lowering receipt was written: {Why}. They would refuse with SwiftTransitionUnsupportedException on Mono and the " +
+                "CoreCLR interpreter. Fix the cause and rebuild, or set SwiftRouteBridges to false to ship them guarded.",
+                UnroutedBridgesCode, request.ModuleName, pending.Count, string.Join(", ", pending.Take(5)) + (pending.Count > 5 ? ", ..." : ""), why);
+            return why;
+        }
+
+        /// <summary>
+        /// The members of <paramref name="moduleName"/>'s guard sidecars every transition of which a
+        /// receipt could still route (<see cref="SwiftTransitionGuardTransition.Pending"/>).
+        /// </summary>
+        internal static IReadOnlyList<string> PendingRoutableMembers(string outputDirectory, string moduleName)
+        {
+            var members = new List<string>();
+            if (!Directory.Exists(outputDirectory))
+                return members;
+            foreach (var path in Directory.GetFiles(outputDirectory, SwiftTransitionGuardDocument.FilePattern).Order(StringComparer.Ordinal))
+            {
+                SwiftTransitionGuardDocument document;
+                try
+                {
+                    document = SwiftTransitionGuardDocument.Parse(File.ReadAllText(path), path);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException or System.Text.Json.JsonException)
+                {
+                    continue;
+                }
+                if (!string.Equals(document.Module, moduleName, StringComparison.Ordinal))
+                    continue;
+                var transitions = document.Transitions.ToDictionary(t => t.Name, StringComparer.Ordinal);
+                foreach (var site in document.GuardedMembers())
+                {
+                    var reached = site.Transitions.Select(n => transitions.GetValueOrDefault(n)).Where(t => t is { Facts: not 0 }).ToList();
+                    if (reached.Count > 0 && reached.All(t => t!.Pending))
+                        members.Add(site.Display);
+                }
+            }
+            return members;
         }
 
         /// <summary>A wrapper compiled again for its bridges: the result, its failure, and the architectures it did not fold.</summary>
@@ -2409,7 +2476,15 @@ namespace BindingsGeneration
             WrapperBuildOutcome Outcome,
             IReadOnlyList<string> UnmergedExtraArchs,
             Func<SwiftWrapperLoweringEvidence, WrapperRecompile> Recompile,
-            Action BeforeRelink);
+            Action BeforeRelink,
+            string? NotCollectedReason = null);
+
+        /// <summary>
+        /// The code of a build that was asked to route its bridges but wrote no lowering receipt while
+        /// the module still has imports a receipt could route: those imports would ship guarded with no
+        /// error, so the build fails and names why no receipt was written.
+        /// </summary>
+        internal const string UnroutedBridgesCode = "SWIFTBIND134";
 
         /// <summary>
         /// Commits the lowering receipt of a wrapper the build ships, then routes what that receipt
@@ -2422,7 +2497,19 @@ namespace BindingsGeneration
         /// </summary>
         internal static bool CommitReceiptAndRouteBridges(
             WrapperRoutingRequest request, ref SwiftWrapperCompilationResult? compilationResult, ILogger logger)
+            => CommitReceiptAndRouteBridges(request, ref compilationResult, logger, out _);
+
+        /// <inheritdoc cref="CommitReceiptAndRouteBridges(WrapperRoutingRequest, ref SwiftWrapperCompilationResult?, ILogger)"/>
+        /// <param name="unroutedCause">
+        /// Set when routing was asked for, no receipt was written, and the module still has imports a
+        /// receipt could route (<see cref="UnroutedBridgesCause"/>): why no receipt was written. The
+        /// wrapper itself is sound; the caller fails the build with <see cref="UnroutedBridgesCode"/>.
+        /// </param>
+        internal static bool CommitReceiptAndRouteBridges(
+            WrapperRoutingRequest request, ref SwiftWrapperCompilationResult? compilationResult, ILogger logger,
+            out string? unroutedCause)
         {
+            unroutedCause = null;
             var current = compilationResult;
             var wrapperModuleName = $"{request.ModuleName}SwiftBindings";
             SwiftLoweringEvidence? receipt = null;
@@ -2453,6 +2540,8 @@ namespace BindingsGeneration
                     BindingArtifactManifestStore.ReadModifyWrite(request.OutputDirectory, request.ModuleName, _ => { }, logger);
             }
             compilationResult = current;
+            if (!routingFailed && receipt is null)
+                unroutedCause = UnroutedBridgesCause(request, logger);
             return !routingFailed;
 
             // Compiles the wrapper again, now with its bridges, verifying every slice against the receipt

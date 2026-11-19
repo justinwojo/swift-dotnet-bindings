@@ -218,12 +218,24 @@ and the qualification corpus read IR the same way under one collector version.
 **What is compiled.** After a slice's wrapper links, a second swiftc pass emits the IR of the same
 post-processed source files. It uses the link's own frontend flags, byte for byte: the same
 `xcrun swiftc`, `-target`, `-sdk`, `-F` search paths and module name. It adds only
-`-parse-as-library`, which `-emit-library` implies. A single source file writes its IR with `-o`.
-Several write their modules to standard output, one after another; swiftc refuses `-o` for several
-primary files and its output-file map does not take IR. Each module is read on its own, so two
-files that show a target differently record a `conflict:`. The pass runs only after the link
-succeeded, so a wrapper that does not compile never gets a receipt. A failing IR pass never fails
-the build; it only withholds the receipt.
+`-parse-as-library`, which `-emit-library` implies, and writes the IR to a file with `-o`. Several
+source files (a wrapper staged with extra Swift sources beside the generated one) also take `-wmo`,
+which emits one module for all of them. Without it swiftc refuses `-o` for several primary files
+and writes their IR to standard error, and its output-file map crashes the 27.2 driver. The reader
+still reads every module in the file on its own, so two modules that show a target differently
+record a `conflict:`. The pass runs only after the link succeeded, so a wrapper that does not
+compile never gets a receipt. A failing IR pass does not fail the build by itself; it withholds the
+receipt.
+
+**A receipt that was due and not written.** When the build asked to route (`--route-swift-bridges`)
+and no receipt was written, every routable member would ship guarded with no word said. So the
+wrapper compile fails with `SWIFTBIND134`, naming the cause (the IR pass, the probe or the slice
+that withheld it) and the members left guarded, whenever a guard sidecar still holds a member
+whose every transition is `pending` (one a receipt could route). It stays quiet when nothing is
+pending and when the compiler is not one the collector qualifies, which withholds every receipt by
+design. The SDK reads the cause from
+`binding-metadata.props` (`_SwiftBindingUnroutedBridgesCause`) and raises the error from
+`_ValidateSwiftWrapperCompilation`; the Apple-framework path reports it with the command failure.
 
 **The lowering probe.** The wrapper calls only some of the plan's targets. So after the IR pass, the
 slice's probe (`SwiftLoweringProbe`) calls every target that the wrapper does not define, through
