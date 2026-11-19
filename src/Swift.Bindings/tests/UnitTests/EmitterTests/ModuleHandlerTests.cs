@@ -556,8 +556,11 @@ public class ModuleHandlerTests
         }
     }
 
-    [Fact]
-    public void EmitSwiftImports_EmitsDependencyReferencedAsQualifier()
+    [Theory]
+    [InlineData("CloudPlatformSdkRemoteConfigInterop.RemoteConfigInterop")]
+    // Swift 6.4 prints every qualified name with a module selector.
+    [InlineData("CloudPlatformSdkRemoteConfigInterop::RemoteConfigInterop")]
+    public void EmitSwiftImports_EmitsDependencyReferencedAsQualifier(string qualifiedName)
     {
         // Regression: a module references a sibling's type inline in its swiftinterface
         // (cross-module protocol cast) but has no explicit `import SiblingModule` line.
@@ -570,7 +573,7 @@ public class ModuleHandlerTests
                 "// swift-interface-format-version: 1.0\n" +
                 "import Foundation\n" +
                 "public class Foo {\n" +
-                "  public func bar() -> (any CloudPlatformSdkRemoteConfigInterop.RemoteConfigInterop)? { nil }\n" +
+                $"  public func bar() -> (any {qualifiedName})? {{ nil }}\n" +
                 "}\n");
 
             var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),

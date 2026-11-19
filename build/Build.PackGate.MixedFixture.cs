@@ -1099,14 +1099,14 @@ partial class Build
         var text = string.Join("\n", generatedFiles.Select(File.ReadAllText));
 
         // The class member (makeGreeter) must resolve to the companion class via the ObjCBridged
-        // projection — materialized with GetNSObject<...Greeter>, the Swift-import name the
-        // companion's C# type now carries. A degraded member would return object and never name
-        // the companion type; a member resolved to the raw ObjC spelling would mean the
-        // Swift-import renamer stopped reaching the companion.
-        if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"GetNSObject<[^>]*\bGreeter>"))
+        // projection — materialized as ...Greeter, the Swift-import name the companion's C# type now
+        // carries, by GetINativeObject (a returned result is owned, +1) or GetNSObject. A degraded
+        // member would return object and never name the companion type; a member resolved to the
+        // raw ObjC spelling would mean the Swift-import renamer stopped reaching the companion.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(text, @"Get(?:INative|NS)Object<[^>]*\bGreeter>"))
             Assert.Fail(
                 $"PackGate (mixed/static): the generated Swift binding does not resolve the member returning the " +
-                $"NS_SWIFT_NAME'd ObjC class to the companion type (no GetNSObject<...Greeter>) — the " +
+                $"NS_SWIFT_NAME'd ObjC class to the companion type (no GetINativeObject/GetNSObject<...Greeter>) — the " +
                 $"type-resolution bridge degraded it to object / Swift.AnyType, or the companion no longer " +
                 $"takes the Swift-import name.");
 
@@ -1172,7 +1172,7 @@ partial class Build
                 "NS_TYPED_EXTENSIBLE_ENUM to Foundation.NSString — OptionalProjection over the typed-enum bridge record was not applied.");
 
         Log.Information(
-            "PackGate (mixed/static) type-bridge generation OK — class→GetNSObject<Greeter> (registered as {Probe}), enum→{Module}Level, options→{Module}Options, typedEnum→NSString (value + optional)",
+            "PackGate (mixed/static) type-bridge generation OK — class→Greeter (registered as {Probe}), enum→{Module}Level, options→{Module}Options, typedEnum→NSString (value + optional)",
             probeClass, module);
     }
 

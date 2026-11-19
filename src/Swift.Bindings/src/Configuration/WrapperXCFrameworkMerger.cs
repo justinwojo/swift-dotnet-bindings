@@ -188,6 +188,85 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The identifier <c>xcodebuild -create-xcframework</c> gives a slice: the platform, the
+        /// slice's architectures in ordinal order joined by <c>_</c>, and the platform variant
+        /// (<c>ios-arm64_x86_64-simulator</c>, <c>macos-arm64</c>).
+        /// </summary>
+        internal static string XcodebuildSliceId(XCFrameworkSlice slice)
+        {
+            var archs = slice.SupportedArchitectures
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(a => a, StringComparer.Ordinal);
+            var id = $"{slice.SupportedPlatform}-{string.Join("_", archs)}";
+            return string.IsNullOrEmpty(slice.SupportedPlatformVariant) ? id : $"{id}-{slice.SupportedPlatformVariant}";
+        }
+
+        /// <summary>
+        /// Renames every slice of <paramref name="xcfwPath"/> to the identifier
+        /// <c>xcodebuild -create-xcframework</c> would give it (<see cref="XcodebuildSliceId"/>), so a
+        /// fat simulator slice folded here reads <c>ios-arm64_x86_64-simulator</c>, as it does when
+        /// xcodebuild assembles the xcframework. Consumers select a slice through <c>Info.plist</c>,
+        /// so the name is not load-bearing for them; it is the package layout the Apple-framework
+        /// bindings shipped with while the SDK assembled their wrapper with xcodebuild, and the
+        /// generator keeps it now that it assembles that wrapper itself. Applied to a staging copy
+        /// and promoted in one swap, so a failure leaves the xcframework as it was.
+        /// </summary>
+        public static void NameSlicesAsXcodebuild(string xcfwPath, ILogger logger, ICommandRunner? runner = null)
+        {
+            runner ??= new SystemCommandRunner();
+            xcfwPath = Path.GetFullPath(xcfwPath);
+            var plistPath = Path.Combine(xcfwPath, "Info.plist");
+            var root = PlistReader.ReadPlistDict(plistPath, runner, logger)
+                ?? throw new InvalidOperationException($"SWIFTBIND053: failed to read '{plistPath}'.");
+            var slices = XCFrameworkResolver.ParseAvailableLibraries(root);
+            var renames = slices
+                .Select(s => (Slice: s, Id: XcodebuildSliceId(s)))
+                .Where(r => !string.Equals(r.Slice.LibraryIdentifier, r.Id, StringComparison.Ordinal))
+                .ToList();
+            if (renames.Count == 0)
+                return;
+            var targets = slices.Select(s => renames.FirstOrDefault(r => ReferenceEquals(r.Slice, s)).Id ?? s.LibraryIdentifier).ToList();
+            if (targets.Distinct(StringComparer.Ordinal).Count() != targets.Count)
+                throw new InvalidOperationException(
+                    $"SWIFTBIND053: renaming the slices of '{xcfwPath}' as xcodebuild names them would merge two slices ([{string.Join(", ", targets)}]).");
+
+            var stagingPath = xcfwPath + ".rename-staging";
+            if (Directory.Exists(stagingPath)) Directory.Delete(stagingPath, true);
+            try
+            {
+                CopyDirectory(xcfwPath, stagingPath);
+                foreach (var (slice, id) in renames)
+                    Directory.Move(Path.Combine(stagingPath, slice.LibraryIdentifier), Path.Combine(stagingPath, id + ".renaming"));
+                foreach (var (_, id) in renames)
+                    Directory.Move(Path.Combine(stagingPath, id + ".renaming"), Path.Combine(stagingPath, id));
+                var renamed = slices
+                    .Select(s => renames.FirstOrDefault(r => ReferenceEquals(r.Slice, s)) is { Id: { } id }
+                        ? CloneWithIdentifier(s, id)
+                        : s)
+                    .ToList();
+                XCFrameworkSlicer.WritePrunedInfoPlist(root, renamed, Path.Combine(stagingPath, "Info.plist"));
+                SwiftWrapperCompiler.PromoteStagedXcframework(stagingPath, xcfwPath, logger);
+            }
+            finally
+            {
+                try { if (Directory.Exists(stagingPath)) Directory.Delete(stagingPath, true); } catch { /* best-effort cleanup */ }
+            }
+            foreach (var (slice, id) in renames)
+                logger.LogInformation("Named wrapper slice '{Old}' '{New}' after its architectures", slice.LibraryIdentifier, id);
+        }
+
+        private static XCFrameworkSlice CloneWithIdentifier(XCFrameworkSlice slice, string libraryIdentifier) =>
+            new XCFrameworkSlice
+            {
+                BinaryPath = slice.BinaryPath,
+                LibraryIdentifier = libraryIdentifier,
+                LibraryPath = slice.LibraryPath,
+                SupportedArchitectures = slice.SupportedArchitectures,
+                SupportedPlatform = slice.SupportedPlatform,
+                SupportedPlatformVariant = slice.SupportedPlatformVariant,
+            };
+
+        /// <summary>
         /// Recursively copies <paramref name="sourceDir"/> into <paramref name="destDir"/>. Used to
         /// stage the primary xcframework before an in-staging merge. Generator-emitted wrapper/bridge
         /// frameworks are flat bundles (binary + Info.plist + Modules/), so files and nested

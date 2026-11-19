@@ -286,6 +286,78 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Theory]
+        [InlineData("ios", "simulator", new[] { "x86_64", "arm64" }, "ios-arm64_x86_64-simulator")]
+        [InlineData("tvos", "simulator", new[] { "arm64", "x86_64" }, "tvos-arm64_x86_64-simulator")]
+        [InlineData("ios", "simulator", new[] { "arm64" }, "ios-arm64-simulator")]
+        [InlineData("ios", null, new[] { "arm64" }, "ios-arm64")]
+        [InlineData("ios", "maccatalyst", new[] { "arm64", "x86_64" }, "ios-arm64_x86_64-maccatalyst")]
+        [InlineData("macos", null, new[] { "x86_64", "arm64e", "arm64" }, "macos-arm64_arm64e_x86_64")]
+        public void XcodebuildSliceId_NamesTheSliceByItsSortedArchitectures(
+            string platform, string? variant, string[] archs, string expected)
+        {
+            var slice = new XCFrameworkSlice
+            {
+                BinaryPath = "Lib.framework/Lib",
+                LibraryIdentifier = "unused",
+                LibraryPath = "Lib.framework",
+                SupportedArchitectures = archs.ToList(),
+                SupportedPlatform = platform,
+                SupportedPlatformVariant = variant,
+            };
+            Assert.Equal(expected, WrapperXCFrameworkMerger.XcodebuildSliceId(slice));
+        }
+
+        [Fact]
+        public void NameSlicesAsXcodebuild_RenamesTheFoldedSimulatorSlice_AndKeepsTheDeviceSlice()
+        {
+            if (!IsMacOS) return; // clang + lipo only
+
+            var tmp = Path.Combine(Path.GetTempPath(), "merger-test-" + Guid.NewGuid().ToString("N"));
+            Directory.CreateDirectory(tmp);
+            try
+            {
+                var runner = new SystemCommandRunner();
+                var primary = Path.Combine(tmp, "Primary.xcframework");
+                var secondary = Path.Combine(tmp, "Secondary.xcframework");
+                WriteSliceBinary(runner, primary, SimSliceId, "arm64");
+                WriteSliceBinary(runner, primary, DeviceSliceId, "arm64");
+                WritePlist(primary, new[]
+                {
+                    (SimSliceId, "ios", (string?)"simulator", new[] { "arm64" }),
+                    (DeviceSliceId, "ios", (string?)null, new[] { "arm64" }),
+                });
+                WriteSliceBinary(runner, secondary, "ios-x86_64-simulator", "x86_64");
+                WritePlist(secondary, new[] { ("ios-x86_64-simulator", "ios", (string?)"simulator", new[] { "x86_64" }) });
+                WrapperXCFrameworkMerger.MergeFatSlices(primary, secondary, NullLogger.Instance, runner);
+
+                WrapperXCFrameworkMerger.NameSlicesAsXcodebuild(primary, NullLogger.Instance, runner);
+
+                const string fatSimId = "ios-arm64_x86_64-simulator";
+                Assert.Equal(
+                    new[] { DeviceSliceId, fatSimId },
+                    Directory.GetDirectories(primary).Select(Path.GetFileName).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+                var simArchs = LipoArchs(runner, BinaryPath(primary, fatSimId));
+                Assert.Contains("arm64", simArchs);
+                Assert.Contains("x86_64", simArchs);
+
+                var root = PlistReader.ReadPlistDict(Path.Combine(primary, "Info.plist"), runner, NullLogger.Instance);
+                var slices = XCFrameworkResolver.ParseAvailableLibraries(root!);
+                Assert.Equal(new[] { DeviceSliceId, fatSimId }, slices.Select(s => s.LibraryIdentifier).OrderBy(n => n, StringComparer.Ordinal).ToArray());
+                Assert.Equal("simulator", slices.Single(s => s.LibraryIdentifier == fatSimId).SupportedPlatformVariant);
+                Assert.False(Directory.Exists(primary + ".rename-staging"));
+
+                // Already named: a second pass changes nothing.
+                var plistBefore = File.ReadAllText(Path.Combine(primary, "Info.plist"));
+                WrapperXCFrameworkMerger.NameSlicesAsXcodebuild(primary, NullLogger.Instance, runner);
+                Assert.Equal(plistBefore, File.ReadAllText(Path.Combine(primary, "Info.plist")));
+            }
+            finally
+            {
+                try { Directory.Delete(tmp, true); } catch { /* best effort */ }
+            }
+        }
+
         // ── helpers ──────────────────────────────────────────────────────────
 
         /// <summary>

@@ -1267,6 +1267,23 @@ public class DefaultParameterOverloadEmitterTests
                 Flags = TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Struct
             });
+        foreach (var (swiftName, csName, accessor) in new[]
+                 {
+                     ("Swift.Int32", "Int32", "$ss5Int32VMa"),
+                     ("Swift.Int64", "Int64", "$ss5Int64VMa"),
+                 })
+        {
+            swiftModule.RegisterType(
+                SwiftTypeName.FromModuleQualifiedName(swiftName),
+                new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", csName),
+                    SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(swiftName),
+                    MetadataAccessor = accessor,
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct
+                });
+        }
         typeDb.AddModuleDatabase(swiftModule);
 
         var testModule = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
@@ -2002,6 +2019,77 @@ public class DefaultParameterOverloadEmitterTests
         Assert.DoesNotMatch(@"\.describe\(a: \w+\)", swift);
         Assert.Contains(emissionContext.SuppressedAmbiguousOverloads,
             row => row.Contains("Swift describe(a:c:)", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    // init(start: Int, step: Int = 1, config: = Config()) trims to (nint, nint). A sibling
+    // init(label: String, config: = Config()) has that arity, but (string, nint) differs at the first
+    // argument, so no call binds both: the trim stays.
+    [InlineData("Swift.String", "Swift.Int", true)]
+    // The control: a sibling init(label: Int, config: = Config()) declares (nint, nint) itself.
+    [InlineData("Swift.Int", "Swift.Int", false)]
+    // Numeric siblings tie through implicit conversions: (int, long) against (nint, nint) is
+    // ambiguous for two int arguments, so the trim yields, as it does to (int, nint).
+    [InlineData("Swift.Int32", "Swift.Int64", false)]
+    [InlineData("Swift.Int32", "Swift.Int", false)]
+    public void TrimmedConstructor_SiblingOfTheSameArity_CollidesOnlyOnItsTypes(
+        string siblingFirstType, string siblingSecondType, bool trimEmitted)
+    {
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Counter");
+        var parentDecl = new StructDecl
+        {
+            Name = "Counter",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Counter"),
+            MangledName = "$s10TestModule7CounterVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule7CounterVMa"
+        };
+        moduleDecl.Types.Add(parentDecl);
+        var method = new MethodDecl
+        {
+            Name = "init",
+            MangledName = "$s10TestModule7CounterV5start6configACSi_SitcfC",
+            MethodType = MethodType.Instance,
+            IsConstructor = true,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("start", hasDefault: false),
+                CreateArgWithDefault("step", "1"),
+                CreateArgWithDefault("config", "Config()"),
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
+        parentDecl.Methods.Add(method);
+        AddSibling(method,
+            WithSwiftType(CreateArg("label", hasDefault: false), siblingFirstType),
+            WithSwiftType(CreateArgWithDefault("config", "Config()"), siblingSecondType));
+        var env = new MethodEnvironment(method, typeDb)
+        {
+            EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal),
+            ReservedOverloadShapes = new Dictionary<string, int>(StringComparer.Ordinal),
+        };
+
+        var emissionContext = RunOverloads(env);
+
+        var arities = EmittedArities(emissionContext, "Counter.Counter");
+        Assert.Contains(1, arities);
+        Assert.Equal(trimEmitted, arities.Contains(2));
+        Assert.Equal(trimEmitted, !emissionContext.SuppressedAmbiguousOverloads.Any());
     }
 
     private static (ModuleEmissionContext Context, string Swift) RunOverloadsCapturingSwift(MethodEnvironment env)

@@ -2249,6 +2249,23 @@ public static class BindingsGeneratorCommand
                 }
             }
 
+            // A run that compiled both slices assembled the shipped wrapper itself, where the SDK's
+            // second-slice step otherwise has xcodebuild assemble it. Name the slices as xcodebuild
+            // does, so the fat simulator slice keeps the ios-arm64_x86_64-simulator id the
+            // Apple-framework packages ship.
+            if (bothSlices is not null && directResult?.XCFrameworkPath is { } assembledWrapper && Directory.Exists(assembledWrapper))
+            {
+                try
+                {
+                    WrapperXCFrameworkMerger.NameSlicesAsXcodebuild(assembledWrapper, logger);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+                {
+                    logger.LogWarning(
+                        "The slices of {Wrapper} keep their compile-time names: {Message}", assembledWrapper, ex.Message);
+                }
+            }
+
             // SwiftUI bridge primary slice (Apple direct mode). The xcframework path
             // builds the bridge via the SDK's --compile-bridge-only target, but Apple
             // system frameworks compile the wrapper inline here (no source xcframework

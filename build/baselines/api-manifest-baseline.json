@@ -28449,6 +28449,66 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitConfig.SameArityInitConfig(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitConfig_init_B746A837"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitConfig.Scale",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_SameArityInitConfig_scale|SBW_Set_SwiftBindingsTestLib_SameArityInitConfig_scale"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitConfig.ScaleNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_SameArityInitConfig_scale|SBW_Set_SwiftBindingsTestLib_SameArityInitConfig_scale"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.Label",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_SameArityInitSiblings_label"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.SameArityInitSiblings(Foundation.NSUrl)",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitSiblings_init_A0A04162"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.SameArityInitSiblings(Foundation.NSUrl,string?)",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitSiblings_init_9FA03FCF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.SameArityInitSiblings(Foundation.NSUrl,string?,SwiftBindingsTestLib.SameArityInitConfig)",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitSiblings_init_967D475C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.SameArityInitSiblings(byte[])",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitSiblings_init_03A1DF7F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.SameArityInitSiblings(byte[],SwiftBindingsTestLib.SameArityInitConfig)",
+      "symbol": "SBW_SwiftBindingsTestLib_SameArityInitSiblings_init_283C205D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.Scale",
+      "symbol": "thunk_SwiftBindingsTestLib_4ff2bd10"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.ScaleNative",
+      "symbol": "thunk_SwiftBindingsTestLib_4ff2bd10"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SameArityInitSiblings.Source",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_SameArityInitSiblings_source"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "SameMockBookPath(Swift.KeyPath\u003CSwiftBindingsTestLib.MockBook, string\u003E,Swift.KeyPath\u003CSwiftBindingsTestLib.MockBook, string\u003E)",
       "symbol": "thunk_SwiftBindingsTestLib_e078045d"
     },
