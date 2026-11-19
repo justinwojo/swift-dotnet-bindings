@@ -25,7 +25,9 @@
 //   5. no dangling P/Invoke — the hostile names appear only inside `// Unsupported:` comments, never as
 //      a live concrete member/entry point; same-named retained protocol requirements stay valid. The generator log
 //      never emitted SWIFTBIND108;
-//   6. the positive-control type is emitted (the binding is a genuine PARTIAL success, not a shell).
+//   6. the positive-control type is emitted (the binding is a genuine PARTIAL success, not a shell);
+//   7. the SDK's two-pass shape (render with --skip-wrapper-compilation, then --compile-wrapper-only)
+//      withdraws the same Swift-plane members in the render pass and the deferred compile succeeds.
 //
 // It also encodes the localized-construct RATCHET directly: a library may degrade only via localized
 // (leaf/accessor) withdrawals and may never be turned whole-binding-red by a localized construct. So the
@@ -205,8 +207,71 @@ partial class Build
         // (6) The positive control is emitted — the binding is a genuine partial success.
         AssertResiliencePositiveControls(hostileOut);
 
+        // (7) The same hostile slice through the SDK's two-pass shape.
+        AssertResilienceSdkTwoPassRecovers(hostileXcframework, scratch / "hostile-sdk-output");
+
         Log.Information("resilience-kitchen PASSED — generator exit 0, C# compiles, {Count} hostile member(s) withdrawn "
             + "(EmitterFault/SwiftCompile), healthy siblings stable, no dangling wrapper.", ResilienceHostileMembers.Length);
+    }
+
+    // The SDK builds a package in two passes: `_GenerateSwiftBindings` renders the binding with
+    // `--sdk-mode --skip-wrapper-compilation`, and `_CompileSwiftWrapper` compiles the wrapper later with
+    // `--compile-wrapper-only`. The render pass once had no verify-recover loop, so one member whose
+    // wrapper did not compile failed the later compile and the whole package with it (SWIFTBIND051).
+    // This leg runs both passes on the hostile slice and requires: the render pass withdraws each
+    // Swift-plane hostile member with its row (SWIFTBIND112, no SWIFTBIND111), leaves none of its probe
+    // compile's products in the SDK's intermediate directory, and the deferred compile then succeeds.
+    // The C# plane stays off in this pass (the consuming project compiles the C#), so the C#-plane
+    // hostile member is not asserted here.
+    void AssertResilienceSdkTwoPassRecovers(AbsolutePath xcframework, AbsolutePath outputDir)
+    {
+        if (Directory.Exists(outputDir)) outputDir.DeleteDirectory();
+        outputDir.CreateDirectory();
+
+        var (renderExit, renderLog) = RunGeneratorProcess(new[]
+        {
+            $"\"{GeneratorDll}\"", $"--xcframework \"{xcframework}\"", $"-o \"{outputDir}\"",
+            "--platform ios", "--wrapper-architectures all", "--sdk-mode", "--skip-wrapper-compilation",
+        });
+        if (renderExit != 0)
+        {
+            foreach (var line in renderLog) Log.Error("  [generator] {Line}", line);
+            throw new Exception($"resilience-kitchen (SDK): render pass exit {renderExit} ≠ 0 — one broken member sank the package.");
+        }
+        if (!renderLog.Any(l => l.Contains("SWIFTBIND112", StringComparison.Ordinal)))
+            throw new Exception("resilience-kitchen (SDK): render pass log has no SWIFTBIND112 — the SDK render pass did not run verify-recover.");
+        if (renderLog.Any(l => l.Contains("SWIFTBIND111", StringComparison.Ordinal)))
+            throw new Exception("resilience-kitchen (SDK): render pass log contains SWIFTBIND111 — a localized member escalated to a module failure.");
+
+        AssertResilienceWithdrawalRows(outputDir / "binding-report.json", includeCSharpPlane: false);
+
+        // The probe compiles in a scratch directory. A wrapper product here would make the deferred
+        // compile's skip and fingerprint logic, or the consumer metadata, see a wrapper this pass did not ship.
+        var leaked = new[] { $"{ResilienceWrapperModule}.xcframework", ".wrapper-build" }
+            .Where(name => Directory.Exists(outputDir / name)).ToList();
+        if (leaked.Count > 0)
+            throw new Exception($"resilience-kitchen (SDK): the render pass left wrapper build products in its output: {string.Join(", ", leaked)}.");
+
+        var (compileExit, compileLog) = RunGeneratorProcess(new[]
+        {
+            $"\"{GeneratorDll}\"", "--compile-wrapper-only", $"--xcframework \"{xcframework}\"", $"-o \"{outputDir}\"",
+            "--platform ios", "--wrapper-architectures all",
+        });
+        if (compileExit != 0 || !Directory.Exists(outputDir / $"{ResilienceWrapperModule}.xcframework"))
+        {
+            foreach (var line in compileLog) Log.Error("  [compile-wrapper-only] {Line}", line);
+            throw new Exception($"resilience-kitchen (SDK): the deferred wrapper compile failed (exit {compileExit}) on the settled source.");
+        }
+
+        Log.Information("  ✓ SDK two-pass: render pass withdrew the hostile members, deferred wrapper compile succeeded");
+    }
+
+    (int ExitCode, IReadOnlyList<string> Log) RunGeneratorProcess(IEnumerable<string> args)
+    {
+        var proc = ProcessTasks.StartProcess("dotnet", string.Join(" ", args),
+            workingDirectory: BindingTestsDir, logOutput: false);
+        proc.WaitForExit();
+        return (proc.ExitCode, proc.Output.Select(o => o.Text).ToList());
     }
 
     // Builds a single simulator-slice xcframework from the fixture source, optionally with the
@@ -305,7 +370,7 @@ partial class Build
     }
 
     // (3) Each hostile member must carry a wrapper-withdrawal row with the right attribution.
-    void AssertResilienceWithdrawalRows(AbsolutePath reportPath)
+    void AssertResilienceWithdrawalRows(AbsolutePath reportPath, bool includeCSharpPlane = true)
     {
         if (!File.Exists(reportPath))
             throw new Exception($"resilience-kitchen: binding-report.json missing at {reportPath}.");
@@ -360,7 +425,7 @@ partial class Build
             Log.Information("  ✓ withdrawal row: {Member} — {Reason}/{Stage}, root {Root}", member, reason, stage, rootCauseId);
         }
 
-        foreach (var (owner, member) in ResilienceCSharpHostileMembers)
+        foreach (var (owner, member) in includeCSharpPlane ? ResilienceCSharpHostileMembers : [])
         {
             var row = items.EnumerateArray().FirstOrDefault(it =>
                 it.TryGetProperty("Name", out var n) && n.GetString() == member &&
