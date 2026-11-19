@@ -63,8 +63,9 @@ internal static class CarriedReceiverRows
                 var signature = ProtocolExtensionEmitter.AbiOverloadKey(method);
                 if (method.IsAsync && !isAsync)
                     signature = signature.Replace(" async -> ", " -> ", StringComparison.Ordinal);
-                // A receiver's generic parameter is spelled by depth and index here and by name there.
-                var comparable = !isGeneric && !signature.Contains("τ_", StringComparison.Ordinal);
+                // A receiver's generic parameter is spelled by depth and index here and by its source
+                // name in the interface; types compare once it is spelled by name.
+                var comparable = isGeneric ? null : WithSourceGenericNames(signature, method);
                 return new CarriedMemberIdentity(
                     IsProperty: false,
                     method.MethodType == MethodType.Static,
@@ -72,7 +73,7 @@ internal static class CarriedReceiverRows
                     isGeneric,
                     method.GetSwiftName(),
                     ProtocolExtensionEmitter.AbiLabelKey(method),
-                    comparable ? ProtocolExtensionEmitter.WithoutModuleQualifiers(signature) : null);
+                    comparable is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(comparable));
             default:
                 return null;
         }
@@ -81,9 +82,30 @@ internal static class CarriedReceiverRows
     private static readonly System.Text.RegularExpressions.Regex OpaqueParameter =
         new(@"(?<![\w.])some\s+(?![A-Za-z_]\w*\s*:)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
+    private static readonly System.Text.RegularExpressions.Regex AbiGenericParameter =
+        new(@"τ_\d+_\d+", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
     /// <summary>
-    /// The parenthesized parameter clause of <paramref name="name"/>'s declaration in
-    /// <paramref name="signature"/>, or "" when it cannot be found.
+    /// <paramref name="signature"/> with each generic parameter spelled by the name its declaration
+    /// gives it, or null when one has no such name.
+    /// </summary>
+    private static string? WithSourceGenericNames(string signature, MethodDecl method)
+    {
+        var unnamed = false;
+        var named = AbiGenericParameter.Replace(signature, m =>
+        {
+            var name = method.GenericParameters.FirstOrDefault(p => p.TypeName == m.Value)?.SugaredTypeName;
+            if (string.IsNullOrEmpty(name) || name.StartsWith("τ_", StringComparison.Ordinal))
+                unnamed = true;
+            return name ?? m.Value;
+        });
+        return unnamed ? null : named;
+    }
+
+    /// <summary>
+    /// The parameter clause of <paramref name="name"/>'s declaration in <paramref name="signature"/>
+    /// without its default values, or "" when it cannot be found. A string literal never opens or
+    /// closes a clause.
     /// </summary>
     private static string ParameterClause(string signature, string name)
     {
@@ -97,16 +119,38 @@ internal static class CarriedReceiverRows
             if (c == '<') angle++;
             else if (c == '>' && angle > 0) angle--;
             else if (c == '(' && angle == 0)
+                return TypesOfClause(signature, i);
+        }
+        return "";
+    }
+
+    private static string TypesOfClause(string signature, int open)
+    {
+        var types = new System.Text.StringBuilder();
+        var depth = 0;
+        var inDefault = false;
+        for (var j = open; j < signature.Length; j++)
+        {
+            var c = signature[j];
+            if (c == '"')
             {
-                var depth = 0;
-                for (var j = i; j < signature.Length; j++)
-                {
-                    if (signature[j] == '(') depth++;
-                    else if (signature[j] == ')' && --depth == 0)
-                        return signature[i..(j + 1)];
-                }
-                return "";
+                // Skip the literal, escapes included.
+                for (j++; j < signature.Length && signature[j] != '"'; j++)
+                    if (signature[j] == '\\') j++;
+                continue;
             }
+            if (c is '(' or '[' or '<') depth++;
+            else if (c is ')' or ']' || (c == '>' && signature[j - 1] != '-'))
+            {
+                if (--depth == 0)
+                    return types.Append(')').ToString();
+            }
+            if (depth == 1 && c == '=')
+                inDefault = true;
+            else if (depth == 1 && c == ',')
+                inDefault = false;
+            if (!inDefault)
+                types.Append(c);
         }
         return "";
     }

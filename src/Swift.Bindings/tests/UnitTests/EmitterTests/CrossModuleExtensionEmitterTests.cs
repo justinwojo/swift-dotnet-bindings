@@ -1318,6 +1318,40 @@ public class CrossModuleExtensionEmitterTests
         Assert.Equal(generic, CarriedReceiverRows.IdentityOf(abi)!.SameMember(identity));
     }
 
+    /// <summary>
+    /// Only the parameter types decide genericity: a default value, string literals included,
+    /// neither hides a <c>some</c> parameter nor makes one.
+    /// </summary>
+    [Theory]
+    [InlineData("public func render(_ prefix: Swift.String = \")\", _ content: some Swift.BinaryInteger)", true)]
+    [InlineData("public func render(_ prefix: Swift.String = \"some value\")", false)]
+    [InlineData("public func render(_ body: (Swift.Int) -> Swift.Int, _ content: some Swift.BinaryInteger)", true)]
+    [InlineData("public func render(_ count: Swift.Int = max(1, 2), _ name: Swift.String)", false)]
+    public void IdentityOf_DefaultValues_DoNotDecideGenericity(string signature, bool generic)
+        => Assert.Equal(generic,
+            CarriedReceiverRows.IdentityOf(PrePassMember("render", "render(_:_:)", signature), new TypeDatabase(), Logger).IsGeneric);
+
+    /// <summary>
+    /// A method of a generic receiver that takes the receiver's parameter names it as its
+    /// declaration does, so a concrete overload of the same labels stays another member.
+    /// </summary>
+    [Theory]
+    [InlineData("public func attach(_ value: Swift.Int)", false)]
+    [InlineData("public func attach(_ value: Root)", true)]
+    public void IdentityOf_ReceiverGenericParameter_ComparesByItsName(string signature, bool same)
+    {
+        var (_, _, _, moduleDecl, classDecl, _, _) = CreateSetup();
+        classDecl.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Root", new(), new()));
+        var abi = CreateMethodDecl("attach", "TestModule", classDecl, mangledName: "$s10TestModule6attachyyxF");
+        abi.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "Root", new(), new()));
+        abi.CSSignature.Add(Argument("_", "τ_0_0", moduleDecl));
+
+        var interfaceMember = CarriedReceiverRows.IdentityOf(
+            PrePassMember("attach", "attach(_:)", signature), new TypeDatabase(), Logger);
+
+        Assert.Equal(same, CarriedReceiverRows.IdentityOf(abi)!.SameMember(interfaceMember));
+    }
+
     private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()
     {
         ProtocolQualifiedName = "",
