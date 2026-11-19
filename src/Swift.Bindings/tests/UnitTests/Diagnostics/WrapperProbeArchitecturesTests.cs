@@ -166,6 +166,21 @@ public class WrapperProbeArchitecturesTests
     }
 
     [Fact]
+    public void Probe_AnExtraFailureFromAMissingModule_IsLeftToTheWrapperCompile()
+    {
+        // A dependency that ships no x86_64 slice: the extra architecture cannot build at all, which the
+        // wrapper compile handles; the probe must not turn it into a failed round.
+        var outcome = WrapperProbeArchitectures.Probe(
+            ["arm64", "x86_64"],
+            architecture => architecture == "arm64"
+                ? Clean("sim", Provenance("A.swift", "/out/A.swift"))
+                : Failed("sim", Error("A.swift", 2, "no such module 'Dependency'"), Provenance("A.swift", "/scratch/A.swift")),
+            NullLogger.Instance);
+
+        Assert.True(outcome.AllSlicesClean);
+    }
+
+    [Fact]
     public void Probe_AnExtraFailureWithACompilerError_FailsTheRound()
     {
         var x64Error = Error("A.swift", 4, "cannot find 'onlyOnArm' in scope");

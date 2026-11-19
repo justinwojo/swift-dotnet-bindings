@@ -121,6 +121,13 @@ public sealed class DiagnosticAttributor
     // classified, not attributed. A missing module means the author did not supply an xcframework
     // the wrapper needs — the existing dependency guidance already tells them how to fix it — so it
     // is owned by InputConfiguration, never charged to the import line's nearest member.
+    /// <summary>
+    /// True when <paramref name="diagnostic"/> names a cause outside any declaration (a missing input
+    /// module), the classification the attributor gives no unit.
+    /// </summary>
+    internal static bool IsGlobalInputError(CompilerDiagnostic diagnostic) =>
+        diagnostic.Severity == DiagnosticSeverity.Error && TryClassify(diagnostic, out _, out _);
+
     private static bool TryClassify(CompilerDiagnostic diagnostic, out CauseOwner owner, out string? detail)
     {
         var match = MissingModule.Match(diagnostic.Message);

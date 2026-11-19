@@ -66,8 +66,9 @@ public static class WrapperProbeArchitectures
 
     /// <summary>
     /// Compiles every architecture of <paramref name="architectures"/> (the first is the loop's own
-    /// compile) and folds the outcomes. An extra architecture that throws, or fails without a compiler error,
-    /// is logged and left to the post-loop compile, which reports it with the build's own diagnostic.
+    /// compile) and folds the outcomes. An extra architecture that throws, or fails without a member-level
+    /// error (no compiler error, or a global input error such as a missing module), is logged and left to
+    /// the post-loop compile, which reports it with the build's own diagnostic.
     /// </summary>
     public static WrapperCompileDiagnostics Probe(
         IReadOnlyList<string> architectures,
@@ -92,14 +93,14 @@ public static class WrapperProbeArchitectures
                     architecture, ex.Message);
                 continue;
             }
-            // A failure with no compiler error (a timeout, a missing tool, an unreadable slice) names no
-            // member to withdraw. It is the extra architecture's build failing, which the wrapper compile
-            // already handles as best effort, so it must not fail the round the primary passed.
-            if (!outcome.AllSlicesClean
-                && !outcome.Diagnostics.Any(g => g.Primary.Severity == Diagnostics.DiagnosticSeverity.Error))
+            // A failure with no compiler error (a timeout, a missing tool) or with an error outside any
+            // declaration (a dependency without this architecture: "no such module") names no member to
+            // withdraw. It is the extra architecture's build failing, which the wrapper compile already
+            // handles as best effort, so it must not fail the round the primary passed.
+            if (!outcome.AllSlicesClean && !NamesAMember(outcome))
             {
                 logger.LogWarning(
-                    "The wrapper probe's {Architecture} compile failed without a compiler error; the wrapper compile reports it.",
+                    "The wrapper probe's {Architecture} compile failed without a member-level error; the wrapper compile reports it.",
                     architecture);
                 continue;
             }
@@ -107,6 +108,10 @@ public static class WrapperProbeArchitectures
         }
         return Fold(outcomes);
     }
+
+    private static bool NamesAMember(WrapperCompileDiagnostics outcome) =>
+        outcome.Diagnostics.Any(g => g.Primary.Severity == Diagnostics.DiagnosticSeverity.Error)
+        && !outcome.Diagnostics.Any(g => Diagnostics.DiagnosticAttributor.IsGlobalInputError(g.Primary));
 
     /// <summary>
     /// One outcome over every architecture: clean only when each architecture compiled clean, carrying
