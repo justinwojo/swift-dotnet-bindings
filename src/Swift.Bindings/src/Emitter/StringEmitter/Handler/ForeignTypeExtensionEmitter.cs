@@ -53,7 +53,7 @@ public static class ForeignTypeExtensionEmitter
             if (!IsForeignObjCClassType(foreignTypeQualifiedName, moduleDecl.ForeignTypeDeclKinds))
             {
                 logger.LogDebug("Skipping foreign extension on non-ObjC type: {Type}", foreignTypeQualifiedName);
-                RecordNonObjCReceiverMembers(moduleDecl, foreignTypeQualifiedName, members, ctx);
+                RecordNonObjCReceiverMembers(moduleDecl, foreignTypeQualifiedName, members, typeDatabase, logger, ctx);
                 continue;
             }
 
@@ -110,19 +110,40 @@ public static class ForeignTypeExtensionEmitter
         ModuleEmissionContext ctx,
         ModuleDecl moduleDecl,
         string foreignTypeQualifiedName,
-        BindingItemKind kind,
-        string memberName,
+        ProtocolExtensionMethodDecl extMethod,
+        ITypeDatabase typeDatabase,
+        ILogger logger,
         string details)
     {
-        // A carried receiver's losses are reported by the cross-module path, which may bind this
-        // member (or an overload of it) from the ABI.
+        // The cross-module path may bind this member (or an overload of it) from the ABI of a
+        // carried receiver, so its row is settled once both paths have run.
         if (IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName))
+        {
+            RecordCarriedDecline(ctx, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
+                SkipReason.AbsentFrameworkType, details);
             return;
+        }
+        var kind = extMethod.IsProperty ? BindingItemKind.Property : BindingItemKind.Method;
         ReportCollector.RecordMemberSkipped(
-            kind, memberName, moduleDecl, SkipReason.AbsentFrameworkType, details);
+            kind, extMethod.MethodName, moduleDecl, SkipReason.AbsentFrameworkType, details);
         ctx.AddForeignExtWithdrawal(
-            new ForeignExtensionWithdrawal(kind, memberName, SkipReason.AbsentFrameworkType, details));
+            new ForeignExtensionWithdrawal(kind, extMethod.MethodName, SkipReason.AbsentFrameworkType, details));
     }
+
+    /// <summary>
+    /// Hands a member of a carried receiver the pre-pass declined to <see cref="CarriedReceiverRows"/>,
+    /// which reports it only if the cross-module path never saw it.
+    /// </summary>
+    private static void RecordCarriedDecline(
+        ModuleEmissionContext ctx, string foreignTypeQualifiedName, ProtocolExtensionMethodDecl extMethod,
+        ITypeDatabase typeDatabase, ILogger logger, SkipReason reason, string details)
+        => ctx.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            foreignTypeQualifiedName,
+            CarriedReceiverRows.IdentityOf(extMethod, typeDatabase, logger),
+            Bound: false,
+            DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
+            reason,
+            details));
 
     /// <summary>
     /// The member shapes the foreign-extension path does not bind, with the reason each is reported
@@ -154,10 +175,21 @@ public static class ForeignTypeExtensionEmitter
         ModuleDecl moduleDecl,
         string foreignTypeQualifiedName,
         List<ProtocolExtensionMethodDecl> members,
+        ITypeDatabase typeDatabase,
+        ILogger logger,
         ModuleEmissionContext ctx)
     {
         if (IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName))
+        {
+            // The cross-module path binds or reports each member the ABI lists; one the interface
+            // declares and the ABI does not is reported from here once both paths have run.
+            foreach (var member in members)
+                RecordCarriedDecline(ctx, foreignTypeQualifiedName, member, typeDatabase, logger,
+                    SkipReason.UnsupportedSignature,
+                    $"Extension on foreign type '{foreignTypeQualifiedName}': the cross-module extension path "
+                    + "binds this receiver's members from the ABI, which does not list this member.");
             return;
+        }
         moduleDecl.ForeignTypeDeclKinds.TryGetValue(foreignTypeQualifiedName, out var receiverKind);
         var receiver = string.IsNullOrEmpty(receiverKind) ? "type" : receiverKind.ToLowerInvariant();
         // On a foreign protocol, a member that supplies the default of one of the protocol's own
@@ -216,21 +248,25 @@ public static class ForeignTypeExtensionEmitter
     /// </summary>
     private static void RecordLostClaim(
         ModuleEmissionContext ctx, ModuleDecl moduleDecl, string foreignTypeQualifiedName,
-        ProtocolExtensionMethodDecl extMethod, string symbol, bool sameDeclaration)
+        ProtocolExtensionMethodDecl extMethod, string symbol, bool sameDeclaration,
+        ITypeDatabase typeDatabase, ILogger logger)
     {
         if (sameDeclaration)
         {
             ctx.ForeignExtDuplicateClaimCount++;
             return;
         }
-        // On a carried receiver the cross-module path reports what neither path binds.
+        var details = $"Foreign extension on '{foreignTypeQualifiedName}': its wrapper symbol '{symbol}' is already taken by "
+            + "another member of the receiver, so this member was not bound.";
         if (IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName))
+        {
+            RecordCarriedDecline(ctx, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
+                SkipReason.EmitterFault, details);
             return;
+        }
         RecordUnbound(
             ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
-            SkipReason.EmitterFault,
-            $"Foreign extension on '{foreignTypeQualifiedName}': its wrapper symbol '{symbol}' is already taken by "
-            + "another member of the receiver, so this member was not bound.");
+            SkipReason.EmitterFault, details);
     }
 
     private static void RecordUnbound(
@@ -252,6 +288,9 @@ public static class ForeignTypeExtensionEmitter
     {
         ArgumentNullException.ThrowIfNull(moduleDecl);
         ArgumentNullException.ThrowIfNull(ctx);
+
+        // Members of carried receivers: both paths have run, so their rows are decided now.
+        CarriedReceiverRows.Settle(moduleDecl, ctx);
 
         foreach (var withdrawal in ctx.ForeignExtWithdrawals)
         {
@@ -377,16 +416,20 @@ public static class ForeignTypeExtensionEmitter
         // The shapes this emitter does not bind. Each is reported against the member, so a reader of
         // the interface can tell a member the binding declined from one it lost.
         // A receiver the ABI parser kept is also walked by the cross-module extension path, which binds
-        // from the ABI what this pass declines (a static method, say) and reports whatever neither binds.
-        // Its losses are reported there, so a declined member here is not reported a second time or,
-        // worse, reported although the other path bound it.
-        var reportsDeclines = !IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName);
+        // from the ABI what this pass declines (a static method, say). On such a receiver this pass
+        // records what it bound and declined, and CarriedReceiverRows writes one row per member
+        // neither path bound once both have run.
+        var carried = IsCarriedCrossModuleReceiver(moduleDecl.Types, foreignTypeQualifiedName);
 
         var declined = DeclinedShape(extMethod);
         if (declined is not null)
         {
-            if (!reportsDeclines)
+            if (carried)
+            {
+                RecordCarriedDecline(ctx, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
+                    declined.Value.Reason, $"Foreign extension on '{foreignTypeQualifiedName}': {declined.Value.Details}");
                 return;
+            }
             RecordUnbound(
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
                 declined.Value.Reason,
@@ -397,6 +440,7 @@ public static class ForeignTypeExtensionEmitter
         int emittedBefore = ctx.ForeignExtEmittedCount;
         int duplicatesBefore = ctx.ForeignExtDuplicateClaimCount;
         int withdrawalsBefore = ctx.ForeignExtWithdrawals.Count;
+        int carriedBefore = ctx.CarriedPrePassOutcomes.Count;
         if (extMethod.IsProperty)
         {
             TryProcessProperty(moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger, ctx, availabilityAnnotations);
@@ -409,17 +453,29 @@ public static class ForeignTypeExtensionEmitter
         // The per-kind binders decline a signature they cannot marshal at a dozen places, most of them
         // with nothing but a debug log. Whatever the reason, a member that came out neither bound nor
         // reported is reported here, so no member of the interface leaves the binding without a row.
-        if (reportsDeclines &&
-            ctx.ForeignExtEmittedCount == emittedBefore &&
-            ctx.ForeignExtDuplicateClaimCount == duplicatesBefore &&
-            ctx.ForeignExtWithdrawals.Count == withdrawalsBefore)
+        var bound = ctx.ForeignExtEmittedCount != emittedBefore
+            || ctx.ForeignExtDuplicateClaimCount != duplicatesBefore;
+        var unmarshaled = $"Foreign extension on '{foreignTypeQualifiedName}': the {(extMethod.IsProperty ? "property" : "method")} "
+            + $"signature '{extMethod.RawSignature}' has a parameter or result shape the foreign-extension path "
+            + "does not marshal (a generic, a closure, a value type it cannot pass, or a type it cannot parse).";
+        if (carried)
+        {
+            if (bound)
+                ctx.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+                    foreignTypeQualifiedName,
+                    CarriedReceiverRows.IdentityOf(extMethod, typeDatabase, logger),
+                    Bound: true,
+                    DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod)));
+            else if (ctx.CarriedPrePassOutcomes.Count == carriedBefore)
+                RecordCarriedDecline(ctx, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
+                    SkipReason.UnsupportedSignature, unmarshaled);
+            return;
+        }
+        if (!bound && ctx.ForeignExtWithdrawals.Count == withdrawalsBefore)
         {
             RecordUnbound(
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, extMethod),
-                SkipReason.UnsupportedSignature,
-                $"Foreign extension on '{foreignTypeQualifiedName}': the {(extMethod.IsProperty ? "property" : "method")} "
-                + $"signature '{extMethod.RawSignature}' has a parameter or result shape the foreign-extension path "
-                + "does not marshal (a generic, a closure, a value type it cannot pass, or a type it cannot parse).");
+                SkipReason.UnsupportedSignature, unmarshaled);
         }
     }
 
@@ -560,7 +616,7 @@ public static class ForeignTypeExtensionEmitter
         if (ReferencesAbsentAppleType(propertyTypeSpec, typeDatabase, out var absentPropType))
         {
             RecordWithdrawal(
-                ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Property, extMethod.MethodName,
+                ctx, moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
                 $"Foreign extension on '{foreignTypeQualifiedName}': property type '{absentPropType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -602,7 +658,7 @@ public static class ForeignTypeExtensionEmitter
         var getterSourceKey = $"get {extMethod.MethodName}::{extMethod.RawSignature}";
         if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, getterSourceKey, getterSymbol, out var getterIsDuplicate))
         {
-            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, getterSymbol, getterIsDuplicate);
+            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, getterSymbol, getterIsDuplicate, typeDatabase, logger);
             return;
         }
 
@@ -707,7 +763,7 @@ public static class ForeignTypeExtensionEmitter
         if (ReferencesAbsentAppleType(returnTypeSpec, typeDatabase, out var absentReturnType))
         {
             RecordWithdrawal(
-                ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Method, extMethod.MethodName,
+                ctx, moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
                 $"Foreign extension on '{foreignTypeQualifiedName}': return type '{absentReturnType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             return;
         }
@@ -789,7 +845,7 @@ public static class ForeignTypeExtensionEmitter
                 // An absent Apple-framework parameter is a surface gap, not an unmarshalable shape:
                 // report it so the withdrawal is observable rather than a silent LogDebug drop.
                 RecordWithdrawal(
-                    ctx, moduleDecl, foreignTypeQualifiedName, BindingItemKind.Method, extMethod.MethodName,
+                    ctx, moduleDecl, foreignTypeQualifiedName, extMethod, typeDatabase, logger,
                     $"Foreign extension on '{foreignTypeQualifiedName}': parameter type '{absentParamType}' is an Apple-framework type absent from the .NET binding surface; the member cannot be bound.");
             }
             else
@@ -811,7 +867,7 @@ public static class ForeignTypeExtensionEmitter
         var sourceKey = $"method {extMethod.MethodName}::{extMethod.RawSignature}";
         if (!ctx.TryClaimWrapperSymbol(foreignTypeQualifiedName, extMethod.MethodName, sourceKey, symbolName, out var isDuplicate))
         {
-            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, symbolName, isDuplicate);
+            RecordLostClaim(ctx, moduleDecl, foreignTypeQualifiedName, extMethod, symbolName, isDuplicate, typeDatabase, logger);
             return;
         }
 

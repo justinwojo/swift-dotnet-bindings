@@ -322,10 +322,14 @@ public class ForeignTypeExtensionEmitterTests
 
     /// <summary>
     /// A frozen-struct or class receiver the parser kept is bound by the cross-module extension path,
-    /// so this path leaves its members alone rather than report a member that is in fact bound.
+    /// which binds or reports each member the ABI lists. A member the ABI lists is left to it; one
+    /// the interface declares and the ABI does not is reported once both paths ran.
     /// </summary>
-    [Fact]
-    public void ProcessForeignTypeExtensions_ReceiverCarriedByTheCrossModulePath_NotReported()
+    [Theory]
+    [InlineData(true, 0)]
+    [InlineData(false, 1)]
+    public void ProcessForeignTypeExtensions_ReceiverCarriedByTheCrossModulePath_ReportedOnlyWhenTheAbiDoesNotList(
+        bool abiLists, int expectedRows)
     {
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
@@ -347,13 +351,22 @@ public class ForeignTypeExtensionEmitterTests
             IsFrozen = true,
             MetadataAccessor = "",
         });
+        if (abiLists)
+            moduleDecl.Types[^1].Properties.Add(AbiProperty("doubled", moduleDecl));
         var property = CreateExtMethod("doubled", "public var doubled: Swift.Int { get }");
         property.IsProperty = true;
 
         var report = RunPrePassAcrossASessionRestart(
             moduleDecl, new() { ["Foundation.Measurement"] = new() { property } }, ctx);
 
-        Assert.Empty(report.SkippedItems);
+        Assert.Equal(expectedRows, report.SkippedItems.Count);
+        if (expectedRows > 0)
+        {
+            var row = Assert.Single(report.SkippedItems);
+            Assert.Equal("doubled", row.Name);
+            Assert.Equal("Foundation.Measurement", row.ContainingType);
+            Assert.Contains("does not list", row.Details);
+        }
     }
 
     /// <summary>
@@ -442,14 +455,16 @@ public class ForeignTypeExtensionEmitterTests
 
     /// <summary>
     /// A declined member of a class receiver the parser kept (an Objective-C-module Swift class) is left to
-    /// the cross-module path, which may bind it from the ABI (a static method, say) and reports it only
-    /// when it does not.
+    /// the cross-module path when the ABI lists it, since that path may bind it from the ABI (a static
+    /// method, say) and reports it when it does not. When the ABI does not list it, it is reported here.
     /// </summary>
     [Theory]
-    [InlineData("tag", "public static func tag() -> Swift.Int32", true)]
-    [InlineData("pick", "public func pick<T>(_ value: T) -> Swift.Int32", false)]
+    [InlineData("tag", "public static func tag() -> Swift.Int32", true, true)]
+    [InlineData("pick", "public func pick<T>(_ value: T) -> Swift.Int32", false, true)]
+    [InlineData("tag", "public static func tag() -> Swift.Int32", true, false)]
+    [InlineData("pick", "public func pick<T>(_ value: T) -> Swift.Int32", false, false)]
     public void ProcessForeignTypeExtensions_DeclinedMemberOfACarriedClassReceiver_LeftToTheCrossModulePath(
-        string name, string signature, bool isStatic)
+        string name, string signature, bool isStatic, bool abiLists)
     {
         var ctx = new ModuleEmissionContext();
         var moduleDecl = CreateModuleDecl();
@@ -468,15 +483,110 @@ public class ForeignTypeExtensionEmitterTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
         });
-        var member = CreateExtMethod(name, signature);
+        var member = CreateLabeledExtMethod(name, name == "pick" ? "pick(_:)" : "tag()", signature);
         member.IsStatic = isStatic;
+        if (abiLists)
+        {
+            var listed = AbiMethod(name, moduleDecl, moduleDecl.Types[^1], isStatic, "Swift.Int32");
+            if (name == "pick")
+            {
+                listed.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+                listed.CSSignature.Add(AbiArgument("_", "τ_0_0", moduleDecl));
+            }
+            moduleDecl.Types[^1].Methods.Add(listed);
+        }
 
         var report = RunPrePassAcrossASessionRestart(
             moduleDecl, new() { ["UIKit.UIView"] = new() { member } }, ctx);
 
         Assert.Equal(0, ctx.ForeignExtEmittedCount);
-        Assert.Empty(report.SkippedItems);
+        if (abiLists)
+        {
+            Assert.Empty(report.SkippedItems);
+            return;
+        }
+        var row = Assert.Single(report.SkippedItems);
+        Assert.Equal(name, row.Name);
+        Assert.Equal("UIKit.UIView", row.ContainingType);
     }
+
+    /// <summary>
+    /// An overload the ABI lists does not account for one it does not: a pre-pass decline is left to
+    /// the cross-module path only for the member the ABI lists with the same labels and types.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_DeclinedOverloadTheAbiDoesNotList_Reported()
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.Types.Add(new ClassDecl
+        {
+            Name = "UIView",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("UIKit.UIView"),
+            MangledName = "$s5UIKit6UIViewCN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        });
+        var listed = AbiMethod("tag", moduleDecl, moduleDecl.Types[^1], isStatic: true, "Swift.Int32");
+        listed.CSSignature.Add(AbiArgument("for", "Swift.Int32", moduleDecl));
+        moduleDecl.Types[^1].Methods.Add(listed);
+        var sameLabels = CreateLabeledExtMethod("tag", "tag(for:)", "public static func tag(for value: Swift.Int32) -> Swift.Int32");
+        sameLabels.IsStatic = true;
+        var otherType = CreateLabeledExtMethod("tag", "tag(for:)", "public static func tag(for value: Swift.Double) -> Swift.Int32");
+        otherType.IsStatic = true;
+        var otherLabels = CreateLabeledExtMethod("tag", "tag(at:)", "public static func tag(at value: Swift.Int32) -> Swift.Int32");
+        otherLabels.IsStatic = true;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["UIKit.UIView"] = new() { sameLabels, otherType, otherLabels } }, ctx);
+
+        Assert.Equal(2, report.SkippedItems.Count);
+        Assert.All(report.SkippedItems, r => Assert.Equal("tag", r.Name));
+    }
+
+    private static MethodDecl AbiMethod(string name, ModuleDecl moduleDecl, TypeDecl parent, bool isStatic, string returnType) => new()
+    {
+        Name = name,
+        MangledName = $"$s5UIKit6UIViewC{name.Length}{name}",
+        MethodType = isStatic ? MethodType.Static : MethodType.Instance,
+        IsConstructor = false,
+        Throws = false,
+        IsAsync = false,
+        CSSignature = new List<ArgumentDecl> { AbiArgument(string.Empty, returnType, moduleDecl) },
+        GenericParameters = new List<GenericArgumentDecl>(),
+        ParentDecl = parent,
+        ModuleDecl = moduleDecl,
+        IsSynthesizedAccessor = false,
+    };
+
+    private static ArgumentDecl AbiArgument(string label, string type, ModuleDecl moduleDecl) => new()
+    {
+        Name = label,
+        PrivateName = label,
+        SwiftTypeSpec = new NamedTypeSpec(type),
+        IsInOut = false,
+        IsGeneric = false,
+        ParentDecl = null,
+        ModuleDecl = moduleDecl,
+    };
+
+    private static PropertyDecl AbiProperty(string name, ModuleDecl moduleDecl) => new()
+    {
+        Name = name,
+        SwiftTypeSpec = new NamedTypeSpec("Swift.Int"),
+        IsStatic = false,
+        HasStorage = false,
+        Accessors = new List<AccessorDecl>(),
+        ParentDecl = null,
+        ModuleDecl = moduleDecl,
+    };
 
     /// <summary>
     /// What the parser parked with a dropped receiver is published once emission settles, and a member
@@ -1379,10 +1489,13 @@ public class ForeignTypeExtensionEmitterTests
 
     /// <summary>
     /// On a receiver the cross-module path carries, that path may bind the member (or an overload of
-    /// it) from the ABI and reports it when it does not, so the pre-pass's withdrawal leaves no row.
+    /// it) from the ABI and reports it when it does not, so the pre-pass's withdrawal of a member the
+    /// ABI lists leaves no row. A member the ABI does not list keeps the withdrawal's row.
     /// </summary>
-    [Fact]
-    public void ProcessForeignTypeExtensions_AbsentAppleReturnOnACarriedReceiver_LeftToTheCrossModulePath()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ProcessForeignTypeExtensions_AbsentAppleReturnOnACarriedReceiver_LeftToTheCrossModulePath(bool abiLists)
     {
         using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(SurfaceCoveringUIKit());
         var ctx = new ModuleEmissionContext();
@@ -1402,6 +1515,8 @@ public class ForeignTypeExtensionEmitterTests
             ParentDecl = moduleDecl,
             ModuleDecl = moduleDecl,
         });
+        if (abiLists)
+            moduleDecl.Types[^1].Methods.Add(AbiMethod("makeLevel", moduleDecl, moduleDecl.Types[^1], isStatic: false, "UIKit.UIWindowLevel"));
         var method = CreateExtMethod("makeLevel", "public func makeLevel() -> UIKit.UIWindowLevel");
 
         ReportCollector.Reset();
@@ -1413,7 +1528,14 @@ public class ForeignTypeExtensionEmitterTests
         ReportCollector.Reset();
 
         Assert.Equal(0, ctx.ForeignExtEmittedCount);
-        Assert.Empty(report!.SkippedItems);
+        if (abiLists)
+        {
+            Assert.Empty(report!.SkippedItems);
+            return;
+        }
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(SkipReason.AbsentFrameworkType, row.Reason);
+        Assert.Equal("makeLevel", row.Name);
     }
 
     [Fact]

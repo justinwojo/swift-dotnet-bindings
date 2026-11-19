@@ -1111,34 +1111,11 @@ public class CrossModuleExtensionEmitterTests
             ParentDecl = classDecl,
             ModuleDecl = moduleDecl,
         });
-        // The interface pre-pass bound doWork on this receiver from the interface text.
+        // The interface pre-pass bound doWork() on this receiver from the interface text.
         var emissionContext = new ModuleEmissionContext();
-        emissionContext.GetOrAddForeignExtClass("OrigModule.OrigType", () => new ForeignExtensionClassInfo
-        {
-            ForeignTypeQualifiedName = "OrigModule.OrigType",
-            ModuleName = "TestModule",
-        }).Members.Add(new ForeignExtensionMemberInfo
-        {
-            SymbolName = "SBSW_OrigModule_OrigType_doWork",
-            CSharpMethodName = "DoWork",
-            ExtMethod = new ProtocolExtensionMethodDecl
-            {
-                ProtocolQualifiedName = "",
-                MethodName = "doWork",
-                RawSignature = "public func doWork()",
-                ReturnsSelf = false,
-                IsMainActorIsolated = false,
-                IsStatic = false,
-                IsProperty = false,
-                PrintedName = "doWork()",
-                WhereConstraints = new List<string>(),
-            },
-            Parameters = new(),
-            ReturnTypeName = "void",
-            ReturnCategory = ExtensionMarshallingHelper.ReturnKind.Void,
-        });
+        PrePassBound(emissionContext, "doWork", "doWork()", "public func doWork()");
 
-        var report = RunReported(moduleDecl, () =>
+        var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
                 ThreadContext(emissionContext)));
 
@@ -1146,6 +1123,190 @@ public class CrossModuleExtensionEmitterTests
         Assert.Contains(report.SkippedItems, r => r.Kind == BindingItemKind.Subscript);
         Assert.Equal(2, report.SkippedItems.Count(r => r.Kind == BindingItemKind.Method && r.Name == "doWork"));
     }
+
+    /// <summary>
+    /// Overloads the pre-pass did not bind keep their rows when they share a name and an arity with
+    /// the one it bound: other labels, other parameter types, another return type, staticness,
+    /// async-ness or genericity name another member. The one it bound has no row.
+    /// </summary>
+    [Theory]
+    [InlineData("labels", 1)]
+    [InlineData("parameter type", 1)]
+    [InlineData("return type", 1)]
+    [InlineData("static", 1)]
+    [InlineData("async", 1)]
+    [InlineData("generic", 1)]
+    [InlineData("same member", 0)]
+    public void Emit_OverloadOfAMemberThePrePassBound_KeepsItsRow(string differsBy, int expectedRows)
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        // The ABI lists move(to: Swift.Int32) -> Swift.Int32 (or a variant of it), mutating, so
+        // the cross-module path declines it.
+        var declined = CreateMethodDecl("move", "TestModule", classDecl, mangledName: "$s10TestModule4moveys5Int32VAEF");
+        declined.IsMutating = true;
+        declined.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec(differsBy == "return type" ? "Swift.String" : "Swift.Int32");
+        declined.CSSignature.Add(Argument(differsBy == "labels" ? "by" : "to",
+            differsBy == "parameter type" ? "Swift.Double" : "Swift.Int32", moduleDecl));
+        if (differsBy == "static")
+            declined.MethodType = MethodType.Static;
+        if (differsBy == "async")
+            declined.IsAsync = true;
+        if (differsBy == "generic")
+            declined.GenericParameters.Add(new GenericArgumentDecl("τ_0_0", "T", new(), new()));
+        classDecl.Methods.Add(declined);
+        var emissionContext = new ModuleEmissionContext();
+        PrePassBound(emissionContext, "move", "move(to:)", "public func move(to point: Swift.Int32) -> Swift.Int32");
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "move"));
+    }
+
+    /// <summary>
+    /// The pre-pass binds a member with a defaulted parameter of an Apple type absent from the .NET
+    /// surface by leaving the parameter to Swift. The cross-module path withdraws its ABI entry for
+    /// that parameter, and the member, which is bound, has no row.
+    /// </summary>
+    [Fact]
+    public void Emit_AbsentAppleWithdrawalOfAMemberThePrePassBound_HasNoRow()
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        RegisterAbsentAppleType(env.TypeDatabase);
+        classDecl.Methods.Add(CreateMethodDecl("doMath", "TestModule", classDecl));
+        classDecl.Methods.Add(CreateMethodWithAbsentAppleParam("dateAtStartOf", "TestModule", classDecl));
+        var emissionContext = new ModuleEmissionContext();
+        PrePassBound(emissionContext, "dateAtStartOf", "dateAtStartOf(units:)",
+            $"public func dateAtStartOf(units: {AbsentAppleTypeName} = .day)");
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.DoesNotContain(report.SkippedItems, r => r.Name == "dateAtStartOf");
+        // The emitted code is unchanged: the ABI entry still leaves its tombstone.
+        Assert.Contains("dateAtStartOf", csOutput.ToString());
+    }
+
+    /// <summary>
+    /// The absent-Apple withdrawal of a member the pre-pass did not bind keeps its row.
+    /// </summary>
+    [Fact]
+    public void Emit_AbsentAppleWithdrawalTheInterfaceDidNotBind_Reported()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        RegisterAbsentAppleType(env.TypeDatabase);
+        classDecl.Methods.Add(CreateMethodWithAbsentAppleParam("dateAtStartOf", "TestModule", classDecl));
+        var emissionContext = new ModuleEmissionContext();
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "dateAtStartOf");
+        Assert.Equal(SkipReason.AbsentFrameworkType, row.Reason);
+    }
+
+    /// <summary>
+    /// A member the pre-pass declined on a carried receiver is reported once both paths ran when the
+    /// ABI does not list it, and left to the cross-module path when it does.
+    /// </summary>
+    [Theory]
+    [InlineData(false, 1)]
+    [InlineData(true, 0)]
+    public void Settle_MemberThePrePassDeclined_ReportedOnlyWhenTheAbiDoesNotListIt(bool abiLists, int expectedRows)
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        // The parser keeps a carried receiver in the module's type tree.
+        moduleDecl.Types.Add(classDecl);
+        if (abiLists)
+        {
+            var listed = CreateMethodDecl("reset", "TestModule", classDecl, mangledName: "$s10TestModule5resetyyFZ");
+            listed.MethodType = MethodType.Static;
+            classDecl.Methods.Add(listed);
+        }
+        var emissionContext = new ModuleEmissionContext();
+        var member = PrePassMember("reset", "reset()", "public static func reset()");
+        member.IsStatic = true;
+        emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), Bound: false,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
+
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext)));
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "reset"));
+        if (abiLists)
+            Assert.Contains("Reset", csOutput.ToString());
+    }
+
+    /// <summary>
+    /// The rows of an emission attempt the containment loop discards are discarded with it: the
+    /// attempt snapshot rewinds the cross-module declines with the rest of the context.
+    /// </summary>
+    [Fact]
+    public void Settle_AfterADiscardedAttempt_WritesOnlyTheSettledAttemptsRows()
+    {
+        var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        var declined = CreateMethodDecl("doWork", "TestModule", classDecl);
+        declined.IsMutating = true;
+        classDecl.Methods.Add(declined);
+        var emissionContext = new ModuleEmissionContext();
+        var snapshot = ModuleEmissionStateSnapshot.Capture(emissionContext);
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+            ThreadContext(emissionContext));
+        snapshot.Restore();
+
+        var report = RunSettled(moduleDecl, emissionContext, () => { });
+
+        Assert.Empty(report.SkippedItems);
+    }
+
+    private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()
+    {
+        ProtocolQualifiedName = "",
+        MethodName = name,
+        RawSignature = signature,
+        ReturnsSelf = false,
+        IsMainActorIsolated = false,
+        IsStatic = false,
+        IsProperty = false,
+        PrintedName = printedName,
+        WhereConstraints = new List<string>(),
+    };
+
+    /// <summary>Records that the interface pre-pass bound a member of <c>OrigModule.OrigType</c>.</summary>
+    private static void PrePassBound(ModuleEmissionContext ctx, string name, string printedName, string signature)
+    {
+        var member = PrePassMember(name, printedName, signature);
+        ctx.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
+            "OrigModule.OrigType",
+            CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
+            Bound: true,
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+    }
+
+    private static ArgumentDecl Argument(string label, string type, ModuleDecl moduleDecl) => new()
+    {
+        Name = label,
+        PrivateName = label,
+        SwiftTypeSpec = new NamedTypeSpec(type),
+        IsInOut = false,
+        IsGeneric = false,
+        ParentDecl = null,
+        ModuleDecl = moduleDecl,
+    };
+
+    /// <summary>Runs an emission, then settles the carried-receiver rows as the generator does.</summary>
+    private static BindingReport RunSettled(ModuleDecl moduleDecl, ModuleEmissionContext ctx, System.Action emit)
+        => RunReported(moduleDecl, () =>
+        {
+            emit();
+            ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        });
 
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
     {
