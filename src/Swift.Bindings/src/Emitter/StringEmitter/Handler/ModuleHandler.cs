@@ -950,7 +950,8 @@ namespace BindingsGeneration
             string? interfaceText = null;
             if (!string.IsNullOrEmpty(moduleDecl.SwiftInterfacePath) && File.Exists(moduleDecl.SwiftInterfacePath))
             {
-                interfaceText = File.ReadAllText(moduleDecl.SwiftInterfacePath);
+                // Dotted, so a Swift 6.4 `Module::Type` qualifier reads as `Module.Type`.
+                interfaceText = SwiftModuleSelectors.ReadDotted(moduleDecl.SwiftInterfacePath);
                 declaredImports = new HashSet<string>(AppleFrameworkImportDetector.ExtractImports(interfaceText), StringComparer.Ordinal);
                 nonPublicImports = AppleFrameworkImportDetector.ExtractNonPublicImports(interfaceText);
             }

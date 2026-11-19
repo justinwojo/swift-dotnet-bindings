@@ -93,7 +93,9 @@ internal static class UnderscoreProtocolSynthesizer
         }
 
         var existing = new HashSet<string>(moduleDecl.Protocols.Select(p => p.Name), StringComparer.Ordinal);
-        var source = File.ReadAllText(swiftInterfacePath);
+        // Swift 6.4 spells `AppIntents::EntityIdentifier : AppIntents::_IntentValue`; every
+        // match below is written against the dotted spelling.
+        var source = SwiftModuleSelectors.ReadDotted(swiftInterfacePath);
 
         foreach (var name in names)
         {
