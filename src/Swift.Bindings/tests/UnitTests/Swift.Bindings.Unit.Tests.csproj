@@ -49,6 +49,7 @@
     <Compile Include="../../../../build/Models/ToolchainProfileContext.cs" Link="Models/ToolchainProfileContext.cs" />
     <Compile Include="../../../../build/Models/ToolchainTargets.cs" Link="Models/ToolchainTargets.cs" />
     <Compile Include="../../../../build/Helpers/ArtifactParityGate.cs" Link="Parity/ArtifactParityGate.cs" />
+    <Compile Include="../../../../build/Models/BlastRadiusGolden.cs" Link="Models/BlastRadiusGolden.cs" />
     <!-- Link-compile the build-side Mach-O reader so the appstore-hygiene gate's install_name reader
          (Finding 61, replacing the otool scrape) is unit-tested against hand-built Mach-O fixtures
          that run in `nuke test`, independent of a signing host. Same pattern as ArtifactParityGate. -->

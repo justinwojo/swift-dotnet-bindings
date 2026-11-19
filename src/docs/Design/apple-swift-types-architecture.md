@@ -98,7 +98,13 @@ pins.
     `nm -gU` / `strings` diff between a baseline app (Swift.Runtime only)
     and a consumer app (Swift.Runtime + `SwiftBindings.Apple`, touching
     one supplement type). Diffs are committed at
-    `BindingTests/BlastRadius.Baseline/measurements/`. Session 3 closed
+    `BindingTests/BlastRadius.Baseline/measurements/`, and
+    `nuke validate-blast-radius` compares only their added and removed
+    lines: a diff's context is what both apps already carry, which the
+    .NET major's runtime decides (.NET 10's macOS runtime autolinks
+    `libswiftCompatibility56`, .NET 11's does not). The Xcode 27
+    workloads also record managed assembly names, so they share
+    `strings-swift.xcode27.diff`. Session 3 closed
     the gap that Session 5's smoke flagged: the generator now emits bare
     DllImport names (`[DllImport("CryptoKit", …)]`) and registers
     `SwiftFrameworkResolver` via a `[ModuleInitializer]` side-car, so

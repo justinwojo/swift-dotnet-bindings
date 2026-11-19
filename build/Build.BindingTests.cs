@@ -1467,12 +1467,14 @@ partial class Build
     AbiGridReport? _abiGridReport;
 
     // ValidateBlastRadius runs the blast-radius smoke script and fails the build if any of
-    // the three committed golden diffs (otool-L, nm, strings-swift) diverges from HEAD.
+    // the three committed golden diffs (otool-L, nm, strings-swift) diverges from HEAD in
+    // what it adds or removes.
     // This is the automated gate behind the invariant that pulling SwiftBindings.Apple into
     // a consumer adds zero new `-framework` link lines and zero new Swift ABI symbols
     // compared to a Swift.Runtime-only baseline. The raw script exits 0 regardless, so the
-    // pass/fail lives here. Diff header lines are normalized out so filename/timestamp noise
-    // does not trigger spurious failures. On a clean pass the working tree is restored to
+    // pass/fail lives here. Only the added and removed lines are compared (BlastRadiusGolden):
+    // file headers carry paths and timestamps, and context lines are what both executables
+    // already hold, not what the supplement brings. On a clean pass the working tree is restored to
     // HEAD so the gate has no side effects; on failure the freshly-generated measurement
     // files are left in place for inspection.
     Target ValidateBlastRadius => _ => _
@@ -1481,7 +1483,7 @@ partial class Build
         {
             var measurementsDir = BindingTestsDir / "BlastRadius.Baseline" / "measurements";
             var script = BindingTestsDir / "BlastRadius.Baseline" / "measure-blast-radius.sh";
-            var gates = new[] { "otool-L.diff", "nm.diff", "strings-swift.diff" };
+            var gates = BlastRadiusGolden.Gates;
 
             if (!File.Exists(script))
                 throw new Exception($"Blast-radius script not found at {script}");
@@ -1496,15 +1498,13 @@ partial class Build
                 name => name!,
                 name => File.ReadAllBytes(measurementsDir / name!));
 
-            // The macOS host of the Xcode 27 workloads (.NET 10 and .NET 11 alike) records
-            // managed assembly filenames in its executable. Keep the legacy golden unchanged
-            // and qualify that exact loader-string shape separately, keyed on the profile's
-            // Apple platform version; native linkage and symbol goldens remain shared and strict.
-            var newerMacHost = LaneTargets.ApplePlatformVersion is { } appleVersion &&
-                int.Parse(appleVersion.Split('.')[0], System.Globalization.CultureInfo.InvariantCulture) >= 27;
-            var goldenNames = gates.ToDictionary(name => name, name =>
-                name == "strings-swift.diff" && newerMacHost
-                    ? "strings-swift.net10-xcode27.diff" : name);
+            // The Xcode 27 workloads' macOS host (.NET 10 and .NET 11 alike) also records managed
+            // assembly filenames, so their strings golden is its own; native linkage and symbol
+            // goldens stay shared. BlastRadiusGolden compares only what the supplement adds or
+            // removes: the diff context is what both executables carry, which the .NET major's
+            // runtime decides (the .NET 10 macOS runtime autolinks libswiftCompatibility56).
+            var goldenNames = gates.ToDictionary(name => name,
+                name => BlastRadiusGolden.GoldenName(name, LaneTargets.ApplePlatformVersion));
             foreach (var gate in gates)
             {
                 if (!snapshots.ContainsKey(goldenNames[gate]))
@@ -1530,9 +1530,8 @@ partial class Build
             var regressions = new List<string>();
             foreach (var name in gates)
             {
-                var snapshot = NormalizeDiffOutput(System.Text.Encoding.UTF8.GetString(snapshots[goldenNames[name]]));
-                var fresh = NormalizeDiffOutput(File.ReadAllText(measurementsDir / name));
-                if (!string.Equals(snapshot, fresh, StringComparison.Ordinal))
+                var golden = System.Text.Encoding.UTF8.GetString(snapshots[goldenNames[name]]);
+                if (!BlastRadiusGolden.Matches(golden, File.ReadAllText(measurementsDir / name)))
                     regressions.Add(name);
             }
 
@@ -1546,6 +1545,8 @@ partial class Build
                     Log.Error("{Content}", snapshot);
                     Log.Error("=== {Name}: fresh (working tree) ===", name);
                     Log.Error("{Content}", fresh);
+                    Log.Error("=== {Name}: changed lines, golden vs fresh ===\n{Golden}\n---\n{Fresh}", name,
+                        string.Join("\n", BlastRadiusGolden.Changes(snapshot)), string.Join("\n", BlastRadiusGolden.Changes(fresh)));
                 }
                 var message = "Blast-radius regression detected. The following committed goldens diverged:\n  - "
                     + string.Join("\n  - ", regressions)
