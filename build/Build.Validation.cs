@@ -133,6 +133,13 @@ partial class Build
             var branch = GetGitBranch();
             var outputBase = (AbsolutePath)Path.Combine(Path.GetTempPath(), $"binding-validation-{branch}");
 
+            // --- Surface capture: only a full run writes one, and any run invalidates the last ---
+            if (File.Exists(outputBase / SurfaceCaptureBuilder.CaptureFileName))
+                File.Delete(outputBase / SurfaceCaptureBuilder.CaptureFileName);
+            var surfaceCaptureRun = !Quick && Filter == null && Tier == 0;
+            var surfaceStartedAt = DateTimeOffset.UtcNow;
+            var surfaceSourceAtStart = surfaceCaptureRun ? ReadSurfaceSourceState() : null;
+
             // --- Prerequisites ---
             Log.Information("=== Library Validation ===");
             Log.Information("");
@@ -845,6 +852,13 @@ partial class Build
                 compileFailed > 0 || compileNoOutput > 0 || depFailed > 0 || regressionCount > 0 ||
                 unqualifiedWithdrawals.Count > 0;
 
+            if (surfaceCaptureRun)
+                WriteSurfaceCapture(outputBase, displayTargets, results, surfaceStartedAt, surfaceSourceAtStart!,
+                    validationFailed
+                        ? [$"{compileFailed + depFailed} compile failure(s), {compileNoOutput} without output, " +
+                           $"{regressionCount} regression(s), {unqualifiedWithdrawals.Count} unqualified withdrawal target(s)"]
+                        : []);
+
             if (isFullRun && !validationFailed)
             {
                 // Preserve the baseline blocks owned by other gates (runtime_tests is populated
@@ -872,6 +886,86 @@ partial class Build
                         : $"; {unqualifiedWithdrawals.Count} target(s) failed withdrawal qualification: " +
                           string.Join("; ", unqualifiedWithdrawals)));
         });
+
+    // ============================================================
+    // Surface capture (the tip side of the formal promotion path)
+    // ============================================================
+
+    /// <summary>
+    /// Writes surface-capture.json and input-lock.json into the output base from this run's own
+    /// results, and tells the promotion candidate which source it was validated from.
+    /// </summary>
+    void WriteSurfaceCapture(AbsolutePath outputBase, IReadOnlyList<ValidationTarget> targets,
+        ConcurrentDictionary<string, TargetResult> results, DateTimeOffset startedAt,
+        SurfaceSourceState sourceAtStart, IReadOnlyList<string> runFailures)
+    {
+        var sourceAtEnd = ReadSurfaceSourceState();
+        var targetResults = targets.Select(target =>
+        {
+            var platform = ApplePlatform.FromName(target.Platform);
+            var r = results.GetValueOrDefault(target.Name);
+            return new SurfaceValidateTargetResult(target.Name,
+                new SurfaceCaptureTargetProvenance(target.Name, target.Platform, platform.SimulatorSdkName,
+                    platform.SimulatorTarget.Split('-')[0], platform.SimulatorTarget),
+                r?.Gen ?? "unknown", r?.GeneratorExitCode, r?.Compile ?? "unknown", r?.DepCompile,
+                r?.SwiftCompile ?? "unknown", r?.Errors ?? 0, r?.Lines ?? 0);
+        }).ToList();
+        // Every .libraries xcframework a target generated from: its own and its dependencies'.
+        // Apple-framework targets read the SDK, which the toolchain identity covers.
+        var inputs = targets.Where(t => t.Mode != "apple-framework")
+            .Select(t => (string)t.XcframeworkPath)
+            .Concat(targets.SelectMany(t => results.GetValueOrDefault(t.Name)?.WithdrawalProvenance?.InputHashes.Keys ?? Enumerable.Empty<string>()))
+            .Where(path => path.StartsWith(LibrariesDir + "/", StringComparison.Ordinal))
+            .Distinct(StringComparer.Ordinal)
+            .Select(path => new SurfaceLibraryInput(Path.GetFileName(Path.GetDirectoryName(path)!)!,
+                Path.GetRelativePath(RootDirectory, path).Replace(Path.DirectorySeparatorChar, '/'), path))
+            .ToList();
+        var dotnetVersion = ProcessTasks.StartProcess("dotnet", "--version", workingDirectory: RootDirectory, logOutput: false)
+            .AssertZeroExitCode().Output.StdToText().Trim();
+        var capture = SurfaceCaptureBuilder.Write(new SurfaceCaptureBuildInput
+        {
+            OutputBase = outputBase,
+            ManifestSha256 = SurfaceCanonicalJson.Sha256File(ManifestPath),
+            Toolchain = new SurfaceToolchainIdentity(ProfileContext.Profile ?? "unprofiled",
+                RunAppleCapture("xcodebuild", "-version"), RunAppleCapture("xcrun", "swiftc --version"), dotnetVersion),
+            SourceAtStart = sourceAtStart,
+            SourceAtEnd = sourceAtEnd,
+            StartedAt = startedAt,
+            FinishedAt = DateTimeOffset.UtcNow,
+            Targets = targetResults,
+            Inputs = inputs,
+            RunFailures = runFailures,
+        });
+        surfaceInvocationCapture = capture;
+        surfaceInvocationOutputBase = outputBase;
+        if (sourceAtStart.Commit is { } commit)
+            validationPromotion?.RecordSource(commit,
+                sourceAtStart.Clean && sourceAtEnd.Clean && commit == sourceAtEnd.Commit);
+        if (capture.Capture.Complete)
+            Log.Information("  Surface capture: {Path} (complete, {Source})",
+                outputBase / SurfaceCaptureBuilder.CaptureFileName, capture.Capture.SourceSha);
+        else
+            Log.Warning("  Surface capture: {Path} (incomplete: {Reasons})",
+                outputBase / SurfaceCaptureBuilder.CaptureFileName, string.Join("; ", capture.Capture.IncompletenessReasons.Take(5)));
+    }
+
+    SurfaceSourceState ReadSurfaceSourceState()
+    {
+        string? Git(string arguments)
+        {
+            try
+            {
+                var process = ProcessTasks.StartProcess("git", $"-C \"{RootDirectory}\" {arguments}", logOutput: false);
+                process.AssertWaitForExit();
+                return process.ExitCode == 0 ? process.Output.StdToText() : null;
+            }
+            catch { return null; }
+        }
+        var commit = Git("rev-parse HEAD")?.Trim();
+        var porcelain = Git("status --porcelain");
+        // An unreadable status is never clean.
+        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git("diff HEAD") ?? "");
+    }
 
     // ============================================================
     // Generate Bindings

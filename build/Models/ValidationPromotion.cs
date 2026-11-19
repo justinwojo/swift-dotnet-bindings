@@ -1,6 +1,12 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
+// Reflection JSON is fine in the Nuke host; the unit-test project link-compiles this file
+// under its AOT analyzers.
+#pragma warning disable IL2026, IL3050
+
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -29,7 +35,25 @@ public sealed class ValidationPromotion
         this.requiredReceipts = requiredReceipts.ToArray();
     }
 
+    string? sourceCommit;
+    bool sourceClean;
+    (string OldSource, string Justification)? surfaceBootstrap;
+
     public void Record(string receipt) => receipts.Add(receipt);
+
+    /// <summary>
+    /// The source the candidate was validated from. Promote() writes it as the baseline's
+    /// <c>git_sha</c> only when the checkout was clean, so the next promotion's old side can name it.
+    /// </summary>
+    public void RecordSource(string commit, bool clean)
+    {
+        sourceCommit = commit;
+        sourceClean = clean;
+    }
+
+    /// <summary>A surface comparison whose old side is not the baseline's source, accepted with a reason.</summary>
+    public void RecordSurfaceBootstrap(string oldSource, string justification)
+        => surfaceBootstrap = (oldSource, justification);
     public void UpdateResults(IDictionary<string, ValidationBaseline.LibraryResult> current)
     {
         results.Clear();
@@ -74,6 +98,20 @@ public sealed class ValidationPromotion
             // Exception retirement needs public/accessor/route proof. The policy is deliberately
             // preserved until that proof is joined, even when the candidate set is smaller.
         }
+        // Provenance for the next promotion's surface comparison, whose old side must be this source.
+        // A dirty checkout is no commit a later comparison can rebuild, so it leaves git_sha alone.
+        // skip_metrics is never written.
+        if (sourceCommit != null && sourceClean)
+            root["git_sha"] = sourceCommit[..Math.Min(9, sourceCommit.Length)];
+        // surface_bootstrap describes the promotion that wrote it; a formal one without a bootstrap drops it.
+        if (surfaceBootstrap is { } bootstrap)
+            root["surface_bootstrap"] = new JsonObject
+            {
+                ["old_source"] = bootstrap.OldSource,
+                ["justification"] = bootstrap.Justification,
+            };
+        else if (sourceCommit != null)
+            root.Remove("surface_bootstrap");
         var temporary = path + ".candidate-" + Guid.NewGuid().ToString("N");
         try
         {
