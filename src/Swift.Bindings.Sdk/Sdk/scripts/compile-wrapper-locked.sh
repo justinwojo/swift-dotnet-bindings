@@ -48,6 +48,12 @@ has_unmet_arch_contract() {
   grep -Eq '<_SwiftBindingWrapperUnmetContractArchitectures>[[:space:]]*[^[:space:]<]' "$PROPS" 2>/dev/null
 }
 
+has_unrouted_bridges() {
+  # True when the last compile was asked to route bridges and wrote no receipt (SWIFTBIND134): its
+  # wrapper is on disk and recorded present, but the build failed, so it must not count as complete.
+  grep -Eq '<_SwiftBindingUnroutedBridgesCause>[[:space:]]*[^[:space:]<]' "$PROPS" 2>/dev/null
+}
+
 is_complete() {
   # A genuinely-published wrapper: metadata flag flipped True AND the artifact on disk AND no
   # outstanding architecture-contract violation. The last clause matters because a fat-fold
@@ -58,7 +64,8 @@ is_complete() {
   # flag) or fails the build again, which is the correct fail-closed behavior.
   [ -d "$XCFW" ] \
     && grep -Eq '<_SwiftBindingHasWrapperXCFramework>[[:space:]]*True[[:space:]]*</_SwiftBindingHasWrapperXCFramework>' "$PROPS" 2>/dev/null \
-    && ! has_unmet_arch_contract
+    && ! has_unmet_arch_contract \
+    && ! has_unrouted_bridges
 }
 
 cleanup() {

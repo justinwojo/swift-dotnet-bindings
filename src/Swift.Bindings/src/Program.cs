@@ -2101,10 +2101,11 @@ namespace BindingsGeneration
             // A relink with the bridges replaces it with a verification of the passes against that receipt.
             var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
             SwiftWrapperLoweringEvidence? lowering = null;
+            string? loweringNotCollected = null;
             if (loweringReceiptPath != null)
             {
                 lowering = SwiftWrapperLoweringEvidence.Begin(
-                    loweringReceiptPath, outputDirectory, moduleName, loweringPlatform, logger);
+                    loweringReceiptPath, outputDirectory, moduleName, loweringPlatform, logger, out loweringNotCollected);
             }
 
             // Decide the wrapper's CPU arch passes from the SOURCE slice. x86_64 lives only in the
@@ -2374,7 +2375,8 @@ namespace BindingsGeneration
                                 autoMatchSource ? Array.Empty<string>() : relinkUnmerged);
                         },
                         () => XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
-                            outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet)),
+                            outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet),
+                        loweringNotCollected),
                     ref compilationResult, logger, out unroutedCause);
                 hasWrapperXcfw = !routingFailed
                     && compilationResult?.XCFrameworkPath != null
@@ -2495,11 +2497,6 @@ namespace BindingsGeneration
         /// compiled and is on disk. <paramref name="compilationResult"/> becomes the relinked wrapper,
         /// or null when the first wrapper could not be put back. Returns false when routing failed.
         /// </summary>
-        internal static bool CommitReceiptAndRouteBridges(
-            WrapperRoutingRequest request, ref SwiftWrapperCompilationResult? compilationResult, ILogger logger)
-            => CommitReceiptAndRouteBridges(request, ref compilationResult, logger, out _);
-
-        /// <inheritdoc cref="CommitReceiptAndRouteBridges(WrapperRoutingRequest, ref SwiftWrapperCompilationResult?, ILogger)"/>
         /// <param name="unroutedCause">
         /// Set when routing was asked for, no receipt was written, and the module still has imports a
         /// receipt could route (<see cref="UnroutedBridgesCause"/>): why no receipt was written. The

@@ -10,14 +10,13 @@ namespace BindingsGeneration;
 /// of another module that the parser kept, so that two paths see its members. The interface pre-pass
 /// (<see cref="ForeignTypeExtensionEmitter"/>) reads them from the interface text and binds the ones
 /// it can marshal. The cross-module path (<see cref="CrossModuleExtensionEmitter"/>) reads them from
-/// the ABI and binds others. Neither path can tell on its own whether the other bound a member. So
-/// both record what they declined here, the pre-pass also records what it bound, and
-/// <see cref="Settle"/> writes the rows once emission has settled.
+/// the ABI and binds others. The pre-pass runs first and records here what it bound and declined.
 ///
 /// <para>Each row is decided by full member identity (<see cref="CarriedMemberIdentity"/>), so an
-/// overload is never taken for another one. An ABI decline is dropped when the pre-pass bound the
-/// same member. A pre-pass decline is written only when the ABI lists no such member, since the
-/// cross-module path rows or binds every member the ABI lists.</para>
+/// overload is never taken for another one. An ABI decline is written in place unless the pre-pass
+/// bound the same member (<see cref="PrePassBound"/>). A pre-pass decline is written by
+/// <see cref="Settle"/> only when the ABI lists no such member, since the cross-module path rows or
+/// binds every member the ABI lists.</para>
 /// </summary>
 internal static class CarriedReceiverRows
 {
@@ -73,8 +72,21 @@ internal static class CarriedReceiverRows
     }
 
     /// <summary>
-    /// Writes the settled rows of every carried receiver into the live report session. Call once,
-    /// after emission has settled and before the report is completed.
+    /// Whether the interface pre-pass bound <paramref name="member"/> of <paramref name="receiver"/>,
+    /// which the ABI path declined. A shape the pre-pass never reads is never bound by it.
+    /// </summary>
+    internal static bool PrePassBound(ModuleEmissionContext ctx, string receiver, BaseDecl member)
+        => IdentityOf(member) is { } identity && PrePassBound(ctx.CarriedPrePassOutcomes, receiver, identity);
+
+    private static bool PrePassBound(
+        IReadOnlyList<CarriedPrePassOutcome> outcomes, string receiver, CarriedMemberIdentity identity)
+        => outcomes.Any(o => o.Bound
+            && string.Equals(o.Receiver, receiver, StringComparison.Ordinal)
+            && o.Identity.SameMember(identity));
+
+    /// <summary>
+    /// Writes the pre-pass declines of every carried receiver that the ABI does not list into the
+    /// live report session. Call once, after emission has settled and before the report is completed.
     /// </summary>
     public static void Settle(ModuleDecl moduleDecl, ModuleEmissionContext ctx)
     {
@@ -82,22 +94,10 @@ internal static class CarriedReceiverRows
         ArgumentNullException.ThrowIfNull(ctx);
 
         var outcomes = ctx.CarriedPrePassOutcomes;
-        bool PrePassBound(string receiver, CarriedMemberIdentity identity)
-            => outcomes.Any(o => o.Bound
-                && string.Equals(o.Receiver, receiver, StringComparison.Ordinal)
-                && o.Identity.SameMember(identity));
-
-        foreach (var decline in ctx.CarriedAbiDeclines)
-        {
-            if (IdentityOf(decline.Member) is { } identity && PrePassBound(decline.Receiver, identity))
-                continue;
-            CrossModuleExtensionEmitter.WriteDeclineRow(decline.Member, decline.Reason, decline.Details);
-        }
-
         var abiMembers = new Dictionary<string, List<CarriedMemberIdentity>>(StringComparer.Ordinal);
         foreach (var outcome in outcomes)
         {
-            if (outcome.Bound || PrePassBound(outcome.Receiver, outcome.Identity))
+            if (outcome.Bound || PrePassBound(outcomes, outcome.Receiver, outcome.Identity))
                 continue;
             if (!abiMembers.TryGetValue(outcome.Receiver, out var listed))
                 abiMembers[outcome.Receiver] = listed = AbiMembersOf(moduleDecl, outcome.Receiver);
@@ -188,6 +188,3 @@ internal sealed record CarriedPrePassOutcome(
     DeclId MemberId,
     SkipReason Reason = SkipReason.UnsupportedSignature,
     string Details = "");
-
-/// <summary>One member of a carried receiver the cross-module path declined, with its row.</summary>
-internal sealed record CarriedAbiDecline(string Receiver, BaseDecl Member, SkipReason Reason, string Details);

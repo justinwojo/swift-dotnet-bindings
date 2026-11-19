@@ -2103,6 +2103,7 @@ public static class BindingsGeneratorCommand
                 {
                     directLowering = SwiftWrapperLoweringEvidence.Begin(
                         collectSwiftLoweringEvidence!, outputDirectory, directModuleName, loweringPlatform, logger,
+                        out loweringNotCollected,
                         boundDescriptor: new SwiftLoweringProbe.ExplicitDescriptor(swiftAbiPath!, swiftInterface));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)

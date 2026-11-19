@@ -1243,26 +1243,26 @@ public class CrossModuleExtensionEmitterTests
             Assert.Contains("Reset", csOutput.ToString());
     }
 
-    /// <summary>
-    /// The rows of an emission attempt the containment loop discards are discarded with it: the
-    /// attempt snapshot rewinds the cross-module declines with the rest of the context.
-    /// </summary>
     [Fact]
-    public void Settle_AfterADiscardedAttempt_WritesOnlyTheSettledAttemptsRows()
+    public void Emit_DeclinedMemberOfACarriedReceiver_KeepsItsPlaceInTheReport()
     {
+        // The row is decided when the ABI path declines the member, so a row the report receives
+        // afterwards (here an ordinary skip) still follows it, as it did before the rows had an owner.
         var (csWriter, swiftWriter, _, moduleDecl, classDecl, conductor, env) = CreateSetup();
         var declined = CreateMethodDecl("doWork", "TestModule", classDecl);
         declined.IsMutating = true;
         classDecl.Methods.Add(declined);
+        var later = CreateMethodDecl("later", "TestModule", classDecl);
         var emissionContext = new ModuleEmissionContext();
-        var snapshot = ModuleEmissionStateSnapshot.Capture(emissionContext);
-        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-            ThreadContext(emissionContext));
-        snapshot.Restore();
 
-        var report = RunSettled(moduleDecl, emissionContext, () => { });
+        var report = RunSettled(moduleDecl, emissionContext, () =>
+        {
+            CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
+                ThreadContext(emissionContext));
+            ReportCollector.RecordMemberSkipped(later, SkipReason.UnsupportedType, "a later row");
+        });
 
-        Assert.Empty(report.SkippedItems);
+        Assert.Equal(new[] { "doWork", "later" }, report.SkippedItems.Select(i => i.Name).ToArray());
     }
 
     private static ProtocolExtensionMethodDecl PrePassMember(string name, string printedName, string signature) => new()

@@ -731,24 +731,14 @@ public sealed class ModuleEmissionContext
     public void AddProtocolExtDecline(ProtocolExtensionDecline decline) => _protocolExtDeclines.Add(decline);
 
     private readonly List<CarriedPrePassOutcome> _carriedPrePassOutcomes = new();
-    private readonly List<CarriedAbiDecline> _carriedAbiDeclines = new();
 
     /// <summary>
-    /// What the interface pre-pass bound or declined on each carried receiver, for
-    /// <see cref="CarriedReceiverRows.Settle"/>. Recorded once, before the containment loop.
+    /// What the interface pre-pass bound or declined on each carried receiver, read by
+    /// <see cref="CarriedReceiverRows"/>. Recorded once, before the containment loop.
     /// </summary>
     internal IReadOnlyList<CarriedPrePassOutcome> CarriedPrePassOutcomes => _carriedPrePassOutcomes;
 
     internal void AddCarriedPrePassOutcome(CarriedPrePassOutcome outcome) => _carriedPrePassOutcomes.Add(outcome);
-
-    /// <summary>
-    /// The members of carried receivers the cross-module path declined in this attempt, for
-    /// <see cref="CarriedReceiverRows.Settle"/>. The attempt snapshot rewinds them with the rest of
-    /// the context, so only the settled attempt's declines are written.
-    /// </summary>
-    internal IReadOnlyList<CarriedAbiDecline> CarriedAbiDeclines => _carriedAbiDeclines;
-
-    internal void AddCarriedAbiDecline(CarriedAbiDecline decline) => _carriedAbiDeclines.Add(decline);
 
     /// <summary>Gets or creates extension class info for a foreign type.</summary>
     public ForeignExtensionClassInfo GetOrAddForeignExtClass(string key, Func<ForeignExtensionClassInfo> factory)

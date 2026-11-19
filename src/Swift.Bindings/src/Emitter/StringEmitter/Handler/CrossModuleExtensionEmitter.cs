@@ -470,9 +470,8 @@ public static partial class CrossModuleExtensionEmitter
     /// <summary>
     /// Reports one member the current module adds to a foreign receiver that this path does not bind.
     /// Internal and SPI members are not public surface. The interface pre-pass may bind the same
-    /// member from the interface text (an Objective-C-module receiver), so with an emission context
-    /// the row goes to <see cref="CarriedReceiverRows"/>, which writes it once both paths have run
-    /// unless the pre-pass bound that member. Without one (a direct call) it is written here.
+    /// member from the interface text (an Objective-C-module receiver); the row is written unless it
+    /// did (<see cref="CarriedReceiverRows.PrePassBound"/>).
     /// </summary>
     private static void RecordUnboundCrossModuleMember(
         BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
@@ -482,13 +481,12 @@ public static partial class CrossModuleExtensionEmitter
     private static void RecordDecline(
         BaseDecl member, TypeDecl receiver, SkipReason reason, string details, ModuleEmissionContext? emissionContext)
     {
-        if (emissionContext is null)
-        {
-            WriteDeclineRow(member, reason, details);
+        // The interface pre-pass ran before emission, so whether it bound this member is known here;
+        // the row is written in place, where the report has always ordered it.
+        if (emissionContext is not null
+            && CarriedReceiverRows.PrePassBound(emissionContext, receiver.SwiftTypeName.ModuleQualifiedName, member))
             return;
-        }
-        emissionContext.AddCarriedAbiDecline(
-            new CarriedAbiDecline(receiver.SwiftTypeName.ModuleQualifiedName, member, reason, details));
+        WriteDeclineRow(member, reason, details);
     }
 
     /// <summary>Writes the skip row of a member this path declined, unless it is not public surface.</summary>

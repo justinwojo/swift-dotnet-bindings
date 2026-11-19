@@ -391,6 +391,20 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
     }
 
     [Fact]
+    public void Begin_AnUnreadablePlanSidecar_ReturnsWhyNothingIsCollected()
+    {
+        var sidecar = Path.Combine(_dir, "Broken" + SwiftCallPlanSet.FileName(string.Empty));
+        File.WriteAllText(sidecar, "{ not json");
+
+        var collection = SwiftWrapperLoweringEvidence.Begin(
+            Path.Combine(_dir, "receipt.json"), _dir, Artifact, "ios", NullLogger.Instance, out var notCollected, () => Compiler, Sdk);
+
+        Assert.Null(collection);
+        Assert.Contains(sidecar, notCollected);
+        Assert.Contains("could not be read", notCollected);
+    }
+
+    [Fact]
     public void Commit_WritesTheWholeReceipt_AndLeavesNoTemporaryFile()
     {
         var path = Path.Combine(_dir, "obj", "receipt.json");

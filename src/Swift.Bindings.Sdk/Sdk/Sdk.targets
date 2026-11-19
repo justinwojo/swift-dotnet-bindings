@@ -2060,6 +2060,13 @@ done; true"
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperModuleName" />
     </XmlPeek>
 
+    <!-- A compile that failed with SWIFTBIND134 still records its wrapper as present, so the cause it
+         persisted is what keeps the next build from skipping the compile on the up-to-date fingerprint. -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingUnroutedBridgesCause/text()">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingUnroutedBridgesCause" />
+    </XmlPeek>
+
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingWrapperSliceCount/text()">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
@@ -3141,6 +3148,7 @@ done; true"
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true'
                                     AND '@(ProjectReference)' == ''
                                     AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                                    AND '$(_SwiftBindingUnroutedBridgesCause)' == ''
                                     AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">true</_SwiftWrapperSkip>
     </PropertyGroup>
 
