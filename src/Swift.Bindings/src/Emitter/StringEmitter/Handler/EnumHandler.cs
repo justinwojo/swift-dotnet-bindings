@@ -63,6 +63,15 @@ namespace BindingsGeneration
             return new TypeEnvironment(enumDecl, typeDatabase);
         }
 
+        /// <summary>The nearest enclosing generic type of <paramref name="decl"/>, if any.</summary>
+        private static TypeDecl? GenericAncestor(BaseDecl decl)
+        {
+            for (var parent = decl.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
+                if (type.IsGeneric)
+                    return type;
+            return null;
+        }
+
         /// <inheritdoc/>
         public void Emit(CSharpWriter csWriter, SwiftWriter swiftWriter, IEnvironment env, Conductor conductor, TypeHandlerContext context)
         {
@@ -102,6 +111,36 @@ namespace BindingsGeneration
                 return;
             }
 
+            // Which projection the enum takes, decided before it is recorded as emitted, because the
+            // single-case refusal below must record its row first: ReportCollector drops a type-skip
+            // row for a key already in EmittedTypeKeys, so a refusal after RecordTypeEmitted is silent
+            // and the enum counts as emitted. That is the shape of a single-case enum nested in a
+            // generic type (`Box<T>.Unit { case only }`), which never takes the C# enum projection.
+            // The demotion check reads the TypeRecord flag (post-scan may have demoted the enum if it
+            // is used as a generic type argument; C# enums can't implement ISwiftObject); with no
+            // TypeRecord (test scenarios) the decl-level check decides alone.
+            var wasDemotedFromSimple = enumEnv.TypeDatabase.TryGetTypeRecord(
+                enumDecl.SwiftTypeName, out var enumTypeRecord) &&
+                !enumTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
+            var takesSimpleEnumPath = !enumDecl.IsNamespaceEnum && !wasDemotedFromSimple &&
+                ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
+                (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)));
+
+            // Single-case enums with no payload have zero runtime size — Swift optimizes the
+            // tag away since there's only one possible value. Emitting as ISwiftObject is invalid
+            // because TypeMetadata.Size == 0, which breaks SafeHandle allocations. Skip emission;
+            // these unit-type enums carry no information and aren't useful as bindings.
+            if (!enumDecl.IsNamespaceEnum && !takesSimpleEnumPath
+                && enumDecl.Cases.Count == 1 && !enumDecl.HasAssociatedValueCases)
+            {
+                ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.UnsupportedType,
+                    "Single-case enum with no payload has zero runtime size (TypeMetadata.Size == 0)"
+                    + (GenericAncestor(enumDecl) is { } genericAncestor
+                        ? $", and it is nested in the generic type '{genericAncestor.SwiftTypeName}', so it cannot take the C# enum projection."
+                        : "."));
+                return;
+            }
+
             ReportCollector.RecordTypeEmitted(enumDecl);
 
             // Caseless enums (zero cases) → static class.
@@ -135,25 +174,9 @@ namespace BindingsGeneration
             // Also check TypeRecord flag — post-scan may have demoted the enum if it's
             // used as a generic type argument (C# enums can't implement ISwiftObject).
             // If no TypeRecord exists (test scenarios), fall back to decl-level check only.
-            var wasDemotedFromSimple = enumEnv.TypeDatabase.TryGetTypeRecord(
-                enumDecl.SwiftTypeName, out var enumTypeRecord) &&
-                !enumTypeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
-            if (!wasDemotedFromSimple &&
-                ((enumDecl.IsSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl)) ||
-                (enumDecl.IsStringRawValueSimpleEnum && CanSafelyEmitAsSimpleEnum(enumDecl))))
+            if (takesSimpleEnumPath)
             {
                 EmitSimpleEnum(csWriter, swiftWriter, enumDecl, moduleDecl, env.TypeDatabase, conductor, context);
-                return;
-            }
-
-            // Single-case enums with no payload have zero runtime size — Swift optimizes the
-            // tag away since there's only one possible value. Emitting as ISwiftObject is invalid
-            // because TypeMetadata.Size == 0, which breaks SafeHandle allocations. Skip emission;
-            // these unit-type enums carry no information and aren't useful as bindings.
-            if (enumDecl.Cases.Count == 1 && !enumDecl.HasAssociatedValueCases)
-            {
-                ReportCollector.RecordTypeSkipped(enumDecl, SkipReason.UnsupportedType,
-                    "Single-case enum with no payload has zero runtime size (TypeMetadata.Size == 0).");
                 return;
             }
 

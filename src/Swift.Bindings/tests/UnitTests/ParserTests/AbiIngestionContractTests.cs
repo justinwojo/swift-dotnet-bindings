@@ -243,6 +243,39 @@ public class AbiIngestionContractTests
         Assert.Equal(0, result.Reconciliation.DroppedWithError);
     }
 
+    /// <summary>
+    /// A module-level operator function (<c>public func &amp;&amp;(l: P, r: P) -&gt; P</c>) parses into an
+    /// <see cref="OperatorDecl"/> with the module as its parent. The parser used to keep only the
+    /// module's types, protocols, functions and properties, so the operator fell out of the model and
+    /// no later stage could report it. It must reach <see cref="ModuleDecl.Operators"/>.
+    /// </summary>
+    [Fact]
+    public void ParseModule_ModuleLevelOperatorFunction_ReachesModuleOperators()
+    {
+        InputResolutionReport.Reset();
+        var logger = new CapturingLogger();
+        static Node BoolType()
+        {
+            var n = CreateNode("TypeNominal", name: "Bool", moduleName: "Swift");
+            n.PrintedName = "Swift.Bool";
+            n.usr = "s:Sb";
+            return n;
+        }
+        var op = CreateNode(
+            "Function", declKind: "Func", name: "&&", moduleName: "TestModule",
+            mangledName: "$s10TestModule2aaoiyS2b_SbtF",
+            children: new[] { BoolType(), BoolType(), BoolType() });
+        op.PrintedName = "&&(_:_:)";
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, logger, op);
+
+        var result = fixture.Parser.ParseModule();
+
+        var parsed = Assert.Single(result.ModuleDecl.Operators);
+        Assert.Equal("&&", parsed.OperatorSymbol);
+        Assert.Same(result.ModuleDecl, parsed.ParentDecl);
+        Assert.Empty(result.ModuleDecl.Methods);
+    }
+
     // ---- missing load-bearing field: record drop (SWIFTBIND046) ----
 
     /// <summary>

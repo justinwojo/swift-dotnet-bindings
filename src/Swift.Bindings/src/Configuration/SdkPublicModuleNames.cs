@@ -38,6 +38,9 @@ namespace BindingsGeneration
         /// <summary>The lookup installed for the current run, or null outside one.</summary>
         internal static SdkPublicModuleNames? Current => _current.Value;
 
+        /// <summary>The SDK of every slice of the run, resolved on first use.</summary>
+        internal IReadOnlyList<string> SdkRoots => _sdkRoots.Value;
+
         internal SdkPublicModuleNames(params string?[] sdkRoots) =>
             _sdkRoots = new Lazy<IReadOnlyList<string>>(() => NonEmpty(sdkRoots ?? Array.Empty<string?>()));
 

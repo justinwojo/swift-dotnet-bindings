@@ -179,6 +179,8 @@ namespace BindingsGeneration
             // single late-injection point the per-env path always used, just on the shared instance.
             context.GetEmissionContext().Marshaling?.Existential.SetCompositionCollector(conductor.CompositionInterfaces);
             {
+                ReportModuleLevelOperators(moduleDecl, env.TypeDatabase);
+
                 // Emit top-level methods
                 if (moduleDecl.Methods.Any())
                 {
@@ -499,6 +501,32 @@ namespace BindingsGeneration
                 csWriter.InnerWriter.Write(proxySource);
             csWriter.WriteLine("}");
 
+        }
+
+        /// <summary>
+        /// Records a row for every operator function the module declares at module level
+        /// (<c>public func &amp;&amp; &lt;V&gt;(l: P&lt;V&gt;, r: P&lt;V&gt;) -&gt; P&lt;V&gt;</c>). The generator binds operators
+        /// declared inside a type only (<see cref="TypeDecl.Operators"/>); a module-level operator has
+        /// no C# home, since C# declares an operator in one of its operand types, and its Swift spelling
+        /// may be one C# cannot overload at all (<c>&amp;&amp;</c>, <c>||</c>). Before this, the parser
+        /// discarded these declarations and nothing reported them. A member the validation pipeline
+        /// declines for its own reason (internal, SPI, unavailable) keeps that reason.
+        /// </summary>
+        private static void ReportModuleLevelOperators(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
+        {
+            if (moduleDecl.Operators.Count == 0)
+                return;
+            var pipeline = new MemberValidationPipeline(typeDatabase);
+            foreach (var op in moduleDecl.Operators)
+            {
+                var validation = pipeline.ValidateMethodEmission(op.UnderlyingMethod, null);
+                var (reason, details) = !validation.ShouldEmit && validation.Reason is { } declined
+                    ? (declined, validation.Details ?? "")
+                    : (SkipReason.UnsupportedSignature,
+                        $"module-level operator function '{op.OperatorSymbol}': operators are bound only where a " +
+                        "type declares them, and C# declares an operator inside one of its operand types");
+                ReportCollector.RecordMemberSkipped(op, reason, details);
+            }
         }
 
         /// <summary>

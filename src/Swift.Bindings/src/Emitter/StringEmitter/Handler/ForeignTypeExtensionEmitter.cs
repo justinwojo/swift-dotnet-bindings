@@ -160,8 +160,16 @@ public static class ForeignTypeExtensionEmitter
             return;
         moduleDecl.ForeignTypeDeclKinds.TryGetValue(foreignTypeQualifiedName, out var receiverKind);
         var receiver = string.IsNullOrEmpty(receiverKind) ? "type" : receiverKind.ToLowerInvariant();
+        // On a foreign protocol, a member that supplies the default of one of the protocol's own
+        // requirements is reached through that requirement. When the requirements cannot be read,
+        // every member keeps its row: most members of such an extension are additions.
+        var requirements = receiverKind == "Protocol"
+            ? ForeignProtocolRequirements.Of(moduleDecl, foreignTypeQualifiedName)
+            : null;
         foreach (var member in members)
         {
+            if (requirements?.Declares(ForeignProtocolRequirements.KeyOf(member)) == true)
+                continue;
             var kind = member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method;
             if (moduleDecl.UnboundForeignReceiverMembers.Any(u =>
                     u.Kind == kind &&
@@ -172,16 +180,24 @@ public static class ForeignTypeExtensionEmitter
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, member),
                 SkipReason.UnsupportedSignature,
                 $"Foreign extension on '{foreignTypeQualifiedName}': the receiver is a Swift {receiver}, not an "
-                + "Objective-C class, and members added to a foreign Swift value type are not bound unless the "
-                + "cross-module extension path carries the receiver.");
+                + "Objective-C class, and members added to another module's Swift type are not bound unless the "
+                + "cross-module extension path carries the receiver (it carries classes and structs).");
         }
     }
 
+    /// <summary>
+    /// Whether the parser kept <paramref name="foreignTypeQualifiedName"/> as a type the cross-module
+    /// extension path binds, which then reports that receiver's losses itself. Only a class or a struct
+    /// counts: that path carries no other kind (<c>CrossModuleExtensionEmitter.Emit</c>), so a foreign
+    /// protocol the parser kept for its extension members (<c>extension Combine.Cancellable</c>) is
+    /// reported here, or by nobody.
+    /// </summary>
     private static bool IsCarriedCrossModuleReceiver(IEnumerable<TypeDecl> types, string foreignTypeQualifiedName)
     {
         foreach (var type in types)
         {
-            if (string.Equals(type.SwiftTypeName.ModuleQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal))
+            if (type is ClassDecl or StructDecl
+                && string.Equals(type.SwiftTypeName.ModuleQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal))
                 return true;
             if (type.Types.Count > 0 && IsCarriedCrossModuleReceiver(type.Types, foreignTypeQualifiedName))
                 return true;

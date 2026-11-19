@@ -59,6 +59,70 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void FromDiagnostics_BuildTaskErrorOnly_ReasonNamesTheError()
+        {
+            // A build task's own error code (a SWIFTBIND target error from buildTransitive targets) is
+            // neither CS nor NU/MSB. The verdict stays inconclusive, but the reason must name it, so
+            // SWIFTBIND114 says what stopped the build instead of "no error reported".
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new[] { Err("SWIFTBIND132", file: null, line: 0, col: 0) }, buildSucceeded: false);
+
+            Assert.Equal(CSharpVerificationOutcome.Inconclusive, result.Outcome);
+            Assert.Contains("SWIFTBIND132", result.InconclusiveReason!);
+            Assert.Contains("SWIFTBIND132 message", result.InconclusiveReason!);
+        }
+
+        [Fact]
+        public void FromDiagnostics_NoDiagnosticHostFailure_ReasonQuotesTheBuildOutput()
+        {
+            // The host never started the build (a global.json naming an SDK the host lacks): no
+            // diagnostic of any family. The reason quotes the output line that says why.
+            const string output =
+                "\nThe command could not be loaded, possibly because:\n" +
+                "  * You intended to execute a .NET SDK command:\n      A compatible .NET SDK was not found.\n" +
+                "Requested SDK version: 10.0.100\n";
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new List<CSharpCompileDiagnostic>(), buildSucceeded: false, buildOutput: output);
+
+            Assert.Equal(CSharpVerificationOutcome.Inconclusive, result.Outcome);
+            Assert.Contains("The command could not be loaded", result.InconclusiveReason!);
+        }
+
+        [Fact]
+        public void FromDiagnostics_NoDiagnosticFailure_ReasonQuotesTheErrorLineNotAnEarlierWarning()
+        {
+            const string output =
+                "warning: optional cache not found\n" +
+                "warning: an error occurred reading the optional cache\n" +
+                "error: unable to start the build host\n" +
+                "    0 Warning(s)\n    1 Error(s)\n";
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new List<CSharpCompileDiagnostic>(), buildSucceeded: false, buildOutput: output);
+
+            Assert.Contains("unable to start the build host", result.InconclusiveReason!);
+            Assert.DoesNotContain("optional cache", result.InconclusiveReason!);
+        }
+
+        [Fact]
+        public void FromDiagnostics_NoDiagnosticFailure_ErrorMentioningAWarningIsStillTheCause()
+        {
+            const string output = "error: cannot open warning configuration\nBuild FAILED.\n";
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new List<CSharpCompileDiagnostic>(), buildSucceeded: false, buildOutput: output);
+
+            Assert.Contains("cannot open warning configuration", result.InconclusiveReason!);
+        }
+
+        [Fact]
+        public void FromDiagnostics_RestoreError_ReasonCarriesItsMessage()
+        {
+            var result = CSharpVerificationResult.FromDiagnostics(
+                new[] { Err("NU1102", file: null, line: 0, col: 0) }, buildSucceeded: false);
+
+            Assert.Contains("NU1102: NU1102 message", result.InconclusiveReason!);
+        }
+
+        [Fact]
         public void FromDiagnostics_NoDiagnostics_SucceededBuild_IsClean()
         {
             var result = CSharpVerificationResult.FromDiagnostics(

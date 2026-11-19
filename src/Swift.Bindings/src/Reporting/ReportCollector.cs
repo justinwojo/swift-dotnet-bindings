@@ -486,7 +486,11 @@ public static class ReportCollector
         ArgumentNullException.ThrowIfNull(propertyDecl);
         RecordMemberSkippedInternal(
             MemberDiagnosticIdentity.FromProperty(propertyDecl, accessor),
-            displayName: propertyDecl.Name,
+            // A property-wrapper projection is named as Swift spells it (`$url`), not by the C#-safe
+            // name the parser gives it (`projectedurl`), which names no declaration a reader can find.
+            displayName: propertyDecl.OriginalSwiftName is { Length: > 1 } original && original[0] == '$'
+                ? original
+                : propertyDecl.Name,
             propertyDecl.ParentDecl,
             reason,
             details,
@@ -1175,7 +1179,8 @@ public static class ReportCollector
     {
         var totalTypes = 0;
         var totalMembers = moduleDecl.Methods.Where(m => !m.IsAccessor).Select(m => m.Name).Distinct().Count()
-                        + moduleDecl.Properties.Select(p => p.Name).Distinct().Count();
+                        + moduleDecl.Properties.Select(p => p.Name).Distinct().Count()
+                        + moduleDecl.Operators.Select(o => o.Name).Distinct().Count();
 
         // moduleDecl.Types already includes ProtocolDecl instances (ProtocolDecl : TypeDecl),
         // so we don't separately iterate moduleDecl.Protocols to avoid double-counting.

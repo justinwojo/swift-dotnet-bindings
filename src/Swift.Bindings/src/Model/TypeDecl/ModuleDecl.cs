@@ -55,6 +55,12 @@ namespace BindingsGeneration
         public required List<ProtocolDecl> Protocols { get; set; }
 
         /// <summary>
+        /// Operator functions declared at module level (<c>public func &amp;&amp; (…)</c>), kept so they can
+        /// be reported: no emission path binds them.
+        /// </summary>
+        public List<OperatorDecl> Operators { get; set; } = new();
+
+        /// <summary>
         /// Module names from --framework-dependency that need `import` in the Swift wrapper.
         /// Distinct from <see cref="Dependencies"/> which is ABI-derived and filtered through
         /// <see cref="AppleFrameworkRegistry.IsWrapperImportableModule"/>.

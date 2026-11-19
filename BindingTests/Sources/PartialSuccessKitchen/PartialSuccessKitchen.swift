@@ -14,6 +14,7 @@
 // build/baselines/partial-success-kitchen-baseline.json, so an unrelated new shape here would
 // look like report drift and fail the gate until the baseline is updated in the same commit.
 
+import Combine
 import SwiftUI
 
 // ── Positive controls (must emit) ────────────────────────────────────────────────────────
@@ -155,4 +156,53 @@ extension AttributeScopes {
         public init() {}
     }
     public var kitchen: KitchenAttributes.Type { KitchenAttributes.self }
+}
+
+// S16 — single-case enums nested in a generic type, directly, in an extension of it, and one level
+// deeper. A single-case enum has zero runtime size and none of these can take the C# enum
+// projection, so each is refused as a type and its row must reach the report (the refusal once
+// ran after the type was recorded as emitted, which swallowed the row).
+public struct KitchenGenericHost<Value> {
+    public var value: Value
+    public init(value: Value) { self.value = value }
+    public enum Unit { case only }
+    public struct Interpolation {
+        public init() {}
+        public enum Token { case id }
+    }
+}
+
+extension KitchenGenericHost {
+    public enum DecodingErrors: Error { case unsupportedValueType }
+}
+
+// S17 — generic operator functions declared at module level. The generator binds operators a
+// type declares; these have no C# home (and `&&`/`||` are not overloadable in C#), so each must
+// be reported rather than dropped by the parser.
+public struct KitchenPredicate<Value> {
+    public init() {}
+}
+public func && <Value>(left: KitchenPredicate<Value>, right: KitchenPredicate<Value>) -> KitchenPredicate<Value> { left }
+public func || <Value>(left: KitchenPredicate<Value>, right: KitchenPredicate<Value>) -> KitchenPredicate<Value> { left }
+prefix public func ! <Value>(operand: KitchenPredicate<Value>) -> KitchenPredicate<Value> { operand }
+
+// S18 — a property-wrapper projection (`$link`) of a public wrapped property. The interface prints
+// only `link`; the projection is not bound and must be reported as a projection, not as internal.
+@propertyWrapper
+public struct KitchenWrapper<T> {
+    public var wrappedValue: T
+    public init(wrappedValue: T) { self.wrappedValue = wrappedValue }
+    public var projectedValue: KitchenWrapper<T> { self }
+}
+
+public final class KitchenWrapperHost {
+    @KitchenWrapper public var link: String = "kitchen"
+    public init() {}
+}
+
+// S19 — a method this module adds to another module's protocol (Combine's Cancellable). No path
+// binds members of a foreign protocol's extension, so the member must be reported.
+public final class KitchenAnchor { public init() {} }
+extension Cancellable {
+    public func kitchenStoreWhileAlive(_ anchor: KitchenAnchor) {}
 }
