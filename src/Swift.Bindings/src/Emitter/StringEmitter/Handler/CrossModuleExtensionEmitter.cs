@@ -186,7 +186,7 @@ public static partial class CrossModuleExtensionEmitter
             {
                 // Withdraw before classification: an Apple type absent from the .NET surface would
                 // resolve to a phantom bridged record and dangle in the getter/setter body.
-                if (TryWithdrawAbsentAppleProperty(csWriter, property, typeDatabase))
+                if (TryWithdrawAbsentAppleProperty(csWriter, property, classDecl, typeDatabase, context?.GetEmissionContext()))
                 {
                     withdrawnProperties.Add(property);
                     continue;
@@ -224,7 +224,7 @@ public static partial class CrossModuleExtensionEmitter
                 // parameter is unmarshalable by every path (direct, async, or closure trampoline),
                 // and the coarse cdecl classifier below would otherwise accept it as an ObjC-class
                 // pointer and emit a dangling reference.
-                if (TryWithdrawAbsentAppleMethod(csWriter, method, typeDatabase))
+                if (TryWithdrawAbsentAppleMethod(csWriter, method, classDecl, typeDatabase, context?.GetEmissionContext()))
                 {
                     withdrawnMethods.Add(method);
                     continue;
@@ -469,57 +469,45 @@ public static partial class CrossModuleExtensionEmitter
 
     /// <summary>
     /// Reports one member the current module adds to a foreign receiver that this path does not bind.
-    /// Internal and SPI members are not public surface. The interface pre-pass may have bound a function
-    /// or variable of the same receiver from the interface text (an Objective-C-module receiver); such a
-    /// member is not lost, so it is left alone. The pre-pass reports nothing for a receiver this path
-    /// carries, so whatever neither path binds is reported here, including on runs with no interface.
+    /// Internal and SPI members are not public surface. The interface pre-pass may bind the same
+    /// member from the interface text (an Objective-C-module receiver); the row is written unless it
+    /// did (<see cref="CarriedReceiverRows.PrePassBound"/>).
     /// </summary>
     private static void RecordUnboundCrossModuleMember(
         BaseDecl member, TypeDecl receiver, ModuleDecl moduleDecl, string why, ModuleEmissionContext? emissionContext)
+        => RecordDecline(member, receiver, SkipReason.UnsupportedSignature,
+            $"Extension on foreign type '{receiver.SwiftTypeName.ModuleQualifiedName}': {why}", emissionContext);
+
+    private static void RecordDecline(
+        BaseDecl member, TypeDecl receiver, SkipReason reason, string details, ModuleEmissionContext? emissionContext)
     {
-        var receiverName = receiver.SwiftTypeName.ModuleQualifiedName;
-        if (BoundByInterfacePrePass(member, receiverName, emissionContext))
+        // The interface pre-pass ran before emission, so whether it bound this member is known here;
+        // the row is written in place, where the report has always ordered it.
+        if (emissionContext is not null
+            && CarriedReceiverRows.PrePassBound(emissionContext, receiver.SwiftTypeName.ModuleQualifiedName, member))
             return;
-        var details = $"Extension on foreign type '{receiverName}': {why}";
+        WriteDeclineRow(member, reason, details);
+    }
+
+    /// <summary>Writes the skip row of a member this path declined, unless it is not public surface.</summary>
+    internal static void WriteDeclineRow(BaseDecl member, SkipReason reason, string details)
+    {
         switch (member)
         {
             case MethodDecl { IsModuleInternal: false, IsSpiProtected: false } method:
-                ReportCollector.RecordMemberSkipped(method, SkipReason.UnsupportedSignature, details);
+                ReportCollector.RecordMemberSkipped(method, reason, details);
                 break;
             case PropertyDecl { IsModuleInternal: false, IsSpiProtected: false } property:
-                ReportCollector.RecordMemberSkipped(property, SkipReason.UnsupportedSignature, details);
+                ReportCollector.RecordMemberSkipped(property, reason, details);
                 break;
             case SubscriptDecl { IsModuleInternal: false, IsSpiProtected: false } subscript:
-                ReportCollector.RecordMemberSkipped(subscript, SkipReason.UnsupportedSignature, details);
+                ReportCollector.RecordMemberSkipped(subscript, reason, details);
                 break;
             case OperatorDecl { UnderlyingMethod: { IsModuleInternal: false, IsSpiProtected: false } } op:
-                ReportCollector.RecordMemberSkipped(op, SkipReason.UnsupportedSignature, details);
+                ReportCollector.RecordMemberSkipped(op, reason, details);
                 break;
         }
     }
-
-    private static bool BoundByInterfacePrePass(BaseDecl member, string receiverName, ModuleEmissionContext? emissionContext)
-    {
-        if (emissionContext is null
-            || member is not (MethodDecl { IsConstructor: false } or PropertyDecl)
-            || !emissionContext.ForeignExtClasses.TryGetValue(receiverName, out var classInfo))
-            return false;
-        var method = member as MethodDecl;
-        // The pre-pass declines every generic method, so a generic overload is never its binding.
-        if (method is { IsGeneric: true })
-            return false;
-        var swiftName = method is not null ? method.OriginalSwiftName ?? method.Name : member.Name;
-        // Overloads share a name, so a method must also take as many parameters as the one the
-        // pre-pass bound; CSSignature[0] is the return slot.
-        var arity = method is null ? -1 : Math.Max(0, method.CSSignature.Count - 1);
-        return classInfo.Members.Any(m =>
-            m.ExtMethod.IsProperty == (method is null)
-            && (string.Equals(m.ExtMethod.MethodName, swiftName, StringComparison.Ordinal)
-                || string.Equals(m.ExtMethod.MethodName, member.Name, StringComparison.Ordinal))
-            && (method is null || LabelCount(m.ExtMethod.PrintedName) == arity));
-    }
-
-    private static int LabelCount(string printedName) => printedName.Count(c => c == ':');
 
     /// <summary>
     /// Absent-Apple ingress gate for a cross-module extension method. When the signature (return or
@@ -533,7 +521,8 @@ public static partial class CrossModuleExtensionEmitter
     /// withdrawing on any absent-Apple signature type never suppresses an otherwise-emittable overload.
     /// </summary>
     private static bool TryWithdrawAbsentAppleMethod(
-        CSharpWriter csWriter, MethodDecl method, ITypeDatabase typeDatabase)
+        CSharpWriter csWriter, MethodDecl method, TypeDecl receiver, ITypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext)
     {
         foreach (var arg in method.CSSignature)
         {
@@ -541,7 +530,9 @@ public static partial class CrossModuleExtensionEmitter
                 continue;
 
             var details = $"Method signature references framework type '{offending}' which is absent from the .NET binding surface; the member cannot be bound.";
-            ReportCollector.RecordMemberSkipped(method, SkipReason.AbsentFrameworkType, details);
+            // The interface pre-pass can still bind this member by omitting a defaulted parameter of
+            // the absent type, so the row is settled with its outcome.
+            RecordDecline(method, receiver, SkipReason.AbsentFrameworkType, details, emissionContext);
             UnsupportedCommentEmitter.EmitMemberSkipped(
                 csWriter, method.Name, BindingItemKind.Method, SkipReason.AbsentFrameworkType,
                 details, method.ParentDecl);
@@ -557,13 +548,14 @@ public static partial class CrossModuleExtensionEmitter
     /// report-row + tombstone path.
     /// </summary>
     private static bool TryWithdrawAbsentAppleProperty(
-        CSharpWriter csWriter, PropertyDecl property, ITypeDatabase typeDatabase)
+        CSharpWriter csWriter, PropertyDecl property, TypeDecl receiver, ITypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext)
     {
         if (!ReferencesAbsentAppleType(property.SwiftTypeSpec, typeDatabase, out var offending))
             return false;
 
         var details = $"Property type references framework type '{offending}' which is absent from the .NET binding surface; the member cannot be bound.";
-        ReportCollector.RecordMemberSkipped(property, SkipReason.AbsentFrameworkType, details);
+        RecordDecline(property, receiver, SkipReason.AbsentFrameworkType, details, emissionContext);
         UnsupportedCommentEmitter.EmitMemberSkipped(
             csWriter, property.Name, BindingItemKind.Property, SkipReason.AbsentFrameworkType,
             details, property.ParentDecl);

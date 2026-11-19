@@ -2082,6 +2082,7 @@ public static class BindingsGeneratorCommand
             var collectsLowering = !string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence);
             var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
             (XCFrameworkResolution Sim, Func<string, XCFrameworkResolution?> SimFor, XCFrameworkResolution? Device)? bothSlices = null;
+            string? loweringNotCollected = null;
             if (collectsLowering && platformInfo.HasSimulatorVariant)
             {
                 bothSlices = ResolveAppleFrameworkSlices(
@@ -2091,6 +2092,7 @@ public static class BindingsGeneratorCommand
                     logger.LogWarning(
                         "Lowering evidence is not collected for {Module}: its wrapper's slices cannot all be resolved ({Reason}); its bridge plans stay guarded.",
                         directModuleName, unresolved);
+                    loweringNotCollected = $"its wrapper's slices cannot all be resolved ({unresolved})";
                     collectsLowering = false;
                 }
             }
@@ -2101,6 +2103,7 @@ public static class BindingsGeneratorCommand
                 {
                     directLowering = SwiftWrapperLoweringEvidence.Begin(
                         collectSwiftLoweringEvidence!, outputDirectory, directModuleName, loweringPlatform, logger,
+                        out loweringNotCollected,
                         boundDescriptor: new SwiftLoweringProbe.ExplicitDescriptor(swiftAbiPath!, swiftInterface));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -2267,9 +2270,19 @@ public static class BindingsGeneratorCommand
                             return new BindingsGenerator.WrapperRecompile(relinked, relinkException, relinkUnmerged,
                                 autoMatchSourceDirect ? Array.Empty<string>() : relinkUnmerged);
                         },
-                        () => { }),
-                    ref directResult, logger);
+                        () => { },
+                        loweringNotCollected),
+                    ref directResult, logger, out var unroutedCause);
                 compilationResult = directResult;
+                if (routed && unroutedCause is not null)
+                {
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperCompileFailure, BindingsGenerator.UnroutedBridgesCode,
+                        RecoveryStage.SwiftCompile,
+                        $"The wrapper compile was asked to route {directModuleName}'s bridges, but no lowering receipt was written: {unroutedCause}.");
+                    context.ExitCode = 1;
+                    return;
+                }
                 if (!routed)
                 {
                     EmitCommandFailureReport(

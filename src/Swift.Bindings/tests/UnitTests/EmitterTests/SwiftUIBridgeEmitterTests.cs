@@ -11616,4 +11616,101 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     #endregion
+
+    #region Theme bridge on a template-only view bridge
+
+    private static List<ThemeBridgeEmitter.ThemeBridgeInfo> MainActorTheme() => new()
+    {
+        new("TemplateTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+        {
+            new("accent", ThemeBridgeEmitter.ThemePropertyKind.Color),
+            new("tint", ThemeBridgeEmitter.ThemePropertyKind.UIKitColor),
+        }),
+    };
+
+    /// <summary>
+    /// A module whose views are all templates and that has a theme: the theme's setters run on the
+    /// main thread through <c>SBW_onMainThread</c>, so the merged Swift bridge defines it, and the
+    /// theme's C# lands inside a namespace and the UIKit-platform gate.
+    /// </summary>
+    [Fact]
+    public void ThemeBridge_OnATemplateOnlyViewBridge_DefinesWhatItCallsAndGatesItsCSharp()
+    {
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { CreateGenericViewStruct("TemplateView") }, NullLogger.Instance);
+        Assert.Contains("BRIDGE TEMPLATE", File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")));
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", MainActorTheme(),
+            viewBridgeExists: true, NullLogger.Instance);
+
+        var swift = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift"));
+        Assert.Contains("SBW_onMainThread {", swift);
+        Assert.Single(Regex.Matches(swift, @"func SBW_onMainThread<T>"));
+        Assert.True(swift.IndexOf("func SBW_onMainThread<T>", StringComparison.Ordinal)
+            < swift.IndexOf("SBW_onMainThread {", StringComparison.Ordinal));
+        Assert.EndsWith("#endif // canImport(UIKit)" + Environment.NewLine, swift);
+
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        var ns = cs.IndexOf("namespace TestModule", StringComparison.Ordinal);
+        var gate = cs.IndexOf("#if __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
+        var theme = cs.IndexOf("SBW_TemplateTheme_set_accent", StringComparison.Ordinal);
+        var endGate = cs.LastIndexOf("#endif // __IOS__ || __TVOS__ || __MACCATALYST__", StringComparison.Ordinal);
+        Assert.True(ns >= 0 && gate > ns && theme > gate && endGate > theme, cs);
+        // The template listing is kept.
+        Assert.Contains("TemplateView", cs);
+    }
+
+    /// <summary>
+    /// The same merged bridge compiles: swiftc typechecks it against a module declaring the
+    /// main-actor theme, for the iOS simulator.
+    /// </summary>
+    [SkippableFact]
+    public void ThemeBridge_OnATemplateOnlyViewBridge_Typechecks()
+    {
+        Skip.IfNot(OperatingSystem.IsMacOS(), "needs swiftc and the iOS simulator SDK");
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { CreateGenericViewStruct("TemplateView") }, NullLogger.Instance);
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", MainActorTheme(),
+            viewBridgeExists: true, NullLogger.Instance);
+
+        var moduleDir = Path.Combine(_tempDir, "module");
+        Directory.CreateDirectory(moduleDir);
+        var moduleSource = Path.Combine(moduleDir, "TestModule.swift");
+        File.WriteAllText(moduleSource, """
+            import SwiftUI
+            import UIKit
+            @MainActor public final class TemplateTheme {
+                public static let shared = TemplateTheme()
+                public var accent: SwiftUI.Color = .red
+                public var tint: UIKit.UIColor = .red
+            }
+            """);
+        const string Target = "-target arm64-apple-ios15.0-simulator";
+        var (emitCode, emitOutput) = Xcrun(
+            $"--sdk iphonesimulator swiftc -emit-module -parse-as-library {Target} -module-name TestModule "
+            + $"-emit-module-path \"{Path.Combine(moduleDir, "TestModule.swiftmodule")}\" \"{moduleSource}\"");
+        Skip.If(emitCode != 0 && emitOutput.Contains("SDK", StringComparison.Ordinal), emitOutput);
+        Assert.True(emitCode == 0, emitOutput);
+
+        var (code, output) = Xcrun(
+            $"--sdk iphonesimulator swiftc -typecheck -parse-as-library {Target} -I \"{moduleDir}\" "
+            + $"\"{Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")}\"");
+
+        Assert.True(code == 0, output);
+    }
+
+    private static (int Code, string Output) Xcrun(string arguments)
+    {
+        using var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("xcrun", arguments)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+        })!;
+        var stdout = process.StandardOutput.ReadToEndAsync();
+        var stderr = process.StandardError.ReadToEnd();
+        process.WaitForExit();
+        return (process.ExitCode, stdout.Result + stderr);
+    }
+
+    #endregion
 }

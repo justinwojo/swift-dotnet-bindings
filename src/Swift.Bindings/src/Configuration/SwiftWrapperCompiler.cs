@@ -2158,35 +2158,26 @@ namespace BindingsGeneration
             string sdkPath)
         {
             var clock = System.Diagnostics.Stopwatch.StartNew();
-            // One source file writes its IR module to a file. swiftc refuses -o for several primary
-            // files, and its output-file map does not take IR, so their modules come back one after
-            // another on standard output.
-            var irPath = swiftFiles.Count == 1
-                ? Path.Combine(Path.GetDirectoryName(swiftFiles[0])!, $"{wrapperModuleName}.{targetTriple}.ll")
-                : null;
-            var args = $"swiftc -emit-ir -parse-as-library {frontendArgs}" +
-                (irPath != null ? $"-o \"{irPath}\" " : "") +
-                string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
+            var irPath = Path.Combine(Path.GetDirectoryName(swiftFiles[0])!, $"{wrapperModuleName}.{targetTriple}.ll");
+            var args = IrPassArguments(frontendArgs, swiftFiles, irPath);
             try
             {
                 logger.LogDebug("Lowering evidence: xcrun {Args}", args);
-                var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: timeoutMs);
+                var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: timeoutMs);
                 if (exitCode != 0)
                 {
                     var firstError = stderr.Split('\n').FirstOrDefault(l => l.Contains("error:", StringComparison.Ordinal))?.Trim();
                     lowering.Fail(targetTriple, $"swiftc -emit-ir exited {exitCode}{(firstError is null ? "" : ": " + firstError)}");
                     return;
                 }
+                if (!File.Exists(irPath))
+                {
+                    lowering.Fail(targetTriple, $"swiftc -emit-ir wrote no IR to {irPath}");
+                    return;
+                }
                 IReadOnlyList<SwiftIrModule> modules;
-                if (irPath != null)
-                {
-                    using var reader = File.OpenText(irPath);
+                using (var reader = File.OpenText(irPath))
                     modules = SwiftIrModule.ParseModules(reader);
-                }
-                else
-                {
-                    modules = SwiftIrModule.ParseModules(new StringReader(stdout));
-                }
                 if (modules.Count == 0)
                 {
                     lowering.Fail(targetTriple, "swiftc -emit-ir wrote no IR");
@@ -2236,13 +2227,25 @@ namespace BindingsGeneration
             }
             finally
             {
-                if (irPath != null)
-                {
-                    try { File.Delete(irPath); }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort: the build directory is removed after the compile */ }
-                }
+                try { File.Delete(irPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { /* best effort: the build directory is removed after the compile */ }
             }
         }
+
+        /// <summary>
+        /// The swiftc arguments of the IR pass over <paramref name="swiftFiles"/>, which writes one IR
+        /// module to <paramref name="irPath"/>. A single source file takes <c>-o</c> as it is. Several
+        /// are compiled as a whole module (<c>-wmo</c>): without it swiftc refuses <c>-o</c>, writes each
+        /// file's module to standard error between its diagnostics, and an output-file map with IR
+        /// entries crashes the Swift 6.4 driver. The calling conventions the receipt records are the
+        /// module's ABI, which whole-module and per-file compiles of the same sources share, or the
+        /// separately compiled files of the linked wrapper could not call one another.
+        /// </summary>
+        internal static string IrPassArguments(string frontendArgs, IReadOnlyList<string> swiftFiles, string irPath) =>
+            $"swiftc -emit-ir -parse-as-library {frontendArgs}" +
+            (swiftFiles.Count > 1 ? "-wmo " : "") +
+            $"-o \"{irPath}\" " +
+            string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
         // Maps a few common families of Apple system-framework undefined symbols to the framework
         // (or library) that defines them, so a link failure caused by an undeclared system

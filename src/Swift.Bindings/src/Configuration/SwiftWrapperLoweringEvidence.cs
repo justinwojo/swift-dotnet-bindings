@@ -111,13 +111,24 @@ public sealed class SwiftWrapperLoweringEvidence
         string receiptPath, string outputDirectory, string moduleName, string platform, ILogger logger,
         Func<string?>? compilerProbe = null, Func<string, string?>? sdkIdentity = null,
         SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
+        => Begin(receiptPath, outputDirectory, moduleName, platform, logger, out _, compilerProbe, sdkIdentity, boundDescriptor);
+
+    /// <inheritdoc cref="Begin(string, string, string, string, ILogger, Func{string?}?, Func{string, string?}?, SwiftLoweringProbe.ExplicitDescriptor?)"/>
+    /// <param name="notCollected">Why nothing is collected, when the result is null.</param>
+    public static SwiftWrapperLoweringEvidence? Begin(
+        string receiptPath, string outputDirectory, string moduleName, string platform, ILogger logger,
+        out string? notCollected,
+        Func<string?>? compilerProbe = null, Func<string, string?>? sdkIdentity = null,
+        SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
     {
+        notCollected = null;
         Discard(receiptPath);
         var compiler = (compilerProbe ?? SwiftToolchainProbe.Compiler)();
         if (string.IsNullOrWhiteSpace(compiler))
         {
             logger.LogWarning("Lowering evidence is not collected for {Module}: the selected Swift compiler could not be identified (xcrun swiftc --version).",
                 moduleName);
+            notCollected = "the selected Swift compiler could not be identified (xcrun swiftc --version)";
             return null;
         }
         if (!SwiftLoweringQualification.IsQualified(compiler))
@@ -126,7 +137,7 @@ public sealed class SwiftWrapperLoweringEvidence
                 moduleName, compiler, string.Join(", ", SwiftLoweringQualification.Families));
             return null;
         }
-        return ForOutput(outputDirectory, moduleName, platform, compiler, logger, sdkIdentity, boundDescriptor);
+        return ForOutput(outputDirectory, moduleName, platform, compiler, logger, out notCollected, sdkIdentity, boundDescriptor);
     }
 
     /// <summary>
@@ -174,7 +185,14 @@ public sealed class SwiftWrapperLoweringEvidence
     public static SwiftWrapperLoweringEvidence? ForOutput(
         string outputDirectory, string moduleName, string platform, string compiler, ILogger logger,
         Func<string, string?>? sdkIdentity = null, SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor = null)
+        => ForOutput(outputDirectory, moduleName, platform, compiler, logger, out _, sdkIdentity, boundDescriptor);
+
+    private static SwiftWrapperLoweringEvidence? ForOutput(
+        string outputDirectory, string moduleName, string platform, string compiler, ILogger logger,
+        out string? notCollected,
+        Func<string, string?>? sdkIdentity, SwiftLoweringProbe.ExplicitDescriptor? boundDescriptor)
     {
+        notCollected = null;
         try
         {
             _ = SwiftArtifactScope.PlatformSlices(platform);
@@ -182,6 +200,7 @@ public sealed class SwiftWrapperLoweringEvidence
         catch (ArgumentException ex)
         {
             logger.LogWarning("Lowering evidence is not collected for {Module}: {Reason}", moduleName, ex.Message);
+            notCollected = ex.Message;
             return null;
         }
         var own = new List<string>();
@@ -198,6 +217,7 @@ public sealed class SwiftWrapperLoweringEvidence
             {
                 logger.LogWarning("Lowering evidence is not collected for {Module}: its plan sidecar {Sidecar} could not be read: {Message}",
                     moduleName, sidecar, ex.Message);
+                notCollected = $"its plan sidecar {sidecar} could not be read: {ex.Message}";
                 return null;
             }
         }
@@ -205,6 +225,7 @@ public sealed class SwiftWrapperLoweringEvidence
         {
             logger.LogWarning("Lowering evidence is not collected for {Module}: {Directory} holds no plan sidecar of the module.",
                 moduleName, outputDirectory);
+            notCollected = $"{outputDirectory} holds no plan sidecar of the module";
             return null;
         }
         return new SwiftWrapperLoweringEvidence(moduleName, platform, compiler, SwiftLoweringEvidenceCollector.Targets(own),

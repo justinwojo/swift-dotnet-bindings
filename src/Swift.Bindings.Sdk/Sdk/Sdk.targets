@@ -2060,6 +2060,13 @@ done; true"
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperModuleName" />
     </XmlPeek>
 
+    <!-- A compile that failed with SWIFTBIND134 still records its wrapper as present, so the cause it
+         persisted is what keeps the next build from skipping the compile on the up-to-date fingerprint. -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingUnroutedBridgesCause/text()">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingUnroutedBridgesCause" />
+    </XmlPeek>
+
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
              Query="/Project/PropertyGroup/_SwiftBindingWrapperSliceCount/text()">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperSliceCount" />
@@ -2256,6 +2263,13 @@ done; true"
     <Error Condition="'$(_SwiftBindingWrapperUnmetContractArchitectures)' != ''"
            Code="SWIFTBIND056"
            Text="Swift wrapper '$(_SwiftBindingWrapperModuleName)' was explicitly requested for architecture(s) [$(_SwiftBindingWrapperUnmetContractArchitectures)] via &lt;SwiftTargetArchitectures&gt;, but those slices failed to build and were not folded into the fat wrapper. The build is failed rather than silently shipping a narrower wrapper that drops the requested simulator/Intel slice. Resolve the per-architecture compile failure (a swiftc timeout on a contended runner is relieved by raising &lt;SwiftWrapperCompileTimeoutSeconds&gt;) and rebuild, or set &lt;SwiftTargetArchitectures&gt;auto&lt;/SwiftTargetArchitectures&gt; to allow a best-effort degrade." />
+
+    <!-- The compile was asked to route the module's bridges (SwiftRouteBridges, on by default) but
+         wrote no lowering receipt, so members a receipt would route ship guarded. The generator names
+         the cause and exits non-zero; the Exec above swallows that, so it is enforced here. -->
+    <Error Condition="'$(_SwiftBindingUnroutedBridgesCause)' != ''"
+           Code="SWIFTBIND134"
+           Text="The wrapper compile of '$(_SwiftBindingWrapperModuleName)' was asked to route its Swift-convention imports through native bridges, but no lowering receipt was written: $(_SwiftBindingUnroutedBridgesCause). Members it would route would ship guarded and refuse with SwiftTransitionUnsupportedException on Mono and the CoreCLR interpreter. Fix the cause and rebuild, or set &lt;SwiftRouteBridges&gt;false&lt;/SwiftRouteBridges&gt; to ship them guarded." />
 
     <!-- When wrapper failed and user-authored ProjectReferences exist, provide
          two-pass build guidance. Uses _UserProjectReference (captured early in
@@ -3134,6 +3148,7 @@ done; true"
       <_SwiftWrapperSkip Condition="'$(_SwiftBindingUpToDate)' == 'true'
                                     AND '@(ProjectReference)' == ''
                                     AND '$(_SwiftBindingHasWrapperXCFramework)' == 'True'
+                                    AND '$(_SwiftBindingUnroutedBridgesCause)' == ''
                                     AND Exists('$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework')">true</_SwiftWrapperSkip>
     </PropertyGroup>
 
@@ -3272,6 +3287,13 @@ done; true"
              Query="/Project/PropertyGroup/_SwiftBindingWrapperUnmetContractArchitectures/text()"
              Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
       <Output TaskParameter="Result" PropertyName="_SwiftBindingWrapperUnmetContractArchitectures" />
+    </XmlPeek>
+    <!-- Why a compile asked to route bridges wrote no lowering receipt while imports stayed routable
+         (empty when routing settled); _ValidateSwiftWrapperCompilation fails the build on it (SWIFTBIND134). -->
+    <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
+             Query="/Project/PropertyGroup/_SwiftBindingUnroutedBridgesCause/text()"
+             Condition="Exists('$(_SwiftBindingIntermediateDir)binding-metadata.props')">
+      <Output TaskParameter="Result" PropertyName="_SwiftBindingUnroutedBridgesCause" />
     </XmlPeek>
   </Target>
 

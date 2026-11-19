@@ -730,6 +730,16 @@ public sealed class ModuleEmissionContext
     /// <summary>Records a declined protocol-extension member for later publication.</summary>
     public void AddProtocolExtDecline(ProtocolExtensionDecline decline) => _protocolExtDeclines.Add(decline);
 
+    private readonly List<CarriedPrePassOutcome> _carriedPrePassOutcomes = new();
+
+    /// <summary>
+    /// What the interface pre-pass bound or declined on each carried receiver, read by
+    /// <see cref="CarriedReceiverRows"/>. Recorded once, before the containment loop.
+    /// </summary>
+    internal IReadOnlyList<CarriedPrePassOutcome> CarriedPrePassOutcomes => _carriedPrePassOutcomes;
+
+    internal void AddCarriedPrePassOutcome(CarriedPrePassOutcome outcome) => _carriedPrePassOutcomes.Add(outcome);
+
     /// <summary>Gets or creates extension class info for a foreign type.</summary>
     public ForeignExtensionClassInfo GetOrAddForeignExtClass(string key, Func<ForeignExtensionClassInfo> factory)
     {

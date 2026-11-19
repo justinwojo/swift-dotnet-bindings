@@ -3437,6 +3437,19 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ValidateWrapperCompilation_UnroutedBridgesPersisted_FailsSWIFTBIND134NamingTheCause()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            // The generator exits non-zero when a compile asked to route wrote no receipt, and the
+            // compile Exec swallows that exit, so the persisted cause is what fails the build.
+            var (output, exitCode) = RunValidateWrapperContractDump("", "swiftc -emit-ir wrote no IR");
+
+            Assert.True(exitCode != 0, $"Expected SWIFTBIND134 to fail the build.\nOutput: {output}");
+            Assert.Contains("SWIFTBIND134", output);
+            Assert.Contains("swiftc -emit-ir wrote no IR", output);
+        }
+
+        [Fact]
         public void ValidateWrapperCompilation_NoWrapperProduced_DefaultRequiredFailsClosedSWIFTBIND051()
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
@@ -4091,7 +4104,7 @@ namespace BindingsGeneration.Tests
         /// re-peeks the persisted element and _ValidateSwiftWrapperCompilation turns a non-empty value
         /// into a SWIFTBIND056 error. An empty element (a satisfied contract) leaves the property unset.
         /// </summary>
-        private (string Output, int ExitCode) RunValidateWrapperContractDump(string unmetContractArchs)
+        private (string Output, int ExitCode) RunValidateWrapperContractDump(string unmetContractArchs, string unroutedBridgesCause = "")
         {
             var bindingDir = Path.Combine(_tempDir, "ContractValidate.Swift.iOS");
             Directory.CreateDirectory(bindingDir);
@@ -4107,6 +4120,7 @@ namespace BindingsGeneration.Tests
                     <_SwiftBindingWrapperModuleName>MixedSwiftBindings</_SwiftBindingWrapperModuleName>
                     <_SwiftBindingWrapperSliceCount>1</_SwiftBindingWrapperSliceCount>
                     <_SwiftBindingWrapperUnmetContractArchitectures>{unmetContractArchs}</_SwiftBindingWrapperUnmetContractArchitectures>
+                    <_SwiftBindingUnroutedBridgesCause>{unroutedBridgesCause}</_SwiftBindingUnroutedBridgesCause>
                   </PropertyGroup>
                 </Project>
                 """;
@@ -6251,6 +6265,33 @@ namespace BindingsGeneration.Tests
 
             Assert.Equal(0, p.ExitCode);
             Assert.Equal("", File.ReadAllText(runs).Trim());   // generator never ran
+        }
+
+        [Fact]
+        public void UnroutedBridgesPersisted_IsNotComplete_RunsTheCompileAgain()
+        {
+            // A compile that failed with SWIFTBIND134 leaves its wrapper on disk and recorded present.
+            // The persisted cause must send the next build back through the compile, which can write
+            // the receipt once the cause is gone, instead of failing on the stale cause for ever.
+            var props = Path.Combine(_tempDir, "binding-metadata.props");
+            File.WriteAllText(props, """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingHasWrapperXCFramework>True</_SwiftBindingHasWrapperXCFramework>
+                    <_SwiftBindingUnroutedBridgesCause>swiftc -emit-ir exited 1</_SwiftBindingUnroutedBridgesCause>
+                  </PropertyGroup>
+                </Project>
+                """);
+            var xcfw = Path.Combine(_tempDir, "FooSwiftBindings.xcframework");
+            Directory.CreateDirectory(xcfw);
+            var runs = Path.Combine(_tempDir, "runs.log");
+            File.WriteAllText(runs, "");
+
+            using var p = StartLock(props, xcfw, WriteCmdFile(runs, props, xcfw, markComplete: true, sleepSeconds: 0.0));
+            p.WaitForExit(30_000);
+
+            Assert.Equal(0, p.ExitCode);
+            Assert.Single(File.ReadAllLines(runs), line => line.StartsWith("START", StringComparison.Ordinal));
         }
 
         [Fact]

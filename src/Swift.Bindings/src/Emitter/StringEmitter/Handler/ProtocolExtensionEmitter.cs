@@ -525,7 +525,7 @@ public static class ProtocolExtensionEmitter
     /// type, which Swift also overloads on (see <see cref="AbiOverloadKey"/>). Null when its signature
     /// does not parse.
     /// </summary>
-    private static string? ExtensionOverloadKey(ProtocolExtensionMethodDecl member, ITypeDatabase typeDatabase, ILogger logger)
+    internal static string? ExtensionOverloadKey(ProtocolExtensionMethodDecl member, ITypeDatabase typeDatabase, ILogger logger)
     {
         if (member.IsProperty)
             return null;
@@ -541,7 +541,7 @@ public static class ProtocolExtensionEmitter
     /// parser escapes a C# keyword in a method name or a label (<c>default</c> becomes
     /// <c>_default</c>), and the interface reader keeps the Swift spelling.
     /// </summary>
-    private static string AbiOverloadKey(MethodDecl method)
+    internal static string AbiOverloadKey(MethodDecl method)
     {
         var parameters = method.CSSignature.Skip(1).ToList();
         var key = parameters.Count == 0
@@ -555,7 +555,7 @@ public static class ProtocolExtensionEmitter
     /// The name-and-labels key of an ABI method in the interface reader's printed-name shape
     /// (<c>name(label:_:)</c>), spelled as Swift spells it.
     /// </summary>
-    private static string AbiLabelKey(MethodDecl method)
+    internal static string AbiLabelKey(MethodDecl method)
         => $"{method.GetSwiftName()}({string.Concat(method.CSSignature.Skip(1).Select(a => $"{SwiftLabel(a)}:"))})";
 
     private static string SwiftLabel(ArgumentDecl arg)

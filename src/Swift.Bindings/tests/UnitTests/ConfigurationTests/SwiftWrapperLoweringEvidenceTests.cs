@@ -10,6 +10,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
+using Swift.Runtime;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -390,6 +391,20 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
     }
 
     [Fact]
+    public void Begin_AnUnreadablePlanSidecar_ReturnsWhyNothingIsCollected()
+    {
+        var sidecar = Path.Combine(_dir, "Broken" + SwiftCallPlanSet.FileName(string.Empty));
+        File.WriteAllText(sidecar, "{ not json");
+
+        var collection = SwiftWrapperLoweringEvidence.Begin(
+            Path.Combine(_dir, "receipt.json"), _dir, Artifact, "ios", NullLogger.Instance, out var notCollected, () => Compiler, Sdk);
+
+        Assert.Null(collection);
+        Assert.Contains(sidecar, notCollected);
+        Assert.Contains("could not be read", notCollected);
+    }
+
+    [Fact]
     public void Commit_WritesTheWholeReceipt_AndLeavesNoTemporaryFile()
     {
         var path = Path.Combine(_dir, "obj", "receipt.json");
@@ -618,6 +633,13 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
             }
             if (_irExit != 0)
                 return (_irExit, "", "wrapper.swift:1:1: error: something the link did not hit");
+            // As swiftc does: several primary files outside a whole-module compile refuse -o and
+            // write each file's module to standard error, among their diagnostics.
+            var files = Regex.Matches(arguments, "\"[^\"]+\\.swift\"").Count;
+            if (files > 1 && !arguments.Contains(" -wmo ", StringComparison.Ordinal))
+                return output.Success
+                    ? (1, "", "error: cannot specify -o when generating multiple output files")
+                    : (0, "", _ir + "\nwrapper.swift:1:1: warning: a diagnostic between modules\n" + _ir);
             if (!output.Success)
                 return (0, _ir, "");
             File.WriteAllText(output.Groups[1].Value, _ir);
@@ -727,6 +749,153 @@ public sealed class SwiftWrapperLoweringEvidenceTests : IDisposable
         Assert.Equal(SwiftWrapperLoweringEvidence.WrapperFlags("arm64-apple-ios16.0-simulator").ToArray(), probe.Flags.ToArray());
         // The probe's source and IR are removed with the compile.
         Assert.Empty(Directory.GetFiles(_dir, "*LoweringProbe*", SearchOption.AllDirectories));
+    }
+
+    /// <summary>
+    /// A wrapper of two source files (the generated wrapper and a hand-written <c>*.Wrapper.swift</c>
+    /// shim staged beside it) still collects its receipt: the IR pass compiles both as one module into
+    /// one IR file, with the link's frontend flags, and reads the generated wrapper's targets from it.
+    /// </summary>
+    [Fact]
+    public void Compile_AWrapperOfSeveralSourceFiles_StillCollectsItsReceipt()
+    {
+        var dylib = WriteWrapperSources();
+        File.WriteAllText(Path.Combine(_dir, "TestLibShims.Wrapper.swift"), """
+            import Foundation
+            @_cdecl("testlib_shim")
+            public func testlib_shim() -> Int { 1 }
+            """);
+        var runner = new IrRunner("; ModuleID = 'TestLibSwiftBindings'\n" + DeclaredIr + "\n");
+        var collection = Collection();
+
+        Assert.NotNull(SwiftWrapperCompiler.Compile(_dir, "TestLib", "/fw/search", dylib, NullLogger.Instance, runner,
+            lowering: collection.BeginPass(null)));
+
+        var link = Assert.Single(runner.Swiftc, a => a.Contains("-emit-library", StringComparison.Ordinal));
+        var ir = Assert.Single(runner.Swiftc, a => a.Contains("-emit-ir", StringComparison.Ordinal));
+        Assert.Equal(2, Regex.Matches(link, "\"[^\"]+\\.swift\"").Count);
+        Assert.Equal(2, Regex.Matches(ir, "\"[^\"]+\\.swift\"").Count);
+        Assert.Contains(" -wmo ", ir);
+        var receipt = collection.Receipt([], out var why);
+        Assert.Null(why);
+        Assert.Equal("swiftcc void (ptr noalias sret, i64, ptr, ptr)",
+            receipt!.Receipts.Single().Slices["arm64-apple-ios15.0-simulator"].Symbols[Declared]);
+    }
+
+    /// <summary>
+    /// The IR pass's arguments against the selected swiftc: a single file and several files each come
+    /// back as one IR module in the named file, holding every file's definitions.
+    /// </summary>
+    [SkippableTheory]
+    [InlineData(1)]
+    [InlineData(2)]
+    public void IrPassArguments_WriteOneIrModuleOfEverySourceFile_UnderTheSelectedSwiftc(int fileCount)
+    {
+        Skip.IfNot(SwiftLoweringOracle.IsAvailable, "xcrun and an iOS simulator SDK are required");
+        var files = Enumerable.Range(0, fileCount).Select(i =>
+        {
+            var path = Path.Combine(_dir, $"Part{i}.Wrapper.swift");
+            File.WriteAllText(path, $"public func part{i}() -> Int {{ {i} }}\n");
+            return path;
+        }).ToList();
+        var irPath = Path.Combine(_dir, "Parts.ll");
+
+        var (exit, _, stderr) = new SystemCommandRunner().Run("xcrun",
+            SwiftWrapperCompiler.IrPassArguments("-module-name Parts ", files, irPath), timeoutMs: 120_000);
+
+        Assert.True(exit == 0, stderr);
+        var modules = SwiftIrModule.ParseModules(new StringReader(File.ReadAllText(irPath)));
+        var module = Assert.Single(modules);
+        for (var i = 0; i < fileCount; i++)
+            Assert.Contains(module.Functions.Keys, k => k.Contains($"part{i}", StringComparison.Ordinal));
+    }
+
+    // ---- a routing request that wrote no receipt (SWIFTBIND134) ----
+
+    private void WriteGuards(bool pending, string module = Artifact)
+    {
+        var document = new SwiftTransitionGuardDocument
+        {
+            Schema = SwiftTransitionGuardDocument.SchemaVersion,
+            Module = module,
+            Namespace = module,
+            Transitions = [new SwiftTransitionGuardTransition("T0", "Import", "Kit::Make", Declared, (ulong)SwiftTransitionFacts.LoweredSignature, "LoweredSignature", "no swiftc lowering evidence was joined", pending)],
+            Sites = [new SwiftTransitionGuardSite("Kit::Make", "Kit.Make()", "Method", "Make", "Kit", true, true, ["T0"])],
+        };
+        File.WriteAllText(Path.Combine(_dir, SwiftTransitionGuardDocument.FileName(module)), document.ToJson());
+    }
+
+    private BindingsGenerator.WrapperRoutingRequest Routing(SwiftWrapperLoweringEvidence? lowering, bool route = true, string? notCollected = null) =>
+        new(_dir, Artifact, route, lowering, Path.Combine(_dir, "swift-lowering-receipt.json"), "ios",
+            WrapperBuildOutcome.From(null, new InvalidOperationException("unused")), [],
+            _ => throw new InvalidOperationException("no relink"), () => { }, notCollected);
+
+    /// <summary>
+    /// A build asked to route its bridges whose IR pass wrote no receipt, while a member is still only
+    /// waiting on a receipt to be routed, names why and the member it leaves guarded.
+    /// </summary>
+    [Fact]
+    public void UnroutedBridgesCause_AReceiptThatWasNotWritten_WithAPendingMember_NamesWhy()
+    {
+        WriteGuards(pending: true);
+        var collection = Collection();
+        collection.BeginPass(null).Fail("arm64-apple-ios16.0-simulator", "swiftc -emit-ir wrote no IR");
+        var logger = new ListLogger();
+
+        var why = BindingsGenerator.UnroutedBridgesCause(Routing(collection), logger);
+
+        Assert.Contains("swiftc -emit-ir wrote no IR", why);
+        var error = Assert.Single(logger.Errors);
+        Assert.Contains(BindingsGenerator.UnroutedBridgesCode, error);
+        Assert.Contains("Kit.Make()", error);
+        Assert.Contains("SwiftRouteBridges", error);
+    }
+
+    [Fact]
+    public void UnroutedBridgesCause_ACollectionThatNeverStarted_NamesItsReason()
+    {
+        WriteGuards(pending: true);
+
+        var why = BindingsGenerator.UnroutedBridgesCause(
+            Routing(null, notCollected: "its wrapper's slices cannot all be resolved (no device SDK)"), new ListLogger(), () => Compiler);
+
+        Assert.Equal("its wrapper's slices cannot all be resolved (no device SDK)", why);
+    }
+
+    [Theory]
+    [InlineData(false, true, true)]   // routing not asked for
+    [InlineData(true, false, true)]   // nothing waits on a receipt
+    [InlineData(true, true, false)]   // an unqualified compiler: no receipt could route anything
+    public void UnroutedBridgesCause_IsNull_WhenNoMemberWasLeftRoutable(bool route, bool pending, bool qualified)
+    {
+        WriteGuards(pending);
+        var logger = new ListLogger();
+
+        var why = BindingsGenerator.UnroutedBridgesCause(
+            Routing(null, route), logger, () => qualified ? Compiler : "Apple Swift version 5.9 (swiftlang-5.9.0.128.108)");
+
+        Assert.Null(why);
+        Assert.Empty(logger.Errors);
+    }
+
+    [Fact]
+    public void UnroutedBridgesCause_ReadsOnlyTheModulesOwnGuards()
+    {
+        WriteGuards(pending: true, module: "OtherKit");
+
+        Assert.Null(BindingsGenerator.UnroutedBridgesCause(Routing(null), new ListLogger(), () => Compiler));
+    }
+
+    private sealed class ListLogger : Microsoft.Extensions.Logging.ILogger
+    {
+        public List<string> Errors { get; } = new();
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+        public bool IsEnabled(Microsoft.Extensions.Logging.LogLevel logLevel) => true;
+        public void Log<TState>(Microsoft.Extensions.Logging.LogLevel logLevel, Microsoft.Extensions.Logging.EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+        {
+            if (logLevel == Microsoft.Extensions.Logging.LogLevel.Error)
+                Errors.Add(formatter(state, exception));
+        }
     }
 
     [Fact]

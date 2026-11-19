@@ -451,7 +451,8 @@ namespace BindingsGeneration
             string wrapperModuleName,
             int sliceCount,
             ILogger logger,
-            IReadOnlyList<string>? unmetContractArchitectures = null)
+            IReadOnlyList<string>? unmetContractArchitectures = null,
+            string? unroutedBridgesCause = null)
         {
             var propsPath = Path.Combine(outputDirectory, "binding-metadata.props");
             if (!File.Exists(propsPath))
@@ -475,6 +476,10 @@ namespace BindingsGeneration
             SetOrAddElement(propertyGroup, "_SwiftBindingHasWrapperXCFramework", hasWrapper.ToString());
             SetOrAddElement(propertyGroup, "_SwiftBindingWrapperSliceCount", sliceCount.ToString());
             SetOrAddElement(propertyGroup, "_SwiftBindingWrapperUnmetContractArchitectures", unmetContract);
+            // Why a build asked to route its bridges wrote no lowering receipt while imports stayed
+            // routable (SWIFTBIND134); empty when routing settled. The compile-wrapper Exec swallows the
+            // generator's exit code, so the SDK fails the build from this value.
+            SetOrAddElement(propertyGroup, "_SwiftBindingUnroutedBridgesCause", unroutedBridgesCause ?? string.Empty);
 
             doc.Save(propsPath);
             logger.LogInformation("Updated wrapper status in binding-metadata.props: hasWrapper={HasWrapper}, sliceCount={SliceCount}, unmetContractArchs={Unmet}",
