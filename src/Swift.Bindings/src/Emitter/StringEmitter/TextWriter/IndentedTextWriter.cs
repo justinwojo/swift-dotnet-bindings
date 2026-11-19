@@ -214,6 +214,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Returns everything written since <paramref name="checkpoint"/> without changing the
+        /// buffer — a read of an already-emitted member's text, e.g. the attributes it ended up with.
+        /// </summary>
+        public string TextSince(WriterCheckpoint checkpoint)
+        {
+            EnsureOwned(checkpoint);
+            Flush();
+            var builder = _innerWriter.GetStringBuilder();
+            return builder.Length > checkpoint.Length
+                ? builder.ToString(checkpoint.Length, builder.Length - checkpoint.Length)
+                : string.Empty;
+        }
+
+        /// <summary>
         /// Appends text captured by <see cref="RollbackToAndCapture"/> verbatim, bypassing indent
         /// processing — the captured text already carries its own leading indentation, so re-running
         /// it through the indenting writer would double-indent every line.

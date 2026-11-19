@@ -907,17 +907,48 @@ namespace BindingsGeneration
         ///
         /// Property/subscript accessors are excluded: their public surface is emitted by their own handler,
         /// not here, so a marker on the synthesized accessor would land on a member no consumer names.
+        ///
+        /// Being the last step of every such member, it also records the <c>[Obsolete]</c> line the member
+        /// finally carries, which the convenience forwarders calling the member copy.
         /// </summary>
         private void InjectConsumeDegradedMarker(
             CSharpWriter csWriter, BufferedSourceWriter.WriterCheckpoint preSignatureCheckpoint)
         {
-            if (_env.MethodDecl.IsAccessor || _emissionContext?.WasConsumeDegradedMember(_env.MethodDecl) != true)
+            if (_env.MethodDecl.IsAccessor)
                 return;
 
-            var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
-            if (!ContainsObsoleteAttributeLine(capturedMember))
-                EmitConsumeDegradedWarning(csWriter);
-            csWriter.AppendCaptured(capturedMember);
+            if (_emissionContext?.WasConsumeDegradedMember(_env.MethodDecl) == true)
+            {
+                var capturedMember = csWriter.RollbackToAndCapture(preSignatureCheckpoint);
+                if (!ContainsObsoleteAttributeLine(capturedMember))
+                    EmitConsumeDegradedWarning(csWriter);
+                csWriter.AppendCaptured(capturedMember);
+            }
+
+            // Every marker this member can carry is settled by now, so record the one it has for the
+            // convenience forwarders that call it (see ModuleEmissionContext.RecordEmittedObsoleteAttribute).
+            if (_emissionContext != null && FindMemberObsoleteAttribute(csWriter.TextSince(preSignatureCheckpoint)) is { } attribute)
+                _emissionContext.RecordEmittedObsoleteAttribute(_env.MethodDecl, attribute);
+        }
+
+        /// <summary>
+        /// The <c>[Obsolete]</c> line among the attributes that open <paramref name="memberText"/>, or
+        /// null. Only the leading attribute and comment lines are read, so an attribute inside the
+        /// member's body is never mistaken for the member's own.
+        /// </summary>
+        internal static string? FindMemberObsoleteAttribute(string memberText)
+        {
+            foreach (var rawLine in memberText.Split('\n'))
+            {
+                var line = rawLine.Trim();
+                if (line.Length == 0 || line.StartsWith("//", StringComparison.Ordinal))
+                    continue;
+                if (!line.StartsWith("[", StringComparison.Ordinal))
+                    return null;
+                if (line.StartsWith("[Obsolete(", StringComparison.Ordinal) || line == "[Obsolete]")
+                    return line;
+            }
+            return null;
         }
 
         /// <summary>
