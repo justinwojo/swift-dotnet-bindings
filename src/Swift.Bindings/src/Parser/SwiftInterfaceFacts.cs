@@ -230,6 +230,10 @@ namespace BindingsGeneration
         /// protocol.</summary>
         public required List<ExtensionMemberCandidate> ExtensionMemberCandidates { get; init; }
 
+        /// <summary>Public extension declarations the reader saw and did not take as
+        /// <see cref="ExtensionMemberCandidates"/>, each with the reason. Order follows the file.</summary>
+        public required List<DroppedExtensionCandidate> DroppedExtensionCandidates { get; init; }
+
         /// <summary>
         /// Best-effort lookup helper. Searches every position dictionary on this facts
         /// instance for <paramref name="key"/> and returns the first hit. Used by skip-
@@ -243,6 +247,33 @@ namespace BindingsGeneration
             if (AvailabilityAnnotationPositions.TryGetValue(key, out p)) return p;
             if (ConventionCProtocolPositions.TryGetValue(key, out p)) return p;
             return null;
+        }
+
+        /// <summary>
+        /// The <see cref="DroppedExtensionCandidates"/> of extensions on another module's type, by the
+        /// same rule <see cref="ResolveForeignExtensions"/> partitions candidates with.
+        /// </summary>
+        public IEnumerable<DroppedExtensionCandidate> ResolveForeignDroppedExtensionCandidates(
+            string moduleName, ISet<string> moduleTypeNames)
+            => DroppedExtensionCandidates.Where(d => IsForeignExtensionTarget(d.ExtendedTypeName, moduleName, moduleTypeNames));
+
+        /// <summary>
+        /// The first-dot rule: a qualified target is foreign when its module is not
+        /// <paramref name="moduleName"/>, an unqualified one when the module declares no type or
+        /// protocol of that name; an extension of the module's own protocol is never foreign.
+        /// </summary>
+        private bool IsForeignExtensionTarget(string qualified, string moduleName, ISet<string> moduleTypeNames)
+        {
+            var firstDotIdx = qualified.IndexOf('.');
+            var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
+
+            // Protocol extensions are NOT foreign — surfaced via ProtocolExtensionMethods.
+            if (ProtocolNames.Contains(typePath))
+                return false;
+
+            if (firstDotIdx >= 0)
+                return !string.Equals(qualified.Substring(0, firstDotIdx), moduleName, StringComparison.Ordinal);
+            return !moduleTypeNames.Contains(typePath);
         }
 
         /// <summary>
@@ -267,25 +298,7 @@ namespace BindingsGeneration
             foreach (var candidate in ExtensionMemberCandidates)
             {
                 var qualified = candidate.ExtendedTypeName;
-                var firstDotIdx = qualified.IndexOf('.');
-                var typePath = firstDotIdx >= 0 ? qualified.Substring(firstDotIdx + 1) : qualified;
-
-                // Protocol extensions are NOT foreign — surfaced via ProtocolExtensionMethods.
-                if (ProtocolNames.Contains(typePath))
-                    continue;
-
-                bool isForeign;
-                if (firstDotIdx >= 0)
-                {
-                    var modulePrefix = qualified.Substring(0, firstDotIdx);
-                    isForeign = !string.Equals(modulePrefix, moduleName, StringComparison.Ordinal);
-                }
-                else
-                {
-                    isForeign = !moduleTypeNames.Contains(typePath) && !ProtocolNames.Contains(typePath);
-                }
-
-                if (!isForeign)
+                if (!IsForeignExtensionTarget(qualified, moduleName, moduleTypeNames))
                     continue;
 
                 if (!result.TryGetValue(qualified, out var list))
@@ -365,6 +378,7 @@ namespace BindingsGeneration
             ProtocolNames = new HashSet<string>(),
             ProtocolExtensionMethods = new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
             ExtensionMemberCandidates = new List<ExtensionMemberCandidate>(),
+            DroppedExtensionCandidates = new List<DroppedExtensionCandidate>(),
             SpiOnlyConformances = new HashSet<string>(),
         };
     }

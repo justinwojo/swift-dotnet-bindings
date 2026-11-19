@@ -1,5 +1,5 @@
 {
-  "git_sha": "8af79afc",
+  "git_sha": "2b28ae8d",
   "review_count": 0,
   "by_reason": [
     {
@@ -44,7 +44,7 @@
     },
     {
       "key": "UnsupportedSignature",
-      "count": 10
+      "count": 17
     },
     {
       "key": "UnsupportedType",
@@ -62,7 +62,7 @@
     },
     {
       "key": "KnownLimitation",
-      "count": 23
+      "count": 30
     }
   ]
 }

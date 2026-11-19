@@ -33,13 +33,13 @@ public class SwiftInterfaceFactsTests
         // (ProtocolNames, ProtocolExtensionMethods, ExtensionMemberCandidates) + 1 SDK 0.11.0 R2
         // SPI-only conformances + 1 AppIntents 0.12.0 ConstLiteralParameters + 1
         // ClosureParameterAttributes + 1 Finding 23 ObjCRuntimeNames + 1 AsyncAccessorMembers
-        // (the TBD-independent async-accessor oracle) = 32.
+        // (the TBD-independent async-accessor oracle) + 1 DroppedExtensionCandidates = 33.
         var properties = typeof(SwiftInterfaceFacts)
             .GetProperties(BindingFlags.Public | BindingFlags.Instance)
             .Where(p => p.GetCustomAttribute<System.Runtime.CompilerServices.RequiredMemberAttribute>() != null)
             .ToList();
 
-        Assert.Equal(32, properties.Count);
+        Assert.Equal(33, properties.Count);
 
         // Every required property is populated on Empty (no nullable holes).
         foreach (var prop in properties)

@@ -32,6 +32,7 @@ internal static class CarriedReceiverRows
         var isGeneric = member.RawSignature.Contains($"func {member.MethodName}<", StringComparison.Ordinal)
             || OpaqueParameter.IsMatch(ParameterClause(member.RawSignature, member.MethodName));
         var signature = isGeneric ? null : ProtocolExtensionEmitter.ExtensionOverloadKey(member, typeDatabase, logger);
+        var types = signature is null ? null : ProtocolExtensionEmitter.ExtensionTypeSlots(member, typeDatabase, logger);
         return new CarriedMemberIdentity(
             IsProperty: false,
             member.IsStatic,
@@ -39,7 +40,67 @@ internal static class CarriedReceiverRows
             isGeneric,
             member.MethodName,
             member.PrintedName,
-            signature is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(signature));
+            signature is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(signature))
+        {
+            Types = types,
+            AliasCandidates = types is null ? null : AliasCandidatesIn(types, typeDatabase),
+        };
+    }
+
+    /// <summary>
+    /// The named types in <paramref name="types"/> that may be typealiases: each one the type database
+    /// does not know as a nominal type of that name. The ABI spells a typealias by what it resolves to,
+    /// so only these may read differently on the two sides of one member.
+    /// </summary>
+    private static HashSet<string> AliasCandidatesIn(IEnumerable<TypeSpec> types, ITypeDatabase typeDatabase)
+    {
+        var candidates = new HashSet<string>(StringComparer.Ordinal);
+        void Visit(TypeSpec type)
+        {
+            switch (type)
+            {
+                case NamedTypeSpec named:
+                    if (named.GenericParameters.Count == 0 && !IsNominal(named, typeDatabase))
+                        candidates.Add(named.Name);
+                    foreach (var argument in named.GenericParameters)
+                        Visit(argument);
+                    break;
+                case TupleTypeSpec tuple:
+                    foreach (var element in tuple.Elements)
+                        Visit(element);
+                    break;
+                case ClosureTypeSpec closure:
+                    Visit(closure.Arguments);
+                    Visit(closure.ReturnType);
+                    break;
+            }
+        }
+        foreach (var type in types)
+            Visit(type);
+        return candidates;
+    }
+
+    /// <summary>Whether the type database knows <paramref name="named"/> as a nominal type of that name.</summary>
+    private static bool IsNominal(NamedTypeSpec named, ITypeDatabase typeDatabase)
+    {
+        if (named.Name == "Self")
+            return false;
+        var spelled = ProtocolExtensionEmitter.WithoutModuleQualifiers(named.Name);
+        foreach (var name in named.Name.Contains('.') ? [named.Name] : new[] { named.Name, $"Swift.{named.Name}" })
+        {
+            try
+            {
+                if (typeDatabase.TryGetTypeRecord(new NamedTypeSpec(name), out var record))
+                    return string.Equals(
+                        ProtocolExtensionEmitter.WithoutModuleQualifiers(record.SwiftTypeName.ModuleQualifiedName),
+                        spelled, StringComparison.Ordinal);
+            }
+            catch (Exception)
+            {
+                // A name the resolver cannot read is not known to be nominal.
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -73,10 +134,21 @@ internal static class CarriedReceiverRows
                     isGeneric,
                     method.GetSwiftName(),
                     ProtocolExtensionEmitter.AbiLabelKey(method),
-                    comparable is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(comparable));
+                    comparable is null ? null : ProtocolExtensionEmitter.WithoutModuleQualifiers(comparable))
+                {
+                    Types = comparable is null ? null : AbiTypeSlots(method),
+                };
             default:
                 return null;
         }
+    }
+
+    /// <summary>The parameter types of an ABI method, then its return type.</summary>
+    private static List<TypeSpec> AbiTypeSlots(MethodDecl method)
+    {
+        var slots = method.CSSignature.Skip(1).Select(a => a.SwiftTypeSpec ?? TupleTypeSpec.Empty).ToList();
+        slots.Add(method.CSSignature.Count > 0 ? method.CSSignature[0].SwiftTypeSpec ?? TupleTypeSpec.Empty : TupleTypeSpec.Empty);
+        return slots;
     }
 
     private static readonly System.Text.RegularExpressions.Regex OpaqueParameter =
@@ -194,15 +266,17 @@ internal static class CarriedReceiverRows
 
     /// <summary>
     /// Whether an interface member and an ABI member are one declaration. Types decide between
-    /// overloads of one name, labels and flags; when each side declares that shape once, the two
-    /// are the same member however each spells its types (the interface may print a typealias the
-    /// ABI resolves).
+    /// overloads of one name, labels and flags. When each side declares that shape once, the two are
+    /// the same member if every type that reads differently is one the interface may spell through a
+    /// typealias the ABI resolves (<see cref="CarriedMemberIdentity.TypesMayBeSpellingsOf"/>); a known
+    /// nominal type against another type is two members, each with its own row.
     /// </summary>
     private static bool Corresponds(
         CarriedMemberIdentity declared, IReadOnlyList<CarriedPrePassOutcome> declaredOnReceiver,
         CarriedMemberIdentity abi, IReadOnlyList<CarriedMemberIdentity> abiOnReceiver)
         => declared.SameMember(abi)
             || (declared.SameShape(abi)
+                && declared.TypesMayBeSpellingsOf(abi)
                 && declaredOnReceiver.Count(o => o.Identity.SameShape(declared)) == 1
                 && abiOnReceiver.Count(a => a.SameShape(abi)) == 1);
 
@@ -210,8 +284,10 @@ internal static class CarriedReceiverRows
         => outcomes.Where(o => string.Equals(o.Receiver, receiver, StringComparison.Ordinal)).ToList();
 
     /// <summary>
-    /// The members the current module adds to <paramref name="receiver"/> that the ABI lists, in
-    /// the set the cross-module path walks.
+    /// The public members the current module adds to <paramref name="receiver"/> that the ABI lists,
+    /// in the set the cross-module path walks. An internal or SPI member the ABI lists
+    /// (<c>@usableFromInline internal</c>) is never bound or reported by that path, so it never
+    /// stands for a member the interface declares.
     /// </summary>
     private static List<CarriedMemberIdentity> AbiMembersOf(ModuleDecl moduleDecl, string receiver)
         => ReceiversNamed(moduleDecl.Types, receiver).SelectMany(t => ListedOn(t, moduleDecl.Name)).ToList();
@@ -220,14 +296,52 @@ internal static class CarriedReceiverRows
     {
         foreach (var method in type.Methods)
         {
-            if (method.ModuleDecl?.Name == moduleName && IdentityOf(method) is { } identity)
+            if (method.ModuleDecl?.Name == moduleName && !method.IsModuleInternal && !method.IsSpiProtected
+                && IdentityOf(method) is { } identity)
                 yield return identity;
         }
         foreach (var property in type.Properties)
         {
-            if (property.ModuleDecl?.Name == moduleName && IdentityOf(property) is { } identity)
+            if (property.ModuleDecl?.Name == moduleName && !property.IsModuleInternal && !property.IsSpiProtected
+                && IdentityOf(property) is { } identity)
                 yield return identity;
         }
+    }
+
+    /// <summary>
+    /// Whether the ABI lists, on the carried receiver <paramref name="receiver"/>, a public member this
+    /// module adds that the cross-module path then binds or reports: a method or property of the same
+    /// name, labels and staticness, or an initializer, subscript, operator or nested type of the same
+    /// name.
+    /// </summary>
+    internal static bool AbiLists(
+        ModuleDecl moduleDecl, string receiver, BindingItemKind kind, string name, string printedName, bool isStatic)
+    {
+        foreach (var type in ReceiversNamed(moduleDecl.Types, receiver))
+        {
+            bool Own(BaseDecl d) => d.ModuleDecl?.Name == moduleDecl.Name;
+            var listed = kind switch
+            {
+                BindingItemKind.Method when name == "init" => type.Methods.Any(m =>
+                    m.IsConstructor && Own(m) && !m.IsModuleInternal && !m.IsSpiProtected),
+                BindingItemKind.Method => type.Methods.Any(m =>
+                    !m.IsConstructor && !m.IsAccessor && Own(m) && !m.IsModuleInternal && !m.IsSpiProtected
+                    && (m.MethodType == MethodType.Static) == isStatic
+                    && string.Equals(ProtocolExtensionEmitter.AbiLabelKey(m), printedName, StringComparison.Ordinal)),
+                BindingItemKind.Property => type.Properties.Any(p =>
+                    Own(p) && !p.IsModuleInternal && !p.IsSpiProtected && p.IsStatic == isStatic
+                    && string.Equals(p.GetSwiftName(), name, StringComparison.Ordinal)),
+                BindingItemKind.Subscript => type.Subscripts.Any(s => Own(s) && !s.IsModuleInternal),
+                BindingItemKind.Operator => type.Operators.Any(o =>
+                    Own(o) && string.Equals(o.Name, name, StringComparison.Ordinal)),
+                BindingItemKind.Type => type.Types.Any(t =>
+                    Own(t) && string.Equals(t.Name, name, StringComparison.Ordinal)),
+                _ => false,
+            };
+            if (listed)
+                return true;
+        }
+        return false;
     }
 
     private static IEnumerable<TypeDecl> ReceiversNamed(IEnumerable<TypeDecl> types, string receiver)
@@ -268,6 +382,64 @@ internal sealed record CarriedMemberIdentity(
                 || SignatureKey is null
                 || other.SignatureKey is null
                 || string.Equals(SignatureKey, other.SignatureKey, StringComparison.Ordinal));
+
+    /// <summary>
+    /// The parameter types, then the return type, as this side spells them; null when they were not
+    /// read (a property, a generic member, a signature that does not parse).
+    /// </summary>
+    public IReadOnlyList<TypeSpec>? Types { get; init; }
+
+    /// <summary>
+    /// The named types of an interface member that may be typealiases (not known as nominal types of
+    /// that name); null on the ABI side, which resolves every typealias.
+    /// </summary>
+    public IReadOnlySet<string>? AliasCandidates { get; init; }
+
+    /// <summary>
+    /// Whether this interface member's types may be the ABI member's types spelled another way: they
+    /// read the same with module qualifiers dropped, or every place they differ is a named type of
+    /// this side that may be a typealias. A known nominal type that reads differently from the ABI's
+    /// type, or a structure (tuple, closure, generic arguments) that differs, is another member.
+    /// </summary>
+    public bool TypesMayBeSpellingsOf(CarriedMemberIdentity abi)
+    {
+        if (IsProperty)
+            return true;
+        if (Types is not { } mine || abi.Types is not { } theirs || mine.Count != theirs.Count)
+            return false;
+        var aliases = AliasCandidates ?? new HashSet<string>();
+        for (var i = 0; i < mine.Count; i++)
+        {
+            if (!MayBeSpellingOf(mine[i], theirs[i], aliases))
+                return false;
+        }
+        return true;
+    }
+
+    private static bool MayBeSpellingOf(TypeSpec declared, TypeSpec abi, IReadOnlySet<string> aliases)
+    {
+        if (string.Equals(Unqualified(declared), Unqualified(abi), StringComparison.Ordinal))
+            return true;
+        switch (declared)
+        {
+            case NamedTypeSpec { GenericParameters.Count: 0 } named when aliases.Contains(named.Name):
+                return true;
+            case NamedTypeSpec named when abi is NamedTypeSpec other
+                && string.Equals(ProtocolExtensionEmitter.WithoutModuleQualifiers(named.Name),
+                    ProtocolExtensionEmitter.WithoutModuleQualifiers(other.Name), StringComparison.Ordinal)
+                && named.GenericParameters.Count == other.GenericParameters.Count:
+                return named.GenericParameters.Zip(other.GenericParameters).All(p => MayBeSpellingOf(p.First, p.Second, aliases));
+            case TupleTypeSpec tuple when abi is TupleTypeSpec other && tuple.Elements.Count == other.Elements.Count:
+                return tuple.Elements.Zip(other.Elements).All(p => MayBeSpellingOf(p.First, p.Second, aliases));
+            case ClosureTypeSpec closure when abi is ClosureTypeSpec other:
+                return MayBeSpellingOf(closure.Arguments, other.Arguments, aliases)
+                    && MayBeSpellingOf(closure.ReturnType, other.ReturnType, aliases);
+            default:
+                return false;
+        }
+    }
+
+    private static string Unqualified(TypeSpec type) => ProtocolExtensionEmitter.WithoutModuleQualifiers(type.ToString());
 
     /// <summary>Whether both identities agree on everything but their types.</summary>
     public bool SameShape(CarriedMemberIdentity other)

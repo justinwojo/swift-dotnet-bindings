@@ -946,7 +946,7 @@ namespace BindingsGeneration
                 // Foreign type extension members are partitioned from facts.ExtensionMemberCandidates
                 // using the parsed module's name + own type set; the partitioning lives on facts so
                 // both producers feed it identical inputs.
-                if (facts.ExtensionMemberCandidates.Count > 0)
+                if (facts.ExtensionMemberCandidates.Count > 0 || facts.DroppedExtensionCandidates.Count > 0)
                 {
                     var moduleTypeNames = new HashSet<string>(decl.Types.Select(t => t.Name));
                     var foreignExtensions = facts.ResolveForeignExtensions(moduleName, moduleTypeNames);
@@ -956,6 +956,11 @@ namespace BindingsGeneration
                             decl, foreignExtensions, typeDatabase, logger, emissionContext,
                             facts.AvailabilityAnnotations);
                     }
+                    // The extension declarations the interface reader did not take keep a row where
+                    // no other path binds or reports them.
+                    ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(
+                        decl, facts.ResolveForeignDroppedExtensionCandidates(moduleName, moduleTypeNames),
+                        logger, emissionContext);
                 }
 
                 // Every member, including the extension members injected above, is in place. A class

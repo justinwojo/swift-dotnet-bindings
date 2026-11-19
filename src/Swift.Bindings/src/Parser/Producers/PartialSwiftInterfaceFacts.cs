@@ -52,6 +52,7 @@ public sealed record PartialSwiftInterfaceFacts
     public HashSet<string>? ProtocolNames { get; init; }
     public Dictionary<string, List<ProtocolExtensionMethodDecl>>? ProtocolExtensionMethods { get; init; }
     public List<ExtensionMemberCandidate>? ExtensionMemberCandidates { get; init; }
+    public List<DroppedExtensionCandidate>? DroppedExtensionCandidates { get; init; }
 
     /// <summary>SPI-only conformances harvested from <c>*.private.swiftinterface</c>.
     /// Each entry is <c>"QualifiedType::ProtocolName"</c> (e.g.,

@@ -636,6 +636,111 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "describe"));
     }
 
+    /// <summary>
+    /// An interface member is left to the parser's parked row only when that row is the same member:
+    /// an overload of the same name with other labels, or the other staticness, keeps a row of its
+    /// own, and the parked member is reported once.
+    /// </summary>
+    [Theory]
+    [InlineData("public func describe(with value: Swift.Int32)", false, 1)]
+    [InlineData("public func describe(as value: Swift.Int32)", false, 2)]
+    [InlineData("public static func describe(with value: Swift.Int32)", true, 2)]
+    public void RepublishWithdrawals_ParkedOverloadOfAnInterfaceMember_ReportsEachMemberOnce(
+        string interfaceSignature, bool interfaceIsStatic, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Foundation.AttributeScopes"] = "Enum";
+        moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+            "Foundation.AttributeScopes", BindingItemKind.Method, "describe", "Not bound: parked", "$s_describe_with",
+            "describe(with:)", IsStatic: false));
+        var member = CreateExtMethod("describe", interfaceSignature);
+        member.PrintedName = interfaceSignature.Contains("(as ", StringComparison.Ordinal) ? "describe(as:)" : "describe(with:)";
+        member.IsStatic = interfaceIsStatic;
+
+        var report = RunPrePassAcrossASessionRestart(
+            moduleDecl, new() { ["Foundation.AttributeScopes"] = new() { member } }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "describe"));
+    }
+
+    /// <summary>
+    /// A public declaration the interface reader did not take (an initializer, an operator, a member
+    /// with modifiers it does not read) keeps a row unless another path binds or reports it: the
+    /// parser's parked member of a dropped receiver, or the ABI's member of a carried one. A
+    /// typealias has no member to lose.
+    /// </summary>
+    [Theory]
+    [InlineData("initializer", "init", "init(seed:)", "parked-same", 0)]
+    [InlineData("initializer", "init", "init(seed:)", "parked-other-labels", 1)]
+    [InlineData("initializer", "init", "init(seed:)", "none", 1)]
+    [InlineData("operator", "+", "+(_:_:)", "none", 1)]
+    [InlineData("typealias", "Alias", "Alias", "none", 0)]
+    [InlineData("method", "sealed", "sealed()", "carried-listed", 0)]
+    [InlineData("method", "sealed", "sealed()", "carried-unlisted", 1)]
+    public void RecordDroppedExtensionCandidates_ReportsOnlyWhatNoOtherPathCovers(
+        string kind, string name, string printedName, string coverage, int expectedRows)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var receiver = "Foundation.AttributeScopes";
+        if (coverage.StartsWith("carried", StringComparison.Ordinal))
+        {
+            receiver = "Foundation.Measurement";
+            moduleDecl.ForeignTypeDeclKinds[receiver] = "Struct";
+            moduleDecl.Types.Add(new StructDecl
+            {
+                Name = "Measurement",
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+                MangledName = "$s10Foundation11MeasurementV",
+                Properties = new List<PropertyDecl>(),
+                Methods = new List<MethodDecl>(),
+                Types = new List<TypeDecl>(),
+                Operators = new List<OperatorDecl>(),
+                Subscripts = new List<SubscriptDecl>(),
+                GenericParameters = new List<GenericArgumentDecl>(),
+                Conformances = new List<TypeConformance>(),
+                ParentDecl = moduleDecl,
+                ModuleDecl = moduleDecl,
+                IsFrozen = true,
+                MetadataAccessor = "",
+            });
+            if (coverage == "carried-listed")
+                moduleDecl.Types[^1].Methods.Add(AbiMethod(name, moduleDecl, moduleDecl.Types[^1], isStatic: false, "Swift.Void"));
+        }
+        else
+        {
+            moduleDecl.ForeignTypeDeclKinds[receiver] = "Enum";
+        }
+        if (coverage.StartsWith("parked", StringComparison.Ordinal))
+            moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
+                receiver, BindingItemKind.Method, "init", "Not bound: parked", "$s_init",
+                coverage == "parked-same" ? "init(seed:)" : "init(other:)", IsStatic: false));
+        var candidate = new DroppedExtensionCandidate
+        {
+            ExtendedTypeName = receiver,
+            Kind = kind,
+            Name = name,
+            PrintedName = printedName,
+            RawSignature = $"public {kind} {printedName}",
+            IsStatic = kind == "operator",
+            Reason = "not read",
+        };
+
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RecordDroppedExtensionCandidates(moduleDecl, new[] { candidate }, Logger, ctx);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
+        var report = ReportCollector.Complete()!;
+        ReportCollector.Reset();
+
+        var rows = report.SkippedItems.Where(r => r.Name == name && r.Details.Contains("not read", StringComparison.Ordinal)).ToList();
+        Assert.Equal(expectedRows, rows.Count);
+        Assert.All(rows, r => Assert.Equal(receiver, r.ContainingType));
+    }
+
     #endregion
 
     #region ProcessForeignTypeExtensions: property getter

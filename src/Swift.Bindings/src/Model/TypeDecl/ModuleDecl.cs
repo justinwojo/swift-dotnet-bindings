@@ -128,10 +128,28 @@ namespace BindingsGeneration
     /// <param name="Details">Why the receiver, and with it this declaration, was not bound.</param>
     /// <param name="Symbol">The declaration's mangled name, which keeps overloads sharing
     /// <paramref name="Name"/> on separate rows.</param>
+    /// <param name="PrintedName">The declaration's name with its argument labels as the ABI prints it
+    /// (<c>describe(with:)</c>), or null when the parser had none. Tells overloads of one name apart.</param>
+    /// <param name="IsStatic">Whether the declaration is static (or a class member), or null when unknown.</param>
     public sealed record UnboundForeignReceiverMember(
         string ForeignTypeQualifiedName,
         BindingItemKind Kind,
         string Name,
         string Details,
-        string? Symbol = null);
+        string? Symbol = null,
+        string? PrintedName = null,
+        bool? IsStatic = null)
+    {
+        /// <summary>
+        /// Whether this parked declaration is the interface member <paramref name="member"/>: same kind,
+        /// name and receiver, and, where the parser recorded them, the same labels and staticness.
+        /// </summary>
+        public bool Describes(string foreignTypeQualifiedName, BindingItemKind kind, string name, string? printedName, bool isStatic)
+            => Kind == kind
+                && string.Equals(Name, name, StringComparison.Ordinal)
+                && string.Equals(ForeignTypeQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal)
+                && (string.IsNullOrEmpty(PrintedName) || string.IsNullOrEmpty(printedName)
+                    || string.Equals(PrintedName, printedName, StringComparison.Ordinal))
+                && (IsStatic is null || IsStatic == isStatic);
+    }
 }

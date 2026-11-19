@@ -203,10 +203,10 @@ public static class ForeignTypeExtensionEmitter
             if (requirements?.Declares(ForeignProtocolRequirements.KeyOf(member)) == true)
                 continue;
             var kind = member.IsProperty ? BindingItemKind.Property : BindingItemKind.Method;
+            // The parser parked this member with its dropped receiver and reports it from there. Labels
+            // and staticness tell it from an overload of the same name the ABI does not list.
             if (moduleDecl.UnboundForeignReceiverMembers.Any(u =>
-                    u.Kind == kind &&
-                    string.Equals(u.Name, member.MethodName, StringComparison.Ordinal) &&
-                    string.Equals(u.ForeignTypeQualifiedName, foreignTypeQualifiedName, StringComparison.Ordinal)))
+                    u.Describes(foreignTypeQualifiedName, kind, member.MethodName, member.PrintedName, member.IsStatic)))
                 continue;
             RecordUnbound(
                 ctx, moduleDecl, DeclIdFactory.ForForeignExtensionMember(foreignTypeQualifiedName, member),
@@ -214,6 +214,73 @@ public static class ForeignTypeExtensionEmitter
                 $"Foreign extension on '{foreignTypeQualifiedName}': the receiver is a Swift {receiver}, not an "
                 + "Objective-C class, and members added to another module's Swift type are not bound unless the "
                 + "cross-module extension path carries the receiver (it carries classes and structs).");
+        }
+    }
+
+    /// <summary>
+    /// Reports each public declaration the interface reader saw in an extension of another module's
+    /// type and did not take as an extension member (<see cref="DroppedExtensionCandidate"/>), unless
+    /// another path already binds or reports it: the cross-module path for a member the ABI lists on a
+    /// carried receiver, the parser for a member it parked with a dropped receiver, or the protocol's
+    /// requirement for a default it supplies. A typealias has no C# member to lose; it is logged only.
+    /// </summary>
+    public static void RecordDroppedExtensionCandidates(
+        ModuleDecl moduleDecl,
+        IEnumerable<DroppedExtensionCandidate> dropped,
+        ILogger logger,
+        ModuleEmissionContext? ctx = null)
+    {
+        ArgumentNullException.ThrowIfNull(moduleDecl);
+        ctx ??= ModuleEmissionContext.CreateImplicitFallback();
+        var requirementsByProtocol = new Dictionary<string, ForeignProtocolRequirements.Requirements?>(StringComparer.Ordinal);
+        foreach (var candidate in dropped)
+        {
+            var receiver = candidate.ExtendedTypeName;
+            BindingItemKind? kind = candidate.Kind switch
+            {
+                "method" or "initializer" => BindingItemKind.Method,
+                "property" => BindingItemKind.Property,
+                "subscript" => BindingItemKind.Subscript,
+                "operator" => BindingItemKind.Operator,
+                "type" => BindingItemKind.Type,
+                _ => null,
+            };
+            if (kind is null)
+            {
+                logger.LogDebug("Extension of '{Type}' declares {Kind} '{Name}', which has no member to bind",
+                    receiver, candidate.Kind, candidate.Name);
+                continue;
+            }
+            if (IsCarriedCrossModuleReceiver(moduleDecl.Types, receiver)
+                && CarriedReceiverRows.AbiLists(moduleDecl, receiver, kind.Value, candidate.Name,
+                    candidate.PrintedName, candidate.IsStatic))
+                continue;
+            if (moduleDecl.UnboundForeignReceiverMembers.Any(u =>
+                    u.Describes(receiver, kind.Value, candidate.Name, candidate.PrintedName, candidate.IsStatic)))
+                continue;
+            moduleDecl.ForeignTypeDeclKinds.TryGetValue(receiver, out var receiverKind);
+            if (receiverKind == "Protocol" && kind != BindingItemKind.Subscript && kind != BindingItemKind.Type)
+            {
+                if (!requirementsByProtocol.TryGetValue(receiver, out var requirements))
+                    requirementsByProtocol[receiver] = requirements = ForeignProtocolRequirements.Of(moduleDecl, receiver);
+                var key = (candidate.IsStatic ? "static " : string.Empty)
+                    + (kind == BindingItemKind.Operator || kind == BindingItemKind.Property ? candidate.Name : candidate.PrintedName)
+                    + (ProtocolExtensionEmitter.IsAsyncSignature(candidate.RawSignature) && kind != BindingItemKind.Property
+                        ? " async" : string.Empty);
+                if (requirements?.Declares(key) == true)
+                    continue;
+            }
+            var firstDot = receiver.IndexOf('.');
+            RecordUnbound(
+                ctx, moduleDecl,
+                DeclId.Create(
+                    firstDot < 0 ? string.Empty : receiver[..firstDot],
+                    firstDot < 0 ? receiver : receiver[(firstDot + 1)..],
+                    kind.Value,
+                    candidate.Name,
+                    symbol: candidate.RawSignature),
+                SkipReason.UnsupportedSignature,
+                $"Foreign extension on '{receiver}': {candidate.Reason}.");
         }
     }
 

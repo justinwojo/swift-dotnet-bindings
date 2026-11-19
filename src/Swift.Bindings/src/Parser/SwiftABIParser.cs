@@ -5033,7 +5033,9 @@ namespace BindingsGeneration
                 moduleDecl.UnboundForeignReceiverMembers.Add(new UnboundForeignReceiverMember(
                     receiverQualifiedName, kind.Value, child.Name,
                     $"Not bound: {why}",
-                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName));
+                    string.IsNullOrEmpty(child.MangledName) ? child.usr : child.MangledName,
+                    string.IsNullOrEmpty(child.PrintedName) ? null : child.PrintedName,
+                    child.@static ?? false));
             }
         }
 

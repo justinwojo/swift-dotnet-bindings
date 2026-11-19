@@ -58,7 +58,10 @@ import Foundation
 // v8: Swift 6.4 module selectors are parsed structurally and canonicalized to
 // dotted ABI fact names. Older helpers silently corrupt declaration scopes on
 // these interfaces; reject a stale binary instead of accepting incomplete facts.
-let kSchemaVersion = 8
+// v9: `extensionMemberCandidates` carries `class func` members (as static) and
+// `droppedExtensionCandidates` records every public extension declaration the host did not take.
+// A v8 host drops those with no record, so a foreign receiver's member can vanish silently.
+let kSchemaVersion = 9
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///
@@ -142,6 +145,19 @@ struct Facts: Encodable {
     var protocolNames: [String]?
     var protocolExtensionMethods: [String: [ProtocolExtensionMethodInfo]]?
     var extensionMemberCandidates: [ExtensionMemberCandidateInfo]?
+    var droppedExtensionCandidates: [DroppedExtensionCandidateInfo]?
+}
+
+/// Wire shape for `DroppedExtensionCandidate`: a public extension declaration the host saw and did
+/// not take as an extension member candidate, with the reason.
+struct DroppedExtensionCandidateInfo: Encodable {
+    let extendedTypeName: String
+    let kind: String
+    let name: String
+    let printedName: String
+    let rawSignature: String
+    let isStatic: Bool
+    let reason: String
 }
 
 struct SourcePositionJson: Encodable {

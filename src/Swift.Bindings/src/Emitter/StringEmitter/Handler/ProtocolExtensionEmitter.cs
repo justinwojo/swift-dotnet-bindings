@@ -537,6 +537,20 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
+    /// The parameter types of an extension method as the interface spells them, then its return type
+    /// (<c>Self</c> when it returns its receiver, <c>()</c> when it returns nothing), or null when the
+    /// signature cannot be read.
+    /// </summary>
+    internal static List<TypeSpec>? ExtensionTypeSlots(ProtocolExtensionMethodDecl member, ITypeDatabase typeDatabase, ILogger logger)
+    {
+        if (member.IsProperty || ParseExtensionSignature(member, typeDatabase, logger) is not { } parsed)
+            return null;
+        var slots = parsed.parameters.Select(p => p.typeSpec).ToList();
+        slots.Add(member.ReturnsSelf ? new NamedTypeSpec("Self") : parsed.returnTypeSpec ?? TupleTypeSpec.Empty);
+        return slots;
+    }
+
+    /// <summary>
     /// The ABI counterpart of <see cref="ExtensionOverloadKey"/>, spelled as Swift spells it: the ABI
     /// parser escapes a C# keyword in a method name or a label (<c>default</c> becomes
     /// <c>_default</c>), and the interface reader keeps the Swift spelling.

@@ -47,6 +47,8 @@ public enum InterfaceFactKind
     ProtocolNames,
     ProtocolExtensionMethods,
     ExtensionMemberCandidates,
+    // Public extension declarations the reader saw and did not take as candidates, with the reason.
+    DroppedExtensionCandidates,
     // SDK 0.11.0 R2 — SPI-only conformances harvested from *.private.swiftinterface so
     // wrapper emission can drop conformances that vanish under a plain (non-@_spi) import.
     SpiOnlyConformances,

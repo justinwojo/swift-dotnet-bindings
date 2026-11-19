@@ -643,8 +643,8 @@ public class AbiIngestionContractTests
             mangledName: "$s8OtherLib6ScopesO", usr: "s:8OtherLib6ScopesO", isExternal: true,
             children:
             [
-                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_Int32"),
-                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_String"),
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_Int32") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_String") with { PrintedName = "describe(as:)", @static = true },
             ]);
         using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, receiver);
 
@@ -653,6 +653,10 @@ public class AbiIngestionContractTests
         Assert.Equal(
             new[] { "$s_describe_Int32", "$s_describe_String" },
             result.ModuleDecl.UnboundForeignReceiverMembers.Select(u => u.Symbol).OrderBy(x => x, StringComparer.Ordinal).ToArray());
+        // The labels and staticness tell each parked overload from an interface overload of the same name.
+        Assert.Equal(
+            new[] { "describe(as:)|True", "describe(with:)|False" },
+            result.ModuleDecl.UnboundForeignReceiverMembers.Select(u => $"{u.PrintedName}|{u.IsStatic}").OrderBy(x => x, StringComparer.Ordinal).ToArray());
     }
 
     /// <summary>

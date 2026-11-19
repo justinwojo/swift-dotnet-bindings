@@ -82,7 +82,8 @@ let protocolFacts = ProtocolFactsWalker.parse(filePath: path, source: source)
 let asyncAccessorMembers = AsyncAccessorWalker.parse(source: source)
 
 let protocolNames = ProtocolNamesWalker.parse(filePath: path, source: source)
-let extensionMemberCandidates = ExtensionsWalker.parse(filePath: path, source: source)
+let extensionWalk = ExtensionsWalker.parseAll(filePath: path, source: source)
+let extensionMemberCandidates = extensionWalk.candidates
 
 // SPI-only conformances come exclusively from the sibling `*.private.swiftinterface`,
 // derived and passed by the .NET-side producer as `--private-input`. When absent (most
@@ -184,6 +185,7 @@ let output = ParserOutput(
         "ProtocolNames",
         "ProtocolExtensionMethods",
         "ExtensionMemberCandidates",
+        "DroppedExtensionCandidates",
     ],
     facts: Facts(
         mainActorTypes: mainActorTypes,
@@ -217,7 +219,8 @@ let output = ParserOutput(
         hiddenRequirementProtocols: protocolFacts.hiddenRequirementProtocols,
         protocolNames: protocolNames,
         protocolExtensionMethods: protocolExtensionMethods,
-        extensionMemberCandidates: extensionMemberCandidates
+        extensionMemberCandidates: extensionMemberCandidates,
+        droppedExtensionCandidates: extensionWalk.dropped
     )
 )
 
