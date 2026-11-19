@@ -5042,7 +5042,26 @@ namespace BindingsGeneration
                         ? (child.Children ?? Array.Empty<Node>()).Skip(1).Select(c => c.PrintedName).ToList()
                         : null,
                     child.Kind is "Function" or "Subscript" ? child.Children?.FirstOrDefault()?.PrintedName : null,
-                    IsPublic: !IsNodeModuleInternal(child)));
+                    IsPublic: !IsNodeModuleInternal(child),
+                    IsAsync: kind == BindingItemKind.Method && child.Kind == "Function" ? IsAsyncSymbol(child.MangledName) : null));
+            }
+        }
+
+        /// <summary>Whether the function <paramref name="mangledName"/> names is async, or null when it
+        /// is not a Swift function symbol the demangler can read. The reducer has no rule for a member
+        /// of an extension, so the raw tree answers for those.</summary>
+        private bool? IsAsyncSymbol(string? mangledName)
+        {
+            if (string.IsNullOrEmpty(mangledName) || !mangledName.StartsWith("$s", StringComparison.Ordinal))
+                return null;
+            try
+            {
+                return (demangler.Run(mangledName) as FunctionReduction)?.Function?.IsAsync
+                    ?? demangler.ReadAsyncMarker(mangledName);
+            }
+            catch (Exception)
+            {
+                return null;
             }
         }
 

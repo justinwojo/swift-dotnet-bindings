@@ -24,22 +24,22 @@ internal sealed record OverloadSignature(string? Labels, IReadOnlyList<string>? 
 internal static class ForeignOverloadPairing
 {
     /// <summary>
-    /// The declared members no listed member accounts for. Listed members in
-    /// <paramref name="claimed"/> already account for another declared member and are skipped; the
-    /// ones paired here are added to it.
+    /// The listed member each declared member stands for, by the declared member's index; a declared
+    /// member no listed member accounts for has no entry. Every declared member is paired by one pass
+    /// before the next pass starts, so a declaration whose signature reads the same as a listed
+    /// member's always takes it before one that only may be it.
     /// </summary>
-    internal static List<TDeclared> Unpaired<TDeclared, TListed>(
+    internal static Dictionary<int, TListed> Pair<TDeclared, TListed>(
         IReadOnlyList<TDeclared> declared,
         IEnumerable<TListed> listed,
         Func<TDeclared, TListed, bool> sameShape,
         Func<TDeclared, OverloadSignature?> declaredSignature,
         Func<TListed, OverloadSignature?> listedSignature,
-        ITypeDatabase typeDatabase,
-        ISet<object>? claimed = null)
+        ITypeDatabase typeDatabase)
         where TListed : class
     {
-        var pool = listed.Where(l => claimed is null || !claimed.Contains(l)).ToList();
-        var paired = new bool[declared.Count];
+        var pool = listed.ToList();
+        var pairs = new Dictionary<int, TListed>();
         var mine = declared.Select(declaredSignature).ToList();
         var pass = new Func<OverloadSignature?, OverloadSignature?, bool>[]
         {
@@ -51,17 +51,16 @@ internal static class ForeignOverloadPairing
         {
             for (var i = 0; i < declared.Count && pool.Count > 0; i++)
             {
-                if (paired[i])
+                if (pairs.ContainsKey(i))
                     continue;
                 var match = pool.FirstOrDefault(l => sameShape(declared[i], l) && matches(mine[i], listedSignature(l)));
                 if (match is null)
                     continue;
                 pool.Remove(match);
-                claimed?.Add(match);
-                paired[i] = true;
+                pairs[i] = match;
             }
         }
-        return declared.Where((_, i) => !paired[i]).ToList();
+        return pairs;
     }
 
     private static bool Comparable(OverloadSignature? declared, OverloadSignature? listed)

@@ -386,7 +386,9 @@ public static class ProtocolExtensionEmitter
     /// <c>nonisolated</c>, …) or a member of an extension it cannot parse has no injection candidate
     /// and, without this, no row. A member is left alone when the reader extracted it (injection owns
     /// its row then), or when it supplies the default for a requirement with the same signature (the
-    /// requirement is the surface). Members are matched by overload: name, labels and parameter types.
+    /// requirement is the surface). Members are matched by overload: name, labels and parameter types,
+    /// and an ABI method only a declaration the reader dropped stands for in the receiver's pairing
+    /// (<see cref="ForeignReceiverPairing"/>) is one it did not extract.
     /// </summary>
     internal static void ReportUnextractedMembers(
         ModuleDecl moduleDecl,
@@ -396,6 +398,7 @@ public static class ProtocolExtensionEmitter
         ModuleEmissionContext ctx)
     {
         Dictionary<string, ExtractedMembers>? extracted = null;
+        ForeignReceiverPairing? pairing = null;
         foreach (var protocol in ModuleProtocols(moduleDecl))
         {
             if (protocol.ExtensionMembers.Count == 0 || protocol.IsModuleInternal)
@@ -404,12 +407,19 @@ public static class ProtocolExtensionEmitter
                 continue;
             extracted ??= IndexExtractedMembers(moduleDecl, protocolExtensionMethods, typeDatabase, logger);
             extracted.TryGetValue(QualifiedName(protocol), out var reader);
-
-            // Unmatched ABI methods grouped by name and labels: the reader's count for the group caps
-            // how many of them can be unextracted, so a type that prints differently on the two sides
-            // never turns an extracted overload into a row.
-            var unmatchedMethods = new Dictionary<string, List<MethodDecl>>(StringComparer.Ordinal);
+            // A caller that reports without the module's pairing pairs the extracted methods alone.
+            pairing ??= ctx.ForeignReceiverPairing ??= ForeignReceiverPairing.Compute(
+                moduleDecl, new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
+                Array.Empty<DroppedExtensionCandidate>(), protocolExtensionMethods, typeDatabase);
+            var protocolName = QualifiedName(protocol);
+            // An ABI method no extracted method matches may still be one whose types print differently
+            // on the two sides, so the reader's count for its name and labels caps how many of them are
+            // known to be unextracted.
             var abiMethodCounts = new Dictionary<string, int>(StringComparer.Ordinal);
+            // By name and labels: the ABI methods only a declaration the reader dropped stands for, which
+            // are unextracted, and the others it did not extract, which may be.
+            var methodGroups = new Dictionary<string, (List<MethodDecl> Dropped, List<MethodDecl> Unpaired)>(StringComparer.Ordinal);
+
             var candidates = new List<(BaseDecl Member, string Shape)>();
             foreach (var member in protocol.ExtensionMembers)
             {
@@ -420,18 +430,19 @@ public static class ProtocolExtensionEmitter
                             candidates.Add((init, "an initializer"));
                         break;
                     case MethodDecl method when !method.IsModuleInternal && method.Name.Length > 0:
-                        // Counted before the requirement check: the reader's count for the group
-                        // includes the requirement defaults it extracted, so the ABI count must too.
+                        // Counted before the requirement check: the extracted count for the group
+                        // includes the requirement defaults the reader extracted, so the ABI count must too.
                         var labelKey = AbiLabelKey(method);
                         abiMethodCounts[labelKey] = abiMethodCounts.GetValueOrDefault(labelKey) + 1;
                         if (IsRequirementSignature(moduleDecl, protocol, method))
                             break;
-                        if (reader == null || !reader.Matches(method))
-                        {
-                            if (!unmatchedMethods.TryGetValue(labelKey, out var group))
-                                unmatchedMethods[labelKey] = group = new List<MethodDecl>();
-                            group.Add(method);
-                        }
+                        // A method the reader extracted is injection's.
+                        var origin = pairing.PairedWith(method)?.Origin ?? ForeignReceiverPairing.Origins.None;
+                        if (origin.HasFlag(ForeignReceiverPairing.Origins.Extracted) || reader?.Matches(method) == true)
+                            break;
+                        if (!methodGroups.TryGetValue(labelKey, out var group))
+                            methodGroups[labelKey] = group = (new List<MethodDecl>(), new List<MethodDecl>());
+                        (origin == ForeignReceiverPairing.Origins.Dropped ? group.Dropped : group.Unpaired).Add(method);
                         break;
                     case PropertyDecl property when !property.IsModuleInternal && property.Name.Length > 0:
                         if (reader?.PropertyNames.Contains(property.GetSwiftName()) != true
@@ -445,23 +456,23 @@ public static class ProtocolExtensionEmitter
                 }
             }
 
-            foreach (var (labelKey, group) in unmatchedMethods)
+            foreach (var (labelKey, (dropped, unpaired)) in methodGroups)
             {
-                var readerCount = reader?.CountByLabels.GetValueOrDefault(labelKey) ?? 0;
-                var excess = abiMethodCounts[labelKey] - readerCount;
-                if (excess <= 0)
+                foreach (var method in dropped)
+                    candidates.Add((method, "a method"));
+                if (unpaired.Count == 0)
                     continue;
-                if (group.Count > excess)
+                var excess = abiMethodCounts[labelKey] - (reader?.CountByLabels.GetValueOrDefault(labelKey) ?? 0) - dropped.Count;
+                if (unpaired.Count > excess)
                 {
                     logger.LogDebug("Protocol {Protocol}: cannot tell which of {Count} overloads of {Key} the interface reader missed",
-                        protocol.Name, group.Count, labelKey);
+                        protocol.Name, unpaired.Count, labelKey);
                     continue;
                 }
-                foreach (var method in group)
+                foreach (var method in unpaired)
                     candidates.Add((method, "a method"));
             }
 
-            var protocolName = QualifiedName(protocol);
             foreach (var (member, shape) in candidates)
             {
                 if (RequirementKeyOf(member) is { } key && foreignRequirements.Declares(key))

@@ -125,6 +125,13 @@ namespace BindingsGeneration.Demangling
         /// Returns false if the tree cannot be built.
         /// </summary>
         public bool HasAsyncMarker(string mangledName)
+            => OutermostFunctionTypeHasDirectChild(mangledName, NodeKind.AsyncAnnotation) ?? false;
+
+        /// <summary>
+        /// <see cref="HasAsyncMarker"/>, or null when the tree cannot be built or has no function
+        /// type, so a caller can tell an unreadable symbol from a synchronous one.
+        /// </summary>
+        public bool? ReadAsyncMarker(string mangledName)
             => OutermostFunctionTypeHasDirectChild(mangledName, NodeKind.AsyncAnnotation);
 
         /// <summary>
@@ -443,12 +450,12 @@ namespace BindingsGeneration.Demangling
         /// the FunctionType they belong to, so restricting to the outermost FunctionType's direct
         /// children distinguishes an async DECLARATION from a sync declaration that merely takes or
         /// returns an async closure (whose FunctionType, and its annotation, are strictly deeper).
-        /// Returns false if the tree cannot be built or has no function type.
+        /// Returns null if the tree cannot be built or has no function type.
         /// </summary>
-        private bool OutermostFunctionTypeHasDirectChild(string mangledName, NodeKind kind)
+        private bool? OutermostFunctionTypeHasDirectChild(string mangledName, NodeKind kind)
         {
             if (string.IsNullOrEmpty(mangledName))
-                return false;
+                return null;
             lock (runLock)
             {
                 nodeStack.Clear();
@@ -464,11 +471,11 @@ namespace BindingsGeneration.Demangling
                 }
                 catch (Exception)
                 {
-                    return false;
+                    return null;
                 }
                 var fn = FindOutermostFunctionType(topLevelNode);
                 if (fn is null)
-                    return false;
+                    return null;
                 foreach (var child in fn.Children)
                 {
                     if (child.Kind == kind)

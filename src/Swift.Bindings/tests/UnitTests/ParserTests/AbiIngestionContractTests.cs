@@ -660,6 +660,35 @@ public class AbiIngestionContractTests
     }
 
     /// <summary>
+    /// A parked method carries its effect, read from its symbol: an extension member's symbol, which
+    /// the reducer has no rule for, still tells an async overload from a synchronous one, and a symbol
+    /// the demangler cannot read leaves the effect unknown.
+    /// </summary>
+    [Fact]
+    public void ParseModule_DroppedReceiverAsyncOverload_ParkedWithItsEffect()
+    {
+        InputResolutionReport.Reset();
+        var local = CreateNode("TypeDecl", declKind: "Struct", name: "Local", mangledName: "$s10TestModule5LocalV");
+        var receiver = CreateNode(
+            "TypeDecl", declKind: "Enum", name: "Scopes", moduleName: "OtherLib",
+            mangledName: "$s8OtherLib6ScopesO", usr: "s:8OtherLib6ScopesO", isExternal: true,
+            children:
+            [
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tYaF") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tF") with { PrintedName = "describe(with:)" },
+                CreateNode("Function", declKind: "Func", name: "describe", mangledName: "$s_describe_unreadable") with { PrintedName = "describe(as:)" },
+            ]);
+        using var fixture = CreateParser(jsonFormatVersion: ExpectedVersion, new CapturingLogger(), local, receiver);
+
+        var result = fixture.Parser.ParseModule();
+
+        var effects = result.ModuleDecl.UnboundForeignReceiverMembers.ToDictionary(u => u.Symbol!, u => u.IsAsync);
+        Assert.True(effects["$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tYaF"]);
+        Assert.False(effects["$s8OtherLib6ScopesO10TestModuleE8describe4withys5Int32V_tF"]);
+        Assert.Null(effects["$s_describe_unreadable"]);
+    }
+
+    /// <summary>
     /// A dropped re-exported receiver is walked for this module's declarations however deep they sit:
     /// one on a foreign type nested in it is lost with the receiver, even when the receiver's own
     /// children are all foreign.

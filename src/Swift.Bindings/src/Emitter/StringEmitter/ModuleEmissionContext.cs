@@ -720,13 +720,12 @@ public sealed class ModuleEmissionContext
         _foreignExtWithdrawals.Add(withdrawal);
 
     /// <summary>
-    /// The ABI members of foreign receivers (parked by the parser, or listed on a carried receiver)
-    /// already paired with a member the interface declares, so each accounts for one interface
-    /// member across the foreign-extension pre-pass and the dropped-declaration report.
+    /// Which interface declaration each member listed on a foreign receiver stands for, decided once
+    /// for every declaration on the receiver (<see cref="ForeignReceiverPairing"/>) and read by every
+    /// pass that writes their rows. Set before protocol-extension injection; a pass run without it
+    /// pairs the declarations it was given and keeps that pairing here.
     /// </summary>
-    internal ISet<object> ForeignExtPairedAbiMembers => _foreignExtPairedAbiMembers;
-
-    private readonly HashSet<object> _foreignExtPairedAbiMembers = new(ReferenceEqualityComparer.Instance);
+    internal ForeignReceiverPairing? ForeignReceiverPairing { get; set; }
 
     private readonly List<ProtocolExtensionDecline> _protocolExtDeclines = new();
 

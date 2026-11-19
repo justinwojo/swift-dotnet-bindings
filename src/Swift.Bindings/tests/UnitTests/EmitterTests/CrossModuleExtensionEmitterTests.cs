@@ -1237,12 +1237,12 @@ public class CrossModuleExtensionEmitterTests
         member.IsStatic = true;
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), Bound: false,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), env.TypeDatabase);
 
         Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == "reset"));
         if (abiLists)
@@ -1292,12 +1292,12 @@ public class CrossModuleExtensionEmitterTests
         var member = PrePassMember("reset", "reset()", "public func reset()");
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "declined by the pre-pass."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), env.TypeDatabase);
 
         // Bound: neither row. Declined: the cross-module path's row alone.
         Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "reset"));
@@ -1378,12 +1378,12 @@ public class CrossModuleExtensionEmitterTests
         var member = PrePassMember("generate", "generate(font:)", "public func generate(font: OrigModule.OrigType.Font)");
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, env.TypeDatabase, Logger), prePassBound,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "declined by the pre-pass."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), env.TypeDatabase);
 
         // Bound: neither row. Declined: the cross-module path's row alone.
         Assert.Equal(prePassBound ? 0 : 1, report.SkippedItems.Count(r => r.Name == "generate"));
@@ -1432,12 +1432,12 @@ public class CrossModuleExtensionEmitterTests
         member.IsStatic = true;
         emissionContext.AddCarriedPrePassOutcome(new CarriedPrePassOutcome(
             "OrigModule.OrigType", CarriedReceiverRows.IdentityOf(member, TypeDatabaseKnowingInt32(), Logger), Bound: false,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member),
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member,
             SkipReason.UnsupportedSignature, "static members of a foreign extension are not bound yet."));
 
         var report = RunSettled(moduleDecl, emissionContext, () =>
             CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger,
-                ThreadContext(emissionContext)));
+                ThreadContext(emissionContext)), TypeDatabaseKnowingInt32());
 
         Assert.Equal(2, report.SkippedItems.Count(r => r.Name == "f"));
     }
@@ -1503,7 +1503,7 @@ public class CrossModuleExtensionEmitterTests
             "OrigModule.OrigType",
             CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
             Bound: false,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member));
     }
 
     /// <summary>Records that the interface pre-pass bound a member of <c>OrigModule.OrigType</c>.</summary>
@@ -1514,7 +1514,7 @@ public class CrossModuleExtensionEmitterTests
             "OrigModule.OrigType",
             CarriedReceiverRows.IdentityOf(member, new TypeDatabase(), Logger),
             Bound: true,
-            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member)));
+            DeclIdFactory.ForForeignExtensionMember("OrigModule.OrigType", member), member));
     }
 
     private static ArgumentDecl Argument(string label, string type, ModuleDecl moduleDecl)
@@ -1532,12 +1532,27 @@ public class CrossModuleExtensionEmitterTests
     };
 
     /// <summary>Runs an emission, then settles the carried-receiver rows as the generator does.</summary>
-    private static BindingReport RunSettled(ModuleDecl moduleDecl, ModuleEmissionContext ctx, System.Action emit)
-        => RunReported(moduleDecl, () =>
+    /// <summary>
+    /// Runs <paramref name="emit"/> and settles the carried rows, after pairing the declarations the
+    /// test recorded as pre-pass outcomes with the receiver's listed members, as generation pairs them
+    /// before the pre-pass runs.
+    /// </summary>
+    private static BindingReport RunSettled(
+        ModuleDecl moduleDecl, ModuleEmissionContext ctx, System.Action emit, ITypeDatabase? typeDatabase = null)
+    {
+        ctx.ForeignReceiverPairing ??= ForeignReceiverPairing.Compute(
+            moduleDecl,
+            ctx.CarriedPrePassOutcomes.GroupBy(o => o.Receiver)
+                .ToDictionary(g => g.Key, g => g.Select(o => o.Declaration).Distinct().ToList()),
+            System.Array.Empty<DroppedExtensionCandidate>(),
+            new Dictionary<string, List<ProtocolExtensionMethodDecl>>(),
+            typeDatabase ?? new TypeDatabase());
+        return RunReported(moduleDecl, () =>
         {
             emit();
             ForeignTypeExtensionEmitter.RepublishWithdrawals(moduleDecl, ctx);
         });
+    }
 
     private static BindingReport RunReported(ModuleDecl moduleDecl, System.Action emit)
     {

@@ -139,6 +139,8 @@ namespace BindingsGeneration
     /// <param name="IsPublic">Whether the declaration is part of the module's public surface (not
     /// <c>@usableFromInline</c> internal or SPI). Only a public declaration is a member an interface
     /// declaration can be.</param>
+    /// <param name="IsAsync">Whether a method is async, read from its symbol, or null when unknown or not
+    /// a method. Swift overloads on it.</param>
     public sealed record UnboundForeignReceiverMember(
         string ForeignTypeQualifiedName,
         BindingItemKind Kind,
@@ -149,7 +151,8 @@ namespace BindingsGeneration
         bool? IsStatic = null,
         IReadOnlyList<string>? ParameterTypes = null,
         string? ReturnType = null,
-        bool IsPublic = true)
+        bool IsPublic = true,
+        bool? IsAsync = null)
     {
         /// <summary>What tells this declaration apart from overloads of its shape, or null when it has no parameters.</summary>
         internal OverloadSignature? Signature => ParameterTypes is null

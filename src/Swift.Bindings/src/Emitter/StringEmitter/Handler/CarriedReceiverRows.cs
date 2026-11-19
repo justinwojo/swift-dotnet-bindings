@@ -29,8 +29,7 @@ internal static class CarriedReceiverRows
         // A generic parameter is spelled by its source name in the interface and by its depth and
         // index in the ABI, so a generic member's types do not compare; its labels and flags do. A
         // parameter of type `some P` is a generic parameter of the method in the ABI.
-        var isGeneric = member.RawSignature.Contains($"func {member.MethodName}<", StringComparison.Ordinal)
-            || OpaqueParameter.IsMatch(ParameterClause(member.RawSignature, member.MethodName));
+        var isGeneric = DeclaresOwnGenerics(member.RawSignature, member.MethodName);
         var signature = isGeneric ? null : ProtocolExtensionEmitter.ExtensionOverloadKey(member, typeDatabase, logger);
         var types = signature is null ? null : ProtocolExtensionEmitter.ExtensionTypeSlots(member, typeDatabase, logger);
         return new CarriedMemberIdentity(
@@ -149,6 +148,20 @@ internal static class CarriedReceiverRows
         return slots;
     }
 
+    /// <summary>
+    /// Whether the interface declaration <paramref name="signature"/> of the method
+    /// <paramref name="name"/> has generic parameters of its own: a generic parameter clause, or a
+    /// parameter of type <c>some P</c>, which is a generic parameter of the method in the ABI.
+    /// </summary>
+    internal static bool DeclaresOwnGenerics(string signature, string name)
+        => FuncNamed(signature, name) is { Success: true } at && signature[(at.Index + at.Length)..].TrimStart().StartsWith('<')
+            || OpaqueParameter.IsMatch(ParameterClause(signature, name));
+
+    // `func name` in a declaration, the name escaped in backticks or not (`func `repeat``).
+    private static System.Text.RegularExpressions.Match FuncNamed(string signature, string name)
+        => System.Text.RegularExpressions.Regex.Match(signature,
+            $@"(?<![\w`])func\s+`?{System.Text.RegularExpressions.Regex.Escape(name)}`?(?![\w`])");
+
     private static readonly System.Text.RegularExpressions.Regex OpaqueParameter =
         new(@"(?<![\w.])some\s+(?![A-Za-z_]\w*\s*:)", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
@@ -179,11 +192,11 @@ internal static class CarriedReceiverRows
     /// </summary>
     private static string ParameterClause(string signature, string name)
     {
-        var at = signature.IndexOf($"func {name}", StringComparison.Ordinal);
-        if (at < 0)
+        var at = FuncNamed(signature, name);
+        if (!at.Success)
             return "";
         var angle = 0;
-        for (var i = at + 5 + name.Length; i < signature.Length; i++)
+        for (var i = at.Index + at.Length; i < signature.Length; i++)
         {
             var c = signature[i];
             if (c == '<') angle++;
@@ -239,8 +252,11 @@ internal static class CarriedReceiverRows
     }
 
     /// <summary>
-    /// Writes the pre-pass declines of every carried receiver that the ABI does not list into the
-    /// live report session. Call once, after emission has settled and before the report is completed.
+    /// Writes the pre-pass declines of every carried receiver that no listed member stands for into
+    /// the live report session: the cross-module path binds or reports each member the ABI lists, so
+    /// a declined declaration the receiver's pairing (<see cref="ForeignReceiverPairing"/>) paired with
+    /// one is accounted for there. Call once, after emission has settled and before the report is
+    /// completed.
     /// </summary>
     public static void Settle(ModuleDecl moduleDecl, ModuleEmissionContext ctx)
     {
@@ -248,15 +264,17 @@ internal static class CarriedReceiverRows
         ArgumentNullException.ThrowIfNull(ctx);
 
         var outcomes = ctx.CarriedPrePassOutcomes;
-        var abiMembers = new Dictionary<string, List<CarriedMemberIdentity>>(StringComparer.Ordinal);
+        if (outcomes.Count == 0)
+            return;
+        // The pre-pass that recorded the outcomes pairs its declarations when the caller has not.
+        var pairing = ctx.ForeignReceiverPairing
+            ?? throw new InvalidOperationException("Carried pre-pass outcomes were recorded without a receiver pairing.");
         foreach (var outcome in outcomes)
         {
             var onReceiver = OutcomesOn(outcomes, outcome.Receiver);
             if (outcome.Bound || onReceiver.Any(o => o.Bound && o.Identity.SameMember(outcome.Identity)))
                 continue;
-            if (!abiMembers.TryGetValue(outcome.Receiver, out var listed))
-                abiMembers[outcome.Receiver] = listed = AbiMembersOf(moduleDecl, outcome.Receiver);
-            if (listed.Any(a => Corresponds(outcome.Identity, onReceiver, a, listed)))
+            if (pairing.IsPaired(outcome.Declaration))
                 continue;
             ReportCollector.RecordMemberSkipped(outcome.MemberId, moduleDecl, outcome.Reason, outcome.Details);
         }
@@ -280,15 +298,6 @@ internal static class CarriedReceiverRows
 
     private static List<CarriedPrePassOutcome> OutcomesOn(IReadOnlyList<CarriedPrePassOutcome> outcomes, string receiver)
         => outcomes.Where(o => string.Equals(o.Receiver, receiver, StringComparison.Ordinal)).ToList();
-
-    /// <summary>
-    /// The public members the current module adds to <paramref name="receiver"/> that the ABI lists,
-    /// in the set the cross-module path walks. An internal or SPI member the ABI lists
-    /// (<c>@usableFromInline internal</c>) is never bound or reported by that path, so it never
-    /// stands for a member the interface declares.
-    /// </summary>
-    private static List<CarriedMemberIdentity> AbiMembersOf(ModuleDecl moduleDecl, string receiver)
-        => ReceiversNamed(moduleDecl.Types, receiver).SelectMany(t => ListedOn(t, moduleDecl.Name)).ToList();
 
     private static IEnumerable<CarriedMemberIdentity> ListedOn(TypeDecl type, string? moduleName)
     {
@@ -327,39 +336,46 @@ internal static class CarriedReceiverRows
         }
         if (ProtocolExtensionEmitter.ReportedForeignProtocol(moduleDecl, receiver) is { } protocol)
         {
+            // A protocol's extension members are the ones this module's ABI lists on it.
             return protocol.ExtensionMembers
-                .Select(member => Listed(moduleDecl, member))
+                .Select(member => Listed(moduleDecl, member, onProtocol: true))
                 .OfType<ListedMember>()
                 .ToList();
         }
         return null;
     }
 
-    private static ListedMember? Listed(ModuleDecl moduleDecl, BaseDecl member)
+    private static ListedMember? Listed(ModuleDecl moduleDecl, BaseDecl member, bool onProtocol = false)
     {
         static string? Type(ArgumentDecl argument) => argument.SwiftTypeSpec?.ToString();
-        if (member.ModuleDecl?.Name != moduleDecl.Name)
+        if (!onProtocol && member.ModuleDecl?.Name != moduleDecl.Name)
             return null;
         switch (member)
         {
             case MethodDecl method when !method.IsAccessor && !method.IsModuleInternal && !method.IsSpiProtected:
                 var labels = ProtocolExtensionEmitter.AbiLabelKey(method);
-                return new ListedMember(BindingItemKind.Method,
+                // An instance method of an isolated type is called async across the isolation
+                // boundary, but its declaration, which the interface prints, is synchronous.
+                return new ListedMember(member, BindingItemKind.Method,
                     method.IsConstructor ? "init" : method.GetSwiftName(),
                     method.IsConstructor ? "init" + labels[labels.IndexOf('(')..] : labels,
                     !method.IsConstructor && method.MethodType == MethodType.Static,
-                    SignatureOf(method, labels: null));
+                    SignatureOf(method, labels: null),
+                    method.IsConstructor ? null : method.IsAsync && !method.IsAsyncByIsolation,
+                    // The ABI folds a generic receiver's parameters into each method's generic
+                    // signature, and a protocol's Self into each extension member's.
+                    method.IsConstructor || onProtocol ? null : WrapperValidation.HasMethodOwnGenericParameters(method));
             case PropertyDecl property when !property.IsModuleInternal && !property.IsSpiProtected:
-                return new ListedMember(BindingItemKind.Property, property.GetSwiftName(), null, property.IsStatic, null);
+                return new ListedMember(member, BindingItemKind.Property, property.GetSwiftName(), null, property.IsStatic, null);
             case SubscriptDecl subscript when !subscript.IsModuleInternal && !subscript.IsSpiProtected:
-                return new ListedMember(BindingItemKind.Subscript, "subscript", null, subscript.IsStatic,
+                return new ListedMember(member, BindingItemKind.Subscript, "subscript", null, subscript.IsStatic,
                     ForeignOverloadPairing.ListedSignature(LabelsOf(subscript.PrintedName),
                         subscript.IndexParameters.Select(Type), subscript.ReturnTypeSpec?.ToString()));
             case OperatorDecl op when !op.UnderlyingMethod.IsModuleInternal && !op.UnderlyingMethod.IsSpiProtected:
-                return new ListedMember(BindingItemKind.Operator, op.OperatorSymbol, null,
+                return new ListedMember(member, BindingItemKind.Operator, op.OperatorSymbol, null,
                     op.UnderlyingMethod.MethodType == MethodType.Static, SignatureOf(op.UnderlyingMethod, labels: null));
             case TypeDecl nested when !nested.IsModuleInternal:
-                return new ListedMember(BindingItemKind.Type, nested.Name, null, false, null);
+                return new ListedMember(member, BindingItemKind.Type, nested.Name, null, false, null);
             default:
                 return null;
         }
@@ -399,19 +415,38 @@ internal static class CarriedReceiverRows
     }
 
     /// <summary>
-    /// A member the ABI lists on a receiver: its kind, name, labels (null when not compared),
-    /// staticness and signature (null when it has none to compare).
+    /// A member the ABI lists on a receiver (<paramref name="source"/>, an ABI declaration or a member the
+    /// parser parked): its kind, name, labels (null when not compared), staticness, async-ness and
+    /// whether it has generic parameters of its own (null when unknown), and signature (null when it
+    /// has none to compare).
     /// </summary>
-    internal sealed class ListedMember(BindingItemKind kind, string name, string? printedName, bool isStatic, OverloadSignature? signature)
+    internal sealed class ListedMember(
+        object source, BindingItemKind kind, string name, string? printedName, bool? isStatic, OverloadSignature? signature,
+        bool? isAsync = null, bool? isGeneric = null, bool parked = false)
     {
+        /// <summary>The listed member itself, which a pairing verdict is kept for.</summary>
+        public object Source { get; } = source;
+
         public OverloadSignature? Signature { get; } = signature;
 
-        /// <summary>Whether an interface declaration of this kind, name, labels and staticness may be this member.</summary>
-        public bool HasShapeOf(BindingItemKind declaredKind, string declaredName, string declaredPrintedName, bool declaredIsStatic)
-            => kind == declaredKind
-                && string.Equals(name, declaredName, StringComparison.Ordinal)
-                && (printedName is null || string.Equals(printedName, declaredPrintedName, StringComparison.Ordinal))
-                && (kind is BindingItemKind.Type or BindingItemKind.Operator || isStatic == declaredIsStatic);
+        /// <summary>A member the parser parked with a dropped receiver. A subscript's labels are compared
+        /// with its types, since the ABI may print them erased.</summary>
+        internal static ListedMember Parked(UnboundForeignReceiverMember parked)
+            => new(parked, parked.Kind, parked.Name,
+                parked.Kind == BindingItemKind.Subscript || string.IsNullOrEmpty(parked.PrintedName) ? null : parked.PrintedName,
+                parked.IsStatic, parked.Signature, parked.IsAsync, parked: true);
+
+        /// <summary>Whether an interface declaration of this kind, name, labels, staticness, async-ness and
+        /// genericity may be this member.</summary>
+        public bool HasShapeOf(ForeignReceiverPairing.Declaration declared)
+            => kind == declared.Kind
+                && string.Equals(name, declared.Name, StringComparison.Ordinal)
+                // A parked member may be any declaration whose labels the reader did not record.
+                && (printedName is null || (parked && string.IsNullOrEmpty(declared.PrintedName))
+                    || string.Equals(printedName, declared.PrintedName, StringComparison.Ordinal))
+                && (kind is BindingItemKind.Type or BindingItemKind.Operator || isStatic is null || isStatic == declared.IsStatic)
+                && (isAsync is null || declared.IsAsync is null || isAsync == declared.IsAsync)
+                && (isGeneric is null || declared.IsGeneric is null || isGeneric == declared.IsGeneric);
     }
 
     private static IEnumerable<TypeDecl> ReceiversNamed(IEnumerable<TypeDecl> types, string receiver)
@@ -527,10 +562,12 @@ internal sealed record CarriedMemberIdentity(
 }
 
 /// <summary>What the interface pre-pass did with one member of a carried receiver.</summary>
+/// <param name="Declaration">The interface declaration, whose pairing verdict decides its row.</param>
 internal sealed record CarriedPrePassOutcome(
     string Receiver,
     CarriedMemberIdentity Identity,
     bool Bound,
     DeclId MemberId,
+    ProtocolExtensionMethodDecl Declaration,
     SkipReason Reason = SkipReason.UnsupportedSignature,
     string Details = "");

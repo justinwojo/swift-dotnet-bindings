@@ -318,6 +318,55 @@ public class ProtocolExtensionDeclineReportingTests
     }
 
     [Fact]
+    public void UnextractedOverload_IsReportedBesideARequirementDefaultAndAnExtractedOverloadOfAnotherType()
+    {
+        // The ABI has f(x: String), the default of a requirement, and f(x: Bool); the reader extracted
+        // only an interface-only f(x: (Int32, Int32)). One extracted overload against two ABI ones
+        // leaves the Bool overload unextracted.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Adoptable", "TestModule",
+            TestDecls.Method("f", parameters: new[] { Arg("x", "Swift.String") }, module: "TestModule"));
+        AddExtensionMember(protocol, TestDecls.ExtensionDefault("f", parameters: new[] { Arg("x", "Swift.String") }, module: "TestModule")
+            with { MangledName = "$s10TestModule9AdoptablePAAE1f1xySS_tF" });
+        AddExtensionMember(protocol, TestDecls.ExtensionDefault("f", parameters: new[] { Arg("x", "Swift.Bool") }, module: "TestModule")
+            with { MangledName = "$s10TestModule9AdoptablePAAE1f1xySb_tF" });
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Adoptable",
+            CreateExtMethod("f", "public func f(x: (Swift.Int32, Swift.Int32))"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped, s => s.Details?.Contains("does not extract") == true);
+        Assert.Contains("Bool", row.DeclId ?? string.Empty);
+    }
+
+    [Fact]
+    public void UnextractedOverload_IsReportedBesideTwoAbiMethodsOneExtractedMethodMatches()
+    {
+        // The ABI has f(x: Int32) twice (under different constraints) and f(x: Bool); the reader
+        // extracted one f(x: Int32) and an interface-only f(x: (Int32, Int32)). The extracted Int32
+        // method matches both Int32 entries, so of three ABI overloads against two extracted ones,
+        // the Bool overload is the one the reader missed.
+        var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
+        var protocol = TestDecls.Protocol("Adoptable", "TestModule");
+        AddExtensionMember(protocol, TestDecls.ExtensionDefault("f", parameters: new[] { Arg("x", "Swift.Int32") }, module: "TestModule")
+            with { MangledName = "$s10TestModule9AdoptablePAAE1f1xys5Int32V_tF" });
+        AddExtensionMember(protocol, TestDecls.ExtensionDefault("f", parameters: new[] { Arg("x", "Swift.Int32") }, module: "TestModule")
+            with { MangledName = "$s10TestModule9AdoptablePA2A6MarkerRzrlE1f1xys5Int32V_tF" });
+        AddExtensionMember(protocol, TestDecls.ExtensionDefault("f", parameters: new[] { Arg("x", "Swift.Bool") }, module: "TestModule")
+            with { MangledName = "$s10TestModule9AdoptablePAAE1f1xySb_tF" });
+        moduleDecl.Protocols.Add(protocol);
+        var extMethods = CreateExtensionMethodDict("TestModule.Adoptable",
+            CreateExtMethod("f", "public func f(x: Swift.Int32)"),
+            CreateExtMethod("f", "public func f(x: (Swift.Int32, Swift.Int32))"));
+
+        var skipped = Inject(moduleDecl, extMethods, typeDatabase, new ModuleEmissionContext());
+
+        var row = Assert.Single(skipped, s => s.Details?.Contains("does not extract") == true);
+        Assert.Contains("Bool", row.DeclId ?? string.Empty);
+    }
+
+    [Fact]
     public void ExtensionSubscript_IsReportedBesideARequirementSubscriptOfAnotherType()
     {
         var (moduleDecl, _, typeDatabase) = CreateSetup("TestModule", "Widget", "Gadget");
