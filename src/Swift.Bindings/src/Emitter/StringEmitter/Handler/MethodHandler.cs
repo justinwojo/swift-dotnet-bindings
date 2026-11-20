@@ -2342,8 +2342,10 @@ namespace BindingsGeneration
             safetyAttr = methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodDecl) ?? safetyAttr;
 
             // Emit the overload
+            if (safetyAttr != null)
+                csWriter.WriteLine(safetyAttr);
             csWriter.WriteLines($$"""
-                {{(safetyAttr != null ? safetyAttr + "\n    " : "")}}{{accessModifier}} {{staticModifier}}async {{taskType}} {{asyncMethodName}}({{paramString}})
+                {{accessModifier}} {{staticModifier}}async {{taskType}} {{asyncMethodName}}({{paramString}})
                 {
                     var {{tcsName}} = new {{tcsType}}(TaskCreationOptions.RunContinuationsAsynchronously);
                     var {{registrationName}} = {{ctName}}.Register(() => {{tcsName}}.TrySetCanceled({{ctName}}));

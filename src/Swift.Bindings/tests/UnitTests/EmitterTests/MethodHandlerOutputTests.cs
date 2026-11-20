@@ -239,6 +239,34 @@ public class MethodHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_CompletionHandlerOverload_CarriesThePrimarysObsoleteAtTheDeclarationsIndent()
+    {
+        // The Task forwarder copies the deprecated primary's [Obsolete]; the attribute and the
+        // declaration it marks sit at the same indent.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "/tmp/AsyncWrapper.dylib";
+        var method = CreateCompletionHandlerMethod(typeDatabase);
+        method.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new(Platform: null, IntroducedVersion: null, DeprecatedVersion: null, ObsoletedVersion: null,
+                IsUnconditionallyDeprecated: true, IsUnconditionallyUnavailable: false,
+                Message: "use the new one", Renamed: null),
+        };
+
+        var (csOutput, _) = EmitMethodWithSignatures(
+            method, typeDatabase, new HashSet<string>(), new Dictionary<string, int>(), new ModuleEmissionContext());
+
+        var lines = csOutput.Split('\n');
+        var declaration = Array.FindIndex(lines, l => l.Contains(" CollectAsync(nint amount", StringComparison.Ordinal));
+        Assert.True(declaration > 0, $"the Task forwarder is emitted:\n{csOutput}");
+        var attribute = lines[declaration - 1];
+        Assert.Contains("use the new one", attribute);
+        Assert.Equal(
+            lines[declaration].Length - lines[declaration].TrimStart().Length,
+            attribute.Length - attribute.TrimStart().Length);
+    }
+
+    [Fact]
     public void Emit_CompletionHandlerOverload_UnrecordedReservationDoesNotSuppress()
     {
         // Under-detection is the safe direction: a reservation whose optional tail nobody recorded
