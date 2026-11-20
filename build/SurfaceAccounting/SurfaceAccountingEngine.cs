@@ -433,48 +433,33 @@ public static class SurfaceAccountingEngine
         out IReadOnlyList<string> phantom,
         out IReadOnlyList<string> ambiguous)
     {
-        matched = 0;
-        var phantomRows = new List<string>();
-        var ambiguousRows = new List<string>();
         // The Swift API manifest never describes an ObjC API-definition declaration, so those
         // members are not join candidates (a mixed target's companion cannot make a join ambiguous).
-        var membersBySignature = scan.Members
+        var candidates = scan.Members
             .Where(m => !m.SourceReferences.All(r => apiDefinitionPaths.Contains(r.RelativePath)))
-            .GroupBy(
-                m => SurfaceSyntaxScanner.NormalizeManifestSignature(
-                    SurfaceSyntaxScanner.BuildManifestSignature(m.PublicKey)),
-                StringComparer.Ordinal)
-            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+            .ToList();
+        var join = SurfaceManifestJoin.Join(candidates, sidecars.ManifestRows);
+        var knownImports = scan.Imports.Select(i => i.EntryPoint).ToHashSet(StringComparer.Ordinal);
         var bindingsByObservation = new Dictionary<string, List<SurfaceManifestBinding>>(StringComparer.Ordinal);
-
-        foreach (var row in sidecars.ManifestRows)
+        foreach (var match in join.Matches)
         {
-            var normalizedSignature = SurfaceSyntaxScanner.NormalizeManifestSignature(row.Signature);
-            if (!membersBySignature.TryGetValue(normalizedSignature, out var candidates) || candidates.Count == 0)
-            {
-                phantomRows.Add(row.Signature);
-                continue;
-            }
-            if (candidates.Count != 1)
-            {
-                ambiguousRows.Add(row.Signature);
-                continue;
-            }
-            var member = candidates[0];
+            var row = match.Row;
+            var member = match.Member;
             var symbols = row.Symbol.Split('|', StringSplitOptions.RemoveEmptyEntries);
-            var knownImports = scan.Imports.Select(i => i.EntryPoint).ToHashSet(StringComparer.Ordinal);
             var actualImports = member.NativeBindings.Select(i => i.EntryPoint).ToHashSet(StringComparer.Ordinal);
             var status = symbols.All(actualImports.Contains) ? "matched-source-and-call-edge"
                 : symbols.All(knownImports.Contains) ? "matched-source-symbol-present-call-unresolved"
                 : "matched-source-symbol-unresolved";
+            if (match.Tier != SurfaceManifestJoin.Exact)
+                status += ";join=" + match.Tier;
             if (!bindingsByObservation.TryGetValue(member.ObservationId, out var list))
                 bindingsByObservation[member.ObservationId] = list = [];
             list.Add(new SurfaceManifestBinding(row.Signature, row.Symbol, status, row.Evidence));
-            matched++;
         }
 
-        phantom = phantomRows;
-        ambiguous = ambiguousRows;
+        matched = join.Matches.Count;
+        phantom = join.Phantom.Select(row => row.Signature).ToList();
+        ambiguous = join.Ambiguous.Select(row => row.Signature).ToList();
         return scan.Members.Select(member =>
         {
             bindingsByObservation.TryGetValue(member.ObservationId, out var manifests);

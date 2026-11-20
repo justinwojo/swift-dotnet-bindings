@@ -81,6 +81,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         const string oldSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -90,6 +91,7 @@ public class SurfaceAccountingEngineTests
             """;
         const string tipSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -116,6 +118,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         const string oldSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -125,6 +128,7 @@ public class SurfaceAccountingEngineTests
             """;
         const string tipSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -165,6 +169,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         const string oldSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -174,6 +179,7 @@ public class SurfaceAccountingEngineTests
             """;
         const string tipSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -207,6 +213,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         const string oldSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -216,6 +223,7 @@ public class SurfaceAccountingEngineTests
             """;
         const string tipSource = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();
@@ -247,7 +255,7 @@ public class SurfaceAccountingEngineTests
     public void Compare_ManifestRowAdditionOrRemovalRemainsVisible()
     {
         using var fixture = new SurfaceAccountingTestFixture();
-        const string source = "public class C { public int M() => 0; }";
+        const string source = "namespace TestModule; public class C { public int M() => 0; }";
         var request = fixture.Request(source, source, [("C.M()", "SBW_M")], []);
 
         var result = SurfaceAccountingEngine.Analyze(request);
@@ -263,6 +271,7 @@ public class SurfaceAccountingEngineTests
     {
         using var fixture = new SurfaceAccountingTestFixture();
         const string source = """
+            namespace TestModule;
             public class C<TOuter>
             {
                 public int this[int index] => index;
@@ -335,6 +344,7 @@ public class SurfaceAccountingEngineTests
         using var fixture = new SurfaceAccountingTestFixture();
         const string source = """
             using System.Runtime.InteropServices;
+            namespace TestModule;
             public static partial class C
             {
                 public static int M() => PInvoke_M();

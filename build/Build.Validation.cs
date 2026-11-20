@@ -942,8 +942,16 @@ partial class Build
             Log.Information("  Surface capture: {Path} (complete, {Source})",
                 outputBase / SurfaceCaptureBuilder.CaptureFileName, capture.Capture.SourceSha);
         else
-            Log.Warning("  Surface capture: {Path} (incomplete: {Reasons})",
-                outputBase / SurfaceCaptureBuilder.CaptureFileName, string.Join("; ", capture.Capture.IncompletenessReasons.Take(5)));
+        {
+            // A profile workspace stages its own global.json, so a profile run's checkout is never
+            // clean. That is expected: profile runs refuse baseline writes, so they never promote.
+            var why = ProfileContext.Profile is { } profile && capture.Capture.IncompletenessReasons.Any(
+                    reason => reason.StartsWith("source checkout is dirty", StringComparison.Ordinal))
+                ? $"; expected under toolchain profile {profile}: its workspace stages global.json, and a profile run cannot promote (promote from an unprofiled clean checkout)"
+                : "";
+            Log.Warning("  Surface capture: {Path} (incomplete: {Reasons}{Why})",
+                outputBase / SurfaceCaptureBuilder.CaptureFileName, string.Join("; ", capture.Capture.IncompletenessReasons.Take(5)), why);
+        }
     }
 
     SurfaceSourceState ReadSurfaceSourceState()
