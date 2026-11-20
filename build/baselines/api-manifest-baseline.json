@@ -164,6 +164,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "AcceptFreshConnectionGenerically(ISdkParentAccepting)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_acceptFreshConnectionGenerically_B6B8FB64"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "AcceptFreshConnectionThroughSdkChild(ISdkParentAccepting)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_acceptFreshConnectionThroughSdkChild_3CBEF3B2"
     },
@@ -14124,6 +14129,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "GetStoredObjectRetainCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_83173290"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "GetStringOwnershipAllocationCount()",
       "symbol": "thunk_SwiftBindingsTestLib_abe67d7a"
     },
@@ -14136,6 +14146,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetStringOwnershipEntryCount()",
       "symbol": "thunk_SwiftBindingsTestLib_c1fffc84"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetSwiftOwnedObjectRetainCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_049947dd"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -14161,6 +14176,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetTrackedDataPayloadByteCount()",
       "symbol": "thunk_SwiftBindingsTestLib_50dba4d9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetVendedObjectRetainCount()",
+      "symbol": "thunk_SwiftBindingsTestLib_647588d7"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -15799,6 +15819,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "InspectThroughVendor(IFoundationObjectVending,bool)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_inspectThroughVendor_68E49A80"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "InstanceKeySizeCipher.Encrypt(int,int)",
       "symbol": "SBW_InstanceKeySizeCipher_encrypt_Int32_roundsInt32"
     },
@@ -16226,6 +16251,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "Journal.TryCreate(int,out Journal\u003CTEntry\u003E)\u00601",
       "symbol": "$s20SwiftBindingsTestLib7JournalV5limitACyxGSgs5Int32V_tcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "KeepVendedObject(IFoundationObjectVending)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_keepVendedObject_6D1F80B0"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26634,6 +26664,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ReadCurrentObject(IFoundationObjectVending)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_readCurrentObject_A0FA1B85"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ReadCursorAsString(SwiftBindingsTestLib.ResourceBudget)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_readCursorAsString_5E7DC29A"
     },
@@ -27081,6 +27116,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ReleaseNoncopyableHandoff()",
       "symbol": "thunk_SwiftBindingsTestLib_6c7f0158"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReleaseStoredObject()",
+      "symbol": "thunk_SwiftBindingsTestLib_71ae3b17"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ReleaseVendedObject()",
+      "symbol": "thunk_SwiftBindingsTestLib_a2a19fa8"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -30861,6 +30906,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "StoreAndExecuteSendable(global::System.Func\u003Cstring\u003E)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_storeAndExecuteSendable_80056D38"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "StoreFreshObject(IFoundationObjectVending)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_storeFreshObject_BAE578FC"
     },
     {
       "module": "SwiftBindingsTestLib",
