@@ -80,6 +80,15 @@ public class ProtocolListTypeSpec : TypeSpec
     /// </summary>
     public bool IsOpaque { get; set; }
 
+    /// <summary>
+    /// For an opaque type, the participants of its constraint that the interface spells with
+    /// primary associated type arguments (<c>AsyncSequence&lt;Element, Failure&gt;</c> in
+    /// <c>some Sendable &amp; AsyncSequence&lt;Element, Failure&gt;</c>). <see cref="Protocols"/> keeps
+    /// the bare protocols, which is how the wrapper spells the boxed existential; these record what
+    /// the caller is promised about the hidden type. Not part of the type's identity.
+    /// </summary>
+    public IReadOnlyList<NamedTypeSpec> OpaqueParameterizedConstraints { get; set; } = [];
+
     protected override bool LLEquals(TypeSpec? other, bool partialNameMatch)
     {
         var otherProtos = other as ProtocolListTypeSpec;

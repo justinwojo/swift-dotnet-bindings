@@ -281,7 +281,7 @@ public static class MemberEmissionValidator
             // uncompilable Swift (missing/extra `await`) or silently skip emittable members.
             // See AsyncStreamEmitter.EmitSwiftWrapperFunction (needsActorAwait).
             if (!property.IsStatic && property.ParentDecl is ClassDecl { IsActor: true } &&
-                WrapperValidation.ContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase))
+                WrapperValidation.StreamContainsParameterizedProtocol(property.SwiftTypeSpec, typeDatabase))
             {
                 skipDetails = "Actor AsyncStream property has parameterized-protocol element type (@_cdecl wrapper cannot spell iOS 16+ parameterized protocol).";
                 return SkipReason.ActorIsolatedAsyncStream;

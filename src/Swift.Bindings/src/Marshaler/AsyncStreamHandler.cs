@@ -21,6 +21,11 @@ public class AsyncStreamHandler
     /// </summary>
     public const string AsyncThrowingStreamTypeName = "_Concurrency.AsyncThrowingStream";
 
+    /// <summary>
+    /// The Swift module and protocol name for AsyncSequence.
+    /// </summary>
+    public const string AsyncSequenceProtocolName = "_Concurrency.AsyncSequence";
+
     public AsyncStreamHandler(ITypeDatabase typeDatabase)
     {
         _typeDatabase = typeDatabase;
@@ -36,12 +41,16 @@ public class AsyncStreamHandler
     /// The throwing variant additionally surfaces its <c>finish(throwing:)</c> termination through a
     /// separate Swift producer-error callback that faults the channel, so an <c>await foreach</c>
     /// rethrows at the boundary. Use <see cref="IsThrowingStream"/> to detect the throwing variant and
-    /// gate that extra error-callback wiring.
+    /// gate that extra error-callback wiring. An opaque <c>some AsyncSequence&lt;Element, Failure&gt;</c>
+    /// rides the same bridge (see <see cref="TryGetOpaqueAsyncSequence"/>).
     /// </remarks>
     /// <param name="typeSpec">The type specification.</param>
     /// <returns><c>true</c> if the type is a supported AsyncStream/AsyncThrowingStream; otherwise, <c>false</c>.</returns>
     public bool IsAsyncStream(TypeSpec typeSpec)
     {
+        if (TryGetOpaqueAsyncSequence(typeSpec) is not null)
+            return true;
+
         // A member type of a stream (`AsyncStream<T>.Continuation`, `.Iterator`) carries the
         // stream's name on its outer segment; only the stream itself has no inner segment.
         if (typeSpec is not NamedTypeSpec { InnerType: null } namedType)
@@ -50,6 +59,55 @@ public class AsyncStreamHandler
         return namedType.Name == AsyncStreamTypeName
             || namedType.Name == AsyncThrowingStreamTypeName;
     }
+
+    /// <summary>
+    /// Returns the <c>AsyncSequence&lt;Element, Failure&gt;</c> constraint of an opaque
+    /// <c>some [Sendable &amp;] AsyncSequence&lt;Element, Failure&gt;</c>, or null for any other type.
+    /// </summary>
+    /// <remarks>
+    /// The stream bridge never names the stream's type: its Swift wrapper iterates the member
+    /// with <c>for [try] await</c>, which an opaque sequence supports exactly as a concrete stream
+    /// does, and the caller is promised only the element type and whether iteration throws, which
+    /// the constraint's two arguments state. A composition with any protocol other than Swift's
+    /// marker protocols promises more than the bridge carries, so it is not a stream; nor is a
+    /// sequence whose arguments the interface does not spell.
+    /// </remarks>
+    private static NamedTypeSpec? TryGetOpaqueAsyncSequence(TypeSpec typeSpec)
+    {
+        if (typeSpec is not ProtocolListTypeSpec { IsOpaque: true } opaque)
+            return null;
+
+        bool namesSequence = false;
+        foreach (var participant in opaque.Protocols.Keys)
+        {
+            if (participant.InnerType is null && participant.Name == AsyncSequenceProtocolName)
+                namesSequence = true;
+            else if (!ExistentialHandler.IsMarkerProtocol(participant)
+                || (participant.HasModule() && participant.Module != "Swift"))
+                return null;
+        }
+        if (!namesSequence)
+            return null;
+
+        NamedTypeSpec? constraint = null;
+        foreach (var candidate in opaque.OpaqueParameterizedConstraints)
+        {
+            if (candidate.InnerType is not null || candidate.Name != AsyncSequenceProtocolName)
+                continue;
+            if (constraint is not null)
+                return null;
+            constraint = candidate;
+        }
+        return constraint is { GenericParameters.Count: 2 } ? constraint : null;
+    }
+
+    /// <summary>
+    /// The element type of an opaque <c>some AsyncSequence&lt;Element, Failure&gt;</c> the stream
+    /// bridge binds, or null for any other type. Type walkers that gate a stream on its element
+    /// read it here: the opaque type's participants name only the bare protocol.
+    /// </summary>
+    internal static TypeSpec? GetOpaqueAsyncSequenceElement(TypeSpec typeSpec)
+        => TryGetOpaqueAsyncSequence(typeSpec)?.GenericParameters[0];
 
     /// <summary>
     /// Determines whether the specified property has an AsyncStream type.
@@ -69,6 +127,9 @@ public class AsyncStreamHandler
     /// <returns>The element type, or null if not an AsyncStream or has no generic parameter.</returns>
     public TypeSpec? GetElementType(TypeSpec typeSpec)
     {
+        if (TryGetOpaqueAsyncSequence(typeSpec) is { } sequence)
+            return sequence.GenericParameters[0];
+
         if (typeSpec is not NamedTypeSpec namedType)
             return null;
 
@@ -95,6 +156,15 @@ public class AsyncStreamHandler
 
         var elementType = GetElementType(typeSpec);
         if (elementType == null)
+            return false;
+
+        // A concrete stream's element is a generic argument, which the member's own
+        // unsupported-reference walk already visits. An opaque sequence's element is spelled only
+        // by its constraint, which that walk does not read (a method returning the sequence boxes
+        // it and never spells the element), so the stream bridge classifies it here.
+        if (TryGetOpaqueAsyncSequence(typeSpec) is not null
+            && ValidationRuleSet.ClassifyUnsupportedReference(elementType, _typeDatabase, out _)
+                != ValidationRuleSet.UnsupportedReferenceKind.None)
             return false;
 
         // Check if element type is known
@@ -209,6 +279,10 @@ public class AsyncStreamHandler
     /// <returns><c>true</c> if this is an AsyncThrowingStream; otherwise, <c>false</c>.</returns>
     public bool IsThrowingStream(TypeSpec typeSpec)
     {
+        // An opaque sequence throws unless its Failure is Never.
+        if (TryGetOpaqueAsyncSequence(typeSpec) is { } sequence)
+            return sequence.GenericParameters[1] is not NamedTypeSpec { Name: "Swift.Never", InnerType: null };
+
         if (typeSpec is not NamedTypeSpec namedType)
             return false;
 

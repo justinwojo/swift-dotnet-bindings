@@ -142,7 +142,11 @@ internal sealed class DefaultOverloadReplayRecipe
 
     private static ProtocolListTypeSpec CloneProtocols(ProtocolListTypeSpec source)
     {
-        var clone = new ProtocolListTypeSpec { IsOpaque = source.IsOpaque };
+        var clone = new ProtocolListTypeSpec
+        {
+            IsOpaque = source.IsOpaque,
+            OpaqueParameterizedConstraints = source.OpaqueParameterizedConstraints.Select(c => (NamedTypeSpec)CloneType(c)).ToList(),
+        };
         foreach (var protocol in source.Protocols)
             clone.Protocols.Add((NamedTypeSpec)CloneType(protocol.Key), protocol.Value);
         return clone;

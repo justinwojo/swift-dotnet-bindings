@@ -230,6 +230,74 @@ public class MarkerCompositionLoweringTests
         Assert.Equal(1, rewritten);
     }
 
+    // A platform framework's Objective-C class (any AVAsset & Sendable) has no record in the
+    // module's database. The platform binding decides: a class there is the class, a protocol
+    // there (an @objc protocol existential) or an unknown name keeps the composition.
+    [Theory]
+    [InlineData(true, "AVFoundation.AVAsset", 1)]
+    [InlineData(false, "any AVFoundation.AVAsset & Swift.Sendable", 0)]
+    public void PlatformObjectiveCClass_IsRecognizedFromThePlatformBinding(
+        bool declaredAsClass, string expected, int expectedRewrites)
+    {
+        var kind = declaredAsClass ? AppleTypeSurfaceKind.Class : AppleTypeSurfaceKind.Protocol;
+        using var surface = Surface(("AVFoundation", "AVAsset", kind));
+
+        var lowered = LowerParameter("any AVFoundation.AVAsset & Swift.Sendable", out int rewritten);
+
+        Assert.Equal(expected, lowered.ToString());
+        Assert.Equal(expectedRewrites, rewritten);
+    }
+
+    // A protocol with a model class is a class in the binding too, beside its I-interface. The
+    // parameter must keep accepting conformers that implement only the interface.
+    [Fact]
+    public void PlatformObjectiveCProtocol_WithAModelClass_IsLeftAlone()
+    {
+        using var surface = Surface(
+            ("AVFoundation", "AVAssetResourceLoaderDelegate", AppleTypeSurfaceKind.Class),
+            ("AVFoundation", "IAVAssetResourceLoaderDelegate", AppleTypeSurfaceKind.Protocol));
+
+        var lowered = LowerParameter("any AVFoundation.AVAssetResourceLoaderDelegate & Swift.Sendable", out int rewritten);
+
+        Assert.IsType<ProtocolListTypeSpec>(lowered);
+        Assert.Equal(0, rewritten);
+    }
+
+    [Fact]
+    public void PlatformObjectiveCName_ThePlatformBindingDoesNotDeclare_IsLeftAlone()
+    {
+        using var surface = Surface(("AVFoundation", "AVPlayer", AppleTypeSurfaceKind.Class));
+
+        var lowered = LowerParameter("any AVFoundation.AVAsset & Swift.Sendable", out int rewritten);
+
+        Assert.IsType<ProtocolListTypeSpec>(lowered);
+        Assert.Equal(0, rewritten);
+    }
+
+    [Fact]
+    public void PlatformObjectiveCClass_WithoutAPlatformBinding_IsLeftAlone()
+    {
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(index: null);
+
+        var lowered = LowerParameter("any AVFoundation.AVAsset & Swift.Sendable", out int rewritten);
+
+        Assert.IsType<ProtocolListTypeSpec>(lowered);
+        Assert.Equal(0, rewritten);
+    }
+
+    private static IDisposable Surface(params (string Namespace, string Name, AppleTypeSurfaceKind Kind)[] types)
+    {
+        var byFullName = new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal);
+        var byBareName = new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal);
+        foreach (var (ns, name, kind) in types)
+        {
+            var entry = new AppleTypeSurfaceEntry(name, ns, kind, null, false);
+            byFullName[$"{ns}.{name}"] = entry;
+            byBareName[name] = entry;
+        }
+        return AppleTypeSurfaceIndex.OverrideDefaultForTest(new AppleTypeSurfaceIndex(byFullName, byBareName));
+    }
+
     [Fact]
     public void Rewrite_KeepsThePositionsTupleLabel()
     {

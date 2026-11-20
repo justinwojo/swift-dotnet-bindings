@@ -137,7 +137,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             // are still blocked: the @_cdecl top-level function can't spell iOS 16+ parameterized
             // protocol types at an earlier deployment target.
             if (!propertyDecl.IsStatic && propertyDecl.ParentDecl is ClassDecl { IsActor: true } &&
-                WrapperValidation.ContainsParameterizedProtocol(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
+                WrapperValidation.StreamContainsParameterizedProtocol(propertyDecl.SwiftTypeSpec, propertyEnv.TypeDatabase))
             {
                 SkipProperty(SkipReason.ActorIsolatedAsyncStream,
                     "Actor AsyncStream property has parameterized-protocol element type (@_cdecl wrapper cannot spell iOS 16+ parameterized protocol).");
