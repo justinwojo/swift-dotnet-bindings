@@ -98,6 +98,7 @@
     <Compile Include="../../../../build/Models/SurfaceAccountingModels.cs" Link="SurfaceAccounting/SurfaceAccountingModels.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceCanonicalJson.cs" Link="SurfaceAccounting/SurfaceCanonicalJson.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceSyntaxScanner.cs" Link="SurfaceAccounting/SurfaceSyntaxScanner.cs" />
+    <Compile Include="../../../../build/SurfaceAccounting/SurfaceManifestJoin.cs" Link="SurfaceAccounting/SurfaceManifestJoin.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceSidecarReader.cs" Link="SurfaceAccounting/SurfaceSidecarReader.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceAccountingEngine.cs" Link="SurfaceAccounting/SurfaceAccountingEngine.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceAccountingComparer.cs" Link="SurfaceAccounting/SurfaceAccountingComparer.cs" />

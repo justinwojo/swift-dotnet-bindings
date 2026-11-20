@@ -1,5 +1,5 @@
 {
-  "git_sha": "328d740f9",
+  "git_sha": "56416088e",
   "compile_gate": {
     "libraries": {
       "AppIntents": {
@@ -1573,7 +1573,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 136019,
+        "lines": 136020,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
@@ -1649,7 +1649,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 58394,
+        "lines": 58395,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
@@ -2048,7 +2048,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 71959,
+        "lines": 71961,
         "dep_compile": "ok",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
@@ -2540,7 +2540,7 @@
         },
         "compile": "ok",
         "errors": 0,
-        "lines": 15072,
+        "lines": 15074,
         "dep_compile": "none",
         "swift_compile": "ok",
         "withdrawal_policy_alternatives": [
@@ -3168,6 +3168,10 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 22876
+    "swift_bindings_unit_pass_floor": 22900
+  },
+  "surface_bootstrap": {
+    "old_source": "8598de7a393b2c7f2808b2ea6dbed13195df9ca8",
+    "justification": "The committed baseline was last written by hand at df6c1123 (its git_sha still names 328d740f9), and neither commit writes a surface capture. The old side is df6c1123 plus only the build-tooling commits that write the capture and the generator change that writes an empty API manifest for a module with no recorded members; none of them changes generated C#."
   }
 }

@@ -59,6 +59,20 @@ Every other target is `swift-managed` and still needs a complete artifact manife
 manifest. Bgen inputs are read for every target, so a mixed target's ObjC companion is inventoried
 too; API-definition members never join the Swift API manifest.
 
+The API manifest's key is the generator's projected overload key, not the emitted C#, so
+`SurfaceManifestJoin` reads each row against the namespace its file names (`{namespace}.api-manifest.json`):
+the owner is the namespace path below that root (Swift caseless enums become C# namespaces) plus the
+enclosing types, and a free function has no owner and joins its container class. Rows match exactly
+first, then one-to-one in tiers that each forget, one way only, a distinction the projection is known
+to lose: `qualification` (a `System`, `System.Collections.Generic`, `System.Runtime.InteropServices.Swift` or
+`Swift.Runtime` qualifier the row omits), `nullability` (a `?` the row omits on a type that is not a value type), `generic-arity` (the
+marker a row keeps for an erased overload), and `projection` (`Swift.AnyType` for a type parameter, one
+read-only collection interface for another). A relaxed match also needs every other member the loosest
+tier would admit to be another row's own match. A row with no candidate is phantom, one with more than one is ambiguous; both
+fail the target. A non-exact match records its tier in the member's `matchStatus` (`;join=<tier>`). A
+module that owed no rows still ships its manifest with an empty `members` list, which is the
+producer's proof; a missing manifest is incomplete.
+
 The receipt is recorded only when the comparison is complete and:
 
 - the request's tip capture is this invocation's validate capture, every tip target directory is

@@ -9,11 +9,16 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 
+/// <param name="RootNamespace">
+/// The C# namespace the manifest was written for: the producer names the file
+/// <c>{namespace}.api-manifest.json</c>, and its owner paths are relative to that namespace.
+/// </param>
 public sealed record SurfaceApiManifestRow(
     string Module,
     string Signature,
     string Symbol,
-    SurfaceFileReference Evidence);
+    SurfaceFileReference Evidence,
+    string RootNamespace);
 
 public sealed record SurfaceSkippedRow(
     string Kind,
@@ -38,6 +43,8 @@ public sealed record SurfaceSidecarResult(
 
 public static class SurfaceSidecarReader
 {
+    private const string ApiManifestSuffix = ".api-manifest.json";
+
     /// <param name="pureObjCModule">
     /// The module of a roster target declared pure Objective-C (no verification planes). Such a
     /// target runs no Swift generation phase: its artifact manifest must be the explicit pure-ObjC
@@ -249,6 +256,8 @@ public static class SurfaceSidecarReader
         var signatures = new HashSet<string>(StringComparer.Ordinal);
         foreach (var path in paths)
         {
+            var fileName = Path.GetFileName(path);
+            var rootNamespace = fileName[..^ApiManifestSuffix.Length];
             using var document = SurfaceCanonicalJson.ParseStrictFile(path);
             var root = document.RootElement;
             var schema = RequiredInt(root, "schema_version", path);
@@ -268,7 +277,8 @@ public static class SurfaceSidecarReader
                     module,
                     signature,
                     RequiredString(member, "symbol", path),
-                    JsonReference(path, targetDirectory, $"/members/{index}")));
+                    JsonReference(path, targetDirectory, $"/members/{index}"),
+                    rootNamespace));
                 index++;
             }
         }

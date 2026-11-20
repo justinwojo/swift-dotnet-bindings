@@ -106,9 +106,15 @@ public static class SurfaceSyntaxScanner
         return new SurfaceSyntaxScanResult(members, imports, diagnostics);
     }
 
-    public static string BuildManifestSignature(SurfacePublicKey key)
+    /// <summary>
+    /// The member as the API manifest spells its key: owner path, name, then the parameter or index
+    /// list and the generic-arity marker. <paramref name="ownerPath"/> replaces the owner when the
+    /// caller knows the producer's path for it (see <see cref="SurfaceManifestJoin"/>, which adds the
+    /// namespaces a Swift caseless enum becomes); by default the owner is the enclosing C# types.
+    /// </summary>
+    public static string BuildManifestSignature(SurfacePublicKey key, string? ownerPath = null)
     {
-        var owner = string.Join('.', key.EnclosingTypes.Select(RemoveArity));
+        var owner = ownerPath ?? string.Join('.', key.EnclosingTypes.Select(RemoveArity));
         var prefix = string.IsNullOrEmpty(owner) ? "" : owner + ".";
         if (key.DeclarationKind is "property" or "field" or "event" or "enum-constant")
             return prefix + key.Name;
@@ -1023,7 +1029,7 @@ public static class SurfaceSyntaxScanner
         return tick >= 0 && int.TryParse(name[(tick + 1)..], out var arity) ? arity : 0;
     }
 
-    private static string RemoveArity(string name)
+    internal static string RemoveArity(string name)
     {
         var tick = name.LastIndexOf('`');
         return tick < 0 ? name : name[..tick];
