@@ -411,11 +411,58 @@ public class SurfaceSyntaxScannerTests
         var theme = Assert.Single(scan.Members, m => m.PublicKey.DeclarationKind == "class" && m.PublicKey.Name == "Theme");
         Assert.Equal(2, theme.PublicShape.Attributes.Count);
         Assert.Equal(2, theme.PublicShape.BaseTypes.Count);
-        Assert.Contains("IThemeProtocol", theme.PublicShape.BaseTypes[1]);
+        Assert.Contains(theme.PublicShape.BaseTypes, b => b.Contains("IThemeProtocol"));
         Assert.Equal(2, theme.SourceReferences.Count);
         Assert.Contains(scan.Members, m => m.PublicKey.Name == "SetColor");
         Assert.Equal(theme.PublicShape.Digest,
             reversed.Members.Single(m => m.PublicKey.DeclarationKind == "class" && m.PublicKey.Name == "Theme").PublicShape.Digest);
+    }
+
+    [Fact]
+    public void Scanner_APartialTypeKeepsEveryAttributeApplicationAndItsBasesInCompileOrder()
+    {
+        static SurfaceMemberObservation Theme(string first, string second)
+        {
+            using var fixture = new SurfaceAccountingTestFixture();
+            var a = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "A.cs", "namespace Example;\n" + first);
+            var b = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "B.cs", "namespace Example;\n" + second);
+            var scan = SurfaceSyntaxScanner.Scan(
+                "capture", SurfaceAccountingTestFixture.TargetKey, "swift-managed", "TestModule", [b, a], evidenceRoot: fixture.Root);
+            return scan.Members.Single(m => m.PublicKey.DeclarationKind == "class" && m.PublicKey.Name == "Theme");
+        }
+        const string Marker = "[System.AttributeUsage(System.AttributeTargets.Class, AllowMultiple = true)] public sealed class MarkAttribute : System.Attribute { }\n";
+
+        // Attribute order carries no meaning, so moving an attribute to the other part leaves the shape alone.
+        var oneWay = Theme(
+            Marker + "[System.Serializable] public partial class Theme : System.IDisposable { public void Dispose() { } }",
+            "[System.Obsolete] public partial class Theme : System.ICloneable { public object Clone() => this; }");
+        var otherWay = Theme(
+            Marker + "[System.Obsolete] public partial class Theme : System.IDisposable { public void Dispose() { } }",
+            "[System.Serializable] public partial class Theme : System.ICloneable { public object Clone() => this; }");
+        Assert.Equal(oneWay.PublicShape.Digest, otherWay.PublicShape.Digest);
+        // Interface order is observable, so the bases follow the parts in compile order (A.cs before B.cs).
+        Assert.Equal(2, oneWay.PublicShape.BaseTypes.Count);
+        Assert.Contains("IDisposable", oneWay.PublicShape.BaseTypes[0]);
+        Assert.Contains("ICloneable", oneWay.PublicShape.BaseTypes[1]);
+
+        // A repeatable attribute applied in both parts is two applications, not one.
+        var once = Theme(Marker + "[Mark] public partial class Theme { }", "public partial class Theme { }");
+        var twice = Theme(Marker + "[Mark] public partial class Theme { }", "[Mark] public partial class Theme { }");
+        Assert.NotEqual(once.PublicShape.Digest, twice.PublicShape.Digest);
+    }
+
+    [Fact]
+    public void Scanner_ReorderedInterfacesOfOneDeclarationAreAShapeChange()
+    {
+        static string Shape(string bases)
+        {
+            using var fixture = new SurfaceAccountingTestFixture();
+            var source = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "c.cs",
+                "namespace Example;\npublic interface IGet<out T> { T Get(); }\npublic class C : " + bases + " { string IGet<string>.Get() => \"\"; System.Uri IGet<System.Uri>.Get() => null!; }");
+            return Scan(fixture, source).Members.Single(m => m.PublicKey.Name == "C").PublicShape.Digest;
+        }
+
+        Assert.NotEqual(Shape("IGet<string>, IGet<System.Uri>"), Shape("IGet<System.Uri>, IGet<string>"));
     }
 
     [Fact]

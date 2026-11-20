@@ -860,11 +860,10 @@ public static class SurfaceSyntaxScanner
         IReadOnlyList<MemberDraft> drafts)
     {
         var first = drafts[0];
-        var shapeDigests = drafts.Select(d => d.Shape.Digest).Distinct(StringComparer.Ordinal).ToList();
-        var shape = shapeDigests.Count == 1
-            ? first.Shape
-            : drafts.All(d => d.PartialType)
-                ? MergePartialTypeShape(targetKey, drafts)
+        var shape = drafts.Count > 1 && drafts.All(d => d.PartialType)
+            ? MergePartialTypeShape(targetKey, drafts)
+            : drafts.Select(d => d.Shape.Digest).Distinct(StringComparer.Ordinal).Count() == 1
+                ? first.Shape
                 : throw new InvalidDataException(
                     $"Conflicting duplicate public key '{first.Key.Display}' in target {targetKey.TargetName}.");
         var references = drafts.SelectMany(d => d.References)
@@ -901,10 +900,12 @@ public static class SurfaceSyntaxScanner
         };
     }
 
-    // The parts of a partial type declare one type: its base list and attributes are the union of the
-    // parts' (C# spec, partial declarations). Parts must agree on everything else they state, so a
-    // disagreement stays a conflict. Parts are ordered by their source position, so the union keeps the
-    // first part's declared order and does not depend on the order the files were scanned in.
+    // The parts of a partial type declare one type (C# spec, partial declarations). Its attributes are every
+    // part's applications (a repeatable attribute applied in two parts counts twice), ordered as each part's
+    // are. Its bases are the union of the parts' in declared order, because interface order is observable
+    // (variant dispatch). The scan cannot see the project's compile-item order, so parts are taken by file
+    // path and position; bases split across parts in a project that compiles them in another order would
+    // read in the wrong order. Parts must agree on everything else they state.
     private static SurfacePublicShape MergePartialTypeShape(SurfaceTargetKey targetKey, IReadOnlyList<MemberDraft> drafts)
     {
         var parts = drafts
@@ -921,7 +922,7 @@ public static class SurfaceSyntaxScanner
         return parts[0].Shape with
         {
             BaseTypes = parts.SelectMany(p => p.Shape.BaseTypes).Distinct(StringComparer.Ordinal).ToList(),
-            Attributes = parts.SelectMany(p => p.Shape.Attributes).Distinct(StringComparer.Ordinal).ToList(),
+            Attributes = parts.SelectMany(p => p.Shape.Attributes).OrderBy(a => a, StringComparer.Ordinal).ToList(),
             Constraints = parts.Select(p => p.Shape.Constraints).FirstOrDefault(c => c.Count > 0) ?? [],
         };
     }
