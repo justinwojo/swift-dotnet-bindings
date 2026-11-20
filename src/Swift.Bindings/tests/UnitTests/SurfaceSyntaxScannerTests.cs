@@ -378,6 +378,62 @@ public class SurfaceSyntaxScannerTests
         Assert.Contains(result.Comparison.Changes, change => change.Classification == "shape-change");
     }
 
+    [Fact]
+    public void Scanner_MergesThePartsOfAPartialTypeSplitAcrossFiles()
+    {
+        // A generated type and a hand-written bridge each declare one part; only the first names the bases.
+        using var fixture = new SurfaceAccountingTestFixture();
+        var main = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "Module.Types.Theme.cs", """
+            namespace Example;
+            public interface IThemeProtocol { }
+            [System.Serializable]
+            public partial class Theme : System.IDisposable, IThemeProtocol
+            {
+                public void Dispose() { }
+            }
+            """);
+        var bridge = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "Module.SwiftUIBridge.cs", """
+            namespace Example;
+            [System.Obsolete("bridge")]
+            public partial class Theme
+            {
+                public static void SetColor(int value) { }
+            }
+            """);
+
+        var scan = SurfaceSyntaxScanner.Scan(
+            "capture", SurfaceAccountingTestFixture.TargetKey, "swift-managed", "TestModule",
+            [main, bridge], evidenceRoot: fixture.Root);
+        var reversed = SurfaceSyntaxScanner.Scan(
+            "capture", SurfaceAccountingTestFixture.TargetKey, "swift-managed", "TestModule",
+            [bridge, main], evidenceRoot: fixture.Root);
+
+        var theme = Assert.Single(scan.Members, m => m.PublicKey.DeclarationKind == "class" && m.PublicKey.Name == "Theme");
+        Assert.Equal(2, theme.PublicShape.Attributes.Count);
+        Assert.Equal(2, theme.PublicShape.BaseTypes.Count);
+        Assert.Contains("IThemeProtocol", theme.PublicShape.BaseTypes[1]);
+        Assert.Equal(2, theme.SourceReferences.Count);
+        Assert.Contains(scan.Members, m => m.PublicKey.Name == "SetColor");
+        Assert.Equal(theme.PublicShape.Digest,
+            reversed.Members.Single(m => m.PublicKey.DeclarationKind == "class" && m.PublicKey.Name == "Theme").PublicShape.Digest);
+    }
+
+    [Fact]
+    public void Scanner_PartialPartsThatDisagreeOnAccessibilityStayAConflict()
+    {
+        using var fixture = new SurfaceAccountingTestFixture();
+        var source = SurfaceAccountingTestFixture.WriteSource(fixture.Root, "parts.cs", """
+            namespace Example;
+            public class Outer
+            {
+                public partial class Part : System.IDisposable { public void Dispose() { } }
+                protected partial class Part { }
+            }
+            """);
+
+        Assert.Throws<InvalidDataException>(() => Scan(fixture, source));
+    }
+
     private static SurfaceSyntaxScanResult Scan(SurfaceAccountingTestFixture fixture, string source)
         => SurfaceSyntaxScanner.Scan(
             "capture",
