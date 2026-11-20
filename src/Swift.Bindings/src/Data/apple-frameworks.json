@@ -22,6 +22,7 @@
     },
     {
       "module": "AVFAudio",
+      "valueTypes": ["AVReadOnlyAudioCompressedBuffer", "AVReadOnlyAudioPCMBuffer"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
@@ -74,12 +75,14 @@
     },
     {
       "module": "AppKit",
+      "valueTypes": ["NSDiffableDataSourceSnapshot", "NSHorizontalDirection", "NSItemBadge", "NSSuggestionItem", "NSSuggestionItemResponse", "NSSuggestionItemSection", "NSVerticalDirection"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true
     },
     {
       "module": "AuthenticationServices",
+      "valueTypes": ["ASAuthorizationPublicKeyCredentialLargeBlobAssertionInput", "ASAuthorizationPublicKeyCredentialLargeBlobAssertionOutput", "ASAuthorizationPublicKeyCredentialLargeBlobRegistrationInput", "ASAuthorizationPublicKeyCredentialLargeBlobRegistrationOutput", "ASAuthorizationPublicKeyCredentialPRFAssertionInput", "ASAuthorizationPublicKeyCredentialPRFAssertionOutput", "ASAuthorizationPublicKeyCredentialPRFRegistrationInput", "ASAuthorizationPublicKeyCredentialPRFRegistrationOutput", "ASAuthorizationWebBrowserPlatformPublicKeyCredential", "ASAutoFillURLScope", "ASContactIdentifier", "ASContactIdentifierRequest", "ASEmailIdentifier", "ASExportedCredentialData", "ASImportableAccount", "ASImportableCollection", "ASImportableCredential", "ASImportableCredentialScope", "ASImportableEditableField", "ASImportableExtension", "ASImportableFIDO2Extensions", "ASImportableFIDO2HMACCredential", "ASImportableFIDO2LargeBlob", "ASImportableItem", "ASImportableLinkedItem", "ASPasskeyAssertionCredentialExtensionInput", "ASPasskeyAssertionCredentialExtensionOutput", "ASPasskeyCredentialExtensionInput", "ASPasskeyRegistrationCredentialExtensionInput", "ASPasskeyRegistrationCredentialExtensionOutput", "ASPhoneNumberIdentifier", "ASPublicKeyCredentialClientData", "ASVerificationCode"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
@@ -115,6 +118,7 @@
     },
     {
       "module": "CloudKit",
+      "valueTypes": ["CKRecordKeyValueIterator", "CKShareTransferRepresentation"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
@@ -208,14 +212,14 @@
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["ML"],
-      "valueTypes": ["MLComputeUnits", "MLFeatureType", "MLMultiArrayDataType"]
+      "valueTypes": ["MLComputeUnits", "MLFeatureType", "MLMultiArrayDataType", "MLComputeDevice", "MLComputePolicy", "MLModelStructure", "MLOptimizationHints", "MLSendableFeatureValue", "MLShapedArray", "MLShapedArrayBufferLayout", "MLShapedArraySlice", "MLTensor"]
     },
     {
       "module": "CoreMedia",
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["CM"],
-      "valueTypes": ["CMTime", "CMTimeRange", "CMTimeMapping"]
+      "valueTypes": ["CMTime", "CMTimeRange", "CMTimeMapping", "CMAttachmentBearerAttachments", "CMBlockBufferAttachmentKeyDefinitions", "CMCameraIntrinsicMatrix", "CMCustomNotificationInfo", "CMDroppedFrameReason", "CMMutableDataBlockBuffer", "CMReadOnlyDataBlockBuffer", "CMReadySampleBuffer", "CMSampleBufferAttachmentKeyDefinitions", "CMSampleDataReference", "CMStillImageLensStabilization", "CMSync", "CMTaggedBuffer", "CMTaggedDynamicBuffer"]
     },
     {
       "module": "CoreMotion",
@@ -233,6 +237,7 @@
     },
     {
       "module": "CoreNFC",
+      "valueTypes": ["NFCFeliCaPollingResponse", "NFCFeliCaRequestSpecificationVersionResponse", "NFCFeliCaRequsetServiceV2Response", "NFCFeliCaStatusFlag", "NFCISO15693MultipleBlockSecurityStatus", "NFCISO15693SystemInfo", "NFCISO7816ResponseAPDU", "NFCTag"],
       "optionalFallback": true,
       "wrapperImportable": true,
       "objcPrefixes": ["NFC"],
@@ -380,7 +385,10 @@
         "UUID",
         "XMLParser",
         "_NSRange",
-        "objc_AssociationPolicy"
+        "objc_AssociationPolicy",
+        "NSFastEnumerationIterator",
+        "NSIndexSetIterator",
+        "NSKeyValueObservedChange"
       ],
       "typeRemaps": {
         "Bundle": "Foundation.NSBundle",
@@ -475,6 +483,7 @@
     },
     {
       "module": "GameController",
+      "valueTypes": ["GCAxisElementName", "GCButtonElementName", "GCDirectionPadElementName", "GCPhysicalInputElementCollection", "GCPhysicalInputElementName", "GCSwitchElementName"],
       "optionalFallback": true,
       "objcPrefixes": ["GC"]
     },
@@ -497,7 +506,25 @@
       "valueTypes": [
         { "name": "HKWorkoutActivityType", "kind": "enum" },
         { "name": "HKWorkoutSessionLocationType", "kind": "enum" },
-        { "name": "HKWorkoutSwimmingLocationType", "kind": "enum" }
+        { "name": "HKWorkoutSwimmingLocationType", "kind": "enum" },
+        "HKActivitySummaryQueryDescriptor",
+        "HKAnchoredObjectQueryDescriptor",
+        "HKElectrocardiogramQueryDescriptor",
+        "HKHeartbeatSeriesQueryDescriptor",
+        "HKQuantitySeriesSampleQueryDescriptor",
+        "HKSamplePredicate",
+        "HKSampleQueryDescriptor",
+        "HKSourceQueryDescriptor",
+        "HKStatisticsCollectionQueryDescriptor",
+        "HKStatisticsQueryDescriptor",
+        "HKUserAnnotatedMedicationQueryDescriptor",
+        "HKVerifiableClinicalRecordQueryDescriptor",
+        "HKWorkoutEffortRelationshipQueryDescriptor",
+        "HKWorkoutRouteQueryDescriptor",
+        "HKWorkoutZone",
+        "HKWorkoutZoneConfiguration",
+        "HKWorkoutZoneDuration",
+        "HKWorkoutZoneGroup"
       ]
     },
     {
@@ -640,11 +667,12 @@
       "module": "Network",
       "optionalFallback": true,
       "objcPrefixes": ["NW"],
-      "valueTypes": ["NWEndpoint.Port"],
+      "valueTypes": ["NWEndpoint.Port", "NWEndpoint", "NWError", "NWInterface", "NWParametersBuilder", "NWPath", "NWTXTRecord"],
       "classBoundProtocols": ["NWProtocolFramerImplementation", "NWGroupDescriptor"]
     },
     {
       "module": "NetworkExtension",
+      "valueTypes": ["NEURLFilterPrefilter"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
@@ -745,7 +773,8 @@
         "PHAssetMediaType",
         "PHAssetResourceType",
         "PHAuthorizationStatus",
-        "PHImageContentMode"
+        "PHImageContentMode",
+        "PHBackgroundResourceUploadProcessingResult"
       ],
       "typeRemaps": {
         "PHImageContentMode": "Photos.PHImageContentMode"
@@ -756,7 +785,7 @@
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
-      "valueTypes": ["PHPickerFilter", "PHPickerResult"]
+      "valueTypes": ["PHPickerFilter", "PHPickerResult", "PHPickerConfiguration", "PHPickerMode", "PHPickerSearchText", "PHSharedAlbumCreationConfiguration", "PHSharedAlbumCreationResult"]
     },
     {
       "module": "ProximityReader",
@@ -803,6 +832,7 @@
     },
     {
       "module": "RealityKit",
+      "valueTypes": ["ARKitAnchorComponent"],
       "autoBridge": true,
       "optionalFallback": true,
       "concreteClassFallback": true,
@@ -841,6 +871,7 @@
     },
     {
       "module": "SoundAnalysis",
+      "valueTypes": ["SNTimeDurationConstraint"],
       "autoBridge": true,
       "optionalFallback": true,
       "wrapperImportable": true,
@@ -982,7 +1013,67 @@
         "UIView.AnimationCurve",
         "UIView.AnimationOptions",
         "UIView.AutoresizingMask",
-        "UIView.ContentMode"
+        "UIView.ContentMode",
+        "NSDiffableDataSourceSectionSnapshot",
+        "NSDiffableDataSourceSectionTransaction",
+        "NSDiffableDataSourceSnapshot",
+        "NSDiffableDataSourceTransaction",
+        "UIBackgroundConfiguration",
+        "UIBarMinimization",
+        "UICellAccessory",
+        "UICellConfigurationState",
+        "UICollectionLayoutListConfiguration",
+        "UIConfigurationColorTransformer",
+        "UIConfigurationTextAttributesTransformer",
+        "UIContentUnavailableConfiguration",
+        "UIContentUnavailableConfigurationState",
+        "UICornerConfiguration",
+        "UICornerRadius",
+        "UIHoverAutomaticEffect",
+        "UIHoverHighlightEffect",
+        "UIHoverLiftEffect",
+        "UIImageReader",
+        "UIListContentConfiguration",
+        "UIListSeparatorConfiguration",
+        "UIOverlayArrangement",
+        "UIPointerEffect",
+        "UIPointerShape",
+        "UISceneSessionActivationRequest",
+        "UIShadowProperties",
+        "UIShape",
+        "UISplitArrangement",
+        "UISymbolEffectCompletionContext",
+        "UITextSearchAggregator",
+        "UITraitAccessibilityContrast",
+        "UITraitActiveAppearance",
+        "UITraitDisplayGamut",
+        "UITraitDisplayScale",
+        "UITraitForceTouchCapability",
+        "UITraitHDRHeadroomUsageLimit",
+        "UITraitHorizontalSizeClass",
+        "UITraitImageDynamicRange",
+        "UITraitLayoutDirection",
+        "UITraitLegibilityWeight",
+        "UITraitListEnvironment",
+        "UITraitNavigationTitleAlignment",
+        "UITraitOverrides",
+        "UITraitPreferredContentSizeCategory",
+        "UITraitResolvesNaturalAlignmentWithBaseWritingDirection",
+        "UITraitSceneCaptureState",
+        "UITraitSplitViewControllerLayoutEnvironment",
+        "UITraitSystemPrefersReducedResourceUsage",
+        "UITraitTabAccessoryEnvironment",
+        "UITraitToolbarItemPresentationSize",
+        "UITraitTypesettingLanguage",
+        "UITraitUserInterfaceIdiom",
+        "UITraitUserInterfaceLevel",
+        "UITraitUserInterfaceStyle",
+        "UITraitVerticalSizeClass",
+        "UIViewConfigurationState",
+        "UIWindowSceneProminentPlacement",
+        "UIWindowScenePushPlacement",
+        "UIWindowSceneReplacePlacement",
+        "UIWindowSceneStandardPlacement"
       ],
       "typeRemaps": {
         "UIImage.RenderingMode": "UIKit.UIImageRenderingMode",

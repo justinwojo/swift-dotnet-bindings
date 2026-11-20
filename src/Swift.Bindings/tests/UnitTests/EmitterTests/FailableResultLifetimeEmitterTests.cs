@@ -76,7 +76,33 @@ public class FailableResultLifetimeEmitterTests
         Assert.DoesNotContain("->Destroy", output);
     }
 
-    private static string Emit(bool cdecl, bool throws, bool typedThrows, bool isClass, bool frozen, bool constructor = true)
+    [Theory]
+    [InlineData(true, false, "Use make(other:)")]
+    [InlineData(false, false, "Use make(other:)")]
+    [InlineData(true, true, null)]
+    public void DeprecatedFailableInit_FactoryCarriesTheDeprecation(bool cdecl, bool isClass, string message)
+    {
+        // `@available(*, deprecated, message:) init?(…)` emits as a static TryCreate factory; the consumer
+        // calls nothing else in its place, so the Swift deprecation has to reach that factory.
+        var deprecation = new AvailabilityAnnotation("*", null, null, null, true, false, message, null);
+        var output = Emit(cdecl, throws: false, typedThrows: false, isClass, frozen: false, deprecation: deprecation);
+        var factory = output.IndexOf("static bool TryCreate(", StringComparison.Ordinal);
+        Assert.True(factory >= 0, output);
+        var obsolete = output.LastIndexOf("[Obsolete(\"Deprecated: ", factory, StringComparison.Ordinal);
+        Assert.True(obsolete >= 0, output);
+        Assert.Contains(message ?? "Deprecated in Swift.", output.Substring(obsolete, factory - obsolete));
+        Assert.DoesNotContain("DiagnosticId", output.Substring(obsolete, factory - obsolete));
+    }
+
+    [Fact]
+    public void UndeprecatedFailableInit_FactoryIsNotObsolete()
+    {
+        var output = Emit(cdecl: true, throws: false, typedThrows: false, isClass: false, frozen: false);
+        Assert.DoesNotContain("[Obsolete", output);
+    }
+
+    private static string Emit(bool cdecl, bool throws, bool typedThrows, bool isClass, bool frozen, bool constructor = true,
+        AvailabilityAnnotation deprecation = null)
     {
         var module = new ModuleDecl { Name = "TestModule", Properties = new(), Methods = new(),
             Types = new(), Dependencies = new(), Protocols = new(), ParentDecl = null, ModuleDecl = null };
@@ -109,6 +135,7 @@ public class FailableResultLifetimeEmitterTests
             IsSynthesizedAccessor = false, CSSignature = new List<ArgumentDecl> {
                 new() { Name = "", PrivateName = "", SwiftTypeSpec = new NamedTypeSpec("TestModule.Value"),
                     ParentDecl = null, ModuleDecl = module, IsInOut = false, IsGeneric = false } } };
+        if (deprecation != null) method.AvailabilityAnnotations = new List<AvailabilityAnnotation> { deprecation };
         if (constructor) method.UsesCdeclConstructorWrapper = cdecl;
         else method.UsesCdeclMethodWrapper = cdecl;
         parent.Methods.Add(method);

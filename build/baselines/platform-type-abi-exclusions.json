@@ -17,6 +17,14 @@
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "AVFAudio.AVReadOnlyAudioCompressedBuffer": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AVFAudio.AVReadOnlyAudioPCMBuffer": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
     "AVFoundation.AVAudioChannelCount": {
       "category": "AliasCarrier",
       "carrier": "System.UInt32",
@@ -48,6 +56,174 @@
     "AppKit.NSColor": {
       "category": "NoSwiftSpelling",
       "reason": "The SDK has no Swift type of this spelling on the probed platform ('NSColor' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "AppKit.NSDiffableDataSourceSnapshot": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AppKit.NSHorizontalDirection": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AppKit.NSItemBadge": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AppKit.NSSuggestionItem": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AppKit.NSSuggestionItemResponse": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AppKit.NSSuggestionItemSection": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AppKit.NSVerticalDirection": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobAssertionInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobAssertionOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobRegistrationInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobRegistrationOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFAssertionInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFAssertionOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFRegistrationInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFRegistrationOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAuthorizationWebBrowserPlatformPublicKeyCredential": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASAutoFillURLScope": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('ASAutoFillURLScope' is only available in iOS 26.2 or newer), so no Swift declaration passes a value under this name."
+    },
+    "AuthenticationServices.ASContactIdentifier": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASContactIdentifierRequest": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASEmailIdentifier": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASExportedCredentialData": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableAccount": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableCollection": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableCredential": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableCredentialScope": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableEditableField": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableExtension": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AuthenticationServices.ASImportableFIDO2Extensions": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AuthenticationServices.ASImportableFIDO2HMACCredential": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AuthenticationServices.ASImportableFIDO2LargeBlob": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "AuthenticationServices.ASImportableItem": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASImportableLinkedItem": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPasskeyAssertionCredentialExtensionInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPasskeyAssertionCredentialExtensionOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPasskeyCredentialExtensionInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPasskeyRegistrationCredentialExtensionInput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPasskeyRegistrationCredentialExtensionOutput": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPhoneNumberIdentifier": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASPublicKeyCredentialClientData": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "AuthenticationServices.ASVerificationCode": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CloudKit.CKRecordKeyValueIterator": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CloudKit.CKShareTransferRepresentation": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Item' could not be inferred), so no Swift declaration passes a value under this name."
     },
     "CoreData.NSAttributeType": {
       "category": "NotProjected",
@@ -92,6 +268,98 @@
       "carrier": "System.Double",
       "reason": "No database record: the generator resolves the name to the carrier recorded here (observed by probe), which is compared against the Swift side."
     },
+    "CoreML.MLComputeDevice": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLComputePolicy": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLModelStructure": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLOptimizationHints": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLSendableFeatureValue": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLShapedArray": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Scalar' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreML.MLShapedArrayBufferLayout": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreML.MLShapedArraySlice": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Scalar' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreML.MLTensor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMAttachmentBearerAttachments": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMBlockBufferAttachmentKeyDefinitions": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMCameraIntrinsicMatrix": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMCustomNotificationInfo": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMDroppedFrameReason": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMMutableDataBlockBuffer": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (no exact matches in call to global function 'probe'), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMReadOnlyDataBlockBuffer": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMReadySampleBuffer": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Content' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMSampleBufferAttachmentKeyDefinitions": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMSampleDataReference": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMStillImageLensStabilization": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "CoreMedia.CMSync": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMTaggedBuffer": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreMedia.CMTaggedDynamicBuffer": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
     "CoreMotion.CMAcceleration": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
@@ -115,6 +383,38 @@
     "CoreMotion.CMRotationRate": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "CoreNFC.NFCFeliCaPollingResponse": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCFeliCaRequestSpecificationVersionResponse": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCFeliCaRequsetServiceV2Response": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCFeliCaStatusFlag": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCISO15693MultipleBlockSecurityStatus": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCISO15693SystemInfo": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCISO7816ResponseAPDU": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "CoreNFC.NFCTag": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
     },
     "Foundation.Calendar.Identifier": {
       "category": "NotProjected",
@@ -167,6 +467,18 @@
     "Foundation.Measurement": {
       "category": "OpaquePayload",
       "reason": "Carried by Swift.Foundation.Measurement, which holds the Swift value's 16 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
+    },
+    "Foundation.NSFastEnumerationIterator": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "Foundation.NSIndexSetIterator": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "Foundation.NSKeyValueObservedChange": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Value' could not be inferred), so no Swift declaration passes a value under this name."
     },
     "Foundation.NSRange": {
       "category": "AliasCarrier",
@@ -226,6 +538,102 @@
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "GameController.GCAxisElementName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "GameController.GCButtonElementName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "GameController.GCDirectionPadElementName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "GameController.GCPhysicalInputElementCollection": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "GameController.GCPhysicalInputElementName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "GameController.GCSwitchElementName": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKActivitySummaryQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKAnchoredObjectQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKElectrocardiogramQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKHeartbeatSeriesQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKQuantitySeriesSampleQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKSamplePredicate": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKSampleQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKSourceQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKStatisticsCollectionQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKStatisticsQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKUserAnnotatedMedicationQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKVerifiableClinicalRecordQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKWorkoutEffortRelationshipQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKWorkoutRouteQueryDescriptor": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "HealthKit.HKWorkoutZone": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "HealthKit.HKWorkoutZoneConfiguration": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "HealthKit.HKWorkoutZoneDuration": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "HealthKit.HKWorkoutZoneGroup": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
     "ManagedSettings.ActivityCategory": {
       "category": "OpaquePayload",
       "reason": "Carried by Swift.ManagedSettings.ActivityCategory, which holds the Swift value's 48 bytes in a payload buffer and moves them with the type's value witnesses; no route passes the managed carrier in place of the Swift value."
@@ -254,9 +662,37 @@
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "Network.NWEndpoint": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
     "Network.NWEndpoint.Port": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "Network.NWError": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "Network.NWInterface": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "Network.NWParametersBuilder": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'Top' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "Network.NWPath": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "Network.NWTXTRecord": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "NetworkExtension.NEURLFilterPrefilter": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
     },
     "PassKit.PKAddIdentityDocumentType": {
       "category": "NotProjected",
@@ -447,13 +883,37 @@
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "Photos.PHBackgroundResourceUploadProcessingResult": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('PHBackgroundResourceUploadProcessingResult' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "PhotosUI.PHPickerConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
     "PhotosUI.PHPickerFilter": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "PhotosUI.PHPickerMode": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
     "PhotosUI.PHPickerResult": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "PhotosUI.PHPickerSearchText": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PhotosUI.PHSharedAlbumCreationConfiguration": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "PhotosUI.PHSharedAlbumCreationResult": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
     },
     "QuartzCore.CAAutoresizingMask": {
       "category": "NotInReferenceAssembly",
@@ -479,17 +939,265 @@
       "category": "NoSwiftSpelling",
       "reason": "The SDK has no Swift type of this spelling on the probed platform ('CAToneMapMode' has been renamed to 'CALayer.ToneMapMode'), so no Swift declaration passes a value under this name."
     },
+    "RealityKit.ARKitAnchorComponent": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('ARKitAnchorComponent' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "SoundAnalysis.SNTimeDurationConstraint": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.NSDiffableDataSourceSectionSnapshot": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'ItemIdentifierType' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.NSDiffableDataSourceSectionTransaction": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'SectionIdentifierType' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.NSDiffableDataSourceSnapshot": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'SectionIdentifierType' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.NSDiffableDataSourceTransaction": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'SectionIdentifierType' could not be inferred), so no Swift declaration passes a value under this name."
+    },
     "UIKit.NSUnderlineStyle": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "UIKit.UIBackgroundConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIBarMinimization": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UICellAccessory": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UICellConfigurationState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UICollectionLayoutListConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIConfigurationColorTransformer": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIConfigurationTextAttributesTransformer": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIContentUnavailableConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIContentUnavailableConfigurationState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UICornerConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UICornerRadius": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
     },
     "UIKit.UIDropOperation": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
     },
+    "UIKit.UIHoverAutomaticEffect": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIHoverHighlightEffect": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIHoverLiftEffect": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIImageReader": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIListContentConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIListSeparatorConfiguration": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
     "UIKit.UINotificationFeedbackGenerator.FeedbackType": {
       "category": "NotProjected",
       "reason": "No database record and no registry carrier: the generator binds no member that passes it, so nothing crosses a boundary as this type (probe: a member taking and returning it was skipped)."
+    },
+    "UIKit.UIOverlayArrangement": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UIPointerEffect": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIPointerShape": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UISceneSessionActivationRequest": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIShadowProperties": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIShape": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UISplitArrangement": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UISymbolEffectCompletionContext": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITextSearchAggregator": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'DocumentIdentifier' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UITraitAccessibilityContrast": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitActiveAppearance": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitDisplayGamut": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitDisplayScale": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitForceTouchCapability": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitHDRHeadroomUsageLimit": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitHorizontalSizeClass": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitImageDynamicRange": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitLayoutDirection": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitLegibilityWeight": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitListEnvironment": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitNavigationTitleAlignment": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UITraitOverrides": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitPreferredContentSizeCategory": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitResolvesNaturalAlignmentWithBaseWritingDirection": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitSceneCaptureState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitSplitViewControllerLayoutEnvironment": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitSystemPrefersReducedResourceUsage": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform (generic parameter 'T' could not be inferred), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UITraitTabAccessoryEnvironment": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitToolbarItemPresentationSize": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitTypesettingLanguage": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitUserInterfaceIdiom": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitUserInterfaceLevel": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitUserInterfaceStyle": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UITraitVerticalSizeClass": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIViewConfigurationState": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIWindowSceneProminentPlacement": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
+    },
+    "UIKit.UIWindowScenePushPlacement": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('UIWindowScenePushPlacement' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UIWindowSceneReplacePlacement": {
+      "category": "NoSwiftSpelling",
+      "reason": "The SDK has no Swift type of this spelling on the probed platform ('UIWindowSceneReplacePlacement' is unavailable in Mac Catalyst), so no Swift declaration passes a value under this name."
+    },
+    "UIKit.UIWindowSceneStandardPlacement": {
+      "category": "NotProjected",
+      "reason": "No database record and no registry carrier: the SDK declares this name as a Swift value type, not the Objective-C class its prefix suggests, so the registry lists it in valueTypes to keep the prefix fallback from passing an object handle for it; the generator binds no member that passes it."
     },
     "Vision.VNAnimalBodyPoseObservation.JointName": {
       "category": "NotProjected",

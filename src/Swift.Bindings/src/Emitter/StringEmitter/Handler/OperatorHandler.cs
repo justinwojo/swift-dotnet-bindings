@@ -112,6 +112,28 @@ namespace BindingsGeneration
                 : $"PInvoke_op_{new string(symbol.Where(c => char.IsLetterOrDigit(c) || c == '_').ToArray())}";
 
         /// <summary>
+        /// Gets the PInvoke method name for an operator declaration. A unary <c>+</c> or <c>-</c> takes
+        /// C#'s unary operator name (<c>op_UnaryPlus</c>, <c>op_UnaryNegation</c>), so a type declaring
+        /// both the binary and the prefix form of one symbol binds two distinctly named entry points:
+        /// with one name, two P/Invokes of the same arity could only be told apart by their parameter
+        /// types, and the report's call reader, which resolves a call by name and argument count,
+        /// could not tell which Swift function an operator reaches.
+        /// </summary>
+        public static string GetPInvokeMethodName(OperatorDecl operatorDecl) =>
+            operatorDecl.Kind == OperatorKind.Unary && _unaryPInvokeMethodNames.TryGetValue(operatorDecl.OperatorSymbol, out var name)
+                ? $"PInvoke_{name}"
+                : GetPInvokeMethodName(operatorDecl.OperatorSymbol);
+
+        /// <summary>
+        /// The C# names of the unary forms of symbols that are also binary operators.
+        /// </summary>
+        private static readonly Dictionary<string, string> _unaryPInvokeMethodNames = new()
+        {
+            { "+", "op_UnaryPlus" },
+            { "-", "op_UnaryNegation" },
+        };
+
+        /// <summary>
         /// Gets the paired operator that is required for C# if the given operator is defined.
         /// </summary>
         /// <param name="symbol">The operator symbol.</param>
@@ -347,6 +369,21 @@ namespace BindingsGeneration
                     return false;
                 }
 
+                // An ObjC-bridgeable container (`[URL]`, `[URL]?`) fits its slot, but a direct call
+                // renders it as the Objective-C collection where Swift passes and returns its own array
+                // storage: the result would be read as an NSArray Swift never made. The ordinary
+                // member refuses the same shape through the same oracle. Asked after the placeholder
+                // and generic-operand checks: the oracle reads every slot's type record, which
+                // neither shape has.
+                if (!usesCdeclWrapper && WrapperValidation.HasForeignObjectRenderedDirectDispatch(methodEnv))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' passes or returns an ObjC-bridgeable container with no @_cdecl wrapper — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.NonBlittableCallConvSwift,
+                        "The operator passes or returns a collection of Objective-C-bridgeable elements, which a direct call renders as the Objective-C collection where Swift reads its own array storage, and its parent has no operator wrapper.");
+                    RollbackOperator();
+                    return false;
+                }
+
                 // Check if the P/Invoke signature references marshalling variables (e.g., arg0Buffer, T0Metadata)
                 // that the operator wrapper scope doesn't declare. This happens for generic-type operators
                 // where the P/Invoke builder renames operands for buffer marshalling we don't emit.
@@ -417,7 +454,7 @@ namespace BindingsGeneration
                 // already converts it, and a second rendering here would be free to differ. The
                 // call-site emitter is reused when there is one, so a hand-over a conversion registers
                 // is completed by the same epilogue that completes the others.
-                bool returnViaProjection = !usesCdeclWrapper && ReturnsOptionalObjCReference(methodEnv);
+                bool returnViaProjection = !usesCdeclWrapper && ReturnsOptionalReadByProjection(methodEnv);
                 var marshaller = convertedOperands.Count > 0 || returnViaProjection
                     ? callSite ?? new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo: null, emissionContext)
                     : null;
@@ -596,7 +633,7 @@ namespace BindingsGeneration
                 if (usesCdeclWrapper)
                 {
                     // @_cdecl path: marshal struct params to pointers, use SwiftIndirectResult for struct returns
-                    EmitCdeclOperatorCall(csWriter, symbol, returnType, parameters.Select(p => p.Name).ToArray(), pinvokeHelperContext, methodEnv, leftType);
+                    EmitCdeclOperatorCall(csWriter, symbol, GetPInvokeMethodName(operatorDecl), returnType, parameters.Select(p => p.Name).ToArray(), pinvokeHelperContext, methodEnv, leftType);
                 }
                 else
                 {
@@ -605,7 +642,7 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    if (!EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
+                    if (!EmitOperatorPInvokeCall(csWriter, symbol, GetPInvokeMethodName(operatorDecl), returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
                         return false;
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
@@ -651,7 +688,7 @@ namespace BindingsGeneration
                 if (usesCdeclWrapper)
                 {
                     // @_cdecl path: marshal struct params to pointers
-                    EmitCdeclOperatorCall(csWriter, symbol, returnType, new[] { operand.Name }, pinvokeHelperContext, methodEnv, operandType);
+                    EmitCdeclOperatorCall(csWriter, symbol, GetPInvokeMethodName(operatorDecl), returnType, new[] { operand.Name }, pinvokeHelperContext, methodEnv, operandType);
                 }
                 else
                 {
@@ -660,7 +697,7 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    if (!EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
+                    if (!EmitOperatorPInvokeCall(csWriter, symbol, GetPInvokeMethodName(operatorDecl), returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
                         return false;
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
@@ -697,9 +734,8 @@ namespace BindingsGeneration
         /// member body's ownership and error halves: the consumed-operand leases before it, and their
         /// completion plus the error check after it — before anything reads the result.</para>
         /// </summary>
-        private bool EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
+        private bool EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string pinvokeName, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
         {
-            var pinvokeName = GetPInvokeMethodName(symbol);
             var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals);
 
             // The ordinary body converts its parameters before the call-site preamble; so does this one.
@@ -805,7 +841,7 @@ namespace BindingsGeneration
                 {
                     csWriter.WriteLine($"var {returnMarshaller.CallSiteResultLocalName} = {call};");
                     if (!returnMarshaller.TryEmitCallSiteReturnViaProjection(csWriter))
-                        throw new InvalidOperationException($"Operator '{symbol}': the Optional object return has no projection to read it.");
+                        throw new InvalidOperationException($"Operator '{symbol}': the Optional return has no projection to read it.");
                     return true;
                 }
 
@@ -833,7 +869,7 @@ namespace BindingsGeneration
                     if (marshalling.ReturnViaProjection)
                     {
                         if (!callSite.TryEmitCallSiteReturnViaProjection(csWriter))
-                            throw new InvalidOperationException($"Operator '{symbol}': the Optional object return has no projection to read it.");
+                            throw new InvalidOperationException($"Operator '{symbol}': the Optional return has no projection to read it.");
                     }
                     else
                     {
@@ -852,16 +888,17 @@ namespace BindingsGeneration
         private sealed record OperatorMarshalling(WrapperEmitter? Marshaller, IReadOnlyList<ArgumentDecl> ConvertedOperands, bool ReturnViaProjection);
 
         /// <summary>
-        /// True when a directly-called operator returns an Optional of an ObjC object (a framework
-        /// class or an ObjC-bridgeable reference): one nullable pointer at +1, which the ordinary
-        /// member reads through the return type's own projection. An Optional of a Swift class,
-        /// NSObject-rooted ones included, keeps the operator's own arm.
+        /// True when a directly-called operator returns an Optional the ordinary member reads through
+        /// the return type's own projection: an Optional of an ObjC object (one nullable pointer at
+        /// +1) or of a value type (an <c>Int32?</c> comes back as its payload and tag, not as the
+        /// projected <c>int?</c>). Only an Optional of a Swift class, NSObject-rooted ones included,
+        /// keeps the operator's own arm; an indirect result is read from its buffer.
         /// </summary>
-        private static bool ReturnsOptionalObjCReference(MethodEnvironment methodEnv)
+        private static bool ReturnsOptionalReadByProjection(MethodEnvironment methodEnv)
         {
             var returnSpec = methodEnv.MethodDecl.CSSignature.First().SwiftTypeSpec;
             return !MarshallingHelpers.MethodRequiresIndirectResult(methodEnv)
-                && MarshallingHelpers.IsOptionalObjCBridged(returnSpec, methodEnv.TypeDatabase)
+                && returnSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 }
                 && !MarshallingHelpers.IsOptionalSwiftClassReference(returnSpec, methodEnv.ParentDecl, methodEnv.TypeDatabase);
         }
 
@@ -1027,9 +1064,8 @@ namespace BindingsGeneration
         /// Emits the @_cdecl operator call with pointer marshalling for struct params and a
         /// result-buffer pointer for struct returns. Bool returns use direct return.
         /// </summary>
-        private void EmitCdeclOperatorCall(CSharpWriter csWriter, string symbol, string returnType, string[] paramNames, PInvokeHelperContext? pinvokeHelperContext, MethodEnvironment methodEnv, string? paramTypeName = null)
+        private void EmitCdeclOperatorCall(CSharpWriter csWriter, string symbol, string pinvokeName, string returnType, string[] paramNames, PInvokeHelperContext? pinvokeHelperContext, MethodEnvironment methodEnv, string? paramTypeName = null)
         {
-            var pinvokeName = GetPInvokeMethodName(symbol);
             bool returnsBool = returnType == "bool";
             // For Bool-returning operators (comparisons), the param type is the struct type (not bool)
             var structTypeName = paramTypeName ?? returnType;
@@ -1140,7 +1176,7 @@ namespace BindingsGeneration
             var methodDecl = operatorDecl.UnderlyingMethod;
             var moduleDecl = methodDecl.ModuleDecl ?? throw new ArgumentNullException(nameof(methodDecl.ModuleDecl));
 
-            var pinvokeName = GetPInvokeMethodName(operatorDecl.OperatorSymbol);
+            var pinvokeName = GetPInvokeMethodName(operatorDecl);
             // Use wrapper library path when operator has @_cdecl wrapper
             var libPath = methodDecl.UsesWrapperLibrary
                 ? typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name)

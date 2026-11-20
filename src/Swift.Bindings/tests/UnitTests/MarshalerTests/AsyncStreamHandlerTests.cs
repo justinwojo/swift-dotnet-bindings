@@ -10,6 +10,74 @@ namespace BindingsGeneration.Tests;
 /// </summary>
 public class AsyncStreamHandlerTests
 {
+    /// <summary>
+    /// The channel spells the element argument by argument, and an argument it cannot name (a tuple)
+    /// becomes the Swift.AnyType placeholder: <c>AsyncStream&lt;[(Int32, Int32)]&gt;</c> has an Array
+    /// record but streamed as <c>IAsyncEnumerable&lt;IReadOnlyList&lt;Swift.AnyType&gt;&gt;</c>, whose
+    /// elements no consumer can read. Such a stream is not supported; an array of a known element is.
+    /// </summary>
+    [Theory]
+    [InlineData("_Concurrency.AsyncStream", true, false)]
+    [InlineData("_Concurrency.AsyncThrowingStream", true, false)]
+    [InlineData("_Concurrency.AsyncStream", false, true)]
+    public async Task IsSupportedAsyncStream_ElementTheChannelCannotSpell_IsNotSupported(string stream, bool tupleElement, bool supported)
+    {
+        var database = new TypeDatabase();
+        await database.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml"));
+        var handler = new AsyncStreamHandler(database);
+        TypeSpec element = tupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.Int32") })
+            : new NamedTypeSpec("Swift.Int32");
+        var spec = new NamedTypeSpec(stream, new NamedTypeSpec("Swift.Array", element));
+
+        Assert.Equal(supported, handler.IsSupportedAsyncStream(spec));
+        if (supported)
+            Assert.DoesNotContain("AnyType", handler.GetCSharpAsyncEnumerableType(spec));
+    }
+
+    /// <summary>
+    /// An unresolved generic is rendered as the placeholder with its arguments appended
+    /// (<c>Swift.AnyType&lt;int&gt;</c> for a metatype of <c>[Int32]</c>), which names no type C# has, so
+    /// such a stream stays unsupported.
+    /// </summary>
+    [Fact]
+    public async Task IsSupportedAsyncStream_UnresolvedGenericMetatypeElement_IsNotSupported()
+    {
+        var database = new TypeDatabase();
+        await database.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml"));
+        var handler = new AsyncStreamHandler(database);
+        var metatype = new NamedTypeSpec("Swift.Array.Type", new NamedTypeSpec("Swift.Int32"));
+        var spec = new NamedTypeSpec("_Concurrency.AsyncStream", metatype);
+
+        Assert.False(handler.IsSupportedAsyncStream(spec), handler.GetCSharpInternalChannelElementType(spec));
+    }
+
+    /// <summary>
+    /// The placeholder is matched as a whole type name: a resolved element whose C# name starts with it
+    /// (a <c>Swift.AnyTypePayload</c> under a <c>Swift</c> namespace pattern) streams as itself.
+    /// </summary>
+    [Fact]
+    public async Task IsSupportedAsyncStream_ResolvedElementNamedLikeThePlaceholder_IsSupported()
+    {
+        var database = new TypeDatabase();
+        await database.LoadModuleDatabaseFromFile(Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift", "SwiftDatabase.xml"));
+        var kit = new ModuleTypeDatabase("Kit", "/tmp/Kit.dylib");
+        kit.RegisterType(SwiftTypeName.FromModuleQualifiedName("Kit.AnyTypePayload"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "AnyTypePayload"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Kit.AnyTypePayload"),
+            MetadataAccessor = "$s3Kit14AnyTypePayloadVMa",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Struct,
+        });
+        database.AddModuleDatabase(kit);
+        var handler = new AsyncStreamHandler(database);
+
+        var spec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Kit.AnyTypePayload"));
+
+        Assert.True(handler.IsSupportedAsyncStream(spec), handler.GetCSharpInternalChannelElementType(spec));
+    }
+
     #region AsyncStream Detection Tests
 
     [Fact]

@@ -23284,6 +23284,26 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OptionalValueOperatorClass.OptionalValueOperatorClass(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_faf22b1b"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalValueOperatorClass.Value",
+      "symbol": "thunk_SwiftBindingsTestLib_61623ebb"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalValueOperatorValue.OptionalValueOperatorValue(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionalValueOperatorValue_init_C798D871"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalValueOperatorValue.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OptionalValueOperatorValue_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OptionalWrapper.HasValue",
       "symbol": "SBW_Get_SwiftBindingsTestLib_OptionalWrapper_hasValue"
     },
@@ -32431,6 +32451,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ThrowingSealedRef.ThrowingSealedRef(string)",
       "symbol": "SBW_SwiftBindingsTestLib_ThrowingSealedRef_init_CAD4937D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ThrowingStreamSource.ProducerCancelledEvents",
+      "symbol": "$s20SwiftBindingsTestLib20ThrowingStreamSourceC23producerCancelledEventsScsys5Int32Vs5Error_pGvg"
     },
     {
       "module": "SwiftBindingsTestLib",

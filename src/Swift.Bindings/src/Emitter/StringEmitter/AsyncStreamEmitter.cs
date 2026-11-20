@@ -183,7 +183,8 @@ public static class AsyncStreamEmitter
     /// the task unregisters on every exit path. For throwing streams the iteration is wrapped in
     /// <c>do/catch</c>: <c>finish(throwing:)</c> surfaces as a caught error that is marshalled back
     /// through <c>errorCallback</c> (see <see cref="EmitErrorCallback"/>); a <c>CancellationError</c>
-    /// is swallowed because consumer task-cancel is not a producer fault. <c>completionCallback</c> is
+    /// is swallowed only when the producer task itself was cancelled, because consumer task-cancel is
+    /// not a producer fault; the sequence's own <c>CancellationError</c> faults the stream like any error. <c>completionCallback</c> is
     /// always the final call (it owns the GCHandle free on the C# side).
     /// </remarks>
     /// <param name="swiftWriter">The Swift writer.</param>
@@ -270,7 +271,11 @@ public static class AsyncStreamEmitter
         lines.Add($"{bodyIndent}}}");
         if (isThrowing)
         {
-            lines.Add("        } catch is _Concurrency.CancellationError {");
+            // Only the consumer's own cancel is swallowed: C# Cancel()/Dispose() cancels this task, and the
+            // CancellationError it draws from the sequence is not a producer fault. A sequence that ends
+            // by throwing CancellationError while this task still runs (an upstream it awaits was
+            // cancelled) failed, and the consumer must see that rather than a normal end of the stream.
+            lines.Add($"        }} catch is _Concurrency.CancellationError where {SwiftConcurrencyNames.Task}.isCancelled {{");
             lines.Add("            // Consumer task-cancel (Cancel/Dispose) — not a producer fault; fall through to completion.");
             lines.Add("        } catch {");
             lines.Add("            let _sbwErr = \"\\(error)\"");

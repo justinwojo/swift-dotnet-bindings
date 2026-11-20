@@ -280,7 +280,8 @@ public final class TrackedRefStreamSource {
 // `finish(throwing:)` termination its `catch` arm marshals the Swift error description across to the C#
 // producer-error trampoline, which faults the channel so the consumer's `await foreach` RETHROWS at the
 // boundary instead of silently truncating (the pre-redesign behaviour). A `CancellationError` is
-// swallowed (consumer task-cancel is not a producer fault). This fixture pins the support against the
+// swallowed only when the wrapper's own Task was cancelled (consumer task-cancel is not a producer
+// fault); one the producer throws while nobody cancelled is a fault like any other. This fixture pins the support against the
 // REAL parser output (the ABI/swiftinterface must name the type `_Concurrency.AsyncThrowingStream`) and
 // proves it is property-scoped: the sibling non-throwing `safeEvents` rides the same supported-stream
 // emission path and must still round-trip.
@@ -296,6 +297,17 @@ public final class ThrowingStreamSource {
             continuation.yield(2)
             continuation.yield(3)
             continuation.finish(throwing: StreamProducerError.boom)
+        }
+    }
+
+    /// Throwing stream whose producer ends it with its own `CancellationError` while the consumer is
+    /// still reading: yields 4, 5, then faults. Nobody cancelled the consumer's iteration, so the
+    /// consumer's `await foreach` must rethrow rather than see a normal end.
+    public var producerCancelledEvents: AsyncThrowingStream<Int32, Error> {
+        AsyncThrowingStream { continuation in
+            continuation.yield(4)
+            continuation.yield(5)
+            continuation.finish(throwing: CancellationError())
         }
     }
 
