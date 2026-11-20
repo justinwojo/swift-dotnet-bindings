@@ -521,6 +521,74 @@ public class BaseHandlerDedupTests
         Assert.Equal(keyA, keyB);
     }
 
+    private static TypeSpec Closure(TypeSpec arguments, TypeSpec result) => new ClosureTypeSpec(arguments, result);
+
+    private static TypeSpec Existential(string protocol) => new NamedTypeSpec(protocol) { IsAny = true };
+
+    private static TypeSpec IntResult => new NamedTypeSpec("Swift.Int");
+
+    /// <summary>A database holding one projectable protocol, <c>Shapes.Shape</c> (C# <c>IShape</c>).</summary>
+    private static TypeDatabase ShapesDatabase()
+    {
+        var typeDatabase = new TypeDatabase();
+        var shapes = new ModuleTypeDatabase("Shapes", "/tmp/Shapes.dylib");
+        shapes.RegisterType(SwiftTypeName.FromModuleQualifiedName("Shapes.Shape"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Shapes", "IShape"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Shapes.Shape"),
+            MetadataAccessor = "$s6Shapes5ShapeMp",
+            Flags = TypeRecordFlags.None,
+            Kind = TypeRecordKind.Protocol,
+        });
+        typeDatabase.AddModuleDatabase(shapes);
+        return typeDatabase;
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_ExistentialBesideClosure_ProduceDistinctKeys()
+    {
+        // `f(_: any Shape)` beside `f(_: () -> Int)`: neither has a type record, so both entered the key
+        // as the AnyType fallback and the later was dropped, although C# holds `F(IShape)` and
+        // `F(Func<nint>)` side by side.
+        var typeDatabase = ShapesDatabase();
+        var keyA = InvokeGetMethodSignatureKey(CreateMethod("f", Existential("Shapes.Shape")), typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(CreateMethod("f", Closure(TupleTypeSpec.Empty, IntResult)), typeDatabase);
+
+        Assert.NotEqual(keyA, keyB);
+    }
+
+    [Fact]
+    public void GetMethodSignatureKey_ExistentialInsideAContainer_ProduceDistinctKeys()
+    {
+        var typeDatabase = ShapesDatabase();
+        var keyA = InvokeGetMethodSignatureKey(CreateMethod("f", new NamedTypeSpec("Swift.Array", Existential("Shapes.Shape"))), typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(CreateMethod("f", new NamedTypeSpec("Swift.Array", Closure(TupleTypeSpec.Empty, IntResult))), typeDatabase);
+
+        Assert.NotEqual(keyA, keyB);
+    }
+
+    public static TheoryData<TypeSpec, TypeSpec> UnrecordedTypesCSharpCannotOverloadOn => new()
+    {
+        // Two closure shapes: the Task forwarders and the closure tombstone cannot tell them apart.
+        { Closure(TupleTypeSpec.Empty, IntResult), Closure(TupleTypeSpec.Empty, new NamedTypeSpec("Swift.Bool")) },
+        // Two existentials the binding cannot project: both are `object`.
+        { Existential("Shapes.PayloadA"), Existential("Shapes.PayloadB") },
+        // An unprojectable existential beside a closure that may become the `object?` tombstone.
+        { Existential("Shapes.PayloadA"), Closure(new TupleTypeSpec(new List<TypeSpec> { Closure(TupleTypeSpec.Empty, TupleTypeSpec.Empty) }), TupleTypeSpec.Empty) },
+    };
+
+    [Theory]
+    [MemberData(nameof(UnrecordedTypesCSharpCannotOverloadOn))]
+    public void GetMethodSignatureKey_UnrecordedTypesCSharpCannotOverloadOn_StillCollide(TypeSpec first, TypeSpec second)
+    {
+        // The first overload keeps its natural name and the later stays a duplicate, as before.
+        var typeDatabase = ShapesDatabase();
+        var keyA = InvokeGetMethodSignatureKey(CreateMethod("f", first), typeDatabase);
+        var keyB = InvokeGetMethodSignatureKey(CreateMethod("f", second), typeDatabase);
+
+        Assert.Equal(keyA, keyB);
+    }
+
     #endregion
 
     #region Helpers

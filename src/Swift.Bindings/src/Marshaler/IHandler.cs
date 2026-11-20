@@ -1535,7 +1535,7 @@ namespace BindingsGeneration
                 try
                 {
                     var typeRecord = typeDatabase.GetTypeRecordOrAnyType(named);
-                    baseName = typeRecord.CSharpTypeName.FullyQualifiedName;
+                    baseName = WithProjectedIdentity(typeRecord.CSharpTypeName.FullyQualifiedName, named, typeDatabase);
                 }
                 catch (Exception ex)
                 {
@@ -1556,13 +1556,47 @@ namespace BindingsGeneration
             try
             {
                 var typeRecord = typeDatabase.GetTypeRecordOrAnyType(typeSpec);
-                return typeRecord.CSharpTypeName.FullyQualifiedName;
+                return WithProjectedIdentity(typeRecord.CSharpTypeName.FullyQualifiedName, typeSpec, typeDatabase);
             }
             catch (Exception ex)
             {
                 logger?.LogWarning($"GetMethodSignatureKey: Failed to resolve type '{typeSpec}' for method '{methodName}', using string fallback: {ex.Message}");
                 return typeSpec.ToString() ?? "unknown";
             }
+        }
+
+        /// <summary>
+        /// A type the database has no record for enters the key as the <c>Swift.AnyType</c> fallback, which
+        /// says nothing about the C# type it projects to: <c>f(_: Int, _: any P)</c> and
+        /// <c>f(_: Int, _: () -&gt; Int)</c> shared one key although they project to <c>F(nint, IP)</c> and
+        /// <c>F(nint, Func&lt;nint&gt;)</c>, and the later was dropped as a duplicate. Such a position also
+        /// carries the C# type it projects to, so the projected-key dedup sees both. Two positions stay
+        /// bare, so overloads differing only there remain duplicates and the first keeps its natural name:
+        /// a closure, whose overloads the completion-handler Task forwarders and the closure tombstone
+        /// (every unsupported shape becomes <c>object?</c>) cannot tell apart; and a type that projects to
+        /// <c>object</c>, which C# cannot overload on beside another such type or a tombstone.
+        /// </summary>
+        private static string WithProjectedIdentity(string resolvedName, TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (resolvedName != CSharpTypeName.AnyType.FullyQualifiedName || typeSpec is ClosureTypeSpec)
+                return resolvedName;
+            string? projected;
+            try
+            {
+                projected = new TypeProjectionFactory().Project(typeSpec, new ProjectionContext
+                {
+                    TypeDatabase = typeDatabase,
+                    IsParameter = true,
+                })?.PublicType;
+            }
+            catch (Exception)
+            {
+                projected = null;
+            }
+            projected = projected?.TrimEnd('?');
+            if (string.IsNullOrEmpty(projected) || projected is "object" or "global::System.Object" or "System.Object")
+                return resolvedName;
+            return $"{resolvedName}[{projected}]";
         }
     }
 }
