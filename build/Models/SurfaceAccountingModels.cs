@@ -12,6 +12,8 @@ public static class SurfaceAccountingSchema
 {
     public const string Artifact = "surface-accounting/1";
     public const string Request = "surface-accounting-request/1";
+    public const string ValidateCapture = "surface-validate-capture/1";
+    public const string InputLock = "surface-input-lock/1";
 }
 
 public sealed record SurfaceTargetKey(
@@ -330,3 +332,51 @@ public sealed record SurfaceAccountingResult(
     SurfaceCaptureArtifacts Old,
     SurfaceCaptureArtifacts Tip,
     SurfaceComparisonArtifacts Comparison);
+
+/// <summary>What a validate output tree was produced with, hashed into a capture's ToolchainSha256.</summary>
+public sealed record SurfaceToolchainIdentity(
+    string Profile,
+    string Xcode,
+    string Swift,
+    string Dotnet);
+
+/// <summary>The SDK, architecture and triple validate generated one target against.</summary>
+public sealed record SurfaceCaptureTargetProvenance(
+    string TargetName,
+    string Platform,
+    string ActualSdk,
+    string Architecture,
+    string TargetTriple);
+
+/// <summary>
+/// The capture a full <c>nuke validate</c> writes into its own output base
+/// (<c>surface-capture.json</c>). Every path in it is relative to that output base, so the
+/// directory stays valid when it is copied aside to serve as a later run's old side.
+/// </summary>
+public sealed record SurfaceValidateCapture
+{
+    public string Schema { get; init; } = SurfaceAccountingSchema.ValidateCapture;
+    public required string ManifestSha256 { get; init; }
+    public required string InputLockRelativePath { get; init; }
+    public required SurfaceToolchainIdentity Toolchain { get; init; }
+    public required IReadOnlyList<SurfaceCaptureTargetProvenance> Targets { get; init; }
+    public required SurfaceCaptureRequest Capture { get; init; }
+}
+
+public sealed record SurfaceInputLockEntry(
+    string Path,
+    string TreeSha256);
+
+public sealed record SurfaceInputLockLibrary(
+    string Library,
+    IReadOnlyList<SurfaceInputLockEntry> Inputs);
+
+/// <summary>
+/// The library inputs a capture generated from. It holds input identities only (no source,
+/// toolchain or time), so two captures of the same inputs write byte-identical locks.
+/// </summary>
+public sealed record SurfaceInputLock
+{
+    public string Schema { get; init; } = SurfaceAccountingSchema.InputLock;
+    public required IReadOnlyList<SurfaceInputLockLibrary> Libraries { get; init; }
+}

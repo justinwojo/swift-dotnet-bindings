@@ -133,6 +133,13 @@ partial class Build
             var branch = GetGitBranch();
             var outputBase = (AbsolutePath)Path.Combine(Path.GetTempPath(), $"binding-validation-{branch}");
 
+            // --- Surface capture: only a full run writes one, and any run invalidates the last ---
+            if (File.Exists(outputBase / SurfaceCaptureBuilder.CaptureFileName))
+                File.Delete(outputBase / SurfaceCaptureBuilder.CaptureFileName);
+            var surfaceCaptureRun = !Quick && Filter == null && Tier == 0;
+            var surfaceStartedAt = DateTimeOffset.UtcNow;
+            var surfaceSourceAtStart = surfaceCaptureRun ? ReadSurfaceSourceState() : null;
+
             // --- Prerequisites ---
             Log.Information("=== Library Validation ===");
             Log.Information("");
@@ -231,6 +238,18 @@ partial class Build
             // --- Build Generator ---
             if (!Quick)
                 BuildGeneratorIfChanged(outputBase);
+
+            // --- Shared build products: built once, read-only for every target ---
+            // Each target's generator verifies its binding with a real dotnet build that
+            // ProjectReferences the in-tree runtime and supplement. Built from N parallel
+            // targets, those shared projects were restored and recompiled in place, and two
+            // targets could write one obj dll at once (CS2012). Build them here, before the
+            // fan-out, make every per-target build consume them read-only, and fail the run
+            // if any target still wrote one.
+            IReadOnlyDictionary<string, SharedBuildProducts.FileStamp>? sharedProductsBefore = null;
+            if (!Quick)
+                sharedProductsBefore = PrepareSharedBuildProducts(outputBase,
+                    availableTargets.Select(t => t.Platform).Distinct(StringComparer.Ordinal));
             if (!Quick)
             {
                 withdrawalSourceHash = WithdrawalSourceFingerprint();
@@ -556,6 +575,9 @@ partial class Build
 
             Log.Information("");
 
+            if (sharedProductsBefore != null)
+                AssertSharedBuildProductsUntouched(sharedProductsBefore);
+
             // === Baseline & Regression Detection ===
             bool isFullRun = Filter == null && Tier == 0;
 
@@ -830,6 +852,13 @@ partial class Build
                 compileFailed > 0 || compileNoOutput > 0 || depFailed > 0 || regressionCount > 0 ||
                 unqualifiedWithdrawals.Count > 0;
 
+            if (surfaceCaptureRun)
+                WriteSurfaceCapture(outputBase, displayTargets, results, surfaceStartedAt, surfaceSourceAtStart!,
+                    validationFailed
+                        ? [$"{compileFailed + depFailed} compile failure(s), {compileNoOutput} without output, " +
+                           $"{regressionCount} regression(s), {unqualifiedWithdrawals.Count} unqualified withdrawal target(s)"]
+                        : []);
+
             if (isFullRun && !validationFailed)
             {
                 // Preserve the baseline blocks owned by other gates (runtime_tests is populated
@@ -857,6 +886,83 @@ partial class Build
                         : $"; {unqualifiedWithdrawals.Count} target(s) failed withdrawal qualification: " +
                           string.Join("; ", unqualifiedWithdrawals)));
         });
+
+    // ============================================================
+    // Surface capture (the tip side of the formal promotion path)
+    // ============================================================
+
+    /// <summary>
+    /// Writes surface-capture.json and input-lock.json into the output base from this run's own
+    /// results, and tells the promotion candidate which source it was validated from.
+    /// </summary>
+    void WriteSurfaceCapture(AbsolutePath outputBase, IReadOnlyList<ValidationTarget> targets,
+        ConcurrentDictionary<string, TargetResult> results, DateTimeOffset startedAt,
+        SurfaceSourceState sourceAtStart, IReadOnlyList<string> runFailures)
+    {
+        var sourceAtEnd = ReadSurfaceSourceState();
+        var targetResults = targets.Select(target =>
+        {
+            var platform = ApplePlatform.FromName(target.Platform);
+            var r = results.GetValueOrDefault(target.Name);
+            return new SurfaceValidateTargetResult(target.Name,
+                new SurfaceCaptureTargetProvenance(target.Name, target.Platform, platform.SimulatorSdkName,
+                    platform.SimulatorTarget.Split('-')[0], platform.SimulatorTarget),
+                r?.Gen ?? "unknown", r?.GeneratorExitCode, r?.Compile ?? "unknown", r?.DepCompile,
+                r?.SwiftCompile ?? "unknown", r?.Errors ?? 0, r?.Lines ?? 0);
+        }).ToList();
+        // Every .libraries xcframework a target generated from: its own, its dependencies', and the
+        // siblings validate hands the generator from the same library directory.
+        // Apple-framework targets read the SDK, which the toolchain identity covers.
+        var inputs = SurfaceCaptureBuilder.LibraryInputs(targets.Where(t => t.Mode != "apple-framework")
+            .Select(t => (string)t.XcframeworkPath)
+            .Concat(targets.SelectMany(t => results.GetValueOrDefault(t.Name)?.WithdrawalProvenance?.InputHashes.Keys ?? Enumerable.Empty<string>())),
+            LibrariesDir, RootDirectory);
+        var dotnetVersion = ProcessTasks.StartProcess("dotnet", "--version", workingDirectory: RootDirectory, logOutput: false)
+            .AssertZeroExitCode().Output.StdToText().Trim();
+        var capture = SurfaceCaptureBuilder.Write(new SurfaceCaptureBuildInput
+        {
+            OutputBase = outputBase,
+            ManifestSha256 = SurfaceCanonicalJson.Sha256File(ManifestPath),
+            Toolchain = new SurfaceToolchainIdentity(ProfileContext.Profile ?? "unprofiled",
+                RunAppleCapture("xcodebuild", "-version"), RunAppleCapture("xcrun", "swiftc --version"), dotnetVersion),
+            SourceAtStart = sourceAtStart,
+            SourceAtEnd = sourceAtEnd,
+            StartedAt = startedAt,
+            FinishedAt = DateTimeOffset.UtcNow,
+            Targets = targetResults,
+            Inputs = inputs,
+            RunFailures = runFailures,
+        });
+        surfaceInvocationCapture = capture;
+        surfaceInvocationOutputBase = outputBase;
+        if (sourceAtStart.Commit is { } commit)
+            validationPromotion?.RecordSource(commit,
+                sourceAtStart.Clean && sourceAtEnd.Clean && commit == sourceAtEnd.Commit);
+        if (capture.Capture.Complete)
+            Log.Information("  Surface capture: {Path} (complete, {Source})",
+                outputBase / SurfaceCaptureBuilder.CaptureFileName, capture.Capture.SourceSha);
+        else
+            Log.Warning("  Surface capture: {Path} (incomplete: {Reasons})",
+                outputBase / SurfaceCaptureBuilder.CaptureFileName, string.Join("; ", capture.Capture.IncompletenessReasons.Take(5)));
+    }
+
+    SurfaceSourceState ReadSurfaceSourceState()
+    {
+        string? Git(string arguments)
+        {
+            try
+            {
+                var process = ProcessTasks.StartProcess("git", $"-C \"{RootDirectory}\" {arguments}", logOutput: false);
+                process.AssertWaitForExit();
+                return process.ExitCode == 0 ? process.Output.StdToText() : null;
+            }
+            catch { return null; }
+        }
+        var commit = Git("rev-parse HEAD")?.Trim();
+        var porcelain = Git("status --porcelain");
+        // An unreadable status is never clean.
+        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git("diff HEAD") ?? "");
+    }
 
     // ============================================================
     // Generate Bindings
@@ -1901,6 +2007,62 @@ partial class Build
             }
         }
         Log.Information("");
+    }
+
+    IEnumerable<string> SharedBuildProductDirectories =>
+        SharedBuildProducts.ProjectDirectories.Select(relative => (string)(RootDirectory / relative));
+
+    /// <summary>
+    /// Builds the shared in-tree projects every generated binding references (see
+    /// <see cref="SharedBuildProducts"/>), writes the consumer props and targets that make the per-target
+    /// builds read them without restoring or building them, and snapshots their outputs. Runs on every
+    /// validate, not only when the generator changed: the generator stamp does not cover
+    /// Swift.Analyzers or SwiftBindings.Tasks, and an incremental build of current projects is cheap.
+    /// </summary>
+    IReadOnlyDictionary<string, SharedBuildProducts.FileStamp> PrepareSharedBuildProducts(
+        AbsolutePath outputBase, IEnumerable<string> platforms)
+    {
+        foreach (var project in new[] { RuntimeProject, AppleSupplementProject })
+        {
+            var build = ProcessTasks.StartProcess("dotnet", $"build \"{project}\" -v quiet -nologo",
+                logOutput: false);
+            build.WaitForExit();
+            if (build.ExitCode != 0)
+                throw new InvalidOperationException(
+                    $"Shared build product {project} failed to build before the validate fan-out:\n" +
+                    string.Join("\n", build.Output.Select(o => o.Text).TakeLast(20)));
+        }
+        foreach (var platform in platforms)
+        {
+            foreach (var dll in new[] { GetRuntimeDll(platform), GetAppleSupplementDll(platform) })
+                if (!File.Exists(dll))
+                    throw new FileNotFoundException(
+                        $"Shared build product for {platform} is missing after the prebuild; every target " +
+                        "of that platform would reference it", dll);
+        }
+        Directory.CreateDirectory(outputBase);
+        File.WriteAllText(outputBase / "Directory.Build.props", SharedBuildProducts.ConsumerPropsContent);
+        File.WriteAllText(outputBase / "Directory.Build.targets",
+            SharedBuildProducts.ConsumerTargetsContent(SharedBuildProductDirectories));
+        var snapshot = SharedBuildProducts.Snapshot(SharedBuildProductDirectories);
+        Log.Information("Shared build products: built once for the fan-out ({Count} files under {Projects} projects)",
+            snapshot.Count, SharedBuildProducts.ProjectDirectories.Count);
+        return snapshot;
+    }
+
+    void AssertSharedBuildProductsUntouched(IReadOnlyDictionary<string, SharedBuildProducts.FileStamp> before)
+    {
+        var changes = SharedBuildProducts.Diff(before, SharedBuildProducts.Snapshot(SharedBuildProductDirectories));
+        if (changes.Count == 0)
+        {
+            Log.Information("Shared build products: untouched by the {Count}-file fan-out check", before.Count);
+            return;
+        }
+        foreach (var change in changes.Take(40))
+            Log.Error("  shared build product {Change}", change);
+        throw new InvalidOperationException(
+            $"{changes.Count} shared build product file(s) were written during the parallel fan-out. A per-target " +
+            "build restored or built a shared in-tree project, which races with every other target building it.");
     }
 
     string ComputeSourceFingerprint()

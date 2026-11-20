@@ -84,6 +84,11 @@ public static class SurfaceAccountingEngine
         if (duplicateNames.Count > 0)
             throw new InvalidDataException($"Duplicate target names: {string.Join(", ", duplicateNames)}.");
 
+        var unknownLanes = request.Targets.Where(t => !SurfaceLanes.IsKnown(t.SurfaceLane))
+            .Select(t => $"{t.Key.TargetName} ({t.SurfaceLane})").ToList();
+        if (unknownLanes.Count > 0)
+            throw new InvalidDataException($"Unknown surface lane(s): {string.Join(", ", unknownLanes)}.");
+
         var targetLanes = request.Targets.ToDictionary(
             target => SurfaceCanonicalJson.Hash(target.Key),
             target => target.SurfaceLane,
@@ -312,8 +317,9 @@ public static class SurfaceAccountingEngine
 
             var targetFiles = InventoryFiles(capture.CaptureId, target, directory);
             files.AddRange(targetFiles);
-            var sourceFiles = SelectCompileSources(directory);
-            var sidecars = SurfaceSidecarReader.Read(directory);
+            var objCLane = string.Equals(target.SurfaceLane, SurfaceLanes.ObjCApiDefinition, StringComparison.Ordinal);
+            var (sourceFiles, apiDefinitionFiles) = SelectCompileSources(directory);
+            var sidecars = SurfaceSidecarReader.Read(directory, objCLane ? target.Key.FrameworkModule : null);
             var errors = sidecars.Errors.ToList();
             if (sourceFiles.Count == 0) errors.Add("no generated C# compile inputs");
             var scan = SurfaceSyntaxScanner.Scan(
@@ -324,7 +330,8 @@ public static class SurfaceAccountingEngine
                 sourceFiles,
                 request.PreprocessorSymbols.Concat(target.PreprocessorSymbols)
                     .Distinct(StringComparer.Ordinal).OrderBy(s => s, StringComparer.Ordinal).ToList(),
-                directory);
+                directory,
+                apiDefinitionFiles);
             errors.AddRange(scan.Diagnostics.Select(d => "C# parse: " + d));
             scan = scan with
             {
@@ -337,8 +344,13 @@ public static class SurfaceAccountingEngine
                     errors),
             };
 
-            var reconciled = ReconcileManifest(scan, sidecars, out var matched, out var phantom, out var ambiguous);
-            if (sidecars.ApiManifestFileCount == 0)
+            var apiDefinitionPaths = apiDefinitionFiles
+                .Select(path => Path.GetRelativePath(directory, path).Replace('\\', '/'))
+                .ToHashSet(StringComparer.Ordinal);
+            var reconciled = ReconcileManifest(scan, sidecars, apiDefinitionPaths, out var matched, out var phantom, out var ambiguous);
+            // The API manifest maps Swift entry points. A pure-ObjC target has none, and its
+            // artifact manifest (checked above) is the producer's proof that none was written.
+            if (sidecars.ApiManifestFileCount == 0 && !objCLane)
                 errors.Add("missing API manifest without not-produced-empty producer proof");
             if (phantom.Count > 0)
                 errors.Add($"API manifest phantom candidate(s): {string.Join(", ", phantom.Order())}");
@@ -416,6 +428,7 @@ public static class SurfaceAccountingEngine
     private static IReadOnlyList<SurfaceMemberObservation> ReconcileManifest(
         SurfaceSyntaxScanResult scan,
         SurfaceSidecarResult sidecars,
+        IReadOnlySet<string> apiDefinitionPaths,
         out int matched,
         out IReadOnlyList<string> phantom,
         out IReadOnlyList<string> ambiguous)
@@ -423,7 +436,10 @@ public static class SurfaceAccountingEngine
         matched = 0;
         var phantomRows = new List<string>();
         var ambiguousRows = new List<string>();
+        // The Swift API manifest never describes an ObjC API-definition declaration, so those
+        // members are not join candidates (a mixed target's companion cannot make a join ambiguous).
         var membersBySignature = scan.Members
+            .Where(m => !m.SourceReferences.All(r => apiDefinitionPaths.Contains(r.RelativePath)))
             .GroupBy(
                 m => SurfaceSyntaxScanner.NormalizeManifestSignature(
                     SurfaceSyntaxScanner.BuildManifestSignature(m.PublicKey)),
@@ -495,7 +511,12 @@ public static class SurfaceAccountingEngine
             .ToList();
     }
 
-    private static IReadOnlyList<string> SelectCompileSources(string directory)
+    // Items an Objective-C binding project hands bgen: the API definition it generates the public
+    // surface from, and the core sources it compiles verbatim into the binding.
+    private const string ObjCApiDefinitionItem = "ObjcBindingApiDefinition";
+    private const string ObjCCoreSourceItem = "ObjcBindingCoreSource";
+
+    private static (IReadOnlyList<string> Sources, IReadOnlyList<string> ApiDefinitions) SelectCompileSources(string directory)
     {
         var allSources = Directory.EnumerateFiles(directory, "*.cs", SearchOption.AllDirectories)
             .Where(path => !HasExcludedDirectory(directory, path))
@@ -503,24 +524,32 @@ public static class SurfaceAccountingEngine
             .ToList();
         var projects = Directory.EnumerateFiles(directory, "*.csproj", SearchOption.TopDirectoryOnly).ToList();
         if (projects.Count == 0)
-            return allSources.Where(path => Path.GetDirectoryName(path) == Path.GetFullPath(directory))
-                .OrderBy(path => path, StringComparer.Ordinal).ToList();
+            return (allSources.Where(path => Path.GetDirectoryName(path) == Path.GetFullPath(directory))
+                .OrderBy(path => path, StringComparer.Ordinal).ToList(), []);
 
         var selected = new HashSet<string>(StringComparer.Ordinal);
+        var apiDefinitions = new HashSet<string>(StringComparer.Ordinal);
         foreach (var projectPath in projects)
         {
             var project = XDocument.Load(projectPath, LoadOptions.PreserveWhitespace);
             var defaultItems = !project.Descendants().Any(e => e.Name.LocalName == "EnableDefaultCompileItems"
                 && string.Equals(e.Value.Trim(), "false", StringComparison.OrdinalIgnoreCase));
             if (defaultItems) selected.UnionWith(allSources);
-            foreach (var include in project.Descendants().Where(e => e.Name.LocalName == "Compile")
-                         .Select(e => e.Attribute("Include")?.Value).OfType<string>())
+            foreach (var include in Includes(project, "Compile").Concat(Includes(project, ObjCCoreSourceItem)))
                 selected.UnionWith(ExpandCompilePattern(directory, include, allSources));
+            foreach (var include in Includes(project, ObjCApiDefinitionItem))
+                apiDefinitions.UnionWith(ExpandCompilePattern(directory, include, allSources));
             foreach (var remove in project.Descendants().Where(e => e.Name.LocalName == "Compile")
                          .Select(e => e.Attribute("Remove")?.Value).OfType<string>())
                 selected.ExceptWith(ExpandCompilePattern(directory, remove, allSources));
         }
-        return selected.OrderBy(path => path, StringComparer.Ordinal).ToList();
+        selected.UnionWith(apiDefinitions);
+        return (selected.OrderBy(path => path, StringComparer.Ordinal).ToList(),
+            apiDefinitions.OrderBy(path => path, StringComparer.Ordinal).ToList());
+
+        static IEnumerable<string> Includes(XDocument project, string itemName)
+            => project.Descendants().Where(e => e.Name.LocalName == itemName)
+                .Select(e => e.Attribute("Include")?.Value).OfType<string>();
     }
 
     private static IEnumerable<string> ExpandCompilePattern(
@@ -561,8 +590,11 @@ public static class SurfaceAccountingEngine
     private static bool HasExcludedDirectory(string root, string path)
     {
         var relative = Path.GetRelativePath(root, path).Replace('\\', '/');
+        // bin.objc/ and obj.objc/ are an ObjC binding project's build output (bgen's generated code included).
         return relative.StartsWith("bin/", StringComparison.Ordinal)
             || relative.StartsWith("obj/", StringComparison.Ordinal)
+            || relative.StartsWith("bin.objc/", StringComparison.Ordinal)
+            || relative.StartsWith("obj.objc/", StringComparison.Ordinal)
             || relative.Contains("/.deps/", StringComparison.Ordinal)
             || relative.StartsWith(".deps/", StringComparison.Ordinal);
     }

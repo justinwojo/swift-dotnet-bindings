@@ -88,6 +88,10 @@
          reference to _build. BCL-only string/version work, so it compiles AOT-clean under this
          project's IsAotCompatible + warnings-as-errors. -->
     <Compile Include="../../../../build/Models/ApiCompatBaselineSelector.cs" Link="Models/ApiCompatBaselineSelector.cs" />
+    <!-- Link-compile the parallel validate's shared-build-product contract (consumer props, watched
+         project list, tripwire diff) so its reference-closure coverage is checked against the real
+         csprojs. BCL-only, #nullable enable. -->
+    <Compile Include="../../../../build/Models/SharedBuildProducts.cs" Link="Models/SharedBuildProducts.cs" />
     <!-- Link-compile the offline surface-accounting reader/comparator so the exact public-key,
          accessor, manifest, withdrawal-multiset and fail-closed evidence contracts are exercised
          by the ordinary unit-test gate without a project reference to the Nuke build assembly. -->
@@ -98,6 +102,16 @@
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceAccountingEngine.cs" Link="SurfaceAccounting/SurfaceAccountingEngine.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceAccountingComparer.cs" Link="SurfaceAccounting/SurfaceAccountingComparer.cs" />
     <Compile Include="../../../../build/SurfaceAccounting/SurfaceAccountingWriter.cs" Link="SurfaceAccounting/SurfaceAccountingWriter.cs" />
+    <Compile Include="../../../../build/SurfaceAccounting/SurfaceCaptureBuilder.cs" Link="SurfaceAccounting/SurfaceCaptureBuilder.cs" />
+    <Compile Include="../../../../build/SurfaceAccounting/SurfaceRequestBuilder.cs" Link="SurfaceAccounting/SurfaceRequestBuilder.cs" />
+    <!-- The formal promotion path: the live manifest roster and the promotion candidate itself, so
+         the request builder's roster and Promote()'s git_sha / surface_bootstrap writes are
+         exercised here. Their only Nuke dependency is AbsolutePath, which a test-only shim
+         (SurfaceAccounting/NukePathShim.cs) stands in for. -->
+    <Compile Include="../../../../build/Models/ValidationManifest.cs" Link="SurfaceAccounting/ValidationManifest.cs" />
+    <Compile Include="../../../../build/Models/ValidationBaseline.cs" Link="SurfaceAccounting/ValidationBaseline.cs" />
+    <Compile Include="../../../../build/Models/ValidationPromotion.cs" Link="SurfaceAccounting/ValidationPromotion.cs" />
+    <Compile Include="../../../../build/Models/WithdrawalGate.cs" Link="SurfaceAccounting/WithdrawalGate.cs" />
     <!-- Link-compile the release-gates result manifest so its pure serialization / leg aggregation
          (skip != pass, any-fail => non-zero exit) and fail-closed catalog integrity (Validate) are
          unit-tested here without a project reference to _build. BCL-only with source-generated JSON

@@ -145,7 +145,7 @@ internal sealed class SurfaceAccountingTestFixture : IDisposable
         if (Directory.Exists(Root)) Directory.Delete(Root, recursive: true);
     }
 
-    private static void WriteTarget(
+    internal static void WriteTarget(
         string directory,
         string source,
         IReadOnlyList<(string Signature, string Symbol)> manifest,

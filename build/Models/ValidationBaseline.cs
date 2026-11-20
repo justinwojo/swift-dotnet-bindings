@@ -1,6 +1,12 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+#nullable enable
+
+// Reflection JSON is fine in the Nuke host; the unit-test project link-compiles this file
+// under its AOT analyzers.
+#pragma warning disable IL2026, IL3050
+
 using System;
 using System.Collections.Generic;
 using System.IO;

@@ -1297,20 +1297,24 @@ public static class BindingsGeneratorCommand
             // wrapper compiles that platform's primary slice against the device list.
             var loopDeviceCollisions = !loopOnSimulator && wrapperArchNormalized == "device";
 
-            WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory)
+            WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory) =>
+                CompileSlice(req, compileDirectory, loopResolution);
+
+            WrapperCompileDiagnostics CompileSlice(
+                WrapperRecoveryCompileRequest req, string compileDirectory, XCFrameworkResolution sliceResolution)
             {
                 var collector = new WrapperSliceCollector();
                 var result = SwiftWrapperCompiler.Compile(
-                    compileDirectory, loopResolution.ModuleName,
-                    loopResolution.FrameworkSearchPath, loopResolution.DylibPath, logger,
+                    compileDirectory, sliceResolution.ModuleName,
+                    sliceResolution.FrameworkSearchPath, sliceResolution.DylibPath, logger,
                     internalTypeNames: req.InternalTypeNames,
                     additionalFrameworkSearchPaths: loopSimDepPaths,
                     platformInfo: platformInfo,
                     moduleNameForCollision: req.ModuleNameForCollision,
                     nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
-                    swiftInterfacePath: loopResolution.SwiftInterfacePath,
+                    swiftInterfacePath: sliceResolution.SwiftInterfacePath,
                     skipThunkCompilation: skipThunkCompilation,
-                    resolvedArchitecture: loopResolution.SelectedArchitecture,
+                    resolvedArchitecture: sliceResolution.SelectedArchitecture,
                     depModuleNamesForCollision: loopDeviceCollisions
                         ? req.DepModuleCollisions.Device
                         : req.DepModuleCollisions.Simulator,
@@ -1320,9 +1324,44 @@ public static class BindingsGeneratorCommand
                 return collector.ToDiagnostics(result);
             }
 
-            verifyRecoverCompile = sdkDeferredWrapperProbe
-                ? req => SdkWrapperProbe.Run(req, CompilePrimarySlice, logger)
-                : req => CompilePrimarySlice(req, req.OutputDirectory);
+            // Every architecture the shipped wrapper is built for is graded, not only the resolved one:
+            // a member that compiles on arm64 and not on x86_64 is withdrawn on both, with its row,
+            // instead of failing the later fold (an explicit list) or shipping without x86_64 (auto).
+            // An extra architecture compiles in its own scratch copy against its own resolution of the
+            // same slice; the loop's snapshot of the input-resolution report discards what that
+            // resolution records.
+            var probeArchitectures = WrapperProbeArchitectures.Plan(
+                loopResolution.SelectedArchitecture, targetArchitectures,
+                loopResolution.SupportedArchitectures, loopResolution.LibraryIdentifier);
+
+            WrapperCompileDiagnostics CompileExtraArchitecture(WrapperRecoveryCompileRequest req, string architecture) =>
+                SdkWrapperProbe.Run(req, (probeReq, compileDirectory) =>
+                {
+                    var resolveDirectory = compileDirectory + ".resolve";
+                    try
+                    {
+                        var archResolution = XCFrameworkResolver.Resolve(
+                            xcframeworkPath!, resolveDirectory,
+                            loopResolution.IsSimulatorSlice ? XCFrameworkPlatformTarget.Simulator : XCFrameworkPlatformTarget.Device,
+                            logger, platformInfo: platformInfo, requestedArchitecture: architecture,
+                            companionFrameworkPaths: frameworkDependencies);
+                        return CompileSlice(probeReq, compileDirectory, archResolution);
+                    }
+                    finally
+                    {
+                        if (Directory.Exists(resolveDirectory))
+                            Directory.Delete(resolveDirectory, recursive: true);
+                    }
+                }, logger);
+
+            verifyRecoverCompile = req => WrapperProbeArchitectures.Probe(
+                probeArchitectures,
+                architecture => architecture != probeArchitectures[0]
+                    ? CompileExtraArchitecture(req, architecture)
+                    : sdkDeferredWrapperProbe
+                        ? SdkWrapperProbe.Run(req, CompilePrimarySlice, logger)
+                        : CompilePrimarySlice(req, req.OutputDirectory),
+                logger);
         }
         else if (directLoopMode)
         {
@@ -1358,26 +1397,35 @@ public static class BindingsGeneratorCommand
                 // arch-specific compile error be judged on the wrong slice. A decision that cannot be
                 // made keeps the default and lets the post-loop branch raise the one diagnostic for it,
                 // which is why this call is made with a silent logger.
+                IReadOnlyList<string> directLoopExtraArchs = Array.Empty<string>();
                 if (DecideDirectWrapperArchitectures(
                         targetArchitectures, platformInfo,
                         Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                        out _, out var directLoopPrimaryArch, out _) == DirectWrapperArchOutcome.Decided
-                    && !string.IsNullOrEmpty(directLoopPrimaryArch))
+                        out _, out var directLoopPrimaryArch, out var decidedExtraArchs) == DirectWrapperArchOutcome.Decided)
                 {
-                    directLoopSlice = directLoopSlice.WithArchitecture(directLoopPrimaryArch);
+                    if (!string.IsNullOrEmpty(directLoopPrimaryArch))
+                        directLoopSlice = directLoopSlice.WithArchitecture(directLoopPrimaryArch);
+                    directLoopExtraArchs = decidedExtraArchs;
                 }
 
                 var directLoopModuleName = directModuleName!;
 
-                verifyRecoverCompile = req =>
+                // Every architecture the post-loop compile folds into the shipped wrapper is graded, so
+                // a member that compiles on one and not another is withdrawn on all of them with its
+                // row rather than failing the fold. An extra architecture compiles in a scratch copy, as
+                // the SDK's probe does; the same natural-architecture filter as the post-loop compile
+                // keeps out an architecture the slice cannot build.
+                var probeArchitectures = WrapperProbeArchitectures.PlanForSlice(
+                    directLoopSlice.Architecture, directLoopPrimaryArch, directLoopExtraArchs,
+                    BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(directLoopSlice));
+
+                WrapperCompileDiagnostics CompileDirectSlice(
+                    WrapperRecoveryCompileRequest req, string compileDirectory, SliceVariant slice)
                 {
                     var collector = new WrapperSliceCollector();
-                    // Single-slice compile only: the arch fanout is a packaging concern the post-loop
-                    // compile owns, and probing extra arches per round would multiply the loop's cost
-                    // without changing which member fails to compile.
                     var result = SwiftWrapperCompiler.CompileSlice(
-                        req.OutputDirectory, directLoopModuleName,
-                        directLoopSearchPath, tbdPath, directLoopSlice, logger,
+                        compileDirectory, directLoopModuleName,
+                        directLoopSearchPath, tbdPath, slice, logger,
                         internalTypeNames: req.InternalTypeNames,
                         moduleNameForCollision: req.ModuleNameForCollision,
                         nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
@@ -1385,7 +1433,17 @@ public static class BindingsGeneratorCommand
                         skipThunkCompilation: skipThunkCompilation,
                         collector: collector);
                     return collector.ToDiagnostics(result);
-                };
+                }
+
+                verifyRecoverCompile = req => WrapperProbeArchitectures.Probe(
+                    probeArchitectures,
+                    architecture => architecture != probeArchitectures[0]
+                        ? SdkWrapperProbe.Run(req,
+                            (probeReq, compileDirectory) => CompileDirectSlice(
+                                probeReq, compileDirectory, directLoopSlice.WithArchitecture(architecture)),
+                            logger)
+                        : CompileDirectSlice(req, req.OutputDirectory, directLoopSlice),
+                    logger);
             }
         }
 

@@ -9,34 +9,48 @@ using Serilog;
 
 partial class Build
 {
-    private const string SurfaceFrozenManifestSha256 = "4b89d88dcdddf6208f930db770e37f7f09da78d8d6599fc95f4a1235a870fa46";
-    private const int SurfaceFrozenLibraryCount = 66;
-    private const int SurfaceFrozenModuleCount = 110;
-    private const int SurfaceFrozenTargetCount = 132;
-
-    [Parameter("Path to a surface-accounting-request/1 JSON file containing frozen capture metadata and the explicit target roster")]
+    [Parameter("Path to an externally built surface-accounting-request/1 JSON file (checked against the live manifest roster). Exclusive with --surface-old")]
     readonly string? SurfaceRequest;
+
+    [Parameter("Old side of the surface comparison: a kept `nuke validate` output base holding surface-capture.json. The tip side is this invocation's validate. Exclusive with --surface-request")]
+    readonly string? SurfaceOld;
+
+    [Parameter("Why the old capture's source is not the baseline's git_sha; written into the baseline as surface_bootstrap")]
+    readonly string? SurfaceBootstrapJustification;
 
     [Parameter("New output directory for immutable surface-accounting/1 artifacts")]
     readonly string? SurfaceOutput;
 
+    // Set by a full Validate in this invocation: its output base and the capture it wrote there.
+    SurfaceValidateCapture? surfaceInvocationCapture;
+    string? surfaceInvocationOutputBase;
+
     Target SurfaceAccounting => _ => _
         // Ordering only: keep standalone sinks totally ordered for Nuke --strict.
         // When Validate and SurfaceAccounting share an invocation, Validate must create the
-        // process-local promotion candidate before this target records its completion receipt.
+        // process-local promotion candidate and its surface capture before this target runs.
         .After(Validate, ReleaseGatesAttest)
         .Executes(() =>
         {
-            if (string.IsNullOrWhiteSpace(SurfaceRequest))
-                throw new ArgumentException("--surface-request is required.");
+            if (string.IsNullOrWhiteSpace(SurfaceRequest) == string.IsNullOrWhiteSpace(SurfaceOld))
+                throw new ArgumentException("Pass exactly one of --surface-old or --surface-request.");
             if (string.IsNullOrWhiteSpace(SurfaceOutput))
                 throw new ArgumentException("--surface-output is required.");
 
-            var requestPath = Path.GetFullPath(SurfaceRequest);
-            var requestDirectory = Path.GetDirectoryName(requestPath)!;
-            var request = SurfaceCanonicalJson.DeserializeStrict<SurfaceAccountingRequest>(requestPath);
-            request = ResolvePaths(request, requestDirectory);
-            ValidateFrozenRoster(request);
+            SurfaceAccountingRequest request;
+            if (!string.IsNullOrWhiteSpace(SurfaceOld))
+                request = SurfaceRequestBuilder.Build(ManifestPath, SurfaceOld,
+                    surfaceInvocationOutputBase, surfaceInvocationCapture);
+            else
+            {
+                var requestPath = Path.GetFullPath(SurfaceRequest!);
+                request = SurfaceCanonicalJson.DeserializeStrict<SurfaceAccountingRequest>(requestPath);
+                request = ResolvePaths(request, Path.GetDirectoryName(requestPath)!);
+            }
+            var roster = SurfaceRequestBuilder.ValidateLiveRoster(request, ManifestPath);
+            Log.Information("Surface accounting roster: manifest {Sha}, {Libraries} libraries, {Modules} modules, {Targets} targets.",
+                roster.ManifestSha256, roster.Libraries, roster.Modules, roster.Targets);
+
             var result = SurfaceAccountingEngine.Analyze(request);
             var schemaPath = RootDirectory / "build" / "SurfaceAccounting" / "schema.surface-accounting-1.json";
             SurfaceAccountingWriter.Write(result, Path.GetFullPath(SurfaceOutput), schemaPath);
@@ -55,6 +69,24 @@ partial class Build
             if (!summary.Complete)
                 throw new Exception(
                     "Surface-accounting comparison is incomplete. Retained artifacts name the missing or unresolved evidence.");
+
+            var decision = SurfacePromotionReceipt.Decide(request, surfaceInvocationCapture, surfaceInvocationOutputBase,
+                ValidationBaseline.Load(BaselinePath).GitSha, SurfaceBootstrapJustification);
+            switch (decision.Verdict)
+            {
+                case SurfaceReceiptVerdict.NotBound:
+                    Log.Warning("{Message} Artifacts were written; the validation baseline cannot be promoted from them.", decision.Message);
+                    return;
+                case SurfaceReceiptVerdict.Refused:
+                    throw new Exception(decision.Message);
+                case SurfaceReceiptVerdict.Bootstrap:
+                    Log.Warning("{Message} Justification: {Justification}", decision.Message, decision.BootstrapJustification);
+                    validationPromotion?.RecordSurfaceBootstrap(decision.BootstrapOldSource!, decision.BootstrapJustification!);
+                    break;
+                default:
+                    Log.Information("{Message}", decision.Message);
+                    break;
+            }
             validationPromotion?.Record("SurfaceAccounting");
         });
 
@@ -80,48 +112,4 @@ partial class Build
 
     private static string ResolvePath(string root, string path)
         => Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(root, path));
-
-    private static void ValidateFrozenRoster(SurfaceAccountingRequest request)
-    {
-        if (!string.Equals(request.ManifestSha256, SurfaceFrozenManifestSha256, StringComparison.Ordinal))
-            throw new InvalidDataException(
-                $"P1 requires frozen manifest {SurfaceFrozenManifestSha256}; request names {request.ManifestSha256}.");
-        var manifest = ValidationManifest.Load(request.ManifestPath);
-        var expanded = manifest.ExpandTargets().OrderBy(t => t.Name, StringComparer.Ordinal).ToList();
-        var moduleCount = manifest.Libraries.SelectMany(l => l.Products).Select(p => p.Framework)
-            .Distinct(StringComparer.Ordinal).Count();
-        if (manifest.Libraries.Count != SurfaceFrozenLibraryCount
-            || moduleCount != SurfaceFrozenModuleCount
-            || expanded.Count != SurfaceFrozenTargetCount)
-            throw new InvalidDataException(
-                $"P1 frozen corpus mismatch: expected {SurfaceFrozenLibraryCount} libraries, " +
-                $"{SurfaceFrozenModuleCount} modules and {SurfaceFrozenTargetCount} targets; found " +
-                $"{manifest.Libraries.Count}, {moduleCount} and {expanded.Count}.");
-        if (request.ExpectedTargetCount != SurfaceFrozenTargetCount)
-            throw new InvalidDataException(
-                $"P1 request must contain all {SurfaceFrozenTargetCount} targets, not {request.ExpectedTargetCount}.");
-
-        var requested = request.Targets.ToDictionary(t => t.Key.TargetName, StringComparer.Ordinal);
-        foreach (var expected in expanded)
-        {
-            if (!requested.TryGetValue(expected.Name, out var actual))
-                throw new InvalidDataException($"P1 request is missing target '{expected.Name}'.");
-            if (!string.Equals(actual.Key.Library, expected.LibraryName, StringComparison.Ordinal)
-                || !string.Equals(actual.Key.FrameworkModule, expected.FrameworkModule, StringComparison.Ordinal)
-                || !string.Equals(actual.Key.Platform, expected.Platform, StringComparison.Ordinal)
-                || !string.Equals(actual.Mode, expected.Mode, StringComparison.Ordinal)
-                || actual.Tier != expected.Tier
-                || actual.KnownErrors != expected.KnownErrors
-                || !actual.Dependencies.SequenceEqual(expected.Dependencies, StringComparer.Ordinal)
-                || !actual.WrapperDependencies.SequenceEqual(expected.WrapperDeps, StringComparer.Ordinal)
-                || !string.Equals(actual.NamespacePattern, expected.NamespacePattern, StringComparison.Ordinal))
-                throw new InvalidDataException($"P1 request metadata differs from the frozen manifest for '{expected.Name}'.");
-            if (string.IsNullOrWhiteSpace(actual.ActualSdk)
-                || string.IsNullOrWhiteSpace(actual.Architecture)
-                || string.IsNullOrWhiteSpace(actual.TargetTriple))
-                throw new InvalidDataException(
-                    $"P1 request target '{expected.Name}' lacks actual SDK, architecture or target triple provenance.");
-            SurfaceAccountingEngine.ValidateTargetProvenance(actual);
-        }
-    }
 }

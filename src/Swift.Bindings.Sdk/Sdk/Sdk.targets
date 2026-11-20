@@ -1946,6 +1946,10 @@ done; true"
            0.0.0-dev → epoch 0 → dev bypass), so it is unconditional like the Apple paths. -->
       <_SwiftGenCmd>$(_SwiftGenCmd) --swift-runtime-version $(SwiftRuntimeVersion)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftGenCmd>
+      <!-- The generator's wrapper probe grades every architecture the deferred compile folds into the
+           wrapper (SwiftTargetArchitectures, decided against the probed slice), so a member that fails
+           on one of them is withdrawn on all of them here instead of failing _CompileSwiftWrapper. -->
+      <_SwiftGenCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftGenCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftGenCmd>
       <_SwiftGenCmd>$(_SwiftGenCmd) --sdk-mode -v $(SwiftGeneratorVerbosity)</_SwiftGenCmd>
       <_SwiftGenCmd Condition="'$(PackageId)' != ''">$(_SwiftGenCmd) --package-id "$(PackageId)"</_SwiftGenCmd>
       <!-- Assembly name the generated .cs compiles into. In SDK mode _IncludeGeneratedSwiftBindings
