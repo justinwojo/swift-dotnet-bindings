@@ -97,9 +97,44 @@ public static class MarkerCompositionLowering
         }
         // The Objective-C root classes are the only class participants identifiable by name
         // alone when no type database carries them.
-        return participant.HasModule()
+        if (participant.HasModule()
             && participant.Module is "Foundation" or "ObjectiveC"
-            && AppleFrameworkRegistry.IsKnownObjCRootClass(participant.NameWithoutModule);
+            && AppleFrameworkRegistry.IsKnownObjCRootClass(participant.NameWithoutModule))
+            return true;
+        return IsPlatformObjCClass(participant);
+    }
+
+    // A platform framework's Objective-C class (`any AVAsset & Sendable`) has no record in the
+    // module's database: a plain reference to it resolves through the bridged-class synthesis,
+    // which the platform binding verifies. The name alone does not say class: an @objc protocol
+    // composed with a marker is also one word, but projects as an interface, not the class. So
+    // only a namespace-exact class in the platform binding counts; a protocol, an absent name or
+    // a missing platform binding keeps the composition. A protocol with a model class
+    // (`AVAssetResourceLoaderDelegate`) is a class of that name in the binding too, beside its
+    // `I`-prefixed interface; lowering to the model would turn away conformers that implement only
+    // the interface, so a class with that companion interface keeps the composition as well.
+    private static bool IsPlatformObjCClass(NamedTypeSpec participant)
+    {
+        if (!TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(participant))
+            return false;
+        TypeRecord record;
+        try
+        {
+            record = TypeDatabaseExtensions.CreateObjCBridgedTypeRecord(SwiftTypeName.FromTypeSpec(participant), participant.Usr);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (record.Kind != TypeRecordKind.Class || record.Flags.HasFlag(TypeRecordFlags.AbsentAppleProjection))
+            return false;
+        var ns = record.CSharpTypeName.Namespace;
+        var name = record.CSharpTypeName.Name;
+        return AppleTypeSurfaceIndex.Default is { } surface
+            && surface.TryResolveQualified(ns, name, out var entry)
+            && entry.Kind == AppleTypeSurfaceKind.Class
+            && !(surface.TryResolveQualified(ns, "I" + name, out var companion)
+                && companion.Kind == AppleTypeSurfaceKind.Protocol);
     }
 
     private sealed class Rewriter(ITypeDatabase typeDatabase)

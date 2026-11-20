@@ -22454,6 +22454,26 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueLevelMeter.InterruptedLevels",
+      "symbol": "$s20SwiftBindingsTestLib16OpaqueLevelMeterC17interruptedLevelsQrvg_opaque"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueLevelMeter.Levels",
+      "symbol": "$s20SwiftBindingsTestLib16OpaqueLevelMeterC6levelsQrvg_opaque"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueLevelMeter.OpaqueLevelMeter(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_OpaqueLevelMeter_init_C570E821"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueLevelMeter.Ticks",
+      "symbol": "$s20SwiftBindingsTestLib16OpaqueLevelMeterC5ticksQrvg_opaque"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OpaquePointerIsValid(System.IntPtr)",
       "symbol": "thunk_SwiftBindingsTestLib_add20a8e"
     },
@@ -22474,6 +22494,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueSequenceLevel.Index",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OpaqueSequenceLevel_index"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueSequenceLevel.OpaqueSequenceLevel(int,float)",
+      "symbol": "SBW_SwiftBindingsTestLib_OpaqueSequenceLevel_init_E2E6FF45"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueSequenceLevel.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OpaqueSequenceLevel_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OpaqueTag.OpaqueLabel",
       "symbol": "SBW_Get_SwiftBindingsTestLib_OpaqueTag_opaqueLabel"
     },
@@ -22481,6 +22516,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "OpaqueTag.OpaqueTag(string)",
       "symbol": "SBW_SwiftBindingsTestLib_OpaqueTag_init_F9BF9544"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueTickSource.OpaqueTickSource(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_440b4be6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OpaqueTickSource.Ticks",
+      "symbol": "$s20SwiftBindingsTestLib16OpaqueTickSourceC5ticksQrvg_opaque"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -25731,6 +25776,46 @@
       "module": "SwiftBindingsTestLib",
       "signature": "PlainWireField.Value",
       "symbol": "SBW_Get_SwiftBindingsTestLib_PlainWireField_value|SBW_Set_SwiftBindingsTestLib_PlainWireField_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.AssetName",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_PlatformAssetMarkerSession_assetName"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.CreateAsync(AVFoundation.AVAsset,global::System.Threading.CancellationToken)",
+      "symbol": "SBW_SwiftBindingsTestLib_PlatformAssetMarkerSession_init_DFCB05C7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.Describe(AVFoundation.AVAsset)",
+      "symbol": "SBW_SwiftBindingsTestLib_PlatformAssetMarkerSession_describe_6668E782"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.Echo(AVFoundation.AVAsset)",
+      "symbol": "thunk_SwiftBindingsTestLib_b0bae513"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.IsSameObject(AVFoundation.AVAsset,AVFoundation.AVAsset)",
+      "symbol": "thunk_SwiftBindingsTestLib_299289c1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.Names(IEnumerable\u003CAVFoundation.AVAsset\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_PlatformAssetMarkerSession_names_808BD482"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.OptionalDescribe(AVFoundation.AVAsset?)",
+      "symbol": "SBW_SwiftBindingsTestLib_PlatformAssetMarkerSession_optionalDescribe_B8F900D3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "PlatformAssetMarkerSession.PlatformAssetMarkerSession(AVFoundation.AVAsset)",
+      "symbol": "SBW_SwiftBindingsTestLib_PlatformAssetMarkerSession_init_B241300A"
     },
     {
       "module": "SwiftBindingsTestLib",

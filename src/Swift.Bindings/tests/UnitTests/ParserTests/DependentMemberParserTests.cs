@@ -69,6 +69,43 @@ public class DependentMemberParserTests
         Assert.True(protocolList.IsOpaque);
     }
 
+    [Theory]
+    [InlineData("some Swift.Sendable & _Concurrency.AsyncSequence<TestModule.Level, any Swift.Error>", "TestModule.Level")]
+    [InlineData("some _Concurrency.AsyncSequence<any TestModule.Gauge & Swift.Sendable, Swift.Never> & Swift.Sendable", "TestModule.Gauge")]
+    public void CreateTypeSpec_OpaqueTypeArchetype_KeepsThePrimaryAssociatedTypeArguments(string printedName, string elementName)
+    {
+        // The archetype's children name AsyncSequence without its arguments; the printed name is
+        // the only place the element and failure types survive.
+        var node = CreateNode(kind: "TypeNominal", name: "OpaqueTypeArchetype", printedName: printedName);
+        node.Children = new[]
+        {
+            CreateNode(kind: "TypeNominal", name: "Sendable", printedName: "Swift.Sendable"),
+            CreateNode(kind: "TypeNominal", name: "AsyncSequence", printedName: "_Concurrency.AsyncSequence"),
+        };
+        var parser = CreateMinimalParser();
+
+        var protocolList = Assert.IsType<ProtocolListTypeSpec>(parser.CreateTypeSpec(node));
+
+        Assert.True(protocolList.IsOpaque);
+        Assert.All(protocolList.Protocols.Keys, p => Assert.Empty(p.GenericParameters));
+        var constraint = Assert.Single(protocolList.OpaqueParameterizedConstraints);
+        Assert.Equal("_Concurrency.AsyncSequence", constraint.Name);
+        Assert.Equal(2, constraint.GenericParameters.Count);
+        Assert.Contains(elementName, constraint.GenericParameters[0].ToString());
+    }
+
+    [Fact]
+    public void CreateTypeSpec_OpaqueTypeArchetype_WithoutArguments_RecordsNoConstraint()
+    {
+        var node = CreateNode(kind: "TypeNominal", name: "OpaqueTypeArchetype",
+            printedName: "some TestModule.MyProtocol & Swift.Sendable");
+        var parser = CreateMinimalParser();
+
+        var protocolList = Assert.IsType<ProtocolListTypeSpec>(parser.CreateTypeSpec(node));
+
+        Assert.Empty(protocolList.OpaqueParameterizedConstraints);
+    }
+
     #region Helpers
 
     private static SwiftABIParser CreateMinimalParser()

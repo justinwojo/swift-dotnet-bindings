@@ -931,23 +931,7 @@ public static class WrapperValidation
 
             foreach (var genericArg in named.GenericParameters)
             {
-                if (genericArg is NamedTypeSpec gArg &&
-                    !TypeSpecHelpers.IsGenericTypeParameter(gArg.Name))
-                {
-                    try
-                    {
-                        var gSwiftName = SwiftTypeName.FromTypeSpec(gArg);
-                        if (typeDatabase.TryGetTypeRecord(gSwiftName, out var gRecord) &&
-                            gRecord.Kind == TypeRecordKind.Protocol)
-                        {
-                            return true;
-                        }
-                    }
-                    catch { }
-                }
-                if (genericArg is ProtocolListTypeSpec)
-                    return true;
-                if (ContainsParameterizedProtocol(genericArg, typeDatabase))
+                if (GenericArgumentContainsProtocol(genericArg, typeDatabase))
                     return true;
             }
         }
@@ -989,6 +973,42 @@ public static class WrapperValidation
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// <see cref="ContainsParameterizedProtocol"/> for the type of a stream property. An opaque
+    /// <c>some AsyncSequence&lt;Element, Failure&gt;</c> rides the stream bridge like
+    /// <c>AsyncStream&lt;Element&gt;</c>, and only the constraint's arguments spell its element,
+    /// so the element is checked as that stream's generic argument would be. The bridge carries
+    /// no Failure (it stringifies the error). Other members returning an opaque sequence are
+    /// boxed as the bare existential and never spell the element, so the general walk leaves the
+    /// constraint alone.
+    /// </summary>
+    public static bool StreamContainsParameterizedProtocol(TypeSpec streamType, ITypeDatabase typeDatabase)
+        => ContainsParameterizedProtocol(streamType, typeDatabase)
+            || (AsyncStreamHandler.GetOpaqueAsyncSequenceElement(streamType) is { } element
+                && GenericArgumentContainsProtocol(element, typeDatabase));
+
+    // A protocol (or protocol composition) as a bound generic's argument: `Array<any P>`.
+    private static bool GenericArgumentContainsProtocol(TypeSpec genericArg, ITypeDatabase typeDatabase)
+    {
+        if (genericArg is NamedTypeSpec gArg &&
+            !TypeSpecHelpers.IsGenericTypeParameter(gArg.Name))
+        {
+            try
+            {
+                var gSwiftName = SwiftTypeName.FromTypeSpec(gArg);
+                if (typeDatabase.TryGetTypeRecord(gSwiftName, out var gRecord) &&
+                    gRecord.Kind == TypeRecordKind.Protocol)
+                {
+                    return true;
+                }
+            }
+            catch { }
+        }
+        if (genericArg is ProtocolListTypeSpec)
+            return true;
+        return ContainsParameterizedProtocol(genericArg, typeDatabase);
     }
 
     /// <summary>

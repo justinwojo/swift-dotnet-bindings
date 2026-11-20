@@ -4660,7 +4660,68 @@ namespace BindingsGeneration
                     }
                 }
             }
-            return new ProtocolListTypeSpec(protocols) { IsOpaque = true };
+            return new ProtocolListTypeSpec(protocols)
+            {
+                IsOpaque = true,
+                OpaqueParameterizedConstraints = ParseOpaqueParameterizedConstraints(node.PrintedName),
+            };
+        }
+
+        /// <summary>
+        /// The archetype's children name its constraint's protocols without their primary
+        /// associated type arguments; only the printed name keeps them
+        /// (<c>some Swift.Sendable &amp; _Concurrency.AsyncSequence&lt;E, any Swift.Error&gt;</c>).
+        /// Returns the participants that carry arguments, parsed from that name.
+        /// </summary>
+        internal static IReadOnlyList<NamedTypeSpec> ParseOpaqueParameterizedConstraints(string? printedName)
+        {
+            if (string.IsNullOrEmpty(printedName) || !printedName.StartsWith("some ", StringComparison.Ordinal))
+                return [];
+            var constraints = new List<NamedTypeSpec>();
+            foreach (var part in SplitTopLevelAmpersands(printedName.Substring(5)))
+            {
+                if (part.IndexOf('<') < 0)
+                    continue;
+                try
+                {
+                    if (TypeSpecParser.Parse(part.Trim()) is NamedTypeSpec { GenericParameters.Count: > 0 } named)
+                        constraints.Add(named);
+                }
+                catch (TypeSpecParseException)
+                {
+                    // An argument the type grammar cannot read leaves the constraint unrecorded,
+                    // exactly as the children alone would.
+                }
+            }
+            return constraints;
+        }
+
+        // Splits a composition at the `&` that sit outside every generic argument list, tuple and
+        // bracket, so `AsyncSequence<any A & B, Never>` stays one participant.
+        private static List<string> SplitTopLevelAmpersands(string text)
+        {
+            var parts = new List<string>();
+            int depth = 0, start = 0;
+            for (int i = 0; i < text.Length; i++)
+            {
+                switch (text[i])
+                {
+                    case '<' or '(' or '[':
+                        depth++;
+                        break;
+                    case '>' when i > 0 && text[i - 1] == '-':
+                        break;
+                    case '>' or ')' or ']':
+                        depth--;
+                        break;
+                    case '&' when depth == 0:
+                        parts.Add(text[start..i]);
+                        start = i + 1;
+                        break;
+                }
+            }
+            parts.Add(text[start..]);
+            return parts;
         }
 
         /// <summary>

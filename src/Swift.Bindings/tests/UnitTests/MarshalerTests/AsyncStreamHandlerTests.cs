@@ -321,6 +321,96 @@ public class AsyncStreamHandlerTests
 
     #endregion
 
+    #region Opaque AsyncSequence Tests
+
+    [Theory]
+    [InlineData("Swift.Never", false)]
+    [InlineData("Swift.Error", true)]
+    public void OpaqueAsyncSequence_IsAStreamOfItsElement_ThrowingUnlessFailureIsNever(string failure, bool throwing)
+    {
+        var handler = new AsyncStreamHandler(new MockTypeDatabase());
+        var typeSpec = OpaqueSequence(
+            new NamedTypeSpec("_Concurrency.AsyncSequence", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec(failure) { IsAny = failure != "Swift.Never" }),
+            "Swift.Sendable");
+
+        Assert.True(handler.IsAsyncStream(typeSpec));
+        Assert.True(handler.IsSupportedAsyncStream(typeSpec));
+        Assert.Equal("Swift.Int", Assert.IsType<NamedTypeSpec>(handler.GetElementType(typeSpec)).Name);
+        Assert.Equal(throwing, handler.IsThrowingStream(typeSpec));
+    }
+
+    public static TheoryData<string, TypeSpec> NotAnOpaqueStream => new()
+    {
+        // `any AsyncSequence<…>` is an existential the caller holds, not a sequence to iterate here.
+        { "existential", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("_Concurrency.AsyncSequence") })
+            { OpaqueParameterizedConstraints = new[] { IntSequence() } } },
+        // Without its arguments the interface promises no element type.
+        { "no arguments", OpaqueSequence(null, "Swift.Sendable") },
+        // A protocol with requirements promises more than the bridge carries.
+        { "extra protocol", OpaqueSequence(IntSequence(), "Swift.CustomStringConvertible") },
+        // A Sequence is not iterated with await.
+        { "sequence", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sequence") }) { IsOpaque = true,
+            OpaqueParameterizedConstraints = new[] { new NamedTypeSpec("Swift.Sequence", new NamedTypeSpec("Swift.Int")) } } },
+    };
+
+    [Theory]
+    [MemberData(nameof(NotAnOpaqueStream))]
+    public void OpaqueType_OtherThanAPlainAsyncSequence_IsNotAStream(string shape, TypeSpec typeSpec)
+    {
+        var handler = new AsyncStreamHandler(new MockTypeDatabase());
+
+        Assert.False(handler.IsAsyncStream(typeSpec), shape);
+        Assert.Null(handler.GetElementType(typeSpec));
+    }
+
+    // The stream-property gates see an opaque sequence's element as they see AsyncStream<Element>'s
+    // generic argument. The Failure is not marshalled (the bridge stringifies the error), so an
+    // existential Failure such as `any Error` gates nothing. The general walk, which also reads
+    // method signatures that box the sequence, leaves the constraint alone.
+    [Theory]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    public void OpaqueAsyncSequence_ParameterizedProtocolGate_SeesTheElementOnly(bool existentialElement, bool expectedFree)
+    {
+        var existential = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Marker") });
+        var typeSpec = OpaqueSequence(existentialElement
+            ? new NamedTypeSpec("_Concurrency.AsyncSequence", existential, new NamedTypeSpec("Swift.Never"))
+            : new NamedTypeSpec("_Concurrency.AsyncSequence", new NamedTypeSpec("Swift.Int"),
+                new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") })));
+        var typeDatabase = new MockTypeDatabase();
+
+        Assert.Equal(!expectedFree, WrapperValidation.StreamContainsParameterizedProtocol(typeSpec, typeDatabase));
+        Assert.False(WrapperValidation.ContainsParameterizedProtocol(typeSpec, typeDatabase));
+    }
+
+    [Fact]
+    public void OpaqueAsyncSequence_WithAnUnsupportedElement_IsNotASupportedStream()
+    {
+        var handler = new AsyncStreamHandler(new MockTypeDatabase());
+        var typeSpec = OpaqueSequence(new NamedTypeSpec("_Concurrency.AsyncSequence",
+            new NamedTypeSpec("Foundation.Predicate"), new NamedTypeSpec("Swift.Never")));
+
+        Assert.True(handler.IsAsyncStream(typeSpec));
+        Assert.False(handler.IsSupportedAsyncStream(typeSpec));
+        Assert.Equal(ValidationRuleSet.UnsupportedReferenceKind.None,
+            ValidationRuleSet.ClassifyUnsupportedReference(typeSpec, typeDatabase: null, out _));
+    }
+
+    private static NamedTypeSpec IntSequence()
+        => new("_Concurrency.AsyncSequence", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("Swift.Never"));
+
+    private static ProtocolListTypeSpec OpaqueSequence(NamedTypeSpec constraint, params string[] others)
+    {
+        var participants = others.Select(o => new NamedTypeSpec(o)).Append(new NamedTypeSpec("_Concurrency.AsyncSequence"));
+        return new ProtocolListTypeSpec(participants)
+        {
+            IsOpaque = true,
+            OpaqueParameterizedConstraints = constraint is null ? [] : new[] { constraint },
+        };
+    }
+
+    #endregion
+
     #region C# Element Type Tests
 
     [Fact]
