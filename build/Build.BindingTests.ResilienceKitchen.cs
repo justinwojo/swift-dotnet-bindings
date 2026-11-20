@@ -40,7 +40,8 @@
 // captured here, so an escalation genuinely could not slip through unread.
 //
 // One coarse withdrawal is declared rather than forbidden: KitchenConfiguration refines a protocol of a
-// module the generator does not load, so its EveryProtocol conformance is left to the wrapper compile.
+// module the generator does not load whose requirement takes a type with no projection, so the generator
+// cannot add that requirement to the child and its EveryProtocol conformance is left to the wrapper compile.
 // In the hostile slice that conformance fails and the loop withdraws its managed-conformance unit (the
 // conformance, its witness-table getters and the C# proxy). The gate asserts exactly that unit and that
 // row, and that the control slice binds the same conformance; any other coarse withdrawal still fails.

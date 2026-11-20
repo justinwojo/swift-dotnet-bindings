@@ -150,18 +150,7 @@
           {
             "schemaVersion": 1,
             "profile": "LiveCommunicationKit/ios/arm64/arm64-apple-ios15.0-simulator/iphonesimulator27.2(24B8118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
-            "exceptions": [
-              {
-                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
-                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
-                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
-                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
-                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
-                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
-                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
-                "toolchainScope": "Xcode 27.2; Swift 6.4.2; iPhoneSimulator SDK 27.2; arm64-apple-ios15.0-simulator"
-              }
-            ]
+            "exceptions": []
           }
         ]
       },
@@ -180,18 +169,7 @@
           {
             "schemaVersion": 1,
             "profile": "LiveCommunicationKit@macos/macos/arm64/arm64-apple-macos12.0/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
-            "exceptions": [
-              {
-                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
-                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
-                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
-                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
-                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
-                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
-                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
-                "toolchainScope": "Xcode 27.2; Swift 6.4.2; macOS SDK 27.2; arm64-apple-macos12.0"
-              }
-            ]
+            "exceptions": []
           }
         ]
       },
@@ -210,18 +188,7 @@
           {
             "schemaVersion": 1,
             "profile": "LiveCommunicationKit@maccatalyst/maccatalyst/arm64/arm64-apple-ios15.0-macabi/macosx27.2(26B118)+Xcode(27B52)+swiftlang-6.4.2.1.9+clang-2100.4.1.1",
-            "exceptions": [
-              {
-                "unitId": "LiveCommunicationKit||Type|LiveAssistanceExtensionConfiguration||None|||!managed-protocol-conformance",
-                "reason": "LiveAssistanceExtensionConfiguration is new in the 27.2 SDK (@available(iOS 27.2, macOS 27.2, visionOS 27.2)) and refines ExtensionFoundation.AppExtensionConfiguration; the reverse-dispatch EveryProtocol conformance does not witness the inherited cross-module requirement accept(connection:), so only that conformance is withdrawn.",
-                "reproducer": "nuke validate --filter LiveCommunicationKit (Xcode 27.2 profile)",
-                "diagnostic": "swiftc: error: type 'EveryProtocol' does not conform to protocol 'AppExtensionConfiguration'; note: protocol requires function 'accept(connection:)' with type '(NSXPCConnection) -> Bool'. SWIFTBIND112 withdrew 1 unit over 2 rounds; skip triage lists the proxy as EmitterFault (to review).",
-                "disposition": "active-transfer:reverse-dispatch-inherited-requirements",
-                "acceptance": "Xcode 27.2 exact-profile enrolment: new SDK surface, withdrawn and reported by verify-recover rather than failing the module; the protocol and the rest of the module still bind.",
-                "reopenTrigger": "EveryProtocol conformances witness requirements inherited from a refined protocol in another module.",
-                "toolchainScope": "Xcode 27.2; Swift 6.4.2; MacCatalyst SDK 27.2; arm64-apple-ios15.0-macabi"
-              }
-            ]
+            "exceptions": []
           }
         ]
       },
@@ -3201,6 +3168,6 @@
     }
   },
   "unit_tests": {
-    "swift_bindings_unit_pass_floor": 22802
+    "swift_bindings_unit_pass_floor": 22859
   }
 }

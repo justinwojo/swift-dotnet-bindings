@@ -181,6 +181,14 @@ namespace BindingsGeneration
         public List<ArgumentDecl>? SignatureBeforeDebugStrip { get; set; }
 
         /// <summary>
+        /// For a protocol requirement inherited from a protocol of an SDK module the run never loads,
+        /// added to the refining protocol by <see cref="UnboundParentRequirements"/>, the qualified name
+        /// of the protocol that declares it; null for a declaration the module itself declares. Such a
+        /// requirement has no symbol here: its <see cref="MangledName"/> is synthetic.
+        /// </summary>
+        public string? InheritedFromUnboundProtocol { get; init; }
+
+        /// <summary>
         /// Raw genericSig string from ABI JSON (e.g., "&lt;τ_0_0 where τ_0_0 == Foundation.Data?&gt;").
         /// Used to detect constructors with same-type constraints on parent generic params,
         /// which prevent the protocol factory pattern from working.

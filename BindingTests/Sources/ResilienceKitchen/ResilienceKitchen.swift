@@ -31,15 +31,16 @@
 // concrete hostile accessor and the managed conformance that required that accessor.
 //
 // KitchenConfiguration refines a requirement-bearing protocol of a module the generator never loads
-// (ExtensionFoundation's AppExtensionConfiguration, which requires `accept(connection:)`). Whether the
-// generated `extension EveryProtocol: KitchenConfiguration {}` compiles depends on that module's
-// requirements, which the generator cannot see, so it is not predicted either way. The control slice
-// defaults the requirement and the conformance binds; the hostile slice does not, swiftc rejects the
-// conformance, and the loop withdraws exactly its managed-conformance unit (the conformance, its
+// (FinanceKitUI's FinancialConnectionUIExtensionProviding, which requires `authorize(_:)`). The generator
+// reads that requirement from the SDK interface, but its parameter type (a FinanceKitUI struct) has no
+// projection, so it cannot add the requirement to the child, and whether the generated
+// `extension EveryProtocol: KitchenConfiguration {}` compiles is not predicted either way. The control
+// slice defaults the requirement and the conformance binds; the hostile slice does not, swiftc rejects
+// the conformance, and the loop withdraws exactly its managed-conformance unit (the conformance, its
 // witness-table getters and the C# proxy) while the protocol's interface stays.
 
 import Foundation
-import ExtensionFoundation
+import FinanceKitUI
 
 /// The concrete KitchenBox witness fails only in the hostile variant. Recovery must remove that
 /// managed conformance while preserving this protocol's complete reverse capability and its layout.
@@ -60,13 +61,13 @@ public protocol KitchenEcho {
 
 /// A protocol refining a parent of a module the generator does not load. Bound in the control slice,
 /// withdrawn by the wrapper compile in the hostile slice.
-@available(iOS 16.0, *)
-public protocol KitchenConfiguration: AppExtensionConfiguration {}
+@available(iOS 17.0, *)
+public protocol KitchenConfiguration: FinancialConnectionUIExtensionProviding {}
 
 #if !RESILIENCE_HOSTILE
-@available(iOS 16.0, *)
+@available(iOS 17.0, *)
 extension KitchenConfiguration {
-    public nonisolated func accept(connection: NSXPCConnection) -> Bool { false }
+    public func authorize(_ request: FinancialConnectionExtensionAuthorizationRequest) {}
 }
 #endif
 

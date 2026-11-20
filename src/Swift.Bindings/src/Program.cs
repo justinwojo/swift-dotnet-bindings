@@ -868,6 +868,17 @@ namespace BindingsGeneration
 
                 logger.LogDebug("Parsed Swift ABI file successfully.");
 
+                // A protocol refining a protocol of an SDK module this run never loads gets that
+                // parent's requirements without a default as its own, read with their types from the
+                // SDK interface, before any walk lays out its interface, vtable or conformance.
+                // The module's own extensions of such a parent count as its defaults.
+                var unboundParentRequirements = UnboundParentRequirements.Inject(decl, typeDatabase, logger, facts.ExtensionMemberCandidates);
+                if (unboundParentRequirements.Count > 0)
+                    logger.LogInformation(
+                        "Added {Count} requirement(s) inherited from protocols of unbound SDK modules: {Requirements}",
+                        unboundParentRequirements.Count,
+                        string.Join(", ", unboundParentRequirements.Select(m => $"{m.ParentDecl?.Name}.{m.Name} (from {m.InheritedFromUnboundProtocol})")));
+
                 // Create per-module emission context (replaces static mutable state + ResetForModule)
                 var emissionContext = new ModuleEmissionContext();
                 // Tie the module initializer's RuntimeContract.AssertCompatible(...) epoch to the SAME

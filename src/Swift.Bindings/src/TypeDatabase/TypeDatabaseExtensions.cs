@@ -758,6 +758,22 @@ public static class TypeDatabaseExtensions
             }
         }
 
+        // The .NET casing of an NS-prefixed name's acronyms (NSXPCConnection → NSXpcConnection), a
+        // guess the qualified lookup alone can confirm: a same-named type in another namespace is not
+        // this one. A reference read from an interface carries no USR, so nothing else names the
+        // type Microsoft.iOS declares.
+        if (hit is null)
+        {
+            foreach (var candidate in AppleSurfaceAcronymCandidates(usr, synthName))
+            {
+                if (index.TryResolveQualified(synthNamespace, candidate, out hit))
+                {
+                    qualified = true;
+                    break;
+                }
+            }
+        }
+
         if (hit is not null)
         {
             // Integer enums project as value types regardless of which candidate matched — the
@@ -819,6 +835,22 @@ public static class TypeDatabaseExtensions
             yield return usrName;
         if (!string.IsNullOrEmpty(synthName) && seen.Add(synthName))
             yield return synthName;
+    }
+
+    /// <summary>
+    /// The acronym-normalised forms (<see cref="BindingsGeneration.ObjC.ObjCTypeMapper.ApplyDotNetAcronymConvention"/>) of the
+    /// candidate names that differ from them; only a qualified surface hit may confirm one.
+    /// </summary>
+    private static IEnumerable<string> AppleSurfaceAcronymCandidates(string? usr, string synthName)
+    {
+        var plain = AppleSurfaceCandidateNames(usr, synthName).ToList();
+        var seen = new HashSet<string>(plain, StringComparer.Ordinal);
+        foreach (var name in plain)
+        {
+            var normalised = BindingsGeneration.ObjC.ObjCTypeMapper.ApplyDotNetAcronymConvention(name);
+            if (seen.Add(normalised))
+                yield return normalised;
+        }
     }
 
     /// <summary>

@@ -266,8 +266,7 @@ public partial class ProtocolProxyEmitter
     {
         if (valueTypeSpec == null)
             return;
-        var projection = s_projectionFactory.Project(valueTypeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(valueTypeSpec, isParameter: true);
         foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
             SuppressedProxyReporting.RecordReceiver(memberDescriptor, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
     }
@@ -494,7 +493,7 @@ public partial class ProtocolProxyEmitter
                     // assignment together (coupled) and short-circuit the default conversion below — mirror
                     // of the reverse-RETURN optional-bridgeable arm.
                     // Call unconditionally so the out-vars are definitely assigned; class copy-out still wins.
-                    bool objcOptApplies = TryGetReceiverOptionalObjCBridgeableValueRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv);
+                    bool objcOptApplies = TryGetReceiverOptionalObjCPointerRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv);
                     bool isObjCOptRead = classCopyOut == null && objcOptApplies;
 
                     // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
@@ -1034,7 +1033,7 @@ public partial class ProtocolProxyEmitter
                     // the call site — its default arm fails closed rather than reinterpret the value's
                     // storage bytes as the two-word SwiftOptional<IntPtr> carrier. Ordered after the
                     // class copy-out arm above, matching the property setter's precedence.
-                    else if (TryGetReceiverOptionalObjCBridgeableValueRead(
+                    else if (TryGetReceiverOptionalObjCPointerRead(
                         subscript.ReturnTypeSpec, "valuePtr", "rawValue",
                         out var subscriptObjCOptMarshal, out var subscriptObjCOptConv))
                     {
@@ -1879,8 +1878,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection is not DictionaryProjection dict) return null;
 
         // Owned (+1) element conversions: materializing this receiver param via .ToDictionary()
@@ -1920,8 +1918,7 @@ public partial class ProtocolProxyEmitter
         var existentialConv = GetReceiverExistentialGetterConversion(varName, typeSpec);
         if (existentialConv != null) return existentialConv;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverGetterConversionVisitor(varName, this));
@@ -2116,6 +2113,16 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
+        // An Objective-C class only the resolver's ObjC bridging reaches (Foundation's NSObject or
+        // NSXPCConnection have no record of their own, so the projection factory returns nothing):
+        // its slot holds the object pointer, borrowed; bridge the live object at +0 instead of
+        // Unsafe.Read-ing the pointer as a managed reference.
+        if (GetResolverOnlyObjCClassType(typeSpec) is string objcClass)
+        {
+            writer.WriteLine($"var {varName} = {MarshallingHelpers.FormatObjCBridgeCall(objcClass, $"MarshalFromSwift<global::System.IntPtr>({slotExpr})", nonNull: true)};");
+            return;
+        }
+
         // Dictionaries: the interface slot is IDictionary<K,V> (parameter form) while the projection
         // produces IReadOnlyDictionary<K,V>, so materialize eagerly.
         if (GetReceiverDictionaryConversion(rawVarName, typeSpec) is string dictConversion)
@@ -2127,7 +2134,7 @@ public partial class ProtocolProxyEmitter
 
         // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes): one optional ObjC pointer
         // word (nil = 0x0), NOT the two-word SwiftOptional<IntPtr> carrier.
-        if (TryGetReceiverOptionalObjCBridgeableValueRead(typeSpec, slotExpr, rawVarName,
+        if (TryGetReceiverOptionalObjCPointerRead(typeSpec, slotExpr, rawVarName,
                 out var objcOptMarshal, out var objcOptConv))
         {
             writer.WriteLine($"var {rawVarName} = {objcOptMarshal};");
@@ -2154,8 +2161,11 @@ public partial class ProtocolProxyEmitter
     internal static ReceiverInOutWriteBackKind ClassifyInOutWriteBack(TypeSpec typeSpec, ITypeDatabase typeDatabase,
         string moduleName, ModuleEmissionContext? emissionContext)
     {
+        // A resolver-only ObjC class (see ResolverOnlyObjCClassType) writes back like an ObjC class
+        // with a record of its own: the receiver hands the slot the new object's handle.
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext });
+            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext })
+            ?? (ResolverOnlyObjCClassType(typeSpec, typeDatabase, moduleName, emissionContext) is string objcClass ? new ObjCBridgedProjection(objcClass) : null);
         return projection?.Accept(new ReceiverInOutWriteBackKindVisitor()) ?? ReceiverInOutWriteBackKind.Unsupported;
     }
 
@@ -2181,8 +2191,7 @@ public partial class ProtocolProxyEmitter
             }
             case ReceiverInOutWriteBackKind.ClassReference:
             {
-                var projection = s_projectionFactory.Project(typeSpec,
-                    new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+                var projection = ProjectReceiverType(typeSpec, isParameter: true);
                 var isOptional = projection is OptionalProjection;
                 var classProjection = projection is OptionalProjection opt ? opt.InnerProjection : projection;
                 var handleMember = classProjection is ClassProjection ? "Payload.DangerousGetHandle()" : "Handle";
@@ -2209,32 +2218,34 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) arriving INTO a reverse-dispatch
-    /// receiver — a settable property or a method param. This is the READ mirror of the reverse-RETURN
-    /// optional-bridgeable arm (see GetReceiverOptionalGetterConversion's ObjCBridgeableProjection case):
-    /// the Swift thunk borrows the bridged NSObject and passes a single optional ObjC POINTER (nil = 0x0)
-    /// occupying one nil-pointer-optimized word, NOT the multi-word resilient Optional&lt;URL&gt; bytes. So
-    /// the receiver must read that borrowed slot as a bare <c>IntPtr</c> (one word) and bridge the live
-    /// NSObject at +0 — <c>GetNSObject</c> does NOT consume a retain, matching the Swift-side
-    /// <c>passUnretained</c> borrow. Reading it as <c>SwiftOptional&lt;IntPtr&gt;</c> (the default ABI carrier
-    /// for an Optional) reinterprets the value's storage as a two-word case+payload → wrong pointer →
-    /// corruption/SIGSEGV on the <c>.some</c> case. The marshal type and the conversion are returned
-    /// together so they can never drift. Optional&lt;class-reference&gt; (ObjCBridged / ObjCRooted / pure
-    /// Swift class) is a genuine nil-pointer-optimized single-word <c>SwiftOptional&lt;IntPtr&gt;</c> and is
-    /// deliberately NOT handled here — it keeps its existing path. Returns false for every other shape.
+    /// An Optional the Swift thunk hands a reverse-dispatch receiver (a settable property, a subscript
+    /// setter or a method parameter) as one optional ObjC pointer word (nil = 0x0): an Optional ObjC
+    /// class (<see cref="ObjCBridgedProjection"/>), whose Optional is nil-pointer-optimized to the
+    /// class's single word, and an Optional ObjC-bridgeable value (URL?, NS_TYPED_ENUM newtypes), whose
+    /// thunk borrows the bridged NSObject and passes its pointer. The receiver reads the borrowed slot
+    /// as a bare <c>IntPtr</c> and bridges the live object at +0 (<c>GetNSObject</c> consumes no retain,
+    /// matching the borrow). The default Optional carrier, <c>SwiftOptional&lt;IntPtr&gt;</c>, is
+    /// <c>Optional&lt;Int&gt;</c>: a word plus a tag byte, so copying it reads past a class slot and
+    /// takes the next byte for the case, and reinterprets a bridgeable value's storage outright. The
+    /// marshal type and the conversion are returned together so they can never drift. Swift-class and
+    /// ObjC-rooted Optionals keep the class copy-out path; every other shape returns false.
     /// </summary>
-    private bool TryGetReceiverOptionalObjCBridgeableValueRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr)
+    private bool TryGetReceiverOptionalObjCPointerRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr)
     {
         marshalExpr = "";
         convExpr = "";
         if (typeSpec == null)
             return false;
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
-        if (projection is not OptionalProjection { InnerProjection: ObjCBridgeableProjection objc })
+        string? bridge = ProjectReceiverType(typeSpec, isParameter: true) switch
+        {
+            OptionalProjection { InnerProjection: ObjCBridgeableProjection bridgeable } => bridgeable.BridgeReadExpression(varName, nonNull: true),
+            OptionalProjection { InnerProjection: ObjCBridgedProjection objcClass } => MarshallingHelpers.FormatObjCBridgeCall(objcClass.PublicType, varName, nonNull: true),
+            _ => null,
+        };
+        if (bridge is null)
             return false;
         marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
-        convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {objc.BridgeReadExpression(varName, nonNull: true)})";
+        convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {bridge})";
         return true;
     }
 
@@ -2246,8 +2257,7 @@ public partial class ProtocolProxyEmitter
     private ReceiverSlotReadKind GetReceiverSlotReadKind(TypeSpec? typeSpec)
     {
         if (typeSpec == null) return ReceiverSlotReadKind.RawRead;
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         return projection?.Accept(new ReceiverSlotReadKindVisitor()) ?? ReceiverSlotReadKind.RawRead;
     }
 
@@ -2264,12 +2274,54 @@ public partial class ProtocolProxyEmitter
     /// existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
     /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
     /// </summary>
+    /// <summary>
+    /// The projection a Swift callback receiver marshals a slot of <paramref name="typeSpec"/> through:
+    /// the factory's, or, for an Objective-C class only the resolver's ObjC bridging reaches (see
+    /// <see cref="GetResolverOnlyObjCClassType"/>), the ObjC-bridged projection of its C# type, so
+    /// every receiver direction (argument, index, setter value, return, getter result) bridges the
+    /// object pointer the way it does for an ObjC class with a record of its own: a borrowed argument
+    /// is bridged at +0, a result crosses to Swift with a +1 retain the Swift thunk's <c>move()</c>
+    /// takes over.
+    /// </summary>
+    private ITypeProjection? ProjectReceiverType(TypeSpec? typeSpec, bool isParameter)
+    {
+        if (typeSpec is null)
+            return null;
+        return s_projectionFactory.Project(typeSpec,
+                new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = isParameter, CurrentModuleName = _moduleName, EmissionContext = _emissionContext })
+            ?? (GetResolverOnlyObjCClassType(typeSpec) is string objcClass ? new ObjCBridgedProjection(objcClass) : null);
+    }
+
+    /// <summary>
+    /// The C# type of an Objective-C class argument the projection factory cannot project because
+    /// the type database holds no record for it, only the resolver's ObjC bridging does (a Foundation
+    /// class); null for any other type, including one whose Apple projection is absent.
+    /// </summary>
+    internal string? GetResolverOnlyObjCClassType(TypeSpec? typeSpec)
+        => ResolverOnlyObjCClassType(typeSpec, _typeDatabase, _moduleName, _emissionContext);
+
+    internal static string? ResolverOnlyObjCClassType(TypeSpec? typeSpec, ITypeDatabase typeDatabase,
+        string moduleName, ModuleEmissionContext? emissionContext)
+    {
+        if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named)
+            return null;
+        if (s_projectionFactory.Project(typeSpec,
+                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext }) is not null)
+            return null;
+        if (!typeDatabase.TryGetTypeRecord(named, out var record)
+            || !MarshallingHelpers.IsObjCBridged(record)
+            || record.Kind != TypeRecordKind.Class
+            || (record.Flags & TypeRecordFlags.AbsentAppleProjection) != 0)
+            return null;
+        var name = record.CSharpTypeName.FullyQualifiedName;
+        return name.StartsWith("global::", StringComparison.Ordinal) ? name : "global::" + name;
+    }
+
     private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverClassCopyOutVisitor(slotExpr));
@@ -2288,8 +2340,7 @@ public partial class ProtocolProxyEmitter
         var existentialConv = GetReceiverExistentialSetterConversion(varName, typeSpec);
         if (existentialConv != null) return existentialConv;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverSetterConversionVisitor(varName, this));
@@ -2355,13 +2406,13 @@ public partial class ProtocolProxyEmitter
             ObjCBridgedProjection objc => $"({varName}.Case == Swift.SwiftOptionalCases.None ? null : {MarshallingHelpers.FormatObjCBridgeCall(objc.PublicType, $"{varName}.Some", nonNull: true)})",
             // Optional ObjC-bridgeable VALUE (URL?, NS_TYPED_ENUM newtypes) is a MULTI-word resilient value,
             // NOT a nil-pointer-optimized one-word slot like the ObjCBridged CLASS arm above. Its
-            // reverse-receiver read is owned by the coupled TryGetReceiverOptionalObjCBridgeableValueRead at
+            // reverse-receiver read is owned by the coupled TryGetReceiverOptionalObjCPointerRead at
             // the property-setter / method-param emission sites (read one optional ObjC pointer word, +0
             // bridge). Reaching this arm would mean a value-materialization caller skipped that interception
             // and paired a .Case/.Some read with the default two-word SwiftOptional<IntPtr> marshal — the
             // exact layout mismatch the fix removed — so fail closed at generation rather than emit it.
             ObjCBridgeableProjection => throw new InvalidOperationException(
-                "Optional<ObjC-bridgeable value> reverse-receiver read must be handled by TryGetReceiverOptionalObjCBridgeableValueRead (one-word optional ObjC pointer), not GetReceiverOptionalSetterConversion."),
+                "Optional<ObjC-bridgeable value> reverse-receiver read must be handled by TryGetReceiverOptionalObjCPointerRead (one-word optional ObjC pointer), not GetReceiverOptionalSetterConversion."),
             ArrayProjection arr => GetReceiverOptionalContainerSetterConversion(arr, varName, arr.PublicType),
             DictionaryProjection dict => GetReceiverOptionalContainerSetterConversion(dict, varName, dict.PublicType),
             SetProjection set => GetReceiverOptionalContainerSetterConversion(set, varName, set.PublicType),
@@ -2400,8 +2451,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         // Standalone existential. This is the getter RETURN direction (C#→Swift, +1 owned), so mint
@@ -2479,8 +2529,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection == null) return null;
 
         // Standalone existential

@@ -49,6 +49,12 @@ namespace BindingsGeneration
             "EntryPoint\\s*=\\s*\"((?:SBW_|SBSW_|SBSR_)[A-Za-z0-9_]+)\"",
             RegexOptions.Compiled);
 
+        // EntryPoint = "SBUNBOUND_…" — the synthetic name of a requirement added from an unbound
+        // parent protocol (UnboundParentRequirements), which no binary exports.
+        private static readonly Regex SyntheticRefPattern = new(
+            "EntryPoint\\s*=\\s*\"(" + UnboundParentRequirements.SyntheticSymbolPrefix + "[^\"]*)\"",
+            RegexOptions.Compiled);
+
         // .globl _SBSR_… — a native bridge an assembly file exports.
         private static readonly Regex BridgeDefPattern = new(
             "^\\s*\\.globl\\s+_(SBSR_[A-Za-z0-9_]+)\\s*$",
@@ -110,6 +116,8 @@ namespace BindingsGeneration
                 else // .cs
                 {
                     foreach (Match m in RefPattern.Matches(text))
+                        referenced.Add(m.Groups[1].Value);
+                    foreach (Match m in SyntheticRefPattern.Matches(text))
                         referenced.Add(m.Groups[1].Value);
                 }
             }

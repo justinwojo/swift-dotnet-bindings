@@ -226,6 +226,49 @@ public class AppleTypeProjectionTests
         Assert.Equal(TypeRecordKind.Class, r.Kind);
     }
 
+    // ---- Acronym-normalised candidate -------------------------------------------------------
+
+    [Theory]
+    [InlineData("c:objc(cs)NSXPCConnection")]
+    [InlineData(null)] // a requirement read from an SDK interface carries no USR
+    public void Project_AcronymCandidate_QualifiedClassHit_CorrectsToTheDotNetCasing(string? usr)
+    {
+        // Microsoft.iOS spells NSXPCConnection as NSXpcConnection (the registry's acronym convention).
+        // Neither the USR leaf nor the synthesized name finds it; the acronym-normalised candidate,
+        // verified in the reference's own namespace, does.
+        var r = Project("Foundation.NSXPCConnection", usr, "Foundation", "NSXPCConnection",
+            IndexOf(Class("Foundation", "NSXpcConnection")), withdrawOnNoHit: true);
+
+        Assert.NotNull(r);
+        Assert.False(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+        Assert.True(Has(r, TypeRecordFlags.ObjCBridged));
+        Assert.Equal("Foundation", r.CSharpTypeName.Namespace);
+        Assert.Equal("NSXpcConnection", r.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void Project_AcronymCandidate_BareHitElsewhere_IsNotTakenForTheType()
+    {
+        // The acronym candidate is a guess, so only a hit in the reference's own namespace counts: a
+        // same-named type in another namespace neither corrects the reference nor keeps it alive.
+        var r = Project("Foundation.NSXPCConnection", null, "Foundation", "NSXPCConnection",
+            IndexOf(Class("Other", "NSXpcConnection"), Class("Foundation", "Unrelated")), withdrawOnNoHit: true);
+
+        Assert.NotNull(r);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+    }
+
+    [Fact]
+    public void Project_AcronymCandidate_OnlyForNSPrefixedNames()
+    {
+        // The convention applies to NS-prefixed names only (Microsoft.iOS keeps CB/AV/... casing).
+        var r = Project("CoreBluetooth.CBURLThing", null, "CoreBluetooth", "CBURLThing",
+            IndexOf(Class("CoreBluetooth", "CBUrlThing")), withdrawOnNoHit: true);
+
+        Assert.NotNull(r);
+        Assert.True(Has(r!, TypeRecordFlags.AbsentAppleProjection));
+    }
+
     // ---- Absence authority: only namespaces the index covers ---------------------------------
 
     [Theory]

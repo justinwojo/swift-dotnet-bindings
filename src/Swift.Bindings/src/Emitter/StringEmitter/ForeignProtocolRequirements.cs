@@ -45,6 +45,157 @@ internal static class ForeignProtocolRequirements
         return Collect(moduleDecl, protocolName, names, visited) ? names : null;
     }
 
+    /// <summary>A parameter of a typed requirement: its argument label, its internal name and its type.</summary>
+    internal sealed record TypedParameter(string Label, string PrivateName, TypeSpec Type);
+
+    /// <summary>
+    /// A method requirement read with its types from the interface that declares it: its name, its
+    /// requirement key (<see cref="MethodKey"/>), the declaration line, the attribute lines above it,
+    /// its parameters, its return type (<see cref="TupleTypeSpec.Empty"/> for <c>Void</c>) and its
+    /// isolation and effects.
+    /// </summary>
+    internal sealed record TypedRequirement(
+        string Name,
+        string Key,
+        string Declaration,
+        IReadOnlyList<string> Attributes,
+        IReadOnlyList<TypedParameter> Parameters,
+        TypeSpec ReturnType,
+        bool IsNonisolated,
+        bool IsMainActorIsolated,
+        bool Throws);
+
+    /// <summary>A protocol declared in an SDK interface, with its requirements that have no default.</summary>
+    internal sealed record TypedParent(string QualifiedName, IReadOnlyList<TypedRequirement> Requirements);
+
+    /// <summary>
+    /// The requirements of the protocol <paramref name="qualifiedProtocolName"/> (<c>Module.P</c>)
+    /// that no unconstrained extension in its module's interface defaults, read with their types from
+    /// the SDK interface that declares it, for a protocol no dependency database describes. All or
+    /// nothing: null when the protocol cannot be read, when it inherits a protocol that is not a
+    /// marker (one unbound level only), declares an associated type, or when one requirement without
+    /// a default is not an instance method whose parameter and return types read as concrete types
+    /// (generic, async, static, <c>Self</c>, ownership-qualified and variadic declarations do not).
+    /// </summary>
+    internal static TypedParent? TypedParentOf(string qualifiedProtocolName)
+    {
+        var plain = Plain(qualifiedProtocolName);
+        var dot = plain.IndexOf('.');
+        if (dot <= 0 || dot == plain.Length - 1)
+            return null;
+        var module = plain[..dot];
+        var path = plain[(dot + 1)..];
+        if (LookupInInterfaces(module, path, new HashSet<string>(StringComparer.Ordinal)) is not
+            { RequirementLines: { } lines, DefaultKeys: { } defaults } declaration
+            || declaration.HasAssociatedTypes)
+            return null;
+        if (!declaration.Inherited.All(IsMarkerParent))
+            return null;
+
+        var requirements = new List<TypedRequirement>();
+        foreach (var line in lines)
+        {
+            if (defaults.Contains(line.Key))
+                continue;
+            if (TypeRequirement(line) is not { } typed)
+                return null;
+            requirements.Add(typed);
+        }
+        return new TypedParent($"{module}.{path}", requirements);
+    }
+
+    // Inherited constraints that carry no requirements.
+    private static bool IsMarkerParent(string inherited)
+    {
+        var plain = Plain(inherited);
+        if (plain.StartsWith('~'))
+            return true;
+        var leaf = plain.StartsWith("Swift.", StringComparison.Ordinal) ? plain["Swift.".Length..] : plain;
+        return leaf is "Sendable" or "SendableMetatype" or "AnyObject" or "Copyable" or "Escapable" or "BitwiseCopyable";
+    }
+
+    private static TypedRequirement? TypeRequirement(RequirementLine requirement)
+    {
+        if (requirement.Kind != RequirementKind.Method || requirement.IsStatic || requirement.Key.Contains("(*)", StringComparison.Ordinal))
+            return null;
+        var line = requirement.Line.Trim();
+        if (FuncName.Match(line) is not { Success: true } func)
+            return null;
+        var name = func.Groups[1].Value;
+        if (name.StartsWith('`') || IsOperator(name))
+            return null;
+        var modifiers = line[..func.Index];
+        if (UnsupportedModifier.IsMatch(modifiers))
+            return null;
+        var afterName = line[(func.Index + func.Length)..].TrimStart();
+        if (afterName.StartsWith('<'))
+            return null;
+        if (SwiftParameterClause.Effects(line) is not { } effects
+            || AsyncEffect.IsMatch(effects) || Regex.IsMatch(effects, @"\b(?:rethrows|throws\s*\()"))
+            return null;
+        if (SwiftParameterClause.Find(line) is not { } clause)
+            return null;
+        var tail = line[(clause.Close + 1)..];
+        if (Regex.IsMatch(tail, @"\bwhere\b"))
+            return null;
+
+        var parsed = ProtocolExtensionEmitter.ParseFunctionSignature(
+            line, name, returnsSelf: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        if (parsed is not { } signature || signature.returnTypeName == "Self")
+            return null;
+
+        var clauseText = line[(clause.Open + 1)..clause.Close];
+        var rawParameters = string.IsNullOrWhiteSpace(clauseText)
+            ? new List<string>()
+            : SwiftTypeListText.SplitTopLevelParameters(clauseText);
+        if (rawParameters.Count != signature.parameters.Count)
+            return null;
+        var parameters = new List<TypedParameter>();
+        for (var i = 0; i < rawParameters.Count; i++)
+        {
+            var raw = rawParameters[i];
+            var colon = TopLevelColon(raw);
+            if (colon < 0)
+                return null;
+            var typeText = raw[(colon + 1)..].Trim();
+            if (OwnershipOrVariadic.IsMatch(typeText) || typeText.EndsWith("...", StringComparison.Ordinal))
+                return null;
+            var (label, type, swiftType) = signature.parameters[i];
+            if (!IsConcrete(swiftType))
+                return null;
+            var names = raw[..colon].Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries);
+            var privateName = (names.Length > 1 ? names[1] : names.Length == 1 ? names[0] : "_").Trim('`');
+            if (privateName == "_")
+                privateName = $"arg{i}";
+            parameters.Add(new TypedParameter(label.Trim('`'), privateName, type));
+        }
+
+        TypeSpec returnType = TupleTypeSpec.Empty;
+        if (signature.returnTypeSpec is { } returnSpec)
+        {
+            if (!IsConcrete(signature.returnTypeName))
+                return null;
+            returnType = returnSpec;
+        }
+
+        var attributeText = string.Join(" ", requirement.Attributes) + " " + modifiers;
+        return new TypedRequirement(
+            name,
+            requirement.Key,
+            line,
+            requirement.Attributes,
+            parameters,
+            returnType,
+            IsNonisolated: Regex.IsMatch(attributeText, @"\bnonisolated\b"),
+            IsMainActorIsolated: MainActorAttribute.IsMatch(attributeText),
+            Throws: Regex.IsMatch(effects, @"\bthrows\b"));
+    }
+
+    private static readonly Regex UnsupportedModifier = new(@"\b(?:mutating|consuming|borrowing|__consuming|static|class)\b", RegexOptions.Compiled);
+    private static readonly Regex OwnershipOrVariadic = new(@"^(?:@\w+(?:\([^)]*\))?\s+)*(?:inout|borrowing|consuming|__owned|__shared|sending|isolated)\b|@autoclosure\b", RegexOptions.Compiled);
+    private static readonly Regex MainActorAttribute = new(@"@(?:_Concurrency\.)?MainActor\b", RegexOptions.Compiled);
+
+
     /// <summary>
     /// Requirement keys: a property's name, an operator's spelling, and a method's or initializer's
     /// name with its argument labels (<c>hash(into:)</c>, <c>init(from:)</c>), so an overload with other
@@ -299,7 +450,25 @@ internal static class ForeignProtocolRequirements
 
         /// <summary>The method and initializer requirements: key, and types (<see cref="MethodTypesKey"/>) or null.</summary>
         public IReadOnlyList<(string Key, string? Typed)>? TypedMethods { get; init; }
+
+        /// <summary>
+        /// Every requirement the declaration reads from an interface, with its declaration line and
+        /// the attribute lines above it; null for a protocol a dependency database describes or a
+        /// <c>typealias</c> composition.
+        /// </summary>
+        public IReadOnlyList<RequirementLine>? RequirementLines { get; init; }
+
+        /// <summary>The requirement keys an unconstrained extension of the protocol in the same interface defaults.</summary>
+        public IReadOnlySet<string>? DefaultKeys { get; init; }
+
+        /// <summary>Whether the declaration names an associated type.</summary>
+        public bool HasAssociatedTypes { get; init; }
     }
+
+    private enum RequirementKind { Method, Initializer, Property, Subscript }
+
+    /// <summary>A requirement as the interface declares it: its kind, key, line and the attribute lines above it.</summary>
+    private sealed record RequirementLine(RequirementKind Kind, string Key, string Line, IReadOnlyList<string> Attributes, bool IsStatic);
 
     /// <summary>
     /// The declaration of the protocol at <paramref name="path"/> in <paramref name="module"/>: its name,
@@ -392,6 +561,8 @@ internal static class ForeignProtocolRequirements
         var typedOperators = new List<(string, string)>();
         var typedMethods = new List<(string, string?)>();
         var inherited = new List<string>();
+        var requirementLines = new List<RequirementLine>();
+        var hasAssociatedTypes = false;
         var found = false;
         var searchFrom = 0;
         var headerPattern = new Regex($@"\bpublic\s+protocol\s+{Regex.Escape(protocolName)}\b[^{{]*\{{");
@@ -403,6 +574,8 @@ internal static class ForeignProtocolRequirements
                 continue;
             found = true;
             inherited.AddRange(InheritanceClause(header));
+            // The attribute lines above a declaration belong to it.
+            var attributes = new List<string>();
             foreach (var line in body.Split('\n'))
             {
                 var isStatic = StaticMember.IsMatch(line);
@@ -412,17 +585,25 @@ internal static class ForeignProtocolRequirements
                     var name = func.Groups[1].Value.Trim('`');
                     var key = MethodKey(name, labels, isStatic, labels is not null && AsyncEffect.IsMatch(line[clauseEnd..]));
                     names.Add(key);
+                    requirementLines.Add(new RequirementLine(RequirementKind.Method, key, line, attributes, isStatic));
                     if (IsOperator(name) && OperatorKey(name, ForeignOverloadPairing.SignatureOf(line, "func", name), isStatic) is { } typed)
                         typedOperators.Add((key, typed));
                     else if (!IsOperator(name))
                         typedMethods.Add((key, labels is null ? null : MethodTypesKey(ForeignOverloadPairing.SignatureOf(line, "func", name))));
                 }
                 else if (VarName.Match(line) is { Success: true } variable)
-                    names.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
+                {
+                    var key = PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic);
+                    names.Add(key);
+                    requirementLines.Add(new RequirementLine(RequirementKind.Property, key, line, attributes, isStatic));
+                }
                 else if (SubscriptDeclaration.IsMatch(line))
                 {
-                    if (SubscriptKey(ForeignOverloadPairing.SignatureOf(line, "subscript"), StaticSubscript.IsMatch(line)) is { } subscriptKey)
+                    var isStaticSubscript = StaticSubscript.IsMatch(line);
+                    var subscriptKey = SubscriptKey(ForeignOverloadPairing.SignatureOf(line, "subscript"), isStaticSubscript);
+                    if (subscriptKey is not null)
                         names.Add(subscriptKey);
+                    requirementLines.Add(new RequirementLine(RequirementKind.Subscript, subscriptKey ?? "subscript(*)", line, attributes, isStaticSubscript));
                 }
                 else if (Initializer.Match(line) is { Success: true } init)
                 {
@@ -430,8 +611,21 @@ internal static class ForeignProtocolRequirements
                     var key = MethodKey("init", labels, isStatic: false,
                         labels is not null && AsyncEffect.IsMatch(line[clauseEnd..]));
                     names.Add(key);
+                    requirementLines.Add(new RequirementLine(RequirementKind.Initializer, key, line, attributes, false));
                     typedMethods.Add((key, labels is null ? null : MethodTypesKey(ForeignOverloadPairing.SignatureOf(line, "init"))));
                 }
+                else
+                {
+                    var trimmed = line.Trim();
+                    if (AssociatedType.IsMatch(trimmed))
+                        hasAssociatedTypes = true;
+                    if (trimmed.StartsWith('@'))
+                        attributes.Add(trimmed);
+                    else if (trimmed.Length > 0 && !trimmed.StartsWith("//", StringComparison.Ordinal))
+                        attributes = new List<string>();
+                    continue;
+                }
+                attributes = new List<string>();
             }
         }
         if (found)
@@ -439,6 +633,9 @@ internal static class ForeignProtocolRequirements
             {
                 TypedOperators = typedOperators,
                 TypedMethods = typedMethods,
+                RequirementLines = requirementLines,
+                DefaultKeys = enclosing.Length == 0 ? ExtensionDefaultKeys(text, module, protocolName) : new HashSet<string>(StringComparer.Ordinal),
+                HasAssociatedTypes = hasAssociatedTypes,
             };
 
         var alias = new Regex($@"\bpublic\s+typealias\s+{Regex.Escape(protocolName)}\s*=\s*([^\n]+)").Matches(text)
@@ -447,6 +644,106 @@ internal static class ForeignProtocolRequirements
             return null;
         return new Declaration(string.Empty, Array.Empty<string>(),
             alias.Groups[1].Value.Split('&').Select(p => p.Trim()).Where(p => p.Length > 0).ToList());
+    }
+
+    /// <summary>
+    /// The member keys the unconstrained extensions of the top-level protocol
+    /// <paramref name="protocolName"/> in <paramref name="text"/> declare: the requirements those
+    /// members default for every conformer. An extension with a <c>where</c> clause defaults them for
+    /// some conformers only, so its members are not counted.
+    /// </summary>
+    private static HashSet<string> ExtensionDefaultKeys(string text, string module, string protocolName)
+    {
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        var header = new Regex($@"\bextension\s+(?:{Regex.Escape(module)}\.)?{Regex.Escape(protocolName)}(?![\w.])([^{{]*)\{{");
+        foreach (Match extension in header.Matches(text))
+        {
+            if (Regex.IsMatch(extension.Groups[1].Value, @"\bwhere\b")
+                || !string.IsNullOrEmpty(EnclosingTypes(text, extension.Index, module)))
+                continue;
+            var bodyStart = extension.Index + extension.Length;
+            var bodyEnd = ClosingBrace(text, bodyStart);
+            // Only the extension's own members, not those of a type or body nested in it.
+            foreach (var line in DepthZeroLines(text, bodyStart, bodyEnd))
+            {
+                var isStatic = StaticMember.IsMatch(line);
+                if (FuncName.Match(line) is { Success: true } func)
+                {
+                    var labels = ParameterLabels(line, func.Index + func.Length, out var clauseEnd);
+                    keys.Add(MethodKey(func.Groups[1].Value.Trim('`'), labels, isStatic,
+                        labels is not null && AsyncEffect.IsMatch(line[clauseEnd..])));
+                }
+                else if (VarName.Match(line) is { Success: true } variable)
+                    keys.Add(PropertyKey(variable.Groups[1].Value.Trim('`'), isStatic));
+            }
+        }
+        return keys;
+    }
+
+    // The lines of text[from..to] that begin outside every brace opened after `from`; braces in
+    // comments and string literals do not count.
+    private static IEnumerable<string> DepthZeroLines(string text, int from, int to)
+    {
+        var depth = 0;
+        var lineStart = from;
+        var startsAtZero = true;
+        for (var i = from; i < to; i++)
+        {
+            if (text[i] == '/' && i + 1 < to && text[i + 1] == '/')
+            {
+                while (i + 1 < to && text[i + 1] != '\n')
+                    i++;
+                continue;
+            }
+            if (SwiftParameterClause.IsStringLiteralStart(text, i))
+            {
+                i = Math.Min(SwiftParameterClause.SkipStringLiteral(text, i), to) - 1;
+                continue;
+            }
+            switch (text[i])
+            {
+                case '{':
+                    depth++;
+                    break;
+                case '}':
+                    depth--;
+                    break;
+                case '\n':
+                    if (startsAtZero)
+                        yield return text[lineStart..i];
+                    lineStart = i + 1;
+                    startsAtZero = depth == 0;
+                    break;
+            }
+        }
+        if (startsAtZero && lineStart < to)
+            yield return text[lineStart..to];
+    }
+
+    // The index of the `}` that closes a body opening just before `from` (the text's length when it
+    // does not close); braces in comments and string literals do not count.
+    private static int ClosingBrace(string text, int from)
+    {
+        var depth = 1;
+        for (var i = from; i < text.Length; i++)
+        {
+            if (text[i] == '/' && i + 1 < text.Length && text[i + 1] == '/')
+            {
+                while (i < text.Length && text[i] != '\n')
+                    i++;
+                continue;
+            }
+            if (SwiftParameterClause.IsStringLiteralStart(text, i))
+            {
+                i = SwiftParameterClause.SkipStringLiteral(text, i) - 1;
+                continue;
+            }
+            if (text[i] == '{')
+                depth++;
+            else if (text[i] == '}' && --depth == 0)
+                return i;
+        }
+        return text.Length;
     }
 
     /// <summary>
@@ -652,6 +949,7 @@ internal static class ForeignProtocolRequirements
     private static readonly Regex StaticMember = new(@"\b(?:static|class)\s+(?:[\w@]+\s+)*(?:func|var)\b", RegexOptions.Compiled);
     private static readonly Regex SubscriptDeclaration = new(@"(?:^|\s)subscript\s*[(<]", RegexOptions.Compiled);
     private static readonly Regex StaticSubscript = new(@"\b(?:static|class)\s+(?:[\w@]+\s+)*subscript\b", RegexOptions.Compiled);
+    private static readonly Regex AssociatedType = new(@"^(?:@\S+\s+)*associatedtype\b", RegexOptions.Compiled);
     private static readonly Regex AsyncEffect = new(@"^\s*(?:re)?async\b", RegexOptions.Compiled);
     private static readonly Regex ExportedImport = new(@"(?m)^\s*@_exported\s+(?:(?:public|package|internal)\s+)?import\s+(?:(?:struct|class|enum|protocol|typealias|func|var|let)\s+(?<module>\w+)\.(?:\w+\.)*(?<name>\w+)|(?<module>\w+))", RegexOptions.Compiled);
 }

@@ -1,5 +1,5 @@
 {
-  "git_sha": "47f14c42",
+  "git_sha": "32bcf10a",
   "review_count": 0,
   "by_reason": [
     {
@@ -35,6 +35,10 @@
       "count": 1
     },
     {
+      "key": "ProtocolWitnessNotDispatchable",
+      "count": 2
+    },
+    {
       "key": "SwiftUIView",
       "count": 1
     },
@@ -66,7 +70,7 @@
     },
     {
       "key": "KnownLimitation",
-      "count": 31
+      "count": 33
     }
   ]
 }

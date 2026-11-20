@@ -670,9 +670,29 @@ public class TypeProjectionFactory
         // references a namespace member that doesn't exist in the .NET binding (CS0234).
         var bridgedName = AppleFrameworkRegistry.TryGetNetTypeName(named.Name, out var remappedName)
             ? remappedName
-            : named.Name;
+            : SurfaceConfirmedAcronymName(named.Name) ?? named.Name;
         ReportCollector.RecordObjCPrefixBridge(named.Name);
         return new ObjCBridgedProjection(bridgedName);
+    }
+
+    /// <summary>
+    /// The .NET acronym spelling of a top-level Apple class (<c>Foundation.NSXPCConnection</c> →
+    /// <c>Foundation.NSXpcConnection</c>) when the platform reference assembly declares that spelling
+    /// and not the Swift one. The resolver confirms the same candidate against the same surface for
+    /// a bare reference; this keeps an Optional or element reference from naming the Swift spelling.
+    /// </summary>
+    private static string? SurfaceConfirmedAcronymName(string swiftName)
+    {
+        int dot = swiftName.IndexOf('.');
+        if (dot <= 0 || dot != swiftName.LastIndexOf('.') || AppleTypeSurfaceIndex.Default is not { } index)
+            return null;
+        var ns = MarshallingHelpers.MapSwiftModuleToNetNamespace(swiftName.Substring(0, dot));
+        var leaf = swiftName.Substring(dot + 1);
+        var acronym = BindingsGeneration.ObjC.ObjCTypeMapper.ApplyDotNetAcronymConvention(leaf);
+        if (acronym == leaf || index.TryResolveQualified(ns, leaf, out _)
+            || !index.TryResolveQualified(ns, acronym, out var entry) || entry.Kind != AppleTypeSurfaceKind.Class)
+            return null;
+        return $"{ns}.{acronym}";
     }
 
     /// <summary>
