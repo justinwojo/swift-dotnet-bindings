@@ -87,6 +87,10 @@ public sealed class SwiftCallFactsBuilder
             // wrapper function, not a Swift declaration of the type; its producer owes its facts.
             if (method.IsProtocolExtensionMethod)
                 continue;
+            // A requirement inherited from a protocol of an unbound SDK module is the parent's
+            // declaration; this module declares no symbol for it (UnboundParentRequirements).
+            if (method.InheritedFromUnboundProtocol is not null)
+                continue;
             yield return ForMethod(method, type, MemberContext.Plain);
         }
         foreach (var op in type.Operators)

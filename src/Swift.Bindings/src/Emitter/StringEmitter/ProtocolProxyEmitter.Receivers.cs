@@ -2116,6 +2116,16 @@ public partial class ProtocolProxyEmitter
             return;
         }
 
+        // An Objective-C class only the resolver's ObjC bridging reaches (Foundation's NSObject or
+        // NSXPCConnection have no record of their own, so the projection factory returns nothing):
+        // its slot holds the object pointer, borrowed; bridge the live object at +0 instead of
+        // Unsafe.Read-ing the pointer as a managed reference.
+        if (GetResolverOnlyObjCClassType(typeSpec) is string objcClass)
+        {
+            writer.WriteLine($"var {varName} = {MarshallingHelpers.FormatObjCBridgeCall(objcClass, $"MarshalFromSwift<global::System.IntPtr>({slotExpr})", nonNull: true)};");
+            return;
+        }
+
         // Dictionaries: the interface slot is IDictionary<K,V> (parameter form) while the projection
         // produces IReadOnlyDictionary<K,V>, so materialize eagerly.
         if (GetReceiverDictionaryConversion(rawVarName, typeSpec) is string dictConversion)
@@ -2264,6 +2274,27 @@ public partial class ProtocolProxyEmitter
     /// existing <c>MarshalFromSwift&lt;IntPtr&gt;</c> + GetNSObject path. Returns the full RHS marshal
     /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
     /// </summary>
+    /// <summary>
+    /// The C# type of an Objective-C class argument the projection factory cannot project because
+    /// the type database holds no record for it, only the resolver's ObjC bridging does (a Foundation
+    /// class); null for any other type, including one whose Apple projection is absent.
+    /// </summary>
+    internal string? GetResolverOnlyObjCClassType(TypeSpec? typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named)
+            return null;
+        if (s_projectionFactory.Project(typeSpec,
+                new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext }) is not null)
+            return null;
+        if (!_typeDatabase.TryGetTypeRecord(named, out var record)
+            || !MarshallingHelpers.IsObjCBridged(record)
+            || record.Kind != TypeRecordKind.Class
+            || (record.Flags & TypeRecordFlags.AbsentAppleProjection) != 0)
+            return null;
+        var name = record.CSharpTypeName.FullyQualifiedName;
+        return name.StartsWith("global::", StringComparison.Ordinal) ? name : "global::" + name;
+    }
+
     private string? GetReceiverClassCopyOutExpr(string slotExpr, TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;

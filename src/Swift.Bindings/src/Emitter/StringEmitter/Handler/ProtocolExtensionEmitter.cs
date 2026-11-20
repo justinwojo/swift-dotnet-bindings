@@ -1257,11 +1257,21 @@ public static class ProtocolExtensionEmitter
             ProtocolExtensionMethodDecl extMethod,
             ITypeDatabase typeDatabase,
             ILogger logger)
-    {
-        var line = extMethod.RawSignature;
+        => ParseFunctionSignature(extMethod.RawSignature, extMethod.MethodName, extMethod.ReturnsSelf, logger);
 
+    /// <summary>
+    /// Parses the parameters and return type of the <c>func <paramref name="methodName"/></c>
+    /// declaration on <paramref name="line"/> (interface text, module selectors as dots). The return
+    /// type name is <c>"Self"</c> for a Self return, <c>"void"</c> when there is none. Null when the
+    /// declaration or one of its types does not read. Shared by the protocol-extension reader and the
+    /// typed reader of an SDK protocol's requirements (<see cref="ForeignProtocolRequirements.TypedParentOf"/>).
+    /// </summary>
+    internal static (List<(string label, TypeSpec typeSpec, string swiftType)> parameters,
+                     TypeSpec? returnTypeSpec, string returnTypeName)?
+        ParseFunctionSignature(string line, string methodName, bool returnsSelf, ILogger logger)
+    {
         // Extract parameter section
-        var funcIdx = line.IndexOf($"func {extMethod.MethodName}", StringComparison.Ordinal);
+        var funcIdx = line.IndexOf($"func {methodName}", StringComparison.Ordinal);
         if (funcIdx < 0)
             return null;
 
@@ -1287,7 +1297,7 @@ public static class ProtocolExtensionEmitter
                 if (parsed == null)
                 {
                     logger.LogDebug("Skipping extension method {Method}: could not parse parameter '{Param}'",
-                        extMethod.MethodName, part.Trim());
+                        methodName, part.Trim());
                     return null;
                 }
                 parameters.Add(parsed.Value);
@@ -1297,7 +1307,7 @@ public static class ProtocolExtensionEmitter
         // Parse return type
         TypeSpec? returnTypeSpec = null;
         string returnTypeName = "void";
-        if (extMethod.ReturnsSelf)
+        if (returnsSelf)
         {
             // Will be resolved to the concrete type later
             returnTypeName = "Self";
@@ -1331,13 +1341,13 @@ public static class ProtocolExtensionEmitter
                     catch
                     {
                         logger.LogDebug("Skipping extension method {Method}: TypeSpecParser error for return type '{Type}'",
-                            extMethod.MethodName, returnTypeStr);
+                            methodName, returnTypeStr);
                         return null;
                     }
                     if (returnTypeSpec == null)
                     {
                         logger.LogDebug("Skipping extension method {Method}: could not parse return type '{Type}'",
-                            extMethod.MethodName, returnTypeStr);
+                            methodName, returnTypeStr);
                         return null;
                     }
                     returnTypeName = returnTypeStr;
@@ -1456,7 +1466,7 @@ public static class ProtocolExtensionEmitter
     /// Parses a single parameter from a swiftinterface parameter declaration.
     /// e.g., "_ cache: Module.TypeName" → ("_", NamedTypeSpec("Module.TypeName"), "Module.TypeName")
     /// </summary>
-    private static (string label, TypeSpec typeSpec, string swiftType)?
+    internal static (string label, TypeSpec typeSpec, string swiftType)?
         ParseParameter(string paramDecl)
     {
         var colonIdx = paramDecl.IndexOf(':');
@@ -1519,7 +1529,7 @@ public static class ProtocolExtensionEmitter
     /// prefix without recording it. The attribute list lets callers reattach
     /// closure-affecting attributes (notably <c>escaping</c>) to the parsed TypeSpec.
     /// </summary>
-    private static (string remaining, List<string> attrNames) StripSwiftAttributes(string typeStr)
+    internal static (string remaining, List<string> attrNames) StripSwiftAttributes(string typeStr)
     {
         var attrNames = new List<string>();
         while (typeStr.StartsWith("@"))

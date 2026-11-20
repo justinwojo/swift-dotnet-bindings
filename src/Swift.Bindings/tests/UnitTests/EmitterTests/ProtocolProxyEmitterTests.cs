@@ -5905,6 +5905,35 @@ public class ProtocolProxyEmitterTests
         Assert.Contains("MarshalBorrowedClassFromSlot<TestModule.AdNetworkError>(rawArg0)", body);
     }
 
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_MethodReceiver_FoundationClassParam_BridgesTheObject(string swiftType, string surfaceName, string csType)
+    {
+        // A Foundation class has no type-database record of its own; only the resolver's ObjC
+        // bridging reaches it, so the projection factory returns nothing for it. Its slot holds the
+        // borrowed object pointer, which must be bridged, not Unsafe.Read as a managed reference.
+        var entry = new AppleTypeSurfaceEntry(surfaceName, "Foundation", AppleTypeSurfaceKind.Class, null, false);
+        using var surface = AppleTypeSurfaceIndex.OverrideDefaultForTest(new AppleTypeSurfaceIndex(
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal) { [$"Foundation.{surfaceName}"] = entry },
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal) { [surfaceName] = entry }));
+        var protocol = CreateSimpleProtocol("FoundationClassParamProto");
+        var method = CreateMethodDecl("accept");
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "connection", PrivateName = "connection",
+            SwiftTypeSpec = new NamedTypeSpec(swiftType),
+            IsGeneric = false, IsInOut = false, ParentDecl = null, ModuleDecl = null
+        });
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static void Receive_accept_0(");
+
+        Assert.DoesNotContain($"MarshalFromSwift<{csType}>(rawArg0)", body);
+        Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType}>(MarshalFromSwift<global::System.IntPtr>(rawArg0))!", body);
+    }
+
     [Fact]
     public void EmitProxyClass_MethodReceiver_OptionalClassParam_UsesOptionalCopyOut()
     {
