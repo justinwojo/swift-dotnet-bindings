@@ -108,6 +108,9 @@
     <Compile Include="../RuntimeTestsApp/Spike/**/*.cs" />
     <!-- SwiftUIBridge tests are gated by #if SWIFTUI_BRIDGE — safe to include -->
     <Compile Include="../RuntimeTestsApp/SwiftUIBridge/**/*.cs" />
+    <!-- A protocol whose requirement comes from an SDK parent (ExtensionFoundation) dispatches into a
+         C# conformer, and Foundation-class slots cross in every direction, on every runtime. -->
+    <Compile Include="../RuntimeTestsApp/CrossModule/SdkParentInheritedRequirementTests.cs" />
   </ItemGroup>
 
   <ItemGroup>

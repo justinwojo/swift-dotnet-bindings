@@ -129,6 +129,9 @@
     <!-- Self and argument passing per (member, type), with exact destruction counts, on every
          runtime that makes the calls. -->
     <Compile Include="../RuntimeTestsApp/Parameters/SelfAndParameterPassingTests.cs" />
+    <!-- A protocol whose requirement comes from an SDK parent (ExtensionFoundation) dispatches into a
+         C# conformer, and Foundation-class slots cross in every direction, on every runtime. -->
+    <Compile Include="../RuntimeTestsApp/CrossModule/SdkParentInheritedRequirementTests.cs" />
   </ItemGroup>
 
   <!-- Extract test manifest from source generator output into a host-visible file. -->
