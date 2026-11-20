@@ -30,15 +30,19 @@ namespace BindingsGeneration
         public const int SchemaVersion = 1;
 
         /// <summary>
-        /// Writes <c>{namespace}.api-manifest.json</c> next to the generated <c>.cs</c>. No-ops
-        /// (returns <c>null</c>) when there is no emission context or no recorded members.
+        /// Writes <c>{namespace}.api-manifest.json</c> next to the generated <c>.cs</c>, and returns
+        /// its path. A module whose emission recorded no members still gets a manifest, with an empty
+        /// <c>members</c> list: that file is the producer's statement that this module's emission ran
+        /// and owed no rows, which surface accounting needs to tell an empty module from a manifest
+        /// that was never written (a rerender that drops a module's last member also replaces the
+        /// stale file rather than leaving it behind). No-ops (returns <c>null</c>) only when there
+        /// is no emission context.
         /// </summary>
         public static string? Emit(string moduleName, string @namespace, ModuleEmissionContext? emissionCtx,
             string outputDirectory, ILogger logger)
         {
             if (emissionCtx is null) return null;
             var entries = emissionCtx.ApiManifestEntries;
-            if (entries.Count == 0) return null;
 
             var document = new ApiManifestDocument
             {

@@ -327,6 +327,8 @@ namespace BindingsGeneration
                 // Emit the API manifest ({namespace}.api-manifest.json) alongside the .cs.
                 // It records every emitted public member's post-collision C# signature → native
                 // entry symbol so the ratchet gate can detect a same-signature symbol retarget.
+                // Written even when empty: surface accounting reads an empty manifest as proof that
+                // the module owed no rows.
                 ApiManifestEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
 
                 // Emit the human-readable member table ({namespace}.api-surface.md) from the SAME
