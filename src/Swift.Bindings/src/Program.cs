@@ -871,7 +871,8 @@ namespace BindingsGeneration
                 // A protocol refining a protocol of an SDK module this run never loads gets that
                 // parent's requirements without a default as its own, read with their types from the
                 // SDK interface, before any walk lays out its interface, vtable or conformance.
-                var unboundParentRequirements = UnboundParentRequirements.Inject(decl, typeDatabase, logger);
+                // The module's own extensions of such a parent count as its defaults.
+                var unboundParentRequirements = UnboundParentRequirements.Inject(decl, typeDatabase, logger, facts.ExtensionMemberCandidates);
                 if (unboundParentRequirements.Count > 0)
                     logger.LogInformation(
                         "Added {Count} requirement(s) inherited from protocols of unbound SDK modules: {Requirements}",

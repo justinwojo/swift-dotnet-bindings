@@ -5934,6 +5934,132 @@ public class ProtocolProxyEmitterTests
         Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType}>(MarshalFromSwift<global::System.IntPtr>(rawArg0))!", body);
     }
 
+    // A Foundation class only the resolver's ObjC bridging reaches, registered on the Apple surface
+    // under its .NET spelling the way the real index carries it.
+    private static IDisposable FoundationClassSurface(string surfaceName)
+    {
+        var entry = new AppleTypeSurfaceEntry(surfaceName, "Foundation", AppleTypeSurfaceKind.Class, null, false);
+        return AppleTypeSurfaceIndex.OverrideDefaultForTest(new AppleTypeSurfaceIndex(
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal) { [$"Foundation.{surfaceName}"] = entry },
+            new Dictionary<string, AppleTypeSurfaceEntry>(StringComparer.Ordinal) { [surfaceName] = entry }));
+    }
+
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_InOutFoundationClassParam_BridgesInAndWritesTheHandleBack(string swiftType, string surfaceName, string csType)
+    {
+        // The Swift conformance dispatches an inout requirement only when the receiver can write it
+        // back; a Foundation class writes back like any ObjC class, as the new object's handle.
+        using var surface = FoundationClassSurface(surfaceName);
+        Assert.Equal(ProtocolProxyEmitter.ReceiverInOutWriteBackKind.ClassReference,
+            ProtocolProxyEmitter.ClassifyInOutWriteBack(new NamedTypeSpec(swiftType), _typeDatabase, "TestModule", null));
+        var protocolDecl = CreateSimpleProtocol("FoundationClassSwapper");
+        protocolDecl.Methods.Add(CreateInOutMethodDecl("swap", new NamedTypeSpec(swiftType)));
+
+        var output = EmitProxyClass(protocolDecl);
+        var body = ExtractReceiverBody(output, "private static void Receive_swap_0(");
+
+        Assert.DoesNotContain($"MarshalFromSwift<{csType.Replace("global::", "")}>(", body);
+        Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType}>(", body);
+        var call = body.IndexOf(".Swap(ref ", StringComparison.Ordinal);
+        var writeBack = body.IndexOf("SwiftMarshal.ReplaceClassReferenceInSlot(", StringComparison.Ordinal);
+        Assert.True(call >= 0, body);
+        Assert.True(writeBack > call, body);
+        Assert.DoesNotContain("ReplaceValueInSlot", body);
+    }
+
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_MethodReceiver_FoundationClassReturn_HandsSwiftARetainedObject(string swiftType, string surfaceName, string csType)
+    {
+        // The Swift thunk moves the returned object pointer out of the result buffer, taking a +1
+        // reference. Buffering the managed wrapper itself hands Swift the bits of a managed reference.
+        using var surface = FoundationClassSurface(surfaceName);
+        var protocol = CreateSimpleProtocol("FoundationClassReturnProto");
+        var method = CreateMethodDecl("make");
+        method.CSSignature[0].SwiftTypeSpec = new NamedTypeSpec(swiftType);
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+        var body = ExtractMethodBody(output, "private static IntPtr Receive_make_0(");
+
+        Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", body);
+        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", body);
+        Assert.Contains($"{csType.Replace("global::", "")} Make()", output);
+    }
+
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_PropertyReceivers_FoundationClass_BridgeBothDirections(string swiftType, string surfaceName, string csType)
+    {
+        using var surface = FoundationClassSurface(surfaceName);
+        var protocol = CreateSimpleProtocol("FoundationClassPropertyProto");
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "connection", SwiftTypeSpec = new NamedTypeSpec(swiftType), IsStatic = false, HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("connection_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("connection_set") },
+            },
+            ParentDecl = null, ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocol);
+        var getter = ExtractMethodBody(output, "private static IntPtr Receive_connection_get(");
+        var setter = ExtractMethodBody(output, "private static void Receive_connection_set(");
+
+        Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", getter);
+        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", getter);
+        // The setter's slot holds the borrowed object pointer: bridge the live object.
+        Assert.DoesNotContain($"MarshalFromSwift<{csType.Replace("global::", "")}>(", setter);
+        Assert.DoesNotContain($"MarshalFromSwift<{csType}>(", setter);
+        Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType}>(", setter);
+    }
+
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_SubscriptReceivers_FoundationClass_BridgeElementAndIndex(string swiftType, string surfaceName, string csType)
+    {
+        using var surface = FoundationClassSurface(surfaceName);
+        var protocol = CreateSimpleProtocol("FoundationClassSubscriptProto");
+        protocol.Subscripts.Add(new SubscriptDecl
+        {
+            Name = "subscript",
+            MangledName = "$s7IndexedP9subscriptS2icig",
+            ReturnTypeSpec = new NamedTypeSpec(swiftType),
+            IndexParameters = new List<ArgumentDecl>
+            {
+                new() { Name = "key", PrivateName = "key", SwiftTypeSpec = new NamedTypeSpec(swiftType), IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null }
+            },
+            IsStatic = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("subscript_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("subscript_set") }
+            },
+            ParentDecl = null,
+            ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocol);
+        var getter = ExtractMethodBody(output, "private static IntPtr Receive_subscript_0_get(");
+        var setter = ExtractMethodBody(output, "private static void Receive_subscript_0_set(");
+
+        Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", getter);
+        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", getter);
+        foreach (var body in new[] { getter, setter })
+        {
+            Assert.DoesNotContain($"MarshalFromSwift<{csType.Replace("global::", "")}>(", body);
+            Assert.DoesNotContain($"MarshalFromSwift<{csType}>(", body);
+            Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType}>(", body);
+        }
+    }
+
     [Fact]
     public void EmitProxyClass_MethodReceiver_OptionalClassParam_UsesOptionalCopyOut()
     {

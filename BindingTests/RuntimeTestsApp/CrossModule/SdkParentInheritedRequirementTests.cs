@@ -13,7 +13,9 @@ namespace RuntimeTestsApp.CrossModule;
 /// (<c>SdkParentInheritedRequirement.swift</c>): <c>SdkParentAccepting</c>'s one requirement,
 /// <c>accept(connection:)</c>, is ExtensionFoundation's <c>AppExtensionConfiguration</c>'s, read
 /// from the SDK interface. Swift must dispatch it into a C# conformer, through the child and the
-/// parent existential, and hand the conformer the <c>NSXPCConnection</c> it built.
+/// parent existential, and hand the conformer the <c>NSXPCConnection</c> it built. A same-module
+/// protocol (<c>FoundationObjectVending</c>) covers the other directions of a Foundation-class slot:
+/// a requirement that returns one and a get/set property of one.
 /// </summary>
 public class SdkParentInheritedRequirementTests : TestBase
 {
@@ -49,6 +51,53 @@ public class SdkParentInheritedRequirementTests : TestBase
         AssertEqual(2, acceptor.Calls, "the parent existential reached the same conformer");
         AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
             "the conformer received the connection Swift passed through the parent");
+
+        AssertTrue(Functions.AcceptFreshConnectionGenerically(acceptor), "the conformer's answer comes back through a generic parameter");
+        AssertEqual(3, acceptor.Calls, "the generic parameter reached the same conformer");
+        AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
+            "the conformer received the connection Swift passed through the generic parameter");
+    }
+
+    // A requirement returning a Foundation class: the object the conformer returns must reach Swift
+    // with a reference of its own, so Swift still holds it, exactly once, after C# lets it go.
+    public void TestFoundationObjectReturn_CrossesWithItsOwnReference()
+    {
+        var vendor = new ObjectVendor();
+        var address = Functions.KeepVendedObject(vendor);
+        AssertTrue(vendor.LastVended is not null, "the call reached the conformer");
+        AssertEqual((ulong)address, (ulong)(nint)vendor.LastVended!.Handle, "Swift received the object the conformer returned");
+
+        vendor.LastVended.Dispose();
+        vendor.LastVended = null;
+        AssertEqual(1L, (long)Functions.VendedObjectRetainCount(), "Swift holds exactly its own reference once C# lets go");
+        Functions.ReleaseVendedObject();
+    }
+
+    // A get/set property of a Foundation class: the object Swift stores reaches the conformer as the
+    // live object, and reading it back hands Swift that object without leaking a reference.
+    public void TestFoundationObjectProperty_RoundTripsTheLiveObject()
+    {
+        var vendor = new ObjectVendor();
+        var stored = Functions.StoreFreshObject(vendor);
+        AssertEqual((ulong)stored, (ulong)(nint)vendor.Current.Handle, "the conformer received the object Swift stored");
+
+        var before = Functions.StoredObjectRetainCount();
+        for (var i = 0; i < 3; i++)
+            AssertEqual((ulong)stored, (ulong)Functions.ReadCurrentObject(vendor), "Swift reads back the object it stored");
+        AssertEqual((long)before, (long)Functions.StoredObjectRetainCount(), "reading the property leaks no reference");
+        Functions.ReleaseStoredObject();
+    }
+}
+
+internal sealed class ObjectVendor : IFoundationObjectVending
+{
+    public NSObject? LastVended { get; set; }
+    public NSObject Current { get; set; } = new NSObject();
+
+    public NSObject Vend()
+    {
+        LastVended = new NSObject();
+        return LastVended;
     }
 }
 

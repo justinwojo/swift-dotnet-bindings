@@ -47,3 +47,74 @@ public func recordedSdkConnectionAddress() -> UInt {
     guard let connection = recordedSdkConnection else { return 0 }
     return UInt(bitPattern: Unmanaged.passUnretained(connection).toOpaque())
 }
+
+/// Hands a fresh connection to the conformer through a generic parameter, the static-dispatch path.
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+public func acceptFreshConnectionGenerically(_ acceptor: some SdkParentAccepting) -> Bool {
+    return acceptor.accept(connection: freshConnection())
+}
+
+// MARK: - Foundation objects returned and stored through a reverse-dispatch conformance
+//
+// The other directions of the Objective-C class slot the receiver above reads: a requirement that
+// returns a Foundation class, and a get/set property of one. A C# conformer's returned object must
+// cross to Swift with a reference of its own (the Swift thunk takes a +1 over), and the object
+// Swift stores must reach the conformer as the live object, not as a pointer read as a managed
+// reference. `NSObject` is the Foundation class no binding records, like `NSXPCConnection`.
+
+public protocol FoundationObjectVending {
+    func vend() -> NSObject
+    var current: NSObject { get set }
+}
+
+// What the drivers hold on Swift's side, so the tests can ask about it after C# lets go.
+private nonisolated(unsafe) var vendedObject: NSObject?
+private nonisolated(unsafe) var storedObject: NSObject?
+
+private func address(of object: NSObject) -> UInt {
+    UInt(bitPattern: Unmanaged.passUnretained(object).toOpaque())
+}
+
+/// Calls `vend()` and keeps the result; returns its address.
+public func keepVendedObject(_ vendor: any FoundationObjectVending) -> UInt {
+    let object = vendor.vend()
+    vendedObject = object
+    return address(of: object)
+}
+
+/// The retain count of the object `keepVendedObject` kept: Swift's own reference alone is 1 once
+/// every C# wrapper of it is gone.
+public func vendedObjectRetainCount() -> Int {
+    guard let object = vendedObject else { return 0 }
+    return CFGetRetainCount(object)
+}
+
+/// Drops the object `keepVendedObject` kept.
+public func releaseVendedObject() {
+    vendedObject = nil
+}
+
+/// Reads `current` through the existential; returns the address of the object it got.
+public func readCurrentObject(_ vendor: any FoundationObjectVending) -> UInt {
+    return address(of: vendor.current)
+}
+
+/// Stores a fresh object into `current` through the existential, keeps it, and returns its address.
+public func storeFreshObject(_ vendor: any FoundationObjectVending) -> UInt {
+    var target = vendor
+    let object = NSObject()
+    storedObject = object
+    target.current = object
+    return address(of: object)
+}
+
+/// The retain count of the object `storeFreshObject` kept.
+public func storedObjectRetainCount() -> Int {
+    guard let object = storedObject else { return 0 }
+    return CFGetRetainCount(object)
+}
+
+/// Drops the object `storeFreshObject` kept.
+public func releaseStoredObject() {
+    storedObject = nil
+}

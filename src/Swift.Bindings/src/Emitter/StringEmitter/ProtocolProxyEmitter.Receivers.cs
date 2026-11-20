@@ -266,8 +266,7 @@ public partial class ProtocolProxyEmitter
     {
         if (valueTypeSpec == null)
             return;
-        var projection = s_projectionFactory.Project(valueTypeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(valueTypeSpec, isParameter: true);
         foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
             SuppressedProxyReporting.RecordReceiver(memberDescriptor, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName);
     }
@@ -1879,8 +1878,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection is not DictionaryProjection dict) return null;
 
         // Owned (+1) element conversions: materializing this receiver param via .ToDictionary()
@@ -1920,8 +1918,7 @@ public partial class ProtocolProxyEmitter
         var existentialConv = GetReceiverExistentialGetterConversion(varName, typeSpec);
         if (existentialConv != null) return existentialConv;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverGetterConversionVisitor(varName, this));
@@ -2164,8 +2161,11 @@ public partial class ProtocolProxyEmitter
     internal static ReceiverInOutWriteBackKind ClassifyInOutWriteBack(TypeSpec typeSpec, ITypeDatabase typeDatabase,
         string moduleName, ModuleEmissionContext? emissionContext)
     {
+        // A resolver-only ObjC class (see ResolverOnlyObjCClassType) writes back like an ObjC class
+        // with a record of its own: the receiver hands the slot the new object's handle.
         var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext });
+            new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext })
+            ?? (ResolverOnlyObjCClassType(typeSpec, typeDatabase, moduleName, emissionContext) is string objcClass ? new ObjCBridgedProjection(objcClass) : null);
         return projection?.Accept(new ReceiverInOutWriteBackKindVisitor()) ?? ReceiverInOutWriteBackKind.Unsupported;
     }
 
@@ -2191,8 +2191,7 @@ public partial class ProtocolProxyEmitter
             }
             case ReceiverInOutWriteBackKind.ClassReference:
             {
-                var projection = s_projectionFactory.Project(typeSpec,
-                    new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+                var projection = ProjectReceiverType(typeSpec, isParameter: true);
                 var isOptional = projection is OptionalProjection;
                 var classProjection = projection is OptionalProjection opt ? opt.InnerProjection : projection;
                 var handleMember = classProjection is ClassProjection ? "Payload.DangerousGetHandle()" : "Handle";
@@ -2239,8 +2238,7 @@ public partial class ProtocolProxyEmitter
         convExpr = "";
         if (typeSpec == null)
             return false;
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection is not OptionalProjection { InnerProjection: ObjCBridgeableProjection objc })
             return false;
         marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
@@ -2256,8 +2254,7 @@ public partial class ProtocolProxyEmitter
     private ReceiverSlotReadKind GetReceiverSlotReadKind(TypeSpec? typeSpec)
     {
         if (typeSpec == null) return ReceiverSlotReadKind.RawRead;
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         return projection?.Accept(new ReceiverSlotReadKindVisitor()) ?? ReceiverSlotReadKind.RawRead;
     }
 
@@ -2275,18 +2272,40 @@ public partial class ProtocolProxyEmitter
     /// expression, or <c>null</c> for any non-class param (caller keeps its own path).
     /// </summary>
     /// <summary>
+    /// The projection a Swift callback receiver marshals a slot of <paramref name="typeSpec"/> through:
+    /// the factory's, or, for an Objective-C class only the resolver's ObjC bridging reaches (see
+    /// <see cref="GetResolverOnlyObjCClassType"/>), the ObjC-bridged projection of its C# type, so
+    /// every receiver direction (argument, index, setter value, return, getter result) bridges the
+    /// object pointer the way it does for an ObjC class with a record of its own: a borrowed argument
+    /// is bridged at +0, a result crosses to Swift with a +1 retain the Swift thunk's <c>move()</c>
+    /// takes over.
+    /// </summary>
+    private ITypeProjection? ProjectReceiverType(TypeSpec? typeSpec, bool isParameter)
+    {
+        if (typeSpec is null)
+            return null;
+        return s_projectionFactory.Project(typeSpec,
+                new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = isParameter, CurrentModuleName = _moduleName, EmissionContext = _emissionContext })
+            ?? (GetResolverOnlyObjCClassType(typeSpec) is string objcClass ? new ObjCBridgedProjection(objcClass) : null);
+    }
+
+    /// <summary>
     /// The C# type of an Objective-C class argument the projection factory cannot project because
     /// the type database holds no record for it, only the resolver's ObjC bridging does (a Foundation
     /// class); null for any other type, including one whose Apple projection is absent.
     /// </summary>
     internal string? GetResolverOnlyObjCClassType(TypeSpec? typeSpec)
+        => ResolverOnlyObjCClassType(typeSpec, _typeDatabase, _moduleName, _emissionContext);
+
+    internal static string? ResolverOnlyObjCClassType(TypeSpec? typeSpec, ITypeDatabase typeDatabase,
+        string moduleName, ModuleEmissionContext? emissionContext)
     {
         if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named)
             return null;
         if (s_projectionFactory.Project(typeSpec,
-                new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext }) is not null)
+                new ProjectionContext { TypeDatabase = typeDatabase, IsParameter = true, CurrentModuleName = moduleName, EmissionContext = emissionContext }) is not null)
             return null;
-        if (!_typeDatabase.TryGetTypeRecord(named, out var record)
+        if (!typeDatabase.TryGetTypeRecord(named, out var record)
             || !MarshallingHelpers.IsObjCBridged(record)
             || record.Kind != TypeRecordKind.Class
             || (record.Flags & TypeRecordFlags.AbsentAppleProjection) != 0)
@@ -2299,8 +2318,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverClassCopyOutVisitor(slotExpr));
@@ -2319,8 +2337,7 @@ public partial class ProtocolProxyEmitter
         var existentialConv = GetReceiverExistentialSetterConversion(varName, typeSpec);
         if (existentialConv != null) return existentialConv;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection == null) return null;
 
         return projection.Accept(new ReceiverSetterConversionVisitor(varName, this));
@@ -2431,8 +2448,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = true, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection == null) return null;
 
         // Standalone existential. This is the getter RETURN direction (C#→Swift, +1 owned), so mint
@@ -2510,8 +2526,7 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return null;
 
-        var projection = s_projectionFactory.Project(typeSpec,
-            new ProjectionContext { TypeDatabase = _typeDatabase, IsParameter = false, CurrentModuleName = _moduleName, EmissionContext = _emissionContext });
+        var projection = ProjectReceiverType(typeSpec, isParameter: false);
         if (projection == null) return null;
 
         // Standalone existential

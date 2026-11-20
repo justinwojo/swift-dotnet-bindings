@@ -122,6 +122,38 @@ public class UnboundParentRequirementsTests
         Assert.Equal(added ? 1 : 0, child.Methods.Count);
     }
 
+    [Theory]
+    // An unconstrained default the bound module declares on the parent witnesses the requirement for
+    // every conformer, Swift's own carrier included: the C# side must not take the call over.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", false)]
+    // A default constrained to the child alone witnesses it for every conformer of the child.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "Self : TestModule.ForeignConfigAccepting", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", false)]
+    // Constrained beyond the child, it does not.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "Self : AnyObject", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", true)]
+    // A same-label member of another type is an overload, not a witness.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSObject) -> Swift.Bool", true)]
+    // An extension of another module's protocol of the same name extends another protocol.
+    [InlineData("OtherKit.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", true)]
+    public void ADefaultTheModuleDeclaresOnTheParentIsHonoured(string extendedType, string whereConstraint, string signature, bool added)
+    {
+        using var sdk = FakeSdkInterfaces.Standard();
+        using var surface = Surface(Class("Foundation", "NSXpcConnection"), Class("Foundation", "NSObject"));
+        var child = Child(viaGenericSig: false);
+        var candidate = new ExtensionMemberCandidate
+        {
+            ExtendedTypeName = extendedType,
+            MethodName = "accept",
+            RawSignature = signature,
+            PrintedName = "accept(connection:)",
+            WhereConstraints = whereConstraint.Length == 0 ? new List<string>() : new List<string> { whereConstraint },
+        };
+
+        var result = UnboundParentRequirements.Inject(Module(child), Database(), NullLogger.Instance, new[] { candidate });
+
+        Assert.Equal(added ? 1 : 0, result.Count);
+        Assert.Equal(added ? 1 : 0, child.Methods.Count);
+    }
+
     [Fact]
     public void ASameLabelOverloadOfAnotherTypeDoesNotSuppressTheRequirement()
     {

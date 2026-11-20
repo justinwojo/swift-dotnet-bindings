@@ -17,6 +17,11 @@ public partial class ProtocolProxyEmitter
     {
         if (typeSpec == null) return "object";
 
+        // An ObjC class only the resolver's ObjC bridging reaches occupies its Swift slot as the
+        // object pointer, as an ObjC class with a record of its own does.
+        if (forAbiMarshalling && GetResolverOnlyObjCClassType(typeSpec) is not null)
+            return "IntPtr";
+
         var mode = TypeResolutionMode.ExistentialFallback | TypeResolutionMode.IncludeTupleLabels;
         if (forAbiMarshalling)
             mode |= TypeResolutionMode.AbiMarshalling;

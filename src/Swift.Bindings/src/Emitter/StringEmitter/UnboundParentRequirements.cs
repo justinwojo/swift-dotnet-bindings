@@ -25,7 +25,9 @@ namespace BindingsGeneration;
 /// than one protocol of the module refines (the carrier's one conformance to the parent would share a
 /// single witness between them) gets nothing added, and its child's conformance stays with the
 /// verify-recover loop (withdrawn with its report row). A requirement the child declares, or defaults
-/// in an unconstrained extension of its own, with the same labels and types is not added. One
+/// in an unconstrained extension of its own, with the same labels and types is not added, nor one the
+/// module implements in an extension of the parent itself (unconstrained, or constrained to the
+/// child alone). One
 /// unbound level only.
 /// </para>
 ///
@@ -54,8 +56,10 @@ internal static class UnboundParentRequirements
     /// Adds to each protocol of <paramref name="moduleDecl"/> the requirements without a default of
     /// every protocol it refines from an unbound SDK module, and returns what it added.
     /// </summary>
-    internal static IReadOnlyList<MethodDecl> Inject(ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ILogger logger)
+    internal static IReadOnlyList<MethodDecl> Inject(ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ILogger logger,
+        IReadOnlyList<ExtensionMemberCandidate>? extensionMembers = null)
     {
+        extensionMembers ??= Array.Empty<ExtensionMemberCandidate>();
         var added = new List<MethodDecl>();
         // The carrier witnesses a parent's requirement once for every child: Swift's conformance of
         // EveryProtocol to the parent is one, so a witness written in one child's extension also
@@ -106,6 +110,8 @@ internal static class UnboundParentRequirements
                     if (protocol.Methods.Any(m => !m.IsAccessor && Declares(m, requirement)))
                         continue;
                     if (ChildDefaults(protocol, requirement))
+                        continue;
+                    if (ModuleDefaultsOnParent(protocol, parent, requirement, extensionMembers))
                         continue;
                     var method = Build(moduleDecl, protocol, parent, requirement);
                     protocol.Methods.Add(method);
@@ -161,6 +167,58 @@ internal static class UnboundParentRequirements
             && signature.Parameters.All(p => p == "τ_0_0")
             && signature.Requirements.All(r => r.Kind == GenericRequirementKind.Conformance && r.IsDirect
                 && r.SubjectRoot == "τ_0_0" && string.Equals(r.Target, self, StringComparison.Ordinal)));
+    }
+
+    /// <summary>
+    /// Whether the module being bound implements the requirement in an extension of the parent
+    /// itself (<c>extension ExtensionFoundation.AppExtensionConfiguration { public func accept… }</c>),
+    /// unconstrained or constrained to the child alone: every conformer of the child, the carrier
+    /// included, then has Swift's witness, so the requirement is not the child's to add (adding it
+    /// would make a C# member required and route the call through managed dispatch instead). Only
+    /// an instance method with the requirement's labels and types counts; a member whose signature
+    /// does not read is compared by its labels, as the SDK interface's defaults are.
+    /// </summary>
+    private static bool ModuleDefaultsOnParent(
+        ProtocolDecl protocol,
+        ForeignProtocolRequirements.TypedParent parent,
+        ForeignProtocolRequirements.TypedRequirement requirement,
+        IReadOnlyList<ExtensionMemberCandidate> extensionMembers)
+    {
+        foreach (var member in extensionMembers)
+        {
+            if (member.IsStatic || member.IsProperty
+                || !string.Equals(StripGenericArguments(member.ExtendedTypeName), parent.QualifiedName, StringComparison.Ordinal)
+                || !member.WhereConstraints.All(c => ConstrainsSelfToChildAlone(c, protocol))
+                || !string.Equals(member.PrintedName + (ProtocolExtensionEmitter.IsAsyncSignature(member.RawSignature) ? " async" : string.Empty),
+                    requirement.Key, StringComparison.Ordinal))
+                continue;
+            var signature = ProtocolExtensionEmitter.ParseFunctionSignature(
+                member.RawSignature, member.MethodName, returnsSelf: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+            if (signature is not { } parsed)
+                return true;
+            if (parsed.parameters.Count == requirement.Parameters.Count
+                && SameType(parsed.returnTypeSpec ?? TupleTypeSpec.Empty, requirement.ReturnType)
+                && parsed.parameters.Select(p => p.typeSpec).Zip(requirement.Parameters).All(pair => SameType(pair.First, pair.Second.Type)))
+                return true;
+        }
+        return false;
+    }
+
+    private static string StripGenericArguments(string name)
+    {
+        var angle = name.IndexOf('<');
+        return (angle < 0 ? name : name[..angle]).Trim();
+    }
+
+    // `Self : Module.Child` (or the child's bare name): the constraint every conformer of the child meets.
+    private static bool ConstrainsSelfToChildAlone(string constraint, ProtocolDecl protocol)
+    {
+        var colon = constraint.IndexOf(':');
+        if (colon < 0 || constraint[..colon].Trim() != "Self")
+            return false;
+        var target = constraint[(colon + 1)..].Trim();
+        return string.Equals(target, protocol.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal)
+            || string.Equals(target, protocol.Name, StringComparison.Ordinal);
     }
 
     /// <summary>
