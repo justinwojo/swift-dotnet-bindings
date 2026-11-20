@@ -5,6 +5,7 @@ using AVFoundation;
 using Foundation;
 using RuntimeTestsApp.Infrastructure;
 using Swift;
+using Swift.Runtime;
 using SwiftBindingsTestLib;
 
 namespace RuntimeTestsApp.Protocols;
@@ -60,7 +61,7 @@ public class PlatformClassMarkerCompositionTests : TestBase
         using var session = new PlatformAssetMarkerSession(asset);
         var echoed = session.Echo(asset);
         AssertTrue(echoed is AVUrlAsset, $"echoed object must keep its class, got {echoed?.GetType().Name}");
-        AssertEqual(asset.Handle, echoed.Handle, "the echoed composition must be the identical object");
+        AssertTrue(echoed is not null && echoed.Handle == asset.Handle, "the echoed composition must be the identical object");
     }
 
     public void TestOptionalAndArrayParameters()
