@@ -1256,9 +1256,10 @@ public static class BindingsGeneratorCommand
         // byte-identical for a healthy module. The delegate reuses the already-resolved slice (the denylist
         // never changes resolution) and never re-resolves, so it adds no input-resolution decisions; the
         // loop additionally snapshots and restores that report so the finalized manifest is unaffected.
-        // Device/`all` wrapper-arch modes keep today's single-emission path (delegate null): wave-1
-        // verify-recover covers the simulator slice, and a device-only failure still fails the build closed
-        // through the unchanged post-loop compile.
+        // `all` runs the loop when the resolved slice is the one CompileAll builds as its primary (the
+        // simulator, or the device on a platform without one) and grades the device slice beside it. The
+        // device-only wrapper mode keeps the single-emission path (delegate null): a device-only failure
+        // still fails the build closed through the unchanged post-loop compile.
         Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? verifyRecoverCompile = null;
         // The SDK's two-pass flow: this pass only renders the wrapper (--skip-wrapper-compilation) and
         // _CompileSwiftWrapper compiles it later. Without a loop here, one member whose wrapper does not
@@ -1276,7 +1277,10 @@ public static class BindingsGeneratorCommand
         var sdkDeferredWrapperProbe = skipWrapperCompilation && sdkMode && wouldCompileWrapper
             && resolution != null && xcframeworkPath != null
             && DeferredCompileBuildsProbeSlice(platformInfo.HasSimulatorVariant, resolution.IsSimulatorSlice, wrapperArchNormalized);
-        if ((shouldCompileWrapper && resolution != null && wrapperArchNormalized == "simulator")
+        if ((shouldCompileWrapper && resolution != null
+                && (wrapperArchNormalized == "simulator"
+                    || (wrapperArchNormalized == "all"
+                        && DeferredCompileBuildsProbeSlice(platformInfo.HasSimulatorVariant, resolution.IsSimulatorSlice, wrapperArchNormalized))))
             || sdkDeferredWrapperProbe)
         {
             var loopResolution = resolution!;
@@ -1298,7 +1302,57 @@ public static class BindingsGeneratorCommand
             var loopDeviceCollisions = !loopOnSimulator && wrapperArchNormalized == "device";
 
             WrapperCompileDiagnostics CompilePrimarySlice(WrapperRecoveryCompileRequest req, string compileDirectory) =>
-                CompileSlice(req, compileDirectory, loopResolution);
+                wrapperArchNormalized == "all"
+                    ? CompileShippedSlices(req, compileDirectory, WrapperProbeArchitectures.DecidedPrimary(
+                        targetArchitectures, loopResolution.SupportedArchitectures, loopResolution.LibraryIdentifier))
+                    : CompileSlice(req, compileDirectory, loopResolution);
+
+            // Under `all` the wrapper ships the device slice beside the simulator slice (the SDK's default),
+            // so each architecture compiles exactly as the shipping compile builds it: both slices resolved
+            // for that architecture and compiled through CompileAll, with its simulator-only guards, its one
+            // deployment target, and no device slice when the source has none for that architecture. A
+            // member that compiles on the simulator and not on the device is withdrawn on both instead of
+            // failing that compile.
+            List<string>? loopDeviceDepPaths = null;
+            WrapperCompileDiagnostics CompileShippedSlices(
+                WrapperRecoveryCompileRequest req, string compileDirectory, string? architecture)
+            {
+                var resolveDirectory = Directory.CreateTempSubdirectory("swiftbindings-probe-resolve-").FullName;
+                try
+                {
+                    var (simResolution, deviceResolution) = XCFrameworkResolver.ResolveAll(
+                        xcframeworkPath!, resolveDirectory, logger, platformInfo: platformInfo,
+                        requestedArchitecture: architecture, companionFrameworkPaths: frameworkDependencies);
+                    loopDeviceDepPaths ??= XCFrameworkResolver.MergeWrapperDependencySearchPaths(
+                        resolvedDependencies?
+                            .Where(d => d.DeviceFrameworkSearchPath != null)
+                            .Select(d => d.DeviceFrameworkSearchPath!)
+                            .ToList(),
+                        xcframeworkPath!, XCFrameworkPlatformTarget.Device, logger, platformInfo);
+                    var collector = new WrapperSliceCollector();
+                    var result = SwiftWrapperCompiler.CompileAll(
+                        compileDirectory, simResolution.ModuleName,
+                        simResolution, deviceResolution, logger,
+                        internalTypeNames: req.InternalTypeNames,
+                        simAdditionalSearchPaths: loopSimDepPaths,
+                        deviceAdditionalSearchPaths: loopDeviceDepPaths,
+                        skipThunkCompilation: skipThunkCompilation,
+                        platformInfo: platformInfo,
+                        moduleNameForCollision: req.ModuleNameForCollision,
+                        nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
+                        swiftInterfacePath: simResolution.SwiftInterfacePath,
+                        depModuleNamesForCollisionSimulator: req.DepModuleCollisions.Simulator,
+                        depModuleNamesForCollisionDevice: req.DepModuleCollisions.Device,
+                        linkFrameworks: linkFrameworks,
+                        linkLibraries: linkLibraries,
+                        collector: collector);
+                    return collector.ToDiagnostics(result);
+                }
+                finally
+                {
+                    Directory.Delete(resolveDirectory, recursive: true);
+                }
+            }
 
             WrapperCompileDiagnostics CompileSlice(
                 WrapperRecoveryCompileRequest req, string compileDirectory, XCFrameworkResolution sliceResolution)
@@ -1337,6 +1391,8 @@ public static class BindingsGeneratorCommand
             WrapperCompileDiagnostics CompileExtraArchitecture(WrapperRecoveryCompileRequest req, string architecture) =>
                 SdkWrapperProbe.Run(req, (probeReq, compileDirectory) =>
                 {
+                    if (wrapperArchNormalized == "all")
+                        return CompileShippedSlices(probeReq, compileDirectory, architecture);
                     var resolveDirectory = compileDirectory + ".resolve";
                     try
                     {
@@ -1354,9 +1410,15 @@ public static class BindingsGeneratorCommand
                     }
                 }, logger);
 
+            // The loop's resolved slice compiles as the primary; any other architecture of the decided
+            // set, including a primary the slice did not resolve to (an explicit x86_64-only list on a
+            // universal simulator slice), compiles against its own resolution. Under `all` the plan's first
+            // architecture is the primary, pinned as shipping pins it, whichever one the slice resolved to.
             verifyRecoverCompile = req => WrapperProbeArchitectures.Probe(
                 probeArchitectures,
-                architecture => architecture != probeArchitectures[0]
+                architecture => !WrapperProbeArchitectures.IsPrimaryPass(
+                        architecture, probeArchitectures, loopResolution.SelectedArchitecture,
+                        compilesBothSlices: wrapperArchNormalized == "all")
                     ? CompileExtraArchitecture(req, architecture)
                     : sdkDeferredWrapperProbe
                         ? SdkWrapperProbe.Run(req, CompilePrimarySlice, logger)
@@ -1419,30 +1481,78 @@ public static class BindingsGeneratorCommand
                     directLoopSlice.Architecture, directLoopPrimaryArch, directLoopExtraArchs,
                     BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(directLoopSlice));
 
+                // The wrapper also ships the platform's other slice whenever the SDK binds the framework
+                // (its second-slice step builds it from this render) or this run collects the lowering
+                // receipt (the post-loop compile builds both slices): the simulator, at every decided
+                // architecture it can build, beside a device-first slice; the device beside a simulator
+                // one. Each is graded in its own SDK's copy of the framework, as the post-loop compile
+                // resolves it, so a member that fails only there (the Intel simulator pass of a
+                // device-first run) is withdrawn on every slice instead of failing that build.
+                var directOtherSlice = WrapperProbeArchitectures.OtherShippedSlice(
+                    platformInfo.HasSimulatorVariant, directLoopSlice.IsSimulator, sdkMode,
+                    collectsLoweringEvidence: !string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence));
+                var simulatorSlice = platformInfo.GetSlice(true);
+                var directProbePasses = WrapperProbeArchitectures.PlanForAppleFramework(
+                    probeArchitectures, directOtherSlice, directLoopPrimaryArch, directLoopExtraArchs,
+                    simulatorSlice.Architecture, BindingsGenerator.GetAppleFrameworkSliceNaturalArchs(simulatorSlice),
+                    platformInfo.DeviceSlice.Architecture);
+                (XCFrameworkResolution Sim, Func<string, XCFrameworkResolution?> SimFor, XCFrameworkResolution? Device)? directOtherResolutions = null;
+                string? directOtherUnresolved = null;
+
                 WrapperCompileDiagnostics CompileDirectSlice(
-                    WrapperRecoveryCompileRequest req, string compileDirectory, SliceVariant slice)
+                    WrapperRecoveryCompileRequest req, string compileDirectory, SliceVariant slice,
+                    string searchPath, string sliceTbd, string? sliceInterface)
                 {
                     var collector = new WrapperSliceCollector();
                     var result = SwiftWrapperCompiler.CompileSlice(
                         compileDirectory, directLoopModuleName,
-                        directLoopSearchPath, tbdPath, slice, logger,
+                        searchPath, sliceTbd, slice, logger,
                         internalTypeNames: req.InternalTypeNames,
                         moduleNameForCollision: req.ModuleNameForCollision,
                         nestedTypesInCollidingClass: req.NestedTypesInCollidingClass,
-                        swiftInterfacePath: swiftInterface,
+                        swiftInterfacePath: sliceInterface,
                         skipThunkCompilation: skipThunkCompilation,
                         collector: collector);
                     return collector.ToDiagnostics(result);
                 }
 
+                // A pass on the other slice resolves the framework in that slice's SDK once per run. A
+                // slice that cannot be resolved throws, which leaves it to the build that ships it.
+                WrapperCompileDiagnostics CompileOtherSlice(
+                    WrapperRecoveryCompileRequest req, string compileDirectory, WrapperProbePass pass)
+                {
+                    if (directOtherResolutions is null && directOtherUnresolved is null)
+                    {
+                        directOtherResolutions = ResolveAppleFrameworkSlices(
+                            directLoopModuleName, swiftAbiPath!, tbdPath!, directLoopSlice, platformInfo, logger, out var why);
+                        directOtherUnresolved = directOtherResolutions is null ? why ?? "unresolved" : null;
+                    }
+                    var resolutions = directOtherResolutions
+                        ?? throw new InvalidOperationException($"the {pass.Slice} slice cannot be resolved ({directOtherUnresolved})");
+                    var resolution = pass.Slice == WrapperProbeArchitectures.DeviceSlice
+                        ? resolutions.Device
+                        : resolutions.SimFor(pass.Architecture);
+                    if (resolution is null)
+                        throw new InvalidOperationException($"the {pass.Label} slice cannot be resolved");
+                    var variant = (pass.Slice == WrapperProbeArchitectures.DeviceSlice ? platformInfo.DeviceSlice : simulatorSlice)
+                        .WithArchitecture(resolution.SelectedArchitecture);
+                    return CompileDirectSlice(
+                        req, compileDirectory, variant, resolution.FrameworkSearchPath, resolution.TbdPath, resolution.SwiftInterfacePath);
+                }
+
                 verifyRecoverCompile = req => WrapperProbeArchitectures.Probe(
-                    probeArchitectures,
-                    architecture => architecture != probeArchitectures[0]
+                    directProbePasses,
+                    pass => pass.Slice is not null
                         ? SdkWrapperProbe.Run(req,
-                            (probeReq, compileDirectory) => CompileDirectSlice(
-                                probeReq, compileDirectory, directLoopSlice.WithArchitecture(architecture)),
+                            (probeReq, compileDirectory) => CompileOtherSlice(probeReq, compileDirectory, pass),
                             logger)
-                        : CompileDirectSlice(req, req.OutputDirectory, directLoopSlice),
+                        : pass != directProbePasses[0]
+                            ? SdkWrapperProbe.Run(req,
+                                (probeReq, compileDirectory) => CompileDirectSlice(
+                                    probeReq, compileDirectory, directLoopSlice.WithArchitecture(pass.Architecture),
+                                    directLoopSearchPath, tbdPath!, swiftInterface),
+                                logger)
+                            : CompileDirectSlice(req, req.OutputDirectory, directLoopSlice, directLoopSearchPath, tbdPath!, swiftInterface),
                     logger);
             }
         }

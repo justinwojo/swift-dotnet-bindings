@@ -952,16 +952,23 @@ partial class Build
         {
             try
             {
-                var process = ProcessTasks.StartProcess("git", $"-C \"{RootDirectory}\" {arguments}", logOutput: false);
+                // Built as a plain string first: interpolated straight into StartProcess, Nuke's argument
+                // handler quotes a value with spaces, and git would read "rev-parse HEAD" as one command.
+                var gitArguments = $"-C \"{RootDirectory}\" {arguments}";
+                var process = ProcessTasks.StartProcess("git", gitArguments, logOutput: false);
                 process.AssertWaitForExit();
                 return process.ExitCode == 0 ? process.Output.StdToText() : null;
             }
             catch { return null; }
         }
+        // Nuke rewrites its own parameter schema at startup whenever the build's parameters changed since
+        // the committed copy, so it is an output of running the build, not a source the run read. Untracked
+        // files count whatever the user's status.showUntrackedFiles says.
+        const string ExceptNukeSchema = "-- . :(exclude).nuke/build.schema.json";
         var commit = Git("rev-parse HEAD")?.Trim();
-        var porcelain = Git("status --porcelain");
+        var porcelain = Git($"status --porcelain --untracked-files=all {ExceptNukeSchema}");
         // An unreadable status is never clean.
-        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git("diff HEAD") ?? "");
+        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git($"diff HEAD {ExceptNukeSchema}") ?? "");
     }
 
     // ============================================================

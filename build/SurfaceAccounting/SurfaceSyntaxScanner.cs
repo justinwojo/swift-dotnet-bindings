@@ -184,7 +184,10 @@ public static class SurfaceSyntaxScanner
                         Attributes = GetAttributes(type.AttributeLists, normalizer),
                         Tombstoned = false,
                     };
-                    drafts.Add(new MemberDraft(key, shape, [context.Reference(type)], []));
+                    drafts.Add(new MemberDraft(key, shape, [context.Reference(type)], [])
+                    {
+                        PartialType = HasModifier(type.Modifiers, SyntaxKind.PartialKeyword),
+                    });
                     break;
                 }
                 case DelegateDeclarationSyntax del:
@@ -857,10 +860,12 @@ public static class SurfaceSyntaxScanner
         IReadOnlyList<MemberDraft> drafts)
     {
         var first = drafts[0];
-        var shapeDigests = drafts.Select(d => d.Shape.Digest).Distinct(StringComparer.Ordinal).ToList();
-        if (shapeDigests.Count != 1)
-            throw new InvalidDataException(
-                $"Conflicting duplicate public key '{first.Key.Display}' in target {targetKey.TargetName}.");
+        var shape = drafts.Count > 1 && drafts.All(d => d.PartialType)
+            ? MergePartialTypeShape(targetKey, drafts)
+            : drafts.Select(d => d.Shape.Digest).Distinct(StringComparer.Ordinal).Count() == 1
+                ? first.Shape
+                : throw new InvalidDataException(
+                    $"Conflicting duplicate public key '{first.Key.Display}' in target {targetKey.TargetName}.");
         var references = drafts.SelectMany(d => d.References)
             .DistinctBy(r => (r.FileSha256, r.RelativePath, r.StartLine, r.EndLine))
             .OrderBy(r => r.RelativePath, StringComparer.Ordinal)
@@ -886,12 +891,39 @@ public static class SurfaceSyntaxScanner
             Module = module,
             SurfaceLane = surfaceLane,
             PublicKey = first.Key,
-            PublicShape = first.Shape,
+            PublicShape = shape,
             SourceReferences = references,
             ApiManifest = [],
             NativeBindings = native,
-            State = first.Shape.Tombstoned ? "present-tombstoned" : "present-callable-unproven",
+            State = shape.Tombstoned ? "present-tombstoned" : "present-callable-unproven",
             JoinStatus = native.Count == 0 ? "native-unmapped" : "native-syntax-resolved",
+        };
+    }
+
+    // The parts of a partial type declare one type (C# spec, partial declarations). Its attributes are every
+    // part's applications (a repeatable attribute applied in two parts counts twice), ordered as each part's
+    // are. Its bases are the union of the parts' in declared order, because interface order is observable
+    // (variant dispatch). The scan cannot see the project's compile-item order, so parts are taken by file
+    // path and position; bases split across parts in a project that compiles them in another order would
+    // read in the wrong order. Parts must agree on everything else they state.
+    private static SurfacePublicShape MergePartialTypeShape(SurfaceTargetKey targetKey, IReadOnlyList<MemberDraft> drafts)
+    {
+        var parts = drafts
+            .OrderBy(d => d.References[0].RelativePath, StringComparer.Ordinal)
+            .ThenBy(d => d.References[0].StartLine)
+            .ToList();
+        var constraints = parts.Select(p => p.Shape.Constraints).Where(c => c.Count > 0)
+            .Select(c => string.Join('\u001f', c)).Distinct(StringComparer.Ordinal).ToList();
+        var stated = parts.Select(p => (p.Shape with { BaseTypes = [], Attributes = [], Constraints = [] }).Digest)
+            .Distinct(StringComparer.Ordinal).Count();
+        if (stated != 1 || constraints.Count > 1)
+            throw new InvalidDataException(
+                $"Partial declarations of '{parts[0].Key.Display}' in target {targetKey.TargetName} disagree.");
+        return parts[0].Shape with
+        {
+            BaseTypes = parts.SelectMany(p => p.Shape.BaseTypes).Distinct(StringComparer.Ordinal).ToList(),
+            Attributes = parts.SelectMany(p => p.Shape.Attributes).OrderBy(a => a, StringComparer.Ordinal).ToList(),
+            Constraints = parts.Select(p => p.Shape.Constraints).FirstOrDefault(c => c.Count > 0) ?? [],
         };
     }
 
@@ -1023,6 +1055,7 @@ public static class SurfaceSyntaxScanner
         public IReadOnlyList<SurfaceFileReference> References { get; } = references;
         public IReadOnlyList<CallableDraft> Callables { get; } = callables;
         public IReadOnlyList<SurfaceNativeBinding> NativeBindings { get; set; } = [];
+        public bool PartialType { get; init; }
     }
 
     private sealed class CallableDraft(
