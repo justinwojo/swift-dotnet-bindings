@@ -5990,6 +5990,26 @@ public class ProtocolProxyEmitterTests
         Assert.Contains($"{csType.Replace("global::", "")} Make()", output);
     }
 
+    [Fact]
+    public void EmitProxyClass_OptionalFoundationClass_UsesTheSurfacesDotNetSpelling()
+    {
+        // An Optional of an NS-prefixed class with no record projects through the ObjC-prefix
+        // fallback, which must name the type Microsoft.iOS declares (NSXpcConnection), not the
+        // Swift spelling (CS0234).
+        using var surface = FoundationClassSurface("NSXpcConnection");
+        var optional = new NamedTypeSpec("Swift.Optional");
+        optional.GenericParameters.Add(new NamedTypeSpec("Foundation.NSXPCConnection"));
+        var protocol = CreateSimpleProtocol("OptionalFoundationClassProto");
+        var method = CreateMethodDecl("make");
+        method.CSSignature[0].SwiftTypeSpec = optional;
+        protocol.Methods.Add(method);
+
+        var output = EmitProxyClass(protocol);
+
+        Assert.DoesNotContain("Foundation.NSXPCConnection?", output);
+        Assert.Contains("Foundation.NSXpcConnection? Make()", output);
+    }
+
     [Theory]
     [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
     [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]

@@ -1466,7 +1466,7 @@ public static class ProtocolExtensionEmitter
     /// Parses a single parameter from a swiftinterface parameter declaration.
     /// e.g., "_ cache: Module.TypeName" → ("_", NamedTypeSpec("Module.TypeName"), "Module.TypeName")
     /// </summary>
-    internal static (string label, TypeSpec typeSpec, string swiftType)?
+    private static (string label, TypeSpec typeSpec, string swiftType)?
         ParseParameter(string paramDecl)
     {
         var colonIdx = paramDecl.IndexOf(':');
@@ -1529,7 +1529,7 @@ public static class ProtocolExtensionEmitter
     /// prefix without recording it. The attribute list lets callers reattach
     /// closure-affecting attributes (notably <c>escaping</c>) to the parsed TypeSpec.
     /// </summary>
-    internal static (string remaining, List<string> attrNames) StripSwiftAttributes(string typeStr)
+    private static (string remaining, List<string> attrNames) StripSwiftAttributes(string typeStr)
     {
         var attrNames = new List<string>();
         while (typeStr.StartsWith("@"))

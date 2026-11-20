@@ -70,6 +70,14 @@ public protocol FoundationObjectVending {
 // What the drivers hold on Swift's side, so the tests can ask about it after C# lets go.
 private nonisolated(unsafe) var vendedObject: NSObject?
 private nonisolated(unsafe) var storedObject: NSObject?
+// An object only Swift ever referenced, measured the same way: its count is what Swift's own
+// reference alone reads as, whatever the build's optimizer leaves around the measurement.
+private nonisolated(unsafe) var swiftOwnedObject: NSObject? = NSObject()
+
+private func retainCount(of slot: NSObject?) -> Int {
+    guard let object = slot else { return 0 }
+    return CFGetRetainCount(object)
+}
 
 private func address(of object: NSObject) -> UInt {
     UInt(bitPattern: Unmanaged.passUnretained(object).toOpaque())
@@ -82,11 +90,15 @@ public func keepVendedObject(_ vendor: any FoundationObjectVending) -> UInt {
     return address(of: object)
 }
 
-/// The retain count of the object `keepVendedObject` kept: Swift's own reference alone is 1 once
-/// every C# wrapper of it is gone.
+/// The retain count of the object `keepVendedObject` kept: once every C# wrapper of it is gone it
+/// equals `swiftOwnedObjectRetainCount()`.
 public func vendedObjectRetainCount() -> Int {
-    guard let object = vendedObject else { return 0 }
-    return CFGetRetainCount(object)
+    retainCount(of: vendedObject)
+}
+
+/// The retain count of an object only Swift references, read the way the other counts are.
+public func swiftOwnedObjectRetainCount() -> Int {
+    retainCount(of: swiftOwnedObject)
 }
 
 /// Drops the object `keepVendedObject` kept.
@@ -110,8 +122,7 @@ public func storeFreshObject(_ vendor: any FoundationObjectVending) -> UInt {
 
 /// The retain count of the object `storeFreshObject` kept.
 public func storedObjectRetainCount() -> Int {
-    guard let object = storedObject else { return 0 }
-    return CFGetRetainCount(object)
+    retainCount(of: storedObject)
 }
 
 /// Drops the object `storeFreshObject` kept.

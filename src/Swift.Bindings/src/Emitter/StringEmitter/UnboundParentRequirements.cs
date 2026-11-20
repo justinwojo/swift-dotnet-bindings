@@ -89,30 +89,31 @@ internal static class UnboundParentRequirements
                         protocol.Name, parentName);
                     continue;
                 }
+                // What the child still needs: requirements it neither declares nor gets a default for
+                // from its own extensions or the module's extensions of the parent.
+                var needed = parent.Requirements
+                    .Where(requirement => !protocol.Methods.Any(m => !m.IsAccessor && Declares(m, requirement))
+                        && !ChildDefaults(protocol, requirement)
+                        && !ModuleDefaultsOnParent(protocol, parent, requirement, extensionMembers))
+                    .ToList();
                 // A requirement introduced after its parent needs its own availability on every
                 // walk that reaches it, which an added requirement does not carry.
-                if (parent.Requirements.FirstOrDefault(r => r.Attributes.Any(IsAvailability)) is { } floored)
+                if (needed.FirstOrDefault(r => r.Attributes.Any(IsAvailability)) is { } floored)
                 {
                     logger.LogDebug(
                         "Protocol {Protocol}: requirement {Requirement} of {Parent} carries its own availability; its conformance is left to the wrapper compile",
                         protocol.Name, floored.Key, parent.QualifiedName);
                     continue;
                 }
-                if (parent.Requirements.SelectMany(TypesOf).FirstOrDefault(type => !Projects(type, typeDatabase)) is { } unprojected)
+                if (needed.SelectMany(TypesOf).FirstOrDefault(type => !Projects(type, typeDatabase)) is { } unprojected)
                 {
                     logger.LogDebug(
                         "Protocol {Protocol}: a requirement of {Parent} takes or returns {Type}, which has no projection; its conformance is left to the wrapper compile",
                         protocol.Name, parent.QualifiedName, unprojected);
                     continue;
                 }
-                foreach (var requirement in parent.Requirements)
+                foreach (var requirement in needed)
                 {
-                    if (protocol.Methods.Any(m => !m.IsAccessor && Declares(m, requirement)))
-                        continue;
-                    if (ChildDefaults(protocol, requirement))
-                        continue;
-                    if (ModuleDefaultsOnParent(protocol, parent, requirement, extensionMembers))
-                        continue;
                     var method = Build(moduleDecl, protocol, parent, requirement);
                     protocol.Methods.Add(method);
                     added.Add(method);
@@ -191,6 +192,10 @@ internal static class UnboundParentRequirements
                 || !member.WhereConstraints.All(c => ConstrainsSelfToChildAlone(c, protocol))
                 || !string.Equals(member.PrintedName + (ProtocolExtensionEmitter.IsAsyncSignature(member.RawSignature) ? " async" : string.Empty),
                     requirement.Key, StringComparison.Ordinal))
+                continue;
+            // A throwing member cannot witness a requirement that does not throw.
+            if (!requirement.Throws && SwiftParameterClause.Effects(member.RawSignature) is { } effects
+                && System.Text.RegularExpressions.Regex.IsMatch(effects, @"\bthrows\b"))
                 continue;
             var signature = ProtocolExtensionEmitter.ParseFunctionSignature(
                 member.RawSignature, member.MethodName, returnsSelf: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);

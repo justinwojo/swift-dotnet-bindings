@@ -134,6 +134,8 @@ public class UnboundParentRequirementsTests
     [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSObject) -> Swift.Bool", true)]
     // An extension of another module's protocol of the same name extends another protocol.
     [InlineData("OtherKit.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", true)]
+    // A throwing member cannot witness a requirement that does not throw.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) throws -> Swift.Bool", true)]
     public void ADefaultTheModuleDeclaresOnTheParentIsHonoured(string extendedType, string whereConstraint, string signature, bool added)
     {
         using var sdk = FakeSdkInterfaces.Standard();
@@ -152,6 +154,33 @@ public class UnboundParentRequirementsTests
 
         Assert.Equal(added ? 1 : 0, result.Count);
         Assert.Equal(added ? 1 : 0, child.Methods.Count);
+    }
+
+    [Fact]
+    public void ARequirementTheModuleDefaultsDoesNotBlockTheOthers()
+    {
+        // Only what the child still needs must project: a requirement over a type with no
+        // projection, defaulted by the module on the parent, leaves the rest to be added.
+        using var sdk = FakeSdkInterfaces.Create(("Ext", true, """
+            public protocol Configuring {
+              func accept(value: Swift.Int) -> Swift.Bool
+              func peek(on: Ext.Unprojected)
+            }
+            """));
+        var child = Protocol("ExtChild", "Ext.Configuring");
+        var candidate = new ExtensionMemberCandidate
+        {
+            ExtendedTypeName = "Ext.Configuring",
+            MethodName = "peek",
+            RawSignature = "public func peek(on: Ext.Unprojected)",
+            PrintedName = "peek(on:)",
+            WhereConstraints = new List<string>(),
+        };
+
+        Assert.Empty(UnboundParentRequirements.Inject(Module(child), Database(), NullLogger.Instance));
+
+        var added = Assert.Single(UnboundParentRequirements.Inject(Module(child), Database(), NullLogger.Instance, new[] { candidate }));
+        Assert.Equal("accept", added.Name);
     }
 
     [Fact]

@@ -69,7 +69,8 @@ public class SdkParentInheritedRequirementTests : TestBase
 
         vendor.LastVended.Dispose();
         vendor.LastVended = null;
-        AssertEqual(1L, (long)Functions.VendedObjectRetainCount(), "Swift holds exactly its own reference once C# lets go");
+        AssertEqual((long)Functions.SwiftOwnedObjectRetainCount(), (long)Functions.VendedObjectRetainCount(),
+            "Swift holds exactly its own reference once C# lets go, as an object only Swift referenced does");
         Functions.ReleaseVendedObject();
     }
 
