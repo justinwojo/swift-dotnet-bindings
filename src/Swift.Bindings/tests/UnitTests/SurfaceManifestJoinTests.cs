@@ -252,4 +252,96 @@ public class SurfaceManifestJoinTests
         Assert.Equal(1, coverage.ManifestPhantom);
         Assert.NotEmpty(coverage.Errors);
     }
+
+    [Fact]
+    public void LooserReadingThatAdmitsAnUnrecordedSiblingLeavesTheRowAmbiguous()
+    {
+        // The row names IEnumerable through the usings, so it settles only past exact; the
+        // IReadOnlyList sibling has no row of its own and the projection tier would admit it too,
+        // so the row could be describing either overload.
+        const string source = """
+            namespace TestModule
+            {
+                public sealed class Key { }
+                public partial class Cache
+                {
+                    public void Put(global::System.Collections.Generic.IEnumerable<global::TestModule.Key> keys) { }
+                    public void Put(global::System.Collections.Generic.IReadOnlyList<global::TestModule.Key> keys) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Cache.Put(IEnumerable<Key>)", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestAmbiguous);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void SiblingsEachSettledByTheirOwnRowDoNotBlockEachOther()
+    {
+        const string source = """
+            namespace TestModule
+            {
+                public sealed class Key { }
+                public partial class Cache
+                {
+                    public void Put(global::System.Collections.Generic.IEnumerable<global::TestModule.Key> keys) { }
+                    public void Put(global::System.Collections.Generic.IReadOnlyList<global::TestModule.Key> keys) { }
+                }
+            }
+            """;
+        var result = Analyze(
+            source,
+            ("Cache.Put(IEnumerable<Key>)", "sym_enumerable"),
+            ("Cache.Put(IReadOnlyList<Key>)", "sym_list"));
+
+        var coverage = Assert.Single(result.Old.Coverage);
+        Assert.Empty(coverage.Errors);
+        Assert.Equal(2, coverage.ManifestMatched);
+        Assert.Equal("sym_list", result.Old.Members.Single(m => m.PublicKey.Name == "Put"
+            && m.PublicKey.Parameters[0].Type.Contains("IReadOnlyList", StringComparison.Ordinal)).ApiManifest.Single().RawSymbol);
+    }
+
+    [Fact]
+    public void NullableValueTypeInTheRowIsNotTheNonNullableMember()
+    {
+        // The producer drops ? only for a reference-like type, so a row's int? is never the file's int.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Store
+                {
+                    public void Put(int value) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Store.Put(int?)", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void OnlyStaticMethodsOfTheModuleContainerReadAsFreeFunctions()
+    {
+        // The root namespace is the module name, so free functions go to Functions: an instance
+        // method there, or a static method of any other class, is not a free function.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Functions
+                {
+                    public string Helper() => "";
+                }
+                public static partial class Tools
+                {
+                    public static void Assist() { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Helper()", "sym_helper"), ("Assist()", "sym_assist"));
+
+        Assert.Equal(2, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
 }

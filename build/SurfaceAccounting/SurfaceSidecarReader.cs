@@ -11,15 +11,14 @@ using System.Text.Json;
 
 /// <param name="RootNamespace">
 /// The C# namespace the manifest was written for: the producer names the file
-/// <c>{namespace}.api-manifest.json</c>, and its owner paths are relative to that namespace. Empty when
-/// unknown, which keeps owners to the enclosing C# types.
+/// <c>{namespace}.api-manifest.json</c>, and its owner paths are relative to that namespace.
 /// </param>
 public sealed record SurfaceApiManifestRow(
     string Module,
     string Signature,
     string Symbol,
     SurfaceFileReference Evidence,
-    string RootNamespace = "");
+    string RootNamespace);
 
 public sealed record SurfaceSkippedRow(
     string Kind,
