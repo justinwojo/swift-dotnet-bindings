@@ -408,6 +408,68 @@ public class ForeignTypeExtensionEmitterTests
     }
 
     /// <summary>
+    /// Combine.Cancellable requires <c>cancel(after: Swift.Int)</c>; the extension adds
+    /// <c>cancel(after: Swift.String)</c>, with the requirement's labels and another type. It is an
+    /// addition nothing binds, so it keeps its row; the requirement's own default has none.
+    /// </summary>
+    [Fact]
+    public void ProcessForeignTypeExtensions_OverloadWithAForeignRequirementsLabelsAndOtherTypes_IsReported()
+    {
+        using var sdk = FakeSdkInterfaces.Create(("Combine", true, """
+            public protocol Cancellable {
+              func cancel(after delay: Swift.Int)
+            }
+            """));
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds["Combine.Cancellable"] = "Protocol";
+        var members = new List<ProtocolExtensionMethodDecl>
+        {
+            CreateLabeledExtMethod("cancel", "cancel(after:)", "public func cancel(after delay: Swift.Int)"),
+            CreateLabeledExtMethod("cancel", "cancel(after:)", "public func cancel(after delay: Swift.String)"),
+        };
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { ["Combine.Cancellable"] = members }, ctx);
+
+        var row = Assert.Single(report.SkippedItems, r => r.Name == "cancel");
+        Assert.Contains("Swift.String", row.DeclId, StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Combine declares a top-level <c>Cancellable</c> (requires <c>cancel()</c>) and a nested
+    /// <c>Outer.Cancellable</c> (requires <c>reset()</c>). An extension member that is not a requirement
+    /// of its own receiver is an addition and keeps its row, whatever the other protocol of the same
+    /// leaf name requires; the receiver's own requirement's default has none.
+    /// </summary>
+    [Theory]
+    [InlineData("Combine.Cancellable", "reset", 1)]        // reset() is the nested protocol's requirement only
+    [InlineData("Combine.Outer.Cancellable", "cancel", 1)] // cancel() is the top-level protocol's requirement only
+    [InlineData("Combine.Cancellable", "cancel", 0)]
+    [InlineData("Combine.Outer.Cancellable", "reset", 0)]
+    public void ProcessForeignTypeExtensions_ProtocolNestedInAType_IsNotTakenForATopLevelOneOfTheSameName(
+        string receiver, string member, int expectedRows)
+    {
+        using var sdk = FakeSdkInterfaces.Create(("Combine", true, """
+            public protocol Cancellable {
+              func cancel()
+            }
+            public struct Outer {
+              public protocol Cancellable {
+                func reset()
+              }
+            }
+            """));
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Protocol";
+        var members = new List<ProtocolExtensionMethodDecl> { CreateExtMethod(member, $"public func {member}()") };
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { [receiver] = members }, ctx);
+
+        Assert.Equal(expectedRows, report.SkippedItems.Count(r => r.Name == member));
+    }
+
+    /// <summary>
     /// On a kept foreign protocol whose interface the run can read, a member supplying the default of
     /// the protocol's own requirement (<c>cancel()</c>) is reached through that requirement and has no
     /// row; an addition, and an overload with other labels, keep theirs.
@@ -1379,6 +1441,106 @@ public class ForeignTypeExtensionEmitterTests
         Assert.Single(rows, r => r.Details.Contains("Extension member of protocol", StringComparison.Ordinal));
         Assert.Single(rows, r => r.Details.Contains("not an Objective-C class", StringComparison.Ordinal));
         Assert.DoesNotContain(rows, r => r.Details.Contains("next line", StringComparison.Ordinal));
+    }
+
+    #endregion
+
+    #region String-literal defaults in a parameter clause
+
+    /// <summary>
+    /// A string default holding a parenthesis or an effect keyword is part of its parameter: it
+    /// neither closes the clause nor makes the method async or throwing, and every parameter after
+    /// it is still read. Before the shared clause reader, <c>")"</c> and <c>"\\"</c> lost the
+    /// required <c>m</c> (a wrapper swiftc rejects), <c>") throws"</c> and <c>") async"</c> declined
+    /// the method as effectful, and <c>"("</c> threw out of the generator.
+    /// </summary>
+    [Theory]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \")\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \") throws\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \") async\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"(\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"\\\\\", m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = #\"a\\#\"#)\"#, m: Swift.Int32)")]
+    [InlineData("public func f(n: Swift.Int32, sep: Swift.String = \"\\(\")\")\", m: Swift.Int32)")]
+    public void ProcessForeignTypeExtensions_StringDefaultHoldingClauseSyntax_BindsEveryParameter(string signature)
+    {
+        var ctx = new ModuleEmissionContext();
+        var moduleDecl = CreateModuleDecl();
+        var method = CreateLabeledExtMethod("f", "f(n:sep:m:)", signature);
+
+        var report = RunPrePassAcrossASessionRestart(moduleDecl, new() { ["UIKit.UIView"] = new() { method } }, ctx);
+
+        Assert.Empty(report.SkippedItems);
+        Assert.Equal(1, ctx.ForeignExtEmittedCount);
+        var call = Assert.Single(ctx.ForeignExtSwiftWrapperLines, l => l.Contains(".f(", StringComparison.Ordinal));
+        // The defaulted separator takes its default; both required parameters are passed.
+        Assert.Contains("f(n: n, m: m)", call);
+        Assert.DoesNotContain("try", call);
+        Assert.DoesNotContain("await", call);
+    }
+
+    [Theory]
+    [InlineData("public func f(x: Swift.String = \") async\")", false, false)]
+    [InlineData("public func f(x: Swift.String = \") throws\")", false, false)]
+    [InlineData("public func f(x: Swift.String = \"(\") async throws", true, true)]
+    [InlineData("public func f(x: Swift.String = \"\\\\\") async", true, false)]
+    // A raw string's escaped quote (`\#"`) does not close it.
+    [InlineData("public func f(x: Swift.String = #\"a\\#\"#b\"#) async", true, false)]
+    // An interpolation's own string literal and parentheses belong to the default.
+    [InlineData("public func f(x: Swift.String = \"\\(\") throws\")\")", false, false)]
+    [InlineData("public func f(x: Swift.String = #\"\\#(\"#)\")\"#) throws", false, true)]
+    public void EffectsOf_StringDefault_AreTheClausesEffects(string signature, bool isAsync, bool throws)
+    {
+        Assert.Equal(isAsync, ProtocolExtensionEmitter.IsAsyncSignature(signature));
+        Assert.Equal(throws, ProtocolExtensionEmitter.IsThrowingSignature(signature));
+    }
+
+    /// <summary>
+    /// On a reported foreign protocol the reader extracted an <c>f(x:)</c> and dropped the ABI-listed
+    /// <c>f(x: Bool)</c>. The pairing gives the ABI entry to the dropped declaration, so the extracted
+    /// one may not also claim it by its labels: each declaration keeps its own row. The extracted
+    /// signature either did not read before the shared clause reader (a string default holding a
+    /// parenthesis) or does not read at all (a <c>borrowing</c> parameter), and an unread signature matches by labels.
+    /// </summary>
+    [Theory]
+    [InlineData("public func f(x: Swift.String = \"(\")")]
+    [InlineData("public func f(x: borrowing Swift.Int32)")]
+    public void EveryPass_ReportedProtocol_ExtractedOverloadOfTheSameLabels_LeavesTheDroppedOverloadItsRow(string extractedSignature)
+    {
+        var moduleDecl = CreateModuleDecl();
+        const string receiver = "Combine.Cancellable";
+        moduleDecl.ForeignTypeDeclKinds[receiver] = "Protocol";
+        var protocol = new ProtocolDecl
+        {
+            Name = "Cancellable",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(receiver),
+            MangledName = "$s7Combine11CancellableP",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+        };
+        var listed = AbiMethod("f", moduleDecl, protocol, isStatic: false, "Swift.Void");
+        listed.CSSignature.Add(AbiArgument("x", "Swift.Bool", moduleDecl));
+        protocol.ExtensionMembers.Add(listed);
+        moduleDecl.Protocols.Add(protocol);
+        ProtocolExtensionMethodDecl Text()
+        {
+            var member = CreateLabeledExtMethod("f", "f(x:)", extractedSignature);
+            member.ProtocolQualifiedName = receiver;
+            return member;
+        }
+        var flag = DroppedMethod(receiver, "f", "f(x:)", "public func f(x: Swift.Bool)");
+
+        var report = RunEveryPass(moduleDecl, new() { [receiver] = new() { Text() } }, new[] { flag }, new() { [receiver] = new() { Text() } });
+
+        var rows = report.SkippedItems.Where(r => r.Name == "f").ToList();
+        Assert.Contains(rows, r => (r.DeclId ?? string.Empty).Contains("Bool", StringComparison.Ordinal)
+            || r.Details.Contains("Bool", StringComparison.Ordinal));
     }
 
     #endregion

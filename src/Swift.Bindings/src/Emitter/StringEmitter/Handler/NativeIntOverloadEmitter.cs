@@ -273,7 +273,7 @@ internal static class NativeIntOverloadEmitter
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
 
         if (methodEnv.EmissionContext?.WasMethodProduceThrow(methodDecl) != true)
-            EmitForwarderTombstoneMarker(csWriter, methodEnv, constructorName ?? methodName);
+            EmitForwarderObsoleteAttribute(csWriter, methodEnv, constructorName ?? methodName);
 
         // Emit the overload
         if (isConstructorOverload && ctorShape.Kind != ConstructorEmissionKind.Constructor)
@@ -325,19 +325,24 @@ internal static class NativeIntOverloadEmitter
     }
 
     /// <summary>
-    /// Marks a convenience forwarder whose primary the ABI floor tombstoned. The primary carries
-    /// SB0009, which a binding build refuses to reference from an unmarked member, so an unmarked
-    /// forwarder fails the whole binding's compile. Carrying the same marker also gives a consumer
-    /// calling the convenience overload the warning the primary gives before its call throws.
+    /// Gives a convenience forwarder the primary's own <c>[Obsolete]</c>: whichever single marker the
+    /// primary member was emitted with — a Swift deprecation, a safety marker (SB0001/SB0002/SB0009)
+    /// or the SB0008 consume-degrade marker. The forwarder calls the primary, and a call to an obsolete
+    /// member from an unmarked one warns (CS0618, or the marker's DiagnosticId), which a
+    /// warnings-as-errors build of the binding refuses. Carrying the same marker also gives a consumer
+    /// calling the convenience overload the warning the primary gives.
+    /// <para>A tombstoned primary also has its forwarder recorded as a safety-marked member, as before.
+    /// Without an emission context (nothing recorded the primary's marker), the tombstone marker is
+    /// rebuilt from the primary's declaration.</para>
     /// </summary>
-    internal static void EmitForwarderTombstoneMarker(
+    internal static void EmitForwarderObsoleteAttribute(
         CSharpWriter csWriter, MethodEnvironment methodEnv, string emittedName)
     {
-        if (WrapperValidation.IsAbiFloorTombstoned(methodEnv)
-            && MethodHandler.GetSafetyObsoleteAttribute(methodEnv, emittedName) is { } attribute)
-        {
+        var tombstoneMarker = WrapperValidation.IsAbiFloorTombstoned(methodEnv)
+            ? MethodHandler.GetSafetyObsoleteAttribute(methodEnv, emittedName)
+            : null;
+        if ((methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodEnv.MethodDecl) ?? tombstoneMarker) is { } attribute)
             csWriter.WriteLine(attribute);
-        }
     }
 
     /// <summary>The name a failable initializer's static factory takes when nothing disambiguated it.</summary>
@@ -553,9 +558,12 @@ internal static class NativeIntOverloadEmitter
         }
 
         // Inherit availability attributes from the primary subscript — same CA1416
-        // concern as the method overload path above.
+        // concern as the method overload path above. The primary indexer's only [Obsolete] is its
+        // Swift deprecation, written by this same call; the forwarder carries it too, since reading
+        // the deprecated primary from an unmarked indexer warns (CS0618), an error under
+        // warnings-as-errors.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
-            csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: false);
+            csWriter, subscriptDecl, subscriptDecl.ParentDecl, emitObsolete: true);
 
         // The primary this[nint] getter was SB0006-poisoned (its suppressed-proxy read can only throw), so
         // its getter is [Obsolete(error:true)] with a throwing body. Forwarding `this[(nint)i]` from a

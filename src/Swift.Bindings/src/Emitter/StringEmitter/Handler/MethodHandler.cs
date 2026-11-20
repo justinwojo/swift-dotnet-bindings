@@ -2297,8 +2297,12 @@ namespace BindingsGeneration
             // Determine if void result (Task without type param requires special handling)
             var awaitResult = resultTypeName != null ? $"return await {tcsName}.Task;" : $"await {tcsName}.Task;";
 
-            // Propagate SB0001/SB0002 safety attributes from the underlying method
+            // Carry the underlying method's own [Obsolete]: the overload calls it, so a deprecation or
+            // consume-degrade marker it lacked would warn at that call (CS0618 / SB0008). The safety
+            // marker is still computed here for its report row, and stands in when nothing recorded
+            // the primary's marker.
             var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
+            safetyAttr = methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodDecl) ?? safetyAttr;
 
             // Documentation precedes every attribute (after one it documents nothing, CS1587), and
             // documents every parameter: the cancellation token always has a tag, so a forwarded

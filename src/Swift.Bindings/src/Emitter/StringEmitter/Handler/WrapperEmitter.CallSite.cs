@@ -66,5 +66,36 @@ namespace BindingsGeneration
             EmitConsumedArgumentTransfersCompleted(csWriter);
             EmitSwiftError(csWriter);
         }
+
+        /// <summary>
+        /// Writes the conversion an ordinary member body writes for <paramref name="operand"/> before
+        /// the call — the same projection, so the local the P/Invoke argument names (an Optional
+        /// object's <c>{name}Buffer</c>) is declared exactly as it is for a method with that
+        /// parameter. Runs before <see cref="EmitCallSitePreamble"/>, in the ordinary body's order.
+        /// <para>Returns false when the projection does not carry the operand, or carries it with a
+        /// step after the call (a keep-alive, an in-convention cleanup, an inout writeback): a body
+        /// that brings its own call has no place for those, so the caller refuses the member rather
+        /// than drop them. Whatever was written is then rolled back with the member.</para>
+        /// </summary>
+        internal bool TryEmitCallSiteOperandConversion(CSharpWriter csWriter, ArgumentDecl operand)
+        {
+            int keepAlives = _objcConformerKeepAliveNames.Count;
+            int inConventionOptionals = _inConventionOptionalNames.Count;
+            int inoutWritebacks = _stringInoutWritebacks.Count;
+            if (!TryEmitParameterConversionViaProjection(csWriter, operand))
+                return false;
+            return _objcConformerKeepAliveNames.Count == keepAlives
+                && _inConventionOptionalNames.Count == inConventionOptionals
+                && _stringInoutWritebacks.Count == inoutWritebacks;
+        }
+
+        /// <summary>
+        /// Writes the ordinary member body's return statement for a direct call whose raw result is
+        /// already held in <see cref="CallSiteResultLocalName"/>: the return type's own projection,
+        /// so the result is adopted exactly as a method returning the same type adopts it. Returns
+        /// false (writing nothing) when the projection does not apply to this return.
+        /// </summary>
+        internal bool TryEmitCallSiteReturnViaProjection(CSharpWriter csWriter)
+            => TryEmitReturnViaProjection(csWriter, _env.MethodDecl.CSSignature.First());
     }
 }

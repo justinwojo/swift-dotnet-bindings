@@ -2163,6 +2163,29 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public bool WasConsumeDegradedMember(BaseDecl member) => _consumeDegradedMembers.Contains(member);
 
+    // The single [Obsolete(...)] line a method's or initializer's public member ended up with once its
+    // emission finished: a Swift deprecation, a safety marker (SB0001/SB0002/SB0009) or the SB0008
+    // consume-degrade marker, whichever the member's emitter settled on. Read by the convenience
+    // forwarders (int/uint, URL string, throwing-closure, Task-returning), which run after the primary
+    // is emitted and call it: a forwarder without the primary's marker warns at its own call (CS0618 or
+    // the marker's DiagnosticId), which a warnings-as-errors build of the binding refuses. Keyed by
+    // reference identity, off the same MethodDecl instance the post-processors see.
+    private readonly Dictionary<MethodDecl, string> _emittedObsoleteAttributes = new(ReferenceEqualityComparer.Instance);
+
+    /// <summary>
+    /// Records the <c>[Obsolete(...)]</c> line <paramref name="methodDecl"/>'s public member was emitted
+    /// with, so its convenience forwarders carry the same one.
+    /// </summary>
+    public void RecordEmittedObsoleteAttribute(MethodDecl methodDecl, string attributeLine) =>
+        _emittedObsoleteAttributes[methodDecl] = attributeLine;
+
+    /// <summary>
+    /// The <c>[Obsolete(...)]</c> line <paramref name="methodDecl"/>'s public member was emitted with, or
+    /// null when it carries none (or has not been emitted).
+    /// </summary>
+    public string? GetEmittedObsoleteAttribute(MethodDecl methodDecl) =>
+        _emittedObsoleteAttributes.TryGetValue(methodDecl, out var line) ? line : null;
+
     // ==================== API Manifest (retarget gate) ====================
 
     // Accumulates the consumer-visible binding contract: each emitted, overload-

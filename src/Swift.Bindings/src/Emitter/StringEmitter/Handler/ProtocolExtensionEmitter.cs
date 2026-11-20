@@ -58,7 +58,7 @@ public static class ProtocolExtensionEmitter
                 // not separate surface: the requirement is what a consumer sees, on the protocol's
                 // interface and on every conformer, and it is accounted for wherever it is bound.
                 // It still goes through injection below, exactly as before; only its row is moot.
-                var isRequirementDefault = IsRequirementDefault(moduleDecl, protocolQualifiedName, extMethod, typeDatabase, logger);
+                var isRequirementDefault = IsRequirementDefault(moduleDecl, protocolQualifiedName, extMethod, extensionMethods, typeDatabase, logger);
 
                 // A shape this path declines for every conformer alike is reported once, on the
                 // protocol that declares it.
@@ -190,6 +190,7 @@ public static class ProtocolExtensionEmitter
         ModuleDecl moduleDecl,
         string protocolQualifiedName,
         ProtocolExtensionMethodDecl extMethod,
+        IReadOnlyList<ProtocolExtensionMethodDecl> siblings,
         ITypeDatabase typeDatabase,
         ILogger logger)
     {
@@ -199,7 +200,15 @@ public static class ProtocolExtensionEmitter
         // module-qualified types. Otherwise (a generic, associated or Self type, or a signature that does not parse)
         // name and labels decide, which can only drop a row, never add a false one.
         var overloadKey = ExtensionOverloadKey(extMethod, typeDatabase, logger);
-        bool IsDefaultFor(MethodDecl requirement)
+        List<string>? siblingKeys = null;
+        string RequirementKey(MethodDecl requirement)
+        {
+            var key = AbiOverloadKey(requirement);
+            return requirement.IsAsync && !IsAsyncSignature(extMethod.RawSignature)
+                ? key.Replace(" async -> ", " -> ", StringComparison.Ordinal)
+                : key;
+        }
+        bool IsDefaultFor(MethodDecl requirement, ProtocolDecl protocol)
         {
             if (AbiLabelKey(requirement) != extMethod.PrintedName)
                 return false;
@@ -212,13 +221,19 @@ public static class ProtocolExtensionEmitter
                 return false;
             if (overloadKey == null || !HasOnlyConcreteSignatureTypes(requirement))
                 return true;
-            var requirementKey = AbiOverloadKey(requirement);
-            if (requirement.IsAsync && !extensionIsAsync)
-                requirementKey = requirementKey.Replace(" async -> ", " -> ", StringComparison.Ordinal);
-            // Module qualifiers are left out: the ABI names a moved type by the module that first
-            // defined it (`@_originallyDefinedIn`: RealityKit.Entity) where the interface names its
-            // current module (RealityFoundation.Entity), and that is the same parameter type.
-            return WithoutModuleQualifiers(requirementKey) == WithoutModuleQualifiers(overloadKey);
+            // Module qualifiers decide unless only they differ and that reading is unique on both
+            // sides: the ABI names a moved type by the module that first defined it
+            // (`@_originallyDefinedIn`: RealityKit.Entity) where the interface names its current module
+            // (RealityFoundation.Entity), and that is the same parameter type (ModuleQualifiedKeys).
+            siblingKeys ??= siblings
+                .Where(s => !s.IsProperty && s.PrintedName == extMethod.PrintedName)
+                .Select(s => ExtensionOverloadKey(s, typeDatabase, logger))
+                .OfType<string>()
+                .ToList();
+            var requirementKeys = protocol.Methods
+                .Where(m => !m.IsAccessor && AbiLabelKey(m) == extMethod.PrintedName)
+                .Select(RequirementKey);
+            return ModuleQualifiedKeys.Match(overloadKey, siblingKeys, RequirementKey(requirement), requirementKeys);
         }
 
         var byName = new Dictionary<string, ProtocolDecl>(StringComparer.Ordinal);
@@ -249,7 +264,7 @@ public static class ProtocolExtensionEmitter
                 // its requirements cannot be read (a row could then be false).
                 if (name != protocolQualifiedName
                     && (ForeignProtocolRequirements.Of(moduleDecl, name) is not { } known
-                        || known.Declares(ForeignProtocolRequirements.KeyOf(extMethod))))
+                        || known.DeclaresMember(extMethod)))
                     return true;
                 continue;
             }
@@ -258,7 +273,7 @@ public static class ProtocolExtensionEmitter
 
             if (extMethod.IsProperty
                 ? protocol.Properties.Any(p => p.GetSwiftName() == extMethod.MethodName && p.IsStatic == extMethod.IsStatic)
-                : protocol.Methods.Any(m => !m.IsAccessor && IsDefaultFor(m)))
+                : protocol.Methods.Any(m => !m.IsAccessor && IsDefaultFor(m, protocol)))
                 return true;
 
             foreach (var inherited in protocol.InheritedProtocols)
@@ -327,9 +342,11 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// The requirement key (<see cref="ForeignProtocolRequirements.Requirements"/>) of an ABI member:
-    /// a method's or initializer's name, labels and effects, a property's name; null for a subscript,
-    /// which no requirement key describes.
+    /// The requirement key (<see cref="ForeignProtocolRequirements.Requirements"/>) of an ABI member of a
+    /// protocol or a protocol extension: a method's or initializer's name, labels and effects, a
+    /// property's name, a subscript's types (<see cref="ForeignProtocolRequirements.SubscriptKey"/>,
+    /// with the protocol's <c>Self</c>, which the ABI spells <c>τ_0_0</c>, spelled as the interface
+    /// does); null for another member, or a subscript whose types do not compare (one generic of its own).
     /// </summary>
     internal static string? RequirementKeyOf(BaseDecl member) => member switch
     {
@@ -337,8 +354,35 @@ public static class ProtocolExtensionEmitter
             method.IsConstructor ? "init" : method.GetSwiftName(), method.CSSignature.Skip(1).Select(SwiftLabel),
             isStatic: !method.IsConstructor && method.MethodType == MethodType.Static, method.IsAsync),
         PropertyDecl property => ForeignProtocolRequirements.PropertyKey(property.GetSwiftName(), property.IsStatic),
+        SubscriptDecl subscript => ForeignProtocolRequirements.SubscriptKey(
+            ForeignOverloadPairing.ListedSignature(null,
+                subscript.IndexParameters.Select(a => WithProtocolSelf(a.SwiftTypeSpec?.ToString())),
+                WithProtocolSelf(subscript.ReturnTypeSpec?.ToString())),
+            subscript.IsStatic),
         _ => null,
     };
+
+    // A protocol's Self is the first generic parameter of its members' ABI signatures.
+    private static string? WithProtocolSelf(string? type)
+        => type is null ? null : ProtocolSelfParameter.Replace(type, "Self");
+
+    private static readonly System.Text.RegularExpressions.Regex ProtocolSelfParameter =
+        new(@"τ_0_0(?!\d)", System.Text.RegularExpressions.RegexOptions.Compiled);
+
+    /// <summary>
+    /// The parameter and return types (<see cref="ForeignProtocolRequirements.MethodTypesKey"/>) of an ABI
+    /// method or initializer, or null when they are not concrete or the member is not one.
+    /// </summary>
+    internal static string? RequirementTypesKeyOf(BaseDecl member) => member is MethodDecl method
+        ? ForeignProtocolRequirements.MethodTypesKey(ForeignOverloadPairing.ListedSignature(null,
+            method.CSSignature.Skip(1).Select(a => a.SwiftTypeSpec?.ToString()),
+            method.IsConstructor || method.CSSignature.Count == 0 ? null : method.CSSignature[0].SwiftTypeSpec?.ToString()))
+        : null;
+
+    /// <summary>Whether a foreign requirement is the ABI member <paramref name="member"/> (by key, then types).</summary>
+    private static bool DeclaredBy(ForeignProtocolRequirements.Requirements requirements, BaseDecl member)
+        => RequirementKeyOf(member) is { } key
+            && (member is MethodDecl ? requirements.DeclaresMethod(key, RequirementTypesKeyOf(member)) : requirements.Declares(key));
 
     private static readonly System.Text.RegularExpressions.Regex ModuleSelector = new(@"\b\w+::", System.Text.RegularExpressions.RegexOptions.Compiled);
 
@@ -420,6 +464,7 @@ public static class ProtocolExtensionEmitter
             // are unextracted, and the others it did not extract, which may be.
             var methodGroups = new Dictionary<string, (List<MethodDecl> Dropped, List<MethodDecl> Unpaired)>(StringComparer.Ordinal);
 
+            List<string>? abiOverloadKeys = null;
             var candidates = new List<(BaseDecl Member, string Shape)>();
             foreach (var member in protocol.ExtensionMembers)
             {
@@ -436,9 +481,12 @@ public static class ProtocolExtensionEmitter
                         abiMethodCounts[labelKey] = abiMethodCounts.GetValueOrDefault(labelKey) + 1;
                         if (IsRequirementSignature(moduleDecl, protocol, method))
                             break;
-                        // A method the reader extracted is injection's.
+                        // A method the reader extracted is injection's. A method the pairing gave to a
+                        // declaration the reader dropped is reported here, whatever an extracted
+                        // declaration's labels match: the dropped pass leaves its row to this one.
                         var origin = pairing.PairedWith(method)?.Origin ?? ForeignReceiverPairing.Origins.None;
-                        if (origin.HasFlag(ForeignReceiverPairing.Origins.Extracted) || reader?.Matches(method) == true)
+                        if (origin.HasFlag(ForeignReceiverPairing.Origins.Extracted)
+                            || (origin != ForeignReceiverPairing.Origins.Dropped && reader?.Matches(method, abiOverloadKeys ??= AbiOverloadKeysOf(protocol)) == true))
                             break;
                         if (!methodGroups.TryGetValue(labelKey, out var group))
                             methodGroups[labelKey] = group = (new List<MethodDecl>(), new List<MethodDecl>());
@@ -475,7 +523,7 @@ public static class ProtocolExtensionEmitter
 
             foreach (var (member, shape) in candidates)
             {
-                if (RequirementKeyOf(member) is { } key && foreignRequirements.Declares(key))
+                if (DeclaredBy(foreignRequirements, member))
                     continue;
                 if (DeclIdFactory.ForDecl(member) is not { } memberId)
                     continue;
@@ -489,12 +537,21 @@ public static class ProtocolExtensionEmitter
     }
 
 
+    /// <summary>The overload keys of the methods the ABI lists in a protocol's extensions.</summary>
+    private static List<string> AbiOverloadKeysOf(ProtocolDecl protocol)
+        => protocol.ExtensionMembers
+            .OfType<MethodDecl>()
+            .Where(m => !m.IsModuleInternal && !m.IsConstructor && m.Name.Length > 0)
+            .Select(AbiOverloadKey)
+            .ToList();
+
     /// <summary>What the interface reader extracted for one protocol, keyed for overload matching.</summary>
     private sealed class ExtractedMembers
     {
         /// <summary>
-        /// Name, labels and parameter types of each method whose signature parsed, module qualifiers
-        /// dropped (the ABI names a type moved by <c>@_originallyDefinedIn</c> by its first module).
+        /// Name, labels and parameter types of each method whose signature parsed, module-qualified;
+        /// matched to the ABI by <see cref="ModuleQualifiedKeys"/> (the ABI names a type moved by
+        /// <c>@_originallyDefinedIn</c> by its first module).
         /// </summary>
         public HashSet<string> OverloadKeys { get; } = new(StringComparer.Ordinal);
 
@@ -506,9 +563,16 @@ public static class ProtocolExtensionEmitter
 
         public HashSet<string> PropertyNames { get; } = new(StringComparer.Ordinal);
 
-        public bool Matches(MethodDecl method)
-            => OverloadKeys.Contains(WithoutModuleQualifiers(AbiOverloadKey(method)))
+        /// <summary>
+        /// Whether the reader extracted <paramref name="method"/>, one of the methods whose overload
+        /// keys are <paramref name="abiOverloadKeys"/>.
+        /// </summary>
+        public bool Matches(MethodDecl method, IReadOnlyCollection<string> abiOverloadKeys)
+        {
+            var key = AbiOverloadKey(method);
+            return OverloadKeys.Any(extracted => ModuleQualifiedKeys.Match(extracted, OverloadKeys, key, abiOverloadKeys))
                 || UnparsedLabelKeys.Contains(AbiLabelKey(method));
+        }
     }
 
     private static Dictionary<string, ExtractedMembers> IndexExtractedMembers(
@@ -532,7 +596,7 @@ public static class ProtocolExtensionEmitter
                 }
                 entry.CountByLabels[member.PrintedName] = entry.CountByLabels.GetValueOrDefault(member.PrintedName) + 1;
                 if (ExtensionOverloadKey(member, typeDatabase, logger) is { } overloadKey)
-                    entry.OverloadKeys.Add(WithoutModuleQualifiers(overloadKey));
+                    entry.OverloadKeys.Add(overloadKey);
                 else
                     entry.UnparsedLabelKeys.Add(member.PrintedName);
             }
@@ -1205,25 +1269,9 @@ public static class ProtocolExtensionEmitter
         if (parenStart < 0)
             return null;
 
-        // Find matching close paren
-        int depth = 0;
-        int parenEnd = parenStart;
-        for (int i = parenStart; i < line.Length; i++)
-        {
-            if (line[i] == '(') depth++;
-            if (line[i] == ')')
-            {
-                depth--;
-                if (depth == 0)
-                {
-                    parenEnd = i;
-                    break;
-                }
-            }
-        }
-
-        // An unbalanced list (a parenthesis inside a default-value literal) has no end to read to.
-        if (parenEnd == parenStart)
+        // A string literal in a default value neither opens nor closes the list.
+        var parenEnd = SwiftParameterClause.ClosingParen(line, parenStart);
+        if (parenEnd < 0)
             return null;
 
         var paramStr = line.Substring(parenStart + 1, parenEnd - parenStart - 1);
@@ -1978,22 +2026,11 @@ public static class ProtocolExtensionEmitter
     /// </summary>
     private static bool HasMethodLevelWhereClause(string rawSignature)
     {
-        // Find the outermost closing paren of the parameter list
-        int depth = 0;
-        int closeParen = -1;
-        for (int i = 0; i < rawSignature.Length; i++)
-        {
-            if (rawSignature[i] == '(') depth++;
-            if (rawSignature[i] == ')')
-            {
-                depth--;
-                if (depth == 0) { closeParen = i; break; }
-            }
-        }
-        if (closeParen < 0) return false;
+        if (SwiftParameterClause.Find(rawSignature) is not { } clause)
+            return false;
 
         // Check for "where" after the closing paren
-        var afterParen = rawSignature.Substring(closeParen + 1);
+        var afterParen = rawSignature.Substring(clause.Close + 1);
         return afterParen.Contains(" where ", StringComparison.Ordinal);
     }
 
@@ -2049,29 +2086,7 @@ public static class ProtocolExtensionEmitter
     /// Returns null if parsing fails.
     /// </summary>
     private static string? ExtractQualifiers(string rawSignature)
-    {
-        int depth = 0;
-        int parenEnd = -1;
-        for (int i = 0; i < rawSignature.Length; i++)
-        {
-            if (rawSignature[i] == '(') depth++;
-            if (rawSignature[i] == ')')
-            {
-                depth--;
-                if (depth == 0) { parenEnd = i; break; }
-            }
-        }
-        if (parenEnd < 0) return null;
-
-        var afterParen = rawSignature.Substring(parenEnd + 1);
-        var arrowIdx = SwiftTypeListText.IndexOfTopLevelArrow(afterParen);
-        var braceIdx = afterParen.IndexOf('{');
-        var endIdx = afterParen.Length;
-        if (arrowIdx >= 0) endIdx = Math.Min(endIdx, arrowIdx);
-        if (braceIdx >= 0) endIdx = Math.Min(endIdx, braceIdx);
-
-        return afterParen.Substring(0, endIdx);
-    }
+        => SwiftParameterClause.Effects(rawSignature);
 
     /// <summary>
     /// Checks if a TypeSpec represents Foundation.Data, a frozen blittable struct

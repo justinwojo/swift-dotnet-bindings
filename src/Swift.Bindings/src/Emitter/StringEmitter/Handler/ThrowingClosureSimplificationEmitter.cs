@@ -160,6 +160,8 @@ internal static class ThrowingClosureSimplificationEmitter
         // OS versions lower than the gated target it delegates to.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodEnv.MethodDecl, methodEnv.MethodDecl.ParentDecl, emitObsolete: false);
+        // The forwarder calls the primary, so it carries the primary's own [Obsolete] too.
+        NativeIntOverloadEmitter.EmitForwarderObsoleteAttribute(csWriter, methodEnv, methodName);
 
         // Emit the overload
         csWriter.WriteLine($"public {staticModifier}{effectiveReturnType} {methodName}({paramStr})");

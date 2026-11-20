@@ -19,8 +19,8 @@ namespace BindingsGeneration;
 /// </para>
 /// <para>
 /// Two declarations with the same module, decl path, kind, base name, parameter
-/// labels, parameter types, and accessor are equal — this is the key the report
-/// dedup sets use. Mangled symbol is a last-resort tiebreaker stored alongside
+/// labels, parameter types, accessor and discriminator (staticness) are equal — this
+/// is the key the report dedup sets use. Mangled symbol is a last-resort tiebreaker stored alongside
 /// for diagnostic context; it participates in equality so two overloads whose
 /// only structural difference is the mangled symbol still record distinctly.
 /// </para>
@@ -100,9 +100,9 @@ public readonly record struct MemberDiagnosticIdentity
     public string? GenericContext { get; init; }
 
     /// <summary>
-    /// Extra declaration discriminator (e.g. <c>static</c>) carried for the same round-trip reason
-    /// as <see cref="GenericContext"/>, and excluded from equality for the same reason: adding an
-    /// axis the pre-existing dedup key never had would split report rows that used to collapse.
+    /// Extra declaration discriminator (e.g. <c>static</c>), part of equality: Swift allows an
+    /// instance and a static property of one name on one type, and a property identity carries no
+    /// mangled symbol to tell them apart, so without it the two declarations share one report row.
     /// </summary>
     public string? Discriminator { get; init; }
 
@@ -110,7 +110,7 @@ public readonly record struct MemberDiagnosticIdentity
     /// Build an identity directly. Validates that
     /// <see cref="ParameterLabels"/> and <see cref="ParameterTypes"/> have
     /// matching lengths. Every component <see cref="ToDeclId"/> projects is settable here —
-    /// including the two excluded from equality — so a hand-built identity round-trips to the
+    /// including the generic context, excluded from equality — so a hand-built identity round-trips to the
     /// same <see cref="DeclId"/> as the decl-derived one instead of silently dropping an axis.
     /// </summary>
     public static MemberDiagnosticIdentity Create(
@@ -259,8 +259,8 @@ public readonly record struct MemberDiagnosticIdentity
     /// <summary>
     /// Stable, deterministic string projection used for diagnostic output and
     /// dedup-key logging. Format:
-    /// <c>Module|DeclPath|Kind|BaseName(label1:Type1,label2:Type2)|Accessor|Mangled</c>.
-    /// Two identities are equal iff their stable strings are equal.
+    /// <c>Module|DeclPath|Kind|BaseName(label1:Type1,label2:Type2)|Accessor|Mangled</c>, then
+    /// <c>|Discriminator</c> when there is one. Two identities are equal iff their stable strings are equal.
     /// </summary>
     public string ToStableString()
     {
@@ -283,6 +283,8 @@ public readonly record struct MemberDiagnosticIdentity
         sb.Append(")|");
         sb.Append(Accessor).Append('|');
         sb.Append(MangledSymbol ?? string.Empty);
+        if (!string.IsNullOrEmpty(Discriminator))
+            sb.Append('|').Append(Discriminator);
         return sb.ToString();
     }
 
@@ -302,6 +304,7 @@ public readonly record struct MemberDiagnosticIdentity
         if (!string.Equals(BaseName ?? string.Empty, other.BaseName ?? string.Empty, StringComparison.Ordinal)) return false;
         if (Accessor != other.Accessor) return false;
         if (!string.Equals(MangledSymbol ?? string.Empty, other.MangledSymbol ?? string.Empty, StringComparison.Ordinal)) return false;
+        if (!string.Equals(Discriminator ?? string.Empty, other.Discriminator ?? string.Empty, StringComparison.Ordinal)) return false;
 
         var leftLabels = ParameterLabels.IsDefault ? ImmutableArray<string>.Empty : ParameterLabels;
         var rightLabels = other.ParameterLabels.IsDefault ? ImmutableArray<string>.Empty : other.ParameterLabels;
@@ -331,6 +334,7 @@ public readonly record struct MemberDiagnosticIdentity
         hash.Add(BaseName ?? string.Empty, StringComparer.Ordinal);
         hash.Add(Accessor);
         hash.Add(MangledSymbol ?? string.Empty, StringComparer.Ordinal);
+        hash.Add(Discriminator ?? string.Empty, StringComparer.Ordinal);
 
         var labels = ParameterLabels.IsDefault ? ImmutableArray<string>.Empty : ParameterLabels;
         var types = ParameterTypes.IsDefault ? ImmutableArray<string>.Empty : ParameterTypes;

@@ -67,19 +67,16 @@ internal static class SwiftTypeListText
         var result = new List<string>();
         int depth = 0;
         int start = 0;
-        bool inString = false;
 
         for (int i = 0; i < paramStr.Length; i++)
         {
-            char c = paramStr[i];
-            // Track string literals — skip commas inside "..."
-            if (c == '"' && (i == 0 || paramStr[i - 1] != '\\'))
+            // A string literal (a default value) holds no separator.
+            if (SwiftParameterClause.IsStringLiteralStart(paramStr, i))
             {
-                inString = !inString;
+                i = SwiftParameterClause.SkipStringLiteral(paramStr, i) - 1;
                 continue;
             }
-            if (inString)
-                continue;
+            char c = paramStr[i];
             if (c == '<' || c == '(' || c == '[') depth++;
             // Don't treat '>' in '->' (closure return arrow) as a closing bracket
             if (c == '>' && !(i > 0 && paramStr[i - 1] == '-')) depth--;
@@ -106,17 +103,14 @@ internal static class SwiftTypeListText
     public static int IndexOfTopLevelArrow(string text)
     {
         int depth = 0;
-        bool inString = false;
         for (int i = 0; i < text.Length; i++)
         {
-            char c = text[i];
-            if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+            if (SwiftParameterClause.IsStringLiteralStart(text, i))
             {
-                inString = !inString;
+                i = SwiftParameterClause.SkipStringLiteral(text, i) - 1;
                 continue;
             }
-            if (inString)
-                continue;
+            char c = text[i];
             if (c == '-' && i + 1 < text.Length && text[i + 1] == '>')
             {
                 if (depth == 0)

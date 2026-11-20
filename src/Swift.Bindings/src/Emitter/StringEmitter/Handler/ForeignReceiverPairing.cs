@@ -128,7 +128,7 @@ internal sealed class ForeignReceiverPairing
             foreach (var member in members)
             {
                 // A default of the receiver protocol's own requirement is reached through the requirement.
-                if (!carried && RequirementsOf(receiver)?.Declares(ForeignProtocolRequirements.KeyOf(member)) == true)
+                if (!carried && RequirementsOf(receiver)?.DeclaresMember(member) == true)
                     continue;
                 Add(receiver, member, TextOf(member), Origins.Taken, () => FromMember(member));
             }

@@ -372,6 +372,26 @@ namespace BindingsGeneration
                     }
                 }
 
+                // A non-generic operator body that calls Swift itself hands every operand the P/Invoke
+                // reads through a converted local (an Optional object operand's `{name}Buffer`) to the
+                // ordinary member's own parameter conversion, so it declares exactly the local an
+                // ordinary member with the same operand would. An operand that conversion cannot
+                // carry is refused here rather than shipped as a call naming a local nothing declares,
+                // which fails the whole module's compile.
+                IReadOnlyList<ArgumentDecl> convertedOperands = Array.Empty<ArgumentDecl>();
+                if (pinvokeHelperContext == null && !usesCdeclWrapper)
+                {
+                    var unconvertible = FindOperandsNeedingConversion(methodEnv, signatureHandler, out convertedOperands);
+                    if (unconvertible != null)
+                    {
+                        _logger.LogWarning($"Operator '{symbol}' passes '{unconvertible}', which no operand conversion declares — skipping.");
+                        ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
+                            $"The operator's call reads '{unconvertible}', a converted local the operator body declares only for an Optional object operand.");
+                        RollbackOperator();
+                        return false;
+                    }
+                }
+
                 // Get type name with generics for proper operator parameter types (fixes CS0563, CS0305)
                 // Use resolved name from TypeDatabase to account for nested type renames
                 var resolvedSimpleName = parentDecl.Name;
@@ -392,8 +412,26 @@ namespace BindingsGeneration
                     ? new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo: null, emissionContext)
                     : null;
 
+                // The operand conversions and the Optional-object return come from the ordinary member
+                // emitter too, for the same reason: a method with the same parameter or return type
+                // already converts it, and a second rendering here would be free to differ. The
+                // call-site emitter is reused when there is one, so a hand-over a conversion registers
+                // is completed by the same epilogue that completes the others.
+                bool returnViaProjection = !usesCdeclWrapper && ReturnsOptionalObjCReference(methodEnv);
+                var marshaller = convertedOperands.Count > 0 || returnViaProjection
+                    ? callSite ?? new WrapperEmitter(methodEnv, signatureHandler, fallbackInfo: null, emissionContext)
+                    : null;
+                var operatorMarshalling = new OperatorMarshalling(marshaller, convertedOperands, returnViaProjection);
+
                 // Emit the operator wrapper and PInvoke
-                EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper, callSite);
+                if (!EmitOperatorWrapper(csWriter, operatorDecl, signatureHandler, resolvedSimpleName, typeNameWithGenerics, pinvokeHelperContext, isReferenceType, methodEnv, usesCdeclWrapper, callSite, operatorMarshalling))
+                {
+                    _logger.LogWarning($"Operator '{symbol}' has an operand the ordinary parameter conversion cannot carry within an operator body — skipping.");
+                    ReportCollector.RecordMemberSkipped(operatorDecl, SkipReason.UnsupportedSignature,
+                        "An operand's conversion needs a step after the call (a keep-alive, an in-convention cleanup or a writeback) that an operator body does not run.");
+                    RollbackOperator();
+                    return false;
+                }
                 EmitOperatorPInvoke(csWriter, operatorDecl, methodEnv, signatureHandler, typeDatabase, pinvokeHelperContext, usesCdeclWrapper, emissionContext);
                 // Last, after every step that can still refuse the operator: the error helpers are
                 // deduplicated per type, so they must not be claimed by an operator that rolls back.
@@ -427,7 +465,7 @@ namespace BindingsGeneration
         /// <param name="pinvokeHelperContext">Optional P/Invoke helper context for generic types.</param>
         /// <param name="isReferenceType">Whether the containing type is a reference type.</param>
         /// <param name="methodEnv">The method environment for indirect result detection.</param>
-        private void EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv, bool usesCdeclWrapper = false, WrapperEmitter? callSite = null)
+        private bool EmitOperatorWrapper(CSharpWriter csWriter, OperatorDecl operatorDecl, SignatureHandler signatureHandler, string typeName, string typeNameWithGenerics, PInvokeHelperContext? pinvokeHelperContext, bool isReferenceType, MethodEnvironment methodEnv, bool usesCdeclWrapper, WrapperEmitter? callSite, OperatorMarshalling marshalling)
         {
             var symbol = operatorDecl.OperatorSymbol;
             var csOperator = GetCSharpOperator(symbol)!;
@@ -442,7 +480,7 @@ namespace BindingsGeneration
             bool requiresIndirectResult = MarshallingHelpers.MethodRequiresIndirectResult(methodEnv);
             // The error check reads the error carrier's pointer, which needs an unsafe context.
             bool needsUnsafeBody = requiresIndirectResult || MarshallingHelpers.RequiresClassMetatypeSelf(methodEnv)
-                || callSite != null;
+                || callSite != null || marshalling.Marshaller != null;
 
             // Bug #10: Build generic parameter remapping for operators on generic types.
             // Operators are static methods that may have method-own generic params shadowing the
@@ -489,7 +527,7 @@ namespace BindingsGeneration
                 if (parameters.Length < 2)
                 {
                     _logger.LogWarning($"Binary operator '{symbol}' has fewer than 2 parameters.");
-                    return;
+                    return true;
                 }
 
                 var leftParam = parameters[0];
@@ -510,19 +548,28 @@ namespace BindingsGeneration
 
                 // Emit null guards for equality/inequality operators on reference types.
                 // Without these, `obj == null` or `obj != null` would call .Payload on null and throw NRE.
+                // An Optional operand is the exception: null is its nil, a value Swift compares, so
+                // it gets no guard and reaches the call.
                 if (isReferenceType && (csOperator == "==" || csOperator == "!="))
                 {
+                    var operandSpecs = methodEnv.MethodDecl.CSSignature.Skip(1).Select(a => a.SwiftTypeSpec).ToArray();
+                    var leftIsNil = operandSpecs.Length > 0 && MarshallingHelpers.IsSwiftOptional(operandSpecs[0]);
+                    var rightIsNil = operandSpecs.Length > 1 && MarshallingHelpers.IsSwiftOptional(operandSpecs[1]);
                     var leftIsNull = NullTest(leftParam.Name, leftType, typeNameWithGenerics);
                     var rightIsNull = NullTest(rightParam.Name, rightType, typeNameWithGenerics);
                     if (csOperator == "==")
                     {
-                        csWriter.WriteLine($"if ({leftIsNull}) return {rightIsNull};");
-                        csWriter.WriteLine($"if ({rightIsNull}) return false;");
+                        if (!leftIsNil)
+                            csWriter.WriteLine($"if ({leftIsNull}) return {rightIsNull};");
+                        if (!rightIsNil)
+                            csWriter.WriteLine($"if ({rightIsNull}) return false;");
                     }
                     else
                     {
-                        csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
-                        csWriter.WriteLine($"if ({rightIsNull}) return true;");
+                        if (!leftIsNil)
+                            csWriter.WriteLine($"if ({leftIsNull}) return {NullTest(rightParam.Name, rightType, typeNameWithGenerics, negate: true)};");
+                        if (!rightIsNil)
+                            csWriter.WriteLine($"if ({rightIsNull}) return true;");
                     }
 
                     EmitDisposedOperandEqualityFallback(csWriter, operatorDecl, csOperator, leftParam.Name, leftType, rightParam.Name, rightType, typeNameWithGenerics);
@@ -558,7 +605,8 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite);
+                    if (!EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
+                        return false;
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
@@ -573,7 +621,7 @@ namespace BindingsGeneration
                 if (parameters.Length < 1)
                 {
                     _logger.LogWarning($"Unary operator '{symbol}' has no parameters.");
-                    return;
+                    return true;
                 }
 
                 var operand = parameters[0];
@@ -612,7 +660,8 @@ namespace BindingsGeneration
                     if (needsUnsafeBody) { csWriter.WriteLine("unsafe {"); csWriter.Indent++; }
 
                     // Emit P/Invoke call and return
-                    EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite);
+                    if (!EmitOperatorPInvokeCall(csWriter, symbol, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
+                        return false;
 
                     if (needsUnsafeBody) { csWriter.Indent--; csWriter.WriteLine("}"); }
                 }
@@ -620,6 +669,7 @@ namespace BindingsGeneration
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
             }
+            return true;
         }
 
         /// <summary>
@@ -647,10 +697,20 @@ namespace BindingsGeneration
         /// member body's ownership and error halves: the consumed-operand leases before it, and their
         /// completion plus the error check after it — before anything reads the result.</para>
         /// </summary>
-        private void EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv = null, WrapperEmitter? callSite = null)
+        private bool EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
         {
             var pinvokeName = GetPInvokeMethodName(symbol);
             var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals);
+
+            // The ordinary body converts its parameters before the call-site preamble; so does this one.
+            if (marshalling.Marshaller is { } operandMarshaller)
+            {
+                foreach (var operand in marshalling.ConvertedOperands)
+                {
+                    if (!operandMarshaller.TryEmitCallSiteOperandConversion(csWriter, operand))
+                        return false;
+                }
+            }
 
             callSite?.EmitCallSitePreamble(csWriter);
 
@@ -739,13 +799,23 @@ namespace BindingsGeneration
                     call = $"{pinvokeName}({callArgs})";
                 }
 
+                // An Optional object return is read by the return type's own projection, from the
+                // local the ordinary body stores its result in.
+                if (callSite == null && marshalling.ReturnViaProjection && marshalling.Marshaller is { } returnMarshaller)
+                {
+                    csWriter.WriteLine($"var {returnMarshaller.CallSiteResultLocalName} = {call};");
+                    if (!returnMarshaller.TryEmitCallSiteReturnViaProjection(csWriter))
+                        throw new InvalidOperationException($"Operator '{symbol}': the Optional object return has no projection to read it.");
+                    return true;
+                }
+
                 if (callSite == null)
                 {
                     if (returnType == "void")
                         csWriter.WriteLine($"{call};");
                     else
                         EmitDirectOperatorReturn(csWriter, call, returnType, methodEnv);
-                    return;
+                    return true;
                 }
 
                 // A thrown error leaves the result register undefined, so the raw result is held in a
@@ -760,9 +830,106 @@ namespace BindingsGeneration
                     var resultLocal = callSite.CallSiteResultLocalName;
                     csWriter.WriteLine($"var {resultLocal} = {call};");
                     callSite.EmitCallSiteEpilogue(csWriter);
-                    EmitDirectOperatorReturn(csWriter, resultLocal, returnType, methodEnv, callIsLocal: true);
+                    if (marshalling.ReturnViaProjection)
+                    {
+                        if (!callSite.TryEmitCallSiteReturnViaProjection(csWriter))
+                            throw new InvalidOperationException($"Operator '{symbol}': the Optional object return has no projection to read it.");
+                    }
+                    else
+                    {
+                        EmitDirectOperatorReturn(csWriter, resultLocal, returnType, methodEnv, callIsLocal: true);
+                    }
                 }
             }
+            return true;
+        }
+
+        /// <summary>
+        /// What an operator body that calls Swift itself borrows from the ordinary member emitter:
+        /// the conversion of each operand whose P/Invoke argument is a converted local, and the read
+        /// of an Optional object return. <see cref="Marshaller"/> is null when it borrows nothing.
+        /// </summary>
+        private sealed record OperatorMarshalling(WrapperEmitter? Marshaller, IReadOnlyList<ArgumentDecl> ConvertedOperands, bool ReturnViaProjection);
+
+        /// <summary>
+        /// True when a directly-called operator returns an Optional of an ObjC object (a framework
+        /// class or an ObjC-bridgeable reference): one nullable pointer at +1, which the ordinary
+        /// member reads through the return type's own projection. An Optional of a Swift class,
+        /// NSObject-rooted ones included, keeps the operator's own arm.
+        /// </summary>
+        private static bool ReturnsOptionalObjCReference(MethodEnvironment methodEnv)
+        {
+            var returnSpec = methodEnv.MethodDecl.CSSignature.First().SwiftTypeSpec;
+            return !MarshallingHelpers.MethodRequiresIndirectResult(methodEnv)
+                && MarshallingHelpers.IsOptionalObjCBridged(returnSpec, methodEnv.TypeDatabase)
+                && !MarshallingHelpers.IsOptionalSwiftClassReference(returnSpec, methodEnv.ParentDecl, methodEnv.TypeDatabase);
+        }
+
+        /// <summary>
+        /// Finds the operands whose P/Invoke argument names a local the operator body does not declare
+        /// itself (an operand or its marshalling base, the indirect-result carrier, or a parameter that
+        /// brings its own call expression): those the ordinary parameter conversion declares. Returns
+        /// the first undeclared name no operand's conversion produces, or null when every one is
+        /// covered.
+        /// </summary>
+        private static string? FindOperandsNeedingConversion(MethodEnvironment methodEnv, SignatureHandler signatureHandler, out IReadOnlyList<ArgumentDecl> convertedOperands)
+        {
+            var operands = methodEnv.MethodDecl.CSSignature.Skip(1).ToList();
+            var declared = new HashSet<string>(signatureHandler.GetWrapperSignature().Parameters.Select(p => p.Name));
+            foreach (var operand in operands)
+                declared.Add(NameProvider.GetMarshallingBaseName(operand));
+            if (MarshallingHelpers.MethodRequiresIndirectResult(methodEnv))
+                declared.Add(methodEnv.SyntheticLocals.SwiftIndirectResult);
+            // The error slot of a throwing operator is the call site's own: its preamble declares the
+            // `ref` carrier, and the `out` pointer of a wrapper or thunk is declared inline in the call.
+            if (methodEnv.MethodDecl.Throws)
+            {
+                declared.Add("swiftError");
+                declared.Add("errorPtr");
+            }
+
+            var converted = new List<ArgumentDecl>();
+            foreach (var parameter in signatureHandler.GetPInvokeSignature().Parameters)
+            {
+                if (parameter.CallExpression is not null || declared.Contains(parameter.Name))
+                    continue;
+                var operand = operands.FirstOrDefault(a =>
+                    NameProvider.GetBoundGenericBufferName(NameProvider.GetMarshallingBaseName(a)) == parameter.Name);
+                // Only an Optional object operand (an ObjC or Swift class, or nil) is read through the
+                // ordinary conversion here: its object pointer is Swift's own representation. Any
+                // other converted shape (a bridged collection, a Result, an inout slot) is refused,
+                // not converted.
+                if (operand is null || operand.IsInOut || !IsOptionalObjectOperand(operand.SwiftTypeSpec, methodEnv))
+                {
+                    convertedOperands = Array.Empty<ArgumentDecl>();
+                    return parameter.Name;
+                }
+                if (!converted.Contains(operand))
+                    converted.Add(operand);
+            }
+            convertedOperands = converted;
+            return null;
+        }
+
+        /// <summary>
+        /// An Optional whose payload is a class reference, Objective-C or Swift: the one operand shape
+        /// whose P/Invoke argument is the object pointer Swift itself reads, or null for nil. An
+        /// Objective-C class is recognized as the ordinary member's projection recognizes it
+        /// (<see cref="MarshallingHelpers.IsOptionalObjCBridged"/>, its Apple-framework fallback
+        /// included), less the bridged value types and typed enums that shape also admits.
+        /// </summary>
+        private static bool IsOptionalObjectOperand(TypeSpec typeSpec, MethodEnvironment methodEnv)
+        {
+            var database = methodEnv.TypeDatabase;
+            if (MarshallingHelpers.IsOptionalSwiftClassReference(typeSpec, methodEnv.ParentDecl, database))
+                return true;
+            if (!MarshallingHelpers.IsOptionalObjCBridged(typeSpec, database)
+                || MarshallingHelpers.IsOptionalAppleTypedEnum(typeSpec, database)
+                || DirectOptionalAbi.RendersAsForeignObject(typeSpec, database))
+                return false;
+            var payload = (NamedTypeSpec)((NamedTypeSpec)typeSpec).GenericParameters[0];
+            return !database.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(payload.Name), out var record)
+                || (record.Kind == TypeRecordKind.Class && MarshallingHelpers.IsObjCBridged(record));
         }
 
         /// <summary>
@@ -1097,6 +1264,10 @@ namespace BindingsGeneration
             // Project the operands the same way EmitOperatorWrapper does — the parent operand carries
             // the generic form (typeName), the other operand its own projected public type.
             var (leftType, rightType) = ResolveSynthesizedOperandTypes(existingOperator, typeName, typeDatabase);
+            // As on the declared operator, an Optional operand's null is nil, which the declared
+            // operator passes to Swift: it gets no guard here either.
+            var leftIsNil = MarshallingHelpers.IsSwiftOptional(paramArgs[0].SwiftTypeSpec);
+            var rightIsNil = MarshallingHelpers.IsSwiftOptional(paramArgs[1].SwiftTypeSpec);
 
             if (missingOperator == "!=" && existingSymbol == "==")
             {
@@ -1106,8 +1277,10 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName, negate: true)};");
-                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return true;");
+                    if (!leftIsNil)
+                        csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName, negate: true)};");
+                    if (!rightIsNil)
+                        csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return true;");
                 }
                 csWriter.WriteLine("return !(left == right);");
                 csWriter.Indent--;
@@ -1121,8 +1294,10 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 if (isReferenceType)
                 {
-                    csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName)};");
-                    csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return false;");
+                    if (!leftIsNil)
+                        csWriter.WriteLine($"if ({NullTest("left", leftType, typeName)}) return {NullTest("right", rightType, typeName)};");
+                    if (!rightIsNil)
+                        csWriter.WriteLine($"if ({NullTest("right", rightType, typeName)}) return false;");
                 }
                 csWriter.WriteLine("return !(left != right);");
                 csWriter.Indent--;

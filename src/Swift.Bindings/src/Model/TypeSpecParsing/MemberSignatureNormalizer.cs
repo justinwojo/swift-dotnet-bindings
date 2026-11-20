@@ -546,17 +546,15 @@ internal static class MemberSignatureNormalizer
     private static int FindLastTopLevelColon(string text)
     {
         int depth = 0;
-        bool inString = false;
         int lastTopLevelColon = -1;
         for (int i = 0; i < text.Length; i++)
         {
-            var c = text[i];
-            if (c == '"' && (i == 0 || text[i - 1] != '\\'))
+            if (SwiftParameterClause.IsStringLiteralStart(text, i))
             {
-                inString = !inString;
+                i = SwiftParameterClause.SkipStringLiteral(text, i) - 1;
                 continue;
             }
-            if (inString) continue;
+            var c = text[i];
             if (c == '(' || c == '[' || c == '<') depth++;
             else if (c == ')' || c == ']' || c == '>') depth--;
             else if (c == ':' && depth == 0)

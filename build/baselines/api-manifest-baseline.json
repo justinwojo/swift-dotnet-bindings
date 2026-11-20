@@ -23084,6 +23084,31 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "OptionalObjectOperatorClass.Attachment",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OptionalObjectOperatorClass_attachment"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalObjectOperatorClass.OptionalObjectOperatorClass(int,Foundation.NSObject?)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionalObjectOperatorClass_init_3A1D8ECC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalObjectOperatorClass.Value",
+      "symbol": "thunk_SwiftBindingsTestLib_cca88872"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalObjectOperatorValue.OptionalObjectOperatorValue(int)",
+      "symbol": "SBW_SwiftBindingsTestLib_OptionalObjectOperatorValue_init_43FE2196"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OptionalObjectOperatorValue.Value",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_OptionalObjectOperatorValue_value"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "OptionalOpaquePointer(System.IntPtr?)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_optionalOpaquePointer_C39AA2B9"
     },
