@@ -214,18 +214,18 @@ public class SurfaceManifestJoinTests
     [Fact]
     public void RowWithTwoEquallyGoodCandidatesIsAmbiguous()
     {
-        // The row's IEnumerable can stand for either emitted collection interface.
+        // The row dropped reference nullability; either overload could be the one it describes.
         const string source = """
             namespace TestModule
             {
                 public partial class Store
                 {
-                    public void Put(global::System.Collections.Generic.IReadOnlyList<int> keys) { }
-                    public void Put(global::System.Collections.Generic.IReadOnlyCollection<int> keys) { }
+                    public void Put(string? key, string value) { }
+                    public void Put(string key, string? value) { }
                 }
             }
             """;
-        var coverage = OldCoverage(source, ("Store.Put(IEnumerable<int>)", "sym_put"));
+        var coverage = OldCoverage(source, ("Store.Put(string,string)", "sym_put"));
 
         Assert.Equal(1, coverage.ManifestAmbiguous);
         Assert.Equal(0, coverage.ManifestMatched);
@@ -453,6 +453,72 @@ public class SurfaceManifestJoinTests
         Assert.Empty(coverage.Errors);
         Assert.Equal(2, coverage.ManifestMatched);
         Assert.Equal("sym_free", result.Old.Members.Single(m => m.PublicKey.Name == "Reset"
+            && m.PublicKey.EnclosingTypes.Single() == "Functions").ApiManifest.Single().RawSymbol);
+    }
+
+    [Fact]
+    public void OmittedQualifierIsOnlyEverAWholeNamespace()
+    {
+        // The projection drops System.Collections.Generic in front of a bare name; a row that already
+        // names a namespace is some other type, not the BCL interface missing its System prefix.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Cache
+                {
+                    public void Put(global::System.Collections.Generic.IEnumerable<int> keys) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Cache.Put(Collections.Generic.IEnumerable<int>)", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void NullableTupleIsAValueType()
+    {
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Store
+                {
+                    public void Put((int, int)? pair) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Store.Put((int,int))", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void ConvenienceOverloadOfATypeNamedLikeAContainerIsNotAFreeFunction()
+    {
+        // GlobalFunctions is a Swift type (its nint method has a row), so its unrecorded int
+        // forwarder is no second candidate for the free function in Functions.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Functions
+                {
+                    public static void Ping(int value) { }
+                }
+                public partial class GlobalFunctions
+                {
+                    public static void Ping(nint value) { }
+                    public static void Ping(int value) => Ping((nint)value);
+                }
+            }
+            """;
+        var result = Analyze(source, ("Ping(int)", "sym_free"), ("GlobalFunctions.Ping(nint)", "sym_type"));
+
+        var coverage = Assert.Single(result.Old.Coverage);
+        Assert.Empty(coverage.Errors);
+        Assert.Equal(2, coverage.ManifestMatched);
+        Assert.Equal("sym_free", result.Old.Members.Single(m => m.PublicKey.Name == "Ping"
             && m.PublicKey.EnclosingTypes.Single() == "Functions").ApiManifest.Single().RawSymbol);
     }
 }

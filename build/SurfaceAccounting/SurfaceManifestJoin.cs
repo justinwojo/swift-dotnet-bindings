@@ -60,13 +60,13 @@ public static class SurfaceManifestJoin
 
     private static readonly HashSet<string> CollectionInterfaces = new(StringComparer.Ordinal)
     {
-        "IEnumerable", "IReadOnlyList", "IReadOnlyCollection",
+        "IEnumerable", "IReadOnlyList",
     };
 
     /// <summary>
     /// The namespaces whose types the projection names unqualified, as the emitted files' usings and
     /// aliases allow (<c>IEnumerable</c>, <c>Action</c>, <c>SwiftError</c>, <c>ISwiftObject</c>): the only qualifier a row may
-    /// lack.
+    /// lack, and only in front of a bare type name.
     /// </summary>
     private static readonly string[] UnqualifiedNamespaces = ["System.Collections.Generic", "System", "System.Runtime.InteropServices.Swift", "Swift.Runtime"];
 
@@ -94,12 +94,23 @@ public static class SurfaceManifestJoin
         var valueTypes = ValueTypes(members);
 
         // Each row is read against the namespace its own manifest file was written for.
+        // A type some row names as its owner is a Swift type, so it is not the free-function
+        // container even when it carries one of the container names.
         var indexes = new Dictionary<(string Root, string Module), FormIndex>();
         FormIndex IndexFor(SurfaceApiManifestRow row)
         {
             var key = (row.RootNamespace, row.Module);
             if (!indexes.TryGetValue(key, out var index))
-                indexes[key] = index = new FormIndex(members.SelectMany(m => MemberForms(m, row.RootNamespace, row.Module)).ToList());
+            {
+                var rowOwners = rows
+                    .Where(r => r.RootNamespace == row.RootNamespace && r.Module == row.Module)
+                    .Select(r => FirstOwnerSegment(r.Signature))
+                    .OfType<string>()
+                    .ToHashSet(StringComparer.Ordinal);
+                indexes[key] = index = new FormIndex(members
+                    .SelectMany(m => MemberForms(m, row.RootNamespace, row.Module, rowOwners))
+                    .ToList());
+            }
             return index;
         }
 
@@ -112,17 +123,12 @@ public static class SurfaceManifestJoin
                 .Cast<SurfaceMemberObservation>()
                 .ToList();
 
-        // Tier exact: the historical join, many rows to one member allowed. Rows with an owner go
-        // first: a static method a row names through its own type is not also a free function, so
-        // the owner-less rows then skip it (a type the generator did not pick as the free-function
-        // container can still carry one of the container names).
+        // Tier exact: the historical join, many rows to one member allowed.
         var pending = new List<SurfaceApiManifestRow>();
-        var exactOrder = rows.Where(row => HasOwner(row.Signature)).Concat(rows.Where(row => !HasOwner(row.Signature)));
-        foreach (var row in exactOrder)
+        foreach (var row in rows)
         {
             var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(row.Signature);
             var candidates = IndexFor(row).Lookup(Exact, normalized)
-                .Where(f => !(f.OwnerLess && claimed.Contains(f.Member)))
                 .Select(f => f.Member)
                 .Distinct(ReferenceEqualityComparer.Instance)
                 .Cast<SurfaceMemberObservation>()
@@ -220,6 +226,8 @@ public static class SurfaceManifestJoin
     /// Whether <paramref name="owner"/> can be the class the generator writes a module's free
     /// functions into (ModuleHandler): the module name, unless the root namespace already ends with it;
     /// then Functions, or GlobalFunctions, {Module}Functions or FunctionsN when a type holds the name.
+    /// Which of those is the container the names alone cannot say; the join also drops any a row
+    /// names as its owner.
     /// </summary>
     public static bool IsFreeFunctionContainer(string owner, string module, string rootNamespace)
     {
@@ -232,37 +240,38 @@ public static class SurfaceManifestJoin
             || Regex.IsMatch(owner, "^Functions[0-9]+$", RegexOptions.CultureInvariant);
     }
 
-    private static IEnumerable<MemberForm> MemberForms(SurfaceMemberObservation member, string rootNamespace, string module)
+    private static IEnumerable<MemberForm> MemberForms(
+        SurfaceMemberObservation member, string rootNamespace, string module, IReadOnlySet<string> rowOwners)
     {
         if (member.PublicKey.DeclarationKind is "class" or "struct" or "interface" or "enum" or "record"
             or "record-struct" or "type" or "delegate")
             yield break;
         var owner = ProducerOwner(member.PublicKey, rootNamespace);
         if (owner is null) yield break;
-        yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, owner), ownerLess: false);
+        yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, owner));
         // A free function, a static method of the module's container class: the producer writes no
         // owner for it.
         if (member.PublicKey.DeclarationKind is "method"
             && member.PublicKey.Static
             && member.PublicKey.EnclosingTypes.Count == 1
             && string.Equals(member.PublicKey.Namespace, rootNamespace, StringComparison.Ordinal)
-            && IsFreeFunctionContainer(owner, module, rootNamespace))
-            yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, ""), ownerLess: true);
+            && IsFreeFunctionContainer(owner, module, rootNamespace)
+            && !rowOwners.Contains(owner))
+            yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, ""));
     }
 
-    private static MemberForm Form(SurfaceMemberObservation member, string signature, bool ownerLess)
+    private static MemberForm Form(SurfaceMemberObservation member, string signature)
     {
         var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(signature);
-        return new MemberForm(member, normalized, Parse(normalized, member.PublicKey.ManifestGenericNames), ownerLess);
+        return new MemberForm(member, normalized, Parse(normalized, member.PublicKey.ManifestGenericNames));
     }
 
-    private static bool HasOwner(string signature)
+    /// <summary>The first segment of a row's owner path, or null for an owner-less row.</summary>
+    private static string? FirstOwnerSegment(string signature)
     {
-        var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(signature);
-        var paren = normalized.IndexOf('(');
-        var bracket = normalized.IndexOf('[');
-        var listStart = paren < 0 ? bracket : bracket < 0 ? paren : Math.Min(paren, bracket);
-        return (listStart < 0 ? normalized : normalized[..listStart]).Contains('.', StringComparison.Ordinal);
+        var head = Parse(SurfaceSyntaxScanner.NormalizeManifestSignature(signature)).Head;
+        var dot = head.IndexOf('.');
+        return dot < 0 ? null : head[..dot];
     }
 
     /// <summary>The full names of the value types a row's missing <c>?</c> cannot have dropped.</summary>
@@ -357,6 +366,7 @@ public static class SurfaceManifestJoin
     {
         var k = index - 1;
         if (k < 0) return false;
+        if (tokens[k] == ")") return true; // a tuple, a ValueTuple
         if (tokens[k] == ">")
         {
             // A constructed type: the name before its matching '<'.
@@ -385,7 +395,8 @@ public static class SurfaceManifestJoin
 
     private static bool SameType(string rowToken, string memberToken)
         => string.Equals(rowToken, memberToken, StringComparison.Ordinal)
-            || UnqualifiedNamespaces.Any(ns => string.Equals(memberToken, ns + "." + rowToken, StringComparison.Ordinal));
+            || (!rowToken.Contains('.', StringComparison.Ordinal)
+                && UnqualifiedNamespaces.Any(ns => string.Equals(memberToken, ns + "." + rowToken, StringComparison.Ordinal)));
 
     private static bool IsCollectionInterface(string token)
         => CollectionInterfaces.Contains(token)
@@ -409,7 +420,7 @@ public static class SurfaceManifestJoin
 
     internal sealed record SignatureShape(string Head, IReadOnlyList<string> Tokens, bool HasList, IReadOnlyList<string> GenericNames);
 
-    private sealed record MemberForm(SurfaceMemberObservation Member, string Normalized, SignatureShape Shape, bool OwnerLess);
+    private sealed record MemberForm(SurfaceMemberObservation Member, string Normalized, SignatureShape Shape);
 
     /// <summary>The member forms of one manifest root, looked up by each tier's key.</summary>
     private sealed class FormIndex(IReadOnlyList<MemberForm> forms)
