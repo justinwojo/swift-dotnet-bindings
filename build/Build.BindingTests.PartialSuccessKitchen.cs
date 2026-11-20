@@ -8,7 +8,7 @@
 // the generator exits 0, the emitted C# compiles, and the skip report honestly accounts for every
 // dropped shape with a defensible disposition (no Review-tier surprises, no dangling wrapper
 // symbols). The fixture lives at BindingTests/Sources/PartialSuccessKitchen/ and deliberately mixes
-// two must-emit "positive control" types with a dozen skip shapes (SwiftUI View, PATs/existentials,
+// must-emit "positive control" types with a dozen skip shapes (SwiftUI View, PATs/existentials,
 // closure-bearing members, parameter packs, internal-parent members, Codable synthesis, …).
 //
 // This is a compile-gate-shaped leg (host-only: build a standalone simulator-slice xcframework,
@@ -37,9 +37,12 @@ partial class Build
     const string KitchenModule = "PartialSuccessKitchen";
     const string KitchenWrapperModule = "PartialSuccessKitchenSwiftBindings";
 
-    // The two must-emit positive controls (§5 of the fixture design). Their presence in the
-    // generated C# is what proves the binding is a genuine PARTIAL success, not an empty shell.
-    static readonly string[] KitchenPositiveControls = { "KitchenOk", "KitchenOkClass" };
+    // The must-emit positive controls (§5 of the fixture design). Their presence in the generated
+    // C# is what proves the binding is a genuine PARTIAL success, not an empty shell. The proxy of
+    // a protocol whose parent lives in an SDK module the run never loads
+    // (InheritedForeignRequirement.swift) proves that parent's requirements were read and bound
+    // rather than the conformance withdrawn.
+    static readonly string[] KitchenPositiveControls = { "KitchenOk", "KitchenOkClass", "KitchenForeignChildConfigurationProxy" };
 
     AbsolutePath KitchenSourceDir => BindingTestsDir / "Sources" / KitchenModule;
     AbsolutePath KitchenScratch => RootDirectory / "artifacts" / "partial-success-kitchen";

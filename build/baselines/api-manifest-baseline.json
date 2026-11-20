@@ -164,6 +164,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "AcceptFreshConnectionThroughSdkChild(ISdkParentAccepting)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_acceptFreshConnectionThroughSdkChild_3CBEF3B2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "AcceptFreshConnectionThroughSdkParent(ISdkParentAccepting)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_acceptFreshConnectionThroughSdkParent_FB932374"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "AcceptOptionalBool(bool?)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_acceptOptionalBool_138A391F"
     },
@@ -14056,6 +14066,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetRecordedObjCCallbackLabel()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_getRecordedObjCCallbackLabel_747CB984"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetRecordedSdkConnectionAddress()",
+      "symbol": "thunk_SwiftBindingsTestLib_bb1a3717"
     },
     {
       "module": "SwiftBindingsTestLib",
