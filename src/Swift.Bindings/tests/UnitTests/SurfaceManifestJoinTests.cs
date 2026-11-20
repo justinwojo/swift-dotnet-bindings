@@ -214,23 +214,47 @@ public class SurfaceManifestJoinTests
     [Fact]
     public void RowWithTwoEquallyGoodCandidatesIsAmbiguous()
     {
+        // The row's IEnumerable can stand for either emitted collection interface.
         const string source = """
             namespace TestModule
             {
-                namespace A { public sealed class Key { } }
-                namespace B { public sealed class Key { } }
                 public partial class Store
                 {
-                    public void Put(global::TestModule.A.Key key) { }
-                    public void Put(global::TestModule.B.Key key) { }
+                    public void Put(global::System.Collections.Generic.IReadOnlyList<int> keys) { }
+                    public void Put(global::System.Collections.Generic.IReadOnlyCollection<int> keys) { }
                 }
             }
             """;
-        var coverage = OldCoverage(source, ("Store.Put(Key)", "sym_put"));
+        var coverage = OldCoverage(source, ("Store.Put(IEnumerable<int>)", "sym_put"));
 
         Assert.Equal(1, coverage.ManifestAmbiguous);
         Assert.Equal(0, coverage.ManifestMatched);
         Assert.NotEmpty(coverage.Errors);
+    }
+
+    [Fact]
+    public void TypeOfTheSameNameInAnotherNamespaceIsNotTheProjectedOne()
+    {
+        // The row's unqualified IEnumerable is the BCL interface; a library type of the same name
+        // is a different parameter, so the only overload left is not the one the row describes.
+        const string source = """
+            namespace Other
+            {
+                public interface IEnumerable<T> { }
+            }
+            namespace TestModule
+            {
+                public sealed class Key { }
+                public partial class Cache
+                {
+                    public void Put(global::Other.IEnumerable<global::TestModule.Key> keys) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Cache.Put(IEnumerable<TestModule.Key>)", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
     }
 
     [Fact]
@@ -270,7 +294,7 @@ public class SurfaceManifestJoinTests
                 }
             }
             """;
-        var coverage = OldCoverage(source, ("Cache.Put(IEnumerable<Key>)", "sym_put"));
+        var coverage = OldCoverage(source, ("Cache.Put(IEnumerable<TestModule.Key>)", "sym_put"));
 
         Assert.Equal(1, coverage.ManifestAmbiguous);
         Assert.Equal(0, coverage.ManifestMatched);
@@ -292,8 +316,8 @@ public class SurfaceManifestJoinTests
             """;
         var result = Analyze(
             source,
-            ("Cache.Put(IEnumerable<Key>)", "sym_enumerable"),
-            ("Cache.Put(IReadOnlyList<Key>)", "sym_list"));
+            ("Cache.Put(IEnumerable<TestModule.Key>)", "sym_enumerable"),
+            ("Cache.Put(IReadOnlyList<TestModule.Key>)", "sym_list"));
 
         var coverage = Assert.Single(result.Old.Coverage);
         Assert.Empty(coverage.Errors);
@@ -343,5 +367,92 @@ public class SurfaceManifestJoinTests
 
         Assert.Equal(2, coverage.ManifestPhantom);
         Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void RowWithoutNullabilityIsNotANullableValueTypeMember()
+    {
+        // The producer keeps ? on a value type, so a row's int or struct is never the file's int?
+        // or struct?: here the non-nullable overloads were deleted and only the nullable ones remain.
+        const string source = """
+            namespace TestModule
+            {
+                public struct Point { }
+                public partial class Store
+                {
+                    public void Put(int? value) { }
+                    public void Place(global::TestModule.Point? point) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Store.Put(int)", "sym_put"), ("Store.Place(TestModule.Point)", "sym_place"));
+
+        Assert.Equal(2, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void OnlyTheProjectionsOwnAnyTypeStandsForATypeParameter()
+    {
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Store
+                {
+                    public void Put<T>(T value) { }
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Store.Put(Other.AnyType)`1", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void GenericOverloadDoesNotStandInForAMissingNonGenericOne()
+    {
+        // The arity relaxation runs one way: a row may keep a marker the emitter erased, but a row
+        // with no marker does not describe a generic method.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Store
+                {
+                    public T Put<T>(int value) => default!;
+                }
+            }
+            """;
+        var coverage = OldCoverage(source, ("Store.Put(int)", "sym_put"));
+
+        Assert.Equal(1, coverage.ManifestPhantom);
+        Assert.Equal(0, coverage.ManifestMatched);
+    }
+
+    [Fact]
+    public void StaticMethodOfATypeNamedLikeAContainerKeepsItsOwnRow()
+    {
+        // The module stutters, so its free functions are in Functions; GlobalFunctions is a Swift
+        // type whose static method has its own row and is not a second free-function candidate.
+        const string source = """
+            namespace TestModule
+            {
+                public partial class Functions
+                {
+                    public static void Reset() { }
+                }
+                public partial class GlobalFunctions
+                {
+                    public static void Reset() { }
+                }
+            }
+            """;
+        var result = Analyze(source, ("Reset()", "sym_free"), ("GlobalFunctions.Reset()", "sym_type"));
+
+        var coverage = Assert.Single(result.Old.Coverage);
+        Assert.Empty(coverage.Errors);
+        Assert.Equal(2, coverage.ManifestMatched);
+        Assert.Equal("sym_free", result.Old.Members.Single(m => m.PublicKey.Name == "Reset"
+            && m.PublicKey.EnclosingTypes.Single() == "Functions").ApiManifest.Single().RawSymbol);
     }
 }

@@ -35,17 +35,19 @@ public sealed record SurfaceManifestJoinResult(
 /// <para>
 /// Rows are matched in tiers, strictest first. <b>exact</b>: the normalized key as before (several
 /// rows may name one member, as they always could). Then, one-to-one against members no row has
-/// claimed yet, always on the same owner and name and the same list punctuation: <b>qualification</b>
-/// — every type name in the key is the emitted name or a dot-suffix of it (or the reverse), token for
-/// token; <b>nullability</b> — the same, except the row may lack a <c>?</c> the member carries (never
-/// the reverse); <b>generic-arity</b> — the same with the arity marker dropped; <b>projection</b> — the
-/// same with <c>Swift.AnyType</c> standing for a type parameter of the member and the read-only
-/// collection interfaces standing for each other. Each tier only forgets a distinction the projection
-/// is known to lose; none matches on name and count alone. Within a tier a row is claimed only when it
-/// has exactly one candidate, no other pending row has that same single candidate, and every other
-/// unclaimed member the projection tier would admit is some other row's single candidate; anything else stays pending for the next tier and, if no tier settles
-/// it, is reported ambiguous (it had candidates) or phantom (it never had one). Both fail the target
-/// closed, and every match records its tier.
+/// claimed yet, always on the same owner and name and the same list punctuation, each relaxation
+/// one-way, the way the projection loses the distinction: <b>qualification</b> — a type name in the row
+/// may lack the qualifier of a namespace the projection names unqualified (<c>System</c>,
+/// <c>System.Collections.Generic</c>, <c>System.Runtime.InteropServices.Swift</c>, <c>Swift.Runtime</c>); <b>nullability</b> — the row may also lack a
+/// <c>?</c> the member carries on a type that is not a value type; <b>generic-arity</b> — the row may also
+/// carry an arity marker the member lacks; <b>projection</b> — the row's <c>Swift.AnyType</c> may also
+/// stand for a type parameter of the member, and one read-only collection interface for another. Each
+/// tier only forgets a distinction the projection is known to lose; none matches on name and count
+/// alone. Within a tier a row is claimed only when it has exactly one candidate, no other pending row
+/// has that same single candidate, and every other unclaimed member the projection tier would admit is
+/// some other row's single candidate; anything else stays pending for the next tier and, if no tier
+/// settles it, is reported ambiguous (it had candidates) or phantom (it never had one). Both fail the
+/// target closed, and every match records its tier.
 /// </para>
 /// </summary>
 public static class SurfaceManifestJoin
@@ -61,6 +63,23 @@ public static class SurfaceManifestJoin
         "IEnumerable", "IReadOnlyList", "IReadOnlyCollection",
     };
 
+    /// <summary>
+    /// The namespaces whose types the projection names unqualified, as the emitted files' usings and
+    /// aliases allow (<c>IEnumerable</c>, <c>Action</c>, <c>SwiftError</c>, <c>ISwiftObject</c>): the only qualifier a row may
+    /// lack.
+    /// </summary>
+    private static readonly string[] UnqualifiedNamespaces = ["System.Collections.Generic", "System", "System.Runtime.InteropServices.Swift", "Swift.Runtime"];
+
+    /// <summary>The C# value types every target can name; a target's own structs and enums are added.</summary>
+    private static readonly string[] BuiltInValueTypes =
+    [
+        "bool", "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong", "nint", "nuint",
+        "char", "float", "double", "decimal",
+        "System.Boolean", "System.Byte", "System.SByte", "System.Int16", "System.UInt16", "System.Int32",
+        "System.UInt32", "System.Int64", "System.UInt64", "System.IntPtr", "System.UIntPtr", "System.Char",
+        "System.Single", "System.Double", "System.Decimal", "System.Runtime.InteropServices.NFloat",
+    ];
+
     private static readonly Regex TokenRegex = new(
         @"@?[A-Za-z_][A-Za-z0-9_]*(?:\.@?[A-Za-z_][A-Za-z0-9_]*)*|[0-9]+|\S",
         RegexOptions.Compiled | RegexOptions.CultureInvariant);
@@ -72,6 +91,7 @@ public static class SurfaceManifestJoin
         var matches = new List<SurfaceManifestMatch>();
         var ambiguous = new HashSet<SurfaceApiManifestRow>(ReferenceEqualityComparer.Instance);
         var claimed = new HashSet<SurfaceMemberObservation>(ReferenceEqualityComparer.Instance);
+        var valueTypes = ValueTypes(members);
 
         // Each row is read against the namespace its own manifest file was written for.
         var indexes = new Dictionary<(string Root, string Module), FormIndex>();
@@ -86,18 +106,23 @@ public static class SurfaceManifestJoin
         List<SurfaceMemberObservation> Unclaimed(SurfaceApiManifestRow row, SignatureShape rowShape, string tier)
             => IndexFor(row).Lookup(tier, TierKey(rowShape, tier))
                 .Where(f => !claimed.Contains(f.Member))
-                .Where(f => Compatible(rowShape, f.Shape, tier))
+                .Where(f => Compatible(rowShape, f.Shape, tier, valueTypes))
                 .Select(f => f.Member)
                 .Distinct(ReferenceEqualityComparer.Instance)
                 .Cast<SurfaceMemberObservation>()
                 .ToList();
 
-        // Tier exact: the historical join, many rows to one member allowed.
+        // Tier exact: the historical join, many rows to one member allowed. Rows with an owner go
+        // first: a static method a row names through its own type is not also a free function, so
+        // the owner-less rows then skip it (a type the generator did not pick as the free-function
+        // container can still carry one of the container names).
         var pending = new List<SurfaceApiManifestRow>();
-        foreach (var row in rows)
+        var exactOrder = rows.Where(row => HasOwner(row.Signature)).Concat(rows.Where(row => !HasOwner(row.Signature)));
+        foreach (var row in exactOrder)
         {
             var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(row.Signature);
             var candidates = IndexFor(row).Lookup(Exact, normalized)
+                .Where(f => !(f.OwnerLess && claimed.Contains(f.Member)))
                 .Select(f => f.Member)
                 .Distinct(ReferenceEqualityComparer.Instance)
                 .Cast<SurfaceMemberObservation>()
@@ -165,7 +190,8 @@ public static class SurfaceManifestJoin
             }
         }
 
-        var phantom = pending.Where(row => !ambiguous.Contains(row)).ToList();
+        var unsettled = new HashSet<SurfaceApiManifestRow>(pending, ReferenceEqualityComparer.Instance);
+        var phantom = rows.Where(row => unsettled.Contains(row) && !ambiguous.Contains(row)).ToList();
         return new SurfaceManifestJoinResult(
             matches,
             phantom,
@@ -213,7 +239,7 @@ public static class SurfaceManifestJoin
             yield break;
         var owner = ProducerOwner(member.PublicKey, rootNamespace);
         if (owner is null) yield break;
-        yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, owner));
+        yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, owner), ownerLess: false);
         // A free function, a static method of the module's container class: the producer writes no
         // owner for it.
         if (member.PublicKey.DeclarationKind is "method"
@@ -221,13 +247,39 @@ public static class SurfaceManifestJoin
             && member.PublicKey.EnclosingTypes.Count == 1
             && string.Equals(member.PublicKey.Namespace, rootNamespace, StringComparison.Ordinal)
             && IsFreeFunctionContainer(owner, module, rootNamespace))
-            yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, ""));
+            yield return Form(member, SurfaceSyntaxScanner.BuildManifestSignature(member.PublicKey, ""), ownerLess: true);
     }
 
-    private static MemberForm Form(SurfaceMemberObservation member, string signature)
+    private static MemberForm Form(SurfaceMemberObservation member, string signature, bool ownerLess)
     {
         var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(signature);
-        return new MemberForm(member, normalized, Parse(normalized, member.PublicKey.ManifestGenericNames));
+        return new MemberForm(member, normalized, Parse(normalized, member.PublicKey.ManifestGenericNames), ownerLess);
+    }
+
+    private static bool HasOwner(string signature)
+    {
+        var normalized = SurfaceSyntaxScanner.NormalizeManifestSignature(signature);
+        var paren = normalized.IndexOf('(');
+        var bracket = normalized.IndexOf('[');
+        var listStart = paren < 0 ? bracket : bracket < 0 ? paren : Math.Min(paren, bracket);
+        return (listStart < 0 ? normalized : normalized[..listStart]).Contains('.', StringComparison.Ordinal);
+    }
+
+    /// <summary>The full names of the value types a row's missing <c>?</c> cannot have dropped.</summary>
+    private static HashSet<string> ValueTypes(IReadOnlyList<SurfaceMemberObservation> members)
+    {
+        var set = new HashSet<string>(BuiltInValueTypes, StringComparer.Ordinal);
+        foreach (var member in members)
+        {
+            var key = member.PublicKey;
+            if (key.DeclarationKind is not ("struct" or "enum" or "record-struct"))
+                continue;
+            var path = (key.Namespace.Length == 0 ? [] : new[] { key.Namespace })
+                .Concat(key.EnclosingTypes.Select(SurfaceSyntaxScanner.RemoveArity))
+                .Append(SurfaceSyntaxScanner.RemoveArity(key.Name));
+            set.Add(string.Join('.', path));
+        }
+        return set;
     }
 
     /// <summary>
@@ -247,20 +299,18 @@ public static class SurfaceManifestJoin
         return new SignatureShape(head, tokens, HasList: true, generics);
     }
 
-    /// <summary>The tokens a tier compares, the arity marker dropped from generic-arity on.</summary>
-    private static List<string> TierTokens(SignatureShape shape, string tier)
-        => tier is GenericArity or Projection ? WithoutArity(shape.Tokens.ToList()) : shape.Tokens.ToList();
-
     /// <summary>
     /// The lookup key of a tier, coarse enough that every member <see cref="Compatible"/> can accept
-    /// shares the row's key: names by their last segment, <c>?</c> dropped from nullability on, and at
-    /// projection every name read alike (the list's punctuation and arity remain).
+    /// shares the row's key: names by their last segment, <c>?</c> dropped from nullability on, the arity
+    /// marker from generic-arity on, and at projection every name read alike (the list's punctuation
+    /// remains).
     /// </summary>
     internal static string TierKey(SignatureShape shape, string tier)
     {
         if (!shape.HasList) return shape.Head;
         var sb = new StringBuilder(shape.Head);
-        foreach (var token in TierTokens(shape, tier))
+        var tokens = tier is GenericArity or Projection ? WithoutArity(shape.Tokens.ToList()) : shape.Tokens;
+        foreach (var token in tokens)
         {
             if (token == "?" && tier != Qualification) continue;
             sb.Append(!IsName(token) ? token : tier == Projection ? "#" : LastSegment(token)).Append(' ');
@@ -270,44 +320,77 @@ public static class SurfaceManifestJoin
 
     /// <summary>
     /// Whether <paramref name="member"/> can be what <paramref name="row"/> describes at
-    /// <paramref name="tier"/>, token for token: punctuation identical, and of each pair of type names
-    /// one is the other or a dot-suffix of it (the projection names a type as far as the emitted file's
-    /// usings allow, the scan reads what the file wrote). From nullability on the row may lack a
-    /// <c>?</c> the member carries, never the reverse: the producer drops it only for a reference-like
-    /// type (<c>ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity</c>), so <c>int?</c> in a
-    /// row is never <c>int</c> in the file. At projection a <c>Swift.AnyType</c> in the row stands for a
-    /// type parameter of the member, and one read-only collection interface for another.
+    /// <paramref name="tier"/>, token for token, each relaxation one-way, the way the projection loses
+    /// it. Punctuation is identical, and a type name is the member's or lacks only a qualifier the
+    /// projection omits (<see cref="UnqualifiedNamespaces"/>). From nullability on the row may lack a
+    /// <c>?</c> the member carries on a type that is not a value type: the producer drops it only for a
+    /// C# reference type (<c>ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity</c>). From
+    /// generic-arity on the row may carry an arity marker the member lacks (an overload whose type
+    /// parameter the emitter erased), never the reverse. At projection the row's <c>Swift.AnyType</c>
+    /// stands for a type parameter of the member, and one read-only collection interface for another.
     /// </summary>
-    internal static bool Compatible(SignatureShape row, SignatureShape member, string tier)
+    internal static bool Compatible(SignatureShape row, SignatureShape member, string tier, IReadOnlySet<string> valueTypes)
     {
         if (!string.Equals(row.Head, member.Head, StringComparison.Ordinal) || row.HasList != member.HasList)
             return false;
-        var a = TierTokens(row, tier);
-        var b = TierTokens(member, tier);
+        var a = WithoutArity(row.Tokens.ToList());
+        var b = WithoutArity(member.Tokens.ToList());
+        var rowArity = row.Tokens.Skip(a.Count).ToList();
+        var memberArity = member.Tokens.Skip(b.Count).ToList();
+        if (!rowArity.SequenceEqual(memberArity, StringComparer.Ordinal)
+            && !(tier is GenericArity or Projection && memberArity.Count == 0))
+            return false;
         var nullabilityMayDiffer = tier != Qualification;
         int i = 0, j = 0;
         while (i < a.Count && j < b.Count)
         {
             if (Equivalent(a[i], b[j], member, tier)) { i++; j++; continue; }
-            if (nullabilityMayDiffer && b[j] == "?") { j++; continue; }
+            if (nullabilityMayDiffer && b[j] == "?" && !AnnotatesValueType(b, j, valueTypes)) { j++; continue; }
             return false;
         }
-        return i == a.Count && b.Skip(j).All(t => nullabilityMayDiffer && t == "?");
+        while (j < b.Count && nullabilityMayDiffer && b[j] == "?" && !AnnotatesValueType(b, j, valueTypes)) j++;
+        return i == a.Count && j == b.Count;
+    }
+
+    /// <summary>Whether the <c>?</c> at <paramref name="index"/> makes a value type nullable.</summary>
+    private static bool AnnotatesValueType(IReadOnlyList<string> tokens, int index, IReadOnlySet<string> valueTypes)
+    {
+        var k = index - 1;
+        if (k < 0) return false;
+        if (tokens[k] == ">")
+        {
+            // A constructed type: the name before its matching '<'.
+            var depth = 0;
+            for (; k >= 0; k--)
+            {
+                if (tokens[k] == ">") depth++;
+                else if (tokens[k] == "<" && --depth == 0) { k--; break; }
+            }
+        }
+        if (k < 0 || !IsName(tokens[k])) return false;
+        return valueTypes.Contains(tokens[k]);
     }
 
     private static bool Equivalent(string rowToken, string memberToken, SignatureShape member, string tier)
     {
         if (!IsName(rowToken) || !IsName(memberToken))
             return string.Equals(rowToken, memberToken, StringComparison.Ordinal);
-        if (IsDotSuffix(rowToken, memberToken) || IsDotSuffix(memberToken, rowToken))
+        if (SameType(rowToken, memberToken))
             return true;
         if (tier != Projection)
             return false;
-        var rowLast = LastSegment(rowToken);
-        var memberLast = LastSegment(memberToken);
-        return (rowLast == "AnyType" && (member.GenericNames.Contains(memberToken) || memberLast == "AnyType"))
-            || (CollectionInterfaces.Contains(rowLast) && CollectionInterfaces.Contains(memberLast));
+        return (rowToken == "Swift.AnyType" && (member.GenericNames.Contains(memberToken) || memberToken == "Swift.AnyType"))
+            || (IsCollectionInterface(rowToken) && IsCollectionInterface(memberToken));
     }
+
+    private static bool SameType(string rowToken, string memberToken)
+        => string.Equals(rowToken, memberToken, StringComparison.Ordinal)
+            || UnqualifiedNamespaces.Any(ns => string.Equals(memberToken, ns + "." + rowToken, StringComparison.Ordinal));
+
+    private static bool IsCollectionInterface(string token)
+        => CollectionInterfaces.Contains(token)
+            || (token.StartsWith("System.Collections.Generic.", StringComparison.Ordinal)
+                && CollectionInterfaces.Contains(token["System.Collections.Generic.".Length..]));
 
     private static List<string> WithoutArity(List<string> tokens)
     {
@@ -324,14 +407,9 @@ public static class SurfaceManifestJoin
         return dot < 0 ? name : name[(dot + 1)..];
     }
 
-    private static bool IsDotSuffix(string shorter, string longer)
-        => string.Equals(shorter, longer, StringComparison.Ordinal)
-            || (longer.EndsWith(shorter, StringComparison.Ordinal)
-                && longer[longer.Length - shorter.Length - 1] == '.');
-
     internal sealed record SignatureShape(string Head, IReadOnlyList<string> Tokens, bool HasList, IReadOnlyList<string> GenericNames);
 
-    private sealed record MemberForm(SurfaceMemberObservation Member, string Normalized, SignatureShape Shape);
+    private sealed record MemberForm(SurfaceMemberObservation Member, string Normalized, SignatureShape Shape, bool OwnerLess);
 
     /// <summary>The member forms of one manifest root, looked up by each tier's key.</summary>
     private sealed class FormIndex(IReadOnlyList<MemberForm> forms)
