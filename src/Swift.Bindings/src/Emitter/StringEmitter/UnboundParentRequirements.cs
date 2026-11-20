@@ -193,9 +193,14 @@ internal static class UnboundParentRequirements
                 || !string.Equals(member.PrintedName + (ProtocolExtensionEmitter.IsAsyncSignature(member.RawSignature) ? " async" : string.Empty),
                     requirement.Key, StringComparison.Ordinal))
                 continue;
-            // A throwing member cannot witness a requirement that does not throw.
+            // A throwing (or rethrowing) member cannot witness a requirement that does not throw, and a
+            // mutating or consuming one cannot witness any requirement the reader admits.
             if (!requirement.Throws && SwiftParameterClause.Effects(member.RawSignature) is { } effects
-                && System.Text.RegularExpressions.Regex.IsMatch(effects, @"\bthrows\b"))
+                && System.Text.RegularExpressions.Regex.IsMatch(effects, @"\b(?:re)?throws\b"))
+                continue;
+            var funcKeyword = System.Text.RegularExpressions.Regex.Match(member.RawSignature, @"\bfunc\b");
+            if (funcKeyword.Success && System.Text.RegularExpressions.Regex.IsMatch(
+                    member.RawSignature[..funcKeyword.Index], @"\b(?:mutating|consuming|__consuming)\b"))
                 continue;
             var signature = ProtocolExtensionEmitter.ParseFunctionSignature(
                 member.RawSignature, member.MethodName, returnsSelf: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);

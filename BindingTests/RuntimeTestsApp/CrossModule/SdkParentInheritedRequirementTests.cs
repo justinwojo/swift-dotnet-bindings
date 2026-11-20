@@ -52,7 +52,10 @@ public class SdkParentInheritedRequirementTests : TestBase
         AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
             "the conformer received the connection Swift passed through the parent");
 
-        AssertTrue(Functions.AcceptFreshConnectionGenerically(acceptor), "the conformer's answer comes back through a generic parameter");
+        // A generic parameter takes a Swift-backed value: the proxy over the C# conformer.
+        acceptor.Answer = true;
+        using var proxy = new SdkParentAcceptingProxy(acceptor);
+        AssertTrue(Functions.AcceptFreshConnectionGenerically(proxy), "the conformer's answer comes back through a generic parameter");
         AssertEqual(3, acceptor.Calls, "the generic parameter reached the same conformer");
         AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
             "the conformer received the connection Swift passed through the generic parameter");
@@ -69,7 +72,7 @@ public class SdkParentInheritedRequirementTests : TestBase
 
         vendor.LastVended.Dispose();
         vendor.LastVended = null;
-        AssertEqual((long)Functions.SwiftOwnedObjectRetainCount(), (long)Functions.VendedObjectRetainCount(),
+        AssertEqual((long)Functions.GetSwiftOwnedObjectRetainCount(), (long)Functions.GetVendedObjectRetainCount(),
             "Swift holds exactly its own reference once C# lets go, as an object only Swift referenced does");
         Functions.ReleaseVendedObject();
     }
@@ -82,11 +85,26 @@ public class SdkParentInheritedRequirementTests : TestBase
         var stored = Functions.StoreFreshObject(vendor);
         AssertEqual((ulong)stored, (ulong)(nint)vendor.Current.Handle, "the conformer received the object Swift stored");
 
-        var before = Functions.StoredObjectRetainCount();
+        var before = Functions.GetStoredObjectRetainCount();
         for (var i = 0; i < 3; i++)
             AssertEqual((ulong)stored, (ulong)Functions.ReadCurrentObject(vendor), "Swift reads back the object it stored");
-        AssertEqual((long)before, (long)Functions.StoredObjectRetainCount(), "reading the property leaks no reference");
+        AssertEqual((long)before, (long)Functions.GetStoredObjectRetainCount(), "reading the property leaks no reference");
         Functions.ReleaseStoredObject();
+    }
+
+    // An Optional Foundation class argument: one pointer word on Swift's side, so the conformer
+    // receives the object Swift passed, and null for nil.
+    public void TestOptionalFoundationObjectArgument_ArrivesAsTheObjectOrNull()
+    {
+        var vendor = new ObjectVendor();
+        var passed = Functions.InspectThroughVendor(vendor, passingNil: false);
+        AssertEqual(1, vendor.InspectCalls, "the call reached the conformer");
+        AssertTrue(vendor.LastInspected is not null, "a live object arrives as an object");
+        AssertEqual((ulong)passed, (ulong)(nint)vendor.LastInspected!.Handle, "the conformer received the object Swift passed");
+
+        AssertEqual(0UL, (ulong)Functions.InspectThroughVendor(vendor, passingNil: true), "Swift passed nil");
+        AssertEqual(2, vendor.InspectCalls, "the nil call reached the conformer");
+        AssertTrue(vendor.LastInspected is null, "nil arrives as null");
     }
 }
 
@@ -95,10 +113,19 @@ internal sealed class ObjectVendor : IFoundationObjectVending
     public NSObject? LastVended { get; set; }
     public NSObject Current { get; set; } = new NSObject();
 
-    public NSObject Vend()
+    public NSObject? LastInspected { get; private set; }
+    public int InspectCalls { get; private set; }
+
+    public NSObject GetVend()
     {
         LastVended = new NSObject();
         return LastVended;
+    }
+
+    public void Inspect(NSObject? @object)
+    {
+        InspectCalls++;
+        LastInspected = @object;
     }
 }
 

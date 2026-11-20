@@ -5990,6 +5990,48 @@ public class ProtocolProxyEmitterTests
         Assert.Contains($"{csType.Replace("global::", "")} Make()", output);
     }
 
+    [Theory]
+    [InlineData("Foundation.NSObject", "NSObject", "global::Foundation.NSObject")]
+    [InlineData("Foundation.NSXPCConnection", "NSXpcConnection", "global::Foundation.NSXpcConnection")]
+    public void EmitProxyClass_OptionalFoundationClassInputs_ReadOnePointerWord(string swiftType, string surfaceName, string csType)
+    {
+        // Swift passes the address of an Optional class slot: one nil-pointer-optimized word. Reading
+        // it as SwiftOptional<IntPtr> (Optional<Int>, a word plus a tag byte) reads past the slot.
+        using var surface = FoundationClassSurface(surfaceName);
+        NamedTypeSpec Optional()
+        {
+            var optional = new NamedTypeSpec("Swift.Optional");
+            optional.GenericParameters.Add(new NamedTypeSpec(swiftType));
+            return optional;
+        }
+        var protocol = CreateSimpleProtocol("OptionalFoundationClassInputProto");
+        var take = CreateMethodDecl("take");
+        take.CSSignature.Add(new ArgumentDecl { Name = "object", PrivateName = "object", SwiftTypeSpec = Optional(), IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null });
+        protocol.Methods.Add(take);
+        protocol.Properties.Add(new PropertyDecl
+        {
+            Name = "current", SwiftTypeSpec = Optional(), IsStatic = false, HasStorage = false,
+            Accessors = new List<AccessorDecl>
+            {
+                new GetAccessorDecl { Method = CreateMethodDecl("current_get") },
+                new SetAccessorDecl { Method = CreateMethodDecl("current_set") },
+            },
+            ParentDecl = null, ModuleDecl = null
+        });
+
+        var output = EmitProxyClass(protocol);
+        var argument = ExtractMethodBody(output, "private static void Receive_take_");
+        var setter = ExtractMethodBody(output, "private static void Receive_current_set(");
+
+        foreach (var body in new[] { argument, setter })
+        {
+            Assert.DoesNotContain("SwiftOptional<IntPtr>", body);
+            Assert.Contains("MarshalFromSwift<IntPtr>(", body);
+            Assert.Contains("global::System.IntPtr.Zero ? null", body);
+            Assert.Contains($"ObjCRuntime.Runtime.GetNSObject<{csType.Replace("global::", "")}>(", body.Replace("global::Foundation", "Foundation"));
+        }
+    }
+
     [Fact]
     public void EmitProxyClass_OptionalFoundationClass_UsesTheSurfacesDotNetSpelling()
     {
@@ -6370,11 +6412,11 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
-    public void EmitProxyClass_MethodReceiver_OptionalObjCBridgedParam_UsesDiscriminantAndGetNSObject()
+    public void EmitProxyClass_MethodReceiver_OptionalObjCBridgedParam_ReadsOnePointerWord()
     {
-        // Optional<ObjC> method param: slot read as SwiftOptional<IntPtr> + discriminant check
-        // + GetNSObject<T>(varName.Some) conversion. Uses the ObjCBridgedProjection branch in
-        // GetReceiverOptionalSetterConversion, not the default nullable cast.
+        // Optional<ObjC class> method param: Swift's Optional of a class is the class's own
+        // nil-pointer-optimized word, so the slot is read as one IntPtr (nil = 0x0) and bridged at +0.
+        // SwiftOptional<IntPtr> is Optional<Int>, a word plus a tag byte: copying it reads past the slot.
         RegisterObjCBridgedType("Foundation.NSURLSession", "Foundation.NSUrlSession");
         var protocol = CreateSimpleProtocol("OptSessionDelegate");
         var method = CreateMethodDecl("didComplete");
@@ -6392,12 +6434,11 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_didComplete_0", output);
-        // ABI type: SwiftOptional<IntPtr> (ObjC objects are pointers). The Optional carrier is a
-        // managed wrapper, so the borrowed slot is copied out rather than read bitwise.
-        Assert.Contains("MarshalCopiedValueFromSlot<SwiftOptional<IntPtr>>", output);
-        // Conversion: discriminant check + GetNSObject wrapping
-        Assert.Contains("GetNSObject<Foundation.NSUrlSession>", output);
-        Assert.Contains("SwiftOptionalCases.None", output);
+        var receiver = ExtractMethodBody(output, "private static void Receive_didComplete_0(");
+        Assert.DoesNotContain("SwiftOptional<IntPtr>", receiver);
+        Assert.Contains("MarshalFromSwift<IntPtr>(", receiver);
+        Assert.Contains("global::System.IntPtr.Zero ? null", receiver);
+        Assert.Contains("GetNSObject<Foundation.NSUrlSession>", receiver);
     }
 
     [Fact]

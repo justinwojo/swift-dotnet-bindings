@@ -60,11 +60,12 @@ public func acceptFreshConnectionGenerically(_ acceptor: some SdkParentAccepting
 // returns a Foundation class, and a get/set property of one. A C# conformer's returned object must
 // cross to Swift with a reference of its own (the Swift thunk takes a +1 over), and the object
 // Swift stores must reach the conformer as the live object, not as a pointer read as a managed
-// reference. `NSObject` is the Foundation class no binding records, like `NSXPCConnection`.
+// reference, and an Optional one must arrive as that object or as null. `NSObject` is the Foundation class no binding records, like `NSXPCConnection`.
 
 public protocol FoundationObjectVending {
     func vend() -> NSObject
     var current: NSObject { get set }
+    func inspect(_ object: NSObject?)
 }
 
 // What the drivers hold on Swift's side, so the tests can ask about it after C# lets go.
@@ -123,6 +124,14 @@ public func storeFreshObject(_ vendor: any FoundationObjectVending) -> UInt {
 /// The retain count of the object `storeFreshObject` kept.
 public func storedObjectRetainCount() -> Int {
     retainCount(of: storedObject)
+}
+
+/// Hands `inspect(_:)` a fresh object, or nil, through the existential; returns the address it
+/// passed (0 for nil). Swift's `NSObject?` is one pointer word, nil = 0.
+public func inspectThroughVendor(_ vendor: any FoundationObjectVending, passingNil: Bool) -> UInt {
+    let object: NSObject? = passingNil ? nil : NSObject()
+    vendor.inspect(object)
+    return object.map(address(of:)) ?? 0
 }
 
 /// Drops the object `storeFreshObject` kept.
