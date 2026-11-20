@@ -194,13 +194,13 @@ internal static class UnboundParentRequirements
                     requirement.Key, StringComparison.Ordinal))
                 continue;
             // A throwing (or rethrowing) member cannot witness a requirement that does not throw, and a
-            // mutating or consuming one cannot witness any requirement the reader admits.
+            // mutating one cannot witness any requirement the reader admits (none is mutating).
             if (!requirement.Throws && SwiftParameterClause.Effects(member.RawSignature) is { } effects
                 && System.Text.RegularExpressions.Regex.IsMatch(effects, @"\b(?:re)?throws\b"))
                 continue;
             var funcKeyword = System.Text.RegularExpressions.Regex.Match(member.RawSignature, @"\bfunc\b");
             if (funcKeyword.Success && System.Text.RegularExpressions.Regex.IsMatch(
-                    member.RawSignature[..funcKeyword.Index], @"\b(?:mutating|consuming|__consuming)\b"))
+                    member.RawSignature[..funcKeyword.Index], @"\bmutating\b"))
                 continue;
             var signature = ProtocolExtensionEmitter.ParseFunctionSignature(
                 member.RawSignature, member.MethodName, returnsSelf: false, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);

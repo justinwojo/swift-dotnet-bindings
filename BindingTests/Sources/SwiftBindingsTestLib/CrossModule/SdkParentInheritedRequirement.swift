@@ -48,9 +48,16 @@ public func recordedSdkConnectionAddress() -> UInt {
     return UInt(bitPattern: Unmanaged.passUnretained(connection).toOpaque())
 }
 
-/// Hands a fresh connection to the conformer through a generic parameter, the static-dispatch path.
+/// Hands a fresh connection to the conformer through a generic parameter, the static-dispatch path:
+/// the existential is opened into `some SdkParentAccepting`, so the call goes through the
+/// conformance's witness table rather than the existential's.
 @available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
-public func acceptFreshConnectionGenerically(_ acceptor: some SdkParentAccepting) -> Bool {
+public func acceptFreshConnectionGenerically(_ acceptor: any SdkParentAccepting) -> Bool {
+    return acceptFreshConnection(through: acceptor)
+}
+
+@available(iOS 16.0, macOS 13.0, tvOS 16.0, *)
+private func acceptFreshConnection(through acceptor: some SdkParentAccepting) -> Bool {
     return acceptor.accept(connection: freshConnection())
 }
 

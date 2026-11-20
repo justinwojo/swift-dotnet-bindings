@@ -52,10 +52,8 @@ public class SdkParentInheritedRequirementTests : TestBase
         AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
             "the conformer received the connection Swift passed through the parent");
 
-        // A generic parameter takes a Swift-backed value: the proxy over the C# conformer.
         acceptor.Answer = true;
-        using var proxy = new SdkParentAcceptingProxy(acceptor);
-        AssertTrue(Functions.AcceptFreshConnectionGenerically(proxy), "the conformer's answer comes back through a generic parameter");
+        AssertTrue(Functions.AcceptFreshConnectionGenerically(acceptor), "the conformer's answer comes back through a generic parameter");
         AssertEqual(3, acceptor.Calls, "the generic parameter reached the same conformer");
         AssertEqual((ulong)Functions.GetRecordedSdkConnectionAddress(), (ulong)(nint)acceptor.LastConnection!.Handle,
             "the conformer received the connection Swift passed through the generic parameter");

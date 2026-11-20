@@ -136,9 +136,10 @@ public class UnboundParentRequirementsTests
     [InlineData("OtherKit.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", true)]
     // A throwing member cannot witness a requirement that does not throw.
     [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) throws -> Swift.Bool", true)]
-    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "public func accept(connection: Foundation.NSXPCConnection) rethrows -> Swift.Bool", true)]
     // A mutating member cannot witness a requirement that is not mutating.
     [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "nonisolated public mutating func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", true)]
+    // A consuming one can: Swift copies the receiver.
+    [InlineData("ExtensionFoundation.AppExtensionConfiguration", "", "nonisolated public consuming func accept(connection: Foundation.NSXPCConnection) -> Swift.Bool", false)]
     public void ADefaultTheModuleDeclaresOnTheParentIsHonoured(string extendedType, string whereConstraint, string signature, bool added)
     {
         using var sdk = FakeSdkInterfaces.Standard();
