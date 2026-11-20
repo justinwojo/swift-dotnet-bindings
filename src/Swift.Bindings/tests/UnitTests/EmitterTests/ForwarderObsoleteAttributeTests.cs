@@ -69,6 +69,31 @@ public class ForwarderObsoleteAttributeTests
         Assert.Equal(primary, forwarder);
     }
 
+    /// <summary>
+    /// A primary poisoned by SB0006 (its suppressed-proxy return can only throw) is
+    /// <c>[Obsolete(error: true)]</c>, and a call to it does not compile from any member, an obsolete
+    /// one included (CS0619). Its forwarders mirror the poison and throw instead of calling it.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.URL", "Foundation.NSUrl url)", "(string url)")]
+    [InlineData("Swift.Int", "nint url)", "(int url)")]
+    public void Forwarder_OfAProduceThrowPrimary_MirrorsThePoisonAndNeverCallsIt(string parameterType, string primarySignature, string forwarderSignature)
+    {
+        var (_, member) = CreateMember(MemberKind.Instance, ("url", new NamedTypeSpec(parameterType)));
+        var context = new ModuleEmissionContext();
+        context.RecordMethodProduceThrow(member);
+
+        var cs = Emit(member, context);
+
+        Assert.Contains(primarySignature, cs);
+        var forwarder = ObsoleteLineOf(cs, forwarderSignature);
+        Assert.True(forwarder is not null, $"the forwarder carries the poison:\n{cs}");
+        Assert.Contains("SB0006", forwarder);
+        var line = cs.Split('\n').Single(l => l.Contains(forwarderSignature, System.StringComparison.Ordinal));
+        Assert.Contains("=> throw new NotSupportedException(", line);
+        Assert.DoesNotContain("=> Work(", line);
+    }
+
     [Fact]
     public void IntForwarder_OfAnUnmarkedPrimary_CarriesNone()
     {

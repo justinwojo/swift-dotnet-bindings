@@ -504,9 +504,26 @@ namespace BindingsGeneration
                 else
                 {
                     // Deprecation-only — plain [Obsolete] without DiagnosticId
-                    csWriter.WriteLine($"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\")]");
+                    csWriter.WriteLine(DeprecationObsoleteLine(deprecationMsg!));
                 }
             }
+        }
+
+        /// <summary>
+        /// The plain <c>[Obsolete]</c> a deprecated member carries when nothing else marks it: the line
+        /// <see cref="EmitSafetyObsolete"/> writes when the deprecation is its only issue.
+        /// </summary>
+        private static string DeprecationObsoleteLine(string deprecationMessage) =>
+            $"[Obsolete(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral($"Deprecated: {deprecationMessage}.")}\")]";
+
+        /// <summary>
+        /// Writes the deprecation-only <c>[Obsolete]</c> for a member whose path does not run
+        /// <see cref="EmitSafetyObsolete"/>, so a Swift deprecation reaches the consumer on that member kind too.
+        /// </summary>
+        private void EmitDeprecationObsolete(CSharpWriter csWriter)
+        {
+            if (AvailabilityAttributeEmitter.GetDeprecationMessage(_env.MethodDecl) is { } deprecationMessage)
+                csWriter.WriteLine(DeprecationObsoleteLine(deprecationMessage));
         }
 
         /// <summary>

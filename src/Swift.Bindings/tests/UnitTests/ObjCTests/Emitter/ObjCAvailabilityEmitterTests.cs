@@ -41,6 +41,19 @@ public class ObjCAvailabilityEmitterTests
     }
 
     [Fact]
+    public void WatchOS_IsDropped_OtherPlatformsKept()
+    {
+        // No .NET project targets watchOS; a "watchos" entry only makes CA1416 report every call to
+        // an iOS/macOS/tvOS-only Apple type as reachable on watchOS.
+        var output = Emit(
+            new ObjCAvailability { Platform = "ios", IntroducedVersion = "15.0" },
+            new ObjCAvailability { Platform = "watchos", IntroducedVersion = "8.0", DeprecatedVersion = "9.0" },
+            new ObjCAvailability { Platform = "watchos", IsUnavailable = true });
+        Assert.DoesNotContain("watchos", output);
+        Assert.Contains("SupportedOSPlatform(\"ios15.0\")", output);
+    }
+
+    [Fact]
     public void Introduced_MajorOnly_NormalizedToMajorMinor()
     {
         // Matches the Swift path: "13" → "13.0" so the two emitters produce identical strings.

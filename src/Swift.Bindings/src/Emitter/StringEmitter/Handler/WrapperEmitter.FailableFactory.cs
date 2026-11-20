@@ -95,8 +95,13 @@ namespace BindingsGeneration
             // is emitted ONLY for that case: this path has never carried the advisory direct-CallConvSwift
             // marker, and turning it on for every failable factory would surface a new obsoletion warning
             // on members whose call route is unchanged.
+            // A deprecated failable init still has to say so: the factory is the only member a consumer
+            // calls in its place, so the Swift deprecation goes on it as the plain [Obsolete] every other
+            // member kind carries (the tombstone marker above already folds the deprecation in).
             if (WrapperValidation.IsAbiFloorTombstoned(_env))
                 EmitSafetyObsolete(csWriter, _env.FailableFactoryName ?? "TryCreate");
+            else
+                EmitDeprecationObsolete(csWriter);
             // Emit signature: public static bool TryCreate(params, out TypeName result)
             var accessModifier = NameProvider.GetAccessModifier(_env.MethodDecl.IsSynthesizedAccessor);
             // _needsUnsafeBody is already true: SyncMethodPlan.RequiresUnsafe returns true for all constructors

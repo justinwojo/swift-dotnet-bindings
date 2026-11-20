@@ -25,7 +25,7 @@ public class OperatorOptionalObjectTests
 
     private static readonly string s_dbDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Swift");
 
-    private static async Task<TypeDatabase> CreateDatabaseAsync()
+    internal static async Task<TypeDatabase> CreateDatabaseAsync()
     {
         var database = new TypeDatabase();
         await database.LoadModuleDatabaseFromFile(Path.Combine(s_dbDir, "SwiftDatabase.xml"));
@@ -70,7 +70,7 @@ public class OperatorOptionalObjectTests
     };
 
     /// <summary>The operator's parent: a class (<c>Box</c>) or a non-frozen struct (<c>Value</c>).</summary>
-    private static TypeDecl Parent(bool isClass)
+    internal static TypeDecl Parent(bool isClass)
     {
         if (isClass)
         {
@@ -112,7 +112,7 @@ public class OperatorOptionalObjectTests
 
     private static NamedTypeSpec Optional(string inner) => new("Swift.Optional", new NamedTypeSpec(inner));
 
-    private static OperatorDecl Operator(string symbol, TypeDecl parent, TypeSpec result, TypeSpec? rhs = null, bool throws = false, bool rhsInOut = false)
+    internal static OperatorDecl Operator(string symbol, TypeDecl parent, TypeSpec result, TypeSpec? rhs = null, bool throws = false, bool rhsInOut = false)
     {
         var self = new NamedTypeSpec(parent.SwiftTypeName.ToString());
         ArgumentDecl Arg(TypeSpec spec, string name, bool inOut = false) => new()
@@ -145,7 +145,7 @@ public class OperatorOptionalObjectTests
         };
     }
 
-    private static (bool Emitted, string CSharp) Emit(OperatorDecl op, TypeDatabase database)
+    internal static (bool Emitted, string CSharp) Emit(OperatorDecl op, TypeDatabase database)
     {
         var cs = new StringWriter();
         var logger = new CapturingLogger();
@@ -328,6 +328,106 @@ public class OperatorOptionalObjectTests
 
         Assert.False(emitted, cs);
         Assert.DoesNotContain("rhsBuffer = ", cs);
+    }
+
+    /// <summary>
+    /// An Optional of a value type comes back from Swift in its own lowered form (an <c>Int32?</c> is
+    /// the payload word and a tag byte), not as the projected <c>int?</c>. The direct operator body once
+    /// returned that raw result as the projected type (CS0266), which failed the whole module's
+    /// compile. It is read through the return type's projection, as a method returning the same type
+    /// reads it.
+    /// </summary>
+    [Theory]
+    [InlineData(true, "Swift.Int32", "int?")]
+    [InlineData(false, "Swift.Int32", "int?")]
+    [InlineData(true, "Swift.Bool", "bool?")]
+    [InlineData(false, "Swift.UInt8", "byte?")]
+    public async Task OptionalValueResult_IsReadThroughTheProjection(bool classParent, string wrapped, string projected)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(classParent);
+        var self = new NamedTypeSpec(parent.SwiftTypeName.ToString());
+
+        var (emitted, cs) = Emit(Operator("+", parent, Optional(wrapped), self), database);
+
+        Assert.True(emitted, cs);
+        var body = Body(cs);
+        Assert.Matches($@"static {Regex.Escape(projected)} operator \+\(", cs);
+        Assert.DoesNotMatch(@"return PInvoke_op_\w+\(", body);
+        var call = Regex.Match(body, @"var (?<local>\w+) = PInvoke_op_Addition\(");
+        Assert.True(call.Success, $"the raw result is held in a local:\n{body}");
+        var local = call.Groups["local"].Value;
+        var after = body[(call.Index + call.Length)..];
+        Assert.True(Regex.IsMatch(after, $@"SwiftOptional<[\w.]+>>?\(&?{local}\)"), $"the raw result is read as the Swift Optional:\n{cs}");
+        Assert.True(Regex.IsMatch(after, @"\breturn\b"), cs);
+        Assert.DoesNotMatch($@"return {local};", after);
+        // The P/Invoke returns the lowered Optional, never the projected nullable.
+        var pinvoke = Regex.Match(cs, @"static (unsafe )?(partial |extern )*(?<ret>[\w.<>:?]+) PInvoke_op_Addition\(");
+        Assert.True(pinvoke.Success, cs);
+        Assert.NotEqual(projected, pinvoke.Groups["ret"].Value);
+    }
+
+    /// <summary>
+    /// A collection of ObjC-bridgeable elements (<c>[URL]</c>, <c>[URL]?</c>) is one word, but a
+    /// direct call renders it as the Objective-C collection where Swift passes and returns its own array
+    /// storage: read through the projection, the result would be taken as an NSArray Swift never made.
+    /// The operator is refused, as an ordinary member of the same shape is.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, false, true)]
+    [InlineData(true, true, false)]
+    public async Task ObjCBridgeableContainer_OnTheDirectPath_IsRefused(bool classParent, bool optional, bool asResult)
+    {
+        var database = await CreateDatabaseAsync();
+        // A Swift value that bridges to an Objective-C class, as Foundation.URL bridges to NSURL.
+        var elements = new ModuleTypeDatabase("Elements", "/tmp/Elements.dylib");
+        elements.RegisterType(SwiftTypeName.FromModuleQualifiedName("Elements.Link"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Elements", "Link"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Elements.Link"),
+            MetadataAccessor = "$s8Elements4LinkVMa",
+            Flags = TypeRecordFlags.Frozen | TypeRecordFlags.ObjCBridgeable,
+            Kind = TypeRecordKind.Struct,
+            InlineSize = 8,
+        });
+        database.AddModuleDatabase(elements);
+        var parent = Parent(classParent);
+        var self = new NamedTypeSpec(parent.SwiftTypeName.ToString());
+        var array = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Elements.Link"));
+        TypeSpec container = optional ? new NamedTypeSpec("Swift.Optional", array) : array;
+
+        var op = asResult
+            ? Operator("+", parent, container, self)
+            : Operator("+", parent, new NamedTypeSpec("Swift.Bool"), container);
+        var (emitted, cs) = Emit(op, database);
+
+        Assert.False(emitted, cs);
+        Assert.DoesNotContain(" operator +(", cs);
+        // A non-frozen struct's operator may take the wrapper, which refuses the shape for its own reason.
+        if (classParent)
+            Assert.Contains("ObjC-bridgeable container", cs);
+    }
+
+    /// <summary>
+    /// An operator whose result has no type record is refused for its placeholder, before anything asks
+    /// for the record: a question that throws would count against the module's emission attempts, and a
+    /// few such operators would fail the whole module.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task UnresolvedResult_IsRefusedWithoutThrowing(bool classParent)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(classParent);
+        var self = new NamedTypeSpec(parent.SwiftTypeName.ToString());
+
+        var (emitted, cs) = Emit(Operator("+", parent, new NamedTypeSpec("Foreign.Value"), self), database);
+
+        Assert.False(emitted, cs);
+        Assert.DoesNotContain(" operator +(", cs);
     }
 
     /// <summary>

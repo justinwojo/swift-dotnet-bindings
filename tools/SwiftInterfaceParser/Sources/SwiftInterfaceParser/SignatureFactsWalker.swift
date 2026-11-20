@@ -108,6 +108,23 @@ final class SignatureFactsWalker: SyntaxVisitor {
     private(set) var constLiteralParameters: [String: [Bool]] = [:]
     private(set) var closureParameterAttributes: [String: [[String]]] = [:]
 
+    /// Every declaration's per-parameter facts, staged by bare key with its parameter-type
+    /// signature. The bare keys above name a member by its labels alone, so overloads that
+    /// share their labels (`f(_:_:)` taking `any P` beside `f(_:_:)` taking a closure) share
+    /// one bare entry and the last declaration's values win for both. `finalize()` adds a
+    /// `bareKey|signature` refinement for each overload of such a family, the scheme
+    /// `ThrowsWalker` uses for typed throws, and keeps the bare entry as the fallback for a
+    /// lookup whose signature the consumer cannot rebuild.
+    private struct Staged<Value: Equatable> {
+        let signature: String
+        let value: Value
+    }
+    private var stagedParameterNames: [String: [Staged<[String]>]] = [:]
+    private var stagedDefaultParameterValues: [String: [Staged<[String?]>]] = [:]
+    private var stagedAutoclosureParameters: [String: [Staged<[Bool]>]] = [:]
+    private var stagedConstLiteralParameters: [String: [Staged<[Bool]>]] = [:]
+    private var stagedClosureParameterAttributes: [String: [Staged<[[String]]>]] = [:]
+
     private struct Scope {
         /// Used for the parameterNames key (last-dot-component of the extension type).
         let paramNamesKey: String
@@ -167,6 +184,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
         let walker = SignatureFactsWalker(converter: converter,
                                           closureTypeAliases: ClosureTypeAliasIndex.build(tree))
         walker.walk(tree)
+        walker.finalize()
         return (walker.parameterNames, walker.defaultParameterValues,
                 walker.autoclosureParameters, walker.variadicMembers,
                 walker.constLiteralParameters, walker.closureParameterAttributes)
@@ -366,6 +384,45 @@ final class SignatureFactsWalker: SyntaxVisitor {
         return false
     }
 
+    // MARK: - Overload refinements
+
+    private func finalize() {
+        Self.refine(stagedParameterNames, into: &parameterNames)
+        Self.refine(stagedDefaultParameterValues, into: &defaultParameterValues)
+        Self.refine(stagedAutoclosureParameters, into: &autoclosureParameters)
+        Self.refine(stagedConstLiteralParameters, into: &constLiteralParameters)
+        Self.refine(stagedClosureParameterAttributes, into: &closureParameterAttributes)
+    }
+
+    /// Adds `bareKey|signature` for every overload of a bare key that more than one
+    /// signature shares. Each overload gets its own entry even when its facts are empty
+    /// (no default, no autoclosure), so a lookup by signature never falls back onto a
+    /// sibling's values. Declarations that still share a normalized signature but disagree
+    /// get no refinement: the facts of neither can be chosen by source order.
+    private static func refine<Value: Equatable>(_ staged: [String: [Staged<Value>]], into facts: inout [String: Value]) {
+        for (bareKey, declarations) in staged {
+            let groups = Dictionary(grouping: declarations, by: \.signature)
+            guard groups.count > 1 else { continue }
+            for (signature, siblings) in groups where !signature.isEmpty {
+                guard let value = siblings.first?.value,
+                      siblings.allSatisfy({ $0.value == value }) else { continue }
+                facts["\(bareKey)|\(signature)"] = value
+            }
+        }
+    }
+
+    private static func stage<Value: Equatable>(_ value: Value, signature: String, key: String,
+                                     in staged: inout [String: [Staged<Value>]]) {
+        staged[key, default: []].append(Staged(signature: signature, value: value))
+    }
+
+    /// The normalized parameter-type signature the .NET side rebuilds from the ABI
+    /// (`MemberSignatureNormalizer.BuildSignature`), as `AvailabilityWalker` and
+    /// `ThrowsWalker` key their overload refinements.
+    private static func parameterSignature(_ params: FunctionParameterListSyntax) -> String {
+        params.map { AvailabilityWalker.normalizeParamType($0.type.dottedDescription) }.joined(separator: ",")
+    }
+
     // MARK: - Helpers
 
     private func emitForFunctionLike(
@@ -390,8 +447,10 @@ final class SignatureFactsWalker: SyntaxVisitor {
         // Every `func name(` / `init(` line qualifies; FunctionDeclSyntax /
         // InitializerDeclSyntax covers exactly that set, so no shape gate is needed.
         // Zero-param signatures are skipped (emit only when the param list is non-empty).
+        let signature = Self.parameterSignature(params)
         if !internalNames.isEmpty {
             parameterNames[paramNamesKey] = internalNames
+            Self.stage(internalNames, signature: signature, key: paramNamesKey, in: &stagedParameterNames)
         }
 
         let publicShapeOk = isInit
@@ -411,6 +470,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
             if closureAttrs.contains(where: { !$0.isEmpty }) {
                 closureParameterAttributes[trackerKey] = closureAttrs
             }
+            Self.stage(closureAttrs, signature: signature, key: trackerKey, in: &stagedClosureParameterAttributes)
         }
 
         // Defaults / Autoclosure / Variadic / ConstLiteral — STRICT public-shape gate.
@@ -423,17 +483,22 @@ final class SignatureFactsWalker: SyntaxVisitor {
         if defaults.contains(where: { $0 != nil }) {
             defaultParameterValues[trackerKey] = defaults
         }
+        Self.stage(defaults, signature: signature, key: trackerKey, in: &stagedDefaultParameterValues)
         if autoclosures.contains(where: { $0 }) {
             autoclosureParameters[trackerKey] = autoclosures
         }
+        Self.stage(autoclosures, signature: signature, key: trackerKey, in: &stagedAutoclosureParameters)
         if variadicHit {
             variadicMembers.append(trackerKey)
         }
         // Include only when at least one parameter is `_const`.
         // FAILABLE-INIT EXCLUSION: failable `init?(`/`init!(` never emit a const
         // entry — mirror with `!isFailableInit`.
-        if !isFailableInit, constFlags.contains(where: { $0 }) {
-            constLiteralParameters[trackerKey] = constFlags
+        if !isFailableInit {
+            if constFlags.contains(where: { $0 }) {
+                constLiteralParameters[trackerKey] = constFlags
+            }
+            Self.stage(constFlags, signature: signature, key: trackerKey, in: &stagedConstLiteralParameters)
         }
     }
 

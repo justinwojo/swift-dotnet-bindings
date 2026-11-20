@@ -137,6 +137,12 @@ internal static class UrlStringConvenienceOverloadEmitter
         // the forwarder as reachable on lower OS versions than the platform-gated target it delegates to.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
+        if (NativeIntOverloadEmitter.ForwardsToProduceThrowPrimary(methodEnv))
+        {
+            NativeIntOverloadEmitter.EmitProduceThrowForwarder(csWriter,
+                $"public {staticModifier}{(hasReturn ? returnType : "void")} {methodName}({paramStr})");
+            return;
+        }
         NativeIntOverloadEmitter.EmitForwarderObsoleteAttribute(csWriter, methodEnv, methodName);
 
         if (hasReturn)

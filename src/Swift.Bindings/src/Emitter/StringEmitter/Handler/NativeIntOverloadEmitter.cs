@@ -272,7 +272,7 @@ internal static class NativeIntOverloadEmitter
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodDecl, methodDecl.ParentDecl, emitObsolete: false);
 
-        if (methodEnv.EmissionContext?.WasMethodProduceThrow(methodDecl) != true)
+        if (!ForwardsToProduceThrowPrimary(methodEnv))
             EmitForwarderObsoleteAttribute(csWriter, methodEnv, constructorName ?? methodName);
 
         // Emit the overload
@@ -304,15 +304,12 @@ internal static class NativeIntOverloadEmitter
         {
             csWriter.WriteLine($"public {constructorName}({paramStr}) : this({argsStr}) {{ }}");
         }
-        else if (methodEnv.EmissionContext?.WasMethodProduceThrow(methodDecl) == true)
+        else if (ForwardsToProduceThrowPrimary(methodEnv))
         {
             // The primary's suppressed-proxy return can only throw and is [Obsolete(error: true)], so a
             // forward into it would not compile. Mirror the poison and the throw instead.
-            WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
             var poisonedReturn = hasReturn ? returnType : "void";
-            csWriter.WriteLine(
-                $"public {staticModifier}{poisonedReturn} {methodName}({paramStr}) => " +
-                $"throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
+            EmitProduceThrowForwarder(csWriter, $"public {staticModifier}{poisonedReturn} {methodName}({paramStr})");
         }
         else if (hasReturn)
         {
@@ -343,6 +340,25 @@ internal static class NativeIntOverloadEmitter
             : null;
         if ((methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodEnv.MethodDecl) ?? tombstoneMarker) is { } attribute)
             csWriter.WriteLine(attribute);
+    }
+
+    /// <summary>
+    /// True when the primary a convenience forwarder calls was compile-poisoned (SB0006): its
+    /// suppressed-proxy return can only throw, and it is <c>[Obsolete(error: true)]</c>. A call to it does
+    /// not compile from any member (CS0619), an obsolete one included, so no forwarder may call it.
+    /// </summary>
+    internal static bool ForwardsToProduceThrowPrimary(MethodEnvironment methodEnv) =>
+        methodEnv.EmissionContext?.WasMethodProduceThrow(methodEnv.MethodDecl) == true;
+
+    /// <summary>
+    /// Emits a forwarder of an SB0006-poisoned primary the way the primary itself is emitted: the same
+    /// compile-time poison, and a body that throws what the primary throws instead of calling it.
+    /// <paramref name="declaration"/> is the forwarder's full declaration up to its body.
+    /// </summary>
+    internal static void EmitProduceThrowForwarder(CSharpWriter csWriter, string declaration)
+    {
+        WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
+        csWriter.WriteLine($"{declaration} => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
     }
 
     /// <summary>The name a failable initializer's static factory takes when nothing disambiguated it.</summary>

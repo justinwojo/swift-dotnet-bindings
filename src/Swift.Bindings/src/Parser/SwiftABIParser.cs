@@ -857,13 +857,47 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Reads a per-parameter swiftinterface fact for one overload. The producer keys these facts
+        /// by the member's labels, which overloads can share (<c>f(_:_:)</c> taking <c>any P</c> beside
+        /// <c>f(_:_:)</c> taking a closure); for such a family it adds a <c>key|signature</c> entry per
+        /// overload, so that entry is read first and the label-only entry (the last declaration's
+        /// values) only when the overload has none.
+        /// </summary>
+        private static bool TryGetOverloadFact<T>(Dictionary<string, T> facts, string key, string parameterSignature, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out T value)
+            => facts.TryGetValue(MemberSignatureNormalizer.ComposeKey(key, parameterSignature), out value)
+               || facts.TryGetValue(key, out value);
+
+        /// <summary>
+        /// Replaces the internal parameter names the argument loop took from the label-only key with
+        /// this overload's own, when the producer recorded them under its signature. Without it every
+        /// overload sharing its labels takes the parameter names of the last one declared. The refined
+        /// entry is read from the key family the argument loop read: a member the producer recorded
+        /// under its type-scoped key never reads the module-level entries, which belong to free
+        /// functions that share its labels, and a free function (no scoped key) reads only those.
+        /// </summary>
+        private void ApplyOverloadParameterNames(MethodDecl methodDecl, string? paramScopedKey, string printedName, string parameterSignature)
+        {
+            if (string.IsNullOrEmpty(parameterSignature))
+                return;
+            var scopedRefinedKey = paramScopedKey is null ? null : MemberSignatureNormalizer.ComposeKey(paramScopedKey, parameterSignature);
+            var key = scopedRefinedKey is not null
+                      && (_facts.ParameterNames.ContainsKey(paramScopedKey!) || _facts.ParameterNames.ContainsKey(scopedRefinedKey))
+                ? scopedRefinedKey
+                : MemberSignatureNormalizer.ComposeKey(printedName, parameterSignature);
+            if (!_facts.ParameterNames.TryGetValue(key, out var names))
+                return;
+            for (int i = 1; i < methodDecl.CSSignature.Count && i - 1 < names.Count; i++)
+                methodDecl.CSSignature[i].PrivateName = names[i - 1];
+        }
+
+        /// <summary>
         /// Applies default parameter value expressions from swiftinterface data to a method's arguments.
         /// Must be called AFTER all ArgumentDecl instances have been added to CSSignature.
         /// </summary>
-        private void ApplyMemberDefaultValues(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        private void ApplyMemberDefaultValues(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName, string parameterSignature)
         {
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_facts.DefaultParameterValues.TryGetValue(key, out var defaultValues))
+            if (!TryGetOverloadFact(_facts.DefaultParameterValues, key, parameterSignature, out var defaultValues))
                 return;
             // Apply to arguments (skip i=0, the return type)
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
@@ -878,9 +912,9 @@ namespace BindingsGeneration
         /// Applies default parameter values for free functions (module-level, not inside a type).
         /// Uses the bare printedName as key (matching the swiftinterface parser's output for top-level funcs).
         /// </summary>
-        private void ApplyFreeFunctionDefaultValues(MethodDecl methodDecl, string printedName)
+        private void ApplyFreeFunctionDefaultValues(MethodDecl methodDecl, string printedName, string parameterSignature)
         {
-            if (!_facts.DefaultParameterValues.TryGetValue(printedName, out var defaultValues))
+            if (!TryGetOverloadFact(_facts.DefaultParameterValues, printedName, parameterSignature, out var defaultValues))
                 return;
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -895,17 +929,17 @@ namespace BindingsGeneration
         /// Sets the "autoclosure" attribute on ClosureTypeSpec parameters so that wrapper
         /// emitters can add "()" when forwarding autoclosure arguments.
         /// </summary>
-        private void ApplyMemberAutoclosureFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        private void ApplyMemberAutoclosureFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName, string parameterSignature)
         {
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_facts.AutoclosureParameters.TryGetValue(key, out var flags))
+            if (!TryGetOverloadFact(_facts.AutoclosureParameters, key, parameterSignature, out var flags))
                 return;
             ApplyAutoclosureFlagsToSignature(methodDecl, flags);
         }
 
-        private void ApplyFreeFunctionAutoclosureFlags(MethodDecl methodDecl, string printedName)
+        private void ApplyFreeFunctionAutoclosureFlags(MethodDecl methodDecl, string printedName, string parameterSignature)
         {
-            if (!_facts.AutoclosureParameters.TryGetValue(printedName, out var flags))
+            if (!TryGetOverloadFact(_facts.AutoclosureParameters, printedName, parameterSignature, out var flags))
                 return;
             ApplyAutoclosureFlagsToSignature(methodDecl, flags);
         }
@@ -932,17 +966,17 @@ namespace BindingsGeneration
         /// emission for the affected member. The annotation lives in the swiftinterface
         /// only — ABI JSON strips it.
         /// </summary>
-        private void ApplyMemberConstLiteralFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        private void ApplyMemberConstLiteralFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName, string parameterSignature)
         {
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_facts.ConstLiteralParameters.TryGetValue(key, out var flags))
+            if (!TryGetOverloadFact(_facts.ConstLiteralParameters, key, parameterSignature, out var flags))
                 return;
             ApplyConstLiteralFlagsToSignature(methodDecl, flags);
         }
 
-        private void ApplyFreeFunctionConstLiteralFlags(MethodDecl methodDecl, string printedName)
+        private void ApplyFreeFunctionConstLiteralFlags(MethodDecl methodDecl, string printedName, string parameterSignature)
         {
-            if (!_facts.ConstLiteralParameters.TryGetValue(printedName, out var flags))
+            if (!TryGetOverloadFact(_facts.ConstLiteralParameters, printedName, parameterSignature, out var flags))
                 return;
             ApplyConstLiteralFlagsToSignature(methodDecl, flags);
         }
@@ -969,10 +1003,10 @@ namespace BindingsGeneration
         /// Restricted to protocol parents — non-protocol method wrappers define their own
         /// <c>@_cdecl</c> signatures and don't need (and could be perturbed by) these attributes.
         /// </summary>
-        private void ApplyMemberClosureAttributeFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName)
+        private void ApplyMemberClosureAttributeFlags(MethodDecl methodDecl, TypeDecl parentTypeDecl, string printedName, string parameterSignature)
         {
             var key = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!_facts.ClosureParameterAttributes.TryGetValue(key, out var perParam))
+            if (!TryGetOverloadFact(_facts.ClosureParameterAttributes, key, parameterSignature, out var perParam))
                 return;
             ApplyClosureAttributeFlagsToSignature(methodDecl, perParam);
         }
@@ -3129,9 +3163,11 @@ namespace BindingsGeneration
 
             // Look up internal parameter names from swiftinterface data
             List<string>? internalParamNames = null;
-            // Try type-scoped key first (e.g., "Dog.speak(_:_:)")
-            var paramScopedKey = $"{parentDecl.Name}.{node.PrintedName}";
-            if (!_facts.ParameterNames.TryGetValue(paramScopedKey, out internalParamNames))
+            // Try type-scoped key first (e.g., "Dog.speak(_:_:)"). A free function's parent is its
+            // module, and the producer keys free functions by the bare name alone: `Module.name` is the
+            // key of a member of a type that shares the module's name, never the function's own.
+            var paramScopedKey = parentDecl is ModuleDecl ? null : $"{parentDecl.Name}.{node.PrintedName}";
+            if (paramScopedKey is null || !_facts.ParameterNames.TryGetValue(paramScopedKey, out internalParamNames))
             {
                 // Try module-level key (free functions, e.g., "sumTwo(_:_:)")
                 _facts.ParameterNames.TryGetValue(node.PrintedName, out internalParamNames);
@@ -3256,23 +3292,24 @@ namespace BindingsGeneration
             // Facts keyed by parameter signature wait for the variadic marking above: a variadic
             // parameter and an array-typed sibling print identically in the ABI descriptor, and only
             // the per-parameter variadic flag tells the two overloads' keys apart.
-            ApplySignatureKeyedFacts(methodDecl, parentDecl, node);
+            var parameterSignature = ApplySignatureKeyedFacts(methodDecl, parentDecl, node);
+            ApplyOverloadParameterNames(methodDecl, paramScopedKey, node.PrintedName, parameterSignature);
 
             // Apply default parameter value expressions from swiftinterface data.
             // Must happen after the argument-construction loop since it mutates CSSignature entries.
             if (parentDecl is TypeDecl parentTypeForDefaults)
             {
-                ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName);
-                ApplyMemberAutoclosureFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
-                ApplyMemberConstLiteralFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
+                ApplyMemberDefaultValues(methodDecl, parentTypeForDefaults, node.PrintedName, parameterSignature);
+                ApplyMemberAutoclosureFlags(methodDecl, parentTypeForDefaults, node.PrintedName, parameterSignature);
+                ApplyMemberConstLiteralFlags(methodDecl, parentTypeForDefaults, node.PrintedName, parameterSignature);
                 if (parentTypeForDefaults is ProtocolDecl)
-                    ApplyMemberClosureAttributeFlags(methodDecl, parentTypeForDefaults, node.PrintedName);
+                    ApplyMemberClosureAttributeFlags(methodDecl, parentTypeForDefaults, node.PrintedName, parameterSignature);
             }
             else
             {
-                ApplyFreeFunctionDefaultValues(methodDecl, node.PrintedName);
-                ApplyFreeFunctionAutoclosureFlags(methodDecl, node.PrintedName);
-                ApplyFreeFunctionConstLiteralFlags(methodDecl, node.PrintedName);
+                ApplyFreeFunctionDefaultValues(methodDecl, node.PrintedName, parameterSignature);
+                ApplyFreeFunctionAutoclosureFlags(methodDecl, node.PrintedName, parameterSignature);
+                ApplyFreeFunctionConstLiteralFlags(methodDecl, node.PrintedName, parameterSignature);
             }
 
             return methodDecl;
@@ -3293,9 +3330,10 @@ namespace BindingsGeneration
         /// <summary>
         /// Applies the swiftinterface facts that are keyed by a member's parameter signature — the
         /// typed-throws error and availability — once the parameters are built and their variadic
-        /// flags are known.
+        /// flags are known. Returns the parameter signature, which the per-parameter facts read after
+        /// it use to tell overloads that share their labels apart.
         /// </summary>
-        private void ApplySignatureKeyedFacts(MethodDecl methodDecl, BaseDecl parentDecl, Node node)
+        private string ApplySignatureKeyedFacts(MethodDecl methodDecl, BaseDecl parentDecl, Node node)
         {
             var variadicParameters = methodDecl.CSSignature.Skip(1)
                 .Select(p => IsVariadicArraySpec(p.SwiftTypeSpec))
@@ -3348,6 +3386,8 @@ namespace BindingsGeneration
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
                 }
             }
+
+            return signature;
         }
 
         /// <summary>

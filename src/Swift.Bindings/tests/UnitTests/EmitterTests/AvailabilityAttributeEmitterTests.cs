@@ -125,58 +125,71 @@ public class AvailabilityAttributeEmitterTests
     // platform name") on every attribute and OperatingSystem.IsOSPlatform guard clause. Every
     // emission path drops visionOS and keeps the platforms .NET knows.
 
-    private static List<AvailabilityAnnotation> IosAndVisionOS() => new()
+    // watchOS is dropped too: no .NET project targets it, so a "watchos" entry only widens a member's
+    // supported-platform list past what the Apple types it calls declare (CMTimeRange is iOS, Mac
+    // Catalyst, macOS and tvOS), and CA1416 then reports every such call in a self-built Apple
+    // binding as reachable on watchOS.
+
+    private static List<AvailabilityAnnotation> IosAnd(string platform) => new()
     {
         new("iOS", "17.0", "18.0", null, false, false, null, null),
-        new("visionOS", "1.0", "2.0", "3.0", false, false, null, null),
+        new(platform, "1.0", "2.0", "3.0", false, false, null, null),
     };
 
-    [Fact]
-    public void VisionOS_EmitAvailabilityAttributes_DropsVisionOSKeepsIOS()
+    [Theory]
+    [InlineData("visionOS")]
+    [InlineData("watchOS")]
+    public void UntargetablePlatform_EmitAvailabilityAttributes_DroppedIOSKept(string platform)
     {
         var (csWriter, stringWriter) = CreateWriter();
-        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(IosAndVisionOS()));
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(IosAnd(platform)));
         csWriter.Flush();
         var output = stringWriter.ToString();
-        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(platform, output, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios17.0\")]", output);
         Assert.Contains("[global::System.Runtime.Versioning.ObsoletedOSPlatform(\"ios18.0\")]", output);
     }
 
-    [Fact]
-    public void VisionOS_FromAnnotations_DropsVisionOSKeepsIOS()
+    [Theory]
+    [InlineData("visionOS")]
+    [InlineData("watchOS")]
+    public void UntargetablePlatform_FromAnnotations_DroppedIOSKept(string platform)
     {
         var (csWriter, stringWriter) = CreateWriter();
-        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, IosAndVisionOS());
+        AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter, IosAnd(platform));
         csWriter.Flush();
         var output = stringWriter.ToString();
-        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(platform, output, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("[global::System.Runtime.Versioning.SupportedOSPlatform(\"ios17.0\")]", output);
     }
 
-    [Fact]
-    public void VisionOS_RuntimeGuard_HasNoVisionOSClause()
+    [Theory]
+    [InlineData("visionOS")]
+    [InlineData("watchOS")]
+    public void UntargetablePlatform_RuntimeGuard_HasNoClause(string platform)
     {
         var (csWriter, stringWriter) = CreateWriter();
-        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, IosAndVisionOS(), "Foo");
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, IosAnd(platform), "Foo");
         csWriter.Flush();
         var output = stringWriter.ToString();
-        Assert.DoesNotContain("visionos", output, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(platform, output, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 17, 0)", output);
     }
 
-    [Fact]
-    public void VisionOS_Only_EmitsNothing()
+    [Theory]
+    [InlineData("visionOS")]
+    [InlineData("watchOS")]
+    public void UntargetablePlatform_Only_EmitsNothing(string platform)
     {
-        // A visionOS-only floor must not become a "supported only on visionos" list, which CA1416
+        // A visionOS- or watchOS-only floor must not become a "supported only on" list, which CA1416
         // would read as "unsupported on iOS".
-        var visionOnly = new List<AvailabilityAnnotation> { new("visionOS", "1.0", null, null, false, false, null, null) };
+        var only = new List<AvailabilityAnnotation> { new(platform, "1.0", null, null, false, false, null, null) };
         var (csWriter, stringWriter) = CreateWriter();
-        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(visionOnly));
-        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, visionOnly, "Foo");
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, CreateDecl(only));
+        AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, only, "Foo");
         csWriter.Flush();
         Assert.Equal("", stringWriter.ToString());
-        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(visionOnly));
+        Assert.Null(AvailabilityAttributeEmitter.BuildIsAvailableCondition(only));
     }
 
     [Fact]

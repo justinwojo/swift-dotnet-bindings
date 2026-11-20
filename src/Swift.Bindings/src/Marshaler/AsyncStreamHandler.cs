@@ -167,9 +167,23 @@ public class AsyncStreamHandler
                 != ValidationRuleSet.UnsupportedReferenceKind.None)
             return false;
 
-        // Check if element type is known
-        return _typeDatabase.TryGetTypeRecord(elementType, out _);
+        // The element must be known, and so must every type the channel spells inside it: the channel
+        // element is translated argument by argument, and an argument it cannot name (a tuple, a type
+        // with no record) becomes the Swift.AnyType placeholder. `[(Int32, Int32)]` has an Array record
+        // but would stream as IReadOnlyList<Swift.AnyType>, which marshals nothing a consumer can read.
+        return _typeDatabase.TryGetTypeRecord(elementType, out _)
+            && !s_anyTypePlaceholder.IsMatch(GetCSharpInternalChannelElementType(typeSpec));
     }
+
+    /// <summary>
+    /// The placeholder as a whole type name, so a resolved type whose name merely starts with it
+    /// (<c>Swift.AnyTypePayload</c> under a <c>Swift</c> namespace pattern) is not taken for it. A
+    /// following <c>&lt;</c> still counts: an unresolved generic (a metatype of <c>[Int32]</c>) is
+    /// rendered as the placeholder with its arguments appended, <c>Swift.AnyType&lt;int&gt;</c>.
+    /// </summary>
+    private static readonly System.Text.RegularExpressions.Regex s_anyTypePlaceholder = new(
+        $@"(?<![\w.]){System.Text.RegularExpressions.Regex.Escape(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName)}(?!\w)",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
 
     /// <summary>
     /// Gets the C# IAsyncEnumerable type for an AsyncStream.

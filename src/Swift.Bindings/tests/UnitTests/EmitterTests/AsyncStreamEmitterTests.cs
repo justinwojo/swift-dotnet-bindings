@@ -340,7 +340,10 @@ public class AsyncStreamEmitterTests
         var swift = swiftOutput.ToString();
         Assert.Contains("errorCallback: @convention(c) (Swift.Int64, Swift.UnsafePointer<Swift.CChar>) -> Swift.Void", swift);
         Assert.Contains("for try await element in", swift);
-        Assert.Contains("catch is _Concurrency.CancellationError {", swift);
+        // Only the consumer's cancel is swallowed: a CancellationError the sequence throws while the
+        // producer task still runs is the sequence failing, and reaches the error callback.
+        Assert.Contains("catch is _Concurrency.CancellationError where _Concurrency.Task.isCancelled {", swift);
+        Assert.DoesNotContain("catch is _Concurrency.CancellationError {", swift);
         Assert.Contains("errorCallback(context, $0)", swift);
         Assert.Contains("completionCallback(context)", swift);
     }

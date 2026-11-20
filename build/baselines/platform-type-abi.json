@@ -45,6 +45,14 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "AVFAudio.AVReadOnlyAudioCompressedBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AVFAudio.AVReadOnlyAudioPCMBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
     "AVFoundation.AVAudioChannelCount": {
       "source": "apple-frameworks.json valueTypes",
       "kind": "value",
@@ -290,6 +298,21 @@
       "source": "AppKitDatabase.xml",
       "unprobed": "'NSColor' is unavailable in Mac Catalyst"
     },
+    "AppKit.NSDiffableDataSourceSnapshot": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AppKit.NSHorizontalDirection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "i8"
+      ],
+      "rawValue": "Int8",
+      "addressOnly": false
+    },
     "AppKit.NSImage": {
       "source": "AppKitDatabase.xml",
       "kind": "class",
@@ -298,6 +321,347 @@
       "leaves": [
         "ptr"
       ]
+    },
+    "AppKit.NSItemBadge": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
+    "AppKit.NSSuggestionItem": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AppKit.NSSuggestionItemResponse": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AppKit.NSSuggestionItemSection": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AppKit.NSVerticalDirection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "i8"
+      ],
+      "rawValue": "Int8",
+      "addressOnly": false
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobAssertionInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobAssertionOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobRegistrationInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "int8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialLargeBlobRegistrationOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "bool"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFAssertionInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 40,
+      "align": 8,
+      "leaves": [
+        "opaque40"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFAssertionOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFRegistrationInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 40,
+      "align": 8,
+      "leaves": [
+        "opaque40"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationPublicKeyCredentialPRFRegistrationOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "opaque24"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAuthorizationWebBrowserPlatformPublicKeyCredential": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 96,
+      "align": 8,
+      "leaves": [
+        "opaque96"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASAutoFillURLScope": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'ASAutoFillURLScope' is only available in iOS 26.2 or newer"
+    },
+    "AuthenticationServices.ASContactIdentifier": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASContactIdentifierRequest": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 1,
+      "align": 1,
+      "leaves": [
+        "int8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASEmailIdentifier": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASExportedCredentialData": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableAccount": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 80,
+      "align": 8,
+      "leaves": [
+        "opaque80"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableCollection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 96,
+      "align": 8,
+      "leaves": [
+        "opaque96"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableCredential": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 673,
+      "align": 8,
+      "leaves": [
+        "opaque673"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableCredentialScope": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableEditableField": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 56,
+      "align": 8,
+      "leaves": [
+        "opaque56"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableExtension": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AuthenticationServices.ASImportableFIDO2Extensions": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AuthenticationServices.ASImportableFIDO2HMACCredential": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AuthenticationServices.ASImportableFIDO2LargeBlob": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "AuthenticationServices.ASImportableItem": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 128,
+      "align": 8,
+      "leaves": [
+        "opaque128"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASImportableLinkedItem": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPasskeyAssertionCredentialExtensionInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPasskeyAssertionCredentialExtensionOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPasskeyCredentialExtensionInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPasskeyRegistrationCredentialExtensionInput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPasskeyRegistrationCredentialExtensionOutput": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPhoneNumberIdentifier": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASPublicKeyCredentialClientData": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 49,
+      "align": 8,
+      "leaves": [
+        "opaque49"
+      ],
+      "addressOnly": true
+    },
+    "AuthenticationServices.ASVerificationCode": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CloudKit.CKRecordKeyValueIterator": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "opaque24"
+      ],
+      "addressOnly": true
+    },
+    "CloudKit.CKShareTransferRepresentation": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Item' could not be inferred"
     },
     "CoreBluetooth.CBAttributePermissions": {
       "source": "CoreBluetoothDatabase.xml",
@@ -623,6 +987,26 @@
       ],
       "addressOnly": false
     },
+    "CoreML.MLComputeDevice": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 9,
+      "align": 8,
+      "leaves": [
+        "opaque9"
+      ],
+      "addressOnly": true
+    },
+    "CoreML.MLComputePolicy": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
     "CoreML.MLComputeUnits": {
       "source": "CoreMLDatabase.xml",
       "kind": "value",
@@ -645,6 +1029,16 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "CoreML.MLModelStructure": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 25,
+      "align": 8,
+      "leaves": [
+        "opaque25"
+      ],
+      "addressOnly": true
+    },
     "CoreML.MLMultiArrayDataType": {
       "source": "CoreMLDatabase.xml",
       "kind": "value",
@@ -656,6 +1050,98 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "CoreML.MLOptimizationHints": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "CoreML.MLSendableFeatureValue": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "CoreML.MLShapedArray": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Scalar' could not be inferred"
+    },
+    "CoreML.MLShapedArrayBufferLayout": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "CoreML.MLShapedArraySlice": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Scalar' could not be inferred"
+    },
+    "CoreML.MLTensor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMAttachmentBearerAttachments": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 40,
+      "align": 8,
+      "leaves": [
+        "opaque40"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMBlockBufferAttachmentKeyDefinitions": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMCameraIntrinsicMatrix": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMCustomNotificationInfo": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMDroppedFrameReason": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMMutableDataBlockBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "no exact matches in call to global function 'probe'"
+    },
+    "CoreMedia.CMReadOnlyDataBlockBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMReadySampleBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Content' could not be inferred"
+    },
     "CoreMedia.CMSampleBuffer": {
       "source": "CoreMediaDatabase.xml",
       "kind": "class",
@@ -664,6 +1150,54 @@
       "leaves": [
         "ptr"
       ]
+    },
+    "CoreMedia.CMSampleBufferAttachmentKeyDefinitions": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMSampleDataReference": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "opaque24"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMStillImageLensStabilization": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "CoreMedia.CMSync": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMTaggedBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "CoreMedia.CMTaggedDynamicBuffer": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
     },
     "CoreMedia.CMTime": {
       "source": "CoreMediaDatabase.xml",
@@ -796,6 +1330,87 @@
         "f64"
       ],
       "addressOnly": false
+    },
+    "CoreNFC.NFCFeliCaPollingResponse": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCFeliCaRequestSpecificationVersionResponse": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCFeliCaRequsetServiceV2Response": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 40,
+      "align": 8,
+      "leaves": [
+        "opaque40"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCFeliCaStatusFlag": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "i64",
+        "i64"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCISO15693MultipleBlockSecurityStatus": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCISO15693SystemInfo": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 56,
+      "align": 8,
+      "leaves": [
+        "opaque56"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCISO7816ResponseAPDU": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 24,
+      "align": 8,
+      "leaves": [
+        "opaque24"
+      ],
+      "addressOnly": true
+    },
+    "CoreNFC.NFCTag": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 9,
+      "align": 8,
+      "leaves": [
+        "opaque9"
+      ],
+      "addressOnly": true
     },
     "CoreText.CTFont": {
       "source": "CoreTextDatabase.xml",
@@ -1325,6 +1940,30 @@
       "leaves": [
         "ptr"
       ]
+    },
+    "Foundation.NSFastEnumerationIterator": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 217,
+      "align": 8,
+      "leaves": [
+        "opaque217"
+      ],
+      "addressOnly": true
+    },
+    "Foundation.NSIndexSetIterator": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 25,
+      "align": 8,
+      "leaves": [
+        "opaque25"
+      ],
+      "addressOnly": true
+    },
+    "Foundation.NSKeyValueObservedChange": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Value' could not be inferred"
     },
     "Foundation.NSMutableURLRequest": {
       "source": "apple-frameworks.json typeRemaps",
@@ -2319,6 +2958,181 @@
       "rawValue": "UInt",
       "addressOnly": false
     },
+    "GameController.GCAxisElementName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "rawValue": "String",
+      "addressOnly": true
+    },
+    "GameController.GCButtonElementName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "rawValue": "String",
+      "addressOnly": true
+    },
+    "GameController.GCDirectionPadElementName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "rawValue": "String",
+      "addressOnly": true
+    },
+    "GameController.GCPhysicalInputElementCollection": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "GameController.GCPhysicalInputElementName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "rawValue": "String",
+      "addressOnly": true
+    },
+    "GameController.GCSwitchElementName": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "rawValue": "String",
+      "addressOnly": true
+    },
+    "HealthKit.HKActivitySummaryQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKAnchoredObjectQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 56,
+      "align": 8,
+      "leaves": [
+        "opaque56"
+      ]
+    },
+    "HealthKit.HKElectrocardiogramQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKHeartbeatSeriesQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKQuantitySeriesSampleQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKSamplePredicate": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ]
+    },
+    "HealthKit.HKSampleQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 57,
+      "align": 8,
+      "leaves": [
+        "opaque57"
+      ]
+    },
+    "HealthKit.HKSourceQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 40,
+      "align": 8,
+      "leaves": [
+        "opaque40"
+      ]
+    },
+    "HealthKit.HKStatisticsCollectionQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 392,
+      "align": 8,
+      "leaves": [
+        "opaque392"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKStatisticsQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 72,
+      "align": 8,
+      "leaves": [
+        "opaque72"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKUserAnnotatedMedicationQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 17,
+      "align": 8,
+      "leaves": [
+        "opaque17"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKVerifiableClinicalRecordQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
     "HealthKit.HKWorkoutActivityType": {
       "source": "HealthKitDatabase.xml",
       "kind": "value",
@@ -2329,6 +3143,26 @@
       ],
       "rawValue": "UInt",
       "addressOnly": false
+    },
+    "HealthKit.HKWorkoutEffortRelationshipQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 48,
+      "align": 8,
+      "leaves": [
+        "opaque48"
+      ],
+      "addressOnly": true
+    },
+    "HealthKit.HKWorkoutRouteQueryDescriptor": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 32,
+      "align": 8,
+      "leaves": [
+        "opaque32"
+      ],
+      "addressOnly": true
     },
     "HealthKit.HKWorkoutSessionLocationType": {
       "source": "HealthKitDatabase.xml",
@@ -2351,6 +3185,22 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "HealthKit.HKWorkoutZone": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "HealthKit.HKWorkoutZoneConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "HealthKit.HKWorkoutZoneDuration": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "HealthKit.HKWorkoutZoneGroup": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
     },
     "ImageIO.CGImagePropertyOrientation": {
       "source": "apple-frameworks.json valueTypes",
@@ -2657,6 +3507,16 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "Network.NWEndpoint": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 57,
+      "align": 8,
+      "leaves": [
+        "opaque57"
+      ],
+      "addressOnly": true
+    },
     "Network.NWEndpoint.Port": {
       "source": "apple-frameworks.json valueTypes",
       "kind": "value",
@@ -2666,6 +3526,60 @@
         "u16"
       ],
       "rawValue": "UInt16",
+      "addressOnly": true
+    },
+    "Network.NWError": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 5,
+      "align": 4,
+      "leaves": [
+        "opaque5"
+      ],
+      "addressOnly": true
+    },
+    "Network.NWInterface": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "Network.NWParametersBuilder": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'Top' could not be inferred"
+    },
+    "Network.NWPath": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 168,
+      "align": 8,
+      "leaves": [
+        "opaque168"
+      ],
+      "addressOnly": true
+    },
+    "Network.NWTXTRecord": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "NetworkExtension.NEURLFilterPrefilter": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 60,
+      "align": 8,
+      "leaves": [
+        "opaque60"
+      ],
       "addressOnly": true
     },
     "PassKit.PKAddIdentityDocumentType": {
@@ -3226,6 +4140,10 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "Photos.PHBackgroundResourceUploadProcessingResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'PHBackgroundResourceUploadProcessingResult' is unavailable in Mac Catalyst"
+    },
     "Photos.PHImageContentMode": {
       "source": "PhotosDatabase.xml",
       "kind": "value",
@@ -3237,6 +4155,16 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "PhotosUI.PHPickerConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 584,
+      "align": 8,
+      "leaves": [
+        "opaque584"
+      ],
+      "addressOnly": true
+    },
     "PhotosUI.PHPickerFilter": {
       "source": "apple-frameworks.json valueTypes",
       "kind": "value",
@@ -3244,6 +4172,16 @@
       "align": 8,
       "leaves": [
         "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "PhotosUI.PHPickerMode": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "int64"
       ],
       "addressOnly": true
     },
@@ -3256,6 +4194,18 @@
         "opaque16"
       ],
       "addressOnly": true
+    },
+    "PhotosUI.PHPickerSearchText": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PhotosUI.PHSharedAlbumCreationConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "PhotosUI.PHSharedAlbumCreationResult": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
     },
     "QuartzCore.CAAutoresizingMask": {
       "source": "QuartzCoreDatabase.xml",
@@ -3421,6 +4371,10 @@
       "rawValue": "String",
       "addressOnly": false
     },
+    "RealityKit.ARKitAnchorComponent": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'ARKitAnchorComponent' is unavailable in Mac Catalyst"
+    },
     "SceneKit.SCNMatrix4": {
       "source": "SceneKitDatabase.xml",
       "kind": "value",
@@ -3518,6 +4472,16 @@
       "rawValue": "UInt32",
       "addressOnly": false
     },
+    "SoundAnalysis.SNTimeDurationConstraint": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 49,
+      "align": 8,
+      "leaves": [
+        "opaque49"
+      ],
+      "addressOnly": true
+    },
     "StoreKit.SKError.Code": {
       "source": "StoreKitDatabase.xml",
       "kind": "value",
@@ -3561,6 +4525,22 @@
       ],
       "rawValue": "UInt",
       "addressOnly": false
+    },
+    "UIKit.NSDiffableDataSourceSectionSnapshot": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'ItemIdentifierType' could not be inferred"
+    },
+    "UIKit.NSDiffableDataSourceSectionTransaction": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'SectionIdentifierType' could not be inferred"
+    },
+    "UIKit.NSDiffableDataSourceSnapshot": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'SectionIdentifierType' could not be inferred"
+    },
+    "UIKit.NSDiffableDataSourceTransaction": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'SectionIdentifierType' could not be inferred"
     },
     "UIKit.NSDirectionalEdgeInsets": {
       "source": "UIKitDatabase.xml",
@@ -3718,6 +4698,16 @@
       "rawValue": "String",
       "addressOnly": false
     },
+    "UIKit.UIBackgroundConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
     "UIKit.UIBackgroundRefreshStatus": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -3750,6 +4740,10 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UIBarMinimization": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
     },
     "UIKit.UIBarPosition": {
       "source": "UIKitDatabase.xml",
@@ -3784,6 +4778,36 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "UIKit.UICellAccessory": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UICellConfigurationState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 49,
+      "align": 8,
+      "leaves": [
+        "opaque49"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UICollectionLayoutListConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
     "UIKit.UICollectionView.ScrollDirection": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -3815,6 +4839,26 @@
         "ptr"
       ]
     },
+    "UIKit.UIConfigurationColorTransformer": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIConfigurationTextAttributesTransformer": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
+    },
     "UIKit.UIContentSizeCategory": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -3825,6 +4869,26 @@
       ],
       "rawValue": "String",
       "addressOnly": false
+    },
+    "UIKit.UIContentUnavailableConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIContentUnavailableConfigurationState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 49,
+      "align": 8,
+      "leaves": [
+        "opaque49"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIControl.ContentHorizontalAlignment": {
       "source": "UIKitDatabase.xml",
@@ -3869,6 +4933,26 @@
       ],
       "rawValue": "UInt",
       "addressOnly": false
+    },
+    "UIKit.UICornerConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 72,
+      "align": 8,
+      "leaves": [
+        "opaque72"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UICornerRadius": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 9,
+      "align": 8,
+      "leaves": [
+        "f64"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIDataDetectorTypes": {
       "source": "UIKitDatabase.xml",
@@ -3960,6 +5044,36 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "UIKit.UIHoverAutomaticEffect": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIHoverHighlightEffect": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIHoverLiftEffect": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
     "UIKit.UIImage": {
       "source": "UIKitDatabase.xml",
       "kind": "class",
@@ -4012,6 +5126,16 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UIImageReader": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 16,
+      "align": 8,
+      "leaves": [
+        "opaque16"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIImageView": {
       "source": "UIKitDatabase.xml",
@@ -4076,6 +5200,26 @@
       ],
       "rawValue": "Float",
       "addressOnly": false
+    },
+    "UIKit.UIListContentConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIListSeparatorConfiguration": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIModalPresentationStyle": {
       "source": "UIKitDatabase.xml",
@@ -4143,6 +5287,10 @@
       ],
       "addressOnly": false
     },
+    "UIKit.UIOverlayArrangement": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
     "UIKit.UIPageViewController.NavigationDirection": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -4187,6 +5335,26 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "UIKit.UIPointerEffect": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 11,
+      "align": 8,
+      "leaves": [
+        "opaque11"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIPointerShape": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 41,
+      "align": 8,
+      "leaves": [
+        "opaque41"
+      ],
+      "addressOnly": true
+    },
     "UIKit.UIRectCorner": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -4219,6 +5387,16 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UISceneSessionActivationRequest": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIScrollView.ContentInsetAdjustmentBehavior": {
       "source": "UIKitDatabase.xml",
@@ -4263,6 +5441,30 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UIShadowProperties": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 64,
+      "align": 8,
+      "leaves": [
+        "opaque64"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIShape": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 57,
+      "align": 8,
+      "leaves": [
+        "opaque57"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UISplitArrangement": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
     },
     "UIKit.UIStackView.Alignment": {
       "source": "UIKitDatabase.xml",
@@ -4318,6 +5520,16 @@
       ],
       "rawValue": "UInt",
       "addressOnly": false
+    },
+    "UIKit.UISymbolEffectCompletionContext": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 56,
+      "align": 8,
+      "leaves": [
+        "opaque56"
+      ],
+      "addressOnly": true
     },
     "UIKit.UITabBarItem.SystemItem": {
       "source": "UIKitDatabase.xml",
@@ -4462,6 +5674,10 @@
       "rawValue": "Int",
       "addressOnly": false
     },
+    "UIKit.UITextSearchAggregator": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'DocumentIdentifier' could not be inferred"
+    },
     "UIKit.UITextSpellCheckingType": {
       "source": "UIKitDatabase.xml",
       "kind": "value",
@@ -4472,6 +5688,244 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UITraitAccessibilityContrast": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitActiveAppearance": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitDisplayGamut": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitDisplayScale": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitForceTouchCapability": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitHDRHeadroomUsageLimit": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitHorizontalSizeClass": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitImageDynamicRange": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitLayoutDirection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitLegibilityWeight": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitListEnvironment": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitNavigationTitleAlignment": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "UIKit.UITraitOverrides": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitPreferredContentSizeCategory": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitResolvesNaturalAlignmentWithBaseWritingDirection": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitSceneCaptureState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitSplitViewControllerLayoutEnvironment": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitSystemPrefersReducedResourceUsage": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "generic parameter 'T' could not be inferred"
+    },
+    "UIKit.UITraitTabAccessoryEnvironment": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitToolbarItemPresentationSize": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitTypesettingLanguage": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitUserInterfaceIdiom": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitUserInterfaceLevel": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitUserInterfaceStyle": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UITraitVerticalSizeClass": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 0,
+      "align": 1,
+      "leaves": [
+        "opaque0"
+      ],
+      "addressOnly": true
     },
     "UIKit.UIUserInterfaceIdiom": {
       "source": "UIKitDatabase.xml",
@@ -4558,6 +6012,44 @@
       ],
       "rawValue": "Int",
       "addressOnly": false
+    },
+    "UIKit.UIViewConfigurationState": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 41,
+      "align": 8,
+      "leaves": [
+        "opaque41"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIWindowSceneProminentPlacement": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
+    },
+    "UIKit.UIWindowScenePushPlacement": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'UIWindowScenePushPlacement' is unavailable in Mac Catalyst"
+    },
+    "UIKit.UIWindowSceneReplacePlacement": {
+      "source": "apple-frameworks.json valueTypes",
+      "unprobed": "'UIWindowSceneReplacePlacement' is unavailable in Mac Catalyst"
+    },
+    "UIKit.UIWindowSceneStandardPlacement": {
+      "source": "apple-frameworks.json valueTypes",
+      "kind": "value",
+      "size": 8,
+      "align": 8,
+      "leaves": [
+        "opaque8"
+      ],
+      "addressOnly": true
     },
     "Vision.VNAnimalBodyPoseObservation.JointName": {
       "source": "apple-frameworks.json valueTypes",

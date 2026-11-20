@@ -262,6 +262,32 @@ public class ThrowingClosureSimplificationTests
         Assert.DoesNotContain("public static ", output);
     }
 
+    /// <summary>
+    /// A primary whose suppressed-proxy return can only throw is <c>[Obsolete(error: true)]</c> (SB0006),
+    /// and a call to it does not compile from any member (CS0619). Its simplified overload mirrors the
+    /// poison and throws instead of calling it, as the native-int forwarder does.
+    /// </summary>
+    [Fact]
+    public void ProduceThrowPrimary_OverloadMirrorsThePoisonAndNeverCallsIt()
+    {
+        var method = CreateMethodWithThrowingClosure("prepareDatabase", "setup",
+            hasClosureReturn: false, closureArgType: "TestModule.Database");
+        var env = new MethodEnvironment(method, _typeDatabase);
+        env.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        var context = new ModuleEmissionContext();
+        context.RecordMethodProduceThrow(method);
+        env.EmissionContext = context;
+        var stringWriter = new StringWriter();
+
+        ThrowingClosureSimplificationEmitter.TryEmitOverload(new CSharpWriter(stringWriter), env);
+
+        var output = stringWriter.ToString();
+        Assert.Contains("DiagnosticId = \"SB0006\"", output);
+        Assert.Contains("Action<", output);
+        Assert.Contains("=> throw new NotSupportedException(", output);
+        Assert.DoesNotContain("PrepareDatabase(_wrapped_", output);
+    }
+
     #region Helper Methods
 
     private string EmitOverload(MethodDecl method)

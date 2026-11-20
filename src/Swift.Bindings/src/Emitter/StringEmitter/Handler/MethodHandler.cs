@@ -2297,13 +2297,6 @@ namespace BindingsGeneration
             // Determine if void result (Task without type param requires special handling)
             var awaitResult = resultTypeName != null ? $"return await {tcsName}.Task;" : $"await {tcsName}.Task;";
 
-            // Carry the underlying method's own [Obsolete]: the overload calls it, so a deprecation or
-            // consume-degrade marker it lacked would warn at that call (CS0618 / SB0008). The safety
-            // marker is still computed here for its report row, and stands in when nothing recorded
-            // the primary's marker.
-            var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
-            safetyAttr = methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodDecl) ?? safetyAttr;
-
             // Documentation precedes every attribute (after one it documents nothing, CS1587), and
             // documents every parameter: the cancellation token always has a tag, so a forwarded
             // parameter without one is CS1573. A forwarded parameter keeps the primary's Swift
@@ -2330,6 +2323,23 @@ namespace BindingsGeneration
             // OS versions than the platform-gated completion-handler API it delegates to.
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
                 csWriter, methodEnv.MethodDecl, methodEnv.MethodDecl.ParentDecl, emitObsolete: false);
+
+            // A primary poisoned by SB0006 (its suppressed-proxy return can only throw) cannot be called
+            // from any member, an obsolete one included (CS0619): mirror its poison and its throw.
+            if (NativeIntOverloadEmitter.ForwardsToProduceThrowPrimary(methodEnv))
+            {
+                NativeIntOverloadEmitter.EmitProduceThrowForwarder(csWriter,
+                    $"{accessModifier} {staticModifier}{taskType} {asyncMethodName}({paramString})");
+                return;
+            }
+
+            // Carry the underlying method's own [Obsolete]: the overload calls it, so a deprecation or
+            // consume-degrade marker it lacked would warn at that call (CS0618 / SB0008). The safety
+            // marker is still computed here for its report row, and stands in when nothing recorded
+            // the primary's marker. Computed after the SB0006 arm above, which carries no safety marker
+            // and so must not record one.
+            var safetyAttr = GetSafetyObsoleteAttribute(methodEnv, asyncMethodName);
+            safetyAttr = methodEnv.EmissionContext?.GetEmittedObsoleteAttribute(methodDecl) ?? safetyAttr;
 
             // Emit the overload
             csWriter.WriteLines($$"""

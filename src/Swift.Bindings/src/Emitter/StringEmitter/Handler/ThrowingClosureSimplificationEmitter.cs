@@ -160,6 +160,13 @@ internal static class ThrowingClosureSimplificationEmitter
         // OS versions lower than the gated target it delegates to.
         AvailabilityAttributeEmitter.EmitAvailabilityAttributes(
             csWriter, methodEnv.MethodDecl, methodEnv.MethodDecl.ParentDecl, emitObsolete: false);
+        // A primary poisoned by SB0006 cannot be called from any member: mirror its poison and throw.
+        if (NativeIntOverloadEmitter.ForwardsToProduceThrowPrimary(methodEnv))
+        {
+            NativeIntOverloadEmitter.EmitProduceThrowForwarder(csWriter,
+                $"public {staticModifier}{effectiveReturnType} {methodName}({paramStr})");
+            return;
+        }
         // The forwarder calls the primary, so it carries the primary's own [Obsolete] too.
         NativeIntOverloadEmitter.EmitForwarderObsoleteAttribute(csWriter, methodEnv, methodName);
 

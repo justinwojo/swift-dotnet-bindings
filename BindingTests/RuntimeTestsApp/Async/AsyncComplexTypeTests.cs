@@ -398,6 +398,40 @@ public class AsyncComplexTypeTests : TestBase
         TestLogger.Info("ThrowingStreamSource.ThrowingEvents: yielded [1,2,3] then rethrew producer error 'boom'");
     }
 
+    public async Task TestThrowingStreamSource_ProducerCancellationError_IsAFault()
+    {
+        // The producer finishes with its own CancellationError while the consumer is still reading.
+        // Only a cancellation of the consumer's own iteration ends the stream quietly; this one is the
+        // producer's fault and must reach the consumer as one, not as a normal end after [4,5].
+        using var source = new ThrowingStreamSource();
+
+        var collected = new List<int>();
+        Exception? caught = null;
+        try
+        {
+            await WithTimeout(Task.Run(async () =>
+            {
+                await foreach (var v in source.ProducerCancelledEvents)
+                {
+                    collected.Add(v);
+                }
+            }), DefaultAsyncTimeout);
+        }
+        catch (Exception ex)
+        {
+            caught = ex;
+        }
+
+        AssertTrue(collected.Count == 2 && collected[0] == 4 && collected[1] == 5,
+            $"ProducerCancelledEvents must yield [4,5] before faulting; got [{string.Join(",", collected)}]");
+        AssertNotNull(caught,
+            "a CancellationError the producer throws while nobody cancelled the iteration must be rethrown, not end the stream");
+        AssertTrue(caught is global::Swift.Runtime.SwiftRuntimeException,
+            $"the producer's CancellationError must surface as SwiftRuntimeException; got {caught?.GetType().Name}");
+        AssertTrue(caught!.Message.Contains("CancellationError"),
+            $"the faulted error must carry the Swift error description; got '{caught.Message}'");
+    }
+
     public async Task TestThrowingStreamSourceSafeSiblingStillEmits()
     {
         using var source = new ThrowingStreamSource();

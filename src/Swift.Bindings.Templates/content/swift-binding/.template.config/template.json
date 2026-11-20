@@ -39,7 +39,7 @@
     "platform": {
       "type": "parameter",
       "datatype": "choice",
-      "description": "The target Apple platform (ignored when --apple-framework is set).",
+      "description": "The target Apple platform (ignored when --appleFramework is set).",
       "defaultValue": "ios",
       "choices": [
         {

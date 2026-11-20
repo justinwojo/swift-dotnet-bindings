@@ -14,8 +14,12 @@ internal static class AvailabilityAttributeEmitter
         ["iOS"] = "ios",
         ["macOS"] = "macos",
         ["tvOS"] = "tvos",
-        ["watchOS"] = "watchos",
         ["macCatalyst"] = "maccatalyst",
+        // watchOS is deliberately absent. .NET knows the name, but no .NET workload targets watchOS,
+        // so the attribute can never narrow a call site a .NET app reaches. It only widens a member's
+        // supported-platform list past the Apple types the member calls: a member floored on iOS,
+        // macOS, tvOS and watchOS calling CMTimeRange (iOS, Mac Catalyst, macOS, tvOS) draws CA1416
+        // "reachable on watchos" in every self-built Apple binding.
         // visionOS is deliberately absent. .NET has no visionOS platform: the platform analyzer
         // knows only the names behind OperatingSystem.Is<Platform>() plus the SDK's
         // SupportedPlatform items, so "visionos" draws CA1418 ("not a known platform name") on
@@ -191,7 +195,6 @@ internal static class AvailabilityAttributeEmitter
         ["ios"] = "iOS",
         ["macos"] = "macOS",
         ["tvos"] = "tvOS",
-        ["watchos"] = "watchOS",
         ["maccatalyst"] = "Mac Catalyst",
     };
 
