@@ -12,6 +12,7 @@ namespace BindingsGeneration.Tests;
 /// Tests for MarkerProtocolOverloadEmitter — Sendable/Copyable overload generation
 /// for marker protocols with primitive conformers.
 /// </summary>
+[Collection("ReportCollector")]
 public class MarkerProtocolOverloadEmitterTests
 {
     #region GetPrimitiveConformers
@@ -344,6 +345,312 @@ public class MarkerProtocolOverloadEmitterTests
             CreateMethodEnvironment(method), null, map);
 
         Assert.Empty(output.ToString());
+    }
+
+    #endregion
+
+    #region Parameters and returns
+
+    [Fact]
+    public void EmitOverloads_PassesEveryParameterThroughToItsWrapper()
+    {
+        // The wrapper declares every Swift parameter, so the P/Invoke and the C# overload must
+        // carry every one too: a P/Invoke that stopped at the marker would leave the wrapper
+        // reading the remaining arguments from whatever the registers held.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("recordScaled", parent, TupleTypeSpec.Empty,
+            CreateArg("scale", new NamedTypeSpec("Swift.Int32"), CreateModuleDecl()));
+        var (cs, swift) = Emit(method, parent, "Swift.Double");
+
+        Assert.Contains("public void RecordScaled(double amount, int scale)", cs);
+        Assert.Matches(@"_MP_Double\(global::System\.IntPtr self, double amount, int scale\)", cs);
+        Assert.Matches(@"_MP_Double\(.*, amount, scale\);", cs);
+        // The marker goes back in as the existential the method declares, so Swift cannot resolve
+        // the call to a sibling overload the concrete value also fits.
+        Assert.Contains("amount as any TestModule.OffsetTarget", swift);
+        Assert.Contains("Swift.Double", swift);
+        Assert.Contains("Swift.Int32", swift);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmitOverloads_AnySpelledMarker_EmitsTheSameOverloads(bool inOut)
+    {
+        // The parser spells a single `any P` as a named type marked `any`, not as a one-protocol
+        // list, so detection must accept both spellings. An inout marker is a different shape and
+        // stays declined.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        method.CSSignature[1] = CreateArg("amount", new NamedTypeSpec("TestModule.OffsetTarget") { IsAny = true }, CreateModuleDecl());
+        method.CSSignature[1].IsInOut = inOut;
+        var (cs, _) = Emit(method, parent, "Swift.Double", "Swift.Int");
+
+        if (inOut)
+        {
+            Assert.DoesNotContain("public void Offset(", cs);
+            return;
+        }
+        Assert.Contains("public void Offset(double amount)", cs);
+        Assert.Contains("public void Offset(nint amount)", cs);
+    }
+
+    [Theory]
+    [InlineData("Swift.UInt16", "ushort")]
+    [InlineData("Swift.Int8", "sbyte")]
+    [InlineData("Swift.UInt64", "ulong")]
+    public void EmitOverloads_EveryScalarPassesThrough(string swiftType, string csType)
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("recordScaled", parent, TupleTypeSpec.Empty,
+            CreateArg("scale", new NamedTypeSpec(swiftType), CreateModuleDecl()));
+        var (cs, _) = Emit(method, parent, "Swift.Double");
+
+        Assert.Contains($"public void RecordScaled(double amount, {csType} scale)", cs);
+    }
+
+    [Fact]
+    public void EmitOverloads_BoolPassThroughMarshalsAsOneByte()
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("recordFlagged", parent, TupleTypeSpec.Empty,
+            CreateArg("flag", new NamedTypeSpec("Swift.Bool"), CreateModuleDecl()));
+        var (cs, _) = Emit(method, parent, "Swift.Double");
+
+        Assert.Contains("public void RecordFlagged(double amount, bool flag)", cs);
+        Assert.Contains("UnmanagedType.U1)] bool flag", cs);
+    }
+
+    [Fact]
+    public void EmitOverloads_NonPrimitiveExtraParameter_Declined()
+    {
+        // A String would need marshalling this emitter does not do: no overload rather than one
+        // whose parameter list disagrees with its wrapper's.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("recordNamed", parent, TupleTypeSpec.Empty,
+            CreateArg("name", new NamedTypeSpec("Swift.String"), CreateModuleDecl()));
+        var (cs, swift) = Emit(method, parent, "Swift.Double");
+
+        Assert.Empty(cs);
+        Assert.Empty(swift);
+    }
+
+    [Fact]
+    public void EmitOverloads_SelfReturn_AdoptsTheReturnedReference()
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("adding", parent, new NamedTypeSpec("TestModule.Widget"));
+        var (cs, _) = Emit(method, parent, "Swift.Double");
+
+        Assert.Contains("public Widget Adding(double amount)", cs);
+        Assert.Contains("return global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwiftObject<Widget>(__result);", cs);
+    }
+
+    [Fact]
+    public void EmitOverloads_ReturnWhoseNameOnlyEndsWithTheParentName_Declined()
+    {
+        // `BigWidget` is not `Widget`: adopting its reference as a Widget would wrap the wrong type.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("adding", parent, new NamedTypeSpec("TestModule.BigWidget"));
+        var (cs, swift) = Emit(method, parent, "Swift.Double");
+
+        Assert.Empty(cs);
+        Assert.Empty(swift);
+    }
+
+    #endregion
+
+    #region Recovery units
+
+    [Fact]
+    public void EmitOverloads_EachOverloadOwnsItsOwnArtifacts()
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var csWriter = new CSharpWriter(csOut);
+        var swiftWriter = new SwiftWriter(swiftOut);
+        var env = CreateMethodEnvironment(method);
+        env.EmissionContext = new ModuleEmissionContext();
+
+        MarkerProtocolOverloadEmitter.EmitOverloads(csWriter, swiftWriter, method, env, parent,
+            new Dictionary<string, List<string>> { ["OffsetTarget"] = new() { "Swift.Double", "Swift.Int" } });
+
+        var cs = csOut.ToString();
+        var swift = swiftOut.ToString();
+        var csTiling = csWriter.Fragments.BuildTiling(cs.Length, FragmentOwners.ForDecl(method));
+        var swiftTiling = swiftWriter.Fragments.BuildTiling(swift.Length, FragmentOwners.ForDeclWrapper(method));
+        foreach (var conformer in new[] { "Swift.Double", "Swift.Int" })
+        {
+            var id = MarkerProtocolOverloadEmitter.OverloadId(env.SourceDeclId, "TestModule.OffsetTarget", conformer);
+            Assert.NotEqual(env.SourceDeclId, id);
+            var shortName = conformer.Substring(conformer.LastIndexOf('.') + 1);
+            // The overload's C# (P/Invoke and method) and its Swift wrapper sit in its own fragments.
+            Assert.Contains(csTiling, f => f.Owner.Artifact.Decl == id
+                && cs.Substring(f.Start, f.End - f.Start).Contains($"_MP_{shortName}("));
+            Assert.Contains(swiftTiling, f => f.Owner.Artifact.Decl == id
+                && swift.Substring(f.Start, f.End - f.Start).Contains($"_MP_{shortName}"));
+        }
+        // Nothing of either overload is left on the method's own unit.
+        Assert.DoesNotContain(csTiling, f => f.Owner.Artifact.Decl == env.SourceDeclId
+            && cs.Substring(f.Start, f.End - f.Start).Contains("_MP_"));
+        Assert.DoesNotContain(swiftTiling, f => f.Owner.Artifact.Decl == env.SourceDeclId
+            && swift.Substring(f.Start, f.End - f.Start).Contains("_MP_"));
+    }
+
+    [Fact]
+    public void EmitOverloads_DeniedOverload_LeavesATombstoneAndKeepsItsSiblings()
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        var denied = MarkerProtocolOverloadEmitter.OverloadId(
+            DeclIdFactory.ForMethod(method), "TestModule.OffsetTarget", "Swift.Double");
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+            new HashSet<RecoveryUnitId> { RecoveryUnitId.Create(denied, RecoveryScope.LeafApi) }));
+
+        var (cs, swift) = Emit(method, parent, "Swift.Double", "Swift.Int");
+
+        Assert.Contains("Unsupported:", cs);
+        Assert.Contains("Swift.Double as TestModule.OffsetTarget", cs);
+        Assert.DoesNotContain("_MP_Double", cs);
+        Assert.DoesNotContain("_MP_Double", swift);
+        Assert.Contains("public void Offset(nint amount)", cs);
+        Assert.Contains("_MP_Int", swift);
+        Assert.False(attempt.Abandoned);
+    }
+
+    [Fact]
+    public void TryEmitForWithdrawnMethod_RecoveryWithdrawal_ReplaysEveryOverload()
+    {
+        // The overloads call wrappers of their own, so withdrawing the method they convenience
+        // must not take them with it.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId>
+            { RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi) }));
+
+        var (cs, swift) = Replay(method);
+
+        Assert.Contains("public void Offset(double amount)", cs);
+        Assert.Contains("public void Offset(nint amount)", cs);
+        Assert.Contains("_MP_Double", swift);
+        Assert.Contains("_MP_Int", swift);
+    }
+
+    [Fact]
+    public void TryEmitForWithdrawnMethod_ReplaysUnderTheNameTheMethodsEmissionGaveThem()
+    {
+        // The overload resolver renamed the method (a sibling took the bare name), so its overloads
+        // were emitted under the new name. Replayed under a recomputed bare name, they would collide
+        // with the sibling's own overloads.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId>
+            { RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi) }));
+
+        var (cs, _) = Replay(method, disambiguatedName: "offsetSecond");
+
+        Assert.Contains("public void OffsetSecond(double amount)", cs);
+        Assert.DoesNotContain("public void Offset(", cs);
+    }
+
+    [Fact]
+    public void TryEmitForWithdrawnMethod_NothingEmittedEarlier_ReplaysNothing()
+    {
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(new HashSet<RecoveryUnitId>
+            { RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi) }));
+
+        var (cs, swift) = Replay(method, earlierAttemptEmitted: false);
+
+        Assert.Empty(cs);
+        Assert.Empty(swift);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TryEmitForWithdrawnMethod_NotARecoveryWithdrawal_EmitsNothing(bool emitterThrew)
+    {
+        // An emitter that threw on the method is not re-entered for it; a method nothing withdrew
+        // already ran its overloads as post-processors.
+        var parent = CreateClassDecl("Widget");
+        var method = CreateMarkerMethod("offset", parent, TupleTypeSpec.Empty);
+        var units = emitterThrew
+            ? new HashSet<RecoveryUnitId> { RecoveryUnitId.Create(DeclIdFactory.ForMethod(method), RecoveryScope.LeafApi) }
+            : new HashSet<RecoveryUnitId>();
+        using var attempt = EmissionAttempt.Begin(WrapperDenylistSeed.Build(units, _ => EmitterFaultOrigin.EmitterException));
+
+        var (cs, swift) = Replay(method);
+
+        Assert.Empty(cs);
+        Assert.Empty(swift);
+    }
+
+    /// <summary>
+    /// Replays the method's overloads as the withdrawn-method loop does, after an earlier attempt
+    /// (unless <paramref name="earlierAttemptEmitted"/> is false) emitted them under
+    /// <paramref name="disambiguatedName"/> and the driver carried that attempt's recipes forward.
+    /// </summary>
+    private static (string Cs, string Swift) Replay(MethodDecl method, string disambiguatedName = null, bool earlierAttemptEmitted = true)
+    {
+        var conformances = new Dictionary<string, List<string>> { ["OffsetTarget"] = new() { "Swift.Double", "Swift.Int" } };
+        var emissionContext = new ModuleEmissionContext();
+        if (earlierAttemptEmitted)
+        {
+            var earlier = CreateMethodEnvironment(method);
+            earlier.EmissionContext = emissionContext;
+            earlier.DisambiguatedNameInput = disambiguatedName;
+            MarkerProtocolOverloadEmitter.EmitOverloads(new CSharpWriter(new StringWriter()), new SwiftWriter(new StringWriter()),
+                method, earlier, method.ParentDecl as TypeDecl, conformances);
+            emissionContext.SeedDefaultOverloadRecipes(new Dictionary<DeclId, DefaultOverloadReplayRecipe>(emissionContext.CompletedDefaultOverloadRecipes));
+        }
+
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var context = new TypeHandlerContext(null, new(), null,
+            MarkerProtocolConformances: conformances, EmissionContext: emissionContext);
+        MarkerProtocolOverloadEmitter.TryEmitForWithdrawnMethod(method, new CSharpWriter(csOut), new SwiftWriter(swiftOut),
+            CreateTypeDatabase(), context, siblingPropertyNames: null, emittedProjectedSignatures: new(), reservedOverloadShapes: new());
+        return (csOut.ToString(), swiftOut.ToString());
+    }
+
+    private static (string Cs, string Swift) Emit(MethodDecl method, TypeDecl parent, params string[] conformers)
+    {
+        var csOut = new StringWriter();
+        var swiftOut = new StringWriter();
+        var env = CreateMethodEnvironment(method);
+        env.EmissionContext = new ModuleEmissionContext();
+        MarkerProtocolOverloadEmitter.EmitOverloads(new CSharpWriter(csOut), new SwiftWriter(swiftOut), method, env, parent,
+            new Dictionary<string, List<string>> { ["OffsetTarget"] = conformers.ToList() });
+        return (csOut.ToString(), swiftOut.ToString());
+    }
+
+    private static MethodDecl CreateMarkerMethod(string name, ClassDecl parent, TypeSpec returnSpec, params ArgumentDecl[] extra)
+    {
+        var moduleDecl = CreateModuleDecl();
+        var signature = new List<ArgumentDecl>
+        {
+            CreateArg("", returnSpec, moduleDecl),
+            CreateArg("amount", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.OffsetTarget") }), moduleDecl),
+        };
+        signature.AddRange(extra);
+        return new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule6WidgetC{name.Length}{name}yyAA12OffsetTarget_pF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parent,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
     }
 
     #endregion

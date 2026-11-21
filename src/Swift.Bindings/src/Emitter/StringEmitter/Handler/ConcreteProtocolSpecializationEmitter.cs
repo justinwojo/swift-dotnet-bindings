@@ -460,7 +460,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             if (!TryResolveExistentialArrayReturn(substitutedReturn, parentTypeDecl, moduleName, typeDatabase, emissionContext, out existentialArrayReturn))
             {
                 logger.LogDebug(
-                    "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — its array-of-existentials result names a proxy this module does not emit.",
+                    "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — its array-of-existentials result names a proxy this module does not emit, or an @objc protocol existential no array element carrier reads.",
                     method.Name, safeConformerName);
                 return false;
             }
@@ -4024,10 +4024,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
 
     /// <summary>
     /// Resolves <paramref name="existentialArrayReturn"/> through the same projection the member
-    /// pipeline uses for an <c>[any P]</c> result of a single protocol with a generated proxy. It is
-    /// null for any other result, including other existential elements. Returns false only
-    /// when the result is such an array but its elements name a proxy the module does not emit, so
-    /// the specialization cannot be written.
+    /// pipeline uses for an array-of-existentials result (<c>[any P]</c>, <c>[any P &amp; Q]</c>,
+    /// <c>[Any]</c>, <c>[any Sendable]</c>). It is null for any other result. Returns false when the
+    /// result is such an array but its elements name a proxy the module does not emit, or are @objc
+    /// protocol existentials, so the specialization cannot be written.
     /// </summary>
     internal static bool TryResolveExistentialArrayReturn(
         TypeSpec returnSpec,
@@ -4049,16 +4049,37 @@ public static partial class ConcreteProtocolSpecializationEmitter
             CurrentModuleName = moduleName,
             EmissionContext = emissionContext,
         });
-        // Only a single-protocol proxy element: the shape whose interface type has no Swift metadata.
-        // Every other existential element (bare Any, a composition, an @objc protocol, a well-known
-        // carrier such as AnyError) keeps its existing return path.
-        if (projection is not ArrayProjection { UsesObjCContainerBridge: false, ElementProjection: ExistentialProjection { IsSingleProtocolProxy: true } element } array)
+        // An @objc protocol's existential is one object pointer, which an array element read through
+        // an existential carrier would over-read; the open-generic member refuses the shape for the
+        // same reason (MemberGateEvaluator), so its specializations do too.
+        if (ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(returnSpec, typeDatabase))
+            return false;
+        // Any other existential element (a composition with a class-bound or @objc member, or one
+        // degraded to object) has a layout no carrier here mirrors, so the array cannot be read at
+        // Swift's stride; only a well-known carrier keeps its own return path.
+        if (projection is ArrayProjection { ElementProjection: ExistentialProjection { IsContainerCarriedArrayElement: false, IsWellKnownCarrier: false } })
+            return false;
+        if (projection is ArrayProjection { ElementProjection: ExistentialProjection }
+            && HasProtocolMarkerClassificationCannotTrust(((NamedTypeSpec)returnSpec).GenericParameters[0], typeDatabase))
+            return false;
+
+        // Every existential element reads through its container carrier at Swift's stride (a
+        // protocol's or a composition's proxy, a bare Any's or a marker composition's unboxed value),
+        // the projection the open-generic member's result uses. Marshalling the array on the public
+        // element type instead (an interface, object or IntPtr) has no Swift metadata or the wrong
+        // stride. A well-known carrier projection (AnyError and the like) keeps its own return path.
+        if (projection is not ArrayProjection { UsesObjCContainerBridge: false, ElementProjection: ExistentialProjection { IsContainerCarriedArrayElement: true } element } array)
             return true;
 
         string elementConversion;
         try
         {
-            elementConversion = element.GetOwnedReturnElementConversion("e") ?? "e";
+            // Each element read out of the array is the caller's own copy: a proxy adopts it, and a
+            // bare Any's value is unboxed and the copy destroyed (Unbox alone borrows, which would
+            // leave every read's retain behind).
+            elementConversion = element.AdoptsOwnedReturn
+                ? element.GetOwnedReturnElementConversion("e") ?? "e"
+                : "global::Swift.Runtime.ExistentialContainer0.UnboxOwned(e)";
         }
         catch (SuppressedProxyReferenceException)
         {
@@ -4070,6 +4091,44 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"global::Swift.SwiftArray<{element.ArrayElementCarrierType}>",
             $".AsProjected(e => {elementConversion})");
         return true;
+    }
+
+    /// <summary>
+    /// Whether the element existential names a protocol whose witness-table count the carrier
+    /// choice gets wrong: the carrier drops markers by their Swift name alone, so a library's own
+    /// protocol named like a Swift marker (<c>MyLib.Sendable</c>) is dropped although it has a
+    /// witness table, and a library's own <c>@_marker</c> protocol is counted although it has none.
+    /// Either way the element stride is not the carrier's.
+    /// </summary>
+    private static bool HasProtocolMarkerClassificationCannotTrust(TypeSpec elementSpec, ITypeDatabase typeDatabase)
+    {
+        IEnumerable<NamedTypeSpec> protocols = elementSpec switch
+        {
+            ProtocolListTypeSpec list => list.Protocols.Keys,
+            NamedTypeSpec { IsAny: true } named => new[] { named },
+            _ => Array.Empty<NamedTypeSpec>(),
+        };
+        foreach (var protocol in protocols)
+        {
+            if (ExistentialHandler.IsMarkerProtocol(protocol))
+            {
+                var dot = protocol.Name.LastIndexOf('.');
+                if (dot >= 0 && protocol.Name.Substring(0, dot) != "Swift")
+                    return true;
+                continue;
+            }
+            try
+            {
+                if (typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(protocol), out var record)
+                    && (record.Flags & TypeRecordFlags.MarkerProtocol) != 0)
+                    return true;
+            }
+            catch
+            {
+                // An unresolvable name has no record to contradict the count.
+            }
+        }
+        return false;
     }
 
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)

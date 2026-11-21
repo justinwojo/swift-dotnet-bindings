@@ -331,15 +331,13 @@ public class ConcreteSpecializationEngineTests
     /// <summary>
     /// A specialization returning <c>[any P]</c> for a protocol with a generated proxy cannot marshal
     /// the array on the interface type (no Swift metadata), so it takes the existential carrier on the
-    /// wire and the projected list in public, like the generic member. Other existential elements
-    /// (a well-known carrier, a marker-only or bare <c>Any</c>) and non-existential arrays keep their
-    /// existing return path.
+    /// wire and the projected list in public, like the generic member. A well-known carrier and
+    /// non-existential arrays keep their existing return path; a marker-only composition and bare
+    /// <c>Any</c> are covered by <see cref="TryResolveExistentialArrayReturn_ZeroWitnessElements_ReadThroughTheOpaqueBox"/>.
     /// </summary>
     [Theory]
     [InlineData("TestLib.LedgerOption", true)]
     [InlineData("Swift.Error", false)]
-    [InlineData("Swift.Sendable", false)]
-    [InlineData("", false)]
     public void TryResolveExistentialArrayReturn_ResolvesOnlySingleProtocolProxyElements(string protocol, bool resolves)
     {
         var db = new ResolvingTypeDatabase();
@@ -365,6 +363,134 @@ public class ConcreteSpecializationEngineTests
         Assert.Contains("ILedgerOption", shape.PublicType);
         Assert.Equal("global::Swift.SwiftArray<Swift.Runtime.ExistentialContainer1>", shape.MarshalType);
         Assert.Contains("ownsContainer: true", shape.ProjectionSuffix);
+    }
+
+    /// <summary>
+    /// <c>[Any]</c> and <c>[any Sendable]</c> hold 32-byte opaque boxes with no witness table. A
+    /// specialization must read them at that stride and unbox each one, as the generic member does;
+    /// it used to marshal them as an array of pointers or of the marker's interface.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Sendable")]
+    [InlineData("")]
+    public void TryResolveExistentialArrayReturn_ZeroWitnessElements_ReadThroughTheOpaqueBox(string protocol)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var element = protocol.Length == 0
+            ? new ProtocolListTypeSpec()
+            : new ProtocolListTypeSpec(new[] { new NamedTypeSpec(protocol) });
+
+        Assert.True(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", element), host, "TestLib", db, emissionContext: null, out var resolved));
+
+        var shape = Assert.NotNull(resolved);
+        Assert.Contains("IReadOnlyList<object>", shape.PublicType);
+        Assert.Equal("global::Swift.SwiftArray<Swift.Runtime.ExistentialContainer0>", shape.MarshalType);
+        // Each element read is the caller's copy, so it is unboxed and destroyed, not borrowed.
+        Assert.Contains("ExistentialContainer0.UnboxOwned(e)", shape.ProjectionSuffix);
+    }
+
+    /// <summary>
+    /// A composition of two plain Swift protocols has the opaque layout its <c>ExistentialContainer2</c>
+    /// carrier mirrors and reads through the composition's proxy. One with a class-bound or @objc
+    /// member is laid out differently (a reference and its witness tables), so no carrier reads its
+    /// array and the specialization is refused rather than read at the wrong stride.
+    /// </summary>
+    [Theory]
+    [InlineData(TypeRecordFlags.None, true)]
+    [InlineData(TypeRecordFlags.ClassBound, false)]
+    [InlineData(TypeRecordFlags.ObjCProtocol, false)]
+    public void TryResolveExistentialArrayReturn_Composition_ReadsOnlyTheOpaqueLayout(TypeRecordFlags firstFlags, bool resolves)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Coded"), "TestLib", "Coded", TypeRecordKind.Protocol,
+            flags: firstFlags);
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Labelled"), "TestLib", "Labelled", TypeRecordKind.Protocol);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var composition = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.Coded"), new NamedTypeSpec("TestLib.Labelled") });
+
+        var ok = ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", composition), host, "TestLib", db, emissionContext: null, out var resolved);
+
+        Assert.Equal(resolves, ok);
+        if (!resolves)
+        {
+            Assert.Null(resolved);
+            return;
+        }
+        var shape = Assert.NotNull(resolved);
+        Assert.Equal("global::Swift.SwiftArray<Swift.Runtime.ExistentialContainer2>", shape.MarshalType);
+        Assert.Contains("ownsContainer: true", shape.ProjectionSuffix);
+    }
+
+    /// <summary>
+    /// An @objc protocol existential is one object pointer, so no container carrier reads an array of
+    /// them; the generic member is refused for it, and so is the specialization.
+    /// </summary>
+    [Fact]
+    public void TryResolveExistentialArrayReturn_ObjCProtocolElements_AreRefused()
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Coded"), "TestLib", "Coded", TypeRecordKind.Protocol,
+            flags: TypeRecordFlags.ObjCProtocol);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestLib.Coded") { IsAny = true }),
+            host, "TestLib", db, emissionContext: null, out var resolved));
+        Assert.Null(resolved);
+    }
+
+    /// <summary>
+    /// A composition with no proxy of its own (here a member the module does not know, which
+    /// degrades it to <c>object</c>) has no carrier that reads it at Swift's stride, so the
+    /// specialization is refused rather than marshalled as an array of pointers.
+    /// </summary>
+    [Fact]
+    public void TryResolveExistentialArrayReturn_CompositionWithoutAProxy_IsRefused()
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Coded"), "TestLib", "Coded", TypeRecordKind.Protocol);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var composition = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.Coded"), new NamedTypeSpec("Elsewhere.Unknown") });
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", composition), host, "TestLib", db, emissionContext: null, out var resolved));
+        Assert.Null(resolved);
+    }
+
+    /// <summary>
+    /// The carrier counts witness tables by dropping markers by their Swift name. A library's own
+    /// protocol named <c>Sendable</c> has a witness table, and a library's own <c>@_marker</c>
+    /// protocol has none, so for either the carrier's stride is wrong and the specialization is
+    /// refused.
+    /// </summary>
+    [Theory]
+    [InlineData("MyLib.Sendable", TypeRecordFlags.None)]
+    [InlineData("MyLib.TransferTag", TypeRecordFlags.MarkerProtocol)]
+    public void TryResolveExistentialArrayReturn_ProtocolTheCarrierMiscounts_IsRefused(string protocol, TypeRecordFlags flags)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Coded"), "TestLib", "Coded", TypeRecordKind.Protocol);
+        db.Register(SwiftTypeName.FromModuleQualifiedName(protocol), "MyLib", protocol.Substring(protocol.IndexOf('.') + 1),
+            TypeRecordKind.Protocol, flags: flags);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var composition = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.Coded"), new NamedTypeSpec(protocol) });
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", composition), host, "TestLib", db, emissionContext: null, out var resolved));
+        Assert.Null(resolved);
     }
 
     [Fact]
