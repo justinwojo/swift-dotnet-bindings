@@ -62,6 +62,15 @@ public abstract record MarshalledType
         /// call are still the opaque container, so the argument is narrowed at the boundary.</para>
         /// </summary>
         public bool ClassBoundArity1 { get; init; }
+
+        /// <summary>
+        /// True for <c>any Error</c>, which Swift boxes: the value on the wire is the one reference
+        /// to the box, not a container. The declared parameter type is <c>IntPtr</c> and the
+        /// argument is the box the container's first word holds (the opaque container passed by
+        /// value would hand the callee the address of a managed copy where it reads the box). An
+        /// owned hand-over retains the box, which is the count the callee releases.
+        /// </summary>
+        public bool BoxedError { get; init; }
     }
 
     /// <summary>Existential protocol type marshalled via ref (pointer) for @_cdecl wrappers.</summary>

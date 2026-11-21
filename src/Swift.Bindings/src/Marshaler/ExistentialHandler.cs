@@ -642,6 +642,38 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// The carrier a Swift-convention import declares for an <c>any P</c> it takes or returns by
+    /// value, which is what Swift's own lowering puts in the registers: the boxed <c>any Error</c>
+    /// is one reference, a single class-bound protocol is the <c>[classRef][witnessTable]</c> pair,
+    /// and every other existential is the opaque container, passed and returned by address.
+    /// </summary>
+    /// <remarks>
+    /// Declaring the opaque container for the first two hands the callee the address of a managed
+    /// copy where it reads the value, and takes a result through the indirect-result register the
+    /// callee never writes. A <c>@_cdecl</c> wrapper is unaffected: it moves every existential
+    /// through a buffer by construction.
+    /// </remarks>
+    public string GetSwiftConventionExistentialCarrier(ProtocolListTypeSpec protocolList)
+    {
+        if (IsBoxedErrorExistential(protocolList))
+            return BoxedErrorCarrier;
+        return IsClassBoundArity1Existential(protocolList)
+            ? "Swift.Runtime.ClassExistentialContainer1"
+            : GetPInvokeExistentialType(protocolList);
+    }
+
+    /// <summary>The carrier of a boxed <c>any Error</c> on a Swift-convention import: the box itself.</summary>
+    public const string BoxedErrorCarrier = "IntPtr";
+
+    /// <summary>
+    /// True for <c>any Error</c> alone, which Swift boxes: the existential is one reference to the
+    /// box, not a container. The same composition <see cref="TryGetWellKnownProtocolType"/> maps
+    /// onto <c>Swift.Foundation.AnyError</c>.
+    /// </summary>
+    public static bool IsBoxedErrorExistential(ProtocolListTypeSpec protocolList)
+        => protocolList.Protocols.Count == 1 && protocolList.Protocols.Keys.First().Name == "Swift.Error";
+
+    /// <summary>
     /// Gets the size of the existential container in machine words (8 bytes each on 64-bit).
     /// Layout: 3 payload words + 1 metadata word + N witness table words
     /// </summary>

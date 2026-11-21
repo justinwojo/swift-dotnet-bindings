@@ -218,6 +218,15 @@ namespace BindingsGeneration
                     new[] { moduleDecl }.Concat(_typeDatabase.GetDependencyModuleDecls().Where(d => !ReferenceEquals(d, moduleDecl) && d.Name != moduleDecl.Name)),
                     _typeDatabase);
                 var planSet = SwiftCallPlanSet.Build(ledger, new SwiftCallPlanner(ledger.Types, SwiftArchitectureModel.Default(lowering)));
+
+                // A plan that contradicts the callee's lowering (arguments or result where the callee
+                // does not take them) is wrong on every engine, not only those a guard refuses: its
+                // member (for a callback, the member that hands Swift the closure) is withdrawn and the
+                // module emitted again without it, or the module fails. An import whose member is
+                // already a throwing tombstone has no caller and stays, with the callbacks it would pass.
+                SwiftPlanContradictions.WithdrawOrFail(
+                    planSet, emissionContext.AbiCallPlans, emissionContext.OrphanedImports,
+                    emissionContext.CallbackImports, _logger);
                 if (SwiftBridgeEvidence.Current is { } judge)
                 {
                     var judgement = judge(moduleDecl.Name);

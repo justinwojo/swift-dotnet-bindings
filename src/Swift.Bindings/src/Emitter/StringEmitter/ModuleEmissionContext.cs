@@ -1743,6 +1743,58 @@ public sealed class ModuleEmissionContext
         }
     }
 
+    // Imports a member still declares but no longer calls: the ABI floor replaced the member's body
+    // with a throw, and the declaration stays so source referencing the member still compiles.
+    private readonly HashSet<SwiftPlanContradictions.ImportKey> _orphanedImports = new();
+
+    // The imports that hand each Swift-convention callback's closure to Swift. Flat, so the emission
+    // snapshot restores it entry by entry.
+    private readonly HashSet<(string Callback, SwiftPlanContradictions.ImportKey Import)> _callbackImports = new();
+
+    /// <summary>
+    /// Records that the member owning <paramref name="import"/> was emitted as a throwing tombstone, so
+    /// nothing reaches the import.
+    /// </summary>
+    internal void RecordOrphanedImport(SwiftPlanContradictions.ImportKey import)
+    {
+        lock (_abiCallPlansLock)
+            _orphanedImports.Add(import);
+    }
+
+    /// <summary>Every import whose only caller was replaced by a throw.</summary>
+    internal IReadOnlySet<SwiftPlanContradictions.ImportKey> OrphanedImports
+    {
+        get
+        {
+            lock (_abiCallPlansLock)
+                return _orphanedImports.ToHashSet();
+        }
+    }
+
+    /// <summary>Records that <paramref name="import"/> passes the closure <paramref name="callbackName"/> is to Swift.</summary>
+    internal void RecordCallbackImport(string callbackName, SwiftPlanContradictions.ImportKey import)
+    {
+        ArgumentNullException.ThrowIfNull(callbackName);
+        ArgumentNullException.ThrowIfNull(import);
+        lock (_abiCallPlansLock)
+            _callbackImports.Add((callbackName, import));
+    }
+
+    /// <summary>The imports recorded as passing each Swift-convention callback's closure, by callback name.</summary>
+    internal IReadOnlyDictionary<string, IReadOnlySet<SwiftPlanContradictions.ImportKey>> CallbackImports
+    {
+        get
+        {
+            lock (_abiCallPlansLock)
+                return _callbackImports
+                    .GroupBy(e => e.Callback, StringComparer.Ordinal)
+                    .ToDictionary(
+                        g => g.Key,
+                        g => (IReadOnlySet<SwiftPlanContradictions.ImportKey>)g.Select(e => e.Import).ToHashSet(),
+                        StringComparer.Ordinal);
+        }
+    }
+
     // ---- Swift call facts for the forward Swift-convention transitions this module emits ----
     //
     // A synthesizer that writes a Swift function into the wrapper registers its description here, keyed

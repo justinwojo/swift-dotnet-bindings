@@ -310,6 +310,71 @@ public class EmitterFaultContainmentTests : IDisposable
         Assert.True(contained.Poison.IsEmpty);
     }
 
+    // ── contradicted call plans ────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// A plan whose result contradicts the callee's lowering must leave no callable import on any engine:
+    /// the member that declares it is withdrawn, and the module is exactly what it is with that member
+    /// denied from the start. The contradiction is injected (the planner finds none in this fixture), so
+    /// the test keeps proving the withdrawal after every real carrier mismatch is fixed.
+    /// </summary>
+    [Fact]
+    public void ContradictedCallPlan_WithdrawsItsMember_AndLeavesNoImport()
+    {
+        string? entryPoint = null;
+        var contained = Emit(injectContradiction: module =>
+        {
+            // `scaled(by:)` is the only member importing its symbol (the three `register` overloads
+            // share one fixture symbol, and each would be withdrawn for its own import).
+            var method = FindType(module, "Point").Methods.Single(m => m.Name == "scaled");
+            return entry =>
+            {
+                if (entry.Transition != SwiftTransitionKind.ForwardPInvoke || !entry.EntryPoint.StartsWith(method.MangledName, StringComparison.Ordinal))
+                    return null;
+                entryPoint = entry.EntryPoint;
+                return new SwiftPlanRefusal(SwiftPlanRefusalKind.ResultMismatch, "injected: the managed signature takes an indirect result; the callee returns ptr directly");
+            };
+        });
+        var clean = Emit();
+        var reference = Emit(seedFaults: contained.Poison.Faults);
+
+        Assert.NotNull(entryPoint);
+        string Code(EmissionOutcome outcome) => string.Concat(outcome.Files.Where(f => f.Key.EndsWith(".cs", StringComparison.Ordinal)).Select(f => f.Value));
+        // Anti-vacuity: the clean module does import the symbol.
+        Assert.Contains($"EntryPoint = \"{entryPoint}\"", Code(clean), StringComparison.Ordinal);
+        Assert.DoesNotContain($"EntryPoint = \"{entryPoint}\"", Code(contained), StringComparison.Ordinal);
+
+        var fault = Assert.Single(contained.Poison.Faults);
+        Assert.Equal(EmitterFaultOrigin.AbiRecoveryWithdrawal, fault.Origin);
+        Assert.Equal(DeclIdFactory.ForMethod(FindType(contained.Module, "Point").Methods.Single(m => m.Name == "scaled")).Canonical, fault.Subject.Canonical);
+        Assert.StartsWith(EmitterFaultRecord.AbiWithdrawalDetailsPrefix, fault.Details, StringComparison.Ordinal);
+        Assert.Contains("ResultMismatch", fault.Details, StringComparison.Ordinal);
+
+        AssertOutputSetsIdentical(reference.Files, contained.Files);
+    }
+
+    /// <summary>
+    /// The refusals that only say the planner cannot tell (missing facts, a layout it cannot predict)
+    /// never withdraw a member: the guards already keep those imports off the engines that need a bridge.
+    /// </summary>
+    [Theory]
+    [InlineData(SwiftPlanRefusalKind.Lowering)]
+    [InlineData(SwiftPlanRefusalKind.Facts)]
+    [InlineData(SwiftPlanRefusalKind.ManagedViewDisagreement)]
+    public void EvidenceGapRefusal_WithdrawsNothing(SwiftPlanRefusalKind kind)
+    {
+        var contained = Emit(injectContradiction: module =>
+        {
+            var method = FindMethod(module, "Registry", "register", parameterName: "third");
+            return entry => entry.EntryPoint.StartsWith(method.MangledName, StringComparison.Ordinal)
+                ? new SwiftPlanRefusal(kind, "injected")
+                : null;
+        });
+
+        Assert.True(contained.Poison.IsEmpty);
+        AssertOutputSetsIdentical(Emit().Files, contained.Files);
+    }
+
     // ── harness ────────────────────────────────────────────────────────────────────────────────
 
     private sealed record EmissionOutcome(
@@ -327,7 +392,8 @@ public class EmitterFaultContainmentTests : IDisposable
         Func<ModuleDecl, DeclId>? injectFaultOn = null,
         IReadOnlyList<EmitterFaultRecord>? seedFaults = null,
         Func<Exception>? injected = null,
-        bool faultEverything = false)
+        bool faultEverything = false,
+        Func<ModuleDecl, Func<SwiftPlanCoverageEntry, SwiftPlanRefusal?>>? injectContradiction = null)
     {
         var scratch = NewScratchDir();
         var moduleDecl = FixtureModuleFactory.BuildModule("ContainmentFixture");
@@ -357,6 +423,10 @@ public class EmitterFaultContainmentTests : IDisposable
                     ? makeException()
                     : null);
         }
+
+        using var contradiction = injectContradiction is null
+            ? null
+            : SwiftPlanContradictions.InjectForTesting(injectContradiction(moduleDecl));
 
         try
         {

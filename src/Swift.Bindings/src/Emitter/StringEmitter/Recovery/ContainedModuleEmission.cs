@@ -164,11 +164,18 @@ internal static class ContainedModuleEmission
                 throw new EmitterFaultLimitException(decl.Name, attemptNumber, poison.Faults);
 
             var newest = poison.Faults[^1];
-            logger.LogWarning(
-                "SWIFTBIND110: emitter threw while lowering {Declaration}; denying it and re-emitting " +
-                "{Module} (attempt {Next} of {Max}). {Details}",
-                newest.Subject.Canonical, decl.Name, attemptNumber + 1,
-                EmissionAttempt.MaxEmissionAttempts, newest.Details);
+            if (newest.Origin == EmitterFaultOrigin.EmitterException)
+                logger.LogWarning(
+                    "SWIFTBIND110: emitter threw while lowering {Declaration}; denying it and re-emitting " +
+                    "{Module} (attempt {Next} of {Max}). {Details}",
+                    newest.Subject.Canonical, decl.Name, attemptNumber + 1,
+                    EmissionAttempt.MaxEmissionAttempts, newest.Details);
+            else
+                // A withdrawal decided after the render (a contradicted call plan) threw nothing.
+                logger.LogWarning(
+                    "SWIFTBIND110: withdrawing {Declaration} and re-emitting {Module} (attempt {Next} of {Max}). {Details}",
+                    newest.Subject.Canonical, decl.Name, attemptNumber + 1,
+                    EmissionAttempt.MaxEmissionAttempts, newest.Details);
         }
     }
 }

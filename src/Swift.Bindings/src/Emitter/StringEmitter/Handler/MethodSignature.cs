@@ -255,6 +255,13 @@ namespace BindingsGeneration
                 // A known proxy class settles it outright: a protocol whose interface name does not
                 // read as `I` + uppercase (`_Foo` → `I_Foo`) must not fall to the borrowed cast below,
                 // which reads the value's own container and so ignores which protocol it is passed as.
+                // A boxed `any Error`: the box the error's container holds in its first word. The
+                // container read borrows the box; a callee that releases its argument gets its own
+                // retain on it.
+                { Type: MarshalledType.Existential existentialType } when existentialType.BoxedError =>
+                    existentialType.HandedOverToCallee
+                        ? $"Swift.Runtime.Arc.UnknownObjectRetain({BoxedErrorRead(parameter.Name)})"
+                        : BoxedErrorRead(parameter.Name),
                 { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType)) =>
                     NarrowToClassCarrier(
                         existentialType,
@@ -382,6 +389,9 @@ namespace BindingsGeneration
         /// zeroed. Empty for every other shape, including every borrowed call site, so the argument
         /// appears only where the ownership question is actually asked.
         /// </summary>
+        private static string BoxedErrorRead(string name)
+            => $"((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>){name}).GetExistentialContainer().Payload0";
+
         private static string ClassBoundMintArgument(MarshalledType.Existential existentialType)
             => existentialType.HandedOverToCallee && existentialType.ClassBoundArity1
                 ? ", classBoundCarrier: true"

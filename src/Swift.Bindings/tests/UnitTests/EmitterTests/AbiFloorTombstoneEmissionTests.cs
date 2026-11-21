@@ -97,6 +97,60 @@ public class AbiFloorTombstoneEmissionTests
     }
 
     [Fact]
+    public void TombstonedMember_NamesItsImportOrphaned_AsItsCallPlanNamesIt()
+    {
+        // A call-plan contradiction is left alone only on an import nothing calls, matched on the
+        // identity the import's own plan records; the callable twin orphans nothing.
+        var (moduleDecl, typeDb) = CreateEnvironmentWithOpaqueStruct();
+        var parentDecl = CreateClassDecl("Reporter", moduleDecl);
+        var method = CreateMethodWithParam("record", new NamedTypeSpec("TestModule.Opaque"), "value", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var context = new ModuleEmissionContext();
+
+        EmitMethod(method, typeDb, context);
+
+        var orphan = Assert.Single(context.OrphanedImports);
+        Assert.Contains(context.AbiCallPlans, plan =>
+            plan.EntryPoint == orphan.EntryPoint && plan.MethodName == orphan.MethodName && plan.Owner == orphan.Owner);
+
+        var (publicModule, publicDb) = CreateEnvironmentWithOpaqueStruct();
+        var publicMethod = CreateMethodWithParam("record", new NamedTypeSpec("TestModule.Opaque"), "value", CreateClassDecl("Reporter", publicModule), publicModule);
+        var liveContext = new ModuleEmissionContext();
+
+        EmitMethod(publicMethod, publicDb, liveContext);
+
+        Assert.NotEmpty(liveContext.AbiCallPlans);
+        Assert.Empty(liveContext.OrphanedImports);
+    }
+
+    [Fact]
+    public void SwiftConventionClosureCallback_NamesTheImportThatPassesIt_AsItsCallPlanNamesIt()
+    {
+        // A contradicted callback withdraws the member whose import hands its closure to Swift,
+        // matched on the identity that import's own plan records. A module-internal member has no
+        // wrapper, so its closure crosses as a Swift-convention callback; on a non-final class the
+        // import binds the dispatch thunk, so its entry point is not the member's own symbol.
+        var (moduleDecl, typeDb) = CreateEnvironmentWithOpaqueStruct();
+        var parentDecl = CreateClassDecl("Reporter", moduleDecl);
+        parentDecl.IsFinal = false;
+        var closureType = new ClosureTypeSpec(
+            new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int") }), new NamedTypeSpec("Swift.Int"));
+        closureType.Attributes.Add(new TypeSpecAttribute("escaping"));
+        var method = CreateMethodWithParam("record", closureType, "transform", parentDecl, moduleDecl);
+        method.IsModuleInternal = true;
+        var context = new ModuleEmissionContext();
+        context.Marshaling = new MarshalingContext(moduleDecl, typeDb, null) { EmissionContext = context };
+
+        EmitMethod(method, typeDb, context);
+
+        var plan = Assert.Single(context.AbiCallPlans, p => p.EntryPoint.StartsWith(method.MangledName, StringComparison.Ordinal));
+        Assert.NotEqual(method.MangledName, plan.EntryPoint);
+        var callback = ClosureHandler.GetCallbackFunctionName(method.Name, "transform", method.MangledName);
+        Assert.Contains(callback, context.SwiftCallbackRecords.Select(r => r.CallbackName));
+        Assert.Equal(SwiftPlanContradictions.ImportKey.Of(plan), Assert.Single(context.CallbackImports[callback]));
+    }
+
+    [Fact]
     public void PublicNonBlittableMethod_KeepsALiveCall()
     {
         // Same non-blittable signature on a PUBLIC declaration: a wrapper is possible for it and the
@@ -273,7 +327,7 @@ public class AbiFloorTombstoneEmissionTests
     private static string DeclarationLine(string csOutput, string marker) =>
         csOutput.Split('\n').First(l => l.Contains(marker)).TrimEnd('\r');
 
-    private static string EmitMethod(MethodDecl methodDecl, TypeDatabase typeDatabase)
+    private static string EmitMethod(MethodDecl methodDecl, TypeDatabase typeDatabase, ModuleEmissionContext? emissionContext = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -283,7 +337,10 @@ public class AbiFloorTombstoneEmissionTests
         var handler = new MethodHandler(new NullLogger<MethodHandler>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
         var conductor = new Conductor(new NullLoggerFactory());
-        handler.Emit(csWriter, swiftWriter, env, conductor, TypeHandlerContext.Empty);
+        var context = emissionContext is null
+            ? TypeHandlerContext.Empty
+            : new TypeHandlerContext(null, new(), null, EmissionContext: emissionContext);
+        handler.Emit(csWriter, swiftWriter, env, conductor, context);
 
         return csOutput.ToString();
     }
