@@ -156,18 +156,132 @@ public sealed class AppleFrameworkSlicesTests : IDisposable
         Assert.Equal(expected, BindingsGeneratorCommand.CompilesDeviceSlice(passArch, isFirstPass, "arm64", passArchs));
 
     /// <summary>
-    /// A generation run collects the receipt only where it compiles the wrapper itself: an Apple
-    /// framework whose wrapper is not deferred. A framework bound from an xcframework, or any run that
-    /// skips the wrapper, leaves the receipt to the --compile-wrapper-only pass.
+    /// A generation run collects the receipt only where it compiles the wrapper itself: an xcframework or
+    /// an Apple framework whose wrapper is not deferred. Any run that skips the wrapper leaves the
+    /// receipt to the --compile-wrapper-only pass, and a direct run of a non-Apple library compiles no
+    /// wrapper a receipt could describe.
     /// </summary>
     [Theory]
     [InlineData(false, "@rpath/AppleKit.framework/AppleKit", false, true)]
     [InlineData(false, "/System/Library/Frameworks/AppleKit.framework/AppleKit", false, true)]
     [InlineData(false, "@rpath/AppleKit.framework/AppleKit", true, false)]
-    [InlineData(true, "@rpath/AppleKit.framework/AppleKit", false, false)]
+    [InlineData(true, null, false, true)]
+    [InlineData(true, null, true, false)]
     [InlineData(false, "/Users/me/build/Lib.framework/Lib", false, false)]
     [InlineData(false, null, false, false)]
-    public void CollectsLoweringEvidenceInline_OnlyForAnAppleFrameworkWhoseWrapperTheRunCompiles(
+    public void CollectsLoweringEvidenceInline_OnlyWhereTheRunCompilesTheWrapper(
         bool hasXcframework, string? libraryName, bool skipWrapperCompilation, bool expected) =>
         Assert.Equal(expected, BindingsGeneratorCommand.CollectsLoweringEvidenceInline(hasXcframework, libraryName, skipWrapperCompilation));
+
+    /// <summary>
+    /// A standalone --xcframework generation that compiles its wrapper collects the receipt beside the
+    /// project and routes on the targets the SDK's wrapper compile does: collection on iOS, Mac
+    /// Catalyst, tvOS and every net11.0 target, routing on iOS, Mac Catalyst and tvOS.
+    /// </summary>
+    [Theory]
+    [InlineData(ApplePlatform.iOS, "net10.0", true, true)]
+    [InlineData(ApplePlatform.iOS, "net11.0", true, true)]
+    [InlineData(ApplePlatform.tvOS, "net10.0", true, true)]
+    [InlineData(ApplePlatform.MacCatalyst, "net10.0", true, true)]
+    [InlineData(ApplePlatform.macOS, "net11.0", true, false)]
+    [InlineData(ApplePlatform.macOS, "net10.0", false, false)]
+    public void StandaloneLoweringDefaults_FollowTheSdkWrapperCompile(ApplePlatform platform, string framework, bool collects, bool routes)
+    {
+        var info = PlatformInfoFactory.Create(platform, null, $"{framework}-{platform.ToString().ToLowerInvariant()}");
+        var output = Path.Combine(Path.GetTempPath(), "standalone-defaults");
+        var defaults = BindingsGeneratorCommand.StandaloneLoweringDefaults(
+            hasXcframework: true, skipWrapperCompilation: false, sdkMode: false, explicitReceipt: null, explicitRoute: false,
+            handAuthoredEvidence: false, noRouting: false, skipThunkCompilation: false, info, output);
+        Assert.Equal(collects, defaults is not null);
+        if (defaults is { } d)
+        {
+            Assert.Equal(Path.Combine(Path.GetFullPath(output), BindingsGeneratorCommand.StandaloneLoweringReceiptFileName), d.ReceiptPath);
+            Assert.Equal(routes, d.Route);
+        }
+    }
+
+    /// <summary>
+    /// The defaults stand aside for every run that is not a standalone wrapper compile, or that says
+    /// what to collect itself; --no-swift-bridge-routing keeps the receipt and drops the routing.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false, false, null, false, false, false)] // direct (-a/-d/-t) mode
+    [InlineData(true, true, false, null, false, false, false)]   // wrapper deferred to --compile-wrapper-only
+    [InlineData(true, false, true, null, false, false, false)]   // the SDK's generation pass
+    [InlineData(true, false, false, "/tmp/r.json", false, false, false)] // an explicit receipt
+    [InlineData(true, false, false, null, true, false, false)]   // an explicit --route-swift-bridges
+    [InlineData(true, false, false, null, false, true, false)]   // hand-authored evidence routes at generation
+    [InlineData(true, false, false, null, false, false, true)]   // the standalone run itself
+    public void StandaloneLoweringDefaults_ApplyOnlyToAStandaloneWrapperCompile(
+        bool hasXcframework, bool skipWrapper, bool sdkMode, string? explicitReceipt, bool explicitRoute, bool handAuthored, bool applies)
+    {
+        var info = PlatformInfoFactory.Create(ApplePlatform.iOS);
+        var defaults = BindingsGeneratorCommand.StandaloneLoweringDefaults(
+            hasXcframework, skipWrapper, sdkMode, explicitReceipt, explicitRoute, handAuthored, noRouting: false, skipThunkCompilation: false, info, "/tmp/out");
+        Assert.Equal(applies, defaults is not null);
+        var optedOut = BindingsGeneratorCommand.StandaloneLoweringDefaults(
+            hasXcframework, skipWrapper, sdkMode, explicitReceipt, explicitRoute, handAuthored, noRouting: true, skipThunkCompilation: false, info, "/tmp/out");
+        Assert.Equal(applies, optedOut is not null);
+        if (optedOut is { } o)
+            Assert.False(o.Route);
+    }
+
+    /// <summary>
+    /// A run that skips the native thunks cannot assemble a bridge, so it collects the receipt and
+    /// leaves every import as generated.
+    /// </summary>
+    [Fact]
+    public void StandaloneLoweringDefaults_DoNotRouteWithoutTheNativeThunks()
+    {
+        var defaults = BindingsGeneratorCommand.StandaloneLoweringDefaults(
+            hasXcframework: true, skipWrapperCompilation: false, sdkMode: false, explicitReceipt: null, explicitRoute: false,
+            handAuthoredEvidence: false, noRouting: false, skipThunkCompilation: true, PlatformInfoFactory.Create(ApplePlatform.iOS), "/tmp/out");
+        Assert.NotNull(defaults);
+        Assert.False(defaults!.Value.Route);
+    }
+
+    /// <summary>
+    /// A standalone run that collects elsewhere, or not at all, removes the default receipt it would
+    /// otherwise leave beside a wrapper it no longer describes; a run given hand-authored evidence
+    /// never touches it, since that evidence may be the receipt itself under another spelling of its path.
+    /// </summary>
+    [Theory]
+    [InlineData(false, null, true)]
+    [InlineData(false, "elsewhere.json", true)]
+    [InlineData(false, StandaloneReceipt, false)]
+    [InlineData(true, null, false)]
+    public void ClearStaleStandaloneReceipt_RemovesOnlyAReceiptThisRunCannotBeReading(bool handAuthored, string? collectName, bool removed)
+    {
+        var output = Path.Combine(_dir, "out");
+        Directory.CreateDirectory(output);
+        var receipt = Path.Combine(output, StandaloneReceipt);
+        File.WriteAllText(receipt, "{}");
+        var collect = collectName == null ? null : Path.Combine(output, collectName);
+
+        var cleared = BindingsGeneratorCommand.ClearStaleStandaloneReceipt(output, collect, handAuthored);
+
+        Assert.Equal(removed, cleared != null);
+        Assert.Equal(!removed, File.Exists(receipt));
+    }
+
+    private const string StandaloneReceipt = BindingsGeneratorCommand.StandaloneLoweringReceiptFileName;
+
+    /// <summary>
+    /// The receipt names its slices by the parsed platform, so every spelling --platform accepts
+    /// collects the same slices (the evidence lane throws on a name it does not know).
+    /// </summary>
+    [Theory]
+    [InlineData("ios", "ios")]
+    [InlineData("tvos", "tvos")]
+    [InlineData("maccatalyst", "maccatalyst")]
+    [InlineData("mac-catalyst", "maccatalyst")]
+    [InlineData("macos", "macos")]
+    public void LoweringPlatform_IsCanonicalForEveryAcceptedSpelling(string spelling, string expected)
+    {
+        var platform = PlatformInfoFactory.ParsePlatform(spelling);
+        Assert.NotNull(platform);
+        var lowering = BindingsGeneratorCommand.LoweringPlatform(PlatformInfoFactory.Create(platform!.Value));
+        Assert.Equal(expected, lowering);
+        Assert.NotEmpty(SwiftArtifactScope.PlatformSlices(lowering));
+    }
 }

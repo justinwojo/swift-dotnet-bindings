@@ -362,7 +362,8 @@ The fingerprint of a Swift Apple framework that collects joins the compiler line
 SDK's version and build, as a framework bound from an xcframework does. The generator run deletes
 the previous receipt first; the SDK deletes it before a regeneration too. Only the plain direct
 generator path (a third-party framework given with `-a`/`-d`/`-t`, outside an SDK) does not
-collect, and so does not route from a receipt.
+collect, and so does not route from a receipt. A standalone `--xcframework` run collects and routes
+by the SDK's defaults (see *Standalone generator runs*).
 
 The wrapper's IR alone shows 32 of the 128 plan targets on BindingTests. With the probe, the receipt
 shows 113, measured under Xcode 27.2, and every one agrees with the oracle record of both compiler
@@ -371,6 +372,37 @@ client can call. A setter isolated to a custom global actor is reached by the pr
 The probe needs the descriptor a framework
 ships. A slice without one leaves its targets unobserved; the probe does not generate a descriptor
 from the interface.
+
+**Standalone generator runs.** A generation run outside the SDK (`--xcframework`, the wrapper
+compiled in the same run, no `--sdk-mode`) is the documented generator CLI path, and the project it
+emits must reach Swift the way an SDK build of the same library does. So it takes the SDK's
+wrapper-compile defaults when it names no receipt of its own
+(`BindingsGeneratorCommand.StandaloneLoweringDefaults`): it collects on iOS, Mac Catalyst and tvOS
+and on every `net11.0` target, writes the receipt to `swift-lowering-receipt.json` in the output
+directory, and on iOS, Mac Catalyst and tvOS routes what the receipt authorizes. Each slice of the
+inline compile is a collection pass, and the commit-and-route step is the one `--compile-wrapper-only`
+runs (`BindingsGenerator.CommitReceiptAndRouteBridges`), before the binding project is emitted, so the
+emitted project ships the routed C#, the rewritten manifest and the relinked wrapper. A rerun into the
+same output directory first restores the C# an earlier routing rewrote, so a regeneration routes the
+same members. As in the SDK:
+- `--no-swift-bridge-routing` (`SwiftRouteBridges=false`) collects without routing, and so does a run
+  with `--skip-thunk-compilation`, which could not assemble a bridge.
+- The receipt names its slices by the parsed platform, so `--platform mac-catalyst` and
+  `maccatalyst` collect the same slices.
+- A run that collects elsewhere, or not at all, removes an earlier default receipt from the output
+  directory. A run given hand-authored evidence leaves it alone, since that evidence may be the
+  receipt itself.
+- An explicit `--collect-swift-lowering-evidence` or `--route-swift-bridges` replaces the defaults.
+- Hand-authored evidence (`--swift-lowering-evidence`, `--swift-lowering-qualification`) routes at
+  generation, so the run neither collects nor routes. BindingTests regenerates this way.
+- A routing failure, or a receipt that was due and not written while routable members stay guarded
+  (SWIFTBIND134), fails the run.
+
+`--bridge-consumer` mode `cli` gates it: it generates the fixture through the CLI twice into one
+output directory, requires each generation to have collected the receipt and routed every routable
+member, and runs an app that consumes the generated project through a `ProjectReference` and its
+`.ProjectReference.targets`, including an ordinary open class whose instance methods take `self` in
+the self register.
 
 ## Routing from the collected receipt
 

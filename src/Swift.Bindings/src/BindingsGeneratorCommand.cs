@@ -78,6 +78,7 @@ public static class BindingsGeneratorCommand
         var compileWrapperOnly = parseResult.GetValueForOption(options.CompileWrapperOnly);
         var collectSwiftLoweringEvidence = parseResult.GetValueForOption(options.CollectSwiftLoweringEvidence);
         var routeSwiftBridges = parseResult.GetValueForOption(options.RouteSwiftBridges);
+        var noSwiftBridgeRouting = parseResult.GetValueForOption(options.NoSwiftBridgeRouting);
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
         var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
@@ -505,6 +506,12 @@ public static class BindingsGeneratorCommand
         // Handle --compile-wrapper-only: fast path that skips all parsing/generation
         if (compileWrapperOnly)
         {
+            if (noSwiftBridgeRouting)
+            {
+                logger.LogError("Error: --no-swift-bridge-routing applies to a standalone generation; a --compile-wrapper-only pass routes only when --route-swift-bridges asks it to.");
+                context.ExitCode = 1;
+                return;
+            }
             if (string.IsNullOrWhiteSpace(xcframeworkPath))
             {
                 logger.LogError("Error: --compile-wrapper-only requires --xcframework.");
@@ -599,14 +606,54 @@ public static class BindingsGeneratorCommand
             return;
         }
 
+        // A standalone generation that compiles its wrapper collects the receipt and routes what it
+        // authorizes by default, on the targets the SDK's wrapper compile does both, so a project the
+        // generator CLI emits reaches Swift the way an SDK build of the same library does.
+        if (StandaloneLoweringDefaults(hasXcframework, skipWrapperCompilation, sdkMode, collectSwiftLoweringEvidence, routeSwiftBridges,
+                handAuthoredEvidence: !string.IsNullOrWhiteSpace(swiftLoweringEvidence) || !string.IsNullOrWhiteSpace(swiftLoweringQualification),
+                noSwiftBridgeRouting, skipThunkCompilation, platformInfo, outputDirectory) is { } standalone)
+        {
+            collectSwiftLoweringEvidence = standalone.ReceiptPath;
+            routeSwiftBridges = standalone.Route;
+            logger.LogInformation(
+                "Standalone generation collects the lowering receipt at {Path}{Routing}.",
+                standalone.ReceiptPath, standalone.Route ? " and routes what it authorizes through native bridges" : "; bridge routing is off");
+        }
+        else if (noSwiftBridgeRouting && (routeSwiftBridges || !IsStandaloneWrapperCompile(hasXcframework, skipWrapperCompilation, sdkMode)
+                     || !string.IsNullOrWhiteSpace(swiftLoweringEvidence) || !string.IsNullOrWhiteSpace(swiftLoweringQualification)))
+        {
+            logger.LogError("Error: --no-swift-bridge-routing applies only to a standalone --xcframework generation that compiles its wrapper, " +
+                "and contradicts --route-swift-bridges and hand-authored evidence, which routes at generation.");
+            context.ExitCode = 1;
+            return;
+        }
+
+        // A standalone run's default receipt describes the wrapper in its output directory, so a run
+        // that collects elsewhere, or not at all, removes it rather than leave it beside a wrapper it
+        // no longer describes.
+        if (IsStandaloneWrapperCompile(hasXcframework, skipWrapperCompilation, sdkMode))
+        {
+            try
+            {
+                ClearStaleStandaloneReceipt(outputDirectory, collectSwiftLoweringEvidence,
+                    handAuthoredEvidence: !string.IsNullOrWhiteSpace(swiftLoweringEvidence) || !string.IsNullOrWhiteSpace(swiftLoweringQualification));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                logger.LogError("Error: the previous lowering receipt in '{Path}' could not be removed: {Message}", outputDirectory, ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
+        }
+
         // The receipt describes a compiled wrapper, so only a wrapper compile collects it: the
-        // --compile-wrapper-only pass (returned above) or the Apple-framework path, which compiles its
-        // wrapper inline after generation.
+        // --compile-wrapper-only pass (returned above), an xcframework generation that compiles its
+        // wrapper in the same run, or the Apple-framework path, which compiles its wrapper inline.
         if (!string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence))
         {
             if (!CollectsLoweringEvidenceInline(hasXcframework, libraryName, skipWrapperCompilation))
             {
-                logger.LogError("Error: --collect-swift-lowering-evidence requires --compile-wrapper-only, or an Apple framework (-a/-d/-t with an @rpath or /System/Library/ -l) whose wrapper this run compiles.");
+                logger.LogError("Error: --collect-swift-lowering-evidence requires --compile-wrapper-only, an --xcframework generation that compiles its wrapper, or an Apple framework (-a/-d/-t with an @rpath or /System/Library/ -l) whose wrapper this run compiles.");
                 context.ExitCode = 1;
                 return;
             }
@@ -1958,11 +2005,33 @@ public static class BindingsGeneratorCommand
                 return;
             }
 
+            // The module's lowering receipt, read from the IR of the wrapper each compile pass builds, as
+            // the --compile-wrapper-only pass reads it. A relink with the bridges replaces it with a
+            // verification of the passes against that receipt.
+            var loweringPlatform = LoweringPlatform(platformInfo);
+            SwiftWrapperLoweringEvidence? lowering = null;
+            string? loweringNotCollected = null;
+            if (!string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence))
+            {
+                try
+                {
+                    lowering = SwiftWrapperLoweringEvidence.Begin(
+                        collectSwiftLoweringEvidence!, outputDirectory, resolution.ModuleName, loweringPlatform, logger, out loweringNotCollected);
+                }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+                {
+                    logger.LogError("Error: the previous lowering receipt '{Path}' could not be removed: {Message}", collectSwiftLoweringEvidence, ex.Message);
+                    context.ExitCode = 1;
+                    return;
+                }
+            }
+
             // Compiles the wrapper for ONE requested CPU arch (null = historical arm64 preference).
             // Re-resolves per arch so the right per-arch .swiftinterface/abi is used; folded into a fat
             // build by CompileWrapperForArchitectures when extraArchs is non-empty.
             SwiftWrapperCompilationResult? CompileForArch(string? requestedArch)
             {
+                var loweringPass = lowering?.BeginPass(requestedArch);
                 if (wrapperArchNormalized == "all")
                 {
                     // Multi-arch: resolve both slices, compile wrapper for both
@@ -1991,7 +2060,8 @@ public static class BindingsGeneratorCommand
                         depModuleNamesForCollisionSimulator: depModuleCollisions.Simulator,
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -2018,7 +2088,8 @@ public static class BindingsGeneratorCommand
                         resolvedArchitecture: deviceOnlyResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
                 else
                 {
@@ -2042,7 +2113,8 @@ public static class BindingsGeneratorCommand
                         resolvedArchitecture: simResolution.SelectedArchitecture,
                         depModuleNamesForCollision: depModuleCollisions.Simulator,
                         linkFrameworks: linkFrameworks,
-                        linkLibraries: linkLibraries);
+                        linkLibraries: linkLibraries,
+                        lowering: loweringPass);
                 }
             }
 
@@ -2146,6 +2218,64 @@ public static class BindingsGeneratorCommand
                 resolution.ModuleName,
                 m => m.Wrapper = WrapperSection.From(outcome, coGated),
                 logger);
+
+            // Commit the receipt and route what it authorizes, exactly as the --compile-wrapper-only pass
+            // does for the SDK, or undo an earlier routing of this output directory that is no longer asked
+            // for. The binding project is emitted after this, from the wrapper routing leaves.
+            if (compilationResult?.XCFrameworkPath is { } wrapperPath && Directory.Exists(wrapperPath) && outcome.ExitCode == 0)
+            {
+                var wrapperModuleName = $"{resolution.ModuleName}SwiftBindings";
+                var routed = BindingsGenerator.CommitReceiptAndRouteBridges(
+                    new BindingsGenerator.WrapperRoutingRequest(
+                        outputDirectory, resolution.ModuleName, routeSwiftBridges, lowering, collectSwiftLoweringEvidence,
+                        loweringPlatform, outcome, unmergedExtraArchs,
+                        verification =>
+                        {
+                            lowering = verification;
+                            SwiftWrapperCompilationResult? relinked = null;
+                            Exception? relinkException = null;
+                            IReadOnlyList<string> relinkUnmerged = Array.Empty<string>();
+                            try
+                            {
+                                relinked = BindingsGenerator.CompileWrapperForArchitectures(
+                                    primaryArch, extraArchs, CompileForArch, logger, out relinkUnmerged);
+                            }
+                            catch (Exception ex)
+                            {
+                                relinkException = ex;
+                            }
+                            return new BindingsGenerator.WrapperRecompile(relinked, relinkException, relinkUnmerged,
+                                autoMatchSource ? Array.Empty<string>() : relinkUnmerged);
+                        },
+                        // An earlier run's metadata may still record the wrapper being set aside; this run
+                        // rewrites it once the project is emitted.
+                        () =>
+                        {
+                            if (File.Exists(Path.Combine(outputDirectory, "binding-metadata.props")))
+                                XCFrameworkMetadataExtractor.UpdateMetadataPropsWrapperStatus(
+                                    outputDirectory, false, wrapperModuleName, 0, logger, contractualUnmet);
+                        },
+                        loweringNotCollected),
+                    ref compilationResult, logger, out var unroutedCause);
+                // A withdrawal that could not restore the wrapper leaves nothing to ship: the SDK's
+                // missing-wrapper check (SWIFTBIND051) stops that build, so this run stops too.
+                var wrapperLost = routed && unroutedCause == null
+                    && (compilationResult?.XCFrameworkPath is not { } kept || !Directory.Exists(kept));
+                if (!routed || unroutedCause != null || wrapperLost)
+                {
+                    var why = wrapperLost
+                        ? "the wrapper was not restored after its bridge relink was withdrawn; see the diagnostics above"
+                        : routed
+                        ? $"{BindingsGenerator.UnroutedBridgesCode}: routable members stay guarded because no lowering receipt was written: {unroutedCause}"
+                        : "routing the wrapper's bridges failed; see the diagnostics above";
+                    EmitCommandFailureReport(
+                        BindingFailureOutcomeKind.WrapperCompileFailure,
+                        routed && !wrapperLost ? BindingsGenerator.UnroutedBridgesCode : "SWIFT_BRIDGE_ROUTING_FAILURE",
+                        RecoveryStage.SwiftCompile, why);
+                    context.ExitCode = 1;
+                    return;
+                }
+            }
         }
         else if (shouldCompileWrapper && isSystemFrameworkTarget && !string.IsNullOrEmpty(directModuleName))
         {
@@ -2248,7 +2378,7 @@ public static class BindingsGeneratorCommand
             // Apple frameworks ship no ABI descriptor, so every slice's probe reads the one this run
             // bound (-a).
             var collectsLowering = !string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence);
-            var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
+            var loweringPlatform = LoweringPlatform(platformInfo);
             (XCFrameworkResolution Sim, Func<string, XCFrameworkResolution?> SimFor, XCFrameworkResolution? Device)? bothSlices = null;
             string? loweringNotCollected = null;
             if (collectsLowering && platformInfo.HasSimulatorVariant)
@@ -3163,11 +3293,69 @@ public static class BindingsGeneratorCommand
     /// </summary>
     /// <summary>
     /// Whether a generation run (not <c>--compile-wrapper-only</c>) may collect the lowering receipt: an
-    /// Apple framework whose wrapper the run compiles inline. Every other generation run leaves its
-    /// wrapper to a later <c>--compile-wrapper-only</c> pass, which collects the receipt.
+    /// xcframework or an Apple framework whose wrapper the run compiles inline. A run that skips its
+    /// wrapper compile leaves it to a later <c>--compile-wrapper-only</c> pass, which collects the receipt;
+    /// a direct (-a/-d/-t) run of a non-Apple library compiles no wrapper the receipt could describe.
     /// </summary>
     internal static bool CollectsLoweringEvidenceInline(bool hasXcframework, string? libraryName, bool skipWrapperCompilation) =>
-        IsSystemFrameworkTarget(hasXcframework, libraryName) && !skipWrapperCompilation;
+        !skipWrapperCompilation && (hasXcframework || IsSystemFrameworkTarget(hasXcframework, libraryName));
+
+    /// <summary>The receipt a standalone generation collects by default, in its output directory.</summary>
+    internal const string StandaloneLoweringReceiptFileName = "swift-lowering-receipt.json";
+
+    /// <summary>
+    /// What a standalone generation (an <c>--xcframework</c> run that compiles its wrapper, outside the
+    /// SDK) collects and routes when it names no receipt of its own: the SDK's wrapper-compile defaults
+    /// (<c>SwiftCollectLoweringEvidence</c> on iOS, Mac Catalyst, tvOS and every net11.0 target;
+    /// <c>SwiftRouteBridges</c> on iOS, Mac Catalyst and tvOS), with the receipt beside the generated
+    /// project. Null when the run is not standalone, names its own receipt, or binds with hand-authored
+    /// evidence (which routes at generation, so the wrapper compile leaves the C# alone, as in the SDK).
+    /// </summary>
+    internal static (string ReceiptPath, bool Route)? StandaloneLoweringDefaults(
+        bool hasXcframework, bool skipWrapperCompilation, bool sdkMode, string? explicitReceipt, bool explicitRoute,
+        bool handAuthoredEvidence, bool noRouting, bool skipThunkCompilation, PlatformInfo platformInfo, string outputDirectory)
+    {
+        if (!IsStandaloneWrapperCompile(hasXcframework, skipWrapperCompilation, sdkMode) || handAuthoredEvidence
+            || !string.IsNullOrWhiteSpace(explicitReceipt) || explicitRoute)
+            return null;
+        var routedPlatform = platformInfo.Platform is ApplePlatform.iOS or ApplePlatform.MacCatalyst or ApplePlatform.tvOS;
+        var collects = routedPlatform || platformInfo.ManagedFramework == "net11.0";
+        if (!collects)
+            return null;
+        // A bridge is assembled with the native thunks, so a run that skips them could not link one.
+        return (Path.Combine(Path.GetFullPath(outputDirectory), StandaloneLoweringReceiptFileName),
+            routedPlatform && !noRouting && !skipThunkCompilation);
+    }
+
+    /// <summary>A generation outside the SDK that compiles its <c>--xcframework</c> wrapper in the same run.</summary>
+    internal static bool IsStandaloneWrapperCompile(bool hasXcframework, bool skipWrapperCompilation, bool sdkMode) =>
+        hasXcframework && !skipWrapperCompilation && !sdkMode;
+
+    /// <summary>
+    /// Removes the default receipt in <paramref name="outputDirectory"/> before a standalone run that
+    /// collects elsewhere or not at all, and returns the path removed. A run given hand-authored
+    /// evidence leaves it in place: that evidence may be a receipt kept at the default path, and no
+    /// comparison of path strings can prove otherwise on a case-insensitive or linked volume.
+    /// </summary>
+    internal static string? ClearStaleStandaloneReceipt(string outputDirectory, string? collectPath, bool handAuthoredEvidence)
+    {
+        if (handAuthoredEvidence)
+            return null;
+        var defaultReceipt = Path.Combine(Path.GetFullPath(outputDirectory), StandaloneLoweringReceiptFileName);
+        // Collecting at the default path rewrites it, so leaving it in place is safe either way.
+        if (!string.IsNullOrWhiteSpace(collectPath) && Path.GetFullPath(collectPath) == defaultReceipt)
+            return null;
+        if (!File.Exists(defaultReceipt))
+            return null;
+        SwiftWrapperLoweringEvidence.Discard(defaultReceipt);
+        return defaultReceipt;
+    }
+
+    /// <summary>
+    /// The platform a lowering receipt names its slices by (<c>ios</c>, <c>tvos</c>, <c>maccatalyst</c>,
+    /// <c>macos</c>), read from the parsed platform so every spelling <c>--platform</c> accepts agrees.
+    /// </summary>
+    internal static string LoweringPlatform(PlatformInfo platformInfo) => platformInfo.Platform.ToString().ToLowerInvariant();
 
     internal static bool IsSystemFrameworkTarget(bool hasXcframework, string? libraryName)
     {

@@ -67,7 +67,7 @@ partial class Build
     [Parameter("Opt-in: bind a module through SwiftBindings.Sdk with default settings and no hand-authored lowering evidence, consume it as a package, SDK-direct and through a ProjectReference, and prove on the simulator, a device, Mac Catalyst and/or the tvOS simulator that its calls run through the bridges the SDK routed. .NET 10: --sim (Mono AOT), --device (NativeAOT), --device --mono-aot (Mono full-AOT), --catalyst (a universal app run natively on arm64 and under Rosetta on x86_64), --tvos (the arm64 tvOS simulator). .NET 11: --coreclr-interp. Never part of the default run or --compile-only.")]
     readonly bool BridgeConsumer;
 
-    [Parameter("With --bridge-consumer: the consumption modes to run, from package, direct, projectref, rollback and transition. Default: all of them.")]
+    [Parameter("With --bridge-consumer: the consumption modes to run, from package, direct, projectref, cli, rollback and transition. Default: all of them.")]
     readonly string[] BridgeConsumerModes = [];
 
     const string BcfVersion = "0.0.0-bridgeconsumer";
@@ -99,8 +99,10 @@ partial class Build
     /// relink to roll back after it ran: it must pack as a partial binding that records the withdrawal,
     /// its doctored copies must be refused, and an app consuming the package runs the restored imports
     /// (Build.BindingTests.BridgeConsumerRollback.cs).
+    /// <see cref="Cli"/> is the documented generator CLI path, with no SDK: the generator alone binds the
+    /// module and emits its project, and the app takes a ProjectReference to that project.
     /// </summary>
-    enum BcfMode { Package, Direct, ProjectReference, Rollback, Transition }
+    enum BcfMode { Package, Direct, ProjectReference, Cli, Rollback, Transition }
 
     /// <summary>What must call a bridge on a lane: the managed code that made the Swift call.</summary>
     enum BcfCaller { Interpreter, App, MonoInterpreter, MonoJit }
@@ -153,7 +155,7 @@ partial class Build
     static IReadOnlyList<BcfMode> ParseBridgeConsumerModes(IReadOnlyList<string> requested)
     {
         if (requested.Count == 0)
-            return [BcfMode.Package, BcfMode.Direct, BcfMode.ProjectReference, BcfMode.Rollback, BcfMode.Transition];
+            return [BcfMode.Package, BcfMode.Direct, BcfMode.ProjectReference, BcfMode.Cli, BcfMode.Rollback, BcfMode.Transition];
         var modes = new List<BcfMode>();
         foreach (var name in requested.SelectMany(r => r.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)))
         {
@@ -162,9 +164,10 @@ partial class Build
                 "package" => BcfMode.Package,
                 "direct" => BcfMode.Direct,
                 "projectref" or "projectreference" => BcfMode.ProjectReference,
+                "cli" => BcfMode.Cli,
                 "transition" => BcfMode.Transition,
                 "rollback" => BcfMode.Rollback,
-                _ => throw new ArgumentException($"--bridge-consumer-modes: unknown mode '{name}'; expected package, direct, projectref, rollback or transition."),
+                _ => throw new ArgumentException($"--bridge-consumer-modes: unknown mode '{name}'; expected package, direct, projectref, cli, rollback or transition."),
             };
             if (!modes.Contains(mode)) modes.Add(mode);
         }
@@ -185,6 +188,7 @@ partial class Build
         BcfMode.Direct => "direct",
         BcfMode.Transition => "transition",
         BcfMode.Rollback => "rollback",
+        BcfMode.Cli => "cli",
         _ => "projectref",
     };
 
@@ -193,11 +197,12 @@ partial class Build
     // alike, so the P/Invoke wrapper is in the app image. The x86_64 Mac Catalyst slice is JIT-compiled, except that
     // a binding package's targets turn the Mono interpreter on there, because that JIT has known
     // Swift-interop defects; the interpreter's native-call path, linked into the app, then calls the
-    // bridge. A package consumer (the package and rollback modes) imports those targets; an SDK-direct
-    // app and a plain ProjectReference consumer import none.
+    // bridge. A package consumer (the package and rollback modes) imports those targets, and so does a
+    // consumer of a CLI-generated project, through the ProjectReference targets the generator emits
+    // beside it; an SDK-direct app and a plain ProjectReference consumer import none.
     BcfCaller BcfExpectedCaller(BcfPlatform platform, BcfMode mode, BcfRun run) =>
         RuntimeLane.IsNet11 ? BcfCaller.Interpreter
-        : platform.Catalyst && run.Rid == "maccatalyst-x64" ? mode is BcfMode.Package or BcfMode.Rollback ? BcfCaller.MonoInterpreter : BcfCaller.MonoJit
+        : platform.Catalyst && run.Rid == "maccatalyst-x64" ? mode is BcfMode.Package or BcfMode.Rollback or BcfMode.Cli ? BcfCaller.MonoInterpreter : BcfCaller.MonoJit
         : BcfCaller.App;
 
     void RunBridgeConsumerLeg(bool sim, bool device, bool monoAot, bool catalyst, bool tvos)
@@ -270,6 +275,7 @@ partial class Build
                         BcfMode.Direct => RunBridgeConsumerDirect(family, nupkgDir, xcframework, oracle, element),
                         BcfMode.Transition => RunTransitionCheckConsumers(family, nupkgDir, family.Root / "package-output", transitionFeed),
                         BcfMode.Rollback => RunBridgeConsumerRollback(family, nupkgDir, xcframework, element),
+                        BcfMode.Cli => RunBridgeConsumerCli(family, nupkgDir, xcframework, oracle, element),
                         _ => RunBridgeConsumerProjectReference(family, nupkgDir, xcframework, oracle, element),
                     });
             }
@@ -390,6 +396,134 @@ partial class Build
                     appRids: platform.Runs.Select(r => r.Rid).ToList())));
         }
         return failures;
+    }
+
+    // The documented generator CLI path, with no SDK: the generator binds the module and emits its project
+    // in one run, as a library author runs it, and the app takes a ProjectReference to that project and
+    // imports the targets the generator emits beside it. That run compiles the wrapper itself, so it must
+    // collect the module's receipt and route what it authorizes exactly as the SDK's wrapper compile does.
+    // The generation then runs again into the same directory (the rebuild an author does after an upgrade),
+    // and the app consumes what the second run left.
+    IEnumerable<string> RunBridgeConsumerCli(BcfFamily family, AbsolutePath nupkgDir, AbsolutePath xcframework, AbsolutePath oracle,
+        BcfRoute element)
+    {
+        var outputDir = family.Root / "cli-binding";
+        outputDir.CreateDirectory();
+        var failures = new List<string>();
+        AbsolutePath project;
+        try
+        {
+            GenerateBridgeConsumerCli(family, xcframework, outputDir, nupkgDir, family.Receipts / "cli-generation.log");
+            var first = BridgeConsumerCliRouting(family, outputDir, oracle, "cli-first-generation", failures);
+            GenerateBridgeConsumerCli(family, xcframework, outputDir, nupkgDir, family.Receipts / "cli-regeneration.log");
+            var second = BridgeConsumerCliRouting(family, outputDir, oracle, "cli-regeneration", failures);
+            if (!second.SequenceEqual(first))
+                failures.Add($"--bridge-consumer [cli] {family.Platform}: generating again into {outputDir} routed other members: " +
+                    $"only now [{string.Join(", ", second.Except(first))}], only before [{string.Join(", ", first.Except(second))}].");
+            var projects = Directory.GetFiles(outputDir, $"{BcfModule}.Swift.*.csproj").Order(StringComparer.Ordinal).ToList();
+            if (projects.Count != 1)
+                throw new Exception($"--bridge-consumer [cli] {family.Platform}: expected the generator to emit one {BcfModule}.Swift.*.csproj in {outputDir}; found {projects.Count}.");
+            project = (AbsolutePath)projects[0];
+            if (!File.Exists(Path.ChangeExtension(project, ".ProjectReference.targets")))
+                throw new Exception($"--bridge-consumer [cli] {family.Platform}: the generator emitted no ProjectReference targets beside {project.Name}.");
+        }
+        catch (Exception ex)
+        {
+            failures.Add(ex.Message);
+            return failures;
+        }
+        // The app runs even when the routing checks above failed: what an unrouted member does on the
+        // lane's engine is part of the verdict.
+        File.WriteAllText(outputDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+        foreach (var platform in family.Platforms)
+        {
+            var appDir = family.Root / $"cli-app-{platform.Name}";
+            appDir.CreateDirectory();
+            File.WriteAllText(appDir / "NuGet.config", MixedPackNuGetConfig(nupkgDir, fixtureNupkgDir: null));
+            WriteBridgeConsumerApp(appDir, BcfMode.Cli, platform, element, xcframework, projectReference: project);
+            failures.AddRange(RunBridgeConsumerApp(family, BcfMode.Cli, appDir, platform, element,
+                configuration => BridgeConsumerCliBinding(family, outputDir, project, configuration)));
+        }
+        return failures;
+    }
+
+    // The generator as the README runs it on a library: an xcframework in, a binding project out, its wrapper
+    // compiled in the same run. The project references the throwaway Runtime and Apple packages by version.
+    void GenerateBridgeConsumerCli(BcfFamily family, AbsolutePath xcframework, AbsolutePath outputDir, AbsolutePath nupkgDir, AbsolutePath log)
+    {
+        var args = new List<string>
+        {
+            $"\"{GeneratorDll}\"",
+            $"--xcframework \"{xcframework}\"",
+            $"-o \"{outputDir}\"",
+            $"--platform {family.Platform}",
+            $"--target-framework {RuntimeLane.Framework}-{family.Platform}",
+            // The packable project a published runtime version emits must name its workload version.
+            $"--platform-version {(RuntimeLane.IsNet11 ? "27.2" : "26.0")}",
+            $"--swift-runtime-version {BcfLaneVersion}",
+            $"--apple-version {BcfLaneAppleVersion}",
+            $"--verification-package-feed \"{nupkgDir}\"",
+        };
+        // iOS and tvOS ship a device and a simulator slice; the Mac Catalyst slice is the only one.
+        if (!family.Catalyst)
+            args.Add("--wrapper-architectures all");
+        args.Add("--target-architectures auto");
+        Log.Information("=== bridge-consumer [cli] {Platform}: generating the binding project with the generator CLI ===", family.Platform);
+        var proc = ProcessTasks.StartProcess("dotnet", string.Join(" ", args), workingDirectory: RootDirectory, logOutput: false);
+        proc.WaitForExit();
+        File.WriteAllLines(log, proc.Output.Select(o => o.Text));
+        if (proc.ExitCode != 0)
+            throw new Exception($"--bridge-consumer [cli] {family.Platform}: the generator exited {proc.ExitCode}; log at {log}.");
+    }
+
+    // What one CLI generation left in its output directory: every planned member routed, the receipt it
+    // collected agreeing with the oracle, the arm64-only member withdrawn. Returns the routing; each
+    // problem is recorded, not thrown, so the app still runs what the generation left.
+    List<string> BridgeConsumerCliRouting(BcfFamily family, AbsolutePath outputDir, AbsolutePath oracle, string tag, List<string> failures)
+    {
+        var label = $"[cli] {family.Platform} {tag}";
+        var plans = outputDir / $"{BcfModule}.swift-call-plans.json";
+        var receipt = outputDir / "swift-lowering-receipt.json";
+        var journal = outputDir / $"{BcfModule}.swift-bridge-routing.json";
+        void Record(Action check)
+        {
+            try { check(); }
+            catch (Exception ex) { failures.Add(ex.Message); }
+        }
+        foreach (var file in new[] { plans, receipt, journal })
+            Record(() =>
+            {
+                if (!File.Exists(file))
+                    throw new Exception($"--bridge-consumer {label}: the generation wrote no {file.Name} in {outputDir}.");
+                File.Copy(file, family.Receipts / $"{tag}-{file.Name}", overwrite: true);
+            });
+        Record(() => AssertBridgeConsumerFullyRouted(label, plans));
+        Record(() => AssertBridgeConsumerArmOnlyWithdrawn(label, outputDir));
+        if (File.Exists(receipt))
+            Record(() => AssertBridgeConsumerCollectedReceipt(family, label, receipt, oracle, BridgeConsumerSettleRoute(plans)));
+        return File.Exists(plans)
+            ? BcfBridged(plans).Select(e => $"{e.GetProperty("member").GetString()} -> {e.GetProperty("symbol").GetString()}")
+                .Order(StringComparer.Ordinal).ToList()
+            : [];
+    }
+
+    // The binding as the app's build compiled it from the CLI-generated project, in the app's configuration.
+    // A generation that routed nothing hands the app no settle bridge to look for.
+    BcfBinding BridgeConsumerCliBinding(BcfFamily family, AbsolutePath outputDir, AbsolutePath project, string configuration)
+    {
+        var label = $"[cli] {family.Platform} ({configuration})";
+        var plans = outputDir / $"{BcfModule}.swift-call-plans.json";
+        var receipt = outputDir / "swift-lowering-receipt.json";
+        var assemblyName = $"{project.NameWithoutExtension}.dll";
+        var assemblies = Directory.Exists(outputDir / "bin" / configuration)
+            ? Directory.GetFiles(outputDir / "bin" / configuration, assemblyName, SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList()
+            : [];
+        if (assemblies.Count == 0)
+            throw new Exception($"--bridge-consumer {label}: the app's build compiled no {assemblyName} under {outputDir / "bin" / configuration}.");
+        foreach (var assembly in assemblies)
+            AssertBridgeConsumerResidualGuards(family, label, $"cli-{configuration.ToLowerInvariant()}", (AbsolutePath)assembly, outputDir, plans);
+        var routesSettle = BcfBridged(plans).Any(e => e.GetProperty("member").GetString()!.Contains("::PInvoke_settled_Get", StringComparison.Ordinal));
+        return new BcfBinding(plans, receipt, routesSettle ? BridgeConsumerSettleRoute(plans) : null);
     }
 
     // The binding project an ordinary consumer writes: SwiftBindings.Sdk, one <SwiftFramework>, defaults.
@@ -1206,9 +1340,14 @@ partial class Build
         var reference = mode switch
         {
             BcfMode.Package or BcfMode.Rollback => $"""<PackageReference Include="{BcfPackageId}" Version="{BcfLaneVersion}" />""",
-            BcfMode.ProjectReference => $"""<ProjectReference Include="{projectReference}" />""",
+            BcfMode.ProjectReference or BcfMode.Cli => $"""<ProjectReference Include="{projectReference}" />""",
             _ => $"""<SwiftFramework Include="{xcframework}" />""",
         };
+        // A CLI-generated project's native references do not flow through a ProjectReference; the
+        // generator emits the targets that inject them, which its consumer imports.
+        var imports = mode is BcfMode.Cli
+            ? $"""<Import Project="{Path.ChangeExtension(projectReference!, ".ProjectReference.targets")}" />"""
+            : "";
         var csproj = $"""
             <Project Sdk="{(direct ? $"SwiftBindings.Sdk/{BcfLaneVersion}" : "Microsoft.NET.Sdk")}">
               <PropertyGroup>
@@ -1243,6 +1382,7 @@ partial class Build
               <ItemGroup>
                 {reference}
               </ItemGroup>
+              {imports}
             </Project>
             """;
         if (csproj.Contains("SwiftLoweringEvidence", StringComparison.Ordinal))
@@ -1351,6 +1491,8 @@ partial class Build
                 [MethodImpl(MethodImplOptions.NoInlining)]
                 static void Measure()
                 {
+                    // First, so its check reports even where a later member refuses.
+                    Ledger();
                     int opening = 7;
                     using (var account = new BridgeAccount(opening))
                     {
@@ -1383,6 +1525,31 @@ partial class Build
                         Check("receiver-intact", ((ISwiftObject)account).SwiftHandle == handle, "the receiver's handle survived the error");
                     }
                     Items();
+                }
+
+                // An ordinary class's instance method whose optional existential result Swift returns
+                // indirectly, called directly with self in the self register: it must run, through its
+                // bridge, and return what Swift computed (nil, then a limit the receiver's state set), on
+                // every engine.
+                [MethodImpl(MethodImplOptions.NoInlining)]
+                static void Ledger()
+                {
+                    try
+                    {
+                        using var ledger = new BridgeLedger();
+                        var before = ledger.GetCeiling();
+                        ledger.Record(5);
+                        ledger.Record(-2);
+                        var balance = ledger.GetBalance();
+                        var after = ledger.GetCeiling();
+                        Check("ledger-indirect-result", before is null && balance == 3 && after is not null
+                            && after.Allows(3) && !after.Allows(4),
+                            $"before {(before is null ? "nil" : "a limit")}, balance {balance}, after {(after is null ? "nil" : $"allows 3 {after.Allows(3)}, allows 4 {after.Allows(4)}")}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Check("ledger-indirect-result", false, $"{ex.GetType().FullName}: {ex.Message}");
+                    }
                 }
 
                 // The binding's members after its bridge relink was rolled back: the getter a bridge would

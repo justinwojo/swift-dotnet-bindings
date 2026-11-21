@@ -243,7 +243,7 @@ public class CliOptions
 
     public Option<string?> CollectSwiftLoweringEvidence { get; } = new(
         aliases: new[] { "--collect-swift-lowering-evidence" },
-        description: "With --compile-wrapper-only: after each wrapper slice links, emit the IR of the same post-processed " +
+        description: "With --compile-wrapper-only, or a generation run that compiles its wrapper: after each wrapper slice links, emit the IR of the same post-processed " +
                      "wrapper with the same swiftc, SDK and flags, and write the module's lowering receipt to this path. The " +
                      "receipt is written only when every shipped slice compiled and was observed, and only when the selected " +
                      "compiler is a qualified family; otherwise any receipt at the path is removed.");
@@ -255,6 +255,14 @@ public class CliOptions
                      "(a journal beside it records each rewrite), the bridges are written beside the thunks, and the wrapper is " +
                      "relinked with them when it lacks one, each slice checked against the receipt. An import the receipt does " +
                      "not authorize keeps its Swift-convention call. Without this option, an earlier routing is undone.",
+        getDefaultValue: () => false);
+
+    public Option<bool> NoSwiftBridgeRouting { get; } = new(
+        aliases: new[] { "--no-swift-bridge-routing" },
+        description: "Standalone generation (--xcframework, the wrapper compiled in the same run) collects the module's " +
+                     "lowering receipt into swift-lowering-receipt.json in the output directory and routes what it authorizes " +
+                     "through native bridges, as the SDK's wrapper compile does, on iOS, Mac Catalyst and tvOS. This option " +
+                     "keeps every import as generated while still collecting the receipt (SwiftRouteBridges=false in the SDK).",
         getDefaultValue: () => false);
 
     public Option<bool> CompileBridgeOnly { get; } = new(
@@ -607,6 +615,7 @@ public class CliOptions
             CompileWrapperOnly,
             CollectSwiftLoweringEvidence,
             RouteSwiftBridges,
+            NoSwiftBridgeRouting,
             CompileBridgeOnly,
             DetectAppleCrossModuleDeps,
             SliceXcframework,
