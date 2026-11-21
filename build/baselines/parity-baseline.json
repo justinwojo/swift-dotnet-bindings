@@ -24,6 +24,7 @@
     "GenericConstrainedImmutableLabel",
     "InheritedChildDelegate",
     "InheritedGrandchildDelegate",
+    "LedgerAmountTarget",
     "LoaderClause",
     "LocalAccepting",
     "MapperSeed",

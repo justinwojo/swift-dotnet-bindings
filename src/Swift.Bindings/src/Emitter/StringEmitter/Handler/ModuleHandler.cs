@@ -401,8 +401,12 @@ namespace BindingsGeneration
                         csWriter.WriteLine();
                     }
                     foreach (var source in withdrawnDefaultSources)
+                    {
                         NativeDefaultOverloadRecovery.TryEmit(source, csWriter, swiftWriter, env.TypeDatabase,
                             context, siblingPropertyNames: null, emittedProjectedSignatures, reservedOverloadShapes, _logger);
+                        MarkerProtocolOverloadEmitter.TryEmitForWithdrawnMethod(source, csWriter, swiftWriter,
+                            env.TypeDatabase, context, siblingPropertyNames: null, emittedProjectedSignatures, reservedOverloadShapes);
+                    }
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
                     csWriter.WriteLine();

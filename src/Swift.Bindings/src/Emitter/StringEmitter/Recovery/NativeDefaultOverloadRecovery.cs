@@ -11,6 +11,17 @@ namespace BindingsGeneration;
 /// </summary>
 internal static class NativeDefaultOverloadRecovery
 {
+    /// <summary>
+    /// True when the recovery loop (or a bisection probe) withdrew <paramref name="sourceId"/>
+    /// rather than the emitter throwing on it: only then did the source's own handler run to
+    /// completion in an earlier render, so independently owned overloads of it may be replayed.
+    /// </summary>
+    internal static bool IsRecoveryWithdrawal(DeclId sourceId)
+        => EmissionAttempt.TryGetFault(sourceId, out var fault)
+            && fault.Origin is EmitterFaultOrigin.RecoveryWithdrawal
+                or EmitterFaultOrigin.CSharpRecoveryWithdrawal
+                or EmitterFaultOrigin.BisectionIsolatedWithdrawal;
+
     internal static void TryEmit(
         MethodDecl source,
         CSharpWriter csWriter,
@@ -23,10 +34,7 @@ internal static class NativeDefaultOverloadRecovery
         ILogger logger)
     {
         var sourceId = DeclIdFactory.ForMethod(source);
-        if (!EmissionAttempt.TryGetFault(sourceId, out var fault)
-            || fault.Origin is not (EmitterFaultOrigin.RecoveryWithdrawal
-                or EmitterFaultOrigin.CSharpRecoveryWithdrawal
-                or EmitterFaultOrigin.BisectionIsolatedWithdrawal))
+        if (!IsRecoveryWithdrawal(sourceId))
             return;
 
         // Bisection probes and settled withdrawals use the same explicit origin. Preserve

@@ -873,9 +873,14 @@ namespace BindingsGeneration
             // Healthy declarations keep priority over recovered convenience surfaces, regardless
             // of source order. Replay uses the original producer's actual names and only claims
             // the surviving trim signatures, never the withdrawn full member's reservation.
+            // Marker-protocol overloads call wrappers of their own, so they outlive the method too.
             foreach (var source in withdrawnDefaultSources)
+            {
                 NativeDefaultOverloadRecovery.TryEmit(source, csWriter, swiftWriter, typeDatabase,
                     context, siblingPropertyNames, emittedProjectedSignatures, reservedOverloadShapes, _logger);
+                MarkerProtocolOverloadEmitter.TryEmitForWithdrawnMethod(source, csWriter, swiftWriter,
+                    typeDatabase, context, siblingPropertyNames, emittedProjectedSignatures, reservedOverloadShapes);
+            }
         }
 
         /// <summary>
