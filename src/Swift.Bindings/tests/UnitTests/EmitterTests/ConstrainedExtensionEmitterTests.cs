@@ -877,7 +877,10 @@ public class ConstrainedExtensionEmitterTests
             var tile = writer.Fragments.BuildTiling(text.Length, root).Single(t => t.Start <= offset && offset < t.End);
             return RecoveryUnitClassifier.ClassifyArtifact(tile.Owner.Artifact).Unit;
         }
-        var expected = RecoveryUnitId.ForAccessorGroup(DeclIdFactory.ForProperty(signature));
+        // The unit is the member's specialization for ConcreteA, not the member itself: the member's
+        // own withdrawal (or another concrete type's) must not take this specialization with it.
+        var expected = RecoveryUnitId.ForAccessorGroup(
+            DeclIdFactory.ForSpecialization(DeclIdFactory.ForProperty(signature), "TestModule.ConcreteA"));
         const string symbol = "SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signature_instance";
         Assert.Equal(expected, OwnerAt(swiftWriter, swift, symbol));
         Assert.Equal(expected, OwnerAt(csWriter, csharp, "GetSignature("));
@@ -900,6 +903,93 @@ public class ConstrainedExtensionEmitterTests
         Assert.DoesNotContain(symbol, withdrawnCs.ToString(), StringComparison.Ordinal);
         Assert.Contains("GetTitle(", withdrawnCs.ToString(), StringComparison.Ordinal);
         Assert.Contains("_title_instance", withdrawnSwift.ToString(), StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Withdrawing a constrained-extension member's own unit (the generic member, as recovery does
+    /// when the member's open emission fails to compile) leaves its concrete specialization standing:
+    /// the specialization is a separate wrapper with its own identity. Its symbol is registered under
+    /// that identity too, so a symbol-anchored diagnostic withdraws the specialization, not the member.
+    /// </summary>
+    [Fact]
+    public void EmitConstrainedExtensions_GenericMemberWithdrawn_LeavesItsSpecializationStanding()
+    {
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        var signature = CreatePropertyWithConstraint("signature", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.String"));
+        enumDecl.Properties.Add(signature);
+        const string symbol = "SBW_CEGet_TestModule_DWrapper_TestModule_DConcreteA_signature_instance";
+
+        var context = new ModuleEmissionContext();
+        var cs = new StringWriter();
+        var swift = new StringWriter();
+        using (EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+            new HashSet<RecoveryUnitId> { RecoveryUnitId.ForAccessorGroup(DeclIdFactory.ForProperty(signature)) },
+            static _ => EmitterFaultOrigin.RecoveryWithdrawal)))
+        {
+            ConstrainedExtensionEmitter.EmitConstrainedExtensions(new CSharpWriter(cs), new SwiftWriter(swift),
+                enumDecl, tdb, context, NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+        }
+
+        Assert.Contains("GetSignature(", cs.ToString(), StringComparison.Ordinal);
+        Assert.Contains(symbol, swift.ToString(), StringComparison.Ordinal);
+        Assert.True(context.TryGetWrapperSymbolOwner(symbol, out var owner));
+        Assert.Equal(
+            RecoveryUnitId.ForAccessorGroup(
+                DeclIdFactory.ForSpecialization(DeclIdFactory.ForProperty(signature), "TestModule.ConcreteA")),
+            RecoveryUnitClassifier.ClassifyArtifact(owner).Unit);
+    }
+
+    /// <summary>
+    /// A withdrawn specialization is not silent: the report gets a row of its own naming the concrete
+    /// type it was written for, and the generated source a tombstone.
+    /// </summary>
+    [Fact]
+    public void EmitConstrainedExtensions_WithdrawnSpecialization_KeepsItsOwnSkipRow()
+    {
+        var tdb = BuildEmissionTypeDatabase(extraTypes: null);
+        var enumDecl = CreateGenericEnumDecl("Wrapper", "T");
+        var signature = CreatePropertyWithConstraint("signature", "TestModule.ConcreteA",
+            returnTypeSpec: new NamedTypeSpec("Swift.String"));
+        enumDecl.Properties.Add(signature);
+        var specialization = DeclIdFactory.ForSpecialization(DeclIdFactory.ForProperty(signature), "TestModule.ConcreteA");
+
+        var cs = new StringWriter();
+        BindingReport? report;
+        ReportCollector.Reset();
+        ReportCollector.Start(new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+        });
+        try
+        {
+            using (EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+                new HashSet<RecoveryUnitId> { RecoveryUnitId.ForAccessorGroup(specialization) },
+                static _ => EmitterFaultOrigin.RecoveryWithdrawal)))
+            {
+                ConstrainedExtensionEmitter.EmitConstrainedExtensions(new CSharpWriter(cs), new SwiftWriter(new StringWriter()),
+                    enumDecl, tdb, new ModuleEmissionContext(), NullLogger<ConstrainedExtensionEmitterTests>.Instance);
+            }
+        }
+        finally
+        {
+            report = ReportCollector.Complete();
+            ReportCollector.Reset();
+        }
+
+        Assert.DoesNotContain("GetSignature(", cs.ToString(), StringComparison.Ordinal);
+        Assert.Matches(@"// Unsupported: property '(Wrapper\.)?signature' — EmitterFault \(specialization for Wrapper<ConcreteA>: ", cs.ToString());
+        var row = Assert.Single(report!.SkippedItems, i => i.Reason == SkipReason.EmitterFault);
+        Assert.Equal("signature", row.Name);
+        Assert.Contains("specialization for Wrapper<ConcreteA>", row.Details, StringComparison.Ordinal);
     }
 
     private static (string csOutput, string swiftOutput) EmitForGenericEnumWithProperty(
@@ -1192,6 +1282,54 @@ public class ConstrainedExtensionEmitterTests
 
         var result = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
         Assert.Empty(result);
+    }
+
+    /// <summary>
+    /// A member that is not public in the module's public Swift interface is not projected as
+    /// public API, on this path either: an internal method, constrained or open-return property of
+    /// a same-type-constrained extension is not re-surfaced as a closed-generic extension method,
+    /// so it reaches the ordinary validation path and its ModuleInternal row instead.
+    /// </summary>
+    [Fact]
+    public void ConstrainedExtension_InternalMembers_AreNotReSurfaced()
+    {
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        var internalMethod = CreateMethodWithConcreteConstraint("audit", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: true);
+        internalMethod.IsModuleInternal = true;
+        typeDecl.Methods.Add(internalMethod);
+        var internalProperty = CreatePropertyWithConstraint("tally", "TestModule.Alpha");
+        internalProperty.IsModuleInternal = true;
+        typeDecl.Properties.Add(internalProperty);
+        var internalOpenReturn = CreateOpenGenericReturnProperty("payloadValue", new NamedTypeSpec("τ_0_0"), isStatic: false);
+        internalOpenReturn.IsModuleInternal = true;
+        typeDecl.Properties.Add(internalOpenReturn);
+        var publicMethod = CreateMethodWithConcreteConstraint("temperature", "TestModule.Alpha",
+            new NamedTypeSpec("Swift.String"), isStatic: true);
+        typeDecl.Methods.Add(publicMethod);
+
+        Assert.False(ConstrainedExtensionEmitter.IsEmittableConstrainedExtensionMethod(internalMethod));
+        var methods = ConstrainedExtensionEmitter.FindConstrainedMethodSpecializations(typeDecl);
+        Assert.Equal(["temperature"], methods.Values.SelectMany(m => m).Select(m => m.Name));
+        Assert.Empty(ConstrainedExtensionEmitter.FindConstrainedSpecializations(typeDecl));
+        Assert.Empty(ConstrainedExtensionEmitter.FindOpenGenericReturnProperties(typeDecl));
+    }
+
+    // An internal open sibling is left out of the emitter's grouping, so the public pinned property
+    // is re-surfaced as a closed extension; the validator's skip row must say that, not "mixed group".
+    [Fact]
+    public void ConstrainedExtension_InternalOpenSibling_DoesNotMakeThePublicGroupMixed()
+    {
+        var typeDecl = CreateGenericStructDecl("Wrapper", "T");
+        var pinned = CreatePropertyWithConstraint("label", "TestModule.Alpha") with { ParentDecl = typeDecl };
+        var internalOpen = CreateUnconstrainedProperty("label") with { ParentDecl = typeDecl, IsModuleInternal = true };
+        typeDecl.Properties.Add(pinned);
+        typeDecl.Properties.Add(internalOpen);
+
+        Assert.Single(ConstrainedExtensionEmitter.FindConstrainedSpecializations(typeDecl));
+        var reason = MemberEmissionValidator.CanEmitProperty(pinned, BuildEmissionTypeDatabase(null), out var details, out _);
+        Assert.Equal(SkipReason.UnsupportedType, reason);
+        Assert.Contains("Single-specialization constrained-extension property 'label'", details);
     }
 
     [Fact]

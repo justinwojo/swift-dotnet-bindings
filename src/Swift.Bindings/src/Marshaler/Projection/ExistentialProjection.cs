@@ -76,6 +76,16 @@ public class ExistentialProjection : ITypeProjection
     public bool IsObjCExistential => _isObjCExistential;
 
     /// <summary>
+    /// True when this is a single-protocol existential carried in the opaque
+    /// <c>ExistentialContainer1</c> and presented through its generated proxy (live or suppressed):
+    /// not bare <c>Any</c> or a marker-only composition, not a multi-protocol composition, not an
+    /// <c>@objc</c> protocol and not a well-known carrier such as <c>AnyError</c>.
+    /// </summary>
+    public bool IsSingleProtocolProxy =>
+        !_isBareAny && !_isObjCExistential && _proxyClassName != null &&
+        _containerType == "Swift.Runtime.ExistentialContainer1";
+
+    /// <summary>
     /// True when this existential leaf names a proxy whose EveryProtocol conformance was NOT emitted
     /// (see the <c>proxyIsSuppressed</c> constructor parameter). A CONSUME site that drops its
     /// <c>static __v =&gt; new {Proxy}(__v)</c> wrap fallback because of this is a degraded member — read

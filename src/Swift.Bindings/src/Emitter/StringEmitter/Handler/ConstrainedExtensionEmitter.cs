@@ -132,6 +132,9 @@ public static class ConstrainedExtensionEmitter
         var groups = new Dictionary<(string Name, bool IsStatic), List<PropertyDecl>>();
         foreach (var property in typeDecl.Properties)
         {
+            // Not public in the module's public Swift interface: not projected as public API
+            // (MemberEmissionValidator reports it as ModuleInternal).
+            if (property.IsModuleInternal || property.IsSpiProtected) continue;
             var key = (property.Name, property.IsStatic);
             if (!groups.ContainsKey(key))
                 groups[key] = new List<PropertyDecl>();
@@ -421,19 +424,27 @@ public static class ConstrainedExtensionEmitter
         int emittedCount = 0;
         var pinvokeDeclarations = new List<Action>();
 
-        // Each specialized member is written on behalf of the generic member it closes, so its text
-        // (Swift wrapper, C# extension member and its deferred P/Invoke) is owned by that member. A
-        // wrapper that fails to compile is then withdrawn with the member on the retry rather than
-        // charged to the enclosing type's surface, which recovery refuses to withdraw.
+        // Each specialized member is its own recovery unit: the generic member's identity qualified
+        // by this concrete type (DeclIdFactory.ForSpecialization), owning its Swift wrapper, its C#
+        // extension member, its deferred P/Invoke and its wrapper symbol. A wrapper that fails to
+        // compile then withdraws only this specialization on the retry: not the enclosing type's
+        // surface (which recovery refuses to withdraw), not the member's other concrete
+        // specializations, and not the member's own open emission, whose withdrawal leaves this one
+        // standing. A specialization already withdrawn keeps its own skip row and tombstone.
+        var specializationKey = concreteTypeName.ModuleQualifiedName;
         bool EmitOwned(BaseDecl member, Func<bool> emit)
         {
-            if (EmissionSeam.TryDenyUpFront(member, csWriter))
+            var memberId = DeclIdFactory.ForDecl(member)
+                ?? throw new InvalidOperationException($"No identity for constrained-extension member {member.Name}.");
+            var specId = DeclIdFactory.ForSpecialization(memberId, specializationKey);
+            if (EmissionSeam.TryDenySpecializationUpFront(
+                    specId, member, $"{typeDecl.Name}<{concreteTypeName.Name}>", csWriter))
                 return false;
-            var csOwner = FragmentOwners.ForDecl(member);
+            var csOwner = FragmentOwners.ForDeclId(specId);
             var firstDeferred = pinvokeDeclarations.Count;
             bool emitted;
             using (csWriter.BeginFragment(csOwner))
-            using (swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(member)))
+            using (swiftWriter.BeginFragment(FragmentOwners.ForDeclId(specId, ArtifactRole.SwiftWrapper)))
             {
                 emitted = emit();
             }
@@ -653,7 +664,8 @@ public static class ConstrainedExtensionEmitter
                 $"{property.Name}::{dispatchMarker}",
                 $"constrained-extension::get::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{property.Name}",
                 symbolName,
-                DeclIdFactory.ForProperty(property, AccessorKind.Getter)))
+                DeclIdFactory.ForSpecialization(
+                    DeclIdFactory.ForProperty(property, AccessorKind.Getter), qualifiedConcrete)))
             return false;
 
         // ----- C# extension method (instance) or static property (static) -----
@@ -1207,6 +1219,7 @@ public static class ConstrainedExtensionEmitter
         foreach (var property in typeDecl.Properties)
         {
             if (property.IsStatic) continue;
+            if (property.IsModuleInternal || property.IsSpiProtected) continue;
             if (ExtractSameTypeConstraint(property) != null) continue;
             if (property.SwiftTypeSpec is null) continue;
             if (TypeSpecHelpers.ContainsAnyTypeName(property.SwiftTypeSpec, parentParamNames))
@@ -1292,6 +1305,9 @@ public static class ConstrainedExtensionEmitter
     /// </summary>
     public static bool IsEmittableConstrainedExtensionMethod(MethodDecl method)
     {
+        // Not public in the module's public Swift interface: not projected as public API
+        // (MemberValidationPipeline reports it as ModuleInternal).
+        if (method.IsModuleInternal || method.IsSpiProtected) return false;
         if (method.IsConstructor) return false;
         if (method.IsAccessor) return false;
         if (method.IsSubscriptAccessor) return false;
@@ -1555,7 +1571,7 @@ public static class ConstrainedExtensionEmitter
                 $"{method.Name}::{dispatchMarker}",
                 $"constrained-extension::method::{qualifiedParent}::{qualifiedConcrete}::{dispatchMarker}::{method.Name}",
                 symbolName,
-                DeclIdFactory.ForMethod(method)))
+                DeclIdFactory.ForSpecialization(DeclIdFactory.ForMethod(method), qualifiedConcrete)))
             return false;
 
         // ----- C# extension method -----

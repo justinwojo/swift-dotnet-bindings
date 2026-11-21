@@ -187,6 +187,30 @@ public static class DeclIdFactory
             discriminator: StaticnessOf(member.IsStatic));
     }
 
+    /// <summary>
+    /// Identity for one concrete specialization the emitter writes for a generic member: the generic
+    /// member's identity qualified by <paramref name="specializationKey"/> (the substitution it closes
+    /// over). Each specialization is then its own recovery unit, so a wrapper that fails to compile
+    /// withdraws only the declaration whose text failed: the generic member's own failure leaves its
+    /// sound specializations standing, and one failing specialization leaves its siblings standing.
+    /// The qualifier is appended to the discriminator, which already separates static from instance
+    /// members.
+    /// </summary>
+    public static DeclId ForSpecialization(DeclId generic, string specializationKey)
+    {
+        if (string.IsNullOrWhiteSpace(specializationKey))
+            throw new ArgumentException(
+                "A specialization needs a key; without one every specialization of a member collapses onto one identity.",
+                nameof(specializationKey));
+        var qualifier = $"spec={specializationKey}";
+        return generic with
+        {
+            Discriminator = string.IsNullOrEmpty(generic.Discriminator)
+                ? qualifier
+                : $"{generic.Discriminator};{qualifier}",
+        };
+    }
+
     private static string? ExtensionMemberSymbol(ProtocolExtensionMethodDecl member, bool includeConstraints)
     {
         var signature = member.IsProperty ? null : member.RawSignature;

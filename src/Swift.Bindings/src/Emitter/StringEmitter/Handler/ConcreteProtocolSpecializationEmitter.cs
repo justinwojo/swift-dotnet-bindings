@@ -159,6 +159,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             if (existing.IsAccessor || existing.IsConstructor) continue;
             if (existing.IsGeneric) continue;
+            // A method that is not public in the interface is never emitted (MemberValidationPipeline
+            // gates 1–2), so it holds no C# slot a specialization could collide with.
+            if (existing.IsModuleInternal || existing.IsSpiProtected) continue;
             if (specializableMangledNames.Contains(existing.MangledName)) continue;
             var existingCsName = NameProvider.ToPascalCase(existing.Name);
             var existingSigKey = BuildCSharpSignatureKeyForNonGeneric(existingCsName, existing, typeDatabase);
@@ -169,14 +172,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         {
             var method = spec.Method;
 
-            // Every specialization is emitted on behalf of its generic method, so its text is owned by
-            // that method: a wrapper that fails to compile is then withdrawn with the method on the
-            // retry, instead of being charged to the enclosing type's surface (which recovery refuses
-            // to withdraw). A method already withdrawn emits no specialization either.
-            if (EmissionSeam.TryDenyUpFront(method))
-                continue;
-            using var methodCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(method));
-            using var methodSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(method));
+            // Each specialization is its own recovery unit (EmitSpecializationOwned): a wrapper that
+            // fails to compile withdraws only that specialization on the retry, never the enclosing
+            // type's surface (which recovery refuses to withdraw), never its siblings, and never the
+            // generic method, whose own withdrawal leaves its sound specializations standing.
+            var methodId = DeclIdFactory.ForMethod(method);
 
             // Accessors stay gated: they use different emission paths (property accessors).
             // Constructors likewise — Phase A only covers plain instance/static async methods.
@@ -206,19 +206,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 foreach (var conformer in param.Conformers)
                 {
                     var pairing = new[] { (param, conformer) };
-                    if (method.IsAsync)
+                    EmitSpecializationOwned(csWriter, swiftWriter, method, methodId, pairing, specId =>
                     {
-                        TryEmitConcreteOverloadAsync(
-                            csWriter, swiftWriter, method, typeDecl,
-                            pairing,
-                            moduleName, typeDatabase, emissionContext, logger, overloadLedger);
-                    }
-                    else
-                    {
-                        TryEmitConcreteOverload(
-                            csWriter, swiftWriter, method, typeDecl, pairing,
-                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger);
-                    }
+                        if (method.IsAsync)
+                        {
+                            TryEmitConcreteOverloadAsync(
+                                csWriter, swiftWriter, method, typeDecl,
+                                pairing,
+                                moduleName, typeDatabase, emissionContext, logger, overloadLedger, surfaceOwner: specId);
+                        }
+                        else
+                        {
+                            TryEmitConcreteOverload(
+                                csWriter, swiftWriter, method, typeDecl, pairing,
+                                moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger,
+                                surfaceOwner: specId);
+                        }
+                    });
                 }
             }
             else
@@ -245,19 +249,23 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         continue;
                     }
 
-                    if (method.IsAsync)
+                    EmitSpecializationOwned(csWriter, swiftWriter, method, methodId, pairing, specId =>
                     {
-                        TryEmitConcreteOverloadAsync(
-                            csWriter, swiftWriter, method, typeDecl,
-                            pairing,
-                            moduleName, typeDatabase, emissionContext, logger, overloadLedger);
-                    }
-                    else
-                    {
-                        TryEmitConcreteOverload(
-                            csWriter, swiftWriter, method, typeDecl, pairing,
-                            moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger);
-                    }
+                        if (method.IsAsync)
+                        {
+                            TryEmitConcreteOverloadAsync(
+                                csWriter, swiftWriter, method, typeDecl,
+                                pairing,
+                                moduleName, typeDatabase, emissionContext, logger, overloadLedger, surfaceOwner: specId);
+                        }
+                        else
+                        {
+                            TryEmitConcreteOverload(
+                                csWriter, swiftWriter, method, typeDecl, pairing,
+                                moduleName, wrapperLibPath, typeDatabase, emissionContext, emittedSignatures, overloadLedger, logger,
+                                surfaceOwner: specId);
+                        }
+                    });
                 }
             }
         }
@@ -265,6 +273,40 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Every primary of the type has reserved its signature; the default-parameter overloads
         // built on them can now be deduped against all of them.
         overloadLedger.EmitDeferredOverloads();
+    }
+
+    /// <summary>
+    /// The specialization key of a substitution: each generic parameter it closes and the conformer
+    /// it closes it over, in declaration order. Stable across attempts, so a withdrawal recorded on
+    /// one attempt finds the same specialization on the retry.
+    /// </summary>
+    internal static string SpecializationKey(
+        IEnumerable<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing)
+        => string.Join(",", pairing.Select(p => $"{p.Param.GenericParam.TypeName}={p.Conformer.SwiftQualifiedName}"));
+
+    /// <summary>
+    /// Emits one specialization of <paramref name="genericMember"/> as its own recovery unit. Its C#
+    /// and Swift text and its wrapper symbol are owned by
+    /// <see cref="DeclIdFactory.ForSpecialization"/> of the generic member's identity, so a wrapper
+    /// that fails to compile withdraws only this specialization, and a specialization already
+    /// withdrawn is refused with its own skip row and tombstone instead of disappearing.
+    /// </summary>
+    private static void EmitSpecializationOwned(
+        CSharpWriter csWriter,
+        SwiftWriter swiftWriter,
+        BaseDecl genericMember,
+        DeclId genericId,
+        IReadOnlyList<(ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)> pairing,
+        Action<DeclId> emit)
+    {
+        var specId = DeclIdFactory.ForSpecialization(genericId, SpecializationKey(pairing));
+        var label = string.Join(", ", pairing.Select(p => p.Conformer.SwiftQualifiedName));
+        if (EmissionSeam.TryDenySpecializationUpFront(specId, genericMember, label, csWriter))
+            return;
+
+        using var csScope = csWriter.BeginFragment(FragmentOwners.ForDeclId(specId));
+        using var swiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclId(specId, ArtifactRole.SwiftWrapper));
+        emit(specId);
     }
 
     /// <summary>
@@ -411,6 +453,19 @@ public static partial class ConcreteProtocolSpecializationEmitter
             isVoidReturn = false; // Constructor returns self
         }
 
+        ExistentialArrayReturn? existentialArrayReturn = null;
+        if (!isVoidReturn && !isConstructor && !returnsGenericParam && !isStringReturn)
+        {
+            var substitutedReturn = SubstituteSelfAndPairingGenericsInTypeSpec(returnTypeSpec, parentTypeDecl, pairing, method);
+            if (!TryResolveExistentialArrayReturn(substitutedReturn, parentTypeDecl, moduleName, typeDatabase, emissionContext, out existentialArrayReturn))
+            {
+                logger.LogDebug(
+                    "ConcreteSpecializationEmitter: Skipping {Method} for {Pairing} — its array-of-existentials result names a proxy this module does not emit.",
+                    method.Name, safeConformerName);
+                return false;
+            }
+        }
+
         // C# signature dedup runs BEFORE registry registration so a duplicate
         // visible signature does not leak its cdeclSymbol into ModuleEmissionContext;
         // the wrapper-symbol contract gate must only see symbols whose Swift wrapper
@@ -438,8 +493,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // The `SBW_CSM_` prefix is a dedicated namespace for per-conformer specialization
         // wrappers; no other emitter produces an `SBW_CSM_` symbol. Per-kind method
         // bucket is collision-safe.
-        // A synthesized property getter registers under its property, the unit its fragments and
-        // denial use, so a symbol-anchored diagnostic withdraws the same unit an interval hit does.
+        // A specialization registers under its own identity (a synthesized property getter under its
+        // property's), the unit its fragments and denial use, so a symbol-anchored diagnostic
+        // withdraws the same unit an interval hit does.
         if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, surfaceOwner ?? DeclIdFactory.ForMethod(method)))
             return false;
 
@@ -469,7 +525,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter, method, csMethodName, parentTypeDecl, pairing,
             cdeclSymbol, moduleName, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
-            emissionContext, mergedAvailability, isExtension);
+            emissionContext, mergedAvailability, isExtension, existentialArrayReturn);
         if (emittedPrimaryKey != null)
             overloadLedger.ReserveEmittedPrimary(emittedPrimaryKey);
 
@@ -1381,7 +1437,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
-        bool isExtension = false)
+        bool isExtension = false,
+        ExistentialArrayReturn? existentialArrayReturn = null)
     {
         // Resolve the return-side conformer if the return is a generic param.
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
@@ -1813,6 +1870,12 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 csReturnMarshalType = inlineReturnInfo.CSharpType;
                 csReturnType = idiomaticReturnType;
                 returnProjectionSuffix = inlineReturnInfo.MarshalToPublicSuffix ?? string.Empty;
+            }
+            else if (existentialArrayReturn is { } existentialArray)
+            {
+                csReturnMarshalType = existentialArray.MarshalType;
+                csReturnType = existentialArray.PublicType;
+                returnProjectionSuffix = existentialArray.ProjectionSuffix;
             }
         }
 
@@ -3949,6 +4012,66 @@ public static partial class ConcreteProtocolSpecializationEmitter
         return true;
     }
 
+    /// <summary>
+    /// How a specialization returns a Swift array of existentials (<c>[any P]</c>): on the wire as a
+    /// <c>SwiftArray</c> of the existential's container carrier, presented as the
+    /// <c>IReadOnlyList</c> of the protocol interface the open-generic member returns, each element
+    /// adopted by its proxy. The array cannot be marshalled on the interface type itself
+    /// (<c>SwiftArray&lt;IP&gt;</c>): a protocol interface has no Swift type metadata, so sizing or
+    /// reading that array throws before the wrapper is entered.
+    /// </summary>
+    internal readonly record struct ExistentialArrayReturn(string PublicType, string MarshalType, string ProjectionSuffix);
+
+    /// <summary>
+    /// Resolves <paramref name="existentialArrayReturn"/> through the same projection the member
+    /// pipeline uses for an <c>[any P]</c> result of a single protocol with a generated proxy. It is
+    /// null for any other result, including other existential elements. Returns false only
+    /// when the result is such an array but its elements name a proxy the module does not emit, so
+    /// the specialization cannot be written.
+    /// </summary>
+    internal static bool TryResolveExistentialArrayReturn(
+        TypeSpec returnSpec,
+        TypeDecl parentTypeDecl,
+        string moduleName,
+        ITypeDatabase typeDatabase,
+        ModuleEmissionContext? emissionContext,
+        out ExistentialArrayReturn? existentialArrayReturn)
+    {
+        existentialArrayReturn = null;
+        if (returnSpec is not NamedTypeSpec { Name: "Swift.Array", GenericParameters.Count: 1 })
+            return true;
+
+        var projection = new TypeProjectionFactory().Project(returnSpec, new ProjectionContext
+        {
+            TypeDatabase = typeDatabase,
+            IsParameter = false,
+            ParentTypeDecl = parentTypeDecl,
+            CurrentModuleName = moduleName,
+            EmissionContext = emissionContext,
+        });
+        // Only a single-protocol proxy element: the shape whose interface type has no Swift metadata.
+        // Every other existential element (bare Any, a composition, an @objc protocol, a well-known
+        // carrier such as AnyError) keeps its existing return path.
+        if (projection is not ArrayProjection { UsesObjCContainerBridge: false, ElementProjection: ExistentialProjection { IsSingleProtocolProxy: true } element } array)
+            return true;
+
+        string elementConversion;
+        try
+        {
+            elementConversion = element.GetOwnedReturnElementConversion("e") ?? "e";
+        }
+        catch (SuppressedProxyReferenceException)
+        {
+            return false;
+        }
+
+        existentialArrayReturn = new ExistentialArrayReturn(
+            array.PublicType,
+            $"global::Swift.SwiftArray<{element.ArrayElementCarrierType}>",
+            $".AsProjected(e => {elementConversion})");
+        return true;
+    }
+
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
         if (typeSpec is NamedTypeSpec named)
@@ -4379,11 +4502,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 var method = spec.Method;
                 if (method.IsAccessor) continue;
 
-                // Owned by the generic method, as on the non-generic-parent path above.
-                if (EmissionSeam.TryDenyUpFront(method))
-                    continue;
-                using var methodCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(method));
-                using var methodSwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(method));
+                // Each closed overload is its own recovery unit, as on the non-generic-parent path above.
+                var methodId = DeclIdFactory.ForMethod(method);
 
                 // Per-method where-clause filter: some methods (notably `init()` and
                 // constrained extension methods) carry stricter parent-generic constraints
@@ -4410,10 +4530,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         .ToList();
                     if (asyncMethodParams.Count == 0)
                     {
-                        TryEmitParentOnlyAsyncOverload(
-                            csWriter, swiftWriter, method, typeDecl, parentTuple,
-                            moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                            emittedSignatures, logger);
+                        EmitSpecializationOwned(csWriter, swiftWriter, method, methodId, parentTuple, specId =>
+                            TryEmitParentOnlyAsyncOverload(
+                                csWriter, swiftWriter, method, typeDecl, parentTuple,
+                                moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                                emittedSignatures, logger, surfaceOwner: specId));
                     }
                     // Async with method-own generics still rejects — not yet supported.
                     continue;
@@ -4429,13 +4550,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (methodParams.Count == 0)
                 {
                     // No method-generic params: emit one overload per parent tuple.
-                    if (TryEmitConcreteOverload(
-                        csWriter, swiftWriter, method, typeDecl, parentTuple,
-                        moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, overloadLedger, logger, isExtension: true))
+                    EmitSpecializationOwned(csWriter, swiftWriter, method, methodId, parentTuple, specId =>
                     {
-                        RecordCsmMethodRecovered(method, typeDecl, parentTuple);
-                    }
+                        if (TryEmitConcreteOverload(
+                            csWriter, swiftWriter, method, typeDecl, parentTuple,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId))
+                        {
+                            RecordCsmMethodRecovered(method, typeDecl, parentTuple);
+                        }
+                    });
                     continue;
                 }
 
@@ -4462,17 +4586,20 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         continue;
                     }
 
-                    if (TryEmitConcreteOverload(
-                        csWriter, swiftWriter, method, typeDecl, fullPairing,
-                        moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                        emittedSignatures, overloadLedger, logger, isExtension: true))
+                    EmitSpecializationOwned(csWriter, swiftWriter, method, methodId, fullPairing, specId =>
                     {
-                        // Keyed on parentTuple, not fullPairing: the receiver a consumer names is the
-                        // closed parent, and the method-own conformers vary across overloads that all
-                        // recover the same skipped member. RecordMemberRecovered de-duplicates, so the
-                        // several pairings annotate the skip row once per closed receiver.
-                        RecordCsmMethodRecovered(method, typeDecl, parentTuple);
-                    }
+                        if (TryEmitConcreteOverload(
+                            csWriter, swiftWriter, method, typeDecl, fullPairing,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId))
+                        {
+                            // Keyed on parentTuple, not fullPairing: the receiver a consumer names is the
+                            // closed parent, and the method-own conformers vary across overloads that all
+                            // recover the same skipped member. RecordMemberRecovered de-duplicates, so the
+                            // several pairings annotate the skip row once per closed receiver.
+                            RecordCsmMethodRecovered(method, typeDecl, parentTuple);
+                        }
+                    });
                 }
             }
 
@@ -4488,17 +4615,16 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 if (!engine.ParentTupleSatisfiesMethodConstraints(specProp.Getter, typeDecl, parentTuple))
                     continue;
 
-                // The closed getter is the property's surface, so it is withdrawn and attributed with it.
-                if (EmissionSeam.TryDenyUpFront(specProp.Property))
-                    continue;
-                using var propertyCsScope = csWriter.BeginFragment(FragmentOwners.ForDecl(specProp.Property));
-                using var propertySwiftScope = swiftWriter.BeginFragment(FragmentOwners.ForDeclWrapper(specProp.Property));
-
-                var emitted = TryEmitConcreteOverload(
-                    csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
-                    moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                    emittedSignatures, overloadLedger, logger, isExtension: true,
-                    surfaceOwner: DeclIdFactory.ForProperty(specProp.Property));
+                // Each closed getter is its own recovery unit under the property's identity, so one
+                // closed receiver's failing getter leaves the property's other closed getters standing.
+                var emitted = false;
+                EmitSpecializationOwned(csWriter, swiftWriter, specProp.Property, DeclIdFactory.ForProperty(specProp.Property),
+                    parentTuple, specId =>
+                        emitted = TryEmitConcreteOverload(
+                            csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
+                            moduleName, wrapperLibPath, typeDatabase, emissionContext,
+                            emittedSignatures, overloadLedger, logger, isExtension: true,
+                            surfaceOwner: specId));
 
                 // Emission fact: this closed getter recovers the open-generic property that
                 // PropertyHandler skipped (AnyTypeFallback) on the shell. Annotate the skip row so the

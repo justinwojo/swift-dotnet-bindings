@@ -173,6 +173,10 @@ public static class MemberEmissionValidator
             bool allSiblingsConstrained = true;
             foreach (var sibling in constrainedExtensionParent.Properties)
             {
+                // A sibling that is not public in the interface is never emitted and is left out of
+                // the emitter's grouping too (ConstrainedExtensionEmitter), so it is not counted.
+                if (sibling.IsModuleInternal || sibling.IsSpiProtected)
+                    continue;
                 if (sibling.Name == property.Name && sibling.IsStatic == property.IsStatic)
                 {
                     siblingCount++;

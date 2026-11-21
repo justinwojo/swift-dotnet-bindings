@@ -179,6 +179,41 @@ internal static class EmissionSeam
     }
 
     /// <summary>
+    /// The specialization counterpart of <see cref="TryDenyUpFront"/>: true when the specialization
+    /// <paramref name="specializationId"/> (see <see cref="DeclIdFactory.ForSpecialization"/>) of
+    /// <paramref name="genericMember"/> was withdrawn by an earlier attempt. A withdrawn
+    /// specialization gets its own skip row and tombstone, naming the substitution, so it never
+    /// disappears silently behind the generic member's row (or behind no row at all when the generic
+    /// member itself emitted).
+    /// </summary>
+    public static bool TryDenySpecializationUpFront(
+        DeclId specializationId,
+        BaseDecl genericMember,
+        string specializationLabel,
+        CSharpWriter? tombstoneWriter = null)
+    {
+        ArgumentNullException.ThrowIfNull(genericMember);
+        if (!EmissionAttempt.TryGetFault(specializationId, out var denial))
+            return false;
+
+        var details = $"specialization for {specializationLabel}: {denial.Details}";
+        ReportCollector.RecordMemberSkipped(specializationId, genericMember.ParentDecl, SkipReason.EmitterFault, details);
+        if (tombstoneWriter is not null)
+        {
+            UnsupportedCommentEmitter.EmitMemberSkipped(
+                tombstoneWriter,
+                genericMember.Name,
+                specializationId.Kind,
+                SkipReason.EmitterFault,
+                details,
+                containingDecl: genericMember.ParentDecl,
+                declId: specializationId);
+        }
+
+        return true;
+    }
+
+    /// <summary>
     /// Records the skip row for a declaration refused because an earlier attempt threw on it. The
     /// tombstone comment in the generated source is emitted by whichever gate precedes this seam;
     /// several seams have no such gate, and this keeps those from vanishing without a record.

@@ -172,7 +172,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         HashSet<string> emittedSignatures,
-        ILogger logger)
+        ILogger logger,
+        DeclId? surfaceOwner = null)
     {
         // Method-level guards — must agree with the predicate above.
         if (!method.IsAsync) return false;
@@ -243,7 +244,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Wrapper-symbol registry guard. Same `SBW_CSM_` prefix as the sync path, but the
         // `_async` suffix on the hash seed + symbol means a sync and async wrapper for the
         // same (method, pairing) never collide. Per-kind method bucket is collision-safe.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(method)))
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, surfaceOwner ?? DeclIdFactory.ForMethod(method)))
         {
             return false;
         }

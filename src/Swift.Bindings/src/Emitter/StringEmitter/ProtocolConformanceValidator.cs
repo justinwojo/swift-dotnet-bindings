@@ -1088,7 +1088,7 @@ public class ProtocolConformanceValidator
         foreach (var ancestor in GetEmittableAncestors(type))
         {
             var candidates = ancestor.Methods.Where(m =>
-                !m.IsConstructor && m.MethodType != MethodType.Static &&
+                !m.IsConstructor && m.MethodType != MethodType.Static && IsInterfacePublic(m) &&
                 ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey).ToList();
             if (candidates.Count == 0)
                 continue;
@@ -1119,7 +1119,7 @@ public class ProtocolConformanceValidator
                 foreach (var ancestor in GetEmittableAncestors(type))
                 {
                     var match = ancestor.Methods.FirstOrDefault(m =>
-                        !m.IsConstructor && m.MethodType != MethodType.Static &&
+                        !m.IsConstructor && m.MethodType != MethodType.Static && IsInterfacePublic(m) &&
                         MatchesWithSelfSubstitution(m, protoMethod, protocolContext, conformingFqn));
                     if (match != null)
                         return match;
@@ -1129,6 +1129,13 @@ public class ProtocolConformanceValidator
 
         return null;
     }
+
+    /// <summary>
+    /// A member that is not public in the module's public Swift interface (an internal member a
+    /// testing-enabled build exports, or an SPI member) cannot witness a public requirement and is
+    /// never emitted, so it must not win the witness lookup over a public one.
+    /// </summary>
+    private static bool IsInterfacePublic(MethodDecl method) => !method.IsModuleInternal && !method.IsSpiProtected;
 
     /// <summary>
     /// Finds matching static method in concrete type or its emittable ancestors by signature.
@@ -1141,7 +1148,7 @@ public class ProtocolConformanceValidator
         foreach (var ancestor in GetEmittableAncestors(type))
         {
             var match = ancestor.Methods.FirstOrDefault(m =>
-                !m.IsConstructor && m.MethodType == MethodType.Static &&
+                !m.IsConstructor && m.MethodType == MethodType.Static && IsInterfacePublic(m) &&
                 ProtocolSignatureHelper.GetMethodSignatureKey(m, _typeDatabase, null, includeAsyncEffect: false) == protoKey);
             if (match != null)
                 return match;

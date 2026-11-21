@@ -275,6 +275,43 @@ public class ProtocolConformanceValidatorTests
         Assert.True(result);
     }
 
+    // A testing-enabled build exports internal members beside the public ones. An internal member
+    // is never emitted (MemberValidationPipeline reports it ModuleInternal) and cannot witness a
+    // public requirement, so when one keys like the public witness it must not win the lookup:
+    // taking it reads the witness as skipped at emission and drops the whole conformance.
+    [Theory]
+    [InlineData(MethodType.Instance)]
+    [InlineData(MethodType.Static)]
+    public void CanFullyImplementProtocol_InternalSameKeyMethod_DoesNotShadowPublicWitness(MethodType methodType)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+
+        var requirement = CreateVoidMethod("increment", moduleDecl);
+        requirement.MethodType = methodType;
+        var protocolDecl = CreateProtocolWithVoidMethod("Counter", "increment", moduleDecl) with
+        {
+            Methods = new List<MethodDecl> { requirement }
+        };
+        moduleDecl.Protocols.Add(protocolDecl);
+
+        var concreteType = CreateStructDecl("BasicCounter", moduleDecl);
+        var internalTwin = CreateVoidMethod("increment", moduleDecl);
+        internalTwin.MethodType = methodType;
+        internalTwin.IsModuleInternal = true;
+        internalTwin.ParentDecl = concreteType;
+        var publicWitness = CreateVoidMethod("increment", moduleDecl);
+        publicWitness.MethodType = methodType;
+        publicWitness.ParentDecl = concreteType;
+        // The internal twin is declared first, so a lookup that ignores visibility finds it first.
+        concreteType.Methods.Add(internalTwin);
+        concreteType.Methods.Add(publicWitness);
+
+        var validator = new ProtocolConformanceValidator(moduleDecl, typeDatabase);
+
+        Assert.True(validator.CanFullyImplementProtocol(concreteType, protocolDecl));
+    }
+
     [Fact]
     public void CanFullyImplementProtocol_ProtocolHasAnyTypeProperty_ReturnsFalse()
     {

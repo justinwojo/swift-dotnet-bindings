@@ -18,7 +18,8 @@ namespace BindingsGeneration;
 /// Gate ordering in ValidateMethodEmission:
 ///   Gate 1 — Suppression gates (cheapest, no type resolution):
 ///     1. @_spi protection
-///     2. Implicit+overriding constructor
+///     2. Not public in the module's public Swift interface (IsModuleInternal: internal,
+///        @usableFromInline internal, unavailable, or an implicit initializer the class does not inherit)
 ///     3. Synthesized protocol member
 ///   Gate 1c — ~Copyable value reached through a copy-only lane (closure argument or result,
 ///             tuple element). Ahead of gate 2 so the accurate soundness reason wins over the
@@ -76,6 +77,22 @@ public class MemberValidationPipeline
             ?? ValidateMethodEmissionCore(methodDecl, context).WithSubject(subject);
     }
 
+    /// <summary>The skip row's details for a member the module's public interface does not make public.</summary>
+    internal static string NotPublicDetails(MethodDecl methodDecl)
+    {
+        var what = methodDecl.ParentDecl is ModuleDecl ? "module-level function"
+            : methodDecl.IsConstructor ? "initializer"
+            : "member";
+        // The parser's own condition for an implicit inherited initializer the class does not inherit
+        // (SwiftABIParser): a class with its own designated initializers, all of them visible.
+        var notInherited = methodDecl.IsImplicit && methodDecl.IsOverride && methodDecl.IsConstructor &&
+            methodDecl.ParentDecl is ClassDecl { InheritsConvenienceInitializers: false, HasMissingDesignatedInitializers: false };
+        var why = notInherited
+            ? "an implicit inherited initializer the class does not inherit"
+            : "internal, @usableFromInline internal or unavailable";
+        return $"Not public in the module's public Swift interface ({why}): the {what} is not projected as public API.";
+    }
+
     private ValidationResult ValidateMethodEmissionCore(MethodDecl methodDecl, ValidationContext? context)
     {
         // ── Gate 1: Suppression gates (cheapest, no type resolution) ──
@@ -84,13 +101,18 @@ public class MemberValidationPipeline
         if (methodDecl.IsSpiProtected)
             return ValidationResult.Skip(SkipReason.ModuleInternal, "@_spi method suppressed from bindings.");
 
-        // 2a. Module-level internal functions (free functions that are not public)
-        if (methodDecl.IsModuleInternal && methodDecl.ParentDecl is ModuleDecl)
-            return ValidationResult.Skip(SkipReason.ModuleInternal, "Internal module-level function suppressed from bindings.");
-
-        // 2b. Implicit+overriding constructor (doesn't exist at runtime)
-        if (methodDecl.IsModuleInternal && methodDecl.IsImplicit && methodDecl.IsOverride && methodDecl.IsConstructor)
-            return ValidationResult.Skip(SkipReason.ModuleInternal, "Implicit+overriding constructor is module-internal.");
+        // 2. A member that is not public in the module's public Swift interface is not projected
+        // as public API. The flag covers a member the interface leaves out (internal, which a
+        // framework built with testing enabled still lists in its ABI descriptor and exports),
+        // `@usableFromInline internal`, unconditionally unavailable, `_`-prefixed without an
+        // access level, and an implicit inherited initializer the class does not inherit. Before
+        // this gate only the async and closure-bearing shapes were dropped; a synchronous member
+        // was bound as a public C# member through a direct import of its exported symbol, a call
+        // no client of the module's public interface could make and the transition gate refuses
+        // as NotPublicFromInterface. The member's parent being internal is a different case
+        // (gate 3c): those members are public in the interface, whatever their type's access.
+        if (methodDecl.IsModuleInternal)
+            return ValidationResult.Skip(SkipReason.ModuleInternal, NotPublicDetails(methodDecl));
 
         // 3. Synthesized protocol member (e.g., hash(into:) for Hashable)
         if (methodDecl.ParentDecl is TypeDecl parentType &&
@@ -144,30 +166,6 @@ public class MemberValidationPipeline
             if (methodDecl.CSSignature.Any(internalParentClosureHandler.IsClosure))
                 return ValidationResult.Skip(SkipReason.ParentModuleInternalNoFallback,
                     "Closure-bearing member (closure parameter or return) on a @usableFromInline internal parent type: its closure wrapper must name the internal parent and has no direct CallConvSwift fallback.");
-        }
-
-        // 3d. The member ITSELF is module-internal (absent from the public swiftinterface)
-        // on a PUBLIC parent type — the mirror of the internal-parent gate above. A sync
-        // member of this shape survives via a direct CallConvSwift P/Invoke bound to the
-        // exported symbol (no wrapper, so internal-ness does not block linkage). But an
-        // async or closure-bearing member can only be reached through a Swift bridge
-        // wrapper whose body NAMES the member, and that wrapper is compiled as a separate
-        // client module (a plain `import`) that cannot reference a member which is not
-        // public/SPI-visible. Without this gate the closure-bridge emitters (MCB and the
-        // other bridge adapters), which run inside the handler with no visibility check of
-        // their own, emit a wrapper that fails to compile. SPI members are already dropped
-        // by the @_spi gate above; this gate covers the @usableFromInline / absent-from-
-        // interface internal case. Drop before any bridge/handler routing, symmetric to 3c.
-        if (methodDecl.IsModuleInternal && methodDecl.ParentDecl is TypeDecl { IsModuleInternal: false })
-        {
-            if (methodDecl.IsAsync)
-                return ValidationResult.Skip(SkipReason.ModuleInternal,
-                    "Async member that is itself module-internal: its bridge wrapper, compiled as a separate client module, must name a member it cannot resolve, and there is no direct CallConvSwift fallback for async.");
-
-            var internalMemberClosureHandler = new ClosureHandler(_typeDatabase);
-            if (methodDecl.CSSignature.Any(internalMemberClosureHandler.IsClosure))
-                return ValidationResult.Skip(SkipReason.ModuleInternal,
-                    "Closure-bearing member (closure parameter or return) that is itself module-internal: its closure bridge wrapper, compiled as a separate client module, must name a member it cannot resolve.");
         }
 
         // 4. Variadic methods — Swift variadic params (T...) appear as Array<T> in ABI JSON.

@@ -40,22 +40,31 @@ public class MemberValidationPipelineTests
         Assert.Contains("@_spi", result.Details!);
     }
 
-    [Fact]
-    public void ValidateMethodEmission_ImplicitOverridingConstructor_ReturnsSkip()
+    // The row names an implicit inherited initializer only under the parser's own condition for
+    // one (a class with its own designated initializers, all visible). An implicit initializer the
+    // class does inherit is flagged only when the interface leaves it out, so the row says that.
+    [Theory]
+    [InlineData(false, "an implicit inherited initializer the class does not inherit")]
+    [InlineData(true, "internal, @usableFromInline internal or unavailable")]
+    public void ValidateMethodEmission_ImplicitOverridingConstructor_ReturnsSkip(bool classInheritsInitializers, string expectedWhy)
     {
         var typeDatabase = CreateTypeDatabase();
         var pipeline = new MemberValidationPipeline(typeDatabase);
+        var moduleDecl = CreateModuleDecl("TestModule");
         var method = CreateMethod("init", TupleTypeSpec.Empty);
         method.IsModuleInternal = true;
         method.IsImplicit = true;
         method.IsOverride = true;
         method.IsConstructor = true;
+        var parent = CreateClassDeclForE2E("Derived", moduleDecl, isGeneric: false);
+        parent.InheritsConvenienceInitializers = classInheritsInitializers;
+        method.ParentDecl = parent;
 
         var result = pipeline.ValidateMethodEmission(method, null!);
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
-        Assert.Contains("Implicit+overriding", result.Details!);
+        Assert.Contains(expectedWhy, result.Details!);
     }
 
     [Fact]
@@ -72,7 +81,8 @@ public class MemberValidationPipelineTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
-        Assert.Contains("Internal", result.Details!);
+        Assert.Contains("Not public in the module's public Swift interface", result.Details!);
+        Assert.Contains("module-level function", result.Details!);
     }
 
     [Fact]
@@ -122,9 +132,8 @@ public class MemberValidationPipelineTests
     [Fact]
     public void ValidateMethodEmission_ModuleLevelInternalTakesPrecedenceOverSpi()
     {
-        // A free function that's both internal and SPI — internal gate fires first
-        // because module-level internal check (2a) is before SPI (1)... actually SPI is first.
-        // Let's verify the order: SPI is gate 1, module internal is gate 2a.
+        // A free function that's both internal and SPI: the SPI check (gate 1.1) runs before the
+        // not-public-in-the-interface check (gate 1.2); both report ModuleInternal.
         var typeDatabase = CreateTypeDatabase();
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var moduleDecl = CreateModuleDecl("TestModule");
@@ -197,8 +206,11 @@ public class MemberValidationPipelineTests
     }
 
     [Fact]
-    public void ValidateMethodEmission_ImplicitButNotOverriding_ReturnsEmit()
+    public void ValidateMethodEmission_ImplicitInternalConstructor_ReturnsSkip()
     {
+        // An implicit initializer the interface leaves out (one on a type with missing
+        // designated initializers) is internal: a client of the module cannot call it, so it
+        // is not projected even though it is not an inherited override.
         var typeDatabase = CreateTypeDatabase();
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var method = CreateMethod("init", TupleTypeSpec.Empty);
@@ -207,10 +219,11 @@ public class MemberValidationPipelineTests
         method.IsOverride = false;
         method.IsConstructor = true;
 
-        // IsModuleInternal + IsImplicit alone doesn't trigger the gate (needs IsOverride too)
         var result = pipeline.ValidateMethodEmission(method, null!);
 
-        Assert.True(result.ShouldEmit);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+        Assert.Contains("initializer is not projected as public API", result.Details!);
     }
 
     [Fact]
@@ -1963,17 +1976,13 @@ public class MemberValidationPipelineTests
 
     #endregion
 
-    #region Gate 3d — member itself module-internal on a public parent
+    #region Member itself not public in the interface, on a public parent
 
-    // Gate 3d is the mirror of 3c: the parent type is PUBLIC but the MEMBER itself is
-    // module-internal (absent from the public swiftinterface — e.g. a current-module
-    // extension member on a foreign receiver, or an absent-from-interface member of a
-    // public type). A sync member of this shape survives via a direct CallConvSwift
-    // P/Invoke to the exported symbol. An async or closure-bearing member can only be
-    // reached through a Swift bridge wrapper (MCB or another bridge adapter) whose body
-    // names the member, and that wrapper compiles as a separate client module that
-    // cannot resolve a non-public/SPI member — so it must be DROPPED here at emission,
-    // before any bridge/handler routing.
+    // The parent type is PUBLIC but the MEMBER itself is module-internal (absent from the
+    // public swiftinterface — e.g. a current-module extension member on a foreign receiver,
+    // or an absent-from-interface member of a public type, which a framework built with
+    // testing enabled exports). No client of the module's public interface can name it, so
+    // it is not projected, whatever its shape: sync, async or closure-bearing.
 
     [Fact]
     public void ValidateMethodEmission_AsyncMemberItselfModuleInternal_PublicParent_ReturnsSkip()
@@ -1994,8 +2003,7 @@ public class MemberValidationPipelineTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
-        Assert.Contains("Async", result.Details!);
-        Assert.Contains("module-internal", result.Details!);
+        Assert.Contains("Not public in the module's public Swift interface", result.Details!);
     }
 
     [Fact]
@@ -2021,16 +2029,14 @@ public class MemberValidationPipelineTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
-        Assert.Contains("Closure", result.Details!);
-        Assert.Contains("module-internal", result.Details!);
+        Assert.Contains("Not public in the module's public Swift interface", result.Details!);
     }
 
     [Fact]
     public void ValidateMethodEmission_ClosureReturningMemberItselfModuleInternal_PublicParent_ReturnsSkip()
     {
-        // The closure-RETURN axis of gate 3d: a member that is itself internal whose
-        // RETURN is a closure (no closure parameters). The whole-signature scan must catch
-        // index 0, mirroring gate 3c.
+        // The closure-RETURN shape of a member that is itself internal (no closure
+        // parameters): dropped like every other member the interface leaves out.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
@@ -2048,17 +2054,15 @@ public class MemberValidationPipelineTests
 
         Assert.False(result.ShouldEmit);
         Assert.Equal(SkipReason.ModuleInternal, result.Reason);
-        Assert.Contains("Closure", result.Details!);
-        Assert.Contains("module-internal", result.Details!);
+        Assert.Contains("Not public in the module's public Swift interface", result.Details!);
     }
 
     [Fact]
-    public void ValidateMethodEmission_SyncPlainMemberItselfModuleInternal_PublicParent_NotGatedBy3d()
+    public void ValidateMethodEmission_SyncPlainMemberItselfModuleInternal_PublicParent_IsNotProjected()
     {
-        // Over-broad guard: a SYNC, non-closure member that is itself internal must NOT be
-        // dropped by gate 3d — the exported symbol is callable via a direct CallConvSwift
-        // P/Invoke even though the member is absent from the public interface. This is the
-        // deliberate "permit direct ABI-symbol binding where possible" behavior.
+        // A SYNC, non-closure member that is itself internal (a framework built with testing
+        // enabled exports it) is not public in the module's interface, so it is not projected
+        // as public API, although its exported symbol could be bound through a direct import.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var parentDecl = CreateClassDeclForE2E("PublicHolder", moduleDecl, isGeneric: false);
@@ -2071,15 +2075,16 @@ public class MemberValidationPipelineTests
         var pipeline = new MemberValidationPipeline(typeDatabase);
         var result = pipeline.ValidateMethodEmission(method, null);
 
-        Assert.True(result.ShouldEmit);
-        Assert.NotEqual(SkipReason.ModuleInternal, result.Reason);
+        Assert.False(result.ShouldEmit);
+        Assert.Equal(SkipReason.ModuleInternal, result.Reason);
+        Assert.Contains("Not public in the module's public Swift interface", result.Details!);
     }
 
     [Fact]
     public void ValidateMethodEmission_ClosureBearingPublicMember_PublicParent_NotGatedBy3d()
     {
         // Member-specificity guard: the identical closure-bearing member that is itself
-        // PUBLIC (not internal) on a public parent must continue to emit — gate 3d keys on
+        // PUBLIC (not internal) on a public parent must continue to emit — the gate keys on
         // the member's own internal flag, not on the closure shape.
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");

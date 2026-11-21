@@ -17319,6 +17319,61 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "LedgerCountOption.Count",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerCountOption_count"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerCountOption.CountNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerCountOption_count"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerCountOption.LedgerCountOption(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_LedgerCountOption_init_B1CAA124"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerCountOption.OptionCode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerCountOption_optionCode"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerDurationOption.LedgerDurationOption(double)",
+      "symbol": "SBW_SwiftBindingsTestLib_LedgerDurationOption_init_94363CA4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerDurationOption.OptionCode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerDurationOption_optionCode"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerDurationOption.Seconds",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerDurationOption_seconds"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerFlagOption.Enabled",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerFlagOption_enabled"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerFlagOption.LedgerFlagOption(bool)",
+      "symbol": "SBW_SwiftBindingsTestLib_LedgerFlagOption_init_94667483"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerFlagOption.OptionCode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_LedgerFlagOption_optionCode"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "LedgerOptionsBuilder.BuildFinalResult(T0)\u00601",
+      "symbol": "SBW_SwiftBindingsTestLib_LedgerOptionsBuilder_buildFinalResult_8C55E79D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "LengthRule.LengthRule(string,int,int)",
       "symbol": "SBW_SwiftBindingsTestLib_LengthRule_init_547880DF"
     },
@@ -29816,11 +29871,6 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ShiftedClosedRangeInt(Swift.SwiftClosedRange\u003Cnint\u003E,nint)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_shiftedClosedRangeInt_D2125109"
-    },
-    {
-      "module": "SwiftBindingsTestLib",
-      "signature": "ShortNameCollisionFixture.GetInternalMarker()",
-      "symbol": "$s20SwiftBindingsTestLib25ShortNameCollisionFixtureO14internalMarkers5Int32VyFZ"
     },
     {
       "module": "SwiftBindingsTestLib",

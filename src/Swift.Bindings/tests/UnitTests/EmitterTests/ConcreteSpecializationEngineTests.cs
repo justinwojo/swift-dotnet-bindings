@@ -82,6 +82,47 @@ public class ConcreteSpecializationEngineTests
         Assert.DoesNotContain("IntPtr self_", cs);
     }
 
+    /// <summary>
+    /// A non-generic sibling that projects to the same C# signature as a specialization keeps the
+    /// specialization out (CS0111) only when it is itself emitted. An internal sibling is not
+    /// projected (not public in the module's public interface), so it holds no slot and the
+    /// public generic member's specialization still emits.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, true)]
+    public void EmitConcreteSpecializations_NonGenericSibling_ReservesItsSlotOnlyWhenProjected(
+        bool siblingIsInternal, bool specializationEmits)
+    {
+        var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.String"), "Swift", "SwiftString");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        var engine = new ConcreteSpecializationEngine(db);
+        var typeDecl = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var generic = typeDecl.Methods[0];
+        typeDecl.Methods.Add(generic with
+        {
+            MangledName = "$sHostjoinItemsArray",
+            GenericParameters = new List<GenericArgumentDecl>(),
+            CSSignature = new List<ArgumentDecl>
+            {
+                generic.CSSignature[0],
+                generic.CSSignature[1] with
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")),
+                    IsGeneric = false,
+                },
+            },
+            IsModuleInternal = siblingIsInternal,
+        });
+
+        var (cs, _) = EmitSpecializations(typeDecl, db, engine);
+
+        Assert.Equal(specializationEmits,
+            cs.Contains("public string JoinItems(Swift.SwiftArray<Swift.SwiftString> items)"));
+    }
+
     [Fact]
     public void EmitConcreteSpecializations_ObjCRootedClassInstanceMethod_SelfArgUsesGetSwiftHandle()
     {
@@ -285,6 +326,94 @@ public class ConcreteSpecializationEngineTests
                 "string label, IEnumerable<string> items, global::System.Threading.CancellationToken cancellationToken = default",
             },
             declarations);
+    }
+
+    /// <summary>
+    /// A specialization returning <c>[any P]</c> for a protocol with a generated proxy cannot marshal
+    /// the array on the interface type (no Swift metadata), so it takes the existential carrier on the
+    /// wire and the projected list in public, like the generic member. Other existential elements
+    /// (a well-known carrier, a marker-only or bare <c>Any</c>) and non-existential arrays keep their
+    /// existing return path.
+    /// </summary>
+    [Theory]
+    [InlineData("TestLib.LedgerOption", true)]
+    [InlineData("Swift.Error", false)]
+    [InlineData("Swift.Sendable", false)]
+    [InlineData("", false)]
+    public void TryResolveExistentialArrayReturn_ResolvesOnlySingleProtocolProxyElements(string protocol, bool resolves)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.LedgerOption"), "TestLib", "LedgerOption", TypeRecordKind.Protocol);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var element = protocol.Length == 0
+            ? new ProtocolListTypeSpec()
+            : new ProtocolListTypeSpec(new[] { new NamedTypeSpec(protocol) });
+        var arrayOfExistentials = new NamedTypeSpec("Swift.Array", element);
+
+        Assert.True(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            arrayOfExistentials, host, "TestLib", db, emissionContext: null, out var resolved));
+
+        if (!resolves)
+        {
+            Assert.Null(resolved);
+            return;
+        }
+        var shape = Assert.NotNull(resolved);
+        Assert.Contains("IReadOnlyList<", shape.PublicType);
+        Assert.Contains("ILedgerOption", shape.PublicType);
+        Assert.Equal("global::Swift.SwiftArray<Swift.Runtime.ExistentialContainer1>", shape.MarshalType);
+        Assert.Contains("ownsContainer: true", shape.ProjectionSuffix);
+    }
+
+    [Fact]
+    public void TryResolveExistentialArrayReturn_NonExistentialArray_KeepsItsReturnPath()
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int32"), "System", "Int32", flags: TypeRecordFlags.Frozen);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+
+        Assert.True(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int32")), host, "TestLib", db, emissionContext: null, out var resolved));
+        Assert.Null(resolved);
+    }
+
+    /// <summary>
+    /// Two async overloads that specialize to the same C# signature (sibling Swift overloads).
+    /// When an earlier attempt withdrew the first one's specialization, the first still routes to
+    /// the specialization lane (the emitter refuses it with its own row), but it must not hold the
+    /// signature: the second overload's specialization takes it.
+    /// </summary>
+    [Fact]
+    public void IsCsmAsyncEligible_WithdrawnSpecialization_ReservesNoSignature()
+    {
+        var (typeDecl, db, engine) = CreateHostWithJoinItemsOverloads(AsyncJoinItemsSignature(), AsyncJoinItemsSignature());
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Int"), "System", "Int64");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.String"), "Swift", "SwiftString");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Set"), "Swift", "SwiftSet");
+        var first = typeDecl.Methods[0];
+        var second = typeDecl.Methods[1];
+        first.IsAsync = true;
+        second.IsAsync = true;
+        Assert.NotEqual(first.MangledName, second.MangledName);
+        var pairing = engine.FindSpecializableMethods(typeDecl).Single(s => ReferenceEquals(s.Method, first))
+            .SpecializableParams.Select(p => (p, Assert.Single(p.Conformers)));
+        var withdrawn = DeclIdFactory.ForSpecialization(DeclIdFactory.ForMethod(first),
+            ConcreteProtocolSpecializationEmitter.SpecializationKey(pairing));
+        var context = new ModuleEmissionContext();
+
+        using (EmissionAttempt.Begin(WrapperDenylistSeed.Build(
+            new HashSet<RecoveryUnitId> { RecoveryUnitId.Create(withdrawn, RecoveryScope.LeafApi) },
+            static _ => EmitterFaultOrigin.RecoveryWithdrawal)))
+        {
+            Assert.True(ConcreteProtocolSpecializationEmitter.IsCsmAsyncEligible(first, typeDecl, db, engine, context));
+            Assert.True(ConcreteProtocolSpecializationEmitter.IsCsmAsyncEligible(second, typeDecl, db, engine, context),
+                "the withdrawn specialization kept its signature from the sibling that will emit it");
+        }
     }
 
     /// <summary>The <c>process</c> call of each specialized primary's Swift wrapper.</summary>
@@ -1780,9 +1909,10 @@ public class ConcreteSpecializationEngineTests
     [Fact]
     public void EmitConcreteSpecializationsForGenericParent_ContainerProperty_RegistersItsGetterSymbolUnderTheProperty()
     {
-        // The closed getter is the property's surface: its fragments and denial use the property,
-        // so its wrapper symbol must too, or a symbol-anchored swiftc error seeds a method unit the
-        // property's denial never reads and recovery cannot withdraw it.
+        // The closed getter is the property's surface for one closed receiver: its fragments and
+        // denial use that specialization of the property, so its wrapper symbol must too, or a
+        // symbol-anchored swiftc error seeds a method unit the denial never reads and recovery
+        // cannot withdraw it.
         var db = new ResolvingTypeDatabase { AsyncLibraryName = "SwiftBindings" };
         db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.ConcreteItem"), "TestLib", "ConcreteItem");
         db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.TypedBag"), "TestLib", "TypedBag");
@@ -1804,7 +1934,10 @@ public class ConcreteSpecializationEngineTests
         var getterSymbols = context.WrapperSymbolOwners.Where(e => e.Key.StartsWith("SBW_CSM_", StringComparison.Ordinal)).ToList();
         Assert.NotEmpty(getterSymbols);
         var property = typeDecl.Properties.Single(p => p.Name == "items");
-        Assert.All(getterSymbols, e => Assert.Equal(DeclIdFactory.ForProperty(property), e.Value.Decl));
+        // Each closed getter is its own specialization of the property, keyed by its closed receiver.
+        Assert.All(getterSymbols, e => Assert.Equal(
+            DeclIdFactory.ForSpecialization(DeclIdFactory.ForProperty(property), "τ_0_0=TestLib.ConcreteItem"),
+            e.Value.Decl));
     }
 
     [Fact]

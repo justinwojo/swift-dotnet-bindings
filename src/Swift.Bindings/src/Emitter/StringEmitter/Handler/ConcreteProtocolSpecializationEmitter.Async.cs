@@ -25,7 +25,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         ILogger logger,
-        CsmOverloadLedger overloadLedger)
+        CsmOverloadLedger overloadLedger,
+        DeclId? surfaceOwner = null)
     {
         // Phase B path accepts 1+ pairings. The first pairing's conformer is used for
         // symbol naming / logging — additional pairings are applied via substitution.
@@ -62,7 +63,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // same `SBW_CSM_` prefix as the sync path; this async-only
         // branch is gated by `IsAsync` upstream so the two paths never co-emit for the
         // same method. Per-kind method bucket is collision-safe.
-        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, DeclIdFactory.ForMethod(originalMethod)))
+        if (!emissionContext.TryAddMethodWrapperSymbol(cdeclSymbol, surfaceOwner ?? DeclIdFactory.ForMethod(originalMethod)))
         {
             return false;
         }
@@ -828,6 +829,11 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // dry-run plan + dedup claim. The first pairing that passes all four makes the
         // method suppressible. TryClaim is idempotent for the same (key, owner), so
         // the emitter will later observe the same successful pairing for this method.
+        // A specialization an earlier attempt withdrew still routes the method here (the emitter
+        // refuses it with its own skip row, EmitSpecializationOwned), but it reserves no signature:
+        // a reservation it will never commit would keep a sibling's specialization out of the slot.
+        var methodId = DeclIdFactory.ForMethod(method);
+        bool routesWithdrawnSpecialization = false;
         foreach (var pairing in CartesianPairings(specializable.SpecializableParams))
         {
             if (!ConformerPairingSatisfiesCoupling(pairing)) continue;
@@ -837,10 +843,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     typeDatabase, moduleName,
                     out _, out _, out _, out var sigKey))
                 continue;
+            if (EmissionAttempt.TryGetFault(DeclIdFactory.ForSpecialization(methodId, SpecializationKey(pairing)), out _))
+            {
+                routesWithdrawnSpecialization = true;
+                continue;
+            }
             if (emissionContext.TryReserveCsmAsyncSignature(sigKey, method))
                 return true;
         }
 
-        return false;
+        return routesWithdrawnSpecialization;
     }
 }

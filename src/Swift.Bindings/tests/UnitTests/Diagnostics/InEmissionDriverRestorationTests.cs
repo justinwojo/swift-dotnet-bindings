@@ -366,6 +366,29 @@ public class InEmissionDriverRestorationTests : IDisposable
         Assert.Contains("Entry", csharp, StringComparison.Ordinal);
         Assert.Contains(report.SkippedItems, item =>
             item.Reason == SkipReason.EmitterFault && item.Name == culprit.Decl.Name);
+        // The culprit is the specialization for Box.Entry, not the generic initializer it closes: the
+        // initializer's own unit stays live, and the withdrawn specialization keeps its own report row.
+        Assert.Contains("spec=", culprit.Decl.Discriminator, StringComparison.Ordinal);
+        Assert.Contains(report.SkippedItems, item =>
+            item.Reason == SkipReason.EmitterFault
+            && item.Details?.Contains("specialization for ContainmentFixture.Box.Entry", StringComparison.Ordinal) == true);
+    }
+
+    /// <summary>
+    /// The reverse direction (the TipKit <c>Tips.OptionsBuilder.buildFinalResult</c> shape): recovery
+    /// withdraws the GENERIC member (its own wrapper failed to compile). Its concrete specializations
+    /// are separate wrappers that compile on their own, so they must still ship, not disappear with it
+    /// and unreported.
+    /// </summary>
+    [Fact]
+    public void WithdrawnGenericMember_LeavesItsSpecializationsStanding()
+    {
+        using var harness = new DriverHarness(this, withNestedConformerCollision: true);
+
+        var (csharp, _) = harness.RenderWithReport(
+            new HashSet<RecoveryUnitId> { harness.NestedFactoryGenericInitializerUnit() });
+
+        AssertCollisionFactory(csharp, harness.SwiftOutput());
     }
 
     /// <summary>
@@ -549,6 +572,14 @@ public class InEmissionDriverRestorationTests : IDisposable
                 // (a superset of production's wrapper-artifact cleanup, appropriate for isolating the
                 // engine/typeDB restoration invariant these tests pin).
                 preRender: ClearScratch);
+        }
+
+        /// <summary>The unit of the nested-conformer fixture's generic <c>Box.init&lt;T: EntryMaterial&gt;</c> itself.</summary>
+        public RecoveryUnitId NestedFactoryGenericInitializerUnit()
+        {
+            var box = _module.Types.Single(t => t.Name == "Box");
+            var initializer = box.Methods.Single(m => m.IsConstructor && m.GenericParameters.Count > 0);
+            return RecoveryUnitId.Create(DeclIdFactory.ForMethod(initializer), RecoveryScope.LeafApi);
         }
 
         /// <summary>The two withdrawable leaf/accessor units the ContainmentFixture exposes.</summary>
