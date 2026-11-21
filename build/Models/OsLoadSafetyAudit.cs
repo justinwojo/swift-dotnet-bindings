@@ -22,18 +22,27 @@ internal sealed record OsLoadVerdict(
 /// A provider whose shipped symbols the load-safety gate knows: an OS-resident dylib, checked against
 /// the shipped inventory, or a supplied provider, checked against its own list.
 /// </summary>
-internal sealed record CoveredProvider(string InstallName, Func<string, bool> Ships);
+/// <remarks><see cref="OsVersion"/> is the OS whose libraries the provider's symbol list describes.</remarks>
+internal sealed record CoveredProvider(string InstallName, Func<string, bool> Ships, string? OsVersion = null);
 
-/// <summary>What the absent-symbol check found in one image or assembly.</summary>
-internal sealed record OsAbsentImportVerdict(int CoveredSwiftImports, IReadOnlyList<string> GuardedAbsent, IReadOnlyList<string> Failures);
+/// <summary>A Swift symbol an image imports, or a P/Invoke names, that its provider's inventory OS lacks.</summary>
+internal sealed record AbsentSymbol(string Arch, string Symbol, string InstallName, string? OsVersion);
+
+/// <summary>What the absent-symbol check found in one image.</summary>
+internal sealed record OsAbsentImportVerdict(int CoveredSwiftImports, IReadOnlyList<AbsentSymbol> Absent, IReadOnlyList<string> Failures);
+
+/// <summary>Which exports of one image reach which absent imports, and what could not be attributed.</summary>
+internal sealed record OsAbsentReachVerdict(IReadOnlyDictionary<string, IReadOnlyList<AbsentSymbol>> ByExport, IReadOnlyList<string> Failures);
 
 /// <summary>
 /// The pure verdict behind the OS load-safety gate (load-safety property P1: a missing OS symbol can
 /// never stop a wrapper loading). Every dylib a wrapper slice loads from under <c>/System/</c> must be
 /// loaded with <c>LC_LOAD_WEAK_DYLIB</c>, which also makes every import from it weak, or be an umbrella
 /// the linker keeps strong for a restricted re-export with every import from it weak; and the slice
-/// must load at least one, so a read that found no load commands at all cannot pass. P2 holds every
-/// import of a symbol the inventory's OS lacks to a floored declaration. BCL-only plus the shared
+/// must load at least one, so a read that found no load commands at all cannot pass. P2 requires every
+/// import of a symbol the inventory's OS lacks to be weak and attributes it to the exports that reach it
+/// (<see cref="WrapperImportReach"/>), so the gate can hold every P/Invoke of those exports to a refusal
+/// in the compiled IL (<c>OsFloorGuardCheck</c>). BCL-only plus the shared
 /// <see cref="OsFrameworkWeakLinking"/> parsers, so the unit tests link-compile it.
 /// </summary>
 internal static class OsLoadSafetyAudit
@@ -80,20 +89,21 @@ internal static class OsLoadSafetyAudit
 
     /// <summary>
     /// Load-safety P2 for one linked image: every Swift symbol it imports from a covered provider that
-    /// the provider does not ship must be weak and belong to a declaration the binding floors above the
-    /// inventory's OS (<paramref name="guarded"/>, from the binding reports). An import from a dylib the
-    /// image does not load fails, since its provider cannot be resolved.
+    /// the provider does not ship must be imported weakly, so it binds to null rather than stopping the
+    /// image loading; those imports are returned for <see cref="AttributeAbsentImports"/>, which finds the
+    /// exports that reach them. An import from a dylib the image does not load fails, since its provider
+    /// cannot be resolved.
     /// </summary>
     public static OsAbsentImportVerdict EvaluateImports(
         string label, IReadOnlyList<OsFrameworkWeakLinking.ImportedSymbol> imports, IReadOnlyList<OsFrameworkWeakLinking.LoadedDylib> loads,
-        Func<string, CoveredProvider?> coverage, IReadOnlySet<string> guarded)
+        Func<string, CoveredProvider?> coverage)
     {
         var byLeaf = new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var load in loads)
             byLeaf.TryAdd(OsFrameworkWeakLinking.ImportLeaf(load.InstallName), load.InstallName);
 
         var failures = new List<string>();
-        var absent = new List<string>();
+        var absent = new List<AbsentSymbol>();
         int covered = 0;
         foreach (var import in imports)
         {
@@ -107,47 +117,58 @@ internal static class OsLoadSafetyAudit
             if (coverage(installName) is not { } provider)
                 continue;
             covered++;
-            var symbol = import.Symbol[1..];
-            if (provider.Ships(symbol))
+            if (provider.Ships(import.Symbol[1..]))
                 continue;
             if (!import.Weak)
                 failures.Add($"{label} [{import.Arch}]: imports {import.Symbol} from {installName} strongly, and the inventory's OS does not ship it.");
-            else if (!guarded.Contains(symbol))
-                failures.Add($"{label} [{import.Arch}]: imports {import.Symbol} from {installName}, which the inventory's OS does not ship, " +
-                             "and no declaration of the binding is floored above that OS for it.");
             else
-                absent.Add(symbol);
+                absent.Add(new AbsentSymbol(import.Arch, import.Symbol, installName, provider.OsVersion));
         }
-        return new OsAbsentImportVerdict(covered, absent.Distinct(StringComparer.Ordinal).ToList(), failures);
+        return new OsAbsentImportVerdict(covered, absent.Distinct().ToList(), failures);
     }
 
     /// <summary>
-    /// The direct-P/Invoke half of P2: a P/Invoke that calls a covered provider's Swift symbol without
-    /// going through the wrapper must also belong to a floored declaration when the provider does not
-    /// ship it. <paramref name="pinvokes"/> holds (library, entry point, declaring member) triples.
+    /// Attributes each absent import of one image to the exports that reach it, read from the image's
+    /// arm64 code (<paramref name="arm64"/>). Fails closed: an arm64 absent import no export reaches
+    /// (referenced only from data the reach does not follow, from code no export calls, or from nothing
+    /// the read follows at all), and an
+    /// absent import of another architecture the arm64 code does not also import, since nothing read
+    /// that architecture's reach.
     /// </summary>
-    public static OsAbsentImportVerdict EvaluatePInvokes(
-        string label, IEnumerable<(string Library, string EntryPoint, string Member)> pinvokes,
-        Func<string, CoveredProvider?> coverage, IReadOnlySet<string> guarded)
+    public static OsAbsentReachVerdict AttributeAbsentImports(string label, IReadOnlyList<AbsentSymbol> absent, WrapperImportReach arm64)
     {
         var failures = new List<string>();
-        var absent = new List<string>();
-        int covered = 0;
-        foreach (var (library, entryPoint, member) in pinvokes)
+        var arm64Absent = absent.Where(a => a.Arch == "arm64").GroupBy(a => a.Symbol, StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+        foreach (var other in absent.Where(a => a.Arch != "arm64" && !arm64Absent.ContainsKey(a.Symbol)))
+            failures.Add($"{label} [{other.Arch}]: imports {other.Symbol} from {other.InstallName}, which the inventory's OS does not ship, " +
+                         "and its arm64 code does not, so no read of the image attributes it to an export.");
+        foreach (var (import, holders) in arm64.Unattributed(arm64Absent.Keys))
+            failures.Add(holders.Count > 0
+                ? $"{label} [arm64]: {import}, which the inventory's OS does not ship, is referenced by {string.Join(", ", holders)} " +
+                  "and reached from no export, so no P/Invoke can be held to a guard for it."
+                : $"{label} [arm64]: {import}, which the inventory's OS does not ship, is imported but referenced by nothing the " +
+                  "read of its code and fixups follows, so no P/Invoke can be held to a guard for it.");
+        var byExport = new Dictionary<string, IReadOnlyList<AbsentSymbol>>(StringComparer.Ordinal);
+        foreach (var export in arm64.Exports)
         {
-            var symbol = entryPoint.TrimStart('_');
-            if (!symbol.StartsWith("$s", StringComparison.Ordinal) || coverage(library) is not { } provider)
-                continue;
-            covered++;
-            if (provider.Ships(symbol))
-                continue;
-            if (guarded.Contains(symbol))
-                absent.Add(symbol);
-            else
-                failures.Add($"{label}: {member} calls {symbol} in {library} directly; the inventory's OS does not ship it " +
-                             "and no declaration of the binding is floored above that OS for it.");
+            var reached = arm64.ImportsReachedFrom(export).Where(arm64Absent.ContainsKey).Select(i => arm64Absent[i]).ToList();
+            if (reached.Count > 0)
+                byExport[export] = reached;
         }
-        return new OsAbsentImportVerdict(covered, absent.Distinct(StringComparer.Ordinal).ToList(), failures);
+        return new OsAbsentReachVerdict(byExport, failures);
+    }
+
+    /// <summary>
+    /// The absent symbol a direct P/Invoke names: a <c>$s…</c> entry point of a covered provider that the
+    /// provider does not ship. Null otherwise.
+    /// </summary>
+    public static AbsentSymbol? DirectAbsentSymbol(string library, string entryPoint, Func<string, CoveredProvider?> coverage)
+    {
+        var symbol = entryPoint.TrimStart('_');
+        if (!symbol.StartsWith("$s", StringComparison.Ordinal) || coverage(library) is not { } provider || provider.Ships(symbol))
+            return null;
+        return new AbsentSymbol("", "_" + symbol, provider.InstallName, provider.OsVersion);
     }
 
     /// <summary>
@@ -159,7 +180,7 @@ internal static class OsLoadSafetyAudit
     /// </summary>
     public static CoveredProvider? Resolve(
         string library, IReadOnlyList<OsSymbolInventory.Provider> supplied, Func<string, bool> shippedOnVariant,
-        Func<string, bool>? isOsFrameworkName = null)
+        Func<string, bool>? isOsFrameworkName = null, string? shippedOsVersion = null)
     {
         var framework = OsFrameworkWeakLinking.FrameworkName(library);
         foreach (var provider in supplied)
@@ -167,13 +188,13 @@ internal static class OsLoadSafetyAudit
             if (string.Equals(provider.InstallName, library, StringComparison.Ordinal)
                 || string.Equals(provider.ModuleName, library, StringComparison.Ordinal)
                 || (framework is not null && string.Equals(provider.ModuleName, framework, StringComparison.Ordinal)))
-                return new CoveredProvider(provider.InstallName, provider.Symbols.Contains);
+                return new CoveredProvider(provider.InstallName, provider.Symbols.Contains, provider.OsVersion);
         }
         if (library.StartsWith("/System/", StringComparison.Ordinal)
             || library.StartsWith("/usr/lib/swift/", StringComparison.Ordinal))
-            return new CoveredProvider(library, shippedOnVariant);
+            return new CoveredProvider(library, shippedOnVariant, shippedOsVersion);
         if (!library.Contains('/') && isOsFrameworkName?.Invoke(library) == true)
-            return new CoveredProvider($"/System/Library/Frameworks/{library}.framework/{library}", shippedOnVariant);
+            return new CoveredProvider($"/System/Library/Frameworks/{library}.framework/{library}", shippedOnVariant, shippedOsVersion);
         return null;
     }
 
@@ -236,12 +257,13 @@ internal static class OsLoadSafetyAudit
     }
 
     /// <summary>
-    /// Every symbol a binding report records as guarded (each <c>InferredOsFloors</c> entry's
-    /// <c>Symbols</c>), and the raised entries' declarations, read wherever the report nests them.
+    /// The declarations a binding report records as raised by an inferred OS floor (each
+    /// <c>InferredOsFloors</c> entry with <c>Raised</c> set), read wherever the report nests them. The
+    /// gate reads only these, as a positive control on generation; what it accepts as a refusal it reads
+    /// from the compiled IL.
     /// </summary>
-    public static (HashSet<string> Symbols, List<string> RaisedDeclarations) ReadGuardedSymbols(string reportJson)
+    public static List<string> ReadRaisedDeclarations(string reportJson)
     {
-        var symbols = new HashSet<string>(StringComparer.Ordinal);
         var raised = new List<string>();
         using var document = System.Text.Json.JsonDocument.Parse(reportJson);
         void Walk(System.Text.Json.JsonElement element)
@@ -254,11 +276,6 @@ internal static class OsLoadSafetyAudit
                     {
                         foreach (var item in property.Value.EnumerateArray())
                         {
-                            if (item.TryGetProperty("Symbols", out var list))
-                                foreach (var s in list.EnumerateArray())
-                                    symbols.Add(s.GetString()!);
-                            if (item.TryGetProperty("Symbol", out var one))
-                                symbols.Add(one.GetString()!);
                             if (item.TryGetProperty("Raised", out var r) && r.ValueKind == System.Text.Json.JsonValueKind.True
                                 && item.TryGetProperty("Declaration", out var d))
                                 raised.Add(d.GetString()!);
@@ -275,6 +292,6 @@ internal static class OsLoadSafetyAudit
             }
         }
         Walk(document.RootElement);
-        return (symbols, raised.Distinct(StringComparer.Ordinal).ToList());
+        return raised.Distinct(StringComparer.Ordinal).ToList();
     }
 }

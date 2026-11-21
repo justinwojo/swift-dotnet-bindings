@@ -58,6 +58,11 @@ public static class OsSymbolFloorInference
         if (module.ExportedSymbols is not { Count: > 0 } exported)
             return inferred;
 
+        // An override that reuses its base's vtable entry is called through the base's dispatch thunk,
+        // which the call-target resolution finds through the superclass link. Inference runs before the
+        // module database links the hierarchy, so link it here.
+        ModuleProcessor.LinkSameModuleSuperclasses(AllTypes(module.Types), logger: null);
+
         var pass = new Pass(module, context, exported, inferred);
         foreach (var type in module.Types)
             pass.Type(type);
@@ -68,6 +73,16 @@ public static class OsSymbolFloorInference
         foreach (var property in module.Properties)
             pass.Property(property);
         return inferred;
+    }
+
+    private static IEnumerable<TypeDecl> AllTypes(IEnumerable<TypeDecl> types)
+    {
+        foreach (var type in types)
+        {
+            yield return type;
+            foreach (var nested in AllTypes(type.Types))
+                yield return nested;
+        }
     }
 
     private sealed class Pass(
@@ -84,6 +99,26 @@ public static class OsSymbolFloorInference
 
         private bool AbsentFromInventoryOs(List<string> exportedCandidates) =>
             exportedCandidates.Count > 0 && !exportedCandidates.Any(context.ShipsOnInventoryOs);
+
+        /// <summary>
+        /// The symbol the binding calls for a class member (its dispatch thunk, the thunk of the vtable
+        /// entry it reuses, or its implementation), when the generating SDK exports it and the inventory's
+        /// OS lacks it; otherwise null. The member's other symbols can ship while this one does not, and
+        /// the call would still fail to bind on that OS.
+        /// </summary>
+        private string? AbsentCallTarget(MethodDecl? method)
+        {
+            if (method is null || string.IsNullOrEmpty(method.MangledName) || method.ParentDecl is not ClassDecl parent)
+                return null;
+            var target = SwiftCallTargetResolver.Resolve(method.MangledName, method, parent, exported);
+            return exported.Contains(target) && !context.ShipsOnInventoryOs(target) ? target : null;
+        }
+
+        /// <summary><paramref name="symbols"/> led by <paramref name="first"/>, the symbol that decided the floor.</summary>
+        private static List<string> Leading(string? first, IEnumerable<string> symbols) =>
+            first is null
+                ? symbols.Distinct(StringComparer.Ordinal).ToList()
+                : symbols.Prepend(first).Distinct(StringComparer.Ordinal).ToList();
 
         internal void Type(TypeDecl type)
         {
@@ -123,6 +158,20 @@ public static class OsSymbolFloorInference
                 foreach (var enumCase in enumDecl.Cases)
                     Case(enumCase, enumDecl);
             }
+            if (type is ProtocolDecl protocol)
+            {
+                // Kept off the protocol's contract, but injection binds each one on every conformer
+                // through a wrapper that calls it, and that wrapper takes its floor.
+                foreach (var member in protocol.ExtensionMembers)
+                {
+                    switch (member)
+                    {
+                        case MethodDecl method: Method(method); break;
+                        case PropertyDecl property: Property(property); break;
+                        case SubscriptDecl subscript: Subscript(subscript); break;
+                    }
+                }
+            }
             foreach (var nested in type.Types)
                 Type(nested);
         }
@@ -146,7 +195,8 @@ public static class OsSymbolFloorInference
             if (!_visited.Add(op))
                 return;
             var candidates = Exported(MethodSymbols(op.UnderlyingMethod.MangledName));
-            if (!AbsentFromInventoryOs(candidates))
+            var absentTarget = AbsentCallTarget(op.UnderlyingMethod);
+            if (absentTarget is null && !AbsentFromInventoryOs(candidates))
                 return;
             // The operator handler guards on the operator's own list; its underlying method is raised too
             // for the paths that bind through the method.
@@ -157,7 +207,7 @@ public static class OsSymbolFloorInference
                 if (WithFloor(op.UnderlyingMethod.AvailabilityAnnotations, op.ParentDecl, out _) is { } raisedMethod)
                     op.UnderlyingMethod.AvailabilityAnnotations = raisedMethod;
             }
-            Record("operator", Describe(op.ParentDecl, op.OperatorSymbol), candidates, raised is not null, guardedAt);
+            Record("operator", Describe(op.ParentDecl, op.OperatorSymbol), Leading(absentTarget, candidates), raised is not null, guardedAt);
         }
 
         internal void Method(MethodDecl method)
@@ -165,12 +215,14 @@ public static class OsSymbolFloorInference
             if (!_visited.Add(method))
                 return;
             var candidates = Exported(MethodSymbols(method.MangledName));
-            if (!AbsentFromInventoryOs(candidates))
+            var absentTarget = AbsentCallTarget(method);
+            if (absentTarget is null && !AbsentFromInventoryOs(candidates))
                 return;
             var raised = WithFloor(method.AvailabilityAnnotations, method.ParentDecl, out var guardedAt);
             if (raised is not null)
                 method.AvailabilityAnnotations = raised;
-            Record(method.IsConstructor ? "initializer" : "method", Describe(method.ParentDecl, method.Name), candidates, raised is not null, guardedAt);
+            Record(method.IsConstructor ? "initializer" : "method", Describe(method.ParentDecl, method.Name),
+                Leading(absentTarget, candidates), raised is not null, guardedAt);
         }
 
         internal void Property(PropertyDecl property)
@@ -180,7 +232,8 @@ public static class OsSymbolFloorInference
 
             var getter = property.Accessors.OfType<GetAccessorDecl>().FirstOrDefault();
             var getterCandidates = getter is null ? new List<string>() : Exported(MethodSymbols(getter.Method.MangledName));
-            if (AbsentFromInventoryOs(getterCandidates))
+            var getterTarget = AbsentCallTarget(getter?.Method);
+            if (getterTarget is not null || AbsentFromInventoryOs(getterCandidates))
             {
                 var raised = WithFloor(property.AvailabilityAnnotations, property.ParentDecl, out var guardedAt);
                 if (raised is not null)
@@ -193,7 +246,7 @@ public static class OsSymbolFloorInference
                 foreach (var accessor in property.Accessors)
                     RaiseAccessor(accessor, property);
                 Record("property", Describe(property.ParentDecl, property.Name),
-                    getterCandidates.Concat(AbsentAccessorSymbols(property.Accessors)).Distinct(StringComparer.Ordinal).ToList(),
+                    Leading(getterTarget, getterCandidates.Concat(AbsentAccessorSymbols(property.Accessors))),
                     raised is not null, guardedAt);
                 return;
             }
@@ -203,7 +256,8 @@ public static class OsSymbolFloorInference
             if (setter is null)
                 return;
             var setterCandidates = Exported(MethodSymbols(setter.Method.MangledName));
-            if (!AbsentFromInventoryOs(setterCandidates))
+            var setterTarget = AbsentCallTarget(setter.Method);
+            if (setterTarget is null && !AbsentFromInventoryOs(setterCandidates))
                 return;
             var setterBase = property.SetterAvailabilityAnnotations is { Count: > 0 } own
                 ? own
@@ -215,8 +269,7 @@ public static class OsSymbolFloorInference
                 RaiseAccessor(setter, property);
             }
             Record("property setter", Describe(property.ParentDecl, property.Name),
-                setterCandidates.Concat(AbsentAccessorSymbols(property.Accessors.Where(a => a is not GetAccessorDecl)))
-                    .Distinct(StringComparer.Ordinal).ToList(),
+                Leading(setterTarget, setterCandidates.Concat(AbsentAccessorSymbols(property.Accessors.Where(a => a is not GetAccessorDecl)))),
                 raisedSetter is not null, setterGuardedAt);
         }
 
@@ -228,7 +281,8 @@ public static class OsSymbolFloorInference
             var candidates = Exported(getter is null
                 ? MethodSymbols(subscript.MangledName)
                 : MethodSymbols(getter.Method.MangledName).Concat(MethodSymbols(subscript.MangledName)));
-            if (!AbsentFromInventoryOs(candidates))
+            var getterTarget = AbsentCallTarget(getter?.Method);
+            if (getterTarget is null && !AbsentFromInventoryOs(candidates))
             {
                 SubscriptSetter(subscript);
                 return;
@@ -241,7 +295,7 @@ public static class OsSymbolFloorInference
                     RaiseAccessor(accessor, subscript);
             }
             Record("subscript", Describe(subscript.ParentDecl, "subscript"),
-                candidates.Concat(AbsentAccessorSymbols(subscript.Accessors)).Distinct(StringComparer.Ordinal).ToList(),
+                Leading(getterTarget, candidates.Concat(AbsentAccessorSymbols(subscript.Accessors))),
                 raised is not null, guardedAt);
         }
 
@@ -252,7 +306,8 @@ public static class OsSymbolFloorInference
             if (setter is null)
                 return;
             var setterCandidates = Exported(MethodSymbols(setter.Method.MangledName));
-            if (!AbsentFromInventoryOs(setterCandidates))
+            var setterTarget = AbsentCallTarget(setter.Method);
+            if (setterTarget is null && !AbsentFromInventoryOs(setterCandidates))
                 return;
             var setterBase = setter.Method.AvailabilityAnnotations is { Count: > 0 } own
                 ? own
@@ -260,7 +315,7 @@ public static class OsSymbolFloorInference
             var raised = WithFloor(setterBase, subscript.ParentDecl, out var guardedAt);
             if (raised is not null)
                 setter.Method.AvailabilityAnnotations = raised;
-            Record("subscript setter", Describe(subscript.ParentDecl, "subscript"), setterCandidates, raised is not null, guardedAt);
+            Record("subscript setter", Describe(subscript.ParentDecl, "subscript"), Leading(setterTarget, setterCandidates), raised is not null, guardedAt);
         }
 
         private void RaiseAccessor(AccessorDecl accessor, BaseDecl owner)

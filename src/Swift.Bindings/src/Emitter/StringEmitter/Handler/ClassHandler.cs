@@ -803,6 +803,8 @@ namespace BindingsGeneration
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
             // For classes, the metadata accessor is the mangled name + "Ma"
             string metadataAccessor = $"{_classDecl.MangledName}Ma";
+            // Every method below that holds the native metadata call refuses first below the type's floor.
+            var metadataRefusal = MetadataWrapperEmitter.BuildMetadataRefusal(_classDecl);
 
             if (_pinvokeHelperContext != null)
             {
@@ -811,10 +813,11 @@ namespace BindingsGeneration
                 // AddMetadataAccessorDeclaration transparently routes to thin-mode (<= 3 args)
                 // or buffer-mode (> 3 args) on the helper side.
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
-                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
+                _writer.WriteLines(MetadataWrapperEmitter.FormatGetTypeMetadataForwarder(
+                    $"{_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs})", metadataRefusal));
                 _writer.WriteLine();
 
-                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor, _emissionCtx);
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, metadataAccessor, _emissionCtx, metadataRefusal);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      WrapperValidation.IsXCFrameworkMode(_typeDatabase))
@@ -833,7 +836,7 @@ namespace BindingsGeneration
                     _writer.WriteLine();
 
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx))
+                        libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -872,7 +875,7 @@ namespace BindingsGeneration
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), metadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: hasNew, emissionContext: _emissionCtx))
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), metadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: hasNew, emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                     _classDecl.EmittedMetadataPInvoke = true;
@@ -885,7 +888,7 @@ namespace BindingsGeneration
                 _writer.WriteLine();
 
                 foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                    libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx))
+                    libPath, metadataAccessor, "PInvoke_getMetadata", hasNewModifier: HasMetadataPInvokeInResolvedAncestors(_classDecl), emissionContext: _emissionCtx, refusal: metadataRefusal))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
                 _classDecl.EmittedMetadataPInvoke = true;
@@ -1338,7 +1341,7 @@ namespace BindingsGeneration
     /// </summary>
     public class ClassEqualityMethodsWriter
     {
-        private readonly IndentedTextWriter _writer;
+        private readonly CSharpWriter _writer;
         private readonly ClassDecl _classDecl;
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
@@ -1477,11 +1480,8 @@ namespace BindingsGeneration
             // Carry availability from the `==` operator (so retroactive Equatable conformances
             // like RealityFoundation.TextureResource — class is iOS 13+, Equatable is iOS 18+ —
             // get the operator's @available floor, not just the class's), merged with the class's
-            // ancestors so nested availability still flows through.
-            var equalityOperator = _classDecl.Operators
-                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
-            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
-                equalityOperator?.AvailabilityAnnotations, _classDecl);
+            // ancestors so nested availability still flows through, and the conformance's inferred floor.
+            var availability = EqualityAvailability.EqualityFloor(_classDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             // Compare through the Equatable witness, not `l == r`: a subclass that declares its own
@@ -1502,7 +1502,7 @@ namespace BindingsGeneration
                 && _emissionContext.TryAddEqualityWrapperSymbol(hashSymbol, DeclIdFactory.ForType(_classDecl)))
             {
                 _swiftWriter.WriteLine();
-                WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, hashSymbol, needsMainActor, availability);
+                WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, hashSymbol, needsMainActor, EqualityAvailability.HashFloor(_classDecl));
                 _swiftWriter.WriteLines($$"""
                 public func {{hashSymbol}}(_ value: Swift.UnsafeRawPointer) -> Swift.Int {
                     let v = Swift.Unmanaged<Swift.AnyObject>.fromOpaque(value).takeUnretainedValue() as! {{swiftTypeName}}
@@ -1554,47 +1554,61 @@ namespace BindingsGeneration
             // SafeHandle (a concurrent Dispose then waits for the call to return), and an
             // Objective-C-rooted one is kept reachable so its finalizer cannot run mid-call.
             string equalsExpr(string lhs, string rhs) => $"_SwiftEquals({lhs}, {rhs})";
-            WriteEqualsHelper(eqSymbol);
+            // Every public Equals, == and != reaches the wrapper through _SwiftEquals, which refuses
+            // below the floor the wrapper is exported at; each advertises that floor.
+            var equalityFloor = eqSymbol != null ? EqualityAvailability.EqualityFloor(_classDecl) : null;
+            WriteEqualsHelper(eqSymbol, equalityFloor);
 
             // Always write Equals and GetHashCode methods
             // Use typeNameWithGenerics for is-check
+            bool hashesThroughWrapper = _implementsHashable && eqSymbol != null && HashesThroughWitnessWrapper;
             var hashCodeBody = !_implementsHashable
-                ? "return 0;"
-                : eqSymbol != null && HashesThroughWitnessWrapper
+                ? new[] { "return 0;" }
+                : hashesThroughWrapper
                     // A disposed object has no native peer to hash; it keeps the identity hash
                     // the runtime lookup would have returned.
-                    ? """
-                      var handle = this.GetSwiftHandle();
-                          if (handle == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
-                          nint h = PInvoke_hash(handle);
-                          global::System.GC.KeepAlive(this);
-                          return unchecked((int)h ^ (int)((long)h >> 32));
-                      """
+                    ? new[]
+                    {
+                        "var handle = this.GetSwiftHandle();",
+                        "if (handle == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);",
+                        "nint h = PInvoke_hash(handle);",
+                        "global::System.GC.KeepAlive(this);",
+                        "return unchecked((int)h ^ (int)((long)h >> 32));",
+                    }
                     // The runtime hash marshals the object to Swift, which a disposed wrapper
                     // cannot be; it keeps the identity hash its reference-identity Equals implies.
-                    : """
-                      if (this.GetSwiftHandle() == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);
-                          return Swift.Runtime.SwiftHashable.GetHashCode(this);
-                      """;
-            var equalsMethods = $$"""
+                    : new[]
+                    {
+                        "if (this.GetSwiftHandle() == IntPtr.Zero) return global::System.Runtime.CompilerServices.RuntimeHelpers.GetHashCode(this);",
+                        "return Swift.Runtime.SwiftHashable.GetHashCode(this);",
+                    };
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _classDecl);
+            _writer.WriteLines($$"""
             public override bool Equals(object? obj)
             {
                 return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
             }
+            """);
+            _writer.WriteLine();
 
-            public override int GetHashCode()
-            {
-                {{hashCodeBody}}
-            }
-            """;
-
-            _writer.WriteLines(equalsMethods);
+            // Hashing through the witness wrapper reaches it at the wrapper's floor, refused before the call.
+            var hashFloor = hashesThroughWrapper ? EqualityAvailability.HashFloor(_classDecl) : null;
+            EqualityAvailability.EmitMemberAttributes(_writer, hashFloor, _classDecl);
+            _writer.WriteLine("public override int GetHashCode()");
+            _writer.WriteLine("{");
+            _writer.Indent++;
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer, hashFloor, $"{_classDecl.Name}.hashValue");
+            foreach (var line in hashCodeBody)
+                _writer.WriteLine(line);
+            _writer.Indent--;
+            _writer.WriteLine("}");
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
             // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
+                EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _classDecl);
                 var equalityOperator = $$"""
                 public static bool operator ==({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
                 {
@@ -1610,6 +1624,7 @@ namespace BindingsGeneration
             // Only write operator != if no explicit operator is defined
             if (!_hasExplicitInequalityOperator)
             {
+                EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _classDecl);
                 var inequalityOperator = $$"""
                 public static bool operator !=({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
                 {
@@ -1631,6 +1646,7 @@ namespace BindingsGeneration
             }
             """;
 
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _classDecl);
             _writer.WriteLines(equatableEquals);
             _writer.WriteLine();
         }
@@ -1640,7 +1656,7 @@ namespace BindingsGeneration
         /// identity when either wrapper is disposed, otherwise the Swift <c>==</c> with both native
         /// peers held across the call.
         /// </summary>
-        private void WriteEqualsHelper(string? eqSymbol)
+        private void WriteEqualsHelper(string? eqSymbol, IReadOnlyList<AvailabilityAnnotation>? equalityFloor)
         {
             var compare = eqSymbol == null
                 ? "Swift.Runtime.SwiftEquatable.Equals(left, right)"
@@ -1680,12 +1696,13 @@ namespace BindingsGeneration
                 """;
             }
 
-            _writer.WriteLines($$"""
-            private static bool _SwiftEquals({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
-            {
-            {{body}}
-            }
-            """);
+            _writer.WriteLine($"private static bool _SwiftEquals({_typeNameWithGenerics} left, {_typeNameWithGenerics} right)");
+            _writer.WriteLine("{");
+            _writer.Indent++;
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer, equalityFloor, $"{_classDecl.Name}.==");
+            _writer.Indent--;
+            _writer.WriteLines(body);
+            _writer.WriteLine("}");
             _writer.WriteLine();
         }
 

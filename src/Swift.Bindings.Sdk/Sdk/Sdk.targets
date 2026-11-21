@@ -1327,9 +1327,11 @@ done; true"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
     <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second wrapper slice just linked,
-         except an umbrella the linker keeps strong whose every import is weak (see the script). -->
+         except an umbrella the linker keeps strong whose every import is weak and which the OS symbol
+         inventory's OS has on this slice's platform variant. The generator applies its own check
+         (OsFrameworkWeakLinking.UnsafeStrongLoads) to this slice, as to every slice it links. -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)')"
-          Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/unsafe-strong-os-loads.sh&quot; &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; &quot;$(_AFW_OtherSdkPath)&quot;"
+          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --check-os-loads &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; --check-os-loads-sdk &quot;$(_AFW_OtherSdkPath)&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_StrongOsLoads" />
     </Exec>
@@ -1552,9 +1554,10 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
           ContinueOnError="true" />
 
     <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second SwiftUI bridge slice just linked,
-         except an umbrella the linker keeps strong whose every import is weak (see the script). -->
+         except an umbrella the linker keeps strong (SwiftUI, the bridge's own) whose every import is weak and
+         which the OS symbol inventory's OS has on this slice's platform variant: the generator's check. -->
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)')"
-          Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/unsafe-strong-os-loads.sh&quot; &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; &quot;$(_AFW_OtherSdkPath)&quot;"
+          Command="dotnet exec &quot;$(_SwiftBindingGeneratorDir)Swift.Bindings.dll&quot; --check-os-loads &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; --check-os-loads-sdk &quot;$(_AFW_OtherSdkPath)&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_StrongOsLoads" />
     </Exec>

@@ -1318,9 +1318,11 @@ public static class AsyncMethodGenericBridgeEmitter
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl,
             keptArgs.Select(NameProvider.GetCSharpParameterName).ToList(), cancellationTokenName: ctName);
         var staticStr = methodDecl.MethodType == MethodType.Static ? "static " : "";
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public {staticStr}unsafe {taskReturnType} {methodName}Async({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // TCS.
         csWriter.WriteLine($"TaskCompletionSource{tcsTypeParam} _tcs = new TaskCompletionSource{tcsTypeParam}(global::System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);");

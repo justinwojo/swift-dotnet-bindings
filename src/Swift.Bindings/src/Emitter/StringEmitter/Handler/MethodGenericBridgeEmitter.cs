@@ -815,9 +815,11 @@ public static class MethodGenericBridgeEmitter
         string staticStr = isStatic ? "static " : "";
         string unsafeStr = hasUtf8SliceParam ? "unsafe " : "";
         string returnStr = isVoidReturn ? "void" : csReturnType;
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public {unsafeStr}{staticStr}{returnStr} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // Build P/Invoke call arguments
         var callArgs = new List<string>();

@@ -444,10 +444,19 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
+            // The extensions class carries none of the enum's attributes, so each helper advertises the
+            // enum's floor (declared or inferred), which its signature names. The arms map constants
+            // and reach no native code; a case floored above the enum is named under a CA1416
+            // suppression, since naming it there runs nothing the OS may lack.
+            var casesFlooredAboveEnum = enumDecl.Cases.Any(c => !c.IsSpiProtected && c.AvailabilityAnnotations is { Count: > 0 });
+
             // ToRawValue()
+            EmitEnumFloorAttributes(csWriter, enumDecl);
             csWriter.WriteLine($"public static string ToRawValue(this {enumName} value)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            if (casesFlooredAboveEnum)
+                csWriter.WriteLine("#pragma warning disable CA1416");
             csWriter.WriteLine("return value switch");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -461,14 +470,19 @@ namespace BindingsGeneration
             csWriter.WriteLine($"_ => throw new ArgumentOutOfRangeException(nameof(value), value, null),");
             csWriter.Indent--;
             csWriter.WriteLine("};");
+            if (casesFlooredAboveEnum)
+                csWriter.WriteLine("#pragma warning restore CA1416");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
             // FromRawValue()
+            EmitEnumFloorAttributes(csWriter, enumDecl);
             csWriter.WriteLine($"public static {enumName}? FromRawValue(string rawValue)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
+            if (casesFlooredAboveEnum)
+                csWriter.WriteLine("#pragma warning disable CA1416");
             csWriter.WriteLine("return rawValue switch");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -482,6 +496,8 @@ namespace BindingsGeneration
             csWriter.WriteLine("_ => null,");
             csWriter.Indent--;
             csWriter.WriteLine("};");
+            if (casesFlooredAboveEnum)
+                csWriter.WriteLine("#pragma warning restore CA1416");
             csWriter.Indent--;
             csWriter.WriteLine("}");
 
@@ -489,6 +505,15 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
         }
+
+        /// <summary>
+        /// The enum's floor (its own merged with its enclosing types', declared or inferred) on a
+        /// pure C# helper in the extensions class, which names the enum but carries none of its
+        /// attributes; nothing when the enum has no floor.
+        /// </summary>
+        private static void EmitEnumFloorAttributes(CSharpWriter csWriter, EnumDecl enumDecl) =>
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter,
+                AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl), parentDecl: null, emitObsolete: false);
 
         /// <summary>
         /// Emits a single instance method as a static extension method with Swift wrapper.
@@ -1250,6 +1275,7 @@ namespace BindingsGeneration
         private static void EmitCaseIterableAllCases(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
         {
             csWriter.WriteLine("/// <summary>Returns all cases of the enum.</summary>");
+            EmitEnumFloorAttributes(csWriter, enumDecl);
             csWriter.WriteLine($"public static global::System.Collections.Generic.IReadOnlyList<{enumName}> AllCases {{ get; }} =");
             csWriter.Indent++;
             csWriter.WriteLine($"global::System.Array.AsReadOnly(Enum.GetValues<{enumName}>());");

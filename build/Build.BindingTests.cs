@@ -1345,7 +1345,9 @@ partial class Build
                 // OS load-safety gate: read every slice of both wrappers and require every /System/
                 // dylib load to be weak (LC_LOAD_WEAK_DYLIB). A strong load of an OS framework makes dyld
                 // refuse the whole wrapper on an OS that lacks one symbol it imports — an SDK member
-                // declared without a floor is exactly that. Fail-closed and unconditional.
+                // declared without a floor is exactly that. Then every managed path to an import that OS
+                // lacks must refuse first, read from the wrapper's code and the compiled IL.
+                // Fail-closed and unconditional.
                 RunOsLoadSafetyGate();
 
                 // Native frame gate: run the linked check over every slice of both wrappers, holding

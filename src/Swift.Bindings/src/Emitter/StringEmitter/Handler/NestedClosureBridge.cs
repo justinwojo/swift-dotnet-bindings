@@ -1411,9 +1411,11 @@ public static class NestedClosureBridge
             csharpName: isCtor ? ctorTypeName : methodName,
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
 
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"{declarator}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";

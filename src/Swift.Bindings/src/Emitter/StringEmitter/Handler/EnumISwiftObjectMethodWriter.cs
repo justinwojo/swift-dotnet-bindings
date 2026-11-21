@@ -91,6 +91,8 @@ namespace BindingsGeneration
         private void WriteGetTypeMetadata()
         {
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            // Every method below that holds the native metadata call refuses first below the type's floor.
+            var metadataRefusal = MetadataWrapperEmitter.BuildMetadataRefusal(_enumDecl);
             if (_pinvokeHelperContext != null)
             {
                 // Type metadata accessor: Swift's metadata accessor for a generic type expects
@@ -98,9 +100,10 @@ namespace BindingsGeneration
                 // Use the type-metadata-accessor-specific arg/param list so the right PWTs flow through. Method/case/operator P/Invokes have their
                 // own conformance handling and continue to use GetMetadataArgumentList().
                 var metadataArgs = string.Join(", ", _pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
-                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
+                _writer.WriteLines(MetadataWrapperEmitter.FormatGetTypeMetadataForwarder(
+                    $"{_pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs})", metadataRefusal));
                 _writer.WriteLine();
-                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _enumDecl.MetadataAccessor, _emissionCtx);
+                _pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _enumDecl.MetadataAccessor, _emissionCtx, metadataRefusal);
                 return;
             }
 
@@ -126,7 +129,7 @@ namespace BindingsGeneration
                     _writer.WriteLine();
 
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
+                        libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -165,7 +168,7 @@ namespace BindingsGeneration
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _enumDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx))
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _enumDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -177,7 +180,7 @@ namespace BindingsGeneration
                 _writer.WriteLine();
 
                 foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                    libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
+                    libPath, _enumDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
             }

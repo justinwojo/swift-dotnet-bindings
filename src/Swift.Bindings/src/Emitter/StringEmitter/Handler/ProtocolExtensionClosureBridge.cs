@@ -423,9 +423,11 @@ public static class ProtocolExtensionClosureBridge
         // may name.
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method, new[] { closureParamName });
 
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public unsafe {returnType} {methodName}{methodGenericClause}({string.Join(", ", publicParams)}){methodGenericConstraints}");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // Build inner callback delegate that maps typed args → IntPtr args
         if (closureReturnIsBool)

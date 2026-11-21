@@ -95,12 +95,19 @@ namespace BindingsGeneration
                 _ => rawTypeName // Fall back to the Swift name
             };
 
-            // Find the init(rawValue:) constructor in the enum's methods
-            var initRawValueMethod = enumDecl.Methods.FirstOrDefault(m =>
+            // Find the init(rawValue:) constructor in the enum's methods: the one labeled rawValue: and
+            // taking the raw type by value, which the wrappers call and whose symbol and floor FromRawValue
+            // binds, ahead of another overload the enum declares (init(rawValue:) on another type or
+            // inout, or an unlabeled init(_ rawValue:)).
+            var rawValueInitializers = enumDecl.Methods.Where(m =>
                 m.IsConstructor &&
                 m.Name == "init" &&
                 m.CSSignature.Count == 2 && // Return type + rawValue parameter
-                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue"));
+                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue")).ToList();
+            var initRawValueMethod =
+                rawValueInitializers.FirstOrDefault(m => IsLabeledByValue(m.CSSignature[1]) && NamesRawType(m.CSSignature[1].SwiftTypeSpec, rawTypeName))
+                ?? rawValueInitializers.FirstOrDefault(m => IsLabeledByValue(m.CSSignature[1]))
+                ?? rawValueInitializers.FirstOrDefault();
             if (initRawValueMethod == null)
             {
                 _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but init(rawValue:) constructor not found. Skipping simple case emission.");
@@ -124,6 +131,20 @@ namespace BindingsGeneration
                 ? $"{pinvokeHelperContext.HelperClassName}.{wrapperMethodName}"
                 : wrapperMethodName;
 
+            // FromRawValue reaches init(rawValue:), directly or through its wrapper, so the wrapper is
+            // exported at the initializer's floor merged with the enum's (the initializer can ship
+            // after the enum: an inferred OS floor), and FromRawValue refuses below it and advertises it.
+            var rawValueFloor = AvailabilityHelpers.MergeAvailabilityFromAncestors(initRawValueMethod.AvailabilityAnnotations, enumDecl);
+            void WriteFromRawValueOpening(string signature)
+            {
+                AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
+                    csWriter, rawValueFloor, AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
+                csWriter.WriteLine(signature);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, rawValueFloor, $"{enumTypeName}.init(rawValue:)");
+            }
+
             // For String raw types, emit Swift wrapper for init(rawValue:) conversion
             string? wrapperSymbol = null;
             string? caseByIndexSymbol = null;
@@ -133,7 +154,7 @@ namespace BindingsGeneration
                 // Use full module-qualified name to avoid collisions for same-named nested enums
                 // (e.g., Module.Foo.ErrorType and Module.Bar.ErrorType get unique symbols)
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, ctx, viaMetadata);
+                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, rawValueFloor, ctx, viaMetadata);
             }
             else if (WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
@@ -141,7 +162,7 @@ namespace BindingsGeneration
                 // CallConvSwift + SwiftIndirectResult crash on Mono JIT.
                 // The wrapper writes Optional<Self> to a caller-provided buffer using Cdecl ABI.
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, ctx, viaMetadata);
+                EmitBlittableRawValueSwiftWrapper(swiftWriter, enumDecl, rawTypeName, wrapperSymbol, rawValueFloor, ctx, viaMetadata);
             }
 
             // Emit CaseByIndex Swift wrapper for raw-representable enums.
@@ -168,9 +189,7 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: use UTF-8 marshalling via wrapper
-                    csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
-                    csWriter.WriteLine("{");
-                    csWriter.Indent++;
+                    WriteFromRawValueOpening($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
                     csWriter.WriteLine("var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
                     csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
                     csWriter.WriteLine("{");
@@ -201,9 +220,7 @@ namespace BindingsGeneration
                 else
                 {
                     // Blittable raw type: direct P/Invoke
-                    csWriter.WriteLine($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
-                    csWriter.WriteLine("{");
-                    csWriter.Indent++;
+                    WriteFromRawValueOpening($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
                     // With a wrapper, Swift returns a heap copy of the case or nil, as the String
                     // branch does. The direct init returns Optional<Self> in the enum's own lowering
                     // (a one-byte discriminator for a payload-free enum), never a pointer.
@@ -273,9 +290,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// Creates a {XmlDocCommentEmitter.XmlEscape(enumTypeName)} from its raw value.");
                 csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
                 csWriter.WriteLine("/// </summary>");
-                csWriter.WriteLine($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
-                csWriter.WriteLine("{");
-                csWriter.Indent++;
+                WriteFromRawValueOpening($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
 
                 // Get metadata for the enum type and SwiftOptional<EnumType>.
                 // The metadata accessor PInvoke takes PWT args for any
@@ -551,10 +566,17 @@ namespace BindingsGeneration
 
                 // Non-string enums: use FromRawValue with sequential integer raw values
                 string rawValueLiteral = i.ToString();
+                // The accessor constructs its case through FromRawValue, which refuses below the
+                // initializer's floor, so it advertises that floor beside the case's own.
+                var caseReach = AvailabilityHelpers.WithIntroducedFloors(caseDecl.AvailabilityAnnotations, initRawValueMethod.AvailabilityAnnotations);
 
                 if (canCacheCases)
                 {
                     // Lazy-cached singleton: exactly one native allocation per case, thread-safe.
+                    // The factory runs inside the field's initializer, so the field carries the floor too.
+                    AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(csWriter,
+                        AvailabilityHelpers.MergeAvailabilityFromAncestors(caseReach, enumDecl),
+                        AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
                     csWriter.WriteLine($"private static readonly Lazy<{enumTypeName}> _lazy_{fieldName} = new(() =>");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -569,7 +591,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
                     csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
-                    EmitCachedCaseAccessor(csWriter, caseDecl, enumDecl, enumTypeName, capitalizedName, fieldName);
+                    EmitCachedCaseAccessor(csWriter, caseDecl, enumDecl, enumTypeName, capitalizedName, fieldName, caseReach);
                     csWriter.WriteLine();
                 }
                 else
@@ -579,7 +601,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("/// <summary>");
                     csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
-                    AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
+                    AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseReach, parentDecl: enumDecl);
                     csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -647,7 +669,9 @@ namespace BindingsGeneration
         /// runs its body in an extension of the enum, where <c>Self</c> is the instantiation the
         /// caller's metadata selected (see <see cref="EmitMetadataDispatchedRawRepWrapper"/>).
         /// </param>
-        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
+        /// <param name="availability">The initializer's floor merged with the enum's and its ancestors':
+        /// @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.</param>
+        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, IReadOnlyList<AvailabilityAnnotation>? availability, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
@@ -661,10 +685,6 @@ namespace BindingsGeneration
 
             // Emit SBW_Utf8Slice struct if not already done for this module
             Utf8SliceEmitter.EmitIfNeeded(swiftWriter, ctx);
-
-            // Emit availability annotations from the enum and its ancestors.
-            // @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.
-            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
             const string decodeSlice = """
                 let slice = slicePtr.load(as: SBW_Utf8Slice.self)
@@ -714,13 +734,27 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>Whether <paramref name="parameter"/> is labeled <c>rawValue:</c> and passed by value, as the wrappers pass it.</summary>
+        private static bool IsLabeledByValue(ArgumentDecl parameter) => parameter.Name == "rawValue" && !parameter.IsInOut;
+
+        /// <summary>
+        /// Whether <paramref name="spec"/> is the enum's raw type, <paramref name="rawTypeName"/> as
+        /// <see cref="EnumDecl.RawValueTypeName"/> spells it (a standard-library name without its
+        /// <c>Swift.</c> prefix, any other unqualified).
+        /// </summary>
+        private static bool NamesRawType(TypeSpec? spec, string rawTypeName) =>
+            spec is NamedTypeSpec named
+            && (named.Name == rawTypeName
+                || named.Name == TypeSpecHelpers.QualifyStdlibScalarName(rawTypeName)
+                || (rawTypeName == "CGFloat" && named.Name is "CoreGraphics.CGFloat" or "CoreFoundation.CGFloat" or "Foundation.CGFloat"));
+
         /// <summary>
         /// Emits a @_cdecl Swift wrapper for blittable enum init(rawValue:). A non-frozen enum's
         /// wrapper writes Optional&lt;Self&gt; to a caller-provided buffer; a frozen enum's returns a
         /// heap copy of the case or nil. Both avoid avoiding CallConvSwift + SwiftIndirectResult
         /// which crashes on Mono JIT.
         /// </summary>
-        private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
+        private void EmitBlittableRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, string rawTypeName, string wrapperSymbol, IReadOnlyList<AvailabilityAnnotation>? availability, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
@@ -728,7 +762,6 @@ namespace BindingsGeneration
                 return;
 
             var enumFullName = viaMetadata ? "Self" : enumDecl.SwiftTypeName.ModuleQualifiedName;
-            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
 
             var rawParam = $"_ rawValue: {TypeSpecHelpers.QualifyStdlibScalarName(rawTypeName)}";
             if (enumDecl.IsFrozen)

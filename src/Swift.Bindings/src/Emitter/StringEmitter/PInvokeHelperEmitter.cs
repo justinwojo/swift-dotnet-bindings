@@ -655,8 +655,13 @@ public class PInvokeHelperContext
     /// <param name="emissionContext">
     /// The module's emission context, which the declaration records its Swift call facts on.
     /// </param>
+    /// <param name="refusal">
+    /// The type's metadata refusal (<see cref="MetadataWrapperEmitter.BuildMetadataRefusal"/>). In
+    /// buffer mode the internal wrapper holds the native call, so it opens with it; in thin mode the
+    /// caller's <c>GetTypeMetadata</c> does.
+    /// </param>
     public void AddMetadataAccessorDeclaration(
-        string libraryPath, string metadataAccessorSymbol, ModuleEmissionContext? emissionContext = null)
+        string libraryPath, string metadataAccessorSymbol, ModuleEmissionContext? emissionContext = null, string? refusal = null)
     {
         if (!ExceedsRegisterArgumentThreshold)
         {
@@ -678,7 +683,7 @@ public class PInvokeHelperContext
         if (!_metadataAccessorEmitted.Add(metadataAccessorSymbol))
             return;
 
-        RawCodeBlocks.Add(BuildBufferModeMetadataAccessorBlock(libraryPath, metadataAccessorSymbol));
+        RawCodeBlocks.Add(BuildBufferModeMetadataAccessorBlock(libraryPath, metadataAccessorSymbol, refusal));
 
         // The buffer-mode block is raw text, not a formatted declaration, so it records its own
         // Swift-convention transition: the accessor symbol, called with the request and the buffer.
@@ -694,7 +699,7 @@ public class PInvokeHelperContext
     // (e.g., failable init metadata re-emission).
     private readonly HashSet<string> _metadataAccessorEmitted = new();
 
-    private string BuildBufferModeMetadataAccessorBlock(string libraryPath, string metadataAccessorSymbol)
+    private string BuildBufferModeMetadataAccessorBlock(string libraryPath, string metadataAccessorSymbol, string? refusal)
     {
         var thinParams = GetTypeMetadataAccessorParameterDeclarations();
         int metadataAndPwtArgCount = thinParams.Count;
@@ -733,6 +738,7 @@ public class PInvokeHelperContext
 
             internal static global::Swift.Runtime.TypeMetadata PInvoke_getMetadata({{wrapperParamList}})
             {
+                {{refusal ?? ""}}
                 global::System.IntPtr* buffer = stackalloc global::System.IntPtr[{{metadataAndPwtArgCount}}];
             {{storeBlock}}
                 return {{BufferModeMetadataAccessorMethodName}}(request, (global::System.IntPtr)buffer);

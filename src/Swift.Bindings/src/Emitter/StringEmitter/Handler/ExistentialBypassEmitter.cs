@@ -1028,9 +1028,11 @@ public static class ExistentialBypassEmitter
             csharpName: methodName,
             parameterPortion: ModuleEmissionContext.FormatParameterPortion(
                 reducedWrapperSig.ApiSurfaceParameterTypes()));
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"{accessModifier} {unsafeModifier}{returnTypeKeyword} {methodName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
         TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         // Suppressed return-proxy: emit a throwing body and skip the buffer alloc / P/Invoke call.
@@ -1344,9 +1346,11 @@ public static class ExistentialBypassEmitter
                 reducedWrapperSig.ApiSurfaceParameterTypes()));
         var mainActor = NeedsCSharpMainActorSurfacing(env);
         TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"{accessModifier} static unsafe {typeName} {factoryName}({paramString})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
         TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
 
         // Generate marshalling code for string params if needed

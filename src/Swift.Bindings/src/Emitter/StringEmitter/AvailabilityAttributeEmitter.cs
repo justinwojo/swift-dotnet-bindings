@@ -272,6 +272,50 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// The platform attributes of a member a method bridge writes in place of the ordinary method
+    /// emission (the adapters of <c>MethodHandler.BridgeEmitters</c>), placed just ahead of its
+    /// declaration. The bridge opens the body with <see cref="EmitBridgedMemberGuard"/>: the same pair
+    /// <c>WrapperEmitter</c> writes on the ordinary path, which no bridge goes through.
+    /// </summary>
+    public static void EmitBridgedMemberAttributes(CSharpWriter csWriter, MethodEnvironment env)
+        => EmitAvailabilityAttributes(csWriter, env.MethodDecl, env.ParentDecl, emitObsolete: false);
+
+    /// <summary>
+    /// The first statement of a bridged member's body: refuses the call below the member's effective
+    /// floor (its own availability, an inferred one included, merged with every enclosing type's) before
+    /// the bridge allocates a callback handle or calls Swift, where a weak-linked symbol the OS lacks is
+    /// a null call.
+    /// </summary>
+    public static void EmitBridgedMemberGuard(CSharpWriter csWriter, MethodEnvironment env)
+    {
+        var parentName = env.ParentDecl?.Name;
+        var memberName = env.MethodDecl.Name;
+        EmitRuntimeAvailabilityGuard(
+            csWriter,
+            WrapperEmitterHelpers.MergeAvailabilityFromAncestors(env.MethodDecl.AvailabilityAnnotations, env.ParentDecl),
+            string.IsNullOrEmpty(parentName) ? memberName : $"{parentName}.{memberName}");
+    }
+
+    /// <summary>
+    /// The guard <see cref="EmitRuntimeAvailabilityGuard"/> writes, as one statement
+    /// (<c>if (below floor) throw new PlatformNotSupportedException(…);</c>), or <c>null</c> when the
+    /// annotations declare no platform floor. For a body written as one block, such as a type's
+    /// metadata accessor, whose native call must not run below the type's floor.
+    /// </summary>
+    public static string? BuildRuntimeAvailabilityGuardStatement(
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAnnotations,
+        string apiDescription)
+    {
+        var guarded = ResolveStrictestFloors(effectiveAnnotations);
+        if (guarded.Count == 0)
+            return null;
+        var floors = string.Join(" / ", guarded.Select(g =>
+            $"{(PlatformDisplayNames.TryGetValue(g.platform, out var disp) ? disp : g.platform)} {g.version}"));
+        var message = $"{apiDescription} is not available on this OS version; it requires {floors} or later.";
+        return $"if ({BuildBelowFloorCondition(guarded)}) throw new global::System.PlatformNotSupportedException(\"{UnsupportedSwiftTypeSupport.EscapeStringLiteral(message)}\");";
+    }
+
+    /// <summary>
     /// Builds a ONE-STATEMENT runtime availability guard for a member whose effective floor is
     /// stricter than the floor its enclosing type already guards, or <c>null</c> when the member
     /// adds nothing beyond that type. The statement throws
@@ -527,43 +571,22 @@ internal static class AvailabilityAttributeEmitter
     /// The (platform, version) pairs on which the setter's introduced version is strictly newer
     /// than the property's. Both sides are macCatalyst→iOS lifted first so the comparison — and
     /// the attribute built from it — use the floor the <c>@_cdecl</c> setter wrapper is exported at.
+    /// A list can name a platform twice (a declared floor beside one the OS symbol inventory
+    /// inferred), so each side is read at its strictest floor per platform
+    /// (<see cref="ResolveStrictestFloors"/>), whatever the order of its entries.
     /// </summary>
     private static List<(string platform, string version)> ResolveTighterSetterFloors(
         IReadOnlyList<AvailabilityAnnotation>? propertyAvailability,
         IReadOnlyList<AvailabilityAnnotation>? setterAvailability)
     {
-        var tighter = new List<(string platform, string version)>();
-
-        setterAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(setterAvailability);
-        if (setterAvailability == null || setterAvailability.Count == 0)
-            return tighter;
-        propertyAvailability = AvailabilityHelpers.LiftMacCatalystFloorToIOS(propertyAvailability);
-
-        var propPlatforms = new Dictionary<string, string>(StringComparer.Ordinal);
-        if (propertyAvailability != null)
-        {
-            foreach (var ann in propertyAvailability)
-            {
-                if (ann.Platform != null && ann.IntroducedVersion != null)
-                    propPlatforms[ann.Platform] = ann.IntroducedVersion;
-            }
-        }
-
-        foreach (var ann in setterAvailability)
-        {
-            if (ann.Platform == null || ann.IntroducedVersion == null)
-                continue;
-            if (!PlatformMapping.TryGetValue(ann.Platform, out var dotnetPlatform))
-                continue;
-            // Only emit when strictly tighter than the property-level annotation —
-            // attributes that merely repeat the property's versions are redundant.
-            if (propPlatforms.TryGetValue(ann.Platform, out var propVersion) &&
-                !IsStrictlyNewer(ann.IntroducedVersion, propVersion))
-                continue;
-            tighter.Add((dotnetPlatform, ann.IntroducedVersion));
-        }
-
-        return tighter;
+        var propertyFloors = ResolveStrictestFloors(propertyAvailability)
+            .ToDictionary(f => f.platform, f => f.version, StringComparer.Ordinal);
+        // Only the platforms where the setter is strictly tighter: an attribute that merely repeats
+        // the property's floor is redundant.
+        return ResolveStrictestFloors(setterAvailability)
+            .Where(f => !propertyFloors.TryGetValue(f.platform, out var propertyVersion)
+                        || IsStrictlyNewer(f.version, propertyVersion))
+            .ToList();
     }
 
     /// <summary>

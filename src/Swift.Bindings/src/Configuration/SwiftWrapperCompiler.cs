@@ -2189,7 +2189,7 @@ namespace BindingsGeneration
                 if (kept.Count > 0)
                 {
                     var unsafeLoads = OsFrameworkWeakLinking.UnsafeStrongLoads(
-                        kept, OsFrameworkWeakLinking.ReadImports(outputBinaryPath, commandRunner), sdkPath, OsSymbolInventory.Shipped);
+                        kept, OsFrameworkWeakLinking.ReadImports(outputBinaryPath, commandRunner), sdkPath, OsFrameworkWeakLinking.RunInventory);
                     if (unsafeLoads.Count > 0)
                         throw new InvalidOperationException(
                             OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, unsafeLoads));

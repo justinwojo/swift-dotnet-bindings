@@ -43,14 +43,20 @@ namespace BindingsGeneration
 
         /// <summary>
         /// The inventory a run uses: the shipped one, or <paramref name="inventoryPath"/> loaded over it,
-        /// whose providers are then weak-linked like OS frameworks by every wrapper link of the run.
+        /// whose providers are then weak-linked like OS frameworks by every wrapper link of the run, and
+        /// which then decides every strong-load check of the run (<see cref="OsFrameworkWeakLinking.RunInventory"/>),
+        /// as it decides the floors.
         /// </summary>
         internal static OsSymbolInventory LoadForRun(string? inventoryPath)
         {
             if (string.IsNullOrEmpty(inventoryPath))
+            {
+                OsFrameworkWeakLinking.RunInventory = null;
                 return OsSymbolInventory.Shipped;
+            }
             var inventory = OsSymbolInventory.Load(inventoryPath, OsSymbolInventory.Shipped);
             OsFrameworkWeakLinking.TreatAsOsProviders(inventory.Providers.Select(p => p.InstallName));
+            OsFrameworkWeakLinking.RunInventory = inventory;
             return inventory;
         }
 
@@ -64,7 +70,17 @@ namespace BindingsGeneration
             ICommandRunner commandRunner, ILogger logger)
         {
             if (string.IsNullOrEmpty(moduleName))
+            {
+                OsFrameworkWeakLinking.RunInventory = null;
                 return null;
+            }
+            // A module that is not an OS framework is floored only as a supplied provider, and only a
+            // supplied file names providers, so without one the shipped inventory stays undecoded.
+            if (!isOsFramework && string.IsNullOrEmpty(inventoryPath))
+            {
+                OsFrameworkWeakLinking.RunInventory = null;
+                return null;
+            }
             var inventory = LoadForRun(inventoryPath);
             if (!isOsFramework && inventory.FindProvider(moduleName) is null)
                 return null;

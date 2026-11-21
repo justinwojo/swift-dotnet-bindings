@@ -71,7 +71,7 @@ namespace BindingsGeneration.Tests
 
         // otool -l of a wrapper whose SwiftUI load the linker kept strong although -weak_framework SwiftUI
         // was passed: SwiftUI re-exports SwiftUICore, which only its allowed clients may link.
-        private const string StrongSwiftUI = """
+        internal const string StrongSwiftUI = """
             Load command 10
                   cmd LC_BUILD_VERSION
               cmdsize 32
@@ -89,7 +89,7 @@ namespace BindingsGeneration.Tests
             """;
 
         // dyld_info -imports of that wrapper, in the shape dyld_info 1.0 writes for a fat slice.
-        private const string WeakSwiftUIImports = """
+        internal const string WeakSwiftUIImports = """
             /tmp/out/Binary [arm64]:
                 -imports:
                   0x0000  _$s7SwiftUI4TextVMn [weak-import] (from SwiftUI)
@@ -102,7 +102,7 @@ namespace BindingsGeneration.Tests
                   0x0000  _$s7SwiftUI4TextVMn [weak-import] (from SwiftUI)
             """;
 
-        private const string StrongSwiftUIImport = """
+        internal const string StrongSwiftUIImport = """
             /tmp/out/Binary [arm64]:
                 -imports:
                   0x0000  _$s7SwiftUI4TextVMn [weak-import] (from SwiftUI)
@@ -113,7 +113,7 @@ namespace BindingsGeneration.Tests
         /// A throwaway SDK holding the stubs the strong-umbrella rule reads: SwiftUI re-exporting a
         /// restricted SwiftUICore and a public UIKit, and Foundation re-exporting nothing.
         /// </summary>
-        private sealed class StubSdk : IDisposable
+        internal sealed class StubSdk : IDisposable
         {
             private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "osfw-sdk-" + Guid.NewGuid().ToString("N"));
 
@@ -169,7 +169,7 @@ namespace BindingsGeneration.Tests
             }
         }
 
-        private const string SwiftUIInstallName = "/System/Library/Frameworks/SwiftUI.framework/SwiftUI";
+        internal const string SwiftUIInstallName = "/System/Library/Frameworks/SwiftUI.framework/SwiftUI";
         private const string FoundationInstallName = "/System/Library/Frameworks/Foundation.framework/Foundation";
 
         [Fact]

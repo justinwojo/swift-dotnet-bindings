@@ -34,7 +34,14 @@ public static class SwiftCallTargetResolver
     /// <param name="methodDecl">The method declaration (used for dispatch classification, not for MangledName).</param>
     /// <param name="parentDecl">The parent type declaration (ClassDecl, StructDecl, etc.), or null for free functions.</param>
     /// <returns>The fully resolved symbol name (without leading underscore — caller adds platform prefix).</returns>
-    public static string Resolve(string mangledName, MethodDecl methodDecl, BaseDecl? parentDecl)
+    public static string Resolve(string mangledName, MethodDecl methodDecl, BaseDecl? parentDecl) =>
+        Resolve(mangledName, methodDecl, parentDecl, methodDecl.ModuleDecl?.ExportedSymbols);
+
+    /// <summary>
+    /// <see cref="Resolve(string, MethodDecl, BaseDecl?)"/> against an explicit export list, for a caller
+    /// (the OS floor inference) that judges the symbol the binding calls before emission.
+    /// </summary>
+    internal static string Resolve(string mangledName, MethodDecl methodDecl, BaseDecl? parentDecl, IReadOnlySet<string>? exported)
     {
         // With library evolution, an overridable class member is dispatched through its vtable
         // entry. The implementation is a local (non-exported) symbol in the dylib; only the
@@ -57,7 +64,6 @@ public static class SwiftCallTargetResolver
             return mangledName;
         }
 
-        var exported = methodDecl.ModuleDecl?.ExportedSymbols;
         var ownThunk = mangledName + ManglingProbes.DispatchThunkSuffix;
 
         // The library's export list, when known, outranks the declaration's attributes: a member the

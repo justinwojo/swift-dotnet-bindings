@@ -83,6 +83,8 @@ public static class BindingsGeneratorCommand
         var compileBridgeOnly = parseResult.GetValueForOption(options.CompileBridgeOnly);
         var detectAppleCrossModuleDeps = parseResult.GetValueForOption(options.DetectAppleCrossModuleDeps);
         var sliceXcframework = parseResult.GetValueForOption(options.SliceXcframework);
+        var checkOsLoads = parseResult.GetValueForOption(options.CheckOsLoads);
+        var checkOsLoadsSdk = parseResult.GetValueForOption(options.CheckOsLoadsSdk);
         var rid = parseResult.GetValueForOption(options.Rid);
         var resolveAutoDeps = parseResult.GetValueForOption(options.ResolveAutoDeps);
         var autoDepSpec = parseResult.GetValueForOption(options.AutoDepSpec);
@@ -172,6 +174,16 @@ public static class BindingsGeneratorCommand
                 logger.LogError("Error: {Message}", ex.Message);
                 context.ExitCode = 1;
             }
+            return;
+        }
+
+        // Handle --check-os-loads: the generator's load-safety check of a binary the SDK linked (its
+        // second wrapper and bridge slices), against the run's OS symbol inventory. Out-of-tree from
+        // generation, so it runs BEFORE --platform validation; stdout carries only the unsafe loads.
+        if (!string.IsNullOrWhiteSpace(checkOsLoads))
+        {
+            context.ExitCode = OsLoadCheckCommand.Run(
+                checkOsLoads!, checkOsLoadsSdk, osSymbolInventoryPath, new SystemCommandRunner(), Console.Out, logger);
             return;
         }
 
@@ -505,8 +517,9 @@ public static class BindingsGeneratorCommand
         }
 
         // A supplied inventory's providers are weak-linked in the wrapper-only and bridge-only links as
-        // in the full run's, which loads the inventory itself.
-        if ((compileWrapperOnly || compileBridgeOnly) && !string.IsNullOrEmpty(osSymbolInventoryPath))
+        // in the full run's, which loads the inventory itself. Without one the links check against the
+        // shipped inventory, never one an earlier run in this process supplied.
+        if (compileWrapperOnly || compileBridgeOnly)
         {
             try
             {
