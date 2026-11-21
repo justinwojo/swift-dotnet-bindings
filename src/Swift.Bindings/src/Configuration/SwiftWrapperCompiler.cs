@@ -455,7 +455,7 @@ namespace BindingsGeneration
                 catch (Exception ex) when (collector != null)
                 {
                     collector.RecordFailure(
-                        simSlice.SliceId, ReadSliceDiagnostics(simBinaryPathForRecovery, ex));
+                        simSlice.SliceId, ReadSliceDiagnostics(simBinaryPathForRecovery, ex, logger));
                 }
 
                 // 5. Compile device slice (if available)
@@ -616,7 +616,7 @@ namespace BindingsGeneration
                     catch (Exception ex) when (collector != null)
                     {
                         collector.RecordFailure(
-                            deviceSlice.SliceId, ReadSliceDiagnostics(devBinaryPathForRecovery, ex));
+                            deviceSlice.SliceId, ReadSliceDiagnostics(devBinaryPathForRecovery, ex, logger));
                     }
                 }
 
@@ -1031,7 +1031,7 @@ namespace BindingsGeneration
                 // exception propagates exactly as it did before — the throw path is byte-identical.
                 collector.RecordFailure(
                     recoverySliceId ?? slice.SliceId,
-                    ReadSliceDiagnostics(recoveryBinaryPath, ex));
+                    ReadSliceDiagnostics(recoveryBinaryPath, ex, logger));
                 return null;
             }
             finally
@@ -1065,7 +1065,7 @@ namespace BindingsGeneration
         /// before swiftc ran). Never throws: attribution must not itself fail the recovery loop.
         /// </summary>
         private static IReadOnlyList<Diagnostics.DiagnosticGroup> ReadSliceDiagnostics(
-            string? binaryPath, Exception ex)
+            string? binaryPath, Exception ex, ILogger logger)
         {
             string? stderr = null;
             if (!string.IsNullOrEmpty(binaryPath))
@@ -1082,6 +1082,10 @@ namespace BindingsGeneration
             var groups = Diagnostics.SwiftDiagnosticParser.Parse(stderr);
             if (groups.Count == 0 && ex != null)
                 groups = Diagnostics.SwiftDiagnosticParser.Parse(ex.Message);
+            // A failure with no compiler diagnostic (a relink, a load-command check, a validation
+            // throw) attributes nothing, so its reason would otherwise reach no log or report.
+            if (groups.Count == 0 && ex != null)
+                logger.LogWarning("Wrapper slice failed without a compiler diagnostic: {Reason}", ex.Message);
             return groups;
         }
 
@@ -2005,7 +2009,14 @@ namespace BindingsGeneration
                 $"-o \"{outputBinaryPath}\" " +
                 fileArgs;
 
-            var args = BuildArgs("");
+            // P1: weak-link every OS-resident framework the link loads (OsFrameworkWeakLinking). The first
+            // link weak-links what this module is known to need; the check after it relinks once if any
+            // other OS framework came out strong.
+            var weakFrameworks = OsFrameworkWeakLinking.Predict(wrapperModuleName, originalModuleName, frameworkSearchPath, sdkPath);
+            var retryLinkerFlags = "";
+            string LinkArgs() => BuildArgs(OsFrameworkWeakLinking.SwiftcFlags(weakFrameworks) + retryLinkerFlags);
+
+            var args = LinkArgs();
 
             logger.LogDebug("Invoking: xcrun {Args}", args);
 
@@ -2031,8 +2042,8 @@ namespace BindingsGeneration
                 {
                     logger.LogInformation(
                         "Retrying wrapper compile with profile runtime archive: {Archive}", profileArchive);
-                    var retryFlags = $"-Xlinker \"{profileArchive}\" ";
-                    var retryArgs = BuildArgs(retryFlags);
+                    retryLinkerFlags = $"-Xlinker \"{profileArchive}\" ";
+                    var retryArgs = LinkArgs();
                     logger.LogDebug("Retrying: xcrun {Args}", retryArgs);
                     (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: swiftcTimeoutMs);
                     args = retryArgs;
@@ -2104,6 +2115,9 @@ namespace BindingsGeneration
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
             }
 
+            args = EnsureOsFrameworksWeaklyLinked(
+                args, LinkArgs, weakFrameworks, outputBinaryPath, wrapperModuleName, sdkPath, swiftcTimeoutMs, commandRunner, logger);
+
             if (lowering is { Verifies: true })
             {
                 // A relink of a wrapper whose receipt is already written: the slice must have been
@@ -2127,6 +2141,66 @@ namespace BindingsGeneration
                     originalModuleName, transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, strippedSymbols,
                     compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs, sdkPath);
             }
+        }
+
+        /// <summary>
+        /// Reads the linked wrapper's load commands and relinks it once, with every OS-resident framework that
+        /// came out strong and was not yet asked for weak added to <paramref name="weakFrameworks"/>, then
+        /// requires every OS-resident load still strong to be one a missing symbol cannot fail (P1,
+        /// <see cref="OsFrameworkWeakLinking"/>): every import from it weak, and the linker's reason to keep
+        /// it strong, an umbrella re-exporting a library only its allowed clients may link, shown by the SDK.
+        /// Returns the arguments of the link that produced the binary.
+        /// </summary>
+        private static string EnsureOsFrameworksWeaklyLinked(
+            string args,
+            Func<string> linkArgs,
+            SortedSet<string> weakFrameworks,
+            string outputBinaryPath,
+            string wrapperModuleName,
+            string? sdkPath,
+            int timeoutMs,
+            ICommandRunner commandRunner,
+            ILogger logger)
+        {
+            var (strong, other) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
+            if (other.Count > 0)
+                throw new InvalidOperationException(OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, other));
+            var missing = strong.Where(f => !weakFrameworks.Contains(f)).ToList();
+            if (missing.Count > 0)
+            {
+                logger.LogInformation(
+                    "Relinking {Wrapper} to weak-link the OS framework(s) it loaded strongly: {Frameworks}",
+                    wrapperModuleName, string.Join(", ", missing));
+                weakFrameworks.UnionWith(missing);
+                args = linkArgs();
+                logger.LogDebug("Relinking: xcrun {Args}", args);
+                var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: timeoutMs);
+                if (exitCode != 0)
+                {
+                    var preview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
+                    throw new InvalidOperationException(
+                        $"Swift wrapper relink with weak-linked OS frameworks failed (exit code {exitCode}): {preview}");
+                }
+            }
+            if (strong.Count > 0)
+            {
+                var kept = OsFrameworkWeakLinking.StrongOsResidentLoads(
+                    OsFrameworkWeakLinking.ReadLoadCommands(outputBinaryPath, commandRunner));
+                if (kept.Count > 0)
+                {
+                    var unsafeLoads = OsFrameworkWeakLinking.UnsafeStrongLoads(
+                        kept, OsFrameworkWeakLinking.ReadImports(outputBinaryPath, commandRunner), sdkPath, OsSymbolInventory.Shipped);
+                    if (unsafeLoads.Count > 0)
+                        throw new InvalidOperationException(
+                            OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, unsafeLoads));
+                    logger.LogInformation(
+                        "{Wrapper}: the linker keeps {Loads} loaded strongly (an umbrella re-exporting a library only " +
+                        "its allowed clients may link); every import from it is weak, so a missing symbol binds to null",
+                        wrapperModuleName, string.Join(", ", kept));
+                }
+            }
+            OsFrameworkWeakLinking.Learn(wrapperModuleName, weakFrameworks);
+            return args;
         }
 
         /// <summary>

@@ -634,10 +634,14 @@ namespace BindingsGeneration
             // when the type's effective floor is satisfied here. The member-level guards already
             // convert a below-floor call into a catchable PlatformNotSupportedException, so an
             // un-warmed gated type still resolves correctly (just lazily) on a new-enough OS.
-            void EmitGuardedRegistration(string typeName, string body)
+            void EmitGuardedRegistration(string typeName, string body, string? protocolName = null)
             {
-                var guard = AvailabilityAttributeEmitter.BuildIsAvailableCondition(
-                    emissionCtx?.GetTypeEffectiveAvailability(typeName));
+                // A conformance carries its own floor when the inventory's OS ships the type but not
+                // the conformance (OsSymbolFloorInference); resolving its witness table below that
+                // floor would read a null conformance descriptor.
+                var guard = AvailabilityAttributeEmitter.BuildIsAvailableCondition(protocolName is null
+                    ? emissionCtx?.GetTypeEffectiveAvailability(typeName)
+                    : emissionCtx?.GetConformanceEffectiveAvailability(typeName, protocolName));
                 if (guard != null)
                     csWriter.WriteLines($"        if ({guard}) {{ {body} }}");
                 else
@@ -701,7 +705,7 @@ namespace BindingsGeneration
             foreach (var (typeName, protocolName) in conformances)
             {
                 EmitGuardedRegistration(typeName,
-                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}");
+                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterConformanceFactory<{typeName}, {protocolName}>(); }} catch {{ }}", protocolName);
             }
             // Pre-register witness tables for ALL protocol conformances.
             // This eagerly computes and caches the witness table during module initialization
@@ -712,7 +716,7 @@ namespace BindingsGeneration
             foreach (var (typeName, protocolName) in conformances)
             {
                 EmitGuardedRegistration(typeName,
-                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>(); }} catch {{ }}");
+                    $"try {{ global::Swift.Runtime.InteropServices.SwiftMarshal.RegisterWitnessTable<{typeName}, {protocolName}>(); }} catch {{ }}", protocolName);
             }
             // Register simple enum metadata via P/Invoke to @_cdecl Swift wrappers.
             // Simple C# enums can't implement ISwiftObject, so their Swift metadata must be
@@ -721,8 +725,11 @@ namespace BindingsGeneration
             // extra-inhabitant encoding from the actual Swift enum).
             foreach (var (typeName, _, _) in simpleEnumRegistrations)
             {
+                // Gated like the ISwiftObject registrations: the wrapper's metadata accessor of an
+                // OS-floored enum returns nil below its floor, and FromHandle would register that.
                 var safeName = typeName.Replace(".", "_");
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
+                EmitGuardedRegistration(typeName,
+                    $"try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
             }
             // Imported C structs projected as an existing .NET value type (CoreMedia.CMTime): same
             // lane as the simple enums above, for the same reason — the managed type can't supply

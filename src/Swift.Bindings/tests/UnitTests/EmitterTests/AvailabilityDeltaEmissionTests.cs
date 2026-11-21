@@ -184,6 +184,18 @@ public class AvailabilityDeltaEmissionTests
     }
 
     [Fact]
+    public void WitnessBody_BlamesTheOs_ForAnInferredOsFloor()
+    {
+        var member = new List<AvailabilityAnnotation> { RuntimeFloor("iOS", "27.2") with { IsInferredOsFloor = true } };
+
+        var guard = EmitGuard(member);
+
+        Assert.Contains("iOS 27.2", guard);
+        Assert.Contains("ships it only from", guard);
+        Assert.DoesNotContain("parameterized protocol", guard);
+    }
+
+    [Fact]
     public void WitnessBody_HasNoGuard_WhenEveryFloorIsDeclared()
     {
         Assert.Equal(string.Empty, EmitGuard(new List<AvailabilityAnnotation> { Ann("iOS", "17.0") }));

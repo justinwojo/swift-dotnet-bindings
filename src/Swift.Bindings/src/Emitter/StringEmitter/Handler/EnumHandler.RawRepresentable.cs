@@ -520,7 +520,7 @@ namespace BindingsGeneration
                         csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                         csWriter.WriteLine("/// </summary>");
                         csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
-                        csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                        EmitCachedCaseAccessor(csWriter, caseDecl, enumDecl, enumTypeName, capitalizedName, fieldName);
                         csWriter.WriteLine();
                     }
                     else
@@ -528,12 +528,14 @@ namespace BindingsGeneration
                         csWriter.WriteLine("/// <summary>");
                         csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                         csWriter.WriteLine("/// </summary>");
+                        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
                         csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                         csWriter.WriteLine("{");
                         csWriter.Indent++;
                         csWriter.WriteLine("get");
                         csWriter.WriteLine("{");
                         csWriter.Indent++;
+                        EmitCaseAccessorGuard(csWriter, caseDecl, enumDecl, $"{enumTypeName}.{capitalizedName}");
                         csWriter.WriteLine($"IntPtr ptr = {caseByIndexCall};");
                         csWriter.WriteLine($"var result = new {enumTypeName}();");
                         csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(ptr);");
@@ -567,7 +569,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
                     csWriter.WriteLine("/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
-                    csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                    EmitCachedCaseAccessor(csWriter, caseDecl, enumDecl, enumTypeName, capitalizedName, fieldName);
                     csWriter.WriteLine();
                 }
                 else
@@ -577,12 +579,14 @@ namespace BindingsGeneration
                     csWriter.WriteLine("/// <summary>");
                     csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                     csWriter.WriteLine("/// </summary>");
+                    AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
                     csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     csWriter.WriteLine("get");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
+                    EmitCaseAccessorGuard(csWriter, caseDecl, enumDecl, $"{enumTypeName}.{capitalizedName}");
                     csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
                     csWriter.WriteLine("if (result == null)");
                     csWriter.WriteLine("{");

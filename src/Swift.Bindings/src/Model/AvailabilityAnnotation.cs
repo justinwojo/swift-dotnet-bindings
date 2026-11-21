@@ -26,4 +26,12 @@ public record AvailabilityAnnotation(
     /// less available than its requirement); it guards the witness body instead.
     /// </summary>
     public bool IsRuntimeSupportFloor { get; init; }
+
+    /// <summary>
+    /// True when the floor was inferred from the OS symbol inventory: the generating SDK exports the
+    /// member's symbol without declaring a floor, and the inventory's older OS does not ship it
+    /// (<see cref="OsSymbolFloorInference"/>). Such an entry is also a
+    /// <see cref="IsRuntimeSupportFloor"/>, since Swift does not know of it.
+    /// </summary>
+    public bool IsInferredOsFloor { get; init; }
 }

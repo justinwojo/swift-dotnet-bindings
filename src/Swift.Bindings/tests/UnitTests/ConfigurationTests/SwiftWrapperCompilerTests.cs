@@ -764,7 +764,8 @@ namespace BindingsGeneration.Tests
                 "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                 runner, NullLogger.Instance);
 
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
             var (cmd, args) = runner.Invocations[0];
             Assert.Equal("xcrun", cmd);
             Assert.Contains("swiftc", args);
@@ -805,7 +806,8 @@ namespace BindingsGeneration.Tests
                 "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                 runner, NullLogger.Instance, additionalFrameworkSearchPaths: null);
 
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
             var (_, args) = runner.Invocations[0];
             // Should have exactly one -F flag
             var fFlagCount = args.Split("-F ").Length - 1;
@@ -825,7 +827,8 @@ namespace BindingsGeneration.Tests
                 runner, NullLogger.Instance,
                 additionalFrameworkSearchPaths: new[] { "/dep1/ios-arm64-simulator" });
 
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-F \"/dep1/ios-arm64-simulator\"", args);
             var fFlagCount = args.Split("-F ").Length - 1;
@@ -845,7 +848,8 @@ namespace BindingsGeneration.Tests
                 runner, NullLogger.Instance,
                 additionalFrameworkSearchPaths: new[] { "/dep1/slice", "/dep2/slice" });
 
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-F \"/dep1/slice\"", args);
             Assert.Contains("-F \"/dep2/slice\"", args);
@@ -1208,7 +1212,8 @@ namespace BindingsGeneration.Tests
                 "arm64-apple-ios15.0-simulator", "/sdk/path", "/fw/search",
                 runner, NullLogger.Instance);
 
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-strict-concurrency=minimal", args);
         }
@@ -2871,7 +2876,10 @@ namespace BindingsGeneration.Tests
                     "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
                     runner, NullLogger.Instance);
 
-                Assert.Equal(3, runner.Invocations.Count);
+                // The failed link, the resource-dir lookup, the retry, then the load-command read of
+                // the OS-framework weak-link check.
+                Assert.Equal(4, runner.Invocations.Count);
+                Assert.StartsWith("otool -l", runner.Invocations[3].Arguments);
                 var firstSwiftc = runner.Invocations[0].Arguments;
                 var retrySwiftc = runner.Invocations[2].Arguments;
                 Assert.DoesNotContain("libclang_rt.profile_", firstSwiftc);
@@ -2936,7 +2944,8 @@ namespace BindingsGeneration.Tests
                     "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
                     runner, NullLogger.Instance));
             // Single invocation — no retry path exercised for unrelated failures.
-            Assert.Single(runner.Invocations);
+            // The link, then the load-command read of the OS-framework weak-link check.
+            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
         }
     }
 

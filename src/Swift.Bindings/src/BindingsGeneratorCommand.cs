@@ -70,6 +70,7 @@ public static class BindingsGeneratorCommand
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
         var noVerifyCSharp = parseResult.GetValueForOption(options.NoVerifyCSharp);
         var verificationPackageFeed = parseResult.GetValueForOption(options.VerificationPackageFeed);
+        var osSymbolInventoryPath = parseResult.GetValueForOption(options.OsSymbolInventory);
         var emitInputGraphPath = parseResult.GetValueForOption(options.EmitInputGraph);
         var keepBuiltinDatabase = parseResult.GetValueForOption(options.KeepBuiltinDatabase);
         var objcForced = parseResult.GetValueForOption(options.ObjC);
@@ -501,6 +502,22 @@ public static class BindingsGeneratorCommand
             logger.LogError("Error: --skip-wrapper-compilation and --compile-wrapper-only are mutually exclusive.");
             context.ExitCode = 1;
             return;
+        }
+
+        // A supplied inventory's providers are weak-linked in the wrapper-only and bridge-only links as
+        // in the full run's, which loads the inventory itself.
+        if ((compileWrapperOnly || compileBridgeOnly) && !string.IsNullOrEmpty(osSymbolInventoryPath))
+        {
+            try
+            {
+                OsSymbolFloorContext.LoadForRun(osSymbolInventoryPath);
+            }
+            catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
+            {
+                logger.LogError("Error: could not read --os-symbol-inventory '{Path}': {Message}", osSymbolInventoryPath, ex.Message);
+                context.ExitCode = 1;
+                return;
+            }
         }
 
         // Handle --compile-wrapper-only: fast path that skips all parsing/generation
@@ -1822,11 +1839,27 @@ public static class BindingsGeneratorCommand
                 logger: logger);
         }
 
+        // Load-safety P2: floor the members the generating SDK adds without a floor that the OS symbol
+        // inventory's older OS does not ship.
+        OsSymbolFloorContext? osSymbolFloors;
+        try
+        {
+            osSymbolFloors = OsSymbolFloorContext.ResolveForGeneration(osSymbolInventoryPath, resolution?.ModuleName ?? directModuleName,
+                platformInfo, IsSystemFrameworkTarget(hasXcframework, libraryName), new SystemCommandRunner(), logger);
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or System.Text.Json.JsonException or UnauthorizedAccessException)
+        {
+            logger.LogError("Error: could not read --os-symbol-inventory '{Path}': {Message}", osSymbolInventoryPath, ex.Message);
+            context.ExitCode = 1;
+            return;
+        }
+
         var success = BindingsGenerator.GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibrary, swiftInterface, symbolGraph, bridgeHints, effectiveNamespacePattern, logger, loggerFactory, out var internalTypeNames, out var moduleNameForCollision, out var nestedTypesInCollidingClass, out var depModuleCollisions, dependencyModuleNames: depModuleNames, moduleDatabasePaths: moduleDatabases, resolvedDependencies: resolvedDependencies, platform: platformInfo.Platform, keepBuiltinDatabaseForTargetModule: keepBuiltinDatabase, descriptorAssemblyNameOverride: assemblyNameOverride, swiftRuntimeVersion: swiftRuntimeVersion, objcBridgeRecords: mixedBridgeRecords, compileWrapper: verifyRecoverCompile, verifyRecoverCsharp: verifyRecoverCsharp, staticMergedModuleName: staticMergedModuleName, asyncPatternManifestPath: asyncPatternManifest, vetObjCImportedTypeNames: names => swiftObjCImportedTypeNames =
                 mixedParse?.Module == null
                     ? names
                     : ObjCSwiftImportNameRewriter.AcceptRenames(
-                        mixedParse.Module, names, mixedParse.ResolvedNamespace, logger));
+                        mixedParse.Module, names, mixedParse.ResolvedNamespace, logger),
+                osSymbolFloors: osSymbolFloors);
 
         // In SDK mode the loop's verification csproj is a pure proxy: the C# it grades is compiled by
         // the CONSUMING project, and no branch below emits a consumer-facing csproj here. Every other

@@ -615,6 +615,210 @@ public class EnumHandlerOutputTests
         MainActorSurfaceAssertions.AssertCSharpMainActorSurface(csOutput, signature, expectMainActor);
     }
 
+    /// <summary>
+    /// A simple enum's extension member floored above its enum (declared, or inferred from the OS
+    /// symbol inventory) advertises the floor and refuses a below-floor call before its wrapper
+    /// reaches a symbol the OS may lack; a sibling with no floor of its own carries neither.
+    /// </summary>
+    [Theory]
+    [InlineData("instanceMethod", "Bump(this Status self")]
+    [InlineData("instanceProperty", "GetPriority(this Status self)")]
+    [InlineData("staticMethod", "Status DefaultStatus(")]
+    [InlineData("staticProperty", "int Count")]
+    public void Emit_SimpleEnumMember_FlooredAboveItsEnum_IsAttributedAndGuarded(string member, string signature)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        var floor = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) };
+        switch (member)
+        {
+            case "instanceMethod":
+                var instance = CreateStaticMethod("bump", enumDecl, moduleDecl) with
+                {
+                    MethodType = MethodType.Instance,
+                    MangledName = "$s10TestModule6StatusO4bumpACyF",
+                };
+                instance.AvailabilityAnnotations = floor;
+                enumDecl.Methods.Add(instance);
+                break;
+            case "instanceProperty":
+                var instanceProperty = CreateInstanceIntProperty("priority", enumDecl, moduleDecl);
+                instanceProperty.AvailabilityAnnotations = floor;
+                enumDecl.Properties.Add(instanceProperty);
+                break;
+            case "staticMethod":
+                var staticMethod = CreateStaticMethod("defaultStatus", enumDecl, moduleDecl);
+                staticMethod.AvailabilityAnnotations = floor;
+                enumDecl.Methods.Add(staticMethod);
+                break;
+            default:
+                var staticProperty = CreateStaticIntProperty("count", enumDecl, moduleDecl);
+                staticProperty.AvailabilityAnnotations = floor;
+                enumDecl.Properties.Add(staticProperty);
+                break;
+        }
+        // An unfloored sibling of each member stays unguarded.
+        enumDecl.Properties.Add(CreateStaticIntProperty("total", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var at = csOutput.IndexOf(signature, StringComparison.Ordinal);
+        Assert.True(at >= 0, $"'{signature}' not emitted:\n{csOutput}");
+        var attribute = csOutput.LastIndexOf("SupportedOSPlatform(\"ios99.0\")", at, StringComparison.Ordinal);
+        Assert.True(attribute >= 0 && !csOutput[attribute..at].Contains('}'),
+            $"'{signature}' carries no ios99.0 attribute:\n{csOutput}");
+        var guard = csOutput.IndexOf("PlatformNotSupportedException", at, StringComparison.Ordinal);
+        Assert.True(guard >= 0 && guard < csOutput.IndexOf("PInvoke_", at, StringComparison.Ordinal),
+            $"'{signature}' reaches its P/Invoke before the floor guard:\n{csOutput}");
+        var sibling = csOutput.IndexOf("int Total", StringComparison.Ordinal);
+        Assert.True(sibling >= 0);
+        Assert.DoesNotContain("PlatformNotSupportedException", csOutput[sibling..Math.Min(csOutput.Length, sibling + 200)]);
+    }
+
+    /// <summary>
+    /// A floor on the simple enum alone (an enum the inventory's OS lacks) still reaches its extension
+    /// members: the extensions class is a sibling of the enum and carries none of its attributes, so
+    /// each member advertises the enum's floor and refuses a below-floor call itself.
+    /// </summary>
+    [Fact]
+    public void Emit_SimpleEnumMember_OfAFlooredEnum_IsAttributedAndGuarded()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) };
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Properties.Add(CreateStaticIntProperty("count", enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var at = csOutput.IndexOf("int Count", StringComparison.Ordinal);
+        Assert.True(at >= 0, csOutput);
+        var extensions = csOutput.IndexOf("StatusExtensions", StringComparison.Ordinal);
+        var attribute = csOutput.LastIndexOf("SupportedOSPlatform(\"ios99.0\")", at, StringComparison.Ordinal);
+        Assert.True(attribute > extensions, $"Count carries no ios99.0 attribute of its own:\n{csOutput}");
+        var guard = csOutput.IndexOf("PlatformNotSupportedException", at, StringComparison.Ordinal);
+        Assert.True(guard >= 0 && guard < csOutput.IndexOf("PInvoke_", at, StringComparison.Ordinal),
+            $"Count reaches its P/Invoke before the floor guard:\n{csOutput}");
+    }
+
+    /// <summary>
+    /// A no-payload case of a floored non-simple enum is built through Swift like any other member of
+    /// the enum, so its accessor refuses a below-floor read even when the case declares no floor.
+    /// </summary>
+    [Fact]
+    public void Emit_NoPayloadCase_OfAFlooredEnum_IsGuarded()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shape", moduleDecl, isFrozen: false);
+        enumDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) };
+        var circle = CreateCase("circle");
+        circle.AssociatedValues.Add(new NamedTypeSpec("Swift.Double"));
+        enumDecl.Cases.Add(circle);
+        enumDecl.Cases.Add(CreateCase("empty"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var empty = csOutput.IndexOf("public static Shape Empty", StringComparison.Ordinal);
+        Assert.True(empty >= 0, csOutput);
+        Assert.Contains("PlatformNotSupportedException", csOutput[empty..Math.Min(csOutput.Length, empty + 900)]);
+    }
+
+    /// <summary>
+    /// A no-payload case of a non-simple enum floored above its enum is built through a Swift call
+    /// (the case's tag, or the wrapper's case-by-index function), so its static accessor refuses a
+    /// below-floor read before it; a case with no floor of its own is unguarded.
+    /// </summary>
+    [Fact]
+    public void Emit_NoPayloadCase_FlooredAboveItsEnum_IsAttributedAndGuarded()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shape", moduleDecl, isFrozen: false);
+        var circle = CreateCase("circle");
+        circle.AssociatedValues.Add(new NamedTypeSpec("Swift.Double"));
+        enumDecl.Cases.Add(circle);
+        enumDecl.Cases.Add(CreateCase("empty"));
+        var added = CreateCase("unknownShape");
+        added.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) };
+        enumDecl.Cases.Add(added);
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var at = csOutput.IndexOf("public static Shape UnknownShape", StringComparison.Ordinal);
+        Assert.True(at >= 0, csOutput);
+        var attribute = csOutput.LastIndexOf("SupportedOSPlatform(\"ios99.0\")", at, StringComparison.Ordinal);
+        Assert.True(attribute >= 0 && !csOutput[attribute..at].Contains('}'), csOutput);
+        Assert.Contains("PlatformNotSupportedException", csOutput[at..Math.Min(csOutput.Length, at + 900)]);
+        var empty = csOutput.IndexOf("public static Shape Empty", StringComparison.Ordinal);
+        Assert.True(empty >= 0, csOutput);
+        Assert.DoesNotContain("PlatformNotSupportedException", csOutput[empty..Math.Min(csOutput.Length, empty + 300)]);
+    }
+
+    /// <summary>
+    /// Equals, == and != of an Equatable enum-as-class all reach Swift's == through one wrapper,
+    /// exported at the == operator's floor. An operator floored above its enum (a conformance the
+    /// running OS lacks) is refused in the managed helper before the wrapper call.
+    /// </summary>
+    [Fact]
+    public void Emit_EquatableEnum_WhoseEqualityIsFlooredAboveTheEnum_RefusesBeforeTheWrapper()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shape", moduleDecl, isFrozen: false);
+        var circle = CreateCase("circle");
+        circle.AssociatedValues.Add(new NamedTypeSpec("Swift.Double"));
+        enumDecl.Cases.Add(circle);
+        enumDecl.Conformances.Add(new TypeConformance(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Shape"),
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"),
+            "$s10TestModule5ShapeOSQAAMc"));
+        ArgumentDecl Operand(string name) => new()
+        {
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.Shape"), Name = name, PrivateName = name,
+            IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl,
+        };
+        enumDecl.Operators.Add(new OperatorDecl
+        {
+            Name = "==",
+            OperatorSymbol = "==",
+            Kind = OperatorKind.Binary,
+            IsPrefix = false,
+            UnderlyingMethod = new MethodDecl
+            {
+                Name = "==",
+                MangledName = "$s10TestModule5ShapeO2eeoiySbAC_ACtFZ",
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl> { Operand(string.Empty), Operand("lhs"), Operand("rhs") },
+                GenericParameters = new List<GenericArgumentDecl>(),
+                ParentDecl = enumDecl,
+                ModuleDecl = moduleDecl,
+                Throws = false,
+                IsAsync = false,
+                IsSynthesizedAccessor = false,
+            },
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) },
+        });
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("@available(iOS 99.0, *)", swiftOutput);
+        var helper = csOutput.IndexOf("private static bool _PInvoke_eq_pinned(", StringComparison.Ordinal);
+        Assert.True(helper >= 0, csOutput);
+        var call = csOutput.IndexOf("return PInvoke_eq(", helper, StringComparison.Ordinal);
+        Assert.True(call > helper, csOutput);
+        Assert.Contains("PlatformNotSupportedException", csOutput[helper..call]);
+    }
+
     [Fact]
     public void CanSafelyEmitAsSimpleEnum_NoMembers_ReturnsTrue()
     {

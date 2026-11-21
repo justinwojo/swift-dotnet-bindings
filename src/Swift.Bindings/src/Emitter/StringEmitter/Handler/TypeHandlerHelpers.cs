@@ -359,10 +359,10 @@ namespace BindingsGeneration
             var typeAvailability = AvailabilityHelpers.MergeAvailabilityFromAncestors(null, _structDecl);
             _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics, typeAvailability);
             _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, semantics);
-            foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
-                _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+            foreach (var (protocolName, conformanceFloor) in ProtocolConformanceHelper.GetConformanceRegistrations(
+                _structDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase, _moduleDecl.InferredConformanceFloors))
             {
-                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability);
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability, conformanceFloor);
             }
         }
 
@@ -1663,8 +1663,22 @@ internal static class ProtocolConformanceHelper
         string moduleName,
         string typeName,
         ITypeDatabase typeDatabase)
+        => GetConformanceRegistrations(conformances, moduleName, typeName, typeDatabase, null)
+            .Select(r => r.ProtocolName).ToList();
+
+    /// <summary>
+    /// <see cref="GetConformanceProtocolNames"/> with each conformance's own floor: the floor
+    /// <see cref="OsSymbolFloorInference"/> inferred for a conformance the inventory's OS does not ship
+    /// (keyed in <paramref name="conformanceFloors"/> by its descriptor), else null.
+    /// </summary>
+    public static List<(string ProtocolName, IReadOnlyList<AvailabilityAnnotation>? ConformanceFloor)> GetConformanceRegistrations(
+        IEnumerable<TypeConformance> conformances,
+        string moduleName,
+        string typeName,
+        ITypeDatabase typeDatabase,
+        IReadOnlyDictionary<string, IReadOnlyList<AvailabilityAnnotation>>? conformanceFloors)
     {
-        var names = new List<string>();
+        var names = new List<(string ProtocolName, IReadOnlyList<AvailabilityAnnotation>? ConformanceFloor)>();
         foreach (var conformance in conformances)
         {
             // Pair with GenerateProtocolConformanceDictionaryEntries — registration uses the
@@ -1697,13 +1711,20 @@ internal static class ProtocolConformanceHelper
             var resolvedConformanceModule = ResolveProtocolEmissionModule(conformance, typeDatabase);
             var ifaceName = NameProvider.GetInterfaceName(conformance.Protocol.Name, typeName, resolvedConformanceModule, moduleName);
             ifaceName = QualifyNestedProtocolInterface(ifaceName, conformance.Protocol);
-            names.Add(ifaceName);
+            names.Add((ifaceName,
+                conformanceFloors is not null
+                && conformanceFloors.TryGetValue(conformance.ProtocolConformanceDescriptor, out var floor) ? floor : null));
         }
 
         // PAT conformances: register with "object" name to match the typeof(object) dictionary key.
         // Skipped for multi-PAT types where the key is ambiguous (see GetImplementedInterfaces).
         if (CountPatConformances(conformances, typeDatabase) == 1)
-            names.Add("object");
+        {
+            var pat = conformances.Where(c => IsPatConformance(c, typeDatabase)).Select(c => c.ProtocolConformanceDescriptor).FirstOrDefault();
+            names.Add(("object",
+                conformanceFloors is not null && pat is not null
+                && conformanceFloors.TryGetValue(pat, out var patFloor) ? patFloor : null));
+        }
 
         return names;
     }
@@ -1714,18 +1735,18 @@ internal static class ProtocolConformanceHelper
     /// multi-PAT ambiguity: when count > 1, the typeof(object) key can't disambiguate
     /// which protocol's witness table to use, so PAT boxing is skipped entirely.
     /// </summary>
+    private static bool IsPatConformance(TypeConformance conformance, ITypeDatabase typeDatabase) =>
+        typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record)
+        && record.Kind == TypeRecordKind.Protocol
+        && record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes)
+        && !string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor);
+
     private static int CountPatConformances(IEnumerable<TypeConformance> conformances, ITypeDatabase typeDatabase)
     {
         int count = 0;
         foreach (var conformance in conformances)
         {
-            if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
-                continue;
-            if (record.Kind != TypeRecordKind.Protocol)
-                continue;
-            if (!record.Flags.HasFlag(TypeRecordFlags.HasAssociatedTypes))
-                continue;
-            if (string.IsNullOrEmpty(conformance.ProtocolConformanceDescriptor))
+            if (!IsPatConformance(conformance, typeDatabase))
                 continue;
             count++;
             if (count > 1)
