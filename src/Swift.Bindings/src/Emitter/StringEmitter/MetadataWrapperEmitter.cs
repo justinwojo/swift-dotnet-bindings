@@ -165,6 +165,14 @@ public static class MetadataWrapperEmitter
 
         // Names are controlled (Swift identifier path + version strings), so they need no escaping.
         var message = $"Swift type '{moduleQualifiedSwiftName}' is not available on this OS version; it requires {floors} or later.";
+        // The fallback calls the library's own metadata accessor directly, past the wrapper's
+        // #available check, so it runs only where the floor holds: below it the accessor may be a
+        // symbol the OS does not ship (a floor inferred from the OS symbol inventory), and a call
+        // through it would fault natively. Below the floor the zero metadata becomes the exception.
+        var available = AvailabilityAttributeEmitter.BuildIsAvailableCondition(availability);
+        var fallback = available is null
+            ? "PInvoke_getMetadata_fallback()"
+            : $"({available}) ? PInvoke_getMetadata_fallback() : default";
         return $$"""
             static TypeMetadata ISwiftObject.GetTypeMetadata()
             {
@@ -175,11 +183,11 @@ public static class MetadataWrapperEmitter
                 }
                 catch (global::System.DllNotFoundException)
                 {
-                    __metadata = PInvoke_getMetadata_fallback();
+                    __metadata = {{fallback}};
                 }
                 catch (global::System.EntryPointNotFoundException)
                 {
-                    __metadata = PInvoke_getMetadata_fallback();
+                    __metadata = {{fallback}};
                 }
                 if (!__metadata.IsValid)
                     throw new global::System.PlatformNotSupportedException("{{message}}");

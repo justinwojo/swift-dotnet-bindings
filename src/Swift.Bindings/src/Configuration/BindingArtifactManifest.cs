@@ -120,6 +120,12 @@ public sealed class GenerationSection
     /// </summary>
     public List<CaseOnlyRenameItem> CaseOnlyRenames { get; init; } = new();
 
+    /// <summary>
+    /// Every floor inferred from the OS symbol inventory, carried for the same round-trip reason as
+    /// <see cref="OverloadRenames"/>: the load-safety gate reads it from <c>binding-report.json</c>.
+    /// </summary>
+    public List<InferredOsFloorItem> InferredOsFloors { get; init; } = new();
+
     public BridgeSummary? BridgeSummary { get; init; }
 
     /// <summary>
@@ -221,6 +227,7 @@ public sealed class GenerationSection
         section.ThemeBridgedProperties.AddRange(report.ThemeBridgedProperties);
         section.OverloadRenames.AddRange(report.OverloadRenames);
         section.CaseOnlyRenames.AddRange(report.CaseOnlyRenames);
+        section.InferredOsFloors.AddRange(report.InferredOsFloors);
         section.UnsupportedCommentDrops.AddRange(report.UnsupportedCommentDrops);
         section.UnsupportedCommentDropDetails.AddRange(report.UnsupportedCommentDropDetails);
         section.ObjectDegradations.AddRange(report.ObjectDegradations);

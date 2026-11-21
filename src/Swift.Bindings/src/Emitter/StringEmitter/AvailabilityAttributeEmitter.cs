@@ -87,6 +87,20 @@ internal static class AvailabilityAttributeEmitter
             }
         }
 
+        // One [SupportedOSPlatform] per platform, at the highest introduced version: a floor raised
+        // above the declared one (an inferred OS floor, a runtime-support floor) sits beside the
+        // declared annotation, and a second, lower attribute would understate the floor to CA1416.
+        var highestIntroduced = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var annotation in annotations)
+        {
+            if (annotation.Platform != null && annotation.IntroducedVersion != null
+                && PlatformMapping.TryGetValue(annotation.Platform, out var mapped)
+                && (!highestIntroduced.TryGetValue(mapped, out var highest)
+                    || AvailabilityHelpers.CompareOsVersions(annotation.IntroducedVersion, highest) > 0))
+                highestIntroduced[mapped] = annotation.IntroducedVersion;
+        }
+        var introducedEmitted = new HashSet<string>(StringComparer.Ordinal);
+
         bool obsoleteEmitted = false;
         foreach (var annotation in annotations)
         {
@@ -94,7 +108,9 @@ internal static class AvailabilityAttributeEmitter
             if (annotation.Platform != null && PlatformMapping.TryGetValue(annotation.Platform, out var dotnetPlatform))
             {
                 // [SupportedOSPlatform] for introduced version
-                if (annotation.IntroducedVersion != null)
+                if (annotation.IntroducedVersion != null
+                    && annotation.IntroducedVersion == highestIntroduced[dotnetPlatform]
+                    && introducedEmitted.Add(dotnetPlatform))
                 {
                     var platformVersion = $"{dotnetPlatform}{NormalizeVersion(annotation.IntroducedVersion)}";
                     // Skip if parent already has the same or stricter annotation

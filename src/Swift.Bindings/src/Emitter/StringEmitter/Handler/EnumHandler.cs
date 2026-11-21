@@ -963,7 +963,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                 csWriter.WriteLine($"/// </summary>");
                 csWriter.WriteLine($"/// <remarks>Cached singleton instance — does not require disposal.</remarks>");
-                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                EmitCachedCaseAccessor(csWriter, caseDecl, enumDecl, enumTypeName, capitalizedName, fieldName);
                 csWriter.WriteLine();
             }
             else
@@ -973,12 +973,14 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// <summary>");
                 csWriter.WriteLine($"/// Gets the '{caseName}' case of {XmlDocCommentEmitter.XmlEscape(enumTypeName)}.");
                 csWriter.WriteLine($"/// </summary>");
+                AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
                 csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 csWriter.WriteLine("get");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
+                EmitCaseAccessorGuard(csWriter, caseDecl, enumDecl, $"{enumTypeName}.{capitalizedName}");
                 csWriter.WriteLine("unsafe");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -999,6 +1001,51 @@ namespace BindingsGeneration
         }
     }
 
+    public partial class EnumHandler
+    {
+        // A floored no-payload case (its own floor, declared or inferred from the OS symbol
+        // inventory, merged with its enum's, as the payload-case factories guard) refuses a
+        // below-floor read before native code builds it: an older OS may lack the case, its tag or
+        // index, or the enum itself. The case advertises its own floor; the enum class carries its.
+        private static bool CaseNeedsAvailabilityGuard(EnumCaseDecl caseDecl, EnumDecl enumDecl) =>
+            AvailabilityAttributeEmitter.BuildIsAvailableCondition(
+                AvailabilityHelpers.MergeAvailabilityFromAncestors(caseDecl.AvailabilityAnnotations, enumDecl)) is not null;
+
+        private static void EmitCaseAccessorGuard(CSharpWriter csWriter, EnumCaseDecl caseDecl, EnumDecl enumDecl, string description)
+        {
+            if (CaseNeedsAvailabilityGuard(caseDecl, enumDecl))
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter,
+                    AvailabilityHelpers.MergeAvailabilityFromAncestors(caseDecl.AvailabilityAnnotations, enumDecl), description);
+        }
+
+        /// <summary>
+        /// The public accessor of a cached no-payload case: expression-bodied, or with a statement
+        /// body holding <see cref="EmitCaseAccessorGuard"/> when the case is floored above its enum.
+        /// </summary>
+        private static void EmitCachedCaseAccessor(CSharpWriter csWriter, EnumCaseDecl caseDecl, EnumDecl enumDecl,
+            string enumTypeName, string capitalizedName, string fieldName)
+        {
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
+            if (!CaseNeedsAvailabilityGuard(caseDecl, enumDecl))
+            {
+                csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
+                return;
+            }
+            csWriter.WriteLine($"public static {enumTypeName} {capitalizedName}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("get");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            EmitCaseAccessorGuard(csWriter, caseDecl, enumDecl, $"{enumTypeName}.{capitalizedName}");
+            csWriter.WriteLine($"return _lazy_{fieldName}.Value;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+    }
+
     /// <summary>
     /// Emits Equals / GetHashCode / operator== / operator!= / IEquatable&lt;T&gt;.Equals
     /// for an Equatable enum that lowers to a C# class. The bridge mirrors the
@@ -1015,7 +1062,7 @@ namespace BindingsGeneration
     /// </remarks>
     public class EnumEqualityMethodsWriter
     {
-        private readonly System.CodeDom.Compiler.IndentedTextWriter _writer;
+        private readonly CSharpWriter _writer;
         private readonly EnumDecl _enumDecl;
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsHashable;
@@ -1069,9 +1116,19 @@ namespace BindingsGeneration
 
             if (eqSymbol != null)
             {
+                // Equals, == and != all reach Swift's == here, so the floor the equality wrapper is
+                // exported at (the operator's, e.g. a conformance the OS symbol inventory's OS lacks,
+                // merged with the enum's) is refused here before the call.
+                var equalityOperator = _enumDecl.Operators
+                    .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
+                _writer.WriteLine($"private static bool _PInvoke_eq_pinned({_typeNameWithGenerics} left, {_typeNameWithGenerics} right)");
+                _writer.WriteLine("{");
+                _writer.Indent++;
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer,
+                    WrapperEmitterHelpers.MergeAvailabilityFromAncestors(equalityOperator?.AvailabilityAnnotations, _enumDecl),
+                    $"{_enumDecl.Name}.==");
+                _writer.Indent--;
                 _writer.WriteLines($$"""
-                private static bool _PInvoke_eq_pinned({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
-                {
                     bool _eqAddedLeft = false;
                     bool _eqAddedRight = false;
                     try

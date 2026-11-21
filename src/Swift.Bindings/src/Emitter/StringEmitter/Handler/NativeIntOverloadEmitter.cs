@@ -606,7 +606,12 @@ internal static class NativeIntOverloadEmitter
             WrapperEmitter.EmitSuppressedProxyReadPoison(csWriter);
             csWriter.WriteLine($"get => throw new NotSupportedException(\"{WrapperEmitter.ProxySuppressedMessage}\");");
             if (hasSetter)
+            {
+                var setterPragma = SubscriptHandler.EmitStricterSetterAvailability(csWriter, subscriptDecl);
                 csWriter.WriteLine($"set => this[{castArgStr}] = value;");
+                if (setterPragma)
+                    AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue(csWriter);
+            }
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -616,7 +621,10 @@ internal static class NativeIntOverloadEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"get => this[{castArgStr}];");
+            var setterPragma = SubscriptHandler.EmitStricterSetterAvailability(csWriter, subscriptDecl);
             csWriter.WriteLine($"set => this[{castArgStr}] = value;");
+            if (setterPragma)
+                AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue(csWriter);
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }

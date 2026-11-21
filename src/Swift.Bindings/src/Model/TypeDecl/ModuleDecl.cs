@@ -17,6 +17,14 @@ namespace BindingsGeneration
         public HashSet<string>? ExportedSymbols { get; set; }
 
         /// <summary>
+        /// Conformances the OS symbol inventory's OS does not ship on a type it does ship, keyed by the
+        /// conformance descriptor symbol, with the floor <see cref="OsSymbolFloorInference"/> inferred
+        /// (merged with the type's own). The module initializer resolves a conformance's witness table
+        /// only above this floor.
+        /// </summary>
+        public Dictionary<string, IReadOnlyList<AvailabilityAnnotation>> InferredConformanceFloors { get; } = new(StringComparer.Ordinal);
+
+        /// <summary>
         /// Module-internal type names (short and module-qualified forms) collected by
         /// <c>Program.CollectInternalTypeNames</c> and merged with underscore-suppressed
         /// names. Read by emission-time gates (e.g.

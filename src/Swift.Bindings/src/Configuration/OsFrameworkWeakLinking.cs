@@ -39,9 +39,23 @@ namespace BindingsGeneration
 
         internal readonly record struct LoadedDylib(string InstallName, LoadKind Kind);
 
-        /// <summary>Whether <paramref name="installName"/> names a dylib the OS provides under <c>/System/</c>.</summary>
+        // Providers a supplied OS symbol inventory lists (--os-symbol-inventory). The inventory describes
+        // them as an OS release ships them, so they are weak-linked and audited like an OS framework.
+        private static readonly ConcurrentDictionary<string, byte> s_suppliedProviders = new(StringComparer.Ordinal);
+
+        /// <summary>
+        /// Whether <paramref name="installName"/> names a dylib the OS provides under <c>/System/</c>, or a
+        /// provider a supplied OS symbol inventory lists (<see cref="TreatAsOsProviders"/>).
+        /// </summary>
         internal static bool IsOsResident(string installName) =>
-            installName.StartsWith("/System/", StringComparison.Ordinal);
+            installName.StartsWith("/System/", StringComparison.Ordinal) || s_suppliedProviders.ContainsKey(installName);
+
+        /// <summary>Treats the providers a supplied OS symbol inventory lists as OS-resident for this process.</summary>
+        internal static void TreatAsOsProviders(IEnumerable<string> installNames)
+        {
+            foreach (var name in installNames)
+                s_suppliedProviders[name] = 0;
+        }
 
         /// <summary>
         /// The framework name of an install name (<c>/System/Library/Frameworks/X.framework/X</c> or
@@ -263,20 +277,58 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// The strong OS-resident loads among <paramref name="strongInstallNames"/> that a missing symbol
-        /// would still fail: those with a strong import, and those the linker had no reason to keep strong
-        /// (it keeps a load strong only for an umbrella that re-exports a restricted library, see
-        /// <see cref="ReexportsRestrictedLibrary"/>). Without an SDK path every strong load is unsafe.
+        /// The strong OS-resident loads among <paramref name="strongInstallNames"/> that would fail on an
+        /// older OS: those with a strong import, those the linker had no reason to keep strong (it keeps a
+        /// load strong only for an umbrella that re-exports a restricted library, see
+        /// <see cref="ReexportsRestrictedLibrary"/>), and an umbrella the OS symbol inventory's OS may not
+        /// have at all (<see cref="PresentOnInventoryOs"/>), which dyld refuses however weak its imports
+        /// are. Without an SDK path every strong load is unsafe.
         /// </summary>
         internal static IReadOnlyList<string> UnsafeStrongLoads(
-            IEnumerable<string> strongInstallNames, IReadOnlyList<ImportedSymbol> imports, string? sdkPath)
+            IEnumerable<string> strongInstallNames, IReadOnlyList<ImportedSymbol> imports, string? sdkPath,
+            OsSymbolInventory inventory)
         {
             var strongLeaves = new HashSet<string>(imports.Where(i => !i.Weak).Select(i => i.From), StringComparer.Ordinal);
             return strongInstallNames
                 .Where(n => strongLeaves.Contains(ImportLeaf(n))
                             || string.IsNullOrEmpty(sdkPath)
-                            || !ReexportsRestrictedLibrary(sdkPath, n))
+                            || !ReexportsRestrictedLibrary(sdkPath, n)
+                            || !PresentOnInventoryOs(n, imports, sdkPath, inventory))
                 .ToList();
+        }
+
+        /// <summary>
+        /// Whether the OS symbol inventory's OS has the framework at <paramref name="installName"/>: one of
+        /// the Swift symbols the binary imports from it ships there, on the variant of the SDK the binary
+        /// was linked against. A framework the generating SDK added has no such import. An import list with
+        /// no Swift symbol from it, or an SDK whose variant is unknown, proves nothing and answers false.
+        /// </summary>
+        internal static bool PresentOnInventoryOs(
+            string installName, IReadOnlyList<ImportedSymbol> imports, string sdkPath, OsSymbolInventory inventory)
+        {
+            var variant = InventoryVariant(sdkPath, installName);
+            if (variant is null)
+                return false;
+            var leaf = ImportLeaf(installName);
+            return imports.Any(i => i.From == leaf && i.Symbol.StartsWith("_$s", StringComparison.Ordinal)
+                                    && inventory.ShipsOn(variant, i.Symbol.Substring(1)));
+        }
+
+        /// <summary>
+        /// The inventory variant of a binary linked against <paramref name="sdkPath"/> (named for its SDK,
+        /// <c>iPhoneSimulator27.2.sdk</c> is <c>ios-simulator</c>); a macOS SDK load of an iOSSupport framework is
+        /// Mac Catalyst's. Null for an SDK the inventory has no variant for.
+        /// </summary>
+        internal static string? InventoryVariant(string sdkPath, string installName)
+        {
+            var sdk = Path.GetFileName(sdkPath.TrimEnd('/'));
+            if (sdk.StartsWith("iPhoneSimulator", StringComparison.Ordinal)) return "ios-simulator";
+            if (sdk.StartsWith("iPhoneOS", StringComparison.Ordinal)) return "ios";
+            if (sdk.StartsWith("AppleTVSimulator", StringComparison.Ordinal)) return "tvos-simulator";
+            if (sdk.StartsWith("AppleTVOS", StringComparison.Ordinal)) return "tvos";
+            if (sdk.StartsWith("MacOSX", StringComparison.Ordinal))
+                return installName.StartsWith("/System/iOSSupport/", StringComparison.Ordinal) ? "maccatalyst" : "macos";
+            return null;
         }
 
         /// <summary>The failure message for a wrapper that still loads an OS dylib strongly after its relink.</summary>

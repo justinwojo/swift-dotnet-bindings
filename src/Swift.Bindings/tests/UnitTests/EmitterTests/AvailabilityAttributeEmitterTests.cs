@@ -59,6 +59,26 @@ public class AvailabilityAttributeEmitterTests
     }
 
     [Fact]
+    public void ARaisedFloor_EmitsOneSupportedOSPlatformPerPlatform_AtTheHighestVersion()
+    {
+        // An inferred OS floor sits beside the declared one; CA1416 must see only the raised floor.
+        var (csWriter, stringWriter) = CreateWriter();
+        var decl = CreateDecl(new List<AvailabilityAnnotation>
+        {
+            new("iOS", "16.0", null, null, false, false, null, null),
+            new("macOS", "13.0", null, null, false, false, null, null),
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        });
+        AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, decl);
+        csWriter.Flush();
+        var output = stringWriter.ToString();
+        Assert.Contains("SupportedOSPlatform(\"ios27.2\")", output);
+        Assert.DoesNotContain("ios16.0", output);
+        Assert.Contains("SupportedOSPlatform(\"macos13.0\")", output);
+        Assert.Equal(2, output.Split("SupportedOSPlatform(").Length - 1);
+    }
+
+    [Fact]
     public void macOS13Introduced_EmitsSupportedOSPlatform()
     {
         var (csWriter, stringWriter) = CreateWriter();

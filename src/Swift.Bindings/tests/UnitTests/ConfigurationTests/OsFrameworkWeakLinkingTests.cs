@@ -115,10 +115,14 @@ namespace BindingsGeneration.Tests
         /// </summary>
         private sealed class StubSdk : IDisposable
         {
-            internal string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "osfw-sdk-" + Guid.NewGuid().ToString("N"));
+            private readonly string _root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "osfw-sdk-" + Guid.NewGuid().ToString("N"));
 
-            internal StubSdk(bool restrictSwiftUICore = true)
+            // Named like a real SDK: the strong-umbrella rule reads the platform variant from the name.
+            internal string Path { get; }
+
+            internal StubSdk(bool restrictSwiftUICore = true, string sdkName = "iPhoneSimulator27.2.sdk")
             {
+                Path = System.IO.Path.Combine(_root, sdkName);
                 Write("System/Library/Frameworks/SwiftUI.framework/SwiftUI.tbd", """
                     --- !tapi-tbd
                     tbd-version:     4
@@ -142,6 +146,14 @@ namespace BindingsGeneration.Tests
                     "--- !tapi-tbd\ntbd-version:     4\ninstall-name:    '/System/Library/Frameworks/UIKit.framework/UIKit'\n...\n");
                 Write("System/Library/Frameworks/Foundation.framework/Foundation.tbd",
                     "--- !tapi-tbd\ntbd-version:     4\ninstall-name:    '/System/Library/Frameworks/Foundation.framework/Foundation'\n...\n");
+                // An umbrella the generating SDK added, re-exporting a restricted core like SwiftUI does.
+                Write("System/Library/Frameworks/NewKit.framework/NewKit.tbd",
+                    "--- !tapi-tbd\ntbd-version:     4\ninstall-name:    '/System/Library/Frameworks/NewKit.framework/NewKit'\n" +
+                    "reexported-libraries:\n  - targets:         [ arm64-ios-simulator ]\n" +
+                    "    libraries:       [ '/System/Library/Frameworks/NewKitCore.framework/NewKitCore' ]\n...\n");
+                Write("System/Library/Frameworks/NewKitCore.framework/NewKitCore.tbd",
+                    "--- !tapi-tbd\ntbd-version:     4\ninstall-name:    '/System/Library/Frameworks/NewKitCore.framework/NewKitCore'\n" +
+                    "allowable-clients:\n  - targets:         [ arm64-ios-simulator ]\n    clients:         [ NewKit ]\n...\n");
             }
 
             private void Write(string relative, string text)
@@ -153,7 +165,7 @@ namespace BindingsGeneration.Tests
 
             public void Dispose()
             {
-                try { Directory.Delete(Path, recursive: true); } catch (IOException) { }
+                try { Directory.Delete(_root, recursive: true); } catch (IOException) { }
             }
         }
 
@@ -214,13 +226,53 @@ namespace BindingsGeneration.Tests
             using var sdk = new StubSdk();
             var weakImports = OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports);
 
-            Assert.Empty(OsFrameworkWeakLinking.UnsafeStrongLoads(new[] { SwiftUIInstallName }, weakImports, sdk.Path));
+            Assert.Empty(OsFrameworkWeakLinking.UnsafeStrongLoads(new[] { SwiftUIInstallName }, weakImports, sdk.Path, OsSymbolInventory.Shipped));
             Assert.Equal(new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.UnsafeStrongLoads(
-                new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.ParseImports(StrongSwiftUIImport), sdk.Path));
+                new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.ParseImports(StrongSwiftUIImport), sdk.Path, OsSymbolInventory.Shipped));
             Assert.Equal(new[] { FoundationInstallName }, OsFrameworkWeakLinking.UnsafeStrongLoads(
-                new[] { SwiftUIInstallName, FoundationInstallName }, weakImports, sdk.Path));
+                new[] { SwiftUIInstallName, FoundationInstallName }, weakImports, sdk.Path, OsSymbolInventory.Shipped));
             Assert.Equal(new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.UnsafeStrongLoads(
-                new[] { SwiftUIInstallName }, weakImports, sdkPath: null));
+                new[] { SwiftUIInstallName }, weakImports, sdkPath: null, OsSymbolInventory.Shipped));
+        }
+
+        /// <summary>
+        /// dyld refuses a strong load of a framework the running OS does not have, however weak its
+        /// imports are, so the linker-kept umbrella is accepted only when the OS symbol inventory's OS
+        /// ships one of the Swift symbols imported from it: SwiftUI does, a framework the generating SDK
+        /// added does not, and a binary whose SDK names no inventory variant proves nothing.
+        /// </summary>
+        [Fact]
+        public void UnsafeStrongLoads_RefusesAKeptUmbrella_TheInventoryOsDoesNotHave()
+        {
+            using var sdk = new StubSdk();
+            const string newKit = "/System/Library/Frameworks/NewKit.framework/NewKit";
+            var newKitImports = OsFrameworkWeakLinking.ParseImports("""
+                /out/W.framework/W [arm64]:
+                    -imports:
+                      0x0000  _$s6NewKit5ThingVMn [weak-import] (from NewKit)
+                """);
+
+            Assert.True(OsFrameworkWeakLinking.ReexportsRestrictedLibrary(sdk.Path, newKit));
+            Assert.Equal(new[] { newKit }, OsFrameworkWeakLinking.UnsafeStrongLoads(new[] { newKit }, newKitImports, sdk.Path, OsSymbolInventory.Shipped));
+            Assert.Empty(OsFrameworkWeakLinking.UnsafeStrongLoads(
+                new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), sdk.Path, OsSymbolInventory.Shipped));
+
+            using var unknown = new StubSdk(sdkName: "Unnamed.sdk");
+            Assert.Equal(new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.UnsafeStrongLoads(
+                new[] { SwiftUIInstallName }, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), unknown.Path, OsSymbolInventory.Shipped));
+        }
+
+        [Theory]
+        [InlineData("/x/iPhoneOS27.2.sdk", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI", "ios")]
+        [InlineData("/x/iPhoneSimulator27.2.sdk/", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI", "ios-simulator")]
+        [InlineData("/x/AppleTVOS27.2.sdk", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI", "tvos")]
+        [InlineData("/x/AppleTVSimulator27.2.sdk", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI", "tvos-simulator")]
+        [InlineData("/x/MacOSX27.2.sdk", "/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI", "macos")]
+        [InlineData("/x/MacOSX27.2.sdk", "/System/iOSSupport/System/Library/Frameworks/SwiftUI.framework/Versions/A/SwiftUI", "maccatalyst")]
+        [InlineData("/x/XROS27.2.sdk", "/System/Library/Frameworks/SwiftUI.framework/SwiftUI", null)]
+        public void InventoryVariant_FollowsTheSdkTheBinaryWasLinkedAgainst(string sdkPath, string installName, string? variant)
+        {
+            Assert.Equal(variant, OsFrameworkWeakLinking.InventoryVariant(sdkPath, installName));
         }
 
         [Fact]
@@ -456,17 +508,17 @@ namespace BindingsGeneration.Tests
         public void OsLoadSafetyAudit_FailsAStrongSystemLoad_AndAnEmptyRead()
         {
             var noImports = Array.Empty<OsFrameworkWeakLinking.ImportedSymbol>();
-            var strong = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", OsFrameworkWeakLinking.ParseLoadCommands(StrongFoundation), noImports, "/sdk");
+            var strong = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", OsFrameworkWeakLinking.ParseLoadCommands(StrongFoundation), noImports, "/sdk", OsSymbolInventory.Shipped);
             Assert.Equal(2, strong.Failures.Count);
             Assert.All(strong.Failures, f => Assert.Contains("strongly", f));
             Assert.Empty(strong.SafeStrongLoads);
 
-            var weak = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", OsFrameworkWeakLinking.ParseLoadCommands(AllWeak), noImports, "/sdk");
+            var weak = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", OsFrameworkWeakLinking.ParseLoadCommands(AllWeak), noImports, "/sdk", OsSymbolInventory.Shipped);
             Assert.Empty(weak.Failures);
             Assert.Equal(2, weak.OsResidentLoadCount);
             Assert.Equal(2, weak.WeakOsResidentLoadCount);
 
-            var empty = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", Array.Empty<OsFrameworkWeakLinking.LoadedDylib>(), noImports, "/sdk");
+            var empty = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", Array.Empty<OsFrameworkWeakLinking.LoadedDylib>(), noImports, "/sdk", OsSymbolInventory.Shipped);
             Assert.Single(empty.Failures);
             Assert.Contains("loads no OS-resident dylib", empty.Failures[0]);
         }
@@ -477,15 +529,15 @@ namespace BindingsGeneration.Tests
             using var sdk = new StubSdk();
             var loads = OsFrameworkWeakLinking.ParseLoadCommands(StrongSwiftUI);
 
-            var kept = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), sdk.Path);
+            var kept = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), sdk.Path, OsSymbolInventory.Shipped);
             Assert.Empty(kept.Failures);
             Assert.Equal(new[] { SwiftUIInstallName }, kept.SafeStrongLoads);
 
-            var strongImport = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(StrongSwiftUIImport), sdk.Path);
+            var strongImport = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(StrongSwiftUIImport), sdk.Path, OsSymbolInventory.Shipped);
             Assert.Contains(strongImport.Failures, f => f.Contains("SwiftUI", StringComparison.Ordinal));
 
             using var open = new StubSdk(restrictSwiftUICore: false);
-            var unrestricted = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), open.Path);
+            var unrestricted = OsLoadSafetyAudit.EvaluateLoads("W", "/tmp/W", loads, OsFrameworkWeakLinking.ParseImports(WeakSwiftUIImports), open.Path, OsSymbolInventory.Shipped);
             Assert.Single(unrestricted.Failures);
         }
     }

@@ -276,6 +276,32 @@ public class MetadataWrapperEmitterTests
     }
 
     /// <summary>
+    /// Load-safety P2: the fallback calls the library's own metadata accessor past the wrapper's
+    /// #available check, so a gated type reaches it only where its floor holds. Below the floor the
+    /// accessor may be a symbol the OS does not ship (an inferred floor); the zero metadata then
+    /// becomes the PlatformNotSupportedException instead of a native fault.
+    /// </summary>
+    [Fact]
+    public void BuildGetTypeMetadataWithFallback_GatedType_CallsTheFallbackOnlyAboveTheFloor()
+    {
+        var availability = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+
+        var body = MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(availability, "CryptoKit.Probe");
+
+        var fallbackCalls = body.Split('\n').Where(l => l.Contains("PInvoke_getMetadata_fallback()", StringComparison.Ordinal)).ToList();
+        Assert.Equal(2, fallbackCalls.Count);
+        Assert.All(fallbackCalls, line =>
+        {
+            Assert.Contains("27, 2", line);
+            Assert.Contains(": default", line);
+        });
+        Assert.Contains("global::System.PlatformNotSupportedException", body);
+    }
+
+    /// <summary>
     /// For a non-gated type the C# GetTypeMetadata() body is unchanged — direct return, no
     /// PlatformNotSupportedException, no IsValid gate.
     /// </summary>

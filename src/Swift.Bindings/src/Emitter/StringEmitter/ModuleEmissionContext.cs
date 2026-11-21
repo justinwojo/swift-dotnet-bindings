@@ -1438,7 +1438,8 @@ public sealed class ModuleEmissionContext
     /// becomes IEquatable&lt;Codec.Encoding&gt; when Encoding is nested inside Codec).
     /// </summary>
     public void RecordConformance(string csharpTypeName, string protocolInterfaceName,
-        IReadOnlyList<AvailabilityAnnotation>? effectiveAvailability = null)
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAvailability = null,
+        IReadOnlyList<AvailabilityAnnotation>? conformanceFloor = null)
     {
         if (HasOpenGenericAncestor())
             return;
@@ -1450,7 +1451,24 @@ public sealed class ModuleEmissionContext
         }
         _emittedConformances.Add((qualifiedName, qualifiedProtocol));
         RecordTypeAvailability(qualifiedName, effectiveAvailability);
+        if (conformanceFloor is { Count: > 0 })
+            _conformanceEffectiveAvailability[(qualifiedName, qualifiedProtocol)] =
+                (effectiveAvailability ?? Array.Empty<AvailabilityAnnotation>()).Concat(conformanceFloor).ToList();
     }
+
+    private readonly Dictionary<(string TypeName, string ProtocolInterface), IReadOnlyList<AvailabilityAnnotation>> _conformanceEffectiveAvailability = new();
+
+    /// <summary>
+    /// The floor of one emitted conformance — the type's own merged with a floor
+    /// <see cref="OsSymbolFloorInference"/> inferred for a conformance the inventory's OS does not
+    /// ship — or the type's effective floor (<see cref="GetTypeEffectiveAvailability"/>) when the
+    /// conformance has none of its own. The module initializer resolves the conformance's witness
+    /// table only where this floor holds.
+    /// </summary>
+    public IReadOnlyList<AvailabilityAnnotation>? GetConformanceEffectiveAvailability(string qualifiedTypeName, string protocolInterface) =>
+        _conformanceEffectiveAvailability.TryGetValue((qualifiedTypeName, protocolInterface), out var floor)
+            ? floor
+            : GetTypeEffectiveAvailability(qualifiedTypeName);
 
     private string GetQualifiedTypeName(string csharpTypeName)
     {
@@ -1477,12 +1495,14 @@ public sealed class ModuleEmissionContext
     /// <summary>
     /// Records a simple enum type for metadata P/Invoke registration in the module initializer.
     /// </summary>
-    public void RecordSimpleEnumMetadata(string csharpTypeName, string metadataSymbol, string wrapperLibName)
+    public void RecordSimpleEnumMetadata(string csharpTypeName, string metadataSymbol, string wrapperLibName,
+        IReadOnlyList<AvailabilityAnnotation>? effectiveAvailability = null)
     {
         if (HasOpenGenericAncestor())
             return;
         var qualifiedName = GetQualifiedTypeName(csharpTypeName);
         _simpleEnumMetadataRegistrations.Add((qualifiedName, metadataSymbol, wrapperLibName));
+        RecordTypeAvailability(qualifiedName, effectiveAvailability);
     }
 
     private readonly List<(string TypeofExpr, string AccessorName, string MetadataSymbol, string WrapperLibName)> _importedValueTypeMetadataRegistrations = new();

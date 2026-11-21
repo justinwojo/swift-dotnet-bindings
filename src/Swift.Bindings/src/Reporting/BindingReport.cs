@@ -53,6 +53,13 @@ public sealed class BindingReport
     public List<CaseOnlyRenameItem> CaseOnlyRenames { get; } = new();
 
     /// <summary>
+    /// Every availability floor this run inferred from the OS symbol inventory — see
+    /// <see cref="InferredOsFloorItem"/>. The load-safety gate reads it to tell an import the
+    /// inventory's OS lacks that the binding guards from one it does not.
+    /// </summary>
+    public List<InferredOsFloorItem> InferredOsFloors { get; } = new();
+
+    /// <summary>
     /// Distinct <c>// Unsupported:</c> comment-drops emitted this run (Finding 53) — a type or
     /// member the generator could not bind and left as a comment in the generated C#. Each is
     /// surfaced as a loud <c>SWIFTBIND025</c> diagnostic at report time so a dropped declaration is
@@ -951,6 +958,49 @@ public sealed class OverloadRenameItem
 /// <c>binding-report.json</c> — and to the ship gate, which reports them as their own category
 /// instead of either failing on them or being blind to them.</para>
 /// </summary>
+/// <summary>
+/// A floor <see cref="OsSymbolFloorInference"/> inferred: the generating SDK exports
+/// <see cref="Symbol"/> without declaring a floor for it, and the inventory's OS
+/// (<see cref="InventoryOsVersion"/>) does not ship it, so the declaration is floored at
+/// <see cref="Floor"/> on <see cref="Platform"/>.
+/// </summary>
+public sealed class InferredOsFloorItem
+{
+    /// <summary>type, conformance, initializer, method, property, property setter or subscript.</summary>
+    public required string Kind { get; init; }
+
+    /// <summary>The Swift declaration, qualified by its enclosing type.</summary>
+    public required string Declaration { get; init; }
+
+    /// <summary>The symbol the inventory's OS does not ship (no leading underscore).</summary>
+    public required string Symbol { get; init; }
+
+    /// <summary>The Swift availability platform (iOS, tvOS, macOS, macCatalyst).</summary>
+    public required string Platform { get; init; }
+
+    /// <summary>The inferred floor, or (<see cref="Raised"/> false) the floor the declaration already had.</summary>
+    public required string Floor { get; init; }
+
+    /// <summary>The OS version the inventory describes.</summary>
+    public required string InventoryOsVersion { get; init; }
+
+    /// <summary>The inventory the floor was inferred from.</summary>
+    public required string Source { get; init; }
+
+    /// <summary>
+    /// Every exported symbol of the declaration and its accessors the inventory's OS lacks, which a
+    /// wrapper or a P/Invoke may import on its behalf (no leading underscore).
+    /// </summary>
+    public required List<string> Symbols { get; init; }
+
+    /// <summary>
+    /// True when this run raised the floor. False when the declaration already had a floor above the
+    /// inventory's OS (its own or an enclosing type's); the entry then only records that its absent
+    /// symbols are guarded.
+    /// </summary>
+    public required bool Raised { get; init; }
+}
+
 public sealed class CaseOnlyRenameItem
 {
     /// <summary>Declaring type's name.</summary>

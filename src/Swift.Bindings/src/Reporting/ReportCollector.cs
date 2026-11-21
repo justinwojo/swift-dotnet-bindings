@@ -961,6 +961,33 @@ public static class ReportCollector
         }
     }
 
+    /// <summary>Records the floors <see cref="OsSymbolFloorInference"/> inferred for the module.</summary>
+    public static void RecordInferredOsFloors(IEnumerable<InferredOsFloor> floors, string source)
+    {
+        var session = Current;
+        if (session == null)
+            return;
+
+        lock (session.Sync)
+        {
+            foreach (var f in floors)
+            {
+                session.Report.InferredOsFloors.Add(new InferredOsFloorItem
+                {
+                    Kind = f.Kind,
+                    Declaration = f.Declaration,
+                    Symbol = f.Symbol,
+                    Platform = f.Platform,
+                    Floor = f.Floor,
+                    InventoryOsVersion = f.InventoryOsVersion,
+                    Source = source,
+                    Symbols = f.Symbols.ToList(),
+                    Raised = f.Raised,
+                });
+            }
+        }
+    }
+
     public static void RecordThemeBridged(string className, string propertyName, string propertyType)
     {
         var session = Current;

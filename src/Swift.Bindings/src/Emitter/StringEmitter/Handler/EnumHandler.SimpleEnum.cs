@@ -185,7 +185,8 @@ namespace BindingsGeneration
                 MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, swiftModuleName, moduleQualified, metadataSymbol, metadataEmissionCtx, enumDecl);
 
                 var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
-                metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName);
+                metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName,
+                    AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
 
                 // Declare the enum's protocol-conformance descriptors alongside its metadata. Both
                 // halves are needed to resolve a witness table, and a C# enum can supply neither
@@ -570,10 +571,12 @@ namespace BindingsGeneration
                 // Utf8Slice struct is shared at module level
 
                 TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+                EmitMemberAvailabilityAttributes(csWriter, methodDecl, enumDecl);
                 csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
                 var callArgs = new List<string> { $"({csUnderlyingType})self" };
                 foreach (var param in paramDecls)
                 {
@@ -619,10 +622,12 @@ namespace BindingsGeneration
             {
                 // Emit extension method
                 TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+                EmitMemberAvailabilityAttributes(csWriter, methodDecl, enumDecl);
                 csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
 
                 // Build P/Invoke call arguments: cast enum to underlying type
                 var callArgs = new List<string> { $"({csUnderlyingType})self" };
@@ -964,15 +969,17 @@ namespace BindingsGeneration
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
                     wrapperSymbol, csUnderlyingType, moduleName, isStatic: false, isNullable: returnsOptionalString,
-                    mainActor: mainActor);
+                    mainActor: mainActor, availabilityMember: propertyDecl, enumDecl: enumDecl);
             }
             else
             {
                 TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+                EmitMemberAvailabilityAttributes(csWriter, propertyDecl, enumDecl);
                 csWriter.WriteLine($"public static {csReturnType} Get{propertyPascalName}(this {enumName} self)");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                EmitMemberAvailabilityGuard(csWriter, propertyDecl, enumDecl, $"{enumName}.{propertyPascalName}");
 
                 if (returnsEnum)
                     csWriter.WriteLine($"return ({enumName})PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
@@ -1066,16 +1073,19 @@ namespace BindingsGeneration
                 // String return: use Utf8Slice pattern
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticMethod(csWriter, enumName, methodPascalName,
-                    wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase, mainActor);
+                    wrapperSymbol, csUnderlyingType, moduleName, paramDecls, enumDecl, typeDatabase, mainActor,
+                    availabilityMember: methodDecl);
             }
             else
             {
                 // Emit C# static method (NOT extension method — no `this`)
                 TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+                EmitMemberAvailabilityAttributes(csWriter, methodDecl, enumDecl);
                 csWriter.WriteLine($"public static {csReturnType} {methodPascalName}({string.Join(", ", csParams)})");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
 
                 // Build P/Invoke call arguments
                 var callArgs = new List<string>();
@@ -1187,7 +1197,8 @@ namespace BindingsGeneration
             {
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnStaticPropertyAccessor(csWriter, enumName, propertyPascalName,
-                    wrapperSymbol, moduleName, isNullable: returnsOptionalString, mainActor: mainActor);
+                    wrapperSymbol, moduleName, isNullable: returnsOptionalString, mainActor: mainActor,
+                    availabilityMember: propertyDecl, enumDecl: enumDecl);
             }
             else
             {
@@ -1198,9 +1209,10 @@ namespace BindingsGeneration
                     : $"PInvoke_Get{propertyPascalName}()";
 
                 TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
-                if (mainActor)
+                EmitMemberAvailabilityAttributes(csWriter, propertyDecl, enumDecl);
+                if (mainActor || NeedsMemberAvailabilityGuard(propertyDecl, enumDecl))
                 {
-                    // The guard needs a statement body, which an expression-bodied property lacks.
+                    // The guards need a statement body, which an expression-bodied property lacks.
                     csWriter.WriteLine($"public static {csReturnType} {propertyPascalName}");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
@@ -1208,6 +1220,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+                    EmitMemberAvailabilityGuard(csWriter, propertyDecl, enumDecl, $"{enumName}.{propertyPascalName}");
                     csWriter.WriteLine($"return {valueExpr};");
                     csWriter.Indent--;
                     csWriter.WriteLine("}");
@@ -1538,7 +1551,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringReturnExtensionMethod(CSharpWriter csWriter, string enumName,
             string propertyPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
-            bool isStatic, bool isNullable = false, bool mainActor = false)
+            bool isStatic, bool isNullable = false, bool mainActor = false,
+            BaseDecl? availabilityMember = null, EnumDecl? enumDecl = null)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
             var selfParam = isStatic ? "" : $"this {enumName} self";
@@ -1546,10 +1560,12 @@ namespace BindingsGeneration
             var returnType = isNullable ? "string?" : "string";
 
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+            EmitMemberAvailabilityAttributes(csWriter, availabilityMember, enumDecl);
             csWriter.WriteLine($"public static unsafe {returnType} Get{propertyPascalName}({selfParam})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+            EmitMemberAvailabilityGuard(csWriter, availabilityMember, enumDecl, $"{enumName}.{propertyPascalName}");
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}({callArg});");
             if (isNullable)
                 csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
@@ -1584,7 +1600,8 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringReturnStaticMethod(CSharpWriter csWriter, string enumName,
             string methodPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
-            List<ArgumentDecl> paramDecls, EnumDecl enumDecl, ITypeDatabase typeDatabase, bool mainActor = false)
+            List<ArgumentDecl> paramDecls, EnumDecl enumDecl, ITypeDatabase typeDatabase, bool mainActor = false,
+            BaseDecl? availabilityMember = null)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
 
@@ -1608,10 +1625,12 @@ namespace BindingsGeneration
             var sliceName = bodyScope.Mint("slice");
 
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+            EmitMemberAvailabilityAttributes(csWriter, availabilityMember, enumDecl);
             csWriter.WriteLine($"public static unsafe string {methodPascalName}({string.Join(", ", csParams)})");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+            EmitMemberAvailabilityGuard(csWriter, availabilityMember, enumDecl, $"{enumName}.{methodPascalName}");
 
             // Build call args
             var callArgs = new List<string>();
@@ -1664,10 +1683,11 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitStringReturnStaticPropertyAccessor(CSharpWriter csWriter, string enumName,
             string propertyPascalName, string wrapperSymbol, string moduleName, bool isNullable = false,
-            bool mainActor = false)
+            bool mainActor = false, BaseDecl? availabilityMember = null, EnumDecl? enumDecl = null)
         {
             var returnType = isNullable ? "string?" : "string";
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
+            EmitMemberAvailabilityAttributes(csWriter, availabilityMember, enumDecl);
             csWriter.WriteLine($"public static unsafe {returnType} {propertyPascalName}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -1675,6 +1695,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("{");
             csWriter.Indent++;
             TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
+            EmitMemberAvailabilityGuard(csWriter, availabilityMember, enumDecl, $"{enumName}.{propertyPascalName}");
             csWriter.WriteLine($"IntPtr resultPtr = PInvoke_Get{propertyPascalName}();");
             if (isNullable)
                 csWriter.WriteLine("if (resultPtr == IntPtr.Zero) return null;");
@@ -1706,6 +1727,26 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits the SBW_Free P/Invoke once per extensions class.
         /// </summary>
+        // An extension member's floor is its own merged with its enum's (declared in Swift, or
+        // inferred from the OS symbol inventory): the extensions class is a sibling of the enum and
+        // carries none of the enum's attributes, so the member advertises the merged floor itself and
+        // refuses a below-floor call before its wrapper reaches a symbol the OS may lack, as a member
+        // of any other floored type does.
+        private static IReadOnlyList<AvailabilityAnnotation>? MemberFloor(BaseDecl? member, EnumDecl? enumDecl) =>
+            member is null ? null : AvailabilityHelpers.MergeAvailabilityFromAncestors(member.AvailabilityAnnotations, enumDecl);
+
+        private static void EmitMemberAvailabilityAttributes(CSharpWriter csWriter, BaseDecl? member, EnumDecl? enumDecl) =>
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, MemberFloor(member, enumDecl), parentDecl: null, emitObsolete: false);
+
+        private static bool NeedsMemberAvailabilityGuard(BaseDecl? member, EnumDecl? enumDecl) =>
+            AvailabilityAttributeEmitter.BuildIsAvailableCondition(MemberFloor(member, enumDecl)) is not null;
+
+        private static void EmitMemberAvailabilityGuard(CSharpWriter csWriter, BaseDecl? member, EnumDecl? enumDecl, string description)
+        {
+            if (NeedsMemberAvailabilityGuard(member, enumDecl))
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(csWriter, MemberFloor(member, enumDecl), description);
+        }
+
         private void EmitFreePInvokeIfNeeded(CSharpWriter csWriter, string moduleName)
         {
             if (_freePInvokeEmittedInExtensions) return;

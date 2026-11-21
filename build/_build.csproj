@@ -72,5 +72,9 @@
          load-safety gate reads load commands with the same parser. Base class library only. -->
     <Compile Include="..\src\Swift.Bindings\src\Configuration\OsFrameworkWeakLinking.cs"
              Link="Helpers\OsFrameworkWeakLinking.cs" />
+    <!-- The OS symbol inventory reader (load-safety P2): the gate checks every wrapper import and
+         direct P/Invoke against the inventory the generator floored declarations from. -->
+    <Compile Include="..\src\Swift.Bindings\src\Configuration\OsSymbolInventory.cs"
+             Link="Helpers\OsSymbolInventory.cs" />
   </ItemGroup>
 </Project>

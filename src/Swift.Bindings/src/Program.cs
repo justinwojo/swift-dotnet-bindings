@@ -50,7 +50,7 @@ namespace BindingsGeneration
             GenerateBindings(swiftAbiPath, dylibPath, tbdPath, outputDirectory, runtimeLibraryName, asyncLibraryName, swiftInterfacePath, symbolGraphPath, bridgeHintsPath, namespacePattern, logger, loggerFactory, out _, out _, out _, out _, dependencyModuleNames: null, moduleDatabasePaths: null);
         }
 
-        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null, Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>>? vetObjCImportedTypeNames = null, ManagedReferenceContext? managedReferences = null)
+        internal static bool GenerateBindings(string swiftAbiPath, string dylibPath, string tbdPath, string outputDirectory, string runtimeLibraryName, string? asyncLibraryName, string? swiftInterfacePath, string? symbolGraphPath, string? bridgeHintsPath, string namespacePattern, ILogger logger, ILoggerFactory loggerFactory, out HashSet<string>? internalTypeNames, out string? moduleNameForCollision, out HashSet<string>? nestedTypesInCollidingClass, out DepModuleCollisionDetector.SlicedCollisionResult depModuleCollisions, List<string>? dependencyModuleNames = null, string[]? moduleDatabasePaths = null, List<FrameworkDependencyInfo>? resolvedDependencies = null, ApplePlatform? platform = null, bool keepBuiltinDatabaseForTargetModule = false, Producers.InterfaceFactsAggregator? factsAggregator = null, string? descriptorAssemblyNameOverride = null, string? swiftRuntimeVersion = null, IReadOnlyList<TypeRecord>? objcBridgeRecords = null, Func<WrapperRecoveryCompileRequest, WrapperCompileDiagnostics>? compileWrapper = null, Func<IReadOnlySet<RecoveryUnitId>, CSharpVerificationResult>? verifyRecoverCsharp = null, string? staticMergedModuleName = null, string? asyncPatternManifestPath = null, Func<IReadOnlyDictionary<string, string>, IReadOnlyDictionary<string, string>>? vetObjCImportedTypeNames = null, ManagedReferenceContext? managedReferences = null, OsSymbolFloorContext? osSymbolFloors = null)
         {
             internalTypeNames = null;
             moduleNameForCollision = null;
@@ -808,6 +808,22 @@ namespace BindingsGeneration
                 decl.InternalTypeNames = internalTypeNames;
                 ReportCollector.Start(decl);
 
+                // Floor every member the generating SDK exports without a floor but the OS symbol
+                // inventory's older OS does not ship (load-safety P2), before the module database bakes
+                // type availability and before any emitter reads member availability.
+                IReadOnlyList<InferredOsFloor>? inferredOsFloors = null;
+                if (osSymbolFloors is not null)
+                {
+                    inferredOsFloors = OsSymbolFloorInference.Apply(decl, osSymbolFloors);
+                    logger.LogInformation(
+                        "Inferred {Count} {Platform} {Floor} floor(s) for declarations {OsVersion} does not ship ({Source}); {Guarded} more already floored above it",
+                        inferredOsFloors.Count(f => f.Raised), osSymbolFloors.AvailabilityPlatform, osSymbolFloors.Floor,
+                        osSymbolFloors.InventoryOsVersion, osSymbolFloors.Source, inferredOsFloors.Count(f => !f.Raised));
+                    foreach (var f in inferredOsFloors.Where(f => f.Raised))
+                        logger.LogInformation("  inferred floor {Platform} {Floor}: {Kind} {Declaration} ({Symbol})",
+                            f.Platform, f.Floor, f.Kind, f.Declaration, f.Symbol);
+                }
+
                 // Raw ObjC class names declared in this module's own bridging header — used by
                 // RegisterClassType to re-anchor a locally-declared pure-ObjC superclass that the ABI
                 // mis-attributes to an unrelated imported module. The class records' pre-rekey C# name
@@ -1193,6 +1209,9 @@ namespace BindingsGeneration
                 // attempt. Put them back into the settled session before it is read.
                 ForeignTypeExtensionEmitter.RepublishWithdrawals(decl, emissionContext);
                 ProtocolExtensionEmitter.PublishDeclines(decl, emissionContext);
+                // The inferred OS floors are decided once, before containment, for the same reason.
+                if (inferredOsFloors is not null)
+                    ReportCollector.RecordInferredOsFloors(inferredOsFloors, osSymbolFloors!.Source);
 
                 var report = ReportCollector.Complete();
                 if (report != null)

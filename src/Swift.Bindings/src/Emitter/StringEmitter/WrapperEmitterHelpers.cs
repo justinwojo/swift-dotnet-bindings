@@ -243,9 +243,17 @@ public static class WrapperEmitterHelpers
         var keys = CollectAvailabilityDeltaKeys(memberAnnotations, DeclaredAvailability(memberAnnotations));
         if (keys.Count == 0)
             return;
+        var floors = string.Join(", ", keys);
+        // An inferred OS floor means the member calls a symbol older OS releases lack; any other
+        // runtime-support floor is the parameterized protocol type's.
+        var raised = memberAnnotations!.Where(a => a.IsRuntimeSupportFloor).ToList();
+        var reason = raised.All(a => a.IsInferredOsFloor)
+            ? $"calls into the OS, which ships it only from {floors} or newer"
+            : raised.Any(a => a.IsInferredOsFloor)
+                ? $"needs runtime support and OS symbols available only from {floors} or newer"
+                : $"marshals a parameterized protocol type, which needs runtime support from {floors} or newer";
         swiftWriter.WriteLine(
-            $"guard #available({string.Join(", ", keys)}, *) else {{ Swift.fatalError(\"[SwiftBindings] {memberDescription} " +
-            $"marshals a parameterized protocol type, which needs runtime support from {string.Join(", ", keys)} or newer\") }}");
+            $"guard #available({floors}, *) else {{ Swift.fatalError(\"[SwiftBindings] {memberDescription} {reason}\") }}");
     }
 
     /// <summary>

@@ -811,6 +811,23 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// Writes the availability attributes of a subscript's set accessor when its floor is
+        /// stricter than the subscript's: a setter the OS symbol inventory's OS lacks while the
+        /// getter ships. The backing setter method guards the call; this is what the consumer's
+        /// analyzer sees on <c>value[index] = x</c>. As for a property setter, the accessor's own
+        /// call into the backing method is under a CA1416 suppression the analyzer needs (it does
+        /// not narrow a call site by accessor attributes); returns true when the caller must close
+        /// it with <see cref="AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue"/>
+        /// right after the set accessor.
+        /// </summary>
+        internal static bool EmitStricterSetterAvailability(CSharpWriter csWriter, SubscriptDecl subscriptDecl)
+        {
+            var setter = subscriptDecl.Accessors.OfType<SetAccessorDecl>().FirstOrDefault();
+            return AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(
+                csWriter, subscriptDecl.AvailabilityAnnotations, setter?.Method.AvailabilityAnnotations);
+        }
+
         private static void EmitIndexerSetter(
             CSharpWriter csWriter,
             SetAccessorDecl setter,
@@ -819,6 +836,28 @@ namespace BindingsGeneration
             List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
             string? currentModuleName,
             ModuleEmissionContext? emissionContext = null)
+        {
+            // Every branch of the body writes exactly one set accessor, so the attributes precede it.
+            var emittedSetterPragma = EmitStricterSetterAvailability(csWriter, subscriptDecl);
+            try
+            {
+                EmitIndexerSetterBody(csWriter, setter, subscriptDecl, typeDatabase, paramInfos, currentModuleName, emissionContext);
+            }
+            finally
+            {
+                if (emittedSetterPragma)
+                    AvailabilityAttributeEmitter.EmitSetterAccessorAvailabilityEpilogue(csWriter);
+            }
+        }
+
+        private static void EmitIndexerSetterBody(
+            CSharpWriter csWriter,
+            SetAccessorDecl setter,
+            SubscriptDecl subscriptDecl,
+            ITypeDatabase typeDatabase,
+            List<(string typeName, string paramName, ITypeProjection? projection)> paramInfos,
+            string? currentModuleName,
+            ModuleEmissionContext? emissionContext)
         {
             var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
             bool isCdecl = setter.Method.UsesCdeclPropertyWrapper;

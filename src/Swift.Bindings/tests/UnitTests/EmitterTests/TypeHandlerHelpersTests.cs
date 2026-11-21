@@ -1281,6 +1281,55 @@ public class TypeHandlerHelpersTests
     }
 
     [Fact]
+    public void ConformanceRegistrations_CarryTheFloorInferredForTheConformanceTheyResolve()
+    {
+        // Load-safety P2: a conformance the OS symbol inventory's OS does not ship on a type it does
+        // ship is floored by its descriptor, so module-init registration resolves its witness table
+        // only above that floor.
+        var typeDatabase = CreateTypeDatabase();
+        const string descriptor = "$s10TestModule6WidgetVSHAAMc";
+        var conformances = new[]
+        {
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.Widget"),
+                SwiftTypeName.FromModuleQualifiedName("Swift.Hashable"),
+                descriptor),
+        };
+        var floor = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+
+        var floored = ProtocolConformanceHelper.GetConformanceRegistrations(
+            conformances, "TestModule", "Widget", typeDatabase,
+            new Dictionary<string, IReadOnlyList<AvailabilityAnnotation>> { [descriptor] = floor });
+        var plain = ProtocolConformanceHelper.GetConformanceRegistrations(
+            conformances, "TestModule", "Widget", typeDatabase, null);
+
+        var registration = Assert.Single(floored);
+        Assert.Same(floor, registration.ConformanceFloor);
+        Assert.Equal(registration.ProtocolName, Assert.Single(plain).ProtocolName);
+        Assert.Null(plain[0].ConformanceFloor);
+        Assert.Equal(new[] { registration.ProtocolName },
+            ProtocolConformanceHelper.GetConformanceProtocolNames(conformances, "TestModule", "Widget", typeDatabase));
+    }
+
+    [Fact]
+    public void ConformanceEffectiveAvailability_MergesTheConformanceFloorWithTheTypes()
+    {
+        var context = new ModuleEmissionContext();
+        var typeFloor = new List<AvailabilityAnnotation> { new("macOS", "13.0", null, null, false, false, null, null) };
+        var conformanceFloor = new List<AvailabilityAnnotation> { new("iOS", "27.2", null, null, false, false, null, null) };
+        context.RecordConformance("Widget", "ISwiftHashable", typeFloor, conformanceFloor);
+        context.RecordConformance("Widget", "ISwiftEquatable", typeFloor);
+
+        var floored = context.GetConformanceEffectiveAvailability("Widget", "ISwiftHashable");
+        Assert.Equal(new[] { ("macOS", "13.0"), ("iOS", "27.2") }, floored!.Select(a => (a.Platform, a.IntroducedVersion!)));
+        Assert.Equal(context.GetTypeEffectiveAvailability("Widget"), context.GetConformanceEffectiveAvailability("Widget", "ISwiftEquatable"));
+        Assert.Contains("27, 2", AvailabilityAttributeEmitter.BuildIsAvailableCondition(floored));
+    }
+
+    [Fact]
     public async Task ConformanceDescriptor_GenericEquatableStruct_RegistersEquatableUnderItsRuntimeLookupKey()
     {
         // A generic type gets no per-type == wrapper, so C# equality resolves Swift's Equatable

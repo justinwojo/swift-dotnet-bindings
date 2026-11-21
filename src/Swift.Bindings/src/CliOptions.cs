@@ -189,6 +189,17 @@ public class CliOptions
                      "redundant build; it is inert in SDK mode and in --compile-only (no wrapper compile).",
         getDefaultValue: () => false);
 
+    public Option<string?> OsSymbolInventory { get; } = new(
+        aliases: new[] { "--os-symbol-inventory" },
+        description: "Load-safety P2: an OS symbol inventory to use in place of, or in addition to, the one " +
+                     "the generator ships (Swift symbols each OS release ships, from Xcode 26.3's SDKs). A " +
+                     "binary inventory built by build/scripts/build-os-symbol-inventory.py replaces the " +
+                     "shipped one; a JSON inventory (\"format\": \"swift-os-symbol-inventory/1\") adds providers, " +
+                     "each listing every symbol it ships at its osVersion, with an optional floor. A member " +
+                     "whose symbol the generating SDK exports but the inventory's OS does not ship is floored " +
+                     "at the provider's floor, else the generating SDK's version; a provider the file lists is " +
+                     "weak-linked like an OS framework.");
+
     public Option<string?> VerificationPackageFeed { get; } = new(
         aliases: new[] { "--verification-package-feed" },
         description: "A run-scoped NuGet feed directory the in-generator C# verification build restores " +
@@ -599,6 +610,7 @@ public class CliOptions
             StrictInputs,
             NoVerifyCSharp,
             VerificationPackageFeed,
+            OsSymbolInventory,
             EmitInputGraph,
             KeepBuiltinDatabase,
             ObjC,

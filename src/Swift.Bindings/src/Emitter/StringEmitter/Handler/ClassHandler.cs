@@ -1072,10 +1072,10 @@ namespace BindingsGeneration
             var typeAvailability = AvailabilityHelpers.MergeAvailabilityFromAncestors(null, _classDecl);
             _emissionCtx.RecordSwiftObjectType(_typeNameWithGenerics, typeAvailability);
             _emissionCtx.RecordPayloadSemantics(_typeNameWithGenerics, semantics);
-            foreach (var protocolName in ProtocolConformanceHelper.GetConformanceProtocolNames(
-                _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase))
+            foreach (var (protocolName, conformanceFloor) in ProtocolConformanceHelper.GetConformanceRegistrations(
+                _classDecl.Conformances, _moduleDecl.Name, _typeNameWithGenerics, _typeDatabase, _moduleDecl.InferredConformanceFloors))
             {
-                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability);
+                _emissionCtx.RecordConformance(_typeNameWithGenerics, protocolName, typeAvailability, conformanceFloor);
             }
         }
 

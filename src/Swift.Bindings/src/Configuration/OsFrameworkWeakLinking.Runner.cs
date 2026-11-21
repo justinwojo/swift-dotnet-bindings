@@ -42,7 +42,7 @@ namespace BindingsGeneration
         internal static IReadOnlyList<string> UnsafeStrongOsResident(string binary, string? sdkPath, ICommandRunner commandRunner)
         {
             var strong = StrongOsResidentLoads(ReadLoadCommands(binary, commandRunner));
-            return strong.Count == 0 ? strong : UnsafeStrongLoads(strong, ReadImports(binary, commandRunner), sdkPath);
+            return strong.Count == 0 ? strong : UnsafeStrongLoads(strong, ReadImports(binary, commandRunner), sdkPath, OsSymbolInventory.Shipped);
         }
 
         /// <summary>
