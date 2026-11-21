@@ -1281,11 +1281,25 @@ done; true"
       <_AFW_SecondSliceThunkFrameworkFlag Condition="'$(_AFW_SecondSliceArm64ThunkObjects.Trim())' != ''">-Xlinker -framework -Xlinker $(_SwiftAppleFrameworkModule) </_AFW_SecondSliceThunkFrameworkFlag>
     </PropertyGroup>
 
+    <!-- Load safety (P1, OsFrameworkWeakLinking in the generator): weak-link every OS-resident
+         framework this slice loads, so a symbol an older OS lacks can never stop the wrapper
+         loading. The first slice, linked by the generator, already weak-links each one it loads;
+         this slice weak-links the same set read back from that slice's load commands, plus the bound Apple framework itself.
+         The check after the link below fails the build if any /System/ dylib is still loaded strongly. -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="otool -l &quot;$(_AFW_FirstSliceFramework)/$(_AFW_WrapperModule)&quot; | awk '$1==&quot;name&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sed -n 's#.*/\([^/]*\)\.framework/.*#\1#p' | sort -u | awk '{printf &quot;-Xlinker -weak_framework -Xlinker %s &quot;, $0}'"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_OsWeakLinkFlagsRead" />
+    </Exec>
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_OsWeakLinkFlags>-Xlinker -weak_framework -Xlinker $(_SwiftAppleFrameworkModule) $(_AFW_OsWeakLinkFlagsRead) </_AFW_OsWeakLinkFlags>
+    </PropertyGroup>
+
     <!-- Single-arch compile: emit the framework binary directly (default sim-first
          flow where the second slice is the device-arm64-only slice, or device-first
          flow when the user pinned SwiftTargetArchitectures). -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' != 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
     <!-- Fat-sim compile: swiftc per-arch into per-arch staging dylibs, then lipo
@@ -1303,14 +1317,23 @@ done; true"
     <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
              Directories="$(_AFW_SecondSliceStagingDir)" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceArm64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceArm64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceX64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceX64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceX64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceX64ThunkObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
           Command="lipo -create &quot;$(_AFW_SecondSliceArm64Lib)&quot; &quot;$(_AFW_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
+
+    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second wrapper slice just linked. -->
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)')"
+          Command="otool -l &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; | awk '$1==&quot;cmd&quot; {c=$2} $1==&quot;name&quot; &amp;&amp; c!=&quot;LC_LOAD_WEAK_DYLIB&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sort -u | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_StrongOsLoads" />
+    </Exec>
+    <Error Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_StrongOsLoads.Trim())' != ''"
+           Text="The second wrapper slice at '$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)' loads OS-resident dylib(s) strongly: $(_AFW_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
 
     <!-- Write the second slice's embedded .framework/Info.plist before xcodebuild
          -create-xcframework merges it. `swiftc -emit-library` above only produces
@@ -1480,12 +1503,23 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_FirstSliceFramework" />
     </Exec>
 
+    <!-- Load safety (P1, OsFrameworkWeakLinking in the generator): weak-link every OS-resident
+         framework this slice loads, so a symbol an older OS lacks can never stop the wrapper
+         loading. The first slice, linked by the generator, already weak-links each one it loads;
+         this slice weak-links the same set read back from that slice's load commands.
+         The check after the link below fails the build if any /System/ dylib is still loaded strongly. -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
+          Command="otool -l &quot;$(_AFB_FirstSliceFramework)/$(_AFW_BridgeModule)&quot; | awk '$1==&quot;name&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sed -n 's#.*/\([^/]*\)\.framework/.*#\1#p' | sort -u | awk '{printf &quot;-Xlinker -weak_framework -Xlinker %s &quot;, $0}'"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_OsWeakLinkFlags" />
+    </Exec>
+
     <!-- Single-arch compile: emit the framework binary directly (default sim-first
          flow where the second slice is device-arm64-only, or device-first flow when
          the user pinned SwiftTargetArchitectures). No thunk objects, no
          -framework <OriginalModule> — bridge imports auto-link the system frameworks. -->
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' != 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; $(_AFB_BridgeSwiftFiles)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) $(_AFB_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; $(_AFB_BridgeSwiftFiles)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           ContinueOnError="true" />
 
@@ -1500,17 +1534,26 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
     <MakeDir Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
              Directories="$(_AFB_SecondSliceStagingDir)" />
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceArm64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) $(_AFB_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceArm64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           ContinueOnError="true" />
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) -Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceX64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_BridgeModule) $(_AFB_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule) -o &quot;$(_AFB_SecondSliceX64Lib)&quot; $(_AFB_BridgeSwiftFiles)"
           StandardOutputImportance="low" StandardErrorImportance="high"
           ContinueOnError="true" />
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
           Command="lipo -create &quot;$(_AFB_SecondSliceArm64Lib)&quot; &quot;$(_AFB_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high"
           ContinueOnError="true" />
+
+    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second SwiftUI bridge slice just linked. -->
+    <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)')"
+          Command="otool -l &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; | awk '$1==&quot;cmd&quot; {c=$2} $1==&quot;name&quot; &amp;&amp; c!=&quot;LC_LOAD_WEAK_DYLIB&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sort -u | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_StrongOsLoads" />
+    </Exec>
+    <Error Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFB_StrongOsLoads.Trim())' != ''"
+           Text="The second SwiftUI bridge slice at '$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)' loads OS-resident dylib(s) strongly: $(_AFB_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
 
     <!-- Write the second slice's embedded Info.plist before xcodebuild merges it.
          Mirrors SwiftWrapperCompiler.WriteFrameworkPlist; reuses the wrapper target's

@@ -3991,6 +3991,16 @@ partial class Build
 
         Log.Information("Device wrapper compilation succeeded.");
 
+        // Load safety (P1): weak-link every OS framework the device wrapper loads.
+        WeakLinkOsFrameworks(WrapperModule, outputFwDir / WrapperModule, extra =>
+        {
+            foreach (var arg in extra)
+                settings.AddExtraArgument(arg);
+            var relink = SwiftCompiler.Run(settings);
+            relink.WaitForExit();
+            return relink.ExitCode == 0;
+        });
+
         CleanupWrapperBuild(cleanedDir);
 
         // Create framework Info.plist
@@ -4128,6 +4138,15 @@ partial class Build
             if (compiled)
             {
                 Log.Information("Dependency wrapper device compilation succeeded.");
+                // Load safety (P1): weak-link every OS framework the device dependency wrapper loads.
+                WeakLinkOsFrameworks(depWrapperName, outputFwDir / depWrapperName, extra =>
+                {
+                    foreach (var arg in extra)
+                        settings.AddExtraArgument(arg);
+                    var relink = SwiftCompiler.Run(settings);
+                    relink.WaitForExit();
+                    return relink.ExitCode == 0;
+                });
             }
             else
             {

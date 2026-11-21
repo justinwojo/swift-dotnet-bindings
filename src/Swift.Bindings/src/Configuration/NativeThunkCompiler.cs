@@ -228,16 +228,49 @@ namespace BindingsGeneration
                 }
             }
 
-            var args = $"clang -shared -target {targetTriple} " +
-                       $"-isysroot \"{sdkPath}\" " +
-                       $"{frameworkFlags}" +
-                       $"-install_name @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
-                       $"-o \"{outputBinaryPath}\" " +
-                       objectArgs;
+            // P1: weak-link every OS-resident framework the link loads, exactly as the swiftc path does
+            // (OsFrameworkWeakLinking): link, read the load commands back, relink once if any OS framework
+            // came out strong, and fail if one still is.
+            var weakFrameworks = OsFrameworkWeakLinking.Predict(wrapperModuleName, originalModuleName, frameworkSearchPath, sdkPath);
+            string LinkArgs() =>
+                $"clang -shared -target {targetTriple} " +
+                $"-isysroot \"{sdkPath}\" " +
+                $"{frameworkFlags}" +
+                OsFrameworkWeakLinking.ClangFlags(weakFrameworks) +
+                $"-install_name @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +
+                $"-o \"{outputBinaryPath}\" " +
+                objectArgs;
 
+            var args = LinkArgs();
             logger.LogDebug("Invoking: xcrun {Args}", args);
 
             var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
+
+            if (exitCode == 0)
+            {
+                var (strong, other) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
+                if (other.Count > 0)
+                    throw new InvalidOperationException(OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, other));
+                if (strong.Count > 0)
+                {
+                    logger.LogInformation(
+                        "Relinking {Wrapper} to weak-link the OS framework(s) it loaded strongly: {Frameworks}",
+                        wrapperModuleName, string.Join(", ", strong));
+                    weakFrameworks.UnionWith(strong);
+                    args = LinkArgs();
+                    logger.LogDebug("Relinking: xcrun {Args}", args);
+                    (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
+                    if (exitCode == 0)
+                    {
+                        var (still, stillOther) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
+                        if (still.Count > 0 || stillOther.Count > 0)
+                            throw new InvalidOperationException(
+                                OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, still.Concat(stillOther)));
+                    }
+                }
+                if (exitCode == 0)
+                    OsFrameworkWeakLinking.Learn(wrapperModuleName, weakFrameworks);
+            }
 
             if (exitCode != 0)
             {

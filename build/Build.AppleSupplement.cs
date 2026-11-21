@@ -211,6 +211,17 @@ partial class Build
 
         SwiftCompiler.Execute(settings);
 
+        // Load safety (P1): weak-link every OS framework the supplement loads, as the generator's
+        // wrapper link does, so a symbol an older OS lacks can never stop it loading.
+        WeakLinkOsFrameworks($"{AppleSupplementModuleName} {target}", frameworkDir / AppleSupplementModuleName, extra =>
+        {
+            foreach (var arg in extra)
+                settings.AddExtraArgument(arg);
+            var relink = SwiftCompiler.Run(settings);
+            relink.WaitForExit();
+            return relink.ExitCode == 0;
+        });
+
         // Mirror the public swiftinterface to .private.swiftinterface so consumers
         // that resolve via the private path (which Apple's tooling sometimes
         // prefers) still find the module — same trick the BindingTests pipeline uses.

@@ -2005,7 +2005,14 @@ namespace BindingsGeneration
                 $"-o \"{outputBinaryPath}\" " +
                 fileArgs;
 
-            var args = BuildArgs("");
+            // P1: weak-link every OS-resident framework the link loads (OsFrameworkWeakLinking). The first
+            // link weak-links what this module is known to need; the check after it relinks once if any
+            // other OS framework came out strong.
+            var weakFrameworks = OsFrameworkWeakLinking.Predict(wrapperModuleName, originalModuleName, frameworkSearchPath, sdkPath);
+            var retryLinkerFlags = "";
+            string LinkArgs() => BuildArgs(OsFrameworkWeakLinking.SwiftcFlags(weakFrameworks) + retryLinkerFlags);
+
+            var args = LinkArgs();
 
             logger.LogDebug("Invoking: xcrun {Args}", args);
 
@@ -2031,8 +2038,8 @@ namespace BindingsGeneration
                 {
                     logger.LogInformation(
                         "Retrying wrapper compile with profile runtime archive: {Archive}", profileArchive);
-                    var retryFlags = $"-Xlinker \"{profileArchive}\" ";
-                    var retryArgs = BuildArgs(retryFlags);
+                    retryLinkerFlags = $"-Xlinker \"{profileArchive}\" ";
+                    var retryArgs = LinkArgs();
                     logger.LogDebug("Retrying: xcrun {Args}", retryArgs);
                     (exitCode, stdout, stderr) = commandRunner.Run("xcrun", retryArgs, timeoutMs: swiftcTimeoutMs);
                     args = retryArgs;
@@ -2104,6 +2111,9 @@ namespace BindingsGeneration
                     $"Swift wrapper compilation failed (exit code {exitCode}): {errorPreview}{hint}");
             }
 
+            args = EnsureOsFrameworksWeaklyLinked(
+                args, LinkArgs, weakFrameworks, outputBinaryPath, wrapperModuleName, swiftcTimeoutMs, commandRunner, logger);
+
             if (lowering is { Verifies: true })
             {
                 // A relink of a wrapper whose receipt is already written: the slice must have been
@@ -2127,6 +2137,48 @@ namespace BindingsGeneration
                     originalModuleName, transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, strippedSymbols,
                     compileClock.Elapsed, commandRunner, logger, swiftcTimeoutMs, sdkPath);
             }
+        }
+
+        /// <summary>
+        /// Reads the linked wrapper's load commands and relinks it once, with every OS-resident framework that
+        /// came out strong added to <paramref name="weakFrameworks"/>, then requires none to be strong (P1,
+        /// <see cref="OsFrameworkWeakLinking"/>). Returns the arguments of the link that produced the binary.
+        /// </summary>
+        private static string EnsureOsFrameworksWeaklyLinked(
+            string args,
+            Func<string> linkArgs,
+            SortedSet<string> weakFrameworks,
+            string outputBinaryPath,
+            string wrapperModuleName,
+            int timeoutMs,
+            ICommandRunner commandRunner,
+            ILogger logger)
+        {
+            var (strong, other) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
+            if (other.Count > 0)
+                throw new InvalidOperationException(OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, other));
+            if (strong.Count > 0)
+            {
+                logger.LogInformation(
+                    "Relinking {Wrapper} to weak-link the OS framework(s) it loaded strongly: {Frameworks}",
+                    wrapperModuleName, string.Join(", ", strong));
+                weakFrameworks.UnionWith(strong);
+                args = linkArgs();
+                logger.LogDebug("Relinking: xcrun {Args}", args);
+                var (exitCode, _, stderr) = commandRunner.Run("xcrun", args, timeoutMs: timeoutMs);
+                if (exitCode != 0)
+                {
+                    var preview = stderr.Length > 2000 ? stderr.Substring(0, 2000) + "..." : stderr;
+                    throw new InvalidOperationException(
+                        $"Swift wrapper relink with weak-linked OS frameworks failed (exit code {exitCode}): {preview}");
+                }
+                var (still, stillOther) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
+                if (still.Count > 0 || stillOther.Count > 0)
+                    throw new InvalidOperationException(
+                        OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, still.Concat(stillOther)));
+            }
+            OsFrameworkWeakLinking.Learn(wrapperModuleName, weakFrameworks);
+            return args;
         }
 
         /// <summary>

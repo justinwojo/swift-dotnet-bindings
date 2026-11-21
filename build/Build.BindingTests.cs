@@ -951,6 +951,17 @@ partial class Build
 
         Log.Information("Compilation succeeded.");
 
+        // Load safety (P1): weak-link every OS framework the wrapper loads, as the generator's own
+        // wrapper link does, so a symbol an older OS lacks can never stop the wrapper loading.
+        WeakLinkOsFrameworks(WrapperModule, outputFwDir / WrapperModule, extra =>
+        {
+            foreach (var arg in extra)
+                settings.AddExtraArgument(arg);
+            var relink = SwiftCompiler.Run(settings);
+            relink.WaitForExit();
+            return relink.ExitCode == 0;
+        });
+
         // Clean up temporary build directory
         CleanupWrapperBuild(cleanedDir);
 
@@ -1070,6 +1081,16 @@ partial class Build
             settings.AddFrameworkSearchPath(depXcfwSliceDir + "/");
 
         SwiftCompiler.Execute(settings);
+
+        // Load safety (P1): weak-link every OS framework the bridge loads.
+        WeakLinkOsFrameworks(BridgeModule, (AbsolutePath)Path.Combine(outputDir, BridgeModule), extra =>
+        {
+            foreach (var arg in extra)
+                settings.AddExtraArgument(arg);
+            var relink = SwiftCompiler.Run(settings);
+            relink.WaitForExit();
+            return relink.ExitCode == 0;
+        });
 
         // Create Info.plist
         PlistGenerator.WriteFrameworkPlist(
@@ -1317,6 +1338,12 @@ partial class Build
                 // newer than the deployment target is a dyld load failure for the whole app on an
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
+
+                // OS load-safety gate: read every slice of both wrappers and require every /System/
+                // dylib load to be weak (LC_LOAD_WEAK_DYLIB). A strong load of an OS framework makes dyld
+                // refuse the whole wrapper on an OS that lacks one symbol it imports — an SDK member
+                // declared without a floor is exactly that. Fail-closed and unconditional.
+                RunOsLoadSafetyGate();
 
                 // Native frame gate: run the linked check over every slice of both wrappers, holding
                 // every exported bridge to its plan and every native thunk to the canonical frame and
