@@ -1530,47 +1530,7 @@ namespace BindingsGeneration
 
         private void ResolveClassHierarchy()
         {
-            // Build a lookup from module-qualified name to ClassDecl for efficient resolution.
-            var classesByName = new Dictionary<string, ClassDecl>(StringComparer.Ordinal);
-            foreach (var (_, typeDecl) in _typeDecls)
-            {
-                if (typeDecl is ClassDecl classDecl)
-                {
-                    classesByName[classDecl.SwiftTypeName.ModuleQualifiedName] = classDecl;
-                }
-            }
-
-            // Resolve each class's direct superclass
-            foreach (var (_, classDecl) in classesByName)
-            {
-                var superName = classDecl.DirectSuperclassName;
-                if (superName == null)
-                    continue; // Root class
-
-                if (classesByName.TryGetValue(superName, out var superclassDecl))
-                {
-                    classDecl.ResolvedSuperclass = superclassDecl;
-                    continue;
-                }
-
-                // Skip USR fallback for generic-instantiated parents: the USR strips type
-                // arguments, so resolving via USR would silently drop them and the emitter
-                // would produce <T> instead of the concrete instantiation (e.g.
-                // HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>).
-                // Same-module generic-instantiated parents stay external for now.
-                if (superName.Contains('<'))
-                    continue;
-
-                // Umbrella-module fallback: SuperclassNames may use the original Swift module
-                // (e.g. "RealityKit.Entity") while the parent class is processed under its
-                // umbrella module (e.g. "RealityFoundation.Entity"). The USR is canonical and
-                // contains the umbrella module — use it as the source of truth.
-                if (TryResolveSuperclassByUsr(classDecl, classesByName, out superclassDecl))
-                {
-                    classDecl.ResolvedSuperclass = superclassDecl;
-                }
-                // else: cross-module or ObjC base — leave null (HasExternalSuperclass will be true)
-            }
+            var classesByName = LinkSameModuleSuperclasses(_typeDecls.Values, _logger);
 
             // Cross-module Swift fallback: when same-module resolution misses, look the parent
             // up in the global type database. The TypeRecord lookup covers two cases:
@@ -1654,6 +1614,58 @@ namespace BindingsGeneration
                     }
                 }
             }
+        }
+
+        /// <summary>
+        /// Links each class of <paramref name="typeDecls"/> to its superclass when this module declares
+        /// it (by name, or by the superclass USR's umbrella-module name), and unlinks the members of any
+        /// cycle. Runs in <see cref="ResolveClassHierarchy"/>, and before it wherever a pass needs the
+        /// hierarchy earlier (the OS symbol floor inference resolves an override's call target through
+        /// the member whose vtable entry it reuses). Idempotent. Returns the module's classes by
+        /// module-qualified name.
+        /// </summary>
+        internal static Dictionary<string, ClassDecl> LinkSameModuleSuperclasses(IEnumerable<TypeDecl> typeDecls, ILogger? logger)
+        {
+            var classesByName = new Dictionary<string, ClassDecl>(StringComparer.Ordinal);
+            foreach (var typeDecl in typeDecls)
+            {
+                if (typeDecl is ClassDecl classDecl)
+                {
+                    classesByName[classDecl.SwiftTypeName.ModuleQualifiedName] = classDecl;
+                }
+            }
+
+            // Resolve each class's direct superclass
+            foreach (var (_, classDecl) in classesByName)
+            {
+                var superName = classDecl.DirectSuperclassName;
+                if (superName == null)
+                    continue; // Root class
+
+                if (classesByName.TryGetValue(superName, out var superclassDecl))
+                {
+                    classDecl.ResolvedSuperclass = superclassDecl;
+                    continue;
+                }
+
+                // Skip USR fallback for generic-instantiated parents: the USR strips type
+                // arguments, so resolving via USR would silently drop them and the emitter
+                // would produce <T> instead of the concrete instantiation (e.g.
+                // HistoricalScheduler : VirtualTimeScheduler<HistoricalSchedulerTimeConverter>).
+                // Same-module generic-instantiated parents stay external for now.
+                if (superName.Contains('<'))
+                    continue;
+
+                // Umbrella-module fallback: SuperclassNames may use the original Swift module
+                // (e.g. "RealityKit.Entity") while the parent class is processed under its
+                // umbrella module (e.g. "RealityFoundation.Entity"). The USR is canonical and
+                // contains the umbrella module — use it as the source of truth.
+                if (TryResolveSuperclassByUsr(classDecl, classesByName, out superclassDecl))
+                {
+                    classDecl.ResolvedSuperclass = superclassDecl;
+                }
+                // else: cross-module or ObjC base — leave null (HasExternalSuperclass will be true)
+            }
 
             // Validate: detect cycles (should be impossible in valid ABI, but guard).
             // Collect all cycle participants and clear their ResolvedSuperclass to avoid
@@ -1665,11 +1677,12 @@ namespace BindingsGeneration
             }
             foreach (var participant in cycleParticipants)
             {
-                _logger.LogWarning(
+                logger?.LogWarning(
                     "Cyclic class hierarchy detected for '{ClassName}'. Clearing resolved superclass.",
                     participant.SwiftTypeName.ModuleQualifiedName);
                 participant.ResolvedSuperclass = null;
             }
+            return classesByName;
         }
 
         /// <summary>

@@ -1595,9 +1595,11 @@ public static class MethodClosureBridge
         XmlDocCommentEmitter.EmitMethodDocComment(csWriter, method,
             passableNonClosureParams.Select(p => p.csName).Concat(closures.Select(c => c.ParamName)).ToList());
 
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public {staticKeyword}unsafe {returnType} {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // When in a generic type, callback pointer and P/Invoke live in the helper class
         var helperPrefix = string.IsNullOrEmpty(helperClassName) ? "" : $"{helperClassName}.";

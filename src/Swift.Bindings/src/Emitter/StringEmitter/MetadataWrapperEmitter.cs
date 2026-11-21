@@ -20,13 +20,27 @@ public static class MetadataWrapperEmitter
     /// zero-argument method, as it did when that method was the import itself.
     /// <paramref name="emissionContext"/>, when supplied, records the import's Swift call facts for
     /// the module's transition ledger; it never changes the rendered text.
+    /// <paramref name="refusal"/>, the type's runtime availability guard
+    /// (<see cref="AvailabilityAttributeEmitter.BuildRuntimeAvailabilityGuardStatement"/>), opens the
+    /// zero-argument method when the type has an OS floor: below it the accessor may be a symbol the
+    /// OS does not ship, and the method is internal, so it refuses itself rather than relying on the
+    /// callers in this file.
     /// </summary>
     public static IEnumerable<string> FormatSwiftAccessorImportLines(
         string libraryPath, string accessorSymbol, string methodName, bool hasNewModifier,
-        ModuleEmissionContext? emissionContext = null)
+        ModuleEmissionContext? emissionContext = null, string? refusal = null)
     {
         var newModifier = hasNewModifier ? "new " : "";
-        yield return $"internal static {newModifier}TypeMetadata {methodName}() => {methodName}(global::Swift.Runtime.TypeMetadataRequest.Complete);";
+        if (refusal is null)
+            yield return $"internal static {newModifier}TypeMetadata {methodName}() => {methodName}(global::Swift.Runtime.TypeMetadataRequest.Complete);";
+        else
+        {
+            yield return $"internal static {newModifier}TypeMetadata {methodName}()";
+            yield return "{";
+            yield return $"    {refusal}";
+            yield return $"    return {methodName}(global::Swift.Runtime.TypeMetadataRequest.Complete);";
+            yield return "}";
+        }
         yield return "";
         foreach (var line in PInvokeEmitHelper.FormatDeclarationLines(new PInvokeEmissionInfo
         {
@@ -41,6 +55,27 @@ public static class MetadataWrapperEmitter
         }))
             yield return line;
     }
+
+    /// <summary>
+    /// The refusal a type's metadata accessors open with when the type has an OS floor (its own,
+    /// its ancestors', or one inferred from the OS symbol inventory), or <c>null</c> without one.
+    /// The method holding the native metadata call must throw before it on an OS below the floor,
+    /// whichever route reaches it (the runtime's <c>SwiftObjectHelper&lt;T&gt;</c>, a direct
+    /// <c>ISwiftObject.GetTypeMetadata()</c> call, or another member compiled into the assembly).
+    /// </summary>
+    public static string? BuildMetadataRefusal(TypeDecl typeDecl) =>
+        AvailabilityAttributeEmitter.BuildRuntimeAvailabilityGuardStatement(
+            WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, typeDecl),
+            $"Swift type '{typeDecl.SwiftTypeName.ModuleQualifiedName}'");
+
+    /// <summary>
+    /// <c>static TypeMetadata ISwiftObject.GetTypeMetadata()</c> returning
+    /// <paramref name="callExpression"/>, opened by <paramref name="refusal"/> when there is one.
+    /// </summary>
+    public static string FormatGetTypeMetadataForwarder(string callExpression, string? refusal) =>
+        refusal is null
+            ? $"static TypeMetadata ISwiftObject.GetTypeMetadata() => {callExpression};"
+            : $"static TypeMetadata ISwiftObject.GetTypeMetadata()\n{{\n    {refusal}\n    return {callExpression};\n}}";
 
     /// <summary>
     /// Gets the @_cdecl symbol name for a metadata wrapper.
@@ -165,6 +200,10 @@ public static class MetadataWrapperEmitter
 
         // Names are controlled (Swift identifier path + version strings), so they need no escaping.
         var message = $"Swift type '{moduleQualifiedSwiftName}' is not available on this OS version; it requires {floors} or later.";
+        // Refuse before the wrapper call: the wrapper's export reaches the type's metadata accessor,
+        // which an OS below the floor may not ship. The wrapper's own #available check and the zero
+        // metadata test below stay as the second line for a platform the guard does not name.
+        var refusal = AvailabilityAttributeEmitter.BuildRuntimeAvailabilityGuardStatement(availability, $"Swift type '{moduleQualifiedSwiftName}'");
         // The fallback calls the library's own metadata accessor directly, past the wrapper's
         // #available check, so it runs only where the floor holds: below it the accessor may be a
         // symbol the OS does not ship (a floor inferred from the OS symbol inventory), and a call
@@ -176,6 +215,7 @@ public static class MetadataWrapperEmitter
         return $$"""
             static TypeMetadata ISwiftObject.GetTypeMetadata()
             {
+                {{refusal}}
                 TypeMetadata __metadata;
                 try
                 {

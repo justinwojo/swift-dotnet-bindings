@@ -4,6 +4,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace BindingsGeneration
 {
@@ -12,6 +13,22 @@ namespace BindingsGeneration
     // the build harness, which reads them through its own tool runner.
     internal static partial class OsFrameworkWeakLinking
     {
+        private static OsSymbolInventory? s_runInventory;
+
+        /// <summary>
+        /// The OS symbol inventory every strong-load check of this process reads
+        /// (<see cref="UnsafeStrongLoads"/>): the one the run loaded (<see cref="OsSymbolFloorContext.LoadForRun"/>,
+        /// where a supplied binary inventory replaces the shipped one), else the shipped one. Process-wide,
+        /// like the providers a supplied inventory registers (<see cref="TreatAsOsProviders"/>). Setting null
+        /// returns it to the shipped one, decoded only when a check reads it.
+        /// </summary>
+        [System.Diagnostics.CodeAnalysis.AllowNull]
+        internal static OsSymbolInventory RunInventory
+        {
+            get => Volatile.Read(ref s_runInventory) ?? OsSymbolInventory.Shipped;
+            set => Volatile.Write(ref s_runInventory, value);
+        }
+
         /// <summary>
         /// Reads <paramref name="binary"/>'s dylib load commands with <c>otool -l</c>. Throws when the read
         /// fails: a wrapper whose load commands cannot be checked is not known to load.
@@ -42,7 +59,7 @@ namespace BindingsGeneration
         internal static IReadOnlyList<string> UnsafeStrongOsResident(string binary, string? sdkPath, ICommandRunner commandRunner)
         {
             var strong = StrongOsResidentLoads(ReadLoadCommands(binary, commandRunner));
-            return strong.Count == 0 ? strong : UnsafeStrongLoads(strong, ReadImports(binary, commandRunner), sdkPath, OsSymbolInventory.Shipped);
+            return strong.Count == 0 ? strong : UnsafeStrongLoads(strong, ReadImports(binary, commandRunner), sdkPath, RunInventory);
         }
 
         /// <summary>

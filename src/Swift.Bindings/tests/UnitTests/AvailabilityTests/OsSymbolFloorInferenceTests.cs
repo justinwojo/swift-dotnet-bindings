@@ -573,6 +573,115 @@ public class OsSymbolFloorInferenceTests
         Assert.Equal("conformance", Assert.Single(floors).Kind);
     }
 
+    private static ClassDecl OpenClass(string name) => new()
+    {
+        Name = name,
+        ParentDecl = null,
+        ModuleDecl = null,
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{Module}.{name}"),
+        MangledName = $"$s3Kit{name.Length}{name}C",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Conformances = new List<TypeConformance>(),
+    };
+
+    [Fact]
+    public void AnOverridableClassMethod_WhoseDispatchThunkTheOsLacks_IsFloored_ThoughItsImplementationShips()
+    {
+        // The binding calls the dispatch thunk, not the implementation: an older OS that ships only the
+        // implementation cannot satisfy the call.
+        var shape = OpenClass("Shape");
+        var area = Method("area", "$s3Kit5ShapeC4areaSdyF", shape);
+        shape.Methods.Add(area);
+        var floors = OsSymbolFloorInference.Apply(
+            ModuleWith(new[] { shape.MangledName + "Mn", area.MangledName, area.MangledName + "Tj" }, shape),
+            Context(new[] { shape.MangledName + "Mn", area.MangledName }));
+
+        Assert.Equal("27.2", InferredFloor(area.AvailabilityAnnotations)!.IntroducedVersion);
+        var record = Assert.Single(floors);
+        Assert.Equal(("method", area.MangledName + "Tj"), (record.Kind, record.Symbol));
+    }
+
+    [Fact]
+    public void AnOverridableClassProperty_WhoseGetterThunkTheOsLacks_IsFloored_ThoughTheGetterShips()
+    {
+        var shape = OpenClass("Shape");
+        var getter = Method("label_get", "$s3Kit5ShapeC5labelSSvg", shape);
+        var property = TestDecls.Property("label", module: Module) with
+        {
+            Accessors = new List<AccessorDecl> { new GetAccessorDecl { Method = getter } },
+        };
+        property.ParentDecl = shape;
+        shape.Properties.Add(property);
+        var floors = OsSymbolFloorInference.Apply(
+            ModuleWith(new[] { shape.MangledName + "Mn", getter.MangledName, getter.MangledName + "Tj" }, shape),
+            Context(new[] { shape.MangledName + "Mn", getter.MangledName }));
+
+        Assert.Equal("27.2", InferredFloor(property.AvailabilityAnnotations)!.IntroducedVersion);
+        Assert.NotNull(InferredFloor(getter.AvailabilityAnnotations));
+        Assert.Contains(getter.MangledName + "Tj", Assert.Single(floors).Symbols);
+    }
+
+    /// <summary>
+    /// An override that reuses its base's vtable entry has no dispatch thunk of its own: the binding calls
+    /// the base's, which the call-target resolution reaches through the superclass link. Inference runs
+    /// before the module database links the hierarchy, so the override would otherwise be judged by an
+    /// implementation symbol it never calls and stay unfloored.
+    /// </summary>
+    [Fact]
+    public void AnOverride_ThatReusesItsBasesVTableEntry_IsFloored_WhenTheOsLacksTheBasesThunk()
+    {
+        var shape = OpenClass("Shape");
+        var area = Method("area", "$s3Kit5ShapeC4areaSdyF", shape);
+        shape.Methods.Add(area);
+        var circle = OpenClass("Circle");
+        circle.SuperclassNames.Add(shape.SwiftTypeName.ModuleQualifiedName);
+        var circleArea = Method("area", "$s3Kit6CircleC4areaSdyF", circle);
+        circleArea.IsOverride = true;
+        circle.Methods.Add(circleArea);
+        var floors = OsSymbolFloorInference.Apply(
+            ModuleWith(new[] { shape.MangledName + "Mn", circle.MangledName + "Mn", area.MangledName + "Tj" }, shape, circle),
+            Context(new[] { shape.MangledName + "Mn", circle.MangledName + "Mn" }));
+
+        Assert.Equal("27.2", InferredFloor(circleArea.AvailabilityAnnotations)!.IntroducedVersion);
+        Assert.Contains(floors, f => f.Symbol == area.MangledName + "Tj" && f.Declaration.EndsWith("Circle.area", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void AFinalClassMethod_IsJudgedByTheImplementationItCalls_NotAThunkItDoesNotUse()
+    {
+        var shape = OpenClass("Shape");
+        var area = Method("area", "$s3Kit5ShapeC4areaSdyF", shape);
+        area.IsFinal = true;
+        shape.Methods.Add(area);
+        var floors = OsSymbolFloorInference.Apply(
+            ModuleWith(new[] { shape.MangledName + "Mn", area.MangledName, area.MangledName + "Tj" }, shape),
+            Context(new[] { shape.MangledName + "Mn", area.MangledName }));
+
+        Assert.Empty(floors);
+        Assert.Null(area.AvailabilityAnnotations);
+    }
+
+    [Fact]
+    public void AnAbsentProtocolExtensionMember_IsFloored_ThoughTheProtocolShips()
+    {
+        // Extension members are kept off the protocol's contract, but injection binds them on every
+        // conformer through a wrapper that calls them.
+        var outline = TestDecls.ExtensionDefault("outline", module: Module) with { MangledName = "$s3Kit8DrawablePAAE7outlineyyF" };
+        var drawable = TestDecls.Protocol("Drawable", Module);
+        outline.ParentDecl = drawable;
+        drawable.ExtensionMembers.Add(outline);
+        var floors = OsSymbolFloorInference.Apply(
+            ModuleWith(new[] { "$s3Kit8DrawableMp", outline.MangledName }, drawable),
+            Context(new[] { "$s3Kit8DrawableMp" }));
+
+        Assert.Null(drawable.AvailabilityAnnotations);
+        Assert.Equal("27.2", InferredFloor(outline.AvailabilityAnnotations)!.IntroducedVersion);
+        Assert.Equal(("method", outline.MangledName), (Assert.Single(floors).Kind, floors[0].Symbol));
+    }
+
     [Theory]
     [InlineData("27.0", null, false)]
     [InlineData("27.0", "16.0", true)]

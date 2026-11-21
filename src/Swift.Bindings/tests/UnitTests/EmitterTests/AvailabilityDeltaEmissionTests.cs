@@ -186,13 +186,14 @@ public class AvailabilityDeltaEmissionTests
     [Fact]
     public void WitnessBody_BlamesTheOs_ForAnInferredOsFloor()
     {
-        var member = new List<AvailabilityAnnotation> { RuntimeFloor("iOS", "27.2") with { IsInferredOsFloor = true } };
+        var inferred = EmitGuard(new List<AvailabilityAnnotation> { RuntimeFloor("iOS", "27.2") with { IsInferredOsFloor = true } });
+        var runtimeSupport = EmitGuard(new List<AvailabilityAnnotation> { RuntimeFloor("iOS", "27.2") });
 
-        var guard = EmitGuard(member);
-
-        Assert.Contains("iOS 27.2", guard);
-        Assert.Contains("ships it only from", guard);
-        Assert.DoesNotContain("parameterized protocol", guard);
+        // Both trap below the same floor; only the cause they name differs.
+        Assert.StartsWith("guard #available(", inferred);
+        Assert.Contains("iOS 27.2", inferred);
+        Assert.NotEqual(runtimeSupport, inferred);
+        Assert.Equal(runtimeSupport.Split("fatalError(")[0], inferred.Split("fatalError(")[0]);
     }
 
     [Fact]

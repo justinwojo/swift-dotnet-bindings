@@ -50,6 +50,148 @@ public class EnumHandlerOutputTests
         Assert.True(factory.IndexOf("NativeMemory.Free(resultBuffer);", StringComparison.Ordinal) > destroy, factory);
     }
 
+    /// <summary>
+    /// FromRawValue reaches init(rawValue:), directly or through its wrapper, so it refuses below the
+    /// initializer's floor merged with the enum's, advertises it, and the wrapper is exported at it.
+    /// An initializer the OS gained after the enum (an inferred floor) is the case this catches.
+    /// </summary>
+    [Theory]
+    [InlineData(false, false, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, false, false)]
+    [InlineData(true, true, false)]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, true)]
+    public void Emit_RawValueFactory_RefusesBelowTheInitializersFloor(bool isFrozen, bool stringRawValue, bool xcframework)
+    {
+        var database = xcframework ? CreateXCFrameworkTypeDatabase() : CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen);
+        declaration.RawValueTypeName = stringRawValue ? "String" : "Int";
+        declaration.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "13.0", null, null, false, false, null, null) };
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var initializer = stringRawValue
+            ? CreateStringRawValueInitializer(declaration, module)
+            : CreateRawValueInitializer(declaration, module);
+        initializer.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+        declaration.Methods.Add(initializer);
+
+        var (output, swift) = EmitEnum(declaration, database);
+
+        EqualityFloorEmissionTests.AssertRefusesBefore(output, "FromRawValue(", "PInvoke_InitWithRawValue", "\"ios\", 27, 2");
+        Assert.Contains("SupportedOSPlatform(\"ios27.2\")", EqualityFloorEmissionTests.AttributesBefore(output, $"public static {(stringRawValue || !isFrozen ? "unsafe " : "")}Stage? FromRawValue("));
+        var wrapper = swift.IndexOf("@_cdecl(\"SBW_TestModule_Stage_InitWithRawValue\")", StringComparison.Ordinal);
+        if (stringRawValue || xcframework)
+        {
+            Assert.True(wrapper > 0, swift);
+            var preamble = swift[..wrapper];
+            Assert.Contains("@available(iOS 27.2, *)", preamble[(preamble.LastIndexOf('}') + 1)..]);
+        }
+        else
+        {
+            Assert.True(wrapper < 0, swift);
+        }
+    }
+
+    /// <summary>
+    /// An enum can declare another init(rawValue:) beside the RawRepresentable one. FromRawValue binds
+    /// the one taking the raw type, so it takes that initializer's floor and calls its symbol, whichever
+    /// is declared first.
+    /// </summary>
+    [Fact]
+    public void Emit_RawValueFactory_BindsTheInitializerTakingTheRawType_NotAnotherRawValueOverload()
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        declaration.Methods.Add(CreateTypedRawValueInitializer(declaration, module, "Swift.String") with
+        {
+            MangledName = "$s10TestModule5StageO8rawValueACSgSS_tcfC",
+        });
+        var initializer = CreateRawValueInitializer(declaration, module) with { MangledName = "$s10TestModule5StageO8rawValueACSgSi_tcfC" };
+        initializer.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+        declaration.Methods.Add(initializer);
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        EqualityFloorEmissionTests.AssertRefusesBefore(output, "FromRawValue(", "PInvoke_InitWithRawValue", "\"ios\", 27, 2");
+        Assert.Contains($"EntryPoint = \"{initializer.MangledName}\"", output);
+    }
+
+    /// <summary>
+    /// The initializer FromRawValue binds is the one the wrappers call, labeled <c>rawValue:</c> and
+    /// taking the raw type itself by value: an unlabeled <c>init(_ rawValue:)</c>, a labeled one taking
+    /// another module's type of the same name, or one taking the raw type <c>inout</c>, declared ahead
+    /// of it does not take its place.
+    /// </summary>
+    [Theory]
+    [InlineData("", "Swift.Int", false)]
+    [InlineData("rawValue", "Other.Int", false)]
+    [InlineData("rawValue", "Swift.Int", true)]
+    public void Emit_RawValueFactory_BindsTheLabeledInitializerTakingTheRawType(string decoyLabel, string decoyType, bool decoyInOut)
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var decoy = CreateTypedRawValueInitializer(declaration, module, decoyType) with { MangledName = "$s10TestModule5StageOyACSgSicfC" };
+        decoy.CSSignature[1].Name = decoyLabel;
+        decoy.CSSignature[1].PrivateName = "rawValue";
+        decoy.CSSignature[1].IsInOut = decoyInOut;
+        declaration.Methods.Add(decoy);
+        var initializer = CreateRawValueInitializer(declaration, module) with { MangledName = "$s10TestModule5StageO8rawValueACSgSi_tcfC" };
+        declaration.Methods.Add(initializer);
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        Assert.Contains($"EntryPoint = \"{initializer.MangledName}\"", output);
+        Assert.DoesNotContain(decoy.MangledName, output);
+    }
+
+    /// <summary>
+    /// Without a wrapper library a blittable enum's case accessors construct their case through
+    /// FromRawValue, so they advertise the initializer's floor too (and do not call an API floored
+    /// above their own, which CA1416 would report in the binding).
+    /// </summary>
+    [Fact]
+    public void Emit_CaseAccessorThroughFromRawValue_AdvertisesTheInitializersFloor()
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: false);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var initializer = CreateRawValueInitializer(declaration, module);
+        initializer.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "27.2", null, null, false, false, null, null) };
+        declaration.Methods.Add(initializer);
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        Assert.Contains("FromRawValue(0)", output);
+        Assert.Contains("SupportedOSPlatform(\"ios27.2\")", EqualityFloorEmissionTests.AttributesBefore(output, "public static Stage Early"));
+    }
+
     [Fact]
     public void Emit_FrozenNonSimpleBlittableRawEnum_ReadsAPointerOnlyFromTheWrapper()
     {
@@ -5481,6 +5623,61 @@ public class EnumHandlerOutputTests
         Assert.Contains("StatusExtensions", csOutput);
         Assert.Contains("Count =>", csOutput);
         Assert.Contains("PInvoke_GetCount()", csOutput);
+    }
+
+    /// <summary>
+    /// A floored simple enum's pure C# helpers live in its extensions class, which carries none of
+    /// the enum's attributes. Each helper names the enum, so each advertises the enum's floor (CA1416
+    /// reports it in the binding otherwise), and the arms that name a case floored above the enum run
+    /// under a CA1416 suppression: they map constants and reach nothing the OS may lack.
+    /// </summary>
+    [Fact]
+    public void Emit_FlooredSimpleEnum_ItsExtensionHelpersAdvertiseTheEnumsFloor()
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Level", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "String";
+        enumDecl.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "27.2", null, null, false, false, null, null) };
+        enumDecl.Cases.Add(CreateCase("low"));
+        var high = CreateCase("high");
+        high.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "28.0", null, null, false, false, null, null) };
+        enumDecl.Cases.Add(high);
+        enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Conformances.Add(new TypeConformance(
+            enumDecl.SwiftTypeName, SwiftTypeName.FromModuleQualifiedName("Swift.CaseIterable"), ""));
+        enumDecl.Properties.Add(new PropertyDecl
+        {
+            Name = "allCases",
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Array"),
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = Array.Empty<AccessorDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl
+        });
+
+        var (cs, _) = EmitEnum(enumDecl, typeDatabase);
+
+        foreach (var signature in new[]
+                 {
+                     "public static string ToRawValue(this Level value)",
+                     "public static Level? FromRawValue(string rawValue)",
+                     "public static global::System.Collections.Generic.IReadOnlyList<Level> AllCases",
+                 })
+            Assert.Contains("SupportedOSPlatform(\"ios27.2\")", EqualityFloorEmissionTests.AttributesBefore(cs, signature));
+        foreach (var (signature, arm) in new[]
+                 {
+                     ("ToRawValue(this Level value)", "Level.High =>"),
+                     ("FromRawValue(string rawValue)", "=> Level.High,"),
+                 })
+        {
+            var body = cs[cs.IndexOf(signature, StringComparison.Ordinal)..];
+            var disable = body.IndexOf("#pragma warning disable CA1416", StringComparison.Ordinal);
+            var restore = body.IndexOf("#pragma warning restore CA1416", StringComparison.Ordinal);
+            var armAt = body.IndexOf(arm, StringComparison.Ordinal);
+            Assert.True(disable >= 0 && disable < armAt && armAt < restore, $"{arm} must sit under the CA1416 suppression:\n{body}");
+        }
     }
 
     [Fact]

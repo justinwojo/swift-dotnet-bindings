@@ -261,6 +261,34 @@ public class MethodClosureBridgeTests
         Assert.Contains("UnsafeMutableRawPointer(mutating:", swift);
     }
 
+    [Fact]
+    public void TryEmit_AFlooredMethod_IsRefusedBelowItsFloor_BeforeTheBridgeCallsSwift()
+    {
+        // Every method bridge writes the member itself rather than through WrapperEmitter, so each
+        // owns the member's floor attribute and the refusal that opens its body.
+        var (method, typeDatabase) = CreateMethodWithBoundGenericClosure();
+        method.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null),
+        };
+        var env = new MethodEnvironment(method, typeDatabase);
+        var csOutput = new StringWriter();
+        var csWriter = new CSharpWriter(csOutput);
+
+        Assert.True(MethodClosureBridge.TryEmit(csWriter, new SwiftWriter(new StringWriter()), env, env.ParentDecl as TypeDecl));
+
+        var result = csOutput.ToString();
+        var declaration = result.IndexOf("public unsafe ", System.StringComparison.Ordinal);
+        Assert.True(declaration >= 0, result);
+        Assert.True(result.LastIndexOf("SupportedOSPlatform(\"ios99.0\")", declaration, System.StringComparison.Ordinal) >= 0,
+            "the member is not marked with its floor:\n" + result);
+        var body = result.Substring(declaration);
+        var refusal = body.IndexOf("throw new global::System.PlatformNotSupportedException", System.StringComparison.Ordinal);
+        Assert.True(refusal >= 0, "the member does not refuse a call below its floor:\n" + body);
+        Assert.True(refusal < body.IndexOf("new ClosureHandle(", System.StringComparison.Ordinal), body);
+        Assert.True(refusal < body.IndexOf("PInvoke_", System.StringComparison.Ordinal), body);
+    }
+
     // ─── Non-throwing closure callbacks fail fast, never swallow ──
 
     [Fact]

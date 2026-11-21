@@ -1143,4 +1143,30 @@ public class AvailabilityAttributeEmitterTests
         Assert.False(AvailabilityAttributeEmitter.SetterFloorIsStricterThanProperty(
             Intro("iOS", "16.0"), null));
     }
+
+    // A list can name a platform twice (a declared floor beside an inferred one); each side's floor
+    // there is its strictest entry, whatever the order.
+    [Theory]
+    [InlineData(new[] { "27.2", "17.0" }, new[] { "17.4" }, null)]
+    [InlineData(new[] { "17.0", "27.2" }, new[] { "17.4" }, null)]
+    [InlineData(new[] { "17.0" }, new[] { "17.4", "27.2" }, "ios27.2")]
+    [InlineData(new[] { "17.0" }, new[] { "27.2", "17.4" }, "ios27.2")]
+    public void SetterAccessorAvailability_ComparesEachSidesStrictestFloorPerPlatform(
+        string[] propertyVersions, string[] setterVersions, string expected)
+    {
+        var property = propertyVersions.Select(v => Intro("iOS", v)[0]).ToList();
+        var setter = setterVersions.Select(v => Intro("iOS", v)[0]).ToList();
+        var (csWriter, stringWriter) = CreateWriter();
+
+        var emitted = AvailabilityAttributeEmitter.EmitSetterAccessorAvailability(csWriter, property, setter);
+        csWriter.Flush();
+
+        Assert.Equal(expected is not null, emitted);
+        Assert.Equal(expected is not null, AvailabilityAttributeEmitter.SetterFloorIsStricterThanProperty(property, setter));
+        var attributes = stringWriter.ToString().Split('\n').Where(l => l.Contains("SupportedOSPlatform")).ToList();
+        if (expected is null)
+            Assert.Empty(attributes);
+        else
+            Assert.Contains($"SupportedOSPlatform(\"{expected}\")", Assert.Single(attributes));
+    }
 }

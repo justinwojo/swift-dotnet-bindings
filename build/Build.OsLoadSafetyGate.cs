@@ -24,18 +24,25 @@
 // umbrella, and ld then keeps the umbrella's load strong whatever -weak_framework asks, while every
 // import from it stays weak, so a missing symbol still binds to null. The umbrella itself ships on
 // every supported OS. The SDK's stubs decide which loads qualify.
-// It then reads every slice's imports (`dyld_info -imports`) and the compiled assembly's direct
-// P/Invokes: a Swift symbol a covered provider (an OS-resident dylib, by install name, or a supplied
-// provider) does not ship must be imported weakly and belong to a declaration a binding report records
-// as floored above the inventory's OS. A positive control requires the dependency's absent fixture
-// members to reach the check, floored. Fail-closed and unconditional, with no `--permissive` arm: a
-// soundness property, not a baseline.
+//
+// P2 is then judged from the artifacts alone, never from what a report says was guarded. Every slice's
+// imports (`dyld_info -imports`) of a Swift symbol a covered provider (an OS-resident dylib, by install
+// name, or a supplied provider) does not ship must be weak, and each must be reached from an export of
+// the wrapper's arm64 code (WrapperImportReach: calls, tail branches, GOT loads, data that holds the
+// symbol). Every managed method of CompileCheck.dll and SwiftBindings.Apple.dll that holds a P/Invoke
+// of such an export, or a direct P/Invoke of such a symbol, must throw PlatformNotSupportedException
+// at entry on the inventory's OS (OsFloorGuardCheck, which runs the method's IL with the OS queries
+// answered), or be private with every caller refusing. A negative control compiles an unguarded and a
+// guarded caller of a real floored export and requires exactly the unguarded one to fail, and positive
+// controls require the dependency's omitted fixture symbols to be reached and judged. Fail-closed and
+// unconditional, with no `--permissive` arm: a soundness property, not a baseline.
 
 using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using BindingsGeneration;
+using SwiftBindings.TransitionGate;
 using Nuke.Common.IO;
 using Nuke.Common.Tooling;
 using Serilog;
@@ -143,12 +150,15 @@ partial class Build
     static readonly string[] DependencyInventoryOmissions =
     {
         "14InventoryProbeV08absentOnF2Os", "14InventoryProbeV014absentMethodOnF2Os", "20InventoryAbsentValueV",
+        // init(rawValue:), the (Self, Self) `==` (not the (Self, Int) one declared before it), and a struct's `==`.
+        "17InventoryRawProbeO8rawValueACSgSS_tcfC", "22InventoryEqualityProbeO2eeoiySbAC_ACtFZ", "23InventoryEquatableValueV2eeoiySbAC_ACtFZ",
     };
 
     /// <summary>The fixture declarations the dependency's binding report must record as raised.</summary>
     static readonly string[] DependencyInventoryFlooredDeclarations =
     {
         "InventoryProbe.absentOnInventoryOs", "InventoryProbe.absentMethodOnInventoryOs", "InventoryAbsentValue",
+        "InventoryRawProbe.init", "InventoryEqualityProbe.==", "InventoryEquatableValue.==",
     };
 
     /// <summary>
@@ -175,36 +185,42 @@ partial class Build
         return DependencyTestInventoryPath;
     }
 
-    /// <summary>Every P/Invoke of <paramref name="assembly"/>: library, entry point and declaring member.</summary>
-    static List<(string Library, string EntryPoint, string Member)> ReadPInvokes(AbsolutePath assembly)
-    {
-        var result = new List<(string, string, string)>();
-        using var stream = File.OpenRead(assembly);
-        using var pe = new System.Reflection.PortableExecutable.PEReader(stream);
-        if (!pe.HasMetadata)
-            return result;
-        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
-        foreach (var handle in md.MethodDefinitions)
-        {
-            var method = md.GetMethodDefinition(handle);
-            if ((method.Attributes & System.Reflection.MethodAttributes.PinvokeImpl) == 0)
-                continue;
-            var import = method.GetImport();
-            if (import.Module.IsNil)
-                continue;
-            var library = md.GetString(md.GetModuleReference(import.Module).Name);
-            var name = md.GetString(method.Name);
-            var entryPoint = import.Name.IsNil ? name : md.GetString(import.Name);
-            var type = md.GetTypeDefinition(method.GetDeclaringType());
-            result.Add((library, string.IsNullOrEmpty(entryPoint) ? name : entryPoint, $"{md.GetString(type.Name)}.{name}"));
-        }
-        return result;
-    }
+    /// <summary>The lines a tool printed to standard output, unlogged.</summary>
+    IReadOnlyList<string> XcRunLines(ArgumentStringHandler arguments) =>
+        XcRunTool(arguments, logOutput: false, logInvocation: false).Where(o => o.Type == OutputType.Std).Select(o => o.Text).ToList();
+
+    /// <summary>Which imports each export of <paramref name="binary"/>'s arm64 code reaches, read from the binary.</summary>
+    WrapperImportReach ReadArm64Reach(AbsolutePath binary) =>
+        WrapperImportReach.Parse(
+            XcRunLines($"objdump --macho -h --arch=arm64 \"{binary}\""),
+            XcRunLines($"nm -n -arch arm64 \"{binary}\""),
+            XcRunLines($"objdump --macho -d --no-show-raw-insn --arch=arm64 \"{binary}\""),
+            XcRunLines($"dyld_info -arch arm64 -fixups \"{binary}\""));
 
     /// <summary>
-    /// Reads every slice of both BindingTests wrappers back and requires every OS-resident dylib load to
-    /// be weak, then holds every import and direct P/Invoke of a symbol the inventory's OS lacks to a
-    /// floored declaration. Invoked from the --compile-only path once both wrappers are built.
+    /// One native image a compiled assembly P/Invokes into by <see cref="Library"/>: its binaries, one per
+    /// xcframework slice (or framework), and whether the gate also holds its loads to P1.
+    /// </summary>
+    sealed record OsFloorImage(string Library, string Label, IReadOnlyList<AbsolutePath> Binaries, bool CheckLoads);
+
+    static IReadOnlyList<AbsolutePath> XcframeworkBinaries(AbsolutePath xcframework, string module) =>
+        Directory.Exists(xcframework)
+            ? Directory.GetDirectories(xcframework)
+                .Select(slice => (AbsolutePath)Path.Combine(slice, $"{module}.framework", module))
+                .Where(b => File.Exists(b))
+                .OrderBy(b => b.ToString(), StringComparer.Ordinal)
+                .ToList()
+            : new List<AbsolutePath>();
+
+    /// <summary>
+    /// Reads every slice of both BindingTests wrappers (and the bridge image) back and requires every
+    /// OS-resident dylib load to be weak (P1). Then P2, from the artifacts alone: every import of a symbol
+    /// the inventory's OS lacks must be weak and reached from an export (read from the arm64 code), and
+    /// every managed method holding a P/Invoke of such an export, or a direct P/Invoke of such a symbol,
+    /// must throw PlatformNotSupportedException at entry on that OS (read from the compiled IL). A
+    /// negative control compiles a guarded and an unguarded caller of a real floored export and requires
+    /// the check to flag exactly the unguarded one. Invoked from the --compile-only path once both
+    /// wrappers are built.
     /// </summary>
     void RunOsLoadSafetyGate()
     {
@@ -213,10 +229,20 @@ partial class Build
         Log.Information("=========================================");
 
         var depWrapper = $"{DepModuleName}SwiftBindings";
-        var legs = new[]
+        var bridgeBinaries = new[] { BindingTestsDir / "SwiftBridge" / $"{BridgeModule}.framework" / BridgeModule,
+                                     BindingTestsDir / "SwiftBridge" / "device" / $"{BridgeModule}.framework" / BridgeModule }
+            .Where(b => File.Exists(b)).ToList();
+        var images = new[]
         {
-            (Leg: WrapperModule, Xcframework: BtOutputDir / $"{WrapperModule}.xcframework"),
-            (Leg: depWrapper, Xcframework: BtOutputDir / $"{depWrapper}.xcframework"),
+            new OsFloorImage(WrapperModule, WrapperModule, XcframeworkBinaries(BtOutputDir / $"{WrapperModule}.xcframework", WrapperModule), CheckLoads: true),
+            new OsFloorImage(depWrapper, depWrapper, XcframeworkBinaries(BtOutputDir / $"{depWrapper}.xcframework", depWrapper), CheckLoads: true),
+            new OsFloorImage(BridgeModule, BridgeModule, bridgeBinaries, CheckLoads: false),
+        };
+        var appleImages = new[]
+        {
+            // SwiftBindings.Apple.dll is judged for iOS, so its wrapper's iOS slices are the ones read.
+            new OsFloorImage("SBApple", "SBApple", XcframeworkBinaries(RootDirectory / "src" / "Swift.Bindings.Apple" / "native" / "SBApple.xcframework", "SBApple")
+                .Where(b => OsLoadSafetyAudit.SliceVariant(Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(b)))!) is "ios" or "ios-simulator").ToList(), CheckLoads: false),
         };
 
         var failures = new List<string>();
@@ -224,90 +250,125 @@ partial class Build
         if (!File.Exists(DependencyTestInventoryPath))
             throw new Exception($"OS load-safety gate: {DependencyTestInventoryPath} not found; the regen did not write the dependency's inventory.");
         var supplied = OsSymbolInventory.Load(DependencyTestInventoryPath, inventory).Providers;
-        // Each wrapper answers to its own binding's floors; CompileCheck.dll compiles both bindings.
-        var guardedByLeg = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
-        var dependencyRaised = new List<string>();
-        foreach (var (leg, report, isDependency) in new[]
-                 {
-                     (WrapperModule, BtOutputDir / "binding-report.json", false),
-                     (depWrapper, BtOutputDir / "withdrawal-evidence" / DepModuleName / "binding-report.json", true),
-                 })
-        {
-            if (!File.Exists(report))
-                throw new Exception($"OS load-safety gate: {report} not found.");
-            var (symbols, raised) = OsLoadSafetyAudit.ReadGuardedSymbols(File.ReadAllText(report));
-            guardedByLeg[leg] = symbols;
-            if (isDependency)
-                dependencyRaised.AddRange(raised);
-        }
-        var guarded = new HashSet<string>(guardedByLeg.Values.SelectMany(g => g), StringComparer.Ordinal);
+
+        // Positive control on generation: the dependency's binding records the floors its supplied
+        // inventory implies. The gate takes nothing else from the reports.
+        var dependencyReport = BtOutputDir / "withdrawal-evidence" / DepModuleName / "binding-report.json";
+        if (!File.Exists(dependencyReport))
+            throw new Exception($"OS load-safety gate: {dependencyReport} not found.");
+        var dependencyRaised = OsLoadSafetyAudit.ReadRaisedDeclarations(File.ReadAllText(dependencyReport));
         foreach (var declaration in DependencyInventoryFlooredDeclarations)
         {
             if (!dependencyRaised.Any(d => d.EndsWith(declaration, StringComparison.Ordinal)))
                 failures.Add($"{DepModuleName}: its binding report records no inferred floor for {declaration}, which its supplied inventory omits.");
         }
-        var suppliedAbsentReached = new HashSet<string>(StringComparer.Ordinal);
+
+        // P1 and the weak-import half of P2, slice by slice; then which exports reach each absent import.
         int coveredImports = 0;
-
-        foreach (var (leg, xcframework) in legs)
+        var suppliedAbsentReached = new HashSet<string>(StringComparer.Ordinal);
+        Dictionary<string, Dictionary<string, List<AbsentSymbol>>> ReadImages(IEnumerable<OsFloorImage> set)
         {
-            var binaries = Directory.Exists(xcframework)
-                ? Directory.GetDirectories(xcframework)
-                    .Select(slice => (AbsolutePath)Path.Combine(slice, $"{leg}.framework", leg))
-                    .Where(b => File.Exists(b))
-                    .OrderBy(b => b.ToString(), StringComparer.Ordinal)
-                    .ToList()
-                : new List<AbsolutePath>();
-            if (binaries.Count == 0)
+            var reach = new Dictionary<string, Dictionary<string, List<AbsentSymbol>>>(StringComparer.Ordinal);
+            foreach (var image in set)
             {
-                failures.Add($"{leg}: no wrapper slice found under {xcframework}.");
-                continue;
-            }
-            foreach (var binary in binaries)
-            {
-                var loads = ReadDylibLoads(binary);
-                var slice = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(binary)))!;
-                var imports = ReadDylibImports(binary);
-                var verdict = OsLoadSafetyAudit.EvaluateLoads(leg, binary, loads, imports, SdkPathOf(binary), inventory);
-                failures.AddRange(verdict.Failures);
-
-                var variant = OsLoadSafetyAudit.SliceVariant(slice);
-                var platform = inventory.Platforms.FirstOrDefault(p => p.Variant == variant);
-                if (platform is null)
+                var byExport = reach[image.Library] = new Dictionary<string, List<AbsentSymbol>>(StringComparer.Ordinal);
+                if (image.Binaries.Count == 0)
                 {
-                    failures.Add($"{leg} {slice}: the shipped inventory has no '{variant}' variant.");
+                    failures.Add($"{image.Label}: no binary found to read.");
                     continue;
                 }
-                var variants = new[] { platform };
-                if (imports.Count == 0)
-                    failures.Add($"{leg} {slice}: dyld_info read no imports.");
-                var importVerdict = OsLoadSafetyAudit.EvaluateImports(
-                    $"{leg} {slice}", imports, loads,
-                    library => OsLoadSafetyAudit.Resolve(library, supplied, symbol => inventory.ShipsOnAll(variants, symbol)),
-                    guardedByLeg[leg]);
-                failures.AddRange(importVerdict.Failures);
-                coveredImports += importVerdict.CoveredSwiftImports;
-                suppliedAbsentReached.UnionWith(importVerdict.GuardedAbsent);
-                Log.Information("{Leg} {Slice}: {Os} OS-resident load(s), {Weak} weak, {Kept} kept strong by the linker with every import weak ({KeptLoads}); {Covered} covered Swift import(s), {Absent} absent from the inventory's OS, all guarded weak",
-                    leg, slice, verdict.OsResidentLoadCount, verdict.WeakOsResidentLoadCount, verdict.SafeStrongLoads.Count,
-                    string.Join(", ", verdict.SafeStrongLoads.Select(OsFrameworkWeakLinking.ImportLeaf)),
-                    importVerdict.CoveredSwiftImports, importVerdict.GuardedAbsent.Count);
+                foreach (var binary in image.Binaries)
+                {
+                    var loads = ReadDylibLoads(binary);
+                    var slice = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(binary)))!;
+                    var imports = ReadDylibImports(binary);
+                    var label = $"{image.Label} {slice}";
+                    if (image.CheckLoads)
+                    {
+                        var verdict = OsLoadSafetyAudit.EvaluateLoads(image.Label, binary, loads, imports, SdkPathOf(binary), inventory);
+                        failures.AddRange(verdict.Failures);
+                        Log.Information("{Label}: {Os} OS-resident load(s), {Weak} weak, {Kept} kept strong by the linker with every import weak ({KeptLoads})",
+                            label, verdict.OsResidentLoadCount, verdict.WeakOsResidentLoadCount, verdict.SafeStrongLoads.Count,
+                            string.Join(", ", verdict.SafeStrongLoads.Select(OsFrameworkWeakLinking.ImportLeaf)));
+                    }
+                    var platform = PlatformOfBinary(binary, inventory, out var platformProblem);
+                    if (platform is null)
+                    {
+                        failures.Add($"{label}: {platformProblem}");
+                        continue;
+                    }
+                    if (imports.Count == 0)
+                        failures.Add($"{label}: dyld_info read no imports.");
+                    var variants = new[] { platform };
+                    var importVerdict = OsLoadSafetyAudit.EvaluateImports(label, imports, loads,
+                        library => OsLoadSafetyAudit.Resolve(library, supplied, symbol => inventory.ShipsOnAll(variants, symbol), shippedOsVersion: platform.OsVersion));
+                    failures.AddRange(importVerdict.Failures);
+                    coveredImports += importVerdict.CoveredSwiftImports;
+                    var archs = imports.Select(i => i.Arch).Distinct(StringComparer.Ordinal).ToList();
+                    if (!archs.Contains("arm64"))
+                    {
+                        if (importVerdict.Absent.Count > 0)
+                            failures.Add($"{label}: imports {importVerdict.Absent.Count} symbol(s) the inventory's OS lacks and has no arm64 code to attribute them with.");
+                        continue;
+                    }
+                    var reachRead = ReadArm64Reach(binary);
+                    var attributed = OsLoadSafetyAudit.AttributeAbsentImports(label, importVerdict.Absent, reachRead);
+                    failures.AddRange(attributed.Failures);
+                    foreach (var (export, absent) in attributed.ByExport)
+                    {
+                        if (!byExport.TryGetValue(export, out var list))
+                            byExport[export] = list = new List<AbsentSymbol>();
+                        list.AddRange(absent.Where(a => !list.Contains(a)));
+                    }
+                    suppliedAbsentReached.UnionWith(attributed.ByExport.Values.SelectMany(v => v).Select(a => a.Symbol));
+                    Log.Information("{Label}: {Covered} covered Swift import(s), {Absent} absent from the inventory's OS (all weak); " +
+                                    "arm64 reach: {Nodes} node(s), {Exports} export(s), {Reaching} reaching an absent import, {Unresolved} unresolved reference(s)",
+                        label, importVerdict.CoveredSwiftImports, importVerdict.Absent.Count,
+                        reachRead.NodeCount, reachRead.Exports.Count, attributed.ByExport.Count, reachRead.UnresolvedReferences);
+                }
             }
+            return reach;
         }
+        var bindingReach = ReadImages(images);
+        var appleReach = ReadImages(appleImages);
 
-        // Direct P/Invokes bypass the wrapper's weak imports: a call into a symbol the OS lacks must be
-        // refused by the binding's guard before it binds. Both BindingTests modules compile into
-        // CompileCheck.dll; the Apple supplement's direct calls are held to the shipped inventory.
+        // The refusal half of P2, from the compiled IL: both BindingTests modules compile into
+        // CompileCheck.dll, and the Apple supplement's P/Invokes are held to the shipped inventory.
         var iosVariants = inventory.Platforms.Where(p => p.Variant is "ios" or "ios-simulator").ToList();
+        var iosOsVersion = iosVariants.Select(p => p.OsVersion).Distinct().SingleOrDefault()
+            ?? throw new Exception("OS load-safety gate: the shipped inventory's iOS variants disagree on their OS version.");
         // A system-framework binding names its library bare ("CryptoKit"), which the runtime's resolver
         // maps to /System/Library/Frameworks.
         var simulatorFrameworks = (AbsolutePath)SdkPath("iphonesimulator") / "System" / "Library" / "Frameworks";
         bool IsOsFramework(string name) => Directory.Exists(simulatorFrameworks / $"{name}.framework");
-        foreach (var (name, assemblyGuarded) in new[]
-                 {
-                     ("CompileCheck.dll", (IReadOnlySet<string>)guarded),
-                     ("SwiftBindings.Apple.dll", new HashSet<string>(StringComparer.Ordinal)),
-                 })
+        CoveredProvider? Direct(string library) => OsLoadSafetyAudit.Resolve(
+            library, supplied, symbol => inventory.ShipsOnAll(iosVariants, symbol), IsOsFramework, iosOsVersion);
+
+        OsFloorHazard? HazardOf(Dictionary<string, Dictionary<string, List<AbsentSymbol>>> reach, string library, string entryPoint)
+        {
+            List<AbsentSymbol> absent;
+            string how;
+            if (reach.TryGetValue(library, out var byExport))
+            {
+                if (!byExport.TryGetValue("_" + entryPoint.TrimStart('_'), out var reached) || reached.Count == 0)
+                    return null;
+                absent = reached;
+                how = "reaches " + string.Join(", ", reached.Select(a => a.Symbol).Distinct().Take(3));
+            }
+            else if (OsLoadSafetyAudit.DirectAbsentSymbol(library, entryPoint, Direct) is { } direct)
+            {
+                absent = new List<AbsentSymbol> { direct };
+                how = $"{direct.InstallName} lacks it";
+            }
+            else
+                return null;
+            var points = absent.Select(a => a.OsVersion ?? iosOsVersion).Distinct(StringComparer.Ordinal)
+                .Select(v => new OsFloorPoint("ios", System.Version.Parse(v.Contains('.') ? v : v + ".0"))).ToList();
+            return new OsFloorHazard(library, entryPoint, points, how);
+        }
+
+        OsFloorGuardResult? CompileCheckResult = null;
+        foreach (var (name, reach) in new[] { ("CompileCheck.dll", bindingReach), ("SwiftBindings.Apple.dll", appleReach) })
         {
             var assembly = CompileCheckOutputDir / name;
             if (!File.Exists(assembly))
@@ -315,21 +376,28 @@ partial class Build
                 failures.Add($"{name}: not found under {CompileCheckOutputDir}.");
                 continue;
             }
-            var pinvokeVerdict = OsLoadSafetyAudit.EvaluatePInvokes(
-                name, ReadPInvokes(assembly),
-                library => OsLoadSafetyAudit.Resolve(library, supplied, symbol => inventory.ShipsOnAll(iosVariants, symbol), IsOsFramework),
-                assemblyGuarded);
-            failures.AddRange(pinvokeVerdict.Failures);
-            Log.Information("{Assembly}: {Covered} direct Swift P/Invoke(s) into covered providers, {Absent} absent from the inventory's OS, all guarded",
-                name, pinvokeVerdict.CoveredSwiftImports, pinvokeVerdict.GuardedAbsent.Count);
+            var result = OsFloorGuardCheck.Check(assembly, (library, entryPoint) => HazardOf(reach, library, entryPoint));
+            failures.AddRange(result.Errors.Select(e => $"{name}: {e}"));
+            failures.AddRange(result.Violations.Select(v => $"{name}: [{v.Rule}] {v.Member}: {v.Reason}"));
+            Log.Information("{Assembly}: {PInvokes} P/Invoke(s), {Hazards} reaching a Swift symbol the inventory's OS lacks " +
+                            "({Wrapper} through a wrapper export), {Leaves} leaf method(s): {Refusing} refuse at entry, {Covered} private and covered by refusing callers",
+                name, result.PInvokes, result.Hazards.Length, result.Hazards.Count(h => reach.ContainsKey(h.Hazard.Library)),
+                result.Hazards.Sum(h => h.Leaves.Length), result.RefusingLeaves, result.CoveredPrivateLeaves);
+            if (name == "CompileCheck.dll")
+                CompileCheckResult = result;
         }
 
         if (coveredImports == 0)
             failures.Add("No wrapper slice imports a Swift symbol from a covered provider, so the import check read nothing.");
         var suppliedProvider = supplied.FirstOrDefault(p => p.ModuleName == DepModuleName);
         // Only a wrapper import proves the weak-import path; a direct P/Invoke bypasses it.
-        if (suppliedProvider is null || !suppliedAbsentReached.Any(s => !suppliedProvider.Symbols.Contains(s)))
-            failures.Add($"Positive control: no wrapper import of a {DepModuleName} symbol its supplied inventory omits reached the check.");
+        if (suppliedProvider is null || !suppliedAbsentReached.Any(s => !suppliedProvider.Symbols.Contains(s.TrimStart('_'))))
+            failures.Add($"Positive control: no wrapper export reaches a {DepModuleName} symbol its supplied inventory omits.");
+        var wrapperHazard = CompileCheckResult?.Hazards.FirstOrDefault(h => bindingReach.ContainsKey(h.Hazard.Library) && h.Leaves.Length > 0);
+        if (CompileCheckResult is not null && wrapperHazard is null)
+            failures.Add("Positive control: no method of CompileCheck.dll calls a wrapper export that reaches a symbol the inventory's OS lacks, so the refusal check judged none.");
+        if (wrapperHazard is not null)
+            failures.AddRange(RunOsFloorNegativeControl(wrapperHazard.Hazard));
 
         if (failures.Count > 0)
         {
@@ -337,9 +405,71 @@ partial class Build
                 Log.Error("  {Failure}", f);
             throw new Exception(
                 $"OS load-safety gate: {failures.Count} failure(s). A strong load of an OS framework makes dyld refuse " +
-                "the whole wrapper, and the app with it, on an OS that lacks one of the symbols it imports — see the lines above.");
+                "the whole wrapper, and the app with it, on an OS that lacks one of the symbols it imports; a managed path " +
+                "that reaches such a symbol without refusing first calls a null import — see the lines above.");
         }
 
         Log.Information("OS load-safety gate: PASSED");
+    }
+
+    /// <summary>The inventory platform of <paramref name="binary"/>'s xcframework slice (or, for a bare framework, its build platform).</summary>
+    static OsSymbolInventory.Platform? PlatformOfBinary(AbsolutePath binary, OsSymbolInventory inventory, out string problem)
+    {
+        var slice = Path.GetFileName(Path.GetDirectoryName(Path.GetDirectoryName(binary)))!;
+        var variant = slice.Contains('-') ? OsLoadSafetyAudit.SliceVariant(slice)
+            : slice == "device" ? "ios" : "ios-simulator";
+        var platform = inventory.Platforms.FirstOrDefault(p => p.Variant == variant);
+        problem = platform is null ? $"the shipped inventory has no '{variant}' variant." : "";
+        return platform;
+    }
+
+    /// <summary>
+    /// The gate's self-test: compiles, in memory, an assembly that P/Invokes <paramref name="hazard"/>'s
+    /// export from one method that refuses first (at the inventory's floor for that OS) and one that does
+    /// not, and requires the refusal check to flag exactly the second. A check that stopped reading
+    /// guards, or stopped finding the export's reach, fails here.
+    /// </summary>
+    static IEnumerable<string> RunOsFloorNegativeControl(OsFloorHazard hazard)
+    {
+        var floor = hazard.RefuseOn.Max(p => p.Version)!;
+        var source = $$"""
+            using System;
+            using System.Runtime.InteropServices;
+            public static class OsFloorNegativeControl
+            {
+                [DllImport("{{hazard.Library}}", EntryPoint = "{{hazard.EntryPoint}}")] private static extern void Floored();
+                public static void Guarded()
+                {
+                    if (OperatingSystem.IsOSPlatform("ios") && !OperatingSystem.IsOSPlatformVersionAtLeast("ios", {{floor.Major}}, {{floor.Minor + 1}}, 0, 0))
+                        throw new PlatformNotSupportedException("control");
+                    Floored();
+                }
+                public static void Unguarded() => Floored();
+            }
+            """;
+        var frameworkDir = System.Runtime.InteropServices.RuntimeEnvironment.GetRuntimeDirectory();
+        var references = ((string?)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES") ?? "")
+            .Split(Path.PathSeparator)
+            .Where(p => p.EndsWith(".dll", StringComparison.OrdinalIgnoreCase) && File.Exists(p) && p.StartsWith(frameworkDir, StringComparison.Ordinal))
+            .Select(p => (Microsoft.CodeAnalysis.MetadataReference)Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(p));
+        var compilation = Microsoft.CodeAnalysis.CSharp.CSharpCompilation.Create("OsFloorNegativeControl",
+            new[] { Microsoft.CodeAnalysis.CSharp.CSharpSyntaxTree.ParseText(source) }, references,
+            new Microsoft.CodeAnalysis.CSharp.CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary));
+        using var stream = new MemoryStream();
+        var emitted = compilation.Emit(stream);
+        if (!emitted.Success)
+        {
+            yield return "Negative control: the control assembly does not compile: " +
+                         string.Join("; ", emitted.Diagnostics.Where(d => d.Severity == Microsoft.CodeAnalysis.DiagnosticSeverity.Error));
+            yield break;
+        }
+        var result = OsFloorGuardCheck.Check(stream.ToArray(), (library, entryPoint) =>
+            library == hazard.Library && entryPoint == hazard.EntryPoint ? hazard : null);
+        var flagged = result.Violations.Select(v => v.Member).Distinct().ToList();
+        if (flagged.Count != 1 || flagged[0] != "OsFloorNegativeControl::Unguarded" || result.Violations.Any(v => v.Rule != OsFloorGuardCheck.UnguardedRule))
+            yield return $"Negative control: a guarded and an unguarded caller of {hazard.EntryPoint} in {hazard.Library} must flag exactly " +
+                         $"OsFloorNegativeControl::Unguarded, and the check flagged [{string.Join(", ", result.Violations.Select(v => $"{v.Rule} {v.Member}"))}].";
+        else
+            Log.Information("Negative control: an unguarded caller of {Export} ({Library}) fails the refusal check; its guarded sibling passes", hazard.EntryPoint, hazard.Library);
     }
 }

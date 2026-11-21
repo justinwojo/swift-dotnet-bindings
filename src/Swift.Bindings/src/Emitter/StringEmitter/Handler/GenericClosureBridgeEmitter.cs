@@ -817,9 +817,11 @@ public static class GenericClosureBridgeEmitter
         // instantiation would reach live in the runtime marshal helpers this body calls, and those
         // read the metadata's non-copyable flag and throw. That runtime check, not a tighter
         // constraint, is what closes this lane.
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public unsafe T {methodName}<T>({string.Join(", ", publicParams)}) where T : ISwiftObject");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // Every local this body declares shares a scope with the projected parameters, and the ones
         // inside the invoke lambda share it too (a lambda body is a nested scope of the same method,
@@ -1026,9 +1028,11 @@ public static class GenericClosureBridgeEmitter
 
         env.EmissionContext?.RecordEmittedApiShape(
             methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
+        AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);
         csWriter.WriteLine($"public unsafe void {methodName}({string.Join(", ", publicParams)})");
         csWriter.WriteLine("{");
         csWriter.Indent++;
+        AvailabilityAttributeEmitter.EmitBridgedMemberGuard(csWriter, env);
 
         // Same scope discipline as the returning overload: the delegate, its captured state and the
         // lambda's own locals all sit alongside the projected parameters, so they are minted against

@@ -1175,7 +1175,8 @@ public static class ProtocolExtensionEmitter
             // own @available — protocol-extension methods inherited from a protocol introduced
             // in a newer SDK (e.g., iOS 18 EntityCollection.insert(_:beforeIndex:) on an iOS 13
             // ChildCollection) need that floor or wrapper compile fails.
-            var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
+            // The ABI extension member the wrapper calls adds its own floor.
+            var protocolAvailability = ExtensionMemberAvailability(moduleDecl, conformingType, extMethod, typeDatabase, logger, out var memberFloor);
 
             // Claim the wrapper symbol via structural identity so a later
             // MethodHandler -> MethodWrapperEmitter pass on the synthetic MethodDecl
@@ -1195,6 +1196,7 @@ public static class ProtocolExtensionEmitter
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName,
                 symbolName, closureTypeSpec!, methodLevelGenerics, isThrows, useCdecl);
             syntheticMethod.StructuralIdentityKey = sourceKey;
+            ApplyMemberFloor(syntheticMethod, memberFloor);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -1203,8 +1205,8 @@ public static class ProtocolExtensionEmitter
         else
         {
             // Lift the wrapper's @available floor to also satisfy the protocol-extension's
-            // own @available — see closure path comment above.
-            var protocolAvailability = LookupProtocolAvailability(moduleDecl, extMethod.ProtocolQualifiedName);
+            // own @available, and the ABI extension member's — see closure path comment above.
+            var protocolAvailability = ExtensionMemberAvailability(moduleDecl, conformingType, extMethod, typeDatabase, logger, out var memberFloor);
 
             // Claim the wrapper symbol via structural identity — see closure path
             // comment above for the rationale.
@@ -1215,6 +1217,7 @@ public static class ProtocolExtensionEmitter
             var syntheticMethod = BuildSyntheticMethodDecl(
                 moduleDecl, conformingType, extMethod, parameters, returnTypeSpec, returnTypeName, symbolName, isThrows, useCdecl);
             syntheticMethod.StructuralIdentityKey = sourceKey;
+            ApplyMemberFloor(syntheticMethod, memberFloor);
 
             conformingType.Methods.Add(syntheticMethod);
             ctx.ProtocolExtInjectedCount++;
@@ -3374,25 +3377,95 @@ public static class ProtocolExtensionEmitter
     }
 
     /// <summary>
-    /// Resolves a protocol TypeDecl from <paramref name="moduleDecl"/> by qualified name
-    /// (e.g. "RealityFoundation.EntityCollection") and returns its @available annotations.
-    /// Returns null when the protocol isn't owned by this module — protocol extensions
-    /// from foreign modules are out of scope here.
+    /// Gives an injected member the floor of the extension member it calls, so it advertises it and
+    /// its body refuses below it before the P/Invoke.
     /// </summary>
-    private static IReadOnlyList<AvailabilityAnnotation>? LookupProtocolAvailability(
-        ModuleDecl moduleDecl, string protocolQualifiedName)
+    private static void ApplyMemberFloor(MethodDecl syntheticMethod, IReadOnlyList<AvailabilityAnnotation>? memberFloor)
     {
-        var dotIdx = protocolQualifiedName.LastIndexOf('.');
-        var unqualifiedName = dotIdx >= 0 ? protocolQualifiedName.Substring(dotIdx + 1) : protocolQualifiedName;
-        return FindProtocol(moduleDecl.Types, unqualifiedName)?.AvailabilityAnnotations;
+        if (memberFloor is null)
+            return;
+        syntheticMethod.AvailabilityAnnotations =
+            AvailabilityHelpers.WithIntroducedFloors(syntheticMethod.AvailabilityAnnotations, memberFloor)?.ToList();
     }
 
-    private static ProtocolDecl? FindProtocol(IEnumerable<TypeDecl> types, string unqualifiedName)
+    /// <summary>
+    /// Resolves a protocol TypeDecl from <paramref name="moduleDecl"/> by qualified name
+    /// (e.g. "RealityFoundation.EntityCollection"), and failing that by its last component, which
+    /// finds a protocol the ABI qualifies by another module of its umbrella, or one an interface
+    /// extends unqualified. By name, a top-level protocol comes first, as Swift's lookup at file scope
+    /// finds it ahead of a nested namesake. Returns null when the protocol isn't owned by this
+    /// module — protocol extensions from foreign modules are out of scope here.
+    /// </summary>
+    private static ProtocolDecl? LookupProtocol(ModuleDecl moduleDecl, string protocolQualifiedName)
+    {
+        if (FindProtocol(moduleDecl.Types, p => p.SwiftTypeName.ModuleQualifiedName == protocolQualifiedName) is { } exact)
+            return exact;
+        var dotIdx = protocolQualifiedName.LastIndexOf('.');
+        var unqualifiedName = dotIdx >= 0 ? protocolQualifiedName.Substring(dotIdx + 1) : protocolQualifiedName;
+        return moduleDecl.Types.OfType<ProtocolDecl>().FirstOrDefault(p => p.Name == unqualifiedName)
+            ?? FindProtocol(moduleDecl.Types, p => p.Name == unqualifiedName);
+    }
+
+    /// <summary>
+    /// The floor a conformer's copy of <paramref name="extMethod"/> needs: the protocol's
+    /// <c>@available</c>, plus the introduced floors of the extension member the ABI lists under the
+    /// protocol that the copy calls (its own <c>@available</c>, or a floor inferred because an older OS
+    /// lacks it). <paramref name="memberFloor"/> is what the injected member advertises and guards on:
+    /// those floors and the floor inferred for the conformer's conformance to the protocol, which the
+    /// wrapper uses to reach the member. Each is emitted only where it exceeds the conformer's own
+    /// floor, so a member that ships wherever its conformer does keeps the conformer's.
+    /// </summary>
+    private static IReadOnlyList<AvailabilityAnnotation>? ExtensionMemberAvailability(
+        ModuleDecl moduleDecl, TypeDecl conformingType, ProtocolExtensionMethodDecl extMethod, ITypeDatabase typeDatabase,
+        ILogger logger, out IReadOnlyList<AvailabilityAnnotation>? memberFloor)
+    {
+        memberFloor = null;
+        var protocol = LookupProtocol(moduleDecl, extMethod.ProtocolQualifiedName);
+        if (protocol is null)
+            return null;
+        var reached = AvailabilityHelpers.WithIntroducedFloors(null,
+            ReachedExtensionMembers(protocol, extMethod, typeDatabase, logger)
+                .SelectMany(member => member.AvailabilityAnnotations ?? Enumerable.Empty<AvailabilityAnnotation>()));
+        memberFloor = AvailabilityHelpers.WithIntroducedFloors(
+            AvailabilityHelpers.WithIntroducedFloors(reached, protocol.AvailabilityAnnotations),
+            AvailabilityHelpers.InferredConformanceFloor(conformingType, protocol.SwiftTypeName.ModuleQualifiedName));
+        if (reached is not { Count: > 0 })
+            return protocol.AvailabilityAnnotations;
+        return protocol.AvailabilityAnnotations is { Count: > 0 } own ? own.Concat(reached).ToList() : reached;
+    }
+
+    /// <summary>
+    /// The extension members the ABI lists under <paramref name="protocol"/> that
+    /// <paramref name="extMethod"/> may be: same kind, name and labels and static-ness, narrowed to
+    /// the one whose parameter and return types read the same when exactly one does. Overloads the
+    /// types cannot tell apart all stay, so the copy takes the strictest of their floors rather than
+    /// none.
+    /// </summary>
+    private static IEnumerable<BaseDecl> ReachedExtensionMembers(
+        ProtocolDecl protocol, ProtocolExtensionMethodDecl extMethod, ITypeDatabase typeDatabase, ILogger logger)
+    {
+        if (extMethod.IsProperty)
+        {
+            return protocol.ExtensionMembers.OfType<PropertyDecl>()
+                .Where(p => p.Name == extMethod.MethodName && p.IsStatic == extMethod.IsStatic);
+        }
+        var candidates = protocol.ExtensionMembers.OfType<MethodDecl>()
+            .Where(m => !m.IsConstructor && !m.IsAccessor
+                && (m.MethodType == MethodType.Static) == extMethod.IsStatic
+                && AbiLabelKey(m) == extMethod.PrintedName)
+            .ToList();
+        if (candidates.Count <= 1 || ExtensionOverloadKey(extMethod, typeDatabase, logger) is not { } key)
+            return candidates;
+        var exact = candidates.Where(m => AbiOverloadKey(m) == key).ToList();
+        return exact.Count == 1 ? exact : candidates;
+    }
+
+    private static ProtocolDecl? FindProtocol(IEnumerable<TypeDecl> types, Func<ProtocolDecl, bool> matches)
     {
         foreach (var type in types)
         {
-            if (type is ProtocolDecl pd && pd.Name == unqualifiedName) return pd;
-            var nested = FindProtocol(type.Types, unqualifiedName);
+            if (type is ProtocolDecl pd && matches(pd)) return pd;
+            var nested = FindProtocol(type.Types, matches);
             if (nested != null) return nested;
         }
         return null;

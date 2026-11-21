@@ -102,6 +102,37 @@ public class ProtocolExtensionClosureBridgeTests
         Assert.True(method.WasEmitted);
     }
 
+    [Fact]
+    public void TryEmit_AFlooredMember_IsRefusedBelowItsFloor_BeforeTheBridgeCallsSwift()
+    {
+        // The bridge writes the member itself rather than through WrapperEmitter, so it owns the
+        // member's floor: an inferred one (the OS lacks the extension member) as much as a declared one.
+        var (csWriter, swiftWriter, csOutput) = CreateWriters();
+        var method = CreateProtocolExtMethodWithClosure(
+            "forEach",
+            new ClosureTypeSpec(new NamedTypeSpec("Swift.Int"), TupleTypeSpec.Empty));
+        method.AvailabilityAnnotations = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+        var env = CreateMethodEnvironment(method);
+
+        Assert.True(ProtocolExtensionClosureBridge.TryEmit(csWriter, swiftWriter, env, CreateClassDecl("MyProtocol")));
+
+        var result = csOutput.ToString();
+        var declaration = result.IndexOf("public unsafe void ForEach", System.StringComparison.Ordinal);
+        Assert.True(declaration >= 0, result);
+        var attribute = result.LastIndexOf("SupportedOSPlatform(\"ios99.0\")", declaration, System.StringComparison.Ordinal);
+        Assert.True(attribute >= 0, "the member is not marked with its floor:\n" + result);
+
+        var body = result.Substring(declaration);
+        var refusal = body.IndexOf("throw new global::System.PlatformNotSupportedException", System.StringComparison.Ordinal);
+        Assert.True(refusal >= 0, "the member does not refuse a call below its floor:\n" + body);
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 99, 0)", body.Substring(0, refusal));
+        Assert.True(refusal < body.IndexOf("GCHandle.Alloc", System.StringComparison.Ordinal), body);
+        Assert.True(refusal < body.IndexOf("PInvoke_", System.StringComparison.Ordinal), body);
+    }
+
     #endregion
 
     #region TryEmit: bool-returning closure

@@ -102,6 +102,8 @@ namespace BindingsGeneration
         private void WriteGetTypeMetadata(PInvokeHelperContext? pinvokeHelperContext)
         {
             string libPath = _typeDatabase.GetLibraryPath(_moduleDecl.Name);
+            // Every method below that holds the native metadata call refuses first below the type's floor.
+            var metadataRefusal = MetadataWrapperEmitter.BuildMetadataRefusal(_structDecl);
 
             if (pinvokeHelperContext != null)
             {
@@ -112,10 +114,11 @@ namespace BindingsGeneration
                 // thin-mode (<= 3 args) or buffer-mode (> 3 args) on the helper side;
                 // the call site below is identical in either case.
                 var metadataArgs = string.Join(", ", pinvokeHelperContext.GetTypeMetadataAccessorArgumentList());
-                _writer.WriteLine($"static TypeMetadata ISwiftObject.GetTypeMetadata() => {pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs});");
+                _writer.WriteLines(MetadataWrapperEmitter.FormatGetTypeMetadataForwarder(
+                    $"{pinvokeHelperContext.HelperClassName}.PInvoke_getMetadata(TypeMetadataRequest.Complete, {metadataArgs})", metadataRefusal));
                 _writer.WriteLine();
 
-                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor, _emissionCtx);
+                pinvokeHelperContext.AddMetadataAccessorDeclaration(libPath, _structDecl.MetadataAccessor, _emissionCtx, metadataRefusal);
             }
             else if (_swiftWriter != null && _emissionCtx != null &&
                      WrapperValidation.IsXCFrameworkMode(_typeDatabase))
@@ -136,7 +139,7 @@ namespace BindingsGeneration
                     _writer.WriteLine();
 
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
+                        libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -173,7 +176,7 @@ namespace BindingsGeneration
                     // missing, so trying the source's own native is the recovery it exists to do.
                     // Redirecting it to the wrapper would make both arms name the same library.
                     foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _structDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx))
+                        _typeDatabase.GetDeclaredLibraryPath(_moduleDecl.Name), _structDecl.MetadataAccessor, "PInvoke_getMetadata_fallback", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                         _writer.WriteLine(line);
                     _writer.WriteLine();
                 }
@@ -185,7 +188,7 @@ namespace BindingsGeneration
                 _writer.WriteLine();
 
                 foreach (var line in MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
-                    libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx))
+                    libPath, _structDecl.MetadataAccessor, "PInvoke_getMetadata", hasNewModifier: false, emissionContext: _emissionCtx, refusal: metadataRefusal))
                     _writer.WriteLine(line);
                 _writer.WriteLine();
             }
@@ -850,7 +853,7 @@ namespace BindingsGeneration
 
     public class EqualityMethodsWriter
     {
-        private readonly IndentedTextWriter _writer;
+        private readonly CSharpWriter _writer;
         private readonly StructDecl _structDecl;
         private readonly string _typeNameWithGenerics;
         private readonly bool _implementsEquatable;
@@ -989,13 +992,10 @@ namespace BindingsGeneration
             // redeclaration errors when multiple types share the same simple name.
             // Add @MainActor when the type's == operator is actor-isolated (Swift 6 strict concurrency).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_structDecl, false);
-            // Carry availability from the `==` operator (so retroactive Equatable conformances
-            // get the operator's @available floor, not just the struct's), merged with any
-            // nested ancestor availability.
-            var equalityOperator = _structDecl.Operators
-                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
-            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
-                equalityOperator?.AvailabilityAnnotations, _structDecl);
+            // Carry the floor of what `l == r` reaches (so retroactive Equatable conformances get the
+            // operator's @available floor, not just the struct's), merged with any nested ancestor
+            // availability and the conformance's inferred floor.
+            var availability = EqualityAvailability.EqualityFloor(_structDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""
@@ -1046,13 +1046,17 @@ namespace BindingsGeneration
                 // Value types: wrap in unsafe + use Unsafe.AsPointer to pass stack addresses
                 return $"_PInvoke_eq_value(ref {lhs}, ref {rhs})";
             }
+            // Every public Equals, == and != reaches the wrapper through one of the helpers below, so
+            // the floor the wrapper is exported at is refused in the helper before the call and
+            // advertised on each public member.
+            var equalityFloor = eqSymbol != null ? EqualityAvailability.EqualityFloor(_structDecl) : null;
             // For value types, emit a helper that wraps the unsafe pointer extraction
             bool needsValueHelper = eqSymbol != null && !refType;
             if (needsValueHelper)
             {
+                _writer.WriteLine($"private static unsafe bool _PInvoke_eq_value(ref {_typeNameWithGenerics} lhs, ref {_typeNameWithGenerics} rhs)");
+                WriteEqualityGuardedBodyOpening(equalityFloor);
                 _writer.WriteLines($$"""
-                private static unsafe bool _PInvoke_eq_value(ref {{_typeNameWithGenerics}} lhs, ref {{_typeNameWithGenerics}} rhs)
-                {
                     return PInvoke_eq(
                         (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref lhs),
                         (IntPtr)global::System.Runtime.CompilerServices.Unsafe.AsPointer(ref rhs));
@@ -1068,9 +1072,9 @@ namespace BindingsGeneration
             bool needsRefHelper = eqSymbol != null && refType;
             if (needsRefHelper)
             {
+                _writer.WriteLine($"private static bool _PInvoke_eq_pinned({_typeNameWithGenerics} left, {_typeNameWithGenerics} right)");
+                WriteEqualityGuardedBodyOpening(equalityFloor);
                 _writer.WriteLines($$"""
-                private static bool _PInvoke_eq_pinned({{_typeNameWithGenerics}} left, {{_typeNameWithGenerics}} right)
-                {
                     bool _eqAddedLeft = false;
                     bool _eqAddedRight = false;
                     try
@@ -1094,25 +1098,27 @@ namespace BindingsGeneration
             var hashCodeBody = _implementsHashable
                 ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
                 : "return 0;";
-            var equalsMethods = $$"""
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _structDecl);
+            _writer.WriteLines($$"""
             public override bool Equals(object? obj)
             {
                 return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
             }
-
+            """);
+            _writer.WriteLine();
+            _writer.WriteLines($$"""
             public override int GetHashCode()
             {
                 {{hashCodeBody}}
             }
-            """;
-
-            _writer.WriteLines(equalsMethods);
+            """);
             _writer.WriteLine();
 
             // Only write operator == if no explicit operator is defined
             // Use typeNameWithGenerics for operator parameters to fix CS0563/CS0305
             if (!_hasExplicitEqualityOperator)
             {
+                EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _structDecl);
                 string equalityBody;
                 if (refType)
                 {
@@ -1141,6 +1147,7 @@ namespace BindingsGeneration
             // Only write operator != if no explicit operator is defined
             if (!_hasExplicitInequalityOperator)
             {
+                EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _structDecl);
                 string inequalityBody;
                 if (refType)
                 {
@@ -1174,8 +1181,21 @@ namespace BindingsGeneration
             }
             """;
 
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _structDecl);
             _writer.WriteLines(equatableEquals);
             _writer.WriteLine();
+        }
+
+        /// <summary>
+        /// Opens the body of an equality helper whose signature was just written: the brace, then the
+        /// guard that refuses below <paramref name="equalityFloor"/> before the wrapper is reached.
+        /// </summary>
+        private void WriteEqualityGuardedBodyOpening(IReadOnlyList<AvailabilityAnnotation>? equalityFloor)
+        {
+            _writer.WriteLine("{");
+            _writer.Indent++;
+            AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer, equalityFloor, $"{_structDecl.Name}.==");
+            _writer.Indent--;
         }
 
         private void WriteDefaultEquatableImplementation()

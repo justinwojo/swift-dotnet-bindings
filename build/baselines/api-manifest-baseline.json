@@ -36579,6 +36579,91 @@
     },
     {
       "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryAbsentValue.GetDoubled()",
+      "symbol": "thunk_SwiftBindingsTestLibDependency_d23ceab7"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryAbsentValue.InventoryAbsentValue(nint)",
+      "symbol": "SBW_SwiftBindingsTestLibDependency_InventoryAbsentValue_init_81413444"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryAbsentValue.Seed",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryAbsentValue_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryAbsentValue_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryAbsentValue.SeedNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryAbsentValue_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryAbsentValue_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryEquatableValue.InventoryEquatableValue(nint)",
+      "symbol": "SBW_SwiftBindingsTestLibDependency_InventoryEquatableValue_init_2ECBE274"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryEquatableValue.Seed",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryEquatableValue_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryEquatableValue_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryEquatableValue.SeedNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryEquatableValue_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryEquatableValue_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.AbsentOnInventoryOs",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_absentOnInventoryOs"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.AbsentOnInventoryOsNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_absentOnInventoryOs"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.GetAbsentMethodOnInventoryOs()",
+      "symbol": "thunk_SwiftBindingsTestLibDependency_74000ea6"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.InventoryProbe(nint)",
+      "symbol": "SBW_SwiftBindingsTestLibDependency_InventoryProbe_init_1143C49D"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.PresentMethod()",
+      "symbol": "thunk_SwiftBindingsTestLibDependency_afdfdffa"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.PresentOnInventoryOs",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_presentOnInventoryOs"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.PresentOnInventoryOsNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_presentOnInventoryOs"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.Seed",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryProbe_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryProbe.SeedNative",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryProbe_seed|SBW_Set_SwiftBindingsTestLibDependency_InventoryProbe_seed"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
+      "signature": "InventoryRawProbe.RawValue",
+      "symbol": "SBW_Get_SwiftBindingsTestLibDependency_InventoryRawProbe_rawValue"
+    },
+    {
+      "module": "SwiftBindingsTestLibDependency",
       "signature": "MakeDependencyConfig(string,int)",
       "symbol": "SBW_SwiftBindingsTestLibDependency_Free_makeDependencyConfig_F62B8BA0"
     },

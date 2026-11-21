@@ -294,6 +294,20 @@ public class CliOptions
                      "path's parent '<Module>.swiftmodule/' directory. Modules without a " +
                      "registered packageId in apple-frameworks.json are silently skipped.");
 
+    public Option<string?> CheckOsLoads { get; } = new(
+        aliases: new[] { "--check-os-loads" },
+        description: "Check-os-loads mode: load safety for a binary the generator did not link (the SDK's " +
+                     "second wrapper and SwiftUI bridge slices). Prints, space-separated, every OS-resident " +
+                     "dylib the binary loads strongly in a way a symbol missing from an older OS would fail, " +
+                     "by the rule the generator applies to the slices it links, against the shipped OS symbol " +
+                     "inventory (or --os-symbol-inventory); prints nothing when the binary is safe. Exits 1 " +
+                     "when the binary cannot be read. Requires --check-os-loads-sdk.");
+
+    public Option<string?> CheckOsLoadsSdk { get; } = new(
+        aliases: new[] { "--check-os-loads-sdk" },
+        description: "The SDK the --check-os-loads binary was linked against (its stubs show why the linker " +
+                     "kept a load strong; its name selects the inventory's platform variant).");
+
     public Option<bool> SliceXcframework { get; } = new(
         aliases: new[] { "--slice-xcframework" },
         description: "Slice-xcframework mode: copy a source xcframework to -o, retaining only " +
@@ -630,6 +644,8 @@ public class CliOptions
             NoSwiftBridgeRouting,
             CompileBridgeOnly,
             DetectAppleCrossModuleDeps,
+            CheckOsLoads,
+            CheckOsLoadsSdk,
             SliceXcframework,
             Rid,
             ResolveAutoDeps,

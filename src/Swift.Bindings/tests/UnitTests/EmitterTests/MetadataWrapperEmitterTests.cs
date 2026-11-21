@@ -302,6 +302,76 @@ public class MetadataWrapperEmitterTests
     }
 
     /// <summary>
+    /// The wrapper's metadata export reaches the type's metadata accessor, which an OS below an
+    /// inferred floor may not ship: GetTypeMetadata refuses before the wrapper call, not only after
+    /// the wrapper's own #available check returned nil.
+    /// </summary>
+    [Fact]
+    public void BuildGetTypeMetadataWithFallback_GatedType_RefusesBeforeTheWrapperCall()
+    {
+        var availability = new List<AvailabilityAnnotation>
+        {
+            new("iOS", "27.2", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        };
+
+        var body = MetadataWrapperEmitter.BuildGetTypeMetadataWithFallback(availability, "CryptoKit.Probe");
+
+        var refusal = body.IndexOf("throw new global::System.PlatformNotSupportedException", StringComparison.Ordinal);
+        var wrapperCall = body.IndexOf("PInvoke_getMetadata()", StringComparison.Ordinal);
+        Assert.True(refusal >= 0 && refusal < wrapperCall, body);
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 27, 2", body[..wrapperCall]);
+    }
+
+    /// <summary>
+    /// The zero-argument metadata method is internal, so code compiled into the assembly can call
+    /// it past GetTypeMetadata: with a floor it refuses itself before the accessor call.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void FormatSwiftAccessorImportLines_AFlooredTypesZeroArgumentMethodRefusesFirst(bool floored)
+    {
+        var refusal = floored
+            ? MetadataWrapperEmitter.BuildMetadataRefusal(MakeStruct("CryptoKit.Probe", new List<AvailabilityAnnotation>
+            {
+                new("iOS", "27.2", null, null, false, false, null, null),
+            }))
+            : null;
+
+        var text = string.Join("\n", MetadataWrapperEmitter.FormatSwiftAccessorImportLines(
+            "/usr/lib/swift/libswiftCryptoKit.dylib", "$s9CryptoKit5ProbeVMa", "PInvoke_getMetadata_fallback", hasNewModifier: false, refusal: refusal));
+
+        var forwarder = text[..text.IndexOf("[global::System.Runtime.InteropServices", StringComparison.Ordinal)];
+        var accessorCall = forwarder.IndexOf("PInvoke_getMetadata_fallback(global::Swift.Runtime.TypeMetadataRequest.Complete)", StringComparison.Ordinal);
+        Assert.True(accessorCall > 0, forwarder);
+        var throwAt = forwarder.IndexOf("throw new global::System.PlatformNotSupportedException", StringComparison.Ordinal);
+        if (floored)
+        {
+            Assert.True(throwAt >= 0 && throwAt < accessorCall, forwarder);
+            Assert.Contains("Swift type 'CryptoKit.Probe' is not available on this OS version; it requires iOS 27.2 or later.", forwarder);
+        }
+        else
+            Assert.Equal(-1, throwAt);
+    }
+
+    [Fact]
+    public void BuildMetadataRefusal_IsNullForATypeWithoutAFloor_AndGuardsTheGenericForwarderOtherwise()
+    {
+        Assert.Null(MetadataWrapperEmitter.BuildMetadataRefusal(MakeStruct("CryptoKit.Probe", null)));
+
+        var refusal = MetadataWrapperEmitter.BuildMetadataRefusal(MakeStruct("CryptoKit.Probe", new List<AvailabilityAnnotation>
+        {
+            new("iOS", "99.0", null, null, false, false, null, null) { IsRuntimeSupportFloor = true, IsInferredOsFloor = true },
+        }));
+        var forwarder = MetadataWrapperEmitter.FormatGetTypeMetadataForwarder("Helper.PInvoke_getMetadata(TypeMetadataRequest.Complete, a)", refusal);
+
+        Assert.True(forwarder.IndexOf("throw", StringComparison.Ordinal) < forwarder.IndexOf("Helper.PInvoke_getMetadata", StringComparison.Ordinal), forwarder);
+        Assert.Contains("IsOSPlatformVersionAtLeast(\"ios\", 99, 0", forwarder);
+        Assert.DoesNotContain("PlatformNotSupportedException",
+            MetadataWrapperEmitter.FormatGetTypeMetadataForwarder("Helper.PInvoke_getMetadata(TypeMetadataRequest.Complete, a)", null));
+    }
+
+    /// <summary>
     /// For a non-gated type the C# GetTypeMetadata() body is unchanged — direct return, no
     /// PlatformNotSupportedException, no IsValid gate.
     /// </summary>

@@ -1021,11 +1021,13 @@ namespace BindingsGeneration
         /// <summary>
         /// The public accessor of a cached no-payload case: expression-bodied, or with a statement
         /// body holding <see cref="EmitCaseAccessorGuard"/> when the case is floored above its enum.
+        /// <paramref name="advertised"/> replaces the case's own availability on the accessor when the
+        /// accessor reaches more than the case (a factory with a floor of its own).
         /// </summary>
         private static void EmitCachedCaseAccessor(CSharpWriter csWriter, EnumCaseDecl caseDecl, EnumDecl enumDecl,
-            string enumTypeName, string capitalizedName, string fieldName)
+            string enumTypeName, string capitalizedName, string fieldName, IReadOnlyList<AvailabilityAnnotation>? advertised = null)
         {
-            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, caseDecl, parentDecl: enumDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, advertised ?? caseDecl.AvailabilityAnnotations, parentDecl: enumDecl);
             if (!CaseNeedsAvailabilityGuard(caseDecl, enumDecl))
             {
                 csWriter.WriteLine($"public static {enumTypeName} {capitalizedName} => _lazy_{fieldName}.Value;");
@@ -1114,19 +1116,15 @@ namespace BindingsGeneration
                 return $"_PInvoke_eq_pinned({lhs}, {rhs})";
             }
 
+            // Equals, == and != all reach Swift's == through _PInvoke_eq_pinned, so the floor the
+            // equality wrapper is exported at is refused there before the call and advertised on each.
+            var equalityFloor = eqSymbol != null ? EqualityAvailability.EqualityFloor(_enumDecl) : null;
             if (eqSymbol != null)
             {
-                // Equals, == and != all reach Swift's == here, so the floor the equality wrapper is
-                // exported at (the operator's, e.g. a conformance the OS symbol inventory's OS lacks,
-                // merged with the enum's) is refused here before the call.
-                var equalityOperator = _enumDecl.Operators
-                    .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
                 _writer.WriteLine($"private static bool _PInvoke_eq_pinned({_typeNameWithGenerics} left, {_typeNameWithGenerics} right)");
                 _writer.WriteLine("{");
                 _writer.Indent++;
-                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer,
-                    WrapperEmitterHelpers.MergeAvailabilityFromAncestors(equalityOperator?.AvailabilityAnnotations, _enumDecl),
-                    $"{_enumDecl.Name}.==");
+                AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(_writer, equalityFloor, $"{_enumDecl.Name}.==");
                 _writer.Indent--;
                 _writer.WriteLines($$"""
                     bool _eqAddedLeft = false;
@@ -1150,12 +1148,15 @@ namespace BindingsGeneration
             var hashCodeBody = _implementsHashable
                 ? "return Swift.Runtime.SwiftHashable.GetHashCode(this);"
                 : "return 0;";
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _enumDecl);
             _writer.WriteLines($$"""
             public override bool Equals(object? obj)
             {
                 return obj is {{_typeNameWithGenerics}} other && {{equalsExpr("this", "other")}};
             }
-
+            """);
+            _writer.WriteLine();
+            _writer.WriteLines($$"""
             public override int GetHashCode()
             {
                 {{hashCodeBody}}
@@ -1167,6 +1168,7 @@ namespace BindingsGeneration
             // Swift's `lhs == rhs`, which dispatches to either the synthesized or
             // user-declared `==` — that single source-of-truth feeds both C# operators
             // and prevents CS0216 (require matching `==`/`!=`).
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _enumDecl);
             _writer.WriteLines($$"""
             public static bool operator ==({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
             {
@@ -1177,6 +1179,7 @@ namespace BindingsGeneration
             """);
             _writer.WriteLine();
 
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _enumDecl);
             _writer.WriteLines($$"""
             public static bool operator !=({{_typeNameWithGenerics}}? left, {{_typeNameWithGenerics}}? right)
             {
@@ -1187,6 +1190,7 @@ namespace BindingsGeneration
             """);
             _writer.WriteLine();
 
+            EqualityAvailability.EmitMemberAttributes(_writer, equalityFloor, _enumDecl);
             _writer.WriteLines($$"""
             public bool Equals({{_typeNameWithGenerics}}? other)
             {
@@ -1235,10 +1239,7 @@ namespace BindingsGeneration
             // wrapper takes typed pointers via assumingMemoryBound — NOT
             // Unmanaged<AnyObject>.fromOpaque (that path is for ARC reference types).
             bool needsMainActor = WrapperValidation.NeedsMainActorAnnotation(_enumDecl, false);
-            var equalityOperator = _enumDecl.Operators
-                .FirstOrDefault(op => op.OperatorSymbol == "==" && op.Kind == OperatorKind.Binary);
-            var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(
-                equalityOperator?.AvailabilityAnnotations, _enumDecl);
+            var availability = EqualityAvailability.EqualityFloor(_enumDecl);
             _swiftWriter.WriteLine();
             WrapperEmitterHelpers.EmitCdeclAnnotation(_swiftWriter, symbolName, needsMainActor, availability);
             _swiftWriter.WriteLines($$"""

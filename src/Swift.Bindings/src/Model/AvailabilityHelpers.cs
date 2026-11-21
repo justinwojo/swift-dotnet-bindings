@@ -59,6 +59,55 @@ public static class AvailabilityHelpers
     }
 
     /// <summary>
+    /// <paramref name="own"/> plus the introduced floors of <paramref name="reached"/>: what a member
+    /// that calls another advertises and guards on. The reached member's deprecations, obsoletions and
+    /// unavailability stay its own; a floor keeps its runtime-support and inferred-OS marks.
+    /// </summary>
+    public static IReadOnlyList<AvailabilityAnnotation>? WithIntroducedFloors(
+        IReadOnlyList<AvailabilityAnnotation>? own, IEnumerable<AvailabilityAnnotation>? reached)
+    {
+        var floors = reached?
+            .Where(a => a.Platform != null && a.IntroducedVersion != null && !a.IsUnconditionallyUnavailable)
+            .Select(a => a with
+            {
+                DeprecatedVersion = null,
+                ObsoletedVersion = null,
+                IsUnconditionallyDeprecated = false,
+                Message = null,
+                Renamed = null,
+            })
+            .ToList();
+        if (floors is not { Count: > 0 })
+            return own;
+        return own is { Count: > 0 } ? own.Concat(floors).ToList() : floors;
+    }
+
+    /// <summary>
+    /// The floor the OS symbol inference recorded for <paramref name="type"/>'s conformance to
+    /// <paramref name="protocolQualifiedName"/> (<see cref="ModuleDecl.InferredConformanceFloors"/>):
+    /// present when the inventory's OS ships the type but not that conformance, so code that uses the
+    /// type through the protocol needs the later OS. Empty when none is recorded.
+    /// </summary>
+    public static IEnumerable<AvailabilityAnnotation> InferredConformanceFloor(TypeDecl type, string protocolQualifiedName)
+    {
+        if (type.ModuleDecl?.InferredConformanceFloors is not { Count: > 0 } inferred)
+            return Enumerable.Empty<AvailabilityAnnotation>();
+        IEnumerable<TypeConformance> conformances = type switch
+        {
+            StructDecl s => s.Conformances,
+            ClassDecl c => c.Conformances,
+            EnumDecl e => e.Conformances,
+            _ => Array.Empty<TypeConformance>(),
+        };
+        return conformances
+            .Where(c => c.Protocol.ModuleQualifiedName == protocolQualifiedName
+                && !string.IsNullOrEmpty(c.ProtocolConformanceDescriptor))
+            .SelectMany(c => inferred.TryGetValue(c.ProtocolConformanceDescriptor, out var floor)
+                ? floor : Enumerable.Empty<AvailabilityAnnotation>())
+            .ToList();
+    }
+
+    /// <summary>
     /// The annotation list that governs a property's SETTER. Swift can introduce a setter after
     /// the property itself (a get-only requirement later made settable), and the parser records
     /// that as <see cref="PropertyDecl.SetterAvailabilityAnnotations"/> — already the property's
