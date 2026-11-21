@@ -414,7 +414,7 @@ public class BoundGenericsHandler
         // non-marker protocols. Both degrade to the `object` public surface, but that surface IS the
         // correct Box/Unbox marshalling type — not the unmarshallable-PAT/unknown-protocol `object`
         // rejected below. (`any Sendable`-valued dictionaries are the cross-library Nuke userInfo shape.)
-        if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+        if (ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase))
             return true;
         // Well-known stdlib existential (`any Error` → Swift.Foundation.AnyError): the projection
         // marshals it through the hand-rolled AnyError supplement type, independent of any emitted proxy
@@ -930,7 +930,7 @@ public class BoundGenericsHandler
                 _existentialHandler.IsExistential(genericParameter))
             {
                 var protocolList = _existentialHandler.ToProtocolListTypeSpec(genericParameter);
-                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase))
                 {
                     translatedGenericParameters.Add("Swift.Runtime.ExistentialContainer0");
                     continue;

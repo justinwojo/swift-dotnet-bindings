@@ -335,6 +335,19 @@ public class ClosureExistentialTests
         Assert.DoesNotContain("(object)", expression);
     }
 
+    // A closure's any Error result is taken by Swift at +1, but its C# wrapper only lends the boxed
+    // error: the result retains the box for Swift rather than handing over the wrapper's own count.
+    [Fact]
+    public void ErrorClosureResult_RetainsTheBoxForSwift()
+    {
+        var handler = new ClosureHandler(CreateTypeDatabase());
+        var errorSpec = new NamedTypeSpec("Swift.Error") { IsAny = true };
+
+        var expression = ClosureEmitter.BuildCallbackExistentialReturnExpression(errorSpec, "del()", handler);
+
+        Assert.Equal("Swift.Runtime.ExistentialContainerFactory.CreateOwnedErrorExistential(del())", expression);
+    }
+
     // A closure result is taken by Swift at +1. The C# value is the owning box a read returned,
     // which only lends its container: unboxing it with a cast threw, and passing its bytes at +1
     // would hand Swift the box's own reference. The result mints a reference of its own.

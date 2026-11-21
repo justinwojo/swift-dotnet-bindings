@@ -988,6 +988,53 @@ public class EveryProtocolEmitterTests
     }
 
     /// <summary>
+    /// A library's own <c>@_marker</c> protocol has no witness table and no protocol descriptor, so it
+    /// gets no carrier conformance and no witness-table getter (which would read the payload's type
+    /// metadata out of the bare <c>Any</c> container), and its C# proxy is suppressed with it. An
+    /// ordinary empty protocol still conforms, and a protocol refining the marker keeps its own
+    /// conformance: Swift implies the marker conformance, which has nothing to witness.
+    /// </summary>
+    [Fact]
+    public void MarkerProtocol_GetsNoConformance_WhileItsRefinementKeepsOne()
+    {
+        var context = new ModuleEmissionContext();
+        var emitter = new EveryProtocolEmitter(_typeDatabase, NullLogger.Instance, "TestModule", context);
+        var marker = CreateCompositionProtocol("TransferTag");
+        marker.IsMarker = true;
+        var empty = CreateCompositionProtocol("PlainTag");
+        var refining = CreateProtocolWithMethod("TaggedSource", "read");
+        refining.InheritedProtocols.Add(new NamedTypeSpec("TestModule.TransferTag"));
+        var bareRefining = CreateProtocolWithMethod("BareTaggedSource", "read");
+        bareRefining.InheritedProtocols.Add(new NamedTypeSpec("TransferTag"));
+
+        emitter.PreScanProtocols(new[] { marker, empty, refining, bareRefining });
+
+        Assert.True(emitter.IsConformanceSkipped(marker));
+        Assert.False(emitter.IsConformanceSkipped(empty));
+        Assert.False(emitter.IsConformanceSkipped(refining));
+        Assert.False(emitter.IsConformanceSkipped(bareRefining));
+
+        string Emit(ProtocolDecl protocolDecl)
+        {
+            var stringWriter = new StringWriter();
+            emitter.EmitProtocolConformance(new SwiftWriter(stringWriter), protocolDecl);
+            return stringWriter.ToString();
+        }
+
+        var markerOutput = Emit(marker);
+        Assert.DoesNotContain("extension EveryProtocol: TestModule.TransferTag", markerOutput);
+        Assert.DoesNotContain("SBW_Get_EveryProtocol_TransferTag_WitnessTable", markerOutput);
+        Assert.False(context.WasConformanceEmitted("TestModule.TransferTag"));
+        Assert.Equal("MarkerProtocol", context.GetConformanceSkipReason("TestModule.TransferTag"));
+        Assert.Equal(ProxyEmissionDecision.SuppressedByConformance,
+            ProtocolProxyEmissionPolicy.Decide(marker, _typeDatabase, context));
+
+        Assert.Contains("extension EveryProtocol: TestModule.PlainTag", Emit(empty));
+        Assert.Contains("extension EveryProtocol: TestModule.TaggedSource", Emit(refining));
+        Assert.Contains("extension EveryProtocol: TestModule.BareTaggedSource", Emit(bareRefining));
+    }
+
+    /// <summary>
     /// The fragment a protocol's conformance is emitted under resolves to the same managed-conformance
     /// unit the emitter checks for withdrawal, and is droppable alone, so a wrapper diagnostic inside
     /// it reaches the loop as that unit instead of being suppressed to the module scope.

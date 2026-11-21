@@ -2623,7 +2623,7 @@ public partial class ClosureHandler
     {
         if (!IsExistentialParam(typeSpec)) return false;
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(typeSpec);
-        return protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList);
+        return protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase);
     }
 
     /// <summary>

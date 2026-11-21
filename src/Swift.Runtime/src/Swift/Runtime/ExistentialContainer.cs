@@ -1750,15 +1750,29 @@ public static class ExistentialContainerFactory
         return carrier;
     }
 
-    private static unsafe ExistentialContainer1 MintOrDonateExistential1(
+    private static ExistentialContainer1 MintOrDonateExistential1(
         ExistentialContainer1 container,
         bool ownsContainer,
         bool classBoundCarrier = false)
+        => MintOrDonateExistential1(container, ownsContainer, classBoundCarrier, out _);
+
+    /// <summary>
+    /// <see cref="MintOrDonateExistential1(ExistentialContainer1, bool, bool)"/>, also reporting how
+    /// the returned container's +1 is undone if the consumer it was minted for never takes it
+    /// (<see cref="OwnedExistentialArgument{TContainer}"/>).
+    /// </summary>
+    internal static unsafe ExistentialContainer1 MintOrDonateExistential1(
+        ExistentialContainer1 container,
+        bool ownsContainer,
+        bool classBoundCarrier,
+        out OwnedExistentialRollback rollback)
     {
         if (ownsContainer)
         {
             // Boxable conformer: a fresh +1 already lives in the container — donate it to the array's
-            // __owned consume.
+            // __owned consume. A boxed class conformer is laid out in the opaque positions too, so
+            // the opaque destroy balances it either way.
+            rollback = OwnedExistentialRollback.Destroy;
             return container;
         }
 
@@ -1773,6 +1787,7 @@ public static class ExistentialContainerFactory
             var classRef = container.Payload0;
             if (classRef != IntPtr.Zero)
                 Arc.UnknownObjectRetain(classRef);
+            rollback = OwnedExistentialRollback.ReleaseClassReference;
             return container;
         }
 
@@ -1786,6 +1801,7 @@ public static class ExistentialContainerFactory
             // owned/container are stack locals (already-fixed), so take their addresses directly —
             // a `fixed` statement on them is a CS0213 error.
             Swift.Runtime.InteropServices.SwiftMarshal.CopyWireBufferRetains((IntPtr)(&owned), (IntPtr)(&container), metadata);
+            rollback = OwnedExistentialRollback.Destroy;
             return owned;
         }
         catch (SwiftRuntimeException)
@@ -1796,6 +1812,7 @@ public static class ExistentialContainerFactory
             // from CopyWireBufferRetains (which runs only AFTER metadata resolves) throws a DIFFERENT
             // type and is intentionally NOT caught — masking it would hand a borrowed (+0) carrier to
             // an __owned consume and re-introduce the over-release.
+            rollback = OwnedExistentialRollback.None;
             return container;
         }
     }
@@ -1815,14 +1832,24 @@ public static class ExistentialContainerFactory
     /// and the proxy's eventual release would both target that one retain — a double-release. So this
     /// unconditionally mints an independent +1 via the existential value-witness InitializeWithCopy
     /// (arity-generic in <see cref="IExistentialContainer.Count"/>), exactly as
-    /// <see cref="MintOrDonateExistential1"/>'s borrowed arm does for EC1. Unlike EC1 there is no donate
+    /// <see cref="MintOrDonateExistential1(ExistentialContainer1, bool, bool)"/>'s borrowed arm does for EC1. Unlike EC1 there is no donate
     /// arm — no boxable composition conformer exists, so the source is unconditionally borrowed and the
     /// owns-bit branching collapses away.
     /// </para>
     /// </summary>
     /// <typeparam name="TProtocol">The composition interface (e.g. <c>IAgeableAndNameable</c>).</typeparam>
     /// <typeparam name="TContainer">The EC2..EC8 carrier the proxy implements (e.g. <c>ExistentialContainer2</c>).</typeparam>
-    public static unsafe TContainer CreateOwnedCompositionExistential<TProtocol, TContainer>(TProtocol value)
+    public static TContainer CreateOwnedCompositionExistential<TProtocol, TContainer>(TProtocol value)
+        where TProtocol : class
+        where TContainer : unmanaged, IExistentialContainer
+        => CreateOwnedCompositionExistential<TProtocol, TContainer>(value, out _);
+
+    /// <summary>
+    /// <see cref="CreateOwnedCompositionExistential{TProtocol, TContainer}(TProtocol)"/>, also
+    /// reporting how the mint is undone if its consumer never takes it.
+    /// </summary>
+    internal static unsafe TContainer CreateOwnedCompositionExistential<TProtocol, TContainer>(
+        TProtocol value, out OwnedExistentialRollback rollback)
         where TProtocol : class
         where TContainer : unmanaged, IExistentialContainer
     {
@@ -1847,6 +1874,7 @@ public static class ExistentialContainerFactory
             // and this retain would release R0 → free the Swift object → the copy reads/retains freed memory.
             // Root the proxy itself across the mint, mirroring the EC1 CreateOwnedExistential1 keepAlive.
             GC.KeepAlive(value);
+            rollback = OwnedExistentialRollback.Destroy;
             return owned;
         }
         catch (SwiftRuntimeException)
@@ -1855,8 +1883,33 @@ public static class ExistentialContainerFactory
             // consumes the container, so the aliased (+0) fallback is safe. A genuine value-witness
             // fault throws a DIFFERENT type and is intentionally NOT caught — masking it would
             // re-introduce the over-release. Mirrors MintOrDonateExistential1.
+            rollback = OwnedExistentialRollback.None;
             return container;
         }
+    }
+
+    /// <summary>
+    /// Owned (+1) C#→Swift hand-off of a boxed <c>any Error</c>: a closure's result, or a
+    /// reverse-dispatch getter's or method's return, which Swift takes and releases.
+    /// </summary>
+    /// <remarks>
+    /// An <c>any Error</c> is one reference to its error box. The C# wrapper either owns a count on
+    /// that box (a value Swift returned, which the wrapper releases on Dispose or finalization) or
+    /// borrows one (a closure argument). Either way its container is lent, not given, so this takes
+    /// the count Swift consumes, with the same retain <see cref="OwnedArgument.ObjectTransfer"/>
+    /// takes for a consumed error argument. Handing Swift the lent container released the box
+    /// once more than it was retained.
+    /// </remarks>
+    /// <param name="error">The boxed error's wrapper (<c>Swift.Foundation.AnyError</c>).</param>
+    public static ExistentialContainer1 CreateOwnedErrorExistential(ISwiftExistentialConvertible<ExistentialContainer1> error)
+    {
+        ArgumentNullException.ThrowIfNull(error);
+        var container = error.GetExistentialContainer();
+        // Isa-dispatched: on Apple platforms an error box is an Objective-C object.
+        Arc.UnknownObjectRetain(container.Payload0);
+        // The wrapper may own the box's only count; keep it alive until the retain above holds one.
+        GC.KeepAlive(error);
+        return container;
     }
 
     /// <summary>

@@ -225,8 +225,8 @@ namespace BindingsGeneration
         /// independently and get one answer. Callers whose body locals are already named through the
         /// parameter's marshalling base pass nothing and the plain derivation is used.
         /// </param>
-        public string CallArgumentsString(SyntheticLocalNames? bodyScope = null)
-            => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p, bodyScope)));
+        public string CallArgumentsString(SyntheticLocalNames? bodyScope = null, SyntheticLocalNames? leaseScope = null)
+            => string.Join(", ", Parameters.Select(p => GetCallArgumentString(p, bodyScope, leaseScope)));
 
         /// <summary>
         /// The identifier an ObjC-bridged parameter's handle local takes in the emitting member's
@@ -236,7 +236,7 @@ namespace BindingsGeneration
         public static string ObjCHandleLocalName(Parameter parameter, SyntheticLocalNames? bodyScope = null)
             => bodyScope?.LocalComposed($"{parameter.Name}Handle") ?? $"{parameter.Name}Handle";
 
-        public static string GetCallArgumentString(Parameter parameter, SyntheticLocalNames? bodyScope = null)
+        public static string GetCallArgumentString(Parameter parameter, SyntheticLocalNames? bodyScope = null, SyntheticLocalNames? leaseScope = null)
         {
             return parameter switch
             {
@@ -244,54 +244,22 @@ namespace BindingsGeneration
                 { Type: MarshalledType.EnumSafeHandleType } => $"{parameter.Name}.Payload.DangerousGetHandle()",
                 // Simple enums: cast to underlying integer type for P/Invoke
                 { Type: MarshalledType.SimpleEnum(var underlyingType, _) } => $"({underlyingType}){parameter.Name}",
-                // Existential protocol types: GetOrCreate handles both proxy and concrete types.
-                // Only for single-protocol (EC1) interfaces — compositions (EC2+), well-known
-                // well-known types (AnyError/EC0), and "object" use direct ISwiftExistentialConvertible.
-                // When a proxy class name is known (populated by PInvokeEmitter), emit the wrap
-                // fallback so plain C# implementations of the interface are auto-wrapped without
-                // requiring the caller to construct the hidden {Protocol}Proxy manually.
-                // The interface check uses the unqualified type name so cross-module dependency
-                // protocols (e.g., "OtherModule.IFoo") are recognized along with same-module ones.
-                // A known proxy class settles it outright: a protocol whose interface name does not
-                // read as `I` + uppercase (`_Foo` → `I_Foo`) must not fall to the borrowed cast below,
-                // which reads the value's own container and so ignores which protocol it is passed as.
                 // A boxed `any Error`: the box the error's container holds in its first word. The
-                // container read borrows the box; a callee that releases its argument gets its own
-                // retain on it.
-                // A consumed one is retained by a lease declared before the call (see
-                // ExistentialArgumentLease), so a throw before native entry rolls the retain back.
+                // container read borrows the box; a consumed one is retained by a lease declared
+                // before the call (see ExistentialArgumentLease), so a throw before native entry
+                // rolls the retain back.
                 { Type: MarshalledType.Existential existentialType } when existentialType.BoxedError =>
                     existentialType.HandedOverToCallee
-                        ? $"{ExistentialArgumentLeaseName(parameter)}.Pointer"
+                        ? $"{ExistentialArgumentLeaseName(parameter, leaseScope)}.Pointer"
                         : BoxedErrorRead(parameter.Name),
-                // A borrowed single-protocol argument: the lease declared before the call holds the
-                // proxy that owns the container's payload, and destroys a boxed conformer's +1, once
-                // the call returns.
-                { Type: MarshalledType.Existential existentialType } when BorrowsExistentialThroughLease(parameter) =>
-                    NarrowToClassCarrier(existentialType, $"{ExistentialArgumentLeaseName(parameter)}.Container"),
-                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType)) =>
-                    NarrowToClassCarrier(
-                        existentialType,
-                        existentialType.ProxyClassName != null
-                            ? $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: true, existentialType.HandedOverToCallee)}<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v{NonRetainingSinkLane.ProxyOwnershipArgument(existentialType.ConsumerOwnsCarrier)}){ClassBoundMintArgument(existentialType)})"
-                            : $"Swift.Runtime.ExistentialContainerFactory.{NonRetainingSinkLane.FactoryMethodName(existentialType.ConsumerOwnsCarrier, hasProxyClass: false, existentialType.HandedOverToCallee)}<{publicType}>({parameter.Name}{ClassBoundMintArgument(existentialType)})"),
-                // Composition (EC2+) carriers, handed to a callee that releases them. The only C#
-                // type implementing a composition interface is a Swift-vended proxy whose
-                // GetExistentialContainer() BORROWS its stored bytes, so passing them unchanged
-                // aliases the proxy's sole +1 and the callee's release over-releases it. The mint is
-                // the same value-witness InitializeWithCopy the borrowed arm below skips.
-                //
-                // Arity-1 carriers are deliberately NOT routed here even when handed over. The
-                // arity-generic mint picks its metadata from the container's word count alone, and a
-                // well-known one-word carrier (a boxed `any Error`, say) does not lay its remaining
-                // words out the way that metadata's value witness reads them; EC0 (bare Any) carries
-                // no witness table at all and is excluded by the shared ownership gate. Both keep the
-                // borrowed form below until their own carrier-specific retain is wired up.
-                { Type: MarshalledType.Existential(var containerType, var publicType) existentialType }
-                    when existentialType.HandedOverToCallee
-                        && !containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
-                        && ExistentialHandler.IsOwnedExistentialContainerType(containerType) =>
-                    $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{publicType}, {containerType}>({parameter.Name})",
+                // A single-protocol argument the factory builds (a proxy, a boxable conformer, or a
+                // plain C# implementation it wraps) and every consumed composition: the lease
+                // declared before the call holds it (GetExistentialArgumentLease). A borrowed lease
+                // keeps the proxy that owns the payload alive and destroys a boxed conformer's +1
+                // once the call returns; an owned one mints the +1 the callee consumes and destroys
+                // it if anything throws before native entry.
+                { Type: MarshalledType.Existential existentialType } when IsExistentialHeldByLease(parameter) =>
+                    NarrowToClassCarrier(existentialType, $"{ExistentialArgumentLeaseName(parameter, leaseScope)}.Container"),
                 { Type: MarshalledType.Existential(var containerType, _) existentialType } =>
                     NarrowToClassCarrier(
                         existentialType,
@@ -390,37 +358,77 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Renders the trailing argument that tells the owned-existential mint the carrier holds a
-        /// class-constrained protocol's two-word layout widened into the wire container, so the +1
-        /// is a retain on word 0 rather than an opaque value-witness copy over words the widening
-        /// zeroed. Empty for every other shape, including every borrowed call site, so the argument
-        /// appears only where the ownership question is actually asked.
+        /// The local a parameter's existential argument lease is declared as. Both the declaring
+        /// site and the call site derive it from the parameter and the member's
+        /// <paramref name="leaseScope"/>, which reserves it against every identifier the member's
+        /// parameters occupy in its body; a member with no scope gets the plain derivation.
         /// </summary>
-        /// <summary>
-        /// The local a parameter's existential argument lease is declared as. Plain, not minted
-        /// through a body scope: the call statement is rendered before the body is written, and both
-        /// the declaring site and the call site derive it from the parameter alone.
-        /// </summary>
-        public static string ExistentialArgumentLeaseName(Parameter parameter)
-            => parameter.Type is MarshalledType.Existential { BoxedError: true }
+        public static string ExistentialArgumentLeaseName(Parameter parameter, SyntheticLocalNames? leaseScope = null)
+        {
+            var preferred = parameter.Type is MarshalledType.Existential { BoxedError: true }
                 ? $"{parameter.Name}ErrorTransfer"
                 : $"{parameter.Name}ExistentialLease";
+            return leaseScope?.LocalComposed(preferred) ?? preferred;
+        }
 
         /// <summary>
-        /// True when the call borrows this single-protocol existential argument through the factory
-        /// (a proxy, a boxable conformer, or a plain C# implementation it wraps). The callee takes no
-        /// reference, so the container's owner has to outlive the call: an auto-wrapped proxy is
-        /// registered only weakly, and a boxed conformer's fresh +1 has nobody else to release it.
-        /// A consumed argument (minted at +1 for the callee) and a consumer-owned carrier (rooted by
-        /// its implementation's memo) are not borrowed this way.
+        /// True when this argument reaches the call through the lease
+        /// <see cref="GetExistentialArgumentLease"/> declares for it and the call reads its
+        /// container: a factory-built single-protocol argument, borrowed or consumed, or a consumed
+        /// composition. A consumed <c>any Error</c> also has a lease, but the call reads its box.
         /// </summary>
-        public static bool BorrowsExistentialThroughLease(Parameter parameter)
-            => parameter.Type is MarshalledType.Existential(var containerType, var publicType) existentialType
-               && !existentialType.BoxedError
-               && !existentialType.HandedOverToCallee
-               && !(existentialType.ConsumerOwnsCarrier && existentialType.ProxyClassName != null)
-               && IsArity1ExistentialContainer(containerType, existentialType)
-               && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType));
+        public static bool IsExistentialHeldByLease(Parameter parameter)
+            => IsFactoryBuiltArity1Existential(parameter, out _) || IsConsumedComposition(parameter, out _);
+
+        /// <summary>
+        /// A single-protocol existential argument the container factory builds: one with a proxy to
+        /// wrap a plain C# implementation, or an interface a Swift-vended or boxable conformer
+        /// implements. A known proxy class settles it outright: a protocol whose interface name does
+        /// not read as <c>I</c> + uppercase (<c>_Foo</c> → <c>I_Foo</c>) must not fall to the
+        /// borrowed cast, which reads the value's own container and so ignores which protocol it is
+        /// passed as.
+        /// </summary>
+        private static bool IsFactoryBuiltArity1Existential(Parameter parameter, out MarshalledType.Existential existentialType)
+        {
+            if (parameter.Type is MarshalledType.Existential(var containerType, var publicType) existential
+                && !existential.BoxedError
+                && IsArity1ExistentialContainer(containerType, existential)
+                && (existential.ProxyClassName != null || IsExistentialInterfacePublicType(publicType)))
+            {
+                existentialType = existential;
+                return true;
+            }
+            existentialType = null!;
+            return false;
+        }
+
+        /// <summary>
+        /// A composition (EC2+) argument handed to a callee that releases it. The only C# type
+        /// implementing a composition interface is a Swift-vended proxy whose
+        /// <c>GetExistentialContainer()</c> borrows its stored bytes, so passing them unchanged would
+        /// alias the proxy's sole +1 and the callee's release would over-release it: the call passes
+        /// an independent mint instead.
+        /// <para>Arity-1 well-known carriers (a boxed <c>any Error</c> aside) are deliberately not
+        /// routed here even when handed over. The arity-generic mint picks its metadata from the
+        /// container's word count alone, and a well-known one-word carrier does not lay its
+        /// remaining words out the way that metadata's value witness reads them; EC0 (bare Any)
+        /// carries no witness table at all and is excluded by the shared ownership gate. Both keep
+        /// the borrowed cast until their own carrier-specific retain is wired up.</para>
+        /// </summary>
+        private static bool IsConsumedComposition(Parameter parameter, out MarshalledType.Existential existentialType)
+        {
+            if (parameter.Type is MarshalledType.Existential(var containerType, _) existential
+                && existential.HandedOverToCallee
+                && !existential.BoxedError
+                && !containerType.EndsWith("ExistentialContainer1", StringComparison.Ordinal)
+                && ExistentialHandler.IsOwnedExistentialContainerType(containerType))
+            {
+                existentialType = existential;
+                return true;
+            }
+            existentialType = null!;
+            return false;
+        }
 
         /// <summary>
         /// The statement that declares a parameter's existential argument lease before the call, or
@@ -431,18 +439,22 @@ namespace BindingsGeneration
         /// <list type="bullet">
         /// <item><description>A borrowed single-protocol argument holds a
         /// <c>BorrowedExistentialArgument</c>: it keeps the proxy alive across the call and destroys
-        /// a boxed conformer's +1 afterwards.</description></item>
-        /// <item><description>A consumed <c>any Error</c> holds an <c>OwnedArgument.ObjectTransfer</c>
-        /// retaining the box. Its <see cref="ExistentialArgumentLease.CompletesOnNativeReturn"/> is
-        /// set: the body completes it straight after the call, so the callee keeps the count, and an
-        /// earlier throw releases it.</description></item>
+        /// a boxed conformer's +1 afterwards. A consumer-owned carrier (a non-retaining setter
+        /// reached through a borrowing frame) begins it on the consumer-owned lane, whose memo roots
+        /// the proxy.</description></item>
+        /// <item><description>A consumed single-protocol or composition argument holds an
+        /// <c>OwnedExistentialArgument</c>, which mints the +1 the callee releases. A consumed
+        /// <c>any Error</c> holds an <c>OwnedArgument.ObjectTransfer</c> retaining the box. Both set
+        /// <see cref="ExistentialArgumentLease.CompletesOnNativeReturn"/>: the body completes them
+        /// straight after the call, so the callee keeps the count, and an earlier throw (a later
+        /// argument's conversion, its own lease, entry resolution) destroys it.</description></item>
         /// </list>
         /// </summary>
-        public static ExistentialArgumentLease? GetExistentialArgumentLease(Parameter parameter)
+        public static ExistentialArgumentLease? GetExistentialArgumentLease(Parameter parameter, SyntheticLocalNames? leaseScope = null)
         {
             if (parameter.Type is not MarshalledType.Existential existentialType)
                 return null;
-            var name = ExistentialArgumentLeaseName(parameter);
+            var name = ExistentialArgumentLeaseName(parameter, leaseScope);
             if (existentialType.BoxedError)
             {
                 return existentialType.HandedOverToCallee
@@ -451,22 +463,43 @@ namespace BindingsGeneration
                         CompletesOnNativeReturn: true)
                     : null;
             }
-            if (!BorrowsExistentialThroughLease(parameter))
+            if (IsConsumedComposition(parameter, out var composition))
+            {
+                return new ExistentialArgumentLease(name,
+                    $"using var {name} = global::Swift.Runtime.OwnedExistentialArgument.BeginComposition<{composition.PublicType}, {composition.ContainerType}>({parameter.Name});",
+                    CompletesOnNativeReturn: true);
+            }
+            if (!IsFactoryBuiltArity1Existential(parameter, out var single))
                 return null;
-            var publicType = existentialType.PublicType;
-            var begin = existentialType.ProxyClassName != null
-                ? $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v))"
-                : $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name})";
-            return new ExistentialArgumentLease(name, $"using var {name} = {begin};", CompletesOnNativeReturn: false);
+            var publicType = single.PublicType;
+            // A non-retaining sink roots an auto-wrapped proxy through the implementation's memo, so
+            // the lane matters only where there is a proxy to wrap with.
+            var consumerOwned = single.ConsumerOwnsCarrier && single.ProxyClassName != null;
+            var wrap = single.ProxyClassName != null
+                ? $"static __v => new {single.ProxyClassName}(__v{NonRetainingSinkLane.ProxyOwnershipArgument(single.ConsumerOwnsCarrier)})"
+                : null;
+            if (single.HandedOverToCallee)
+            {
+                var classBound = single.ClassBoundArity1 ? "true" : "false";
+                var begin = (consumerOwned, wrap) switch
+                {
+                    (true, not null) => $"global::Swift.Runtime.OwnedExistentialArgument.BeginConsumerOwned<{publicType}>({parameter.Name}, {wrap}, classBoundCarrier: {classBound})",
+                    (_, not null) => $"global::Swift.Runtime.OwnedExistentialArgument.Begin<{publicType}>({parameter.Name}, {wrap}, classBoundCarrier: {classBound})",
+                    _ => $"global::Swift.Runtime.OwnedExistentialArgument.Begin<{publicType}>({parameter.Name}, classBoundCarrier: {classBound})",
+                };
+                return new ExistentialArgumentLease(name, $"using var {name} = {begin};", CompletesOnNativeReturn: true);
+            }
+            var borrow = (consumerOwned, wrap) switch
+            {
+                (true, not null) => $"global::Swift.Runtime.BorrowedExistentialArgument.BeginConsumerOwned<{publicType}>({parameter.Name}, {wrap})",
+                (_, not null) => $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name}, {wrap})",
+                _ => $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name})",
+            };
+            return new ExistentialArgumentLease(name, $"using var {name} = {borrow};", CompletesOnNativeReturn: false);
         }
 
         private static string BoxedErrorRead(string name)
             => $"((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>){name}).GetExistentialContainer().Payload0";
-
-        private static string ClassBoundMintArgument(MarshalledType.Existential existentialType)
-            => existentialType.HandedOverToCallee && existentialType.ClassBoundArity1
-                ? ", classBoundCarrier: true"
-                : string.Empty;
 
         /// <summary>
         /// True when the parameter's wire container is the single-protocol carrier — either the

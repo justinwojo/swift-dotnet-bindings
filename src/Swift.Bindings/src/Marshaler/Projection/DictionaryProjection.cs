@@ -119,16 +119,12 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
 
+            // The pairs stream into the Swift dictionary as they are converted, as an array's
+            // elements do, so a conversion that mints (an owned existential value) and a later
+            // pair whose conversion throws leave the earlier mints with the abandoned dictionary,
+            // which releases them, rather than in a list nothing owns.
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Converted = global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({paramName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})));"));
-            setup.Add(new MarshalStatement.Line(
-                $"SwiftDictionary<{rawK}, {rawV}> {paramName}SwiftInner;"));
-
-            var tryBody = new List<MarshalStatement>
-            {
-                new MarshalStatement.Line(
-                    $"{paramName}SwiftInner = SwiftDictionary<{rawK}, {rawV}>.FromDictionary({paramName}Converted);")
-            };
+                $"var {paramName}Pairs = global::System.Linq.Enumerable.Select({paramName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr}));"));
 
             // Disposal applies only to projections whose conversion was actually emitted.
             // When the conversion is skipped (typed-wrapper passthrough), the original
@@ -147,12 +143,23 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
 
             if (finallyBody.Count > 0)
             {
+                // Temporaries to dispose are collected as the dictionary takes each pair.
+                setup.Add(new MarshalStatement.Line(
+                    $"var {paramName}Converted = new global::System.Collections.Generic.List<KeyValuePair<{rawK}, {rawV}>>();"));
+                setup.Add(new MarshalStatement.Line(
+                    $"SwiftDictionary<{rawK}, {rawV}> {paramName}SwiftInner;"));
+                var tryBody = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line(
+                        $"{paramName}SwiftInner = SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({paramName}Pairs, {paramName}Pair => {{ {paramName}Converted.Add({paramName}Pair); return {paramName}Pair; }}));")
+                };
                 setup.Add(new MarshalStatement.Block("try", tryBody));
                 setup.Add(new MarshalStatement.Block("finally", finallyBody));
             }
             else
             {
-                setup.AddRange(tryBody);
+                setup.Add(new MarshalStatement.Line(
+                    $"var {paramName}SwiftInner = SwiftDictionary<{rawK}, {rawV}>.FromDictionary({paramName}Pairs);"));
             }
 
             return (setup, $"{paramName}SwiftInner");

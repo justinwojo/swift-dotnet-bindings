@@ -204,9 +204,9 @@ namespace BindingsGeneration
                     return;
                 }
 
-                if (TryFindUnownedExistentialPayload(typeSpec, typeDatabase, out var unownedExistential))
+                if (TryFindUnownedExistentialPayload(typeSpec, typeDatabase, out var unownedExistential, out var unmirroredLayout))
                 {
-                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedExistential);
+                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedExistential, unmirroredLayout);
                     return;
                 }
 
@@ -446,9 +446,9 @@ namespace BindingsGeneration
                     return;
                 }
 
-                if (TryFindUnownedExistentialPayload(element, typeDatabase, out var unownedTupleExistential))
+                if (TryFindUnownedExistentialPayload(element, typeDatabase, out var unownedTupleExistential, out var unmirroredTupleLayout))
                 {
-                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedTupleExistential);
+                    RefuseUnownedExistentialTryGet(enumDecl, caseName, capitalizedName, unownedTupleExistential, unmirroredTupleLayout);
                     return;
                 }
 
@@ -640,17 +640,27 @@ namespace BindingsGeneration
         /// protocol the type database has no record for, so no proxy can own it. The TryGet copy
         /// holds the boxed value at +1, and the container struct has no owner that could release
         /// it, so every read would leak one reference. The arm order mirrors
-        /// <c>EmitPayloadMarshal</c>'s existential branch exactly.
+        /// <c>EmitPayloadMarshal</c>'s existential branch exactly. Also finds a payload holding an
+        /// existential whose library marker changes the layout
+        /// (<see cref="ExistentialHandler.ContainsLayoutChangingMarker"/>), which no arm reads at the
+        /// right size.
         /// </summary>
-        private static bool TryFindUnownedExistentialPayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, out string displayType)
+        private static bool TryFindUnownedExistentialPayload(TypeSpec typeSpec, ITypeDatabase typeDatabase, out string displayType, out bool layoutUnmirrored)
         {
             displayType = string.Empty;
+            layoutUnmirrored = false;
             var existentialHandler = new ExistentialHandler(typeDatabase);
+            if (existentialHandler.ContainsLayoutChangingMarker(typeSpec))
+            {
+                displayType = typeSpec.ToString();
+                layoutUnmirrored = true;
+                return true;
+            }
             if (!existentialHandler.IsExistential(typeSpec))
                 return false;
             var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
             if (protocolList is null
-                || ExistentialHandler.IsZeroWitnessExistential(protocolList)
+                || ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase)
                 || existentialHandler.TryGetWellKnownProtocolType(protocolList, out _)
                 || existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 return false;
@@ -658,8 +668,17 @@ namespace BindingsGeneration
             return true;
         }
 
-        private void RefuseUnownedExistentialTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, string existentialType)
+        private void RefuseUnownedExistentialTryGet(EnumDecl enumDecl, string caseName, string capitalizedName, string existentialType, bool layoutUnmirrored)
         {
+            if (layoutUnmirrored)
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{existentialType}', whose library marker changes the existential's layout. Skipping TryGet method.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                    SkipReason.UnsupportedType,
+                    $"Associated value '{existentialType}' has a library marker protocol that changes the existential's layout (class-bound, or beside Error alone), which no carrier mirrors.");
+                return;
+            }
             _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries '{existentialType}', an existential with no protocol record to own it. Skipping TryGet method.");
             ReportCollector.RecordMemberSkipped(
                 BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,

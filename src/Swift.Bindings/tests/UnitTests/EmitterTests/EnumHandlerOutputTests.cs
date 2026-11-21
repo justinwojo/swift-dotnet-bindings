@@ -4065,9 +4065,13 @@ public class EnumHandlerOutputTests
     // `static __v => new EncodableProxy(__v)` for a proxy class that is structurally never emitted
     // (dangling CS0246). The factory must drop the fallback (no-fallback GetOrCreate overload)
     // exactly as it does for a name-suppressed proxy; the member itself stays.
+    // Outside xcframework mode the case has no @_cdecl case factory, and the direct path that
+    // remains cannot hold an existential payload's owner across the call or roll back its +1, so
+    // the factory is refused (the cdecl sibling below keeps it). The never-emitted proxy is still
+    // referenced nowhere.
     [InlineData(TypeRecordFlags.HasSelfRequirement)]
     [InlineData(TypeRecordFlags.HasAssociatedTypes)]
-    public void Emit_EnumCaseFactoryWithConstrainedSelfATExistential_DropsWrapFallback(
+    public void Emit_EnumCaseFactoryWithConstrainedSelfATExistential_DirectPath_RefusesTheFactory(
         TypeRecordFlags selfOrAssociatedFlag)
     {
         var typeDatabase = CreateTypeDatabaseWithSelfRequirementProtocol(
@@ -4087,8 +4091,9 @@ public class EnumHandlerOutputTests
 
         // The never-emitted proxy must NOT be referenced anywhere in the body.
         Assert.DoesNotContain("new EncodableProxy(", csOutput);
-        // The case factory still emits, degraded to the no-fallback single-argument overload.
-        Assert.Contains(">(value)", csOutput);
+        Assert.DoesNotContain("Task RequestJSONEncodable(", csOutput);
+        Assert.Contains("no @_cdecl case factory", csOutput);
+        Assert.DoesNotContain("ExistentialContainerFactory.GetOrCreate", csOutput);
     }
 
     [Theory]
@@ -4127,6 +4132,8 @@ public class EnumHandlerOutputTests
         // Register ImageProcessing as a known protocol
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
         var moduleDecl = CreateModuleDecl("TestModule");
+        // xcframework mode: an existential payload is prepared only by the @_cdecl case factory.
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: true);
 
         var failedCase = CreateCase("processingFailed");
@@ -4142,6 +4149,58 @@ public class EnumHandlerOutputTests
         Assert.Contains("public static unsafe ImageError ProcessingFailed(IImageProcessing", csOutput);
         // Body should extract container via ExistentialContainerFactory
         Assert.Contains("ExistentialContainerFactory.GetOrCreate", csOutput);
+    }
+
+    /// <summary>
+    /// A library marker that changes the existential's layout (class-bound: one reference, or
+    /// beside Error alone: an opaque one-table container rather than the boxed error) has no TryGet
+    /// read or case factory at the right size, so both are refused; an ordinary marker beside a
+    /// protocol keeps them.
+    /// </summary>
+    [Theory]
+    [InlineData("TestModule.ImageProcessing", "MarkerLib.ClassTag", "", false)]
+    [InlineData("Swift.Error", "MarkerLib.Tag", "", false)]
+    [InlineData("TestModule.ImageProcessing", "MarkerLib.Tag", "", true)]
+    // Held in an optional or a collection, the container is minted all the same.
+    [InlineData("Swift.Error", "MarkerLib.Tag", "Swift.Optional", false)]
+    [InlineData("Swift.Error", "MarkerLib.Tag", "Swift.Array", false)]
+    public void Emit_ExistentialPayloadWithLayoutChangingMarker_RefusesTheReadAndTheFactory(string protocol, string marker, string holder, bool readable)
+    {
+        var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
+        var markerModule = new ModuleTypeDatabase("MarkerLib", "/tmp/MarkerLib.dylib");
+        foreach (var (name, flags) in new[]
+        {
+            ("Tag", TypeRecordFlags.MarkerProtocol),
+            ("ClassTag", TypeRecordFlags.MarkerProtocol | TypeRecordFlags.ClassBound),
+        })
+        {
+            markerModule.RegisterType(SwiftTypeName.FromModuleQualifiedName($"MarkerLib.{name}"), new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MarkerLib", $"I{name}"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"MarkerLib.{name}"),
+                MetadataAccessor = string.Empty,
+                Flags = flags,
+                Kind = TypeRecordKind.Protocol,
+            });
+        }
+        typeDatabase.AddModuleDatabase(markerModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var enumDecl = CreateEnumDecl("TaggedError", moduleDecl, isFrozen: true);
+        var failedCase = CreateCase("failed");
+        TypeSpec payload = new ProtocolListTypeSpec(new[] { new NamedTypeSpec(protocol), new NamedTypeSpec(marker) });
+        if (holder.Length > 0)
+            payload = new NamedTypeSpec(holder, payload);
+        failedCase.AssociatedValues.Add(payload);
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Equal(readable, csOutput.Contains("bool TryGetFailed("));
+        // Nor does either factory build the container (the @_cdecl one would box an Error as object).
+        Assert.Equal(readable, csOutput.Contains("TaggedError Failed("));
+        Assert.DoesNotContain("ErrorProxy", csOutput);
     }
 
     [Fact]
@@ -4606,6 +4665,8 @@ public class EnumHandlerOutputTests
         // 2-protocol composition but only one protocol is registered
         var typeDatabase = CreateTypeDatabaseWithProtocol("TestModule", "ImageProcessing");
         var moduleDecl = CreateModuleDecl("TestModule");
+        // xcframework mode: an existential payload is prepared only by the @_cdecl case factory.
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var enumDecl = CreateEnumDecl("MixedError", moduleDecl, isFrozen: true);
 
         var failedCase = CreateCase("failed");
@@ -4627,12 +4688,14 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_TupleWithSwiftStringAndExistential_ProjectsBothElements()
+    public void Emit_TupleWithSwiftStringAndExistential_RefusesTheDirectFactory()
     {
-        // Tuple: (SwiftString, known protocol) — both elements should be projected
-        // to idiomatic C# types in the public API (SwiftString → string, existential → interface).
+        // Tuple: (SwiftString, known protocol). The tuple payload declines the @_cdecl case
+        // factory, which leaves only the direct path for its existential element.
         var typeDatabase = CreateTypeDatabaseWithStringAndProtocol("TestModule", "ImageProcessing");
         var moduleDecl = CreateModuleDecl("TestModule");
+        // xcframework mode: an existential payload is prepared only by the @_cdecl case factory.
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
         var enumDecl = CreateEnumDecl("FilterError", moduleDecl, isFrozen: true);
 
         var failedCase = CreateCase("invalidFilter");
@@ -4647,8 +4710,12 @@ public class EnumHandlerOutputTests
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Factory signature: tuple elements projected — SwiftString → string, existential → interface
-        Assert.Contains("(string, IImageProcessing) value)", csOutput);
+        // A projected-tuple payload has no @_cdecl case factory, and the direct path that remains
+        // cannot hold the existential element's owner across the call or roll back its +1, so the
+        // factory is refused rather than shipped with an unowned payload.
+        Assert.DoesNotContain("FilterError InvalidFilter(", csOutput);
+        Assert.Contains("no @_cdecl case factory", csOutput);
+        Assert.DoesNotContain("ExistentialContainerFactory.GetOrCreate", csOutput);
     }
 
     [Fact]

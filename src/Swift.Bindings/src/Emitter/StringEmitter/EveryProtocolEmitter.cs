@@ -2321,6 +2321,10 @@ public class EveryProtocolEmitter
         if (IsConformanceWithdrawn(protocolDecl, out _))
             return true;
 
+        // A marker protocol has no witness table; mirrors the emission-ladder gate.
+        if (protocolDecl.IsMarker)
+            return true;
+
         if (protocolDecl.HasSelfRequirement)
             return true;
 
@@ -2580,6 +2584,18 @@ public class EveryProtocolEmitter
         {
             _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: withdrawn by verify-recover");
             RecordSkip(withdrawalDetails);
+            return;
+        }
+
+        // A marker protocol (`@_marker`) has no witness table and no protocol descriptor: `any P`
+        // is the bare `Any` container, so a witness-table getter would read the payload's type
+        // metadata as a witness table and a proxy's `{P}SwiftVTable` would mirror no Swift struct.
+        // Emit no conformance; the C# proxy is suppressed with it. A child that inherits the marker
+        // still conforms, implying the marker conformance (see IsInheritedConformanceUnavailable).
+        if (protocolDecl.IsMarker)
+        {
+            _logger.LogDebug($"Skipping EveryProtocol conformance for {protocolDecl.Name}: marker protocol has no witness table");
+            RecordSkip("MarkerProtocol");
             return;
         }
 
@@ -7621,6 +7637,11 @@ public class EveryProtocolEmitter
                 return false;
         }
 
+        // A marker parent has nothing to witness: the child's conformance implies it, so its own
+        // skipped conformance (a marker gets none) never leaves the child unsatisfied.
+        if (IsMarkerConstraint(constraint, constraintSimple))
+            return false;
+
         var dotIdx = constraint.IndexOf('.');
         if (dotIdx < 0)
         {
@@ -7713,6 +7734,21 @@ public class EveryProtocolEmitter
     /// </summary>
     private bool IsUnwitnessed(string name)
         => _skippedProtocols.Contains(name) || _unavailableConformances.Contains(name);
+
+    /// <summary>
+    /// Whether an inherited-protocol constraint names a marker protocol, by identity: this module's
+    /// declaration when the name resolves to one (qualified spelling first), else the type
+    /// database's marker flag for a dependency's, else the standard library's closed set.
+    /// </summary>
+    private bool IsMarkerConstraint(string constraint, string constraintSimple)
+    {
+        var local = _allProtocols?.FirstOrDefault(p => p.SwiftTypeName?.ToString() == constraint)
+            ?? (constraint.IndexOf('.') < 0 ? _allProtocols?.FirstOrDefault(p => p.Name == constraintSimple) : null);
+        if (local != null)
+            return local.IsMarker;
+        return constraint.IndexOf('.') >= 0
+            && ExistentialHandler.IsMarkerProtocol(new NamedTypeSpec(constraint), _typeDatabase);
+    }
 
     /// <summary>
     /// The recovery unit that owns a protocol's EveryProtocol conformance: the reverse capability

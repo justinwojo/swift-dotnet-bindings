@@ -149,7 +149,7 @@ public class ExistentialHandlerTests
     public void IsZeroWitnessExistential_BareAny_ReturnsTrue()
     {
         // bare Any: 0 protocols, 0 witness tables → Container0.
-        Assert.True(ExistentialHandler.IsZeroWitnessExistential(new ProtocolListTypeSpec()));
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(new ProtocolListTypeSpec(), _typeDatabase));
     }
 
     [Fact]
@@ -157,7 +157,7 @@ public class ExistentialHandlerTests
     {
         // `any Sendable` filters to zero non-marker protocols → ABI-identical to bare Any.
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
-        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -169,7 +169,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("Swift.Sendable"),
             new NamedTypeSpec("Swift.Copyable")
         });
-        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -177,7 +177,7 @@ public class ExistentialHandlerTests
     {
         // `any Equatable` carries a witness table → Container1, not zero-witness.
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
-        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -189,7 +189,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("Swift.Sendable"),
             new NamedTypeSpec("Swift.Codable")
         });
-        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -198,7 +198,7 @@ public class ExistentialHandlerTests
         // An ObjC protocol contributes a witness table (Container1) — deliberately NOT
         // zero-witness, so it has no Box/Unbox path.
         var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Foundation.NSObjectProtocol") });
-        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -210,7 +210,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("Foundation.NSObjectProtocol"),
             new NamedTypeSpec("Swift.Sendable")
         });
-        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList));
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, _typeDatabase));
     }
 
     [Fact]
@@ -218,11 +218,11 @@ public class ExistentialHandlerTests
     {
         // Cross-check: zero-witness ⟺ GetCSharpExistentialType == ExistentialContainer0.
         var marker = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Sendable") });
-        Assert.True(ExistentialHandler.IsZeroWitnessExistential(marker));
+        Assert.True(ExistentialHandler.IsZeroWitnessExistential(marker, _typeDatabase));
         Assert.Equal("Swift.Runtime.ExistentialContainer0", _handler.GetCSharpExistentialType(marker));
 
         var real = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
-        Assert.False(ExistentialHandler.IsZeroWitnessExistential(real));
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(real, _typeDatabase));
         Assert.Equal("Swift.Runtime.ExistentialContainer1", _handler.GetCSharpExistentialType(real));
     }
 
@@ -1247,14 +1247,137 @@ public class ExistentialHandlerTests
     [InlineData("Swift.Escapable", true)]
     [InlineData("Swift.Copyable", true)]
     [InlineData("Swift.SendableMetatype", true)]
-    [InlineData("SomeModule.Sendable", true)]
+    [InlineData("Sendable", true)]
+    [InlineData("SomeModule.Sendable", false)]
+    [InlineData("SomeModule.Copyable", false)]
     [InlineData("Swift.Equatable", false)]
     [InlineData("Swift.Codable", false)]
     [InlineData("ImagePipeline.DataLoading", false)]
     public void IsMarkerProtocol_IdentifiesMarkers(string protocolName, bool expected)
     {
+        // A marker is the standard library's declaration, not any protocol of that name: a
+        // module's own `Sendable` is an ordinary protocol with a witness table. A bare name is the
+        // standard library's, the only spelling the ABI dump gives one without its module.
         var protocol = new NamedTypeSpec(protocolName);
         Assert.Equal(expected, ExistentialHandler.IsMarkerProtocol(protocol));
+        Assert.Equal(expected, ExistentialHandler.IsMarkerProtocol(protocol, _typeDatabase));
+    }
+
+    [Fact]
+    public void IsMarkerProtocol_LibraryMarker_IsAMarkerByItsRecord()
+    {
+        // `@_marker protocol Tag {}` in a library: only the type database, which records the ABI
+        // descriptor's marker flag, can tell it apart from an ordinary protocol.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("MyLib", "TransferTag", TypeRecordFlags.MarkerProtocol);
+        db.AddProtocol("MyLib", "Sendable");
+        var tag = new NamedTypeSpec("MyLib.TransferTag");
+
+        Assert.True(ExistentialHandler.IsMarkerProtocol(tag, db));
+        Assert.False(ExistentialHandler.IsMarkerProtocol(new NamedTypeSpec("MyLib.Sendable"), db));
+        Assert.True(ExistentialHandler.IsMarkerProtocol(new NamedTypeSpec("Swift.Sendable"), db));
+        // Without the record nothing marks it.
+        Assert.False(ExistentialHandler.IsMarkerProtocol(tag));
+        Assert.False(ExistentialHandler.IsMarkerProtocol(tag, _typeDatabase));
+    }
+
+    [Fact]
+    public void LibraryProtocolNamedSendable_CarriesAWitnessTable()
+    {
+        // `any MyLib.Sendable` is a box, metadata and one witness table: 40 bytes, the one-protocol
+        // container and the protocol's own proxy. Read as the marker it is not, every element of
+        // an array of it lands eight bytes short of the last.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("MyLib", "Sendable");
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("MyLib.Sendable") });
+
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, db));
+        Assert.Equal(5, handler.GetExistentialContainerSizeInWords(protocolList));
+        Assert.Equal("Swift.Runtime.ExistentialContainer1", handler.GetCSharpExistentialType(protocolList));
+        Assert.Equal("SendableProxy", handler.GetProxyClassName(protocolList));
+        Assert.Single(ExistentialHandler.GetEffectiveProtocols(protocolList, db));
+    }
+
+    [Fact]
+    public void CompositionWithLibraryMarker_CountsOnlyItsWitnessTables()
+    {
+        // `any P & Q & Tag` with `@_marker protocol Tag {}` holds two witness tables: 48 bytes,
+        // not the 56 of three protocols, named and proxied as `P & Q`.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("MyLib", "P");
+        db.AddProtocol("MyLib", "Q");
+        db.AddProtocol("MyLib", "Tag", TypeRecordFlags.MarkerProtocol);
+        var handler = new ExistentialHandler(db);
+        var tagged = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("MyLib.P"),
+            new NamedTypeSpec("MyLib.Q"),
+            new NamedTypeSpec("MyLib.Tag"),
+        });
+        var plain = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("MyLib.P"), new NamedTypeSpec("MyLib.Q") });
+
+        Assert.Equal(6, handler.GetExistentialContainerSizeInWords(tagged));
+        Assert.Equal("Swift.Runtime.ExistentialContainer2", handler.GetCSharpExistentialType(tagged));
+        Assert.Equal(new[] { "MyLib.P", "MyLib.Q" }, ExistentialHandler.GetNonMarkerProtocols(tagged, db).Select(p => p.Name));
+        Assert.Equal(handler.GetProxyClassName(plain), handler.GetProxyClassName(tagged));
+        Assert.Equal(handler.GetCompositionInterfaceName(plain), handler.GetCompositionInterfaceName(tagged));
+    }
+
+    /// <summary>
+    /// A library marker that changes the container is refused rather than counted as zero tables:
+    /// a class-bound marker makes a class existential, and beside Error alone a marker takes the
+    /// composition off the boxed-error representation. An ordinary marker beside a protocol keeps
+    /// the protocol's opaque container and stays supported.
+    /// </summary>
+    [Theory]
+    [InlineData("MyLib.ClassTag", null, false)]
+    [InlineData("MyLib.ClassTag", "MyLib.P", false)]
+    [InlineData("MyLib.Tag", "Swift.Error", false)]
+    [InlineData("MyLib.Tag", "MyLib.P", true)]
+    public void CompositionWithLayoutChangingLibraryMarker_IsRefused(string marker, string beside, bool supported)
+    {
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("MyLib", "P");
+        db.AddProtocol("MyLib", "Tag", TypeRecordFlags.MarkerProtocol);
+        db.AddProtocol("MyLib", "ClassTag", TypeRecordFlags.MarkerProtocol | TypeRecordFlags.ClassBound);
+        var handler = new ExistentialHandler(db);
+        var members = beside == null
+            ? new[] { new NamedTypeSpec(marker) }
+            : new[] { new NamedTypeSpec(beside), new NamedTypeSpec(marker) };
+        var protocolList = new ProtocolListTypeSpec(members);
+
+        Assert.Equal(!supported, handler.MarkerChangesTheLayout(protocolList));
+        Assert.Equal(supported, handler.IsSupportedExistential(protocolList));
+        // None is the opaque zero-table container (`any ClassTag` alone is one class reference).
+        Assert.False(ExistentialHandler.IsZeroWitnessExistential(protocolList, db));
+        if (!supported)
+            Assert.Equal("object", handler.GetPublicExistentialType(protocolList));
+    }
+
+    [Fact]
+    public void GetProxyClassName_CompositionWithStandardMarker_NamesTheEmittedProxy()
+    {
+        // The collector registers `any P & Q & Sendable` under its effective protocols and emits
+        // `PAndQProxy`; a reference to the composition has to name that class, not
+        // `PAndQAndSendableProxy`, which no module writes.
+        var db = new MockTypeDatabaseWithProtocols();
+        db.AddProtocol("MyLib", "P");
+        db.AddProtocol("MyLib", "Q");
+        var handler = new ExistentialHandler(db);
+        var withSendable = new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("MyLib.P"),
+            new NamedTypeSpec("MyLib.Q"),
+            new NamedTypeSpec("Swift.Sendable"),
+        });
+
+        Assert.Equal("PAndQProxy", handler.GetProxyClassName(withSendable));
+        Assert.Equal("PProxy", handler.GetProxyClassName(new ProtocolListTypeSpec(new[]
+        {
+            new NamedTypeSpec("MyLib.P"),
+            new NamedTypeSpec("Swift.Sendable"),
+        })));
     }
 
     [Fact]
@@ -1266,7 +1389,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("Swift.Codable")
         });
 
-        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList, _typeDatabase);
 
         Assert.Single(effective);
         Assert.Equal("Swift.Codable", effective[0].Name);
@@ -1280,7 +1403,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("Swift.Sendable")
         });
 
-        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList, _typeDatabase);
 
         Assert.Empty(effective);
     }
@@ -1295,7 +1418,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
-        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList);
+        var effective = ExistentialHandler.GetEffectiveProtocols(protocolList, _typeDatabase);
 
         Assert.Single(effective);
         Assert.Equal("PaymentSdkCore.PaymentAnalyticsClientProtocol", effective[0].Name);
@@ -1457,7 +1580,7 @@ public class ExistentialHandlerTests
             new NamedTypeSpec("PaymentSdkCore.PaymentAnalyticsClientProtocol")
         });
 
-        var nonMarker = ExistentialHandler.GetNonMarkerProtocols(protocolList);
+        var nonMarker = ExistentialHandler.GetNonMarkerProtocols(protocolList, _typeDatabase);
 
         Assert.Equal(2, nonMarker.Count); // NSObjectProtocol + PaymentAnalyticsClientProtocol
         Assert.Contains(nonMarker, p => p.Name == "Foundation.NSObjectProtocol");

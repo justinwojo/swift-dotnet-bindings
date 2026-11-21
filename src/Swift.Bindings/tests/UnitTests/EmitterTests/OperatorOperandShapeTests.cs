@@ -193,6 +193,29 @@ public class OperatorOperandShapeTests
         Assert.Contains("operator *", cs);
     }
 
+    /// <summary>
+    /// A borrowed existential operand is read out of its C# owner into the call's argument list:
+    /// a boxed <c>any Error</c> passes its box, which only the wrapper's count keeps alive. The
+    /// operator's call site pins the operand until the call returns, as an ordinary body does;
+    /// without the pin a collection during the call could release the box Swift is reading.
+    /// </summary>
+    [Fact]
+    public async Task DirectRoute_BorrowedExistentialOperand_IsPinnedAcrossTheCall()
+    {
+        var database = await CreateDatabaseAsync();
+        var meter = Struct("Meter", frozen: false);
+        var spec = new NamedTypeSpec("TestModule.Meter");
+
+        var (emitted, cs, _) = Emit(Binary("+", meter, new NamedTypeSpec("Swift.Int"), spec,
+            new NamedTypeSpec("Swift.Error") { IsAny = true }), database);
+
+        Assert.True(emitted);
+        var call = cs.IndexOf("PInvoke_", cs.IndexOf("operator +", StringComparison.Ordinal), StringComparison.Ordinal);
+        Assert.True(call > 0, cs);
+        var pin = cs.IndexOf("GC.KeepAlive(rhs)", call, StringComparison.Ordinal);
+        Assert.True(pin > call, cs);
+    }
+
     [Theory]
     [InlineData("Swift.Int")]
     [InlineData("Swift.Double")]

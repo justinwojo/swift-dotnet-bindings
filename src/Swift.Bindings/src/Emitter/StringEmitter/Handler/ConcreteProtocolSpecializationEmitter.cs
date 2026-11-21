@@ -4059,9 +4059,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // Swift's stride; only a well-known carrier keeps its own return path.
         if (projection is ArrayProjection { ElementProjection: ExistentialProjection { IsContainerCarriedArrayElement: false, IsWellKnownCarrier: false } })
             return false;
-        if (projection is ArrayProjection { ElementProjection: ExistentialProjection }
-            && HasProtocolMarkerClassificationCannotTrust(((NamedTypeSpec)returnSpec).GenericParameters[0], typeDatabase))
-            return false;
 
         // Every existential element reads through its container carrier at Swift's stride (a
         // protocol's or a composition's proxy, a bare Any's or a marker composition's unboxed value),
@@ -4091,44 +4088,6 @@ public static partial class ConcreteProtocolSpecializationEmitter
             $"global::Swift.SwiftArray<{element.ArrayElementCarrierType}>",
             $".AsProjected(e => {elementConversion})");
         return true;
-    }
-
-    /// <summary>
-    /// Whether the element existential names a protocol whose witness-table count the carrier
-    /// choice gets wrong: the carrier drops markers by their Swift name alone, so a library's own
-    /// protocol named like a Swift marker (<c>MyLib.Sendable</c>) is dropped although it has a
-    /// witness table, and a library's own <c>@_marker</c> protocol is counted although it has none.
-    /// Either way the element stride is not the carrier's.
-    /// </summary>
-    private static bool HasProtocolMarkerClassificationCannotTrust(TypeSpec elementSpec, ITypeDatabase typeDatabase)
-    {
-        IEnumerable<NamedTypeSpec> protocols = elementSpec switch
-        {
-            ProtocolListTypeSpec list => list.Protocols.Keys,
-            NamedTypeSpec { IsAny: true } named => new[] { named },
-            _ => Array.Empty<NamedTypeSpec>(),
-        };
-        foreach (var protocol in protocols)
-        {
-            if (ExistentialHandler.IsMarkerProtocol(protocol))
-            {
-                var dot = protocol.Name.LastIndexOf('.');
-                if (dot >= 0 && protocol.Name.Substring(0, dot) != "Swift")
-                    return true;
-                continue;
-            }
-            try
-            {
-                if (typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(protocol), out var record)
-                    && (record.Flags & TypeRecordFlags.MarkerProtocol) != 0)
-                    return true;
-            }
-            catch
-            {
-                // An unresolvable name has no record to contradict the count.
-            }
-        }
-        return false;
     }
 
     private static string ResolvePublicCSharpType(TypeSpec typeSpec, ITypeDatabase typeDatabase)
