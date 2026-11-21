@@ -22,6 +22,7 @@ public class ExistentialProjection : ITypeProjection
     private readonly bool _isClassBoundArity1;
     private readonly bool _proxyIsSuppressed;
     private readonly bool _isObjCExistential;
+    private readonly bool _hasOpaqueContainerLayout;
 
     /// <summary>
     /// Creates an existential projection.
@@ -53,8 +54,16 @@ public class ExistentialProjection : ITypeProjection
     /// Mutually exclusive in practice with <paramref name="isClassBoundArity1"/> (the @objc predicate
     /// is keyed on the <c>ObjCProtocol</c> flag, which routes off the class-bound-container path).
     /// </param>
-    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false, bool isObjCExistential = false)
+    /// <param name="hasOpaqueContainerLayout">
+    /// True when every protocol of the existential is a known Swift protocol that is neither
+    /// class-bound nor <c>@objc</c> (<see cref="ExistentialHandler.HasOpaqueContainerLayout"/>), so
+    /// its values have the opaque layout the <c>ExistentialContainerN</c> carrier mirrors. A
+    /// composition with a class-bound or <c>@objc</c> member is laid out differently and cannot be
+    /// read element by element through that carrier.
+    /// </param>
+    public ExistentialProjection(string containerType, string publicType, string? proxyClassName, bool isBareAny = false, bool isClassBoundArity1 = false, bool proxyIsSuppressed = false, bool isObjCExistential = false, bool hasOpaqueContainerLayout = false)
     {
+        _hasOpaqueContainerLayout = hasOpaqueContainerLayout;
         _containerType = containerType;
         _publicType = publicType;
         _proxyClassName = proxyClassName;
@@ -84,6 +93,30 @@ public class ExistentialProjection : ITypeProjection
     public bool IsSingleProtocolProxy =>
         !_isBareAny && !_isObjCExistential && _proxyClassName != null &&
         _containerType == "Swift.Runtime.ExistentialContainer1";
+
+    /// <summary>
+    /// True when an array of this existential is read element by element through its container
+    /// carrier: a protocol's generated proxy (a class-bound one through the two-word class carrier),
+    /// a composition's proxy when every member has the opaque layout, or the unboxed value of a bare
+    /// <c>Any</c> or a marker-only composition. Not an <c>@objc</c> protocol (one object pointer per
+    /// element), a composition with a class-bound or <c>@objc</c> member (a different element
+    /// layout), or a well-known carrier such as <c>AnyError</c>, which have their own paths.
+    /// </summary>
+    public bool IsContainerCarriedArrayElement =>
+        !_isObjCExistential
+        && (_isBareAny
+            || IsSingleProtocolProxy
+            || (_proxyClassName != null && _hasOpaqueContainerLayout
+                && ExistentialHandler.IsOwnedExistentialContainerType(_containerType)));
+
+    /// <summary>
+    /// True for an existential presented through a well-known carrier type of its own (such as
+    /// <c>AnyError</c> for <c>any Error</c>): no proxy, not bare <c>Any</c>, not <c>@objc</c>, and
+    /// not degraded to <c>object</c> or the read-only union.
+    /// </summary>
+    public bool IsWellKnownCarrier =>
+        !_isBareAny && !_isObjCExistential && _proxyClassName == null
+        && !ExistentialHandler.IsNoProxyExistentialCarrier(_publicType);
 
     /// <summary>
     /// True when this existential leaf names a proxy whose EveryProtocol conformance was NOT emitted

@@ -484,6 +484,11 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
             return false;
         }
 
+        // The class-bound single-protocol carrier: registered by a binding's module initializer
+        // when one has run, otherwise built here from a standard-library protocol.
+        if (type == typeof(ClassExistentialContainer1))
+            return TryGetClassBoundCarrierMetadata(out result);
+
         // Handle existential container types (ExistentialContainer0 through ExistentialContainer8)
         // Direct CallConvSwift P/Invoke to swift_getExistentialTypeMetadata is preferred,
         // with fallback to SwiftBindingsRuntime @_cdecl wrapper.
@@ -883,14 +888,20 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
 
     /// <summary>
     /// Builds and registers the class-existential value-witness metadata for the class-bound
-    /// single-protocol existential carrier <see cref="ClassExistentialContainer1"/>. Called once
-    /// per class-bound protocol from generated module initializers; idempotent (first registration
-    /// wins). The class-existential VWT (retain word0, copy the witness word opaquely) and 16-byte
-    /// stride are protocol-agnostic for a given arity, so any class-bound arity-1 descriptor yields
-    /// copy-correct metadata — the real witness table travels in the element data and is preserved
-    /// by the protocol-agnostic copy. Mirrors the shipped <c>SwiftResult</c> AnyError path
-    /// (real protocol descriptor → <c>swift_getExistentialTypeMetadata</c>).
+    /// single-protocol existential carrier <see cref="ClassExistentialContainer1"/> from a binding's
+    /// own class-bound protocol. Called once per class-bound protocol from generated module
+    /// initializers; idempotent (first registration wins). The class-existential VWT (retain word0,
+    /// copy the witness word opaquely) and 16-byte stride are protocol-agnostic for a given arity, so
+    /// any class-bound arity-1 descriptor yields copy-correct metadata — the real witness table travels
+    /// in the element data and is preserved by the protocol-agnostic copy. Mirrors the shipped
+    /// <c>SwiftResult</c> AnyError path (real protocol descriptor → <c>swift_getExistentialTypeMetadata</c>).
     /// </summary>
+    /// <remarks>
+    /// The registration is a preference, not a prerequisite: a lookup that finds nothing registered
+    /// builds the same layout from a standard-library protocol (see
+    /// <see cref="TryGetClassBoundCarrierMetadata"/>), so a member of one module returning another
+    /// module's class-bound <c>[any P]</c> does not depend on the protocol owner's initializer having run.
+    /// </remarks>
     /// <param name="libraryName">Library exporting the protocol descriptor symbol.</param>
     /// <param name="protocolDescriptorSymbol">The mangled <c>$s…Mp</c> protocol descriptor symbol.</param>
     public static void RegisterClassBoundExistentialMetadata(string libraryName, string protocolDescriptorSymbol)
@@ -898,11 +909,52 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
         // The carrier metadata is shared and protocol-agnostic for the arity; first registration wins.
         if (cache.TryGet(typeof(ClassExistentialContainer1), out _))
             return;
+        if (TryBuildClassBoundExistentialMetadata(libraryName, protocolDescriptorSymbol, out var metadata))
+            RegisterMetadata(typeof(ClassExistentialContainer1), metadata);
+    }
+
+    /// <summary>
+    /// A protocol every process can name, used to build the <see cref="ClassExistentialContainer1"/>
+    /// layout when no binding has registered one of its own: <c>Swift.CustomStringConvertible</c>,
+    /// whose descriptor libswiftCore exports. It is a plain Swift protocol (not @objc, not
+    /// <c>Error</c>), so with the class constraint it lowers to the same two-word class existential
+    /// as any class-bound <c>any P</c>.
+    /// </summary>
+    private const string ClassBoundCarrierFallbackProtocolSymbol = "$ss23CustomStringConvertibleMp";
+
+    /// <summary>
+    /// Resolves the <see cref="ClassExistentialContainer1"/> carrier on a cache miss. The carrier's
+    /// metadata is protocol-agnostic for its arity, so it does not need the protocol a particular
+    /// array element conforms to; it only needs a class-constrained existential with one witness
+    /// table. A binding's module initializer may already have registered one from its own protocol
+    /// (that registration is kept and wins), but nothing guarantees it ran: a member of module A
+    /// returning <c>[any B.P]</c> for a class-bound <c>P</c> declared in B sizes the array before
+    /// anything has touched B, and A may declare no class-bound protocol of its own.
+    /// </summary>
+    private static bool TryGetClassBoundCarrierMetadata([NotNullWhen(true)] out TypeMetadata? result)
+    {
+        if (TryBuildClassBoundExistentialMetadata(KnownLibraries.SwiftCore, ClassBoundCarrierFallbackProtocolSymbol, out var metadata))
+        {
+            // A module initializer that registered concurrently keeps its entry.
+            result = cache.GetOrAdd(typeof(ClassExistentialContainer1), _ => metadata);
+            return true;
+        }
+        result = null;
+        return false;
+    }
+
+    /// <summary>
+    /// Builds the class-constrained single-protocol existential metadata over the protocol whose
+    /// descriptor <paramref name="libraryName"/> exports as <paramref name="protocolDescriptorSymbol"/>.
+    /// </summary>
+    private static bool TryBuildClassBoundExistentialMetadata(string libraryName, string protocolDescriptorSymbol, out TypeMetadata metadata)
+    {
+        metadata = Zero;
         try
         {
             var descriptor = ProtocolDescriptor.LoadFromSymbol(libraryName, protocolDescriptorSymbol);
             if (!descriptor.IsValid)
-                return;
+                return false;
             IntPtr descHandle = Unsafe.As<ProtocolDescriptor, IntPtr>(ref descriptor);
             unsafe
             {
@@ -912,12 +964,17 @@ public readonly struct TypeMetadata : IEquatable<TypeMetadata>
                 // superclass); numProtocols = 1; protocols = &descriptor.
                 var handle = SwiftCoreNativeMethods.GetExistentialTypeMetadata(
                     0, IntPtr.Zero, 1, (IntPtr)(&descHandle));
-                if (handle != IntPtr.Zero)
-                    RegisterMetadata(typeof(ClassExistentialContainer1), new TypeMetadata(handle));
+                if (handle == IntPtr.Zero)
+                    return false;
+                metadata = new TypeMetadata(handle);
+                return true;
             }
         }
         catch (DllNotFoundException) { }
         catch (EntryPointNotFoundException) { }
+        // LoadFromSymbol reports a library or symbol it cannot resolve this way.
+        catch (SwiftRuntimeException) { }
+        return false;
     }
 
     /// <summary>

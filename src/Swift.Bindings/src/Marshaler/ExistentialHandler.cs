@@ -162,6 +162,11 @@ public class ExistentialHandler
     }
 
     /// <summary>
+    /// The composition collector this handler registers composition interfaces into, if any.
+    /// </summary>
+    internal SortedDictionary<string, List<string>>? CompositionCollector => _compositionCollector;
+
+    /// <summary>
     /// Returns true if the protocol is a marker protocol (no witness table, no C# representation).
     /// Marker protocols: Sendable, Escapable, Copyable, SendableMetatype.
     /// </summary>

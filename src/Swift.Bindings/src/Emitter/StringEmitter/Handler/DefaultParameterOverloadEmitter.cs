@@ -1394,7 +1394,7 @@ public static class DefaultParameterOverloadEmitter
     /// carry, so its real C# name cannot be rebuilt here, and treating the names as equal is the
     /// conservative reading.</para>
     /// </summary>
-    private static bool TryFindSignatureCollision(
+    internal static bool TryFindSignatureCollision(
         MethodDecl sourceDecl,
         MethodDecl overloadDecl,
         string candidateKey,
