@@ -1604,26 +1604,41 @@ partial class Build
                 ? $"-Xlinker -framework -Xlinker {frameworkModule} "
                 : "";
 
-            var swiftcArgs = string.Join(" ", new[]
+            // Load safety (P1), as Sdk.targets links this slice: weak-link every OS framework the first
+            // slice loads, plus the bound framework, then relink once for any the linker still loaded
+            // strongly. WeakLinkOsFrameworks throws when a strong load a missing symbol would fail remains.
+            var firstSliceFrameworks = BindingsGeneration.OsFrameworkWeakLinking.OsResidentFrameworks(
+                ReadDylibLoads(firstSliceFramework / wrapperModule));
+            var weakLinkFlags = BindingsGeneration.OsFrameworkWeakLinking.SwiftcFlags(firstSliceFrameworks.Append(frameworkModule));
+
+            bool Link(IReadOnlyList<string> extraArgs)
             {
-                $"--sdk {platform.DeviceSdkName}",
-                "swiftc",
-                "-emit-library",
-                $"-target {deviceTarget}",
-                $"-sdk \"{sdkPath}\"",
-                "-strict-concurrency=minimal",
-                $"-module-name {wrapperModule}",
-                thunkFrameworkFlag.TrimEnd(),
-                "-Xlinker -install_name",
-                $"-Xlinker {installName}",
-                $"-o \"{binaryPath}\"",
-                sourcesArg + thunkObjectsArg,
-            });
-            var swiftcProc = ProcessTasks.StartProcess("xcrun", swiftcArgs,
-                workingDirectory: outdir, logOutput: false);
-            swiftcProc.AssertWaitForExit();
-            if (swiftcProc.ExitCode != 0)
+                var swiftcArgs = string.Join(" ", new[]
+                {
+                    $"--sdk {platform.DeviceSdkName}",
+                    "swiftc",
+                    "-emit-library",
+                    $"-target {deviceTarget}",
+                    $"-sdk \"{sdkPath}\"",
+                    "-strict-concurrency=minimal",
+                    $"-module-name {wrapperModule}",
+                    thunkFrameworkFlag.TrimEnd(),
+                    weakLinkFlags.TrimEnd(),
+                    string.Join(" ", extraArgs),
+                    "-Xlinker -install_name",
+                    $"-Xlinker {installName}",
+                    $"-o \"{binaryPath}\"",
+                    sourcesArg + thunkObjectsArg,
+                });
+                var swiftcProc = ProcessTasks.StartProcess("xcrun", swiftcArgs,
+                    workingDirectory: outdir, logOutput: false);
+                swiftcProc.AssertWaitForExit();
+                return swiftcProc.ExitCode == 0;
+            }
+
+            if (!Link(Array.Empty<string>()))
                 return "fail";
+            WeakLinkOsFrameworks($"{wrapperModule} ({platform.DeviceSdkName} slice)", binaryPath, Link);
 
             // Mirror Sdk.targets _CompileAppleFrameworkSecondWrapperSlice: write the
             // device slice's embedded Info.plist before merging so xcodebuild's
@@ -1665,7 +1680,7 @@ partial class Build
         }
         catch (Exception ex)
         {
-            Log.Debug("  {Name}: device-slice merge exception: {Message}",
+            Log.Warning("  {Name}: device-slice merge exception: {Message}",
                 target.Name, ex.Message);
             return "fail";
         }

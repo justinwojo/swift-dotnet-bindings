@@ -4,7 +4,9 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 
 namespace BindingsGeneration
 {
@@ -94,6 +96,39 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// The SDK (<c>xcrun --sdk</c> name) of the platform the <c>LC_BUILD_VERSION</c> in
+        /// <paramref name="otoolOutput"/> names, or null when there is none. Mac Catalyst links against
+        /// the macOS SDK.
+        /// </summary>
+        internal static string? BuildPlatformSdk(string otoolOutput)
+        {
+            bool inBuildVersion = false;
+            foreach (var raw in otoolOutput.Split('\n'))
+            {
+                var line = raw.Trim();
+                if (line.StartsWith("cmd ", StringComparison.Ordinal))
+                {
+                    inBuildVersion = line.Substring(4).Trim() == "LC_BUILD_VERSION";
+                    continue;
+                }
+                if (inBuildVersion && line.StartsWith("platform ", StringComparison.Ordinal))
+                {
+                    return line.Substring(9).Trim() switch
+                    {
+                        "1" or "MACOS" => "macosx",
+                        "2" or "IOS" => "iphoneos",
+                        "3" or "TVOS" => "appletvos",
+                        "6" or "MACCATALYST" => "macosx",
+                        "7" or "IOSSIMULATOR" => "iphonesimulator",
+                        "8" or "TVOSSIMULATOR" => "appletvsimulator",
+                        _ => null,
+                    };
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// The OS-resident dylibs <paramref name="loads"/> load in a way a missing symbol would fail: every
         /// <c>/System/</c> load that is not <c>LC_LOAD_WEAK_DYLIB</c>, by install name, ordinal order.
         /// </summary>
@@ -159,6 +194,89 @@ namespace BindingsGeneration
                 return false;
             var sdk = sdkPath.TrimEnd('/') + "/";
             return (path.TrimEnd('/') + "/").StartsWith(sdk, StringComparison.Ordinal);
+        }
+
+        /// <summary>One symbol a linked image imports, as <c>dyld_info -imports</c> prints it.</summary>
+        internal sealed record ImportedSymbol(string Arch, string Symbol, string From, bool Weak);
+
+        private static readonly Regex ImportHeader = new(@"^(?<path>.+) \[(?<arch>[^\]]+)\]:\s*$", RegexOptions.Compiled);
+        private static readonly Regex ImportLine = new(
+            @"^\s*0x[0-9A-Fa-f]+\s+(?<symbol>\S+)\s+(?<weak>\[weak-import\]\s+)?\(from (?<from>[^)]+)\)\s*$",
+            RegexOptions.Compiled);
+
+        /// <summary>Parses <c>dyld_info -imports</c> output: one entry per imported symbol per architecture.</summary>
+        internal static IReadOnlyList<ImportedSymbol> ParseImports(string text)
+        {
+            var result = new List<ImportedSymbol>();
+            string arch = "";
+            foreach (var raw in text.Split('\n'))
+            {
+                var line = raw.TrimEnd('\r');
+                var header = ImportHeader.Match(line);
+                if (header.Success)
+                {
+                    arch = header.Groups["arch"].Value;
+                    continue;
+                }
+                var import = ImportLine.Match(line);
+                if (import.Success)
+                    result.Add(new ImportedSymbol(arch, import.Groups["symbol"].Value, import.Groups["from"].Value,
+                        import.Groups["weak"].Success));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// The name <c>dyld_info</c> prints after "from" for a dylib: its install name's last path
+        /// component up to the first dot (<c>Foundation</c>, <c>libswiftCore</c>, <c>libSystem</c>).
+        /// </summary>
+        internal static string ImportLeaf(string installName)
+        {
+            var file = installName.Substring(installName.LastIndexOf('/') + 1);
+            var dot = file.IndexOf('.');
+            return dot < 0 ? file : file.Substring(0, dot);
+        }
+
+        /// <summary>
+        /// Whether the SDK's stub for <paramref name="installName"/> re-exports a library only its allowed
+        /// clients may link (SwiftUI re-exports SwiftUICore). A symbol of that library binds through the
+        /// umbrella, and the linker then keeps the umbrella's load strong whatever <c>-weak_framework</c>
+        /// asks; <c>-weak_framework</c> still makes every import from it weak.
+        /// </summary>
+        internal static bool ReexportsRestrictedLibrary(string sdkPath, string installName)
+        {
+            var stub = Path.Combine(sdkPath, installName.TrimStart('/') + ".tbd");
+            if (!File.Exists(stub))
+                return false;
+            var text = File.ReadAllText(stub);
+            var section = Regex.Match(text, @"^reexported-libraries:\s*\n(?<body>(?:[ \t-].*\n)+)", RegexOptions.Multiline);
+            if (!section.Success)
+                return false;
+            foreach (Match name in Regex.Matches(section.Groups["body"].Value, @"'(?<n>/[^']+)'|(?<n>/[^\s,\]]+)"))
+            {
+                var reexported = Path.Combine(sdkPath, name.Groups["n"].Value.TrimStart('/') + ".tbd");
+                if (File.Exists(reexported)
+                    && Regex.IsMatch(File.ReadAllText(reexported), @"^allowable-clients:", RegexOptions.Multiline))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// The strong OS-resident loads among <paramref name="strongInstallNames"/> that a missing symbol
+        /// would still fail: those with a strong import, and those the linker had no reason to keep strong
+        /// (it keeps a load strong only for an umbrella that re-exports a restricted library, see
+        /// <see cref="ReexportsRestrictedLibrary"/>). Without an SDK path every strong load is unsafe.
+        /// </summary>
+        internal static IReadOnlyList<string> UnsafeStrongLoads(
+            IEnumerable<string> strongInstallNames, IReadOnlyList<ImportedSymbol> imports, string? sdkPath)
+        {
+            var strongLeaves = new HashSet<string>(imports.Where(i => !i.Weak).Select(i => i.From), StringComparer.Ordinal);
+            return strongInstallNames
+                .Where(n => strongLeaves.Contains(ImportLeaf(n))
+                            || string.IsNullOrEmpty(sdkPath)
+                            || !ReexportsRestrictedLibrary(sdkPath, n))
+                .ToList();
         }
 
         /// <summary>The failure message for a wrapper that still loads an OS dylib strongly after its relink.</summary>

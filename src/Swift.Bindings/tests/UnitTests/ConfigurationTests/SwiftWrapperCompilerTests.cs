@@ -2876,7 +2876,10 @@ namespace BindingsGeneration.Tests
                     "arm64-apple-ios18.0-simulator", "/sdk/path", "/fw/search",
                     runner, NullLogger.Instance);
 
-                Assert.Equal(3, runner.Invocations.Count);
+                // The failed link, the resource-dir lookup, the retry, then the load-command read of
+                // the OS-framework weak-link check.
+                Assert.Equal(4, runner.Invocations.Count);
+                Assert.StartsWith("otool -l", runner.Invocations[3].Arguments);
                 var firstSwiftc = runner.Invocations[0].Arguments;
                 var retrySwiftc = runner.Invocations[2].Arguments;
                 Assert.DoesNotContain("libclang_rt.profile_", firstSwiftc);
@@ -3027,8 +3030,7 @@ namespace BindingsGeneration.Tests
 
             SwiftWrapperCompiler.ResolvePlatformPath(sdkName, runner);
 
-            // The link, then the load-command read of the OS-framework weak-link check.
-            Assert.Single(runner.Invocations, i => i.Arguments.StartsWith("swiftc", StringComparison.Ordinal));
+            Assert.Single(runner.Invocations);
             Assert.Contains($"--sdk {sdkName}", runner.Invocations[0].Arguments);
             Assert.Contains("--show-sdk-platform-path", runner.Invocations[0].Arguments);
         }

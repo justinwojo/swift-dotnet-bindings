@@ -251,22 +251,25 @@ namespace BindingsGeneration
                 var (strong, other) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
                 if (other.Count > 0)
                     throw new InvalidOperationException(OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, other));
-                if (strong.Count > 0)
+                var missing = strong.Where(f => !weakFrameworks.Contains(f)).ToList();
+                if (missing.Count > 0)
                 {
                     logger.LogInformation(
                         "Relinking {Wrapper} to weak-link the OS framework(s) it loaded strongly: {Frameworks}",
-                        wrapperModuleName, string.Join(", ", strong));
-                    weakFrameworks.UnionWith(strong);
+                        wrapperModuleName, string.Join(", ", missing));
+                    weakFrameworks.UnionWith(missing);
                     args = LinkArgs();
                     logger.LogDebug("Relinking: xcrun {Args}", args);
                     (exitCode, stdout, stderr) = commandRunner.Run("xcrun", args, timeoutMs: 60000);
-                    if (exitCode == 0)
-                    {
-                        var (still, stillOther) = OsFrameworkWeakLinking.StrongOsResident(outputBinaryPath, commandRunner);
-                        if (still.Count > 0 || stillOther.Count > 0)
-                            throw new InvalidOperationException(
-                                OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, still.Concat(stillOther)));
-                    }
+                }
+                if (exitCode == 0 && strong.Count > 0)
+                {
+                    // A load the linker keeps strong (an umbrella re-exporting a restricted library) is
+                    // safe only with every import from it weak.
+                    var unsafeLoads = OsFrameworkWeakLinking.UnsafeStrongOsResident(outputBinaryPath, sdkPath, commandRunner);
+                    if (unsafeLoads.Count > 0)
+                        throw new InvalidOperationException(
+                            OsFrameworkWeakLinking.StillStrongMessage(wrapperModuleName, outputBinaryPath, unsafeLoads));
                 }
                 if (exitCode == 0)
                     OsFrameworkWeakLinking.Learn(wrapperModuleName, weakFrameworks);

@@ -1326,14 +1326,15 @@ done; true"
           Command="lipo -create &quot;$(_AFW_SecondSliceArm64Lib)&quot; &quot;$(_AFW_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot;"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
-    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second wrapper slice just linked. -->
+    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second wrapper slice just linked,
+         except an umbrella the linker keeps strong whose every import is weak (see the script). -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)')"
-          Command="otool -l &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; | awk '$1==&quot;cmd&quot; {c=$2} $1==&quot;name&quot; &amp;&amp; c!=&quot;LC_LOAD_WEAK_DYLIB&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sort -u | tr '\n' ' '"
+          Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/unsafe-strong-os-loads.sh&quot; &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; &quot;$(_AFW_OtherSdkPath)&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_StrongOsLoads" />
     </Exec>
     <Error Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_StrongOsLoads.Trim())' != ''"
-           Text="The second wrapper slice at '$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)' loads OS-resident dylib(s) strongly: $(_AFW_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
+           Text="The second wrapper slice at '$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)' loads OS-resident dylib(s) strongly in a way a missing symbol would fail: $(_AFW_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
 
     <!-- Write the second slice's embedded .framework/Info.plist before xcodebuild
          -create-xcframework merges it. `swiftc -emit-library` above only produces
@@ -1511,8 +1512,12 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true'"
           Command="otool -l &quot;$(_AFB_FirstSliceFramework)/$(_AFW_BridgeModule)&quot; | awk '$1==&quot;name&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sed -n 's#.*/\([^/]*\)\.framework/.*#\1#p' | sort -u | awk '{printf &quot;-Xlinker -weak_framework -Xlinker %s &quot;, $0}'"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
-      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_OsWeakLinkFlags" />
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_OsWeakLinkFlagsRead" />
     </Exec>
+    <!-- ConsoleOutput comes back trimmed; the link commands below append -Xlinker straight after it. -->
+    <PropertyGroup Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFB_OsWeakLinkFlagsRead.Trim())' != ''">
+      <_AFB_OsWeakLinkFlags>$(_AFB_OsWeakLinkFlagsRead.Trim()) </_AFB_OsWeakLinkFlags>
+    </PropertyGroup>
 
     <!-- Single-arch compile: emit the framework binary directly (default sim-first
          flow where the second slice is device-arm64-only, or device-first flow when
@@ -1546,14 +1551,15 @@ sed -i '' &quot;s|_SwiftBindingWrapperSliceCount&gt;[0-9]*|_SwiftBindingWrapperS
           StandardOutputImportance="low" StandardErrorImportance="high"
           ContinueOnError="true" />
 
-    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second SwiftUI bridge slice just linked. -->
+    <!-- Load safety (P1): no /System/ dylib may be loaded strongly by the second SwiftUI bridge slice just linked,
+         except an umbrella the linker keeps strong whose every import is weak (see the script). -->
     <Exec Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND Exists('$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)')"
-          Command="otool -l &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; | awk '$1==&quot;cmd&quot; {c=$2} $1==&quot;name&quot; &amp;&amp; c!=&quot;LC_LOAD_WEAK_DYLIB&quot; &amp;&amp; $2 ~ /^\/System\// {print $2}' | sort -u | tr '\n' ' '"
+          Command="/bin/bash &quot;$(MSBuildThisFileDirectory)scripts/unsafe-strong-os-loads.sh&quot; &quot;$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)&quot; &quot;$(_AFW_OtherSdkPath)&quot;"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFB_StrongOsLoads" />
     </Exec>
     <Error Condition="'$(_AFB_NeedsSecondSlice)' == 'true' AND '$(_AFB_StrongOsLoads.Trim())' != ''"
-           Text="The second SwiftUI bridge slice at '$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)' loads OS-resident dylib(s) strongly: $(_AFB_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
+           Text="The second SwiftUI bridge slice at '$(_SwiftBindingIntermediateDir)_bridge_merge_slices/second/$(_AFW_BridgeModule).framework/$(_AFW_BridgeModule)' loads OS-resident dylib(s) strongly in a way a missing symbol would fail: $(_AFB_StrongOsLoads). A strong load of an OS framework makes dyld refuse the whole wrapper on an OS that lacks one of its symbols, so the slice is not shipped." />
 
     <!-- Write the second slice's embedded Info.plist before xcodebuild merges it.
          Mirrors SwiftWrapperCompiler.WriteFrameworkPlist; reuses the wrapper target's

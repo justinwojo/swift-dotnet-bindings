@@ -25,6 +25,26 @@ namespace BindingsGeneration
             return ParseLoadCommands(stdout);
         }
 
+        /// <summary>Reads <paramref name="binary"/>'s imports with <c>dyld_info -imports</c>; throws when the read fails.</summary>
+        internal static IReadOnlyList<ImportedSymbol> ReadImports(string binary, ICommandRunner commandRunner)
+        {
+            var (exitCode, stdout, stderr) = commandRunner.Run("xcrun", $"dyld_info -imports \"{binary}\"", timeoutMs: 120000);
+            if (exitCode != 0)
+                throw new InvalidOperationException(
+                    $"Could not read the imports of '{binary}' (dyld_info exited {exitCode}): {stderr.Trim()}");
+            return ParseImports(stdout);
+        }
+
+        /// <summary>
+        /// The OS-resident dylibs <paramref name="binary"/> loads strongly that a missing symbol would still
+        /// fail (<see cref="UnsafeStrongLoads"/>), by install name. Reads the imports only when a load is strong.
+        /// </summary>
+        internal static IReadOnlyList<string> UnsafeStrongOsResident(string binary, string? sdkPath, ICommandRunner commandRunner)
+        {
+            var strong = StrongOsResidentLoads(ReadLoadCommands(binary, commandRunner));
+            return strong.Count == 0 ? strong : UnsafeStrongLoads(strong, ReadImports(binary, commandRunner), sdkPath);
+        }
+
         /// <summary>
         /// The OS-resident dylibs <paramref name="binary"/> still loads strongly, split into the frameworks a
         /// relink can weaken and the rest (a <c>/System/</c> dylib that is not a framework, which the
