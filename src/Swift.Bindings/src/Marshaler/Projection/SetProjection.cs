@@ -365,7 +365,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             PInvokeExpression = $"{paramName}Buffer",
             // The bridged NSSet handle is borrowed: the `using` wrapper releases it after the
             // call, so a consuming callee needs a +1 handed over first.
-            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
+            OwnedHandOverHandle = $"{paramName}Buffer"
         };
     }
 

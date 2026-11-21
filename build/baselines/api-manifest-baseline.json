@@ -4724,6 +4724,36 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeBox.CallLifetimeProbeBox(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_dac08f86"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeBox.MidCall()",
+      "symbol": "thunk_SwiftBindingsTestLib_fa116001"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeBox.ProbeTag",
+      "symbol": "thunk_SwiftBindingsTestLib_8ad7865c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeReader.CallLifetimeProbeReader(int)",
+      "symbol": "thunk_SwiftBindingsTestLib_92e31ff6"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeReader.Offset",
+      "symbol": "thunk_SwiftBindingsTestLib_24a7434c"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CallLifetimeProbeReader.Read(ICallLifetimeProbe,string?,Swift.Foundation.AnyError?)",
+      "symbol": "$s20SwiftBindingsTestLib23CallLifetimeProbeReaderC4read_5label10underlyings5Int32VAA0efG0_p_SSSgs5Error_pSgtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "CallMakeNotifierViaOwner(IClosureRetFanOwner)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_callMakeNotifierViaOwner_59E37B32"
     },
@@ -7571,6 +7601,26 @@
       "module": "SwiftBindingsTestLib",
       "signature": "ConsumedCarrierThrowingCell.GetStoredTag()",
       "symbol": "thunk_SwiftBindingsTestLib_98357898"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ConsumedErrorPair.Total",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ConsumedErrorPair_total"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ConsumedErrorPair.TryCreate(Swift.Foundation.AnyError,Swift.Foundation.AnyError,out ConsumedErrorPair)",
+      "symbol": "$s20SwiftBindingsTestLib17ConsumedErrorPairV5first6secondACSgs0F0_p_sAG_ptcfC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ConsumedObjCAndError.Total",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_ConsumedObjCAndError_total"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ConsumedObjCAndError.TryCreate(SwiftBindingsTestLib.TrackedObjCShapeThing,Swift.Foundation.AnyError,out ConsumedObjCAndError)",
+      "symbol": "$s20SwiftBindingsTestLib20ConsumedObjCAndErrorV5shape5errorACSgAA07TrackedF11CShapeThingC_s0H0_ptcfC"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -26244,6 +26294,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "ProbeTagAcrossCall(ICallLifetimeProbe,string)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_probeTagAcrossCall_7B1F0B2B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "ProbeTagAcrossCall(ICallLifetimeProbe,string?,Swift.Foundation.AnyError?)",
+      "symbol": "$s20SwiftBindingsTestLib18probeTagAcrossCall_5label10underlyings5Int32VAA0H13LifetimeProbe_p_SSSgs5Error_pSgtF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "ProcessDescribable(IDescribable)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_processDescribable_1AE3FB40"
     },
@@ -33999,6 +34059,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "UIKitTransitionBox.Events(bool)\u00602",
+      "symbol": "$s20SwiftBindingsTestLib18UIKitTransitionBoxV6events12valueChangedSo15UIControlEventsVSb_tF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "UIKitTransitionBox.Font(bool)\u00602",
       "symbol": "$s20SwiftBindingsTestLib18UIKitTransitionBoxV4font7presentSo6UIFontCSgSb_tF"
     },
@@ -34016,6 +34081,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "UIKitTransitionBox.PointSize(UIKit.UIFont)\u00602",
       "symbol": "$s20SwiftBindingsTestLib18UIKitTransitionBoxV9pointSize2ofSdSo6UIFontC_tF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "UIKitTransitionBox.RawEventValue(UIKit.UIControlEvent)\u00602",
+      "symbol": "$s20SwiftBindingsTestLib18UIKitTransitionBoxV13rawEventValue2ofSuSo15UIControlEventsV_tF"
     },
     {
       "module": "SwiftBindingsTestLib",

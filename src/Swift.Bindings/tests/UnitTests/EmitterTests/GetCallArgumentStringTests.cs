@@ -39,13 +39,20 @@ public class GetCallArgumentStringTests
     {
         var param = new Parameter(new MarshalledType.Existential("Swift.Runtime.ExistentialContainer1", "IMyProtocol"), "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IMyProtocol>", result);
+        Assert.Equal("handlerExistentialLease.Container", result);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.NotNull(lease);
+        Assert.Equal("using var handlerExistentialLease = global::Swift.Runtime.BorrowedExistentialArgument.Begin<IMyProtocol>(handler);", lease!.Declaration);
+        Assert.False(lease.CompletesOnNativeReturn);
     }
 
     /// <summary>
     /// A borrowing callee on the auto-wrap arm keeps the cached carrier: the wrapped proxy's own
     /// construction reference stays the only one, and the caller destroys it when the wrapper dies.
-    /// This is the control the two consuming cases below are read against.
+    /// This is the control the two consuming cases below are read against. The carrier is read off
+    /// a lease declared before the call, which holds the proxy until the call returns: the proxy is
+    /// otherwise cached only weakly, so a collection during the call would release the box Swift is
+    /// borrowing.
     /// </summary>
     [Fact]
     public void GetCallArgumentString_ExistentialWithProxy_Borrowed_ReusesTheCachedCarrier()
@@ -57,8 +64,48 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IMyProtocol>", result);
-        Assert.DoesNotContain("CreateOwned", result);
+        Assert.Equal("handlerExistentialLease.Container", result);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.NotNull(lease);
+        Assert.Equal("using var handlerExistentialLease = global::Swift.Runtime.BorrowedExistentialArgument.Begin<IMyProtocol>(handler, static __v => new MyProtocolProxy(__v));", lease!.Declaration);
+        Assert.False(lease.CompletesOnNativeReturn);
+        Assert.DoesNotContain("CreateOwned", lease.Declaration);
+    }
+
+    /// <summary>
+    /// A consumed boxed <c>any Error</c> passes the box retained by a lease declared before the call,
+    /// which the body completes after native return; a throw before then releases the retain. The
+    /// borrowed one reads the box inline and needs no lease.
+    /// </summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void GetCallArgumentString_BoxedError_ConsumedThroughALease(bool handedOver)
+    {
+        var param = new Parameter(
+            new MarshalledType.Existential("System.IntPtr", "global::Swift.Foundation.AnyError")
+            {
+                BoxedError = true,
+                HandedOverToCallee = handedOver,
+            },
+            "failure");
+        var result = Signature.GetCallArgumentString(param);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.DoesNotContain("UnknownObjectRetain", result);
+        if (handedOver)
+        {
+            Assert.Equal("failureErrorTransfer.Pointer", result);
+            Assert.NotNull(lease);
+            Assert.Equal("failureErrorTransfer", lease!.Name);
+            Assert.StartsWith("using var failureErrorTransfer = new global::Swift.Runtime.OwnedArgument.ObjectTransfer(", lease.Declaration);
+            Assert.Contains("GetExistentialContainer().Payload0, failure);", lease.Declaration);
+            Assert.True(lease.CompletesOnNativeReturn);
+        }
+        else
+        {
+            Assert.EndsWith("GetExistentialContainer().Payload0", result);
+            Assert.Null(lease);
+        }
     }
 
     /// <summary>
@@ -221,9 +268,9 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.GetOrCreate<IMyClassBound>", result);
-        Assert.DoesNotContain("classBoundCarrier", result);
-        Assert.StartsWith("Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1(", result);
+        Assert.Equal("Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1(handlerExistentialLease.Container)", result);
+        Assert.Contains("BorrowedExistentialArgument.Begin<IMyClassBound>(handler, static __v => new MyClassBoundProxy(__v))", Signature.GetExistentialArgumentLease(param)!.Declaration);
+        Assert.DoesNotContain("classBoundCarrier", Signature.GetExistentialArgumentLease(param)!.Declaration);
     }
 
     /// <summary>

@@ -762,6 +762,44 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
+    public void Emit_OptbufTakingAProtocol_HoldsTheBorrowedExistentialThroughALease()
+    {
+        // The optbuf wrapper keeps the Swift convention and borrows the existential, so whatever owns
+        // the container's payload (the proxy a plain C# conformer is wrapped in, or the fresh box of a
+        // Swift conformer) has to stay alive until the call returns and then be destroyed. A lease
+        // declared before the call does both; a container built inline in the call arguments leaves
+        // the proxy unreachable during the call and the box never destroyed.
+        var typeDatabase = CreateTypeDatabaseWithProtocol();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var optErrorType = new NamedTypeSpec("Swift.Optional");
+        optErrorType.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+
+        var method = CreateMethodDecl("read", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int32"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("probe", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.MyProtocol") }), moduleDecl));
+        method.CSSignature.Add(CreateArgument("label", optStringType, moduleDecl));
+        method.CSSignature.Add(CreateArgument("underlying", optErrorType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("_optbuf", swiftOutput);
+        var lease = System.Text.RegularExpressions.Regex.Match(csOutput,
+            @"using var (\w+) = global::Swift\.Runtime\.BorrowedExistentialArgument\.Begin<[^>]*MyProtocol>\(probe[,)]");
+        Assert.True(lease.Success, "the borrowed existential is held by a lease");
+        var leaseName = lease.Groups[1].Value;
+        var call = System.Text.RegularExpressions.Regex.Match(csOutput, @"PInvoke_read\w*\(([^;]*)\);");
+        Assert.True(call.Success);
+        Assert.True(call.Index > lease.Index, "the lease is declared before the call");
+        Assert.Contains($"{leaseName}.Container", call.Groups[1].Value);
+        Assert.DoesNotContain("ExistentialContainerFactory.GetOrCreate", call.Groups[1].Value);
+    }
+
+    [Fact]
     public void Emit_InstanceMethod_SwiftWrapperHasSelfParam()
     {
         var typeDatabase = CreateTypeDatabase();

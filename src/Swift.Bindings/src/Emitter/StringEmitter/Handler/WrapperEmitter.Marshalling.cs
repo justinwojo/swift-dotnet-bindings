@@ -273,11 +273,45 @@ namespace BindingsGeneration
         /// retained first — isa-dispatched (an NSObject-rooted payload needs <c>objc_retain</c>, not
         /// <c>swift_retain</c>) and null-tolerant — or the callee's release would take a count
         /// nobody transferred. Shared with the operator body, which extracts these handles itself.
+        ///
+        /// <para>The retain is a lease (<c>OwnedArgument.ObjectTransfer</c>) declared in the call's
+        /// scope rather than a bare retain: a later argument's preparation, or native entry, can
+        /// throw before the callee runs, and the lease then releases the count it took. The call
+        /// completes it straight after native return, with the other hand-overs.</para>
         /// </summary>
-        internal static string ObjCArgumentHandle(string handleExpression, bool handedOverToCallee)
-            => handedOverToCallee
-                ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({handleExpression})"
-                : handleExpression;
+        /// <param name="localName">The <c>IntPtr</c> local the P/Invoke argument names.</param>
+        /// <param name="handleExpression">Reads the handle off its owner.</param>
+        /// <param name="owner">The managed owner kept alive until the lease ends, or null.</param>
+        private void EmitObjCArgumentHandleLocal(CSharpWriter csWriter, string localName,
+            string handleExpression, string leaseBaseName, string? owner, bool handedOverToCallee)
+        {
+            if (!handedOverToCallee)
+            {
+                csWriter.WriteLine($"IntPtr {localName} = {handleExpression};");
+                return;
+            }
+            var leaseName = RegisterOwnedArgumentTransfer(leaseBaseName);
+            csWriter.WriteLine($"using var {leaseName} = new global::Swift.Runtime.OwnedArgument.ObjectTransfer({handleExpression}, {owner ?? "null"});");
+            csWriter.WriteLine($"IntPtr {localName} = {leaseName}.Pointer;");
+        }
+
+        /// <summary>
+        /// The operator body's form of <see cref="EmitObjCArgumentHandleLocal"/>: the operator writes
+        /// its own handle locals, and this call-site emitter completes the lease after the call.
+        /// </summary>
+        internal void EmitCallSiteObjCArgumentHandle(CSharpWriter csWriter, string localName,
+            string handleExpression, string operandName, bool handedOverToCallee)
+            => EmitObjCArgumentHandleLocal(csWriter, localName, handleExpression, operandName, operandName, handedOverToCallee);
+
+        /// <summary>
+        /// Hands a handle local a projection's setup declared (<c>MarshalPlan.OwnedHandOverHandle</c>)
+        /// to a consuming callee through the same rollback-capable lease.
+        /// </summary>
+        private void EmitObjectArgumentTransfer(CSharpWriter csWriter, string parameterName, string handleLocal)
+        {
+            var leaseName = RegisterOwnedArgumentTransfer(parameterName);
+            csWriter.WriteLine($"using var {leaseName} = new global::Swift.Runtime.OwnedArgument.ObjectTransfer({handleLocal}, {parameterName});");
+        }
 
         /// <summary>
         /// True when a consumed argument's <c>+1</c> may be minted by the value-witness transfer
@@ -370,6 +404,25 @@ namespace BindingsGeneration
                 {
                     EmitOwnedValueArgumentTransfer(csWriter, csName, record.CSharpTypeName.ToString(), $"{csName}.Payload");
                 }
+            }
+            EmitExistentialArgumentLeases(csWriter);
+        }
+
+        /// <summary>
+        /// Declares the lease each existential argument of a direct Swift-convention call is held by
+        /// (<see cref="Signature.GetExistentialArgumentLease"/>), in the scope the call is written
+        /// in. The call statement reads the leases by name. A lease the callee consumes is completed
+        /// with the other hand-overs straight after the call.
+        /// </summary>
+        private void EmitExistentialArgumentLeases(CSharpWriter csWriter)
+        {
+            foreach (var parameter in _pInvokeSignature.Parameters)
+            {
+                if (Signature.GetExistentialArgumentLease(parameter) is not { } lease)
+                    continue;
+                csWriter.WriteLine(lease.Declaration);
+                if (lease.CompletesOnNativeReturn)
+                    _ownedArgumentTransfers.Add(lease.Name);
             }
         }
 
@@ -481,10 +534,8 @@ namespace BindingsGeneration
                 {
                     var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
                     var bufferName = NameProvider.GetBoundGenericBufferName(csName);
-                    var handedOver = ConsumedByDirectCallee(argumentDecl)
-                        ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({csName})"
-                        : csName;
-                    csWriter.WriteLine($"IntPtr {bufferName} = {handedOver};");
+                    EmitObjCArgumentHandleLocal(csWriter, bufferName, csName, csName, owner: null,
+                        ConsumedByDirectCallee(argumentDecl));
                     continue;
                 }
 
@@ -1029,10 +1080,8 @@ namespace BindingsGeneration
                 // swift_retain, and null-tolerant so the nil arm stays IntPtr.Zero.
                 // A disposed wrapper is refused rather than passed as nil.
                 var liveOrNil = LiveHandleExpressions.ObjCOptionalArgument(csName);
-                var objCHandleExpression = ConsumedByDirectCallee(argumentDecl)
-                    ? $"global::Swift.Runtime.Arc.UnknownObjectRetain({liveOrNil})"
-                    : liveOrNil;
-                csWriter.WriteLine($"IntPtr {bufferName} = {objCHandleExpression};");
+                EmitObjCArgumentHandleLocal(csWriter, bufferName, liveOrNil, csName, owner: csName,
+                    ConsumedByDirectCallee(argumentDecl));
                 return true;
             }
 
@@ -1260,9 +1309,9 @@ namespace BindingsGeneration
                         EmitOwnedValueArgumentTransfer(csWriter, csName,
                             valueArgument.CarrierTypeName, valueArgument.PayloadExpression);
                 }
-                else if (plan.OwnedHandOverStatement is { } handOver)
+                else if (plan.OwnedHandOverHandle is { } handOver)
                 {
-                    csWriter.WriteLine(handOver);
+                    EmitObjectArgumentTransfer(csWriter, csName, handOver);
                 }
             }
 
@@ -1879,7 +1928,8 @@ namespace BindingsGeneration
                     {
                         var typedEnum = new AppleTypedEnumAdapter(typeRecord.CSharpTypeName.FullyQualifiedName, typedEnumCarrier);
                         csWriter.WriteLine($"var {csName}Constant = {typedEnum.ToCarrier(csName)};");
-                        csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle($"{csName}Constant.Handle", handsOverObjCHandle)};");
+                        EmitObjCArgumentHandleLocal(csWriter, $"{csName}Handle", $"{csName}Constant.Handle", csName,
+                            owner: $"{csName}Constant", handsOverObjCHandle);
                         continue;
                     }
 
@@ -1887,7 +1937,8 @@ namespace BindingsGeneration
                     var liveHandle = WrapperValidation.IsOptionalType(argumentDecl.SwiftTypeSpec)
                         ? LiveHandleExpressions.ObjCOptionalArgument(csName)
                         : LiveHandleExpressions.ObjCArgument(csName, csName);
-                    csWriter.WriteLine($"IntPtr {csName}Handle = {ObjCArgumentHandle(liveHandle, handsOverObjCHandle)};");
+                    EmitObjCArgumentHandleLocal(csWriter, $"{csName}Handle", liveHandle, csName,
+                        owner: csName, handsOverObjCHandle);
                     continue;
                 }
 

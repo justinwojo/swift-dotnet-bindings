@@ -27,12 +27,15 @@ namespace BindingsGeneration
         internal string CallSiteResultLocalName => _syncPlan.ReturnLocalName;
 
         /// <summary>
-        /// True when the call site emits anything at all: an error check, or a hand-over for a
-        /// consumed argument. A body that needs neither keeps its plain call.
+        /// True when the call site emits anything at all: an error check, a hand-over for a
+        /// consumed argument, or the lease an existential argument is held by across the call
+        /// (<see cref="Signature.GetExistentialArgumentLease"/>, which the call arguments read). A
+        /// body that needs none of them keeps its plain call.
         /// </summary>
         internal static bool CallSiteNeedsOwnershipOrErrorHalves(MethodEnvironment env)
             => (!env.MethodDecl.IsAsync && env.MethodDecl.Throws)
-               || env.MethodDecl.CSSignature.Skip(1).Any(a => CalleeArgumentOwnership.IsHandedOverToCallee(env.MethodDecl, a));
+               || env.MethodDecl.CSSignature.Skip(1).Any(a => CalleeArgumentOwnership.IsHandedOverToCallee(env.MethodDecl, a))
+               || env.MethodDecl.CSSignature.Skip(1).Any(a => env.ExistentialHandler.IsExistential(a.SwiftTypeSpec));
 
         /// <summary>
         /// Writes the member-level declarations the error check calls: the error-description and
@@ -44,8 +47,9 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes what precedes the call: the zero-initialized error carrier a direct Swift-convention
-        /// call passes by <c>ref</c>, and the provisional +1 lease for every argument the callee
-        /// consumes. A failure before native entry rolls each lease back.
+        /// call passes by <c>ref</c>, the provisional +1 lease for every argument the callee
+        /// consumes, and the lease each existential argument is held by. A failure before native
+        /// entry rolls each consumed lease back.
         /// </summary>
         internal void EmitCallSitePreamble(CSharpWriter csWriter)
         {

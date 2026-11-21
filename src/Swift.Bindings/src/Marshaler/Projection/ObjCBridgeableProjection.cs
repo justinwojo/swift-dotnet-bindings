@@ -128,7 +128,7 @@ public class ObjCBridgeableProjection : ITypeProjection
             // managed wrapper around the constant group's global NSString — so against a callee that
             // consumes its argument the pointer would arrive at +0 and the callee's release would
             // take a count nobody transferred.
-            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Handle")
+            OwnedHandOverHandle = $"{paramName}Handle"
         };
     }
 

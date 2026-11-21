@@ -63,5 +63,11 @@ public struct UIKitTransitionBox<Element: KeyedValue, Failure: Error> {
 
     /// An option set's raw value.
     public func rawValue(of state: UIControl.State) -> UInt { state.rawValue }
+
+    /// Touch-up-inside, plus value-changed when asked.
+    public func events(valueChanged: Bool) -> UIControl.Event { valueChanged ? [.touchUpInside, .valueChanged] : .touchUpInside }
+
+    /// An event set's raw value.
+    public func rawEventValue(of events: UIControl.Event) -> UInt { events.rawValue }
 }
 #endif

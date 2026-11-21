@@ -258,10 +258,17 @@ namespace BindingsGeneration
                 // A boxed `any Error`: the box the error's container holds in its first word. The
                 // container read borrows the box; a callee that releases its argument gets its own
                 // retain on it.
+                // A consumed one is retained by a lease declared before the call (see
+                // ExistentialArgumentLease), so a throw before native entry rolls the retain back.
                 { Type: MarshalledType.Existential existentialType } when existentialType.BoxedError =>
                     existentialType.HandedOverToCallee
-                        ? $"Swift.Runtime.Arc.UnknownObjectRetain({BoxedErrorRead(parameter.Name)})"
+                        ? $"{ExistentialArgumentLeaseName(parameter)}.Pointer"
                         : BoxedErrorRead(parameter.Name),
+                // A borrowed single-protocol argument: the lease declared before the call holds the
+                // proxy that owns the container's payload, and destroys a boxed conformer's +1, once
+                // the call returns.
+                { Type: MarshalledType.Existential existentialType } when BorrowsExistentialThroughLease(parameter) =>
+                    NarrowToClassCarrier(existentialType, $"{ExistentialArgumentLeaseName(parameter)}.Container"),
                 { Type: MarshalledType.Existential(var containerType, var publicType) existentialType } when IsArity1ExistentialContainer(containerType, existentialType) && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType)) =>
                     NarrowToClassCarrier(
                         existentialType,
@@ -389,6 +396,70 @@ namespace BindingsGeneration
         /// zeroed. Empty for every other shape, including every borrowed call site, so the argument
         /// appears only where the ownership question is actually asked.
         /// </summary>
+        /// <summary>
+        /// The local a parameter's existential argument lease is declared as. Plain, not minted
+        /// through a body scope: the call statement is rendered before the body is written, and both
+        /// the declaring site and the call site derive it from the parameter alone.
+        /// </summary>
+        public static string ExistentialArgumentLeaseName(Parameter parameter)
+            => parameter.Type is MarshalledType.Existential { BoxedError: true }
+                ? $"{parameter.Name}ErrorTransfer"
+                : $"{parameter.Name}ExistentialLease";
+
+        /// <summary>
+        /// True when the call borrows this single-protocol existential argument through the factory
+        /// (a proxy, a boxable conformer, or a plain C# implementation it wraps). The callee takes no
+        /// reference, so the container's owner has to outlive the call: an auto-wrapped proxy is
+        /// registered only weakly, and a boxed conformer's fresh +1 has nobody else to release it.
+        /// A consumed argument (minted at +1 for the callee) and a consumer-owned carrier (rooted by
+        /// its implementation's memo) are not borrowed this way.
+        /// </summary>
+        public static bool BorrowsExistentialThroughLease(Parameter parameter)
+            => parameter.Type is MarshalledType.Existential(var containerType, var publicType) existentialType
+               && !existentialType.BoxedError
+               && !existentialType.HandedOverToCallee
+               && !(existentialType.ConsumerOwnsCarrier && existentialType.ProxyClassName != null)
+               && IsArity1ExistentialContainer(containerType, existentialType)
+               && (existentialType.ProxyClassName != null || IsExistentialInterfacePublicType(publicType));
+
+        /// <summary>
+        /// The statement that declares a parameter's existential argument lease before the call, or
+        /// null when its argument needs none. Every body that renders <see cref="CallArgumentsString"/>
+        /// for a direct Swift-convention call writes these first, in the same scope as the call: the
+        /// <c>using</c> declaration disposes the lease once the call (and any <c>return</c> reading
+        /// it) is done, and on every exception path out of the scope.
+        /// <list type="bullet">
+        /// <item><description>A borrowed single-protocol argument holds a
+        /// <c>BorrowedExistentialArgument</c>: it keeps the proxy alive across the call and destroys
+        /// a boxed conformer's +1 afterwards.</description></item>
+        /// <item><description>A consumed <c>any Error</c> holds an <c>OwnedArgument.ObjectTransfer</c>
+        /// retaining the box. Its <see cref="ExistentialArgumentLease.CompletesOnNativeReturn"/> is
+        /// set: the body completes it straight after the call, so the callee keeps the count, and an
+        /// earlier throw releases it.</description></item>
+        /// </list>
+        /// </summary>
+        public static ExistentialArgumentLease? GetExistentialArgumentLease(Parameter parameter)
+        {
+            if (parameter.Type is not MarshalledType.Existential existentialType)
+                return null;
+            var name = ExistentialArgumentLeaseName(parameter);
+            if (existentialType.BoxedError)
+            {
+                return existentialType.HandedOverToCallee
+                    ? new ExistentialArgumentLease(name,
+                        $"using var {name} = new global::Swift.Runtime.OwnedArgument.ObjectTransfer({BoxedErrorRead(parameter.Name)}, {parameter.Name});",
+                        CompletesOnNativeReturn: true)
+                    : null;
+            }
+            if (!BorrowsExistentialThroughLease(parameter))
+                return null;
+            var publicType = existentialType.PublicType;
+            var begin = existentialType.ProxyClassName != null
+                ? $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name}, static __v => new {existentialType.ProxyClassName}(__v))"
+                : $"global::Swift.Runtime.BorrowedExistentialArgument.Begin<{publicType}>({parameter.Name})";
+            return new ExistentialArgumentLease(name, $"using var {name} = {begin};", CompletesOnNativeReturn: false);
+        }
+
         private static string BoxedErrorRead(string name)
             => $"((Swift.Runtime.ISwiftExistentialConvertible<Swift.Runtime.ExistentialContainer1>){name}).GetExistentialContainer().Payload0";
 
@@ -429,6 +500,16 @@ namespace BindingsGeneration
                 ? $"Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1({containerExpression})"
                 : containerExpression;
     }
+
+    /// <summary>
+    /// A lease a direct call's existential argument is held by for the duration of the call; see
+    /// <see cref="Signature.GetExistentialArgumentLease"/>.
+    /// </summary>
+    /// <param name="Name">The local the lease is declared as.</param>
+    /// <param name="Declaration">The <c>using</c> declaration written before the call.</param>
+    /// <param name="CompletesOnNativeReturn">True when the body must call <c>Complete()</c> on it
+    /// straight after the call, because the callee consumed the count it holds.</param>
+    public sealed record ExistentialArgumentLease(string Name, string Declaration, bool CompletesOnNativeReturn);
 
     /// <summary>
     /// Base class for signature builders that provides common fields and methods.

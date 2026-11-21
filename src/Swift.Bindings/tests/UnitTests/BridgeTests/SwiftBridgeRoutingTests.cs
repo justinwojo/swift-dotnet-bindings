@@ -146,14 +146,15 @@ public sealed class SwiftBridgeRoutingTests
     /// not read, so the twin spells it as its underlying integer and the shim casts at the boundary:
     /// the same eight bytes cross either way.
     /// </summary>
-    [Fact]
-    public void PlatformEnum_CrossesTheTwinAsItsUnderlyingInteger()
+    [Theory]
+    [InlineData("$s1M1CC1fySo14UIControlStateVADF", "UIKit.UIControlState", "UIKit.UIControl.State")]
+    [InlineData("$s1M1CC1fySo15UIControlEventsVADF", "UIKit.UIControlEvent", "UIKit.UIControl.Event")]
+    public void PlatformEnum_CrossesTheTwinAsItsUnderlyingInteger(string entryPoint, string managed, string swift)
     {
-        const string entryPoint = "$s1M1CC1fySo14UIControlStateVADF";
         var source = Source(Import(entryPoint,
-            "private static partial global::UIKit.UIControlState PInvoke_f(global::UIKit.UIControlState state, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
+            $"private static partial global::{managed} PInvoke_f(global::{managed} state, global::System.Runtime.InteropServices.Swift.SwiftSelf self);"));
         var plan = Planned(Planner().PlanForward(
-            ClassMethod("UIKit.UIControl.State", "UIKit.UIControl.State"),
+            ClassMethod(swift, swift),
             SwiftManagedSignature.Of(Method(source, "PInvoke_f"), SwiftManagedMarshalling.SourceGenerated),
             entryPoint));
         var routing = SwiftBridgeRouting.Plan(Set(plan, entryPoint), source, Library);
@@ -171,8 +172,8 @@ public sealed class SwiftBridgeRoutingTests
 
         // The shim keeps the import's platform types and converts on each side of the twin call.
         var shim = Method(rewritten, "PInvoke_f");
-        Assert.Equal("global::UIKit.UIControlState", shim.ReturnType.ToString());
-        Assert.Contains($"return (global::UIKit.UIControlState){twinName}((ulong)state, (nint)self.Value)", shim.Body!.ToString());
+        Assert.Equal($"global::{managed}", shim.ReturnType.ToString());
+        Assert.Contains($"return (global::{managed}){twinName}((ulong)state, (nint)self.Value)", shim.Body!.ToString());
     }
 
     /// <summary>A platform enum passed by reference crosses as a pointer, so the twin keeps its declaration.</summary>

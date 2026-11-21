@@ -205,8 +205,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
                 // Same borrow as the Swift-class arm below: the handle belongs to a managed wrapper
                 // that keeps owning the object. Retained isa-dispatched, since an NSObject-rooted
                 // payload needs objc_retain rather than swift_retain.
-                OwnedHandOverStatement =
-                    $"{paramName}Buffer = global::Swift.Runtime.Arc.UnknownObjectRetain({paramName}Buffer);"
+                OwnedHandOverHandle = $"{paramName}Buffer"
             };
         }
 
@@ -236,7 +235,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
                 // The handle is borrowed from the wrapper above, which releases it after the call;
                 // a consuming callee needs its own +1 first. Null-tolerant, so the absent case
                 // (a zero buffer) hands over nothing.
-                OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
+                OwnedHandOverHandle = $"{paramName}Buffer"
             };
         }
 
@@ -257,8 +256,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
                 // The pointer was read off a managed wrapper that keeps owning the object, so it
                 // arrives borrowed; a consuming callee releases it and the wrapper releases it
                 // again. Retaining is a no-op on the nil pointer, so the None case is unaffected.
-                OwnedHandOverStatement =
-                    $"{paramName}Buffer = global::Swift.Runtime.Arc.UnknownObjectRetain({paramName}Buffer);"
+                OwnedHandOverHandle = $"{paramName}Buffer"
             };
         }
 

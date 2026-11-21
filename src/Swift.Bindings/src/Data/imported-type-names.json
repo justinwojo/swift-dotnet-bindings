@@ -71,6 +71,7 @@
       "AsyncResumeGuard",
       "AsyncThrowingClosureState",
       "AsyncThrowingClosureStateVoid",
+      "BorrowedExistentialArgument",
       "CancellationRegistrationHolder",
       "ClassExistentialContainer1",
       "ClosureHandle",

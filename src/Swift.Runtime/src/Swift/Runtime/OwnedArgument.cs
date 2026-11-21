@@ -203,4 +203,49 @@ public static class OwnedArgument
         }
     }
 
+    /// <summary>
+    /// Provisionally acquires the +1 a consuming callee will release on an object reference read out
+    /// of a managed owner: the box of an <c>any Error</c>, or the handle of an ObjC-rooted object.
+    /// The <see cref="ClassTransfer"/> counterpart for a reference no <see cref="SafeHandle"/> holds.
+    /// A generated caller declares it with a using declaration, passes <see cref="Pointer"/>, and
+    /// calls <see cref="Complete"/> immediately after the P/Invoke returns, including a Swift error
+    /// return. If a later argument's preparation or native entry resolution throws first, Dispose
+    /// rolls the retain back. The owner is kept alive until then, so the reference cannot be
+    /// released by its owner's finalizer while the call is being prepared.
+    /// </summary>
+    [System.ComponentModel.EditorBrowsable(System.ComponentModel.EditorBrowsableState.Never)]
+    public sealed class ObjectTransfer : IDisposable
+    {
+        private readonly IntPtr _objectPointer;
+        private object? _owner;
+        private bool _transferred;
+        private int _disposed;
+
+        /// <param name="objectPointer">The Swift or ObjC object to retain, or null (no count).</param>
+        /// <param name="owner">The managed object that owns <paramref name="objectPointer"/>'s own count.</param>
+        public ObjectTransfer(IntPtr objectPointer, object? owner)
+        {
+            // Isa-dispatched and null-tolerant: an NSObject-rooted object needs objc_retain.
+            _objectPointer = Arc.UnknownObjectRetain(objectPointer);
+            _owner = owner;
+        }
+
+        /// <summary>The retained reference the call passes.</summary>
+        public IntPtr Pointer => _objectPointer;
+
+        /// <summary>Records native consumption before any managed result/error conversion.</summary>
+        public void Complete() => _transferred = true;
+
+        public void Dispose()
+        {
+            if (System.Threading.Interlocked.Exchange(ref _disposed, 1) != 0)
+                return;
+            var owner = _owner;
+            _owner = null;
+            if (!_transferred)
+                Arc.UnknownObjectRelease(_objectPointer);
+            GC.KeepAlive(owner);
+        }
+    }
+
 }

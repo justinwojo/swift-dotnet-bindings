@@ -628,7 +628,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv, callSite);
 
                 if (usesCdeclWrapper)
                 {
@@ -683,7 +683,7 @@ namespace BindingsGeneration
                 EmitOperatorAvailabilityGuard(csWriter, operatorDecl, csOperator);
 
                 // Emit handle extraction for ObjC-bridged/rooted parameters
-                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv);
+                EmitObjCHandleExtraction(csWriter, pInvokeSignature, methodEnv, callSite);
 
                 if (usesCdeclWrapper)
                 {
@@ -1129,7 +1129,7 @@ namespace BindingsGeneration
         /// site both mint the name through the body's scope, which answers the same for the same
         /// spelling — and answers with the plain spelling whenever no operand holds it.</para>
         /// </summary>
-        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, MethodEnvironment methodEnv)
+        private static void EmitObjCHandleExtraction(CSharpWriter csWriter, Signature pInvokeSignature, MethodEnvironment methodEnv, WrapperEmitter? callSite)
         {
             foreach (var param in pInvokeSignature.Parameters)
             {
@@ -1145,7 +1145,14 @@ namespace BindingsGeneration
                         .FirstOrDefault(a => NameProvider.GetMarshallingBaseName(a) == param.Name);
                     bool handedOver = operand != null
                         && CalleeArgumentOwnership.IsHandedOverToCallee(methodEnv.MethodDecl, operand);
-                    csWriter.WriteLine($"IntPtr {handleName} = {WrapperEmitter.ObjCArgumentHandle(LiveHandleExpressions.ObjCArgument(param.Name, param.Name), handedOver)};");
+                    var liveHandle = LiveHandleExpressions.ObjCArgument(param.Name, param.Name);
+                    if (!handedOver)
+                        csWriter.WriteLine($"IntPtr {handleName} = {liveHandle};");
+                    else if (callSite is not null)
+                        // The call-site emitter holds the lease and completes it after the call.
+                        callSite.EmitCallSiteObjCArgumentHandle(csWriter, handleName, liveHandle, param.Name, handedOverToCallee: true);
+                    else
+                        throw new InvalidOperationException($"Operator operand '{param.Name}' is consumed but the body has no call site to hand it over.");
                 }
             }
         }

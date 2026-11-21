@@ -1345,16 +1345,13 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// The hand-over statement every ObjC-bridged parameter plan publishes for a consuming
-        /// callee. The handle these plans pass is read off an object the caller keeps owning — its
-        /// own managed wrapper, or a <c>using</c>-scoped bridged NSArray/NSDictionary/NSSet the
-        /// plan itself built — so it reaches the callee at +0, and a callee that consumes the
-        /// argument (an initializer's or setter's <c>@owned</c> parameter) releases a count nobody
-        /// transferred. Retained isa-dispatched, since an NSObject-rooted payload needs
-        /// <c>objc_retain</c> rather than <c>swift_retain</c>, and null-tolerant so a zero handle
-        /// (an absent Optional) stays a no-op. The render site decides whether to write it, so a
-        /// plan publishes it unconditionally and a borrowing call never sees it. One helper for
-        /// every bridged shape so a container plan cannot drift from its leaf.
+        /// The statement that takes the +1 a Swift-side consumer of an ObjC object handle releases,
+        /// for a handle read off an object the C# side keeps owning (a closure adapter bridging a
+        /// Foundation peer back into Swift). Retained isa-dispatched, since an NSObject-rooted
+        /// payload needs <c>objc_retain</c> rather than <c>swift_retain</c>, and null-tolerant. A
+        /// P/Invoke argument handed to a consuming callee does not use this bare retain: it goes
+        /// through the rollback-capable <c>OwnedArgument.ObjectTransfer</c> lease
+        /// (<c>MarshalPlan.OwnedHandOverHandle</c>).
         /// </summary>
         public static string ObjCHandleHandOverStatement(string handleExpression)
             => $"global::Swift.Runtime.Arc.UnknownObjectRetain({handleExpression});";

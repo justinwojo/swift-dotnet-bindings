@@ -746,7 +746,7 @@ public sealed class SwiftLayoutResolver
                 return SwiftLayoutResult.Of(Words(SwiftScalarKind.Double, SwiftScalarKind.Double, SwiftScalarKind.Double, SwiftScalarKind.Double), $"'{name}' is four CGFloats");
             case "UIKit.UIOffset" or "UIKit.UIFloatRange":
                 return SwiftLayoutResult.Of(Words(SwiftScalarKind.Double, SwiftScalarKind.Double), $"'{name}' is two CGFloats");
-            case "UIKit.UIControl.State" or "UIKit.UIRectEdge" or "UIKit.UIRectCorner":
+            case "UIKit.UIControl.State" or "UIKit.UIControl.Event" or "UIKit.UIRectEdge" or "UIKit.UIRectCorner":
                 return SwiftLayoutResult.Of(Words(SwiftScalarKind.Int64), $"'{name}' is an option set over its NSUInteger raw value");
         }
         if (IsResilientPlatformValue(name))

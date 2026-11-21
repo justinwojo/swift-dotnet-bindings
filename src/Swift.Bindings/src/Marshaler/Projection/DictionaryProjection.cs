@@ -634,7 +634,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             PInvokeExpression = $"{paramName}Buffer",
             // The bridged NSDictionary handle is borrowed: the `using` wrapper releases it after
             // the call, so a consuming callee needs a +1 handed over first.
-            OwnedHandOverStatement = MarshallingHelpers.ObjCHandleHandOverStatement($"{paramName}Buffer")
+            OwnedHandOverHandle = $"{paramName}Buffer"
         };
     }
 

@@ -597,6 +597,7 @@ public static class SwiftManagedCarrierTable
         new Dictionary<string, string>
         {
             ["UIKit.UIControlState"] = "ulong",
+            ["UIKit.UIControlEvent"] = "ulong",
             ["UIKit.UIRectEdge"] = "ulong",
             ["UIKit.UIRectCorner"] = "ulong",
         }.ToImmutableSortedDictionary(StringComparer.Ordinal);

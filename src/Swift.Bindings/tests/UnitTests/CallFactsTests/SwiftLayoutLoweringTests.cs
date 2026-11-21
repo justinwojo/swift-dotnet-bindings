@@ -125,6 +125,7 @@ public class SwiftLayoutLoweringTests
     [InlineData("UIKit.UIOffset", "double, double")]
     [InlineData("UIKit.UIFloatRange", "double, double")]
     [InlineData("UIKit.UIControl.State", "i64")]
+    [InlineData("UIKit.UIControl.Event", "i64")]
     [InlineData("UIKit.UIRectEdge", "i64")]
     [InlineData("UIKit.UIRectCorner", "i64")]
     public void Resolver_CarriersLowerToTheirSwiftPieces(string spelling, string expected)
