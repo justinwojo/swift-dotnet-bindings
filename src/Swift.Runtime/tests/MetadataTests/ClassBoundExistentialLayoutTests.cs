@@ -51,6 +51,49 @@ public class ClassBoundExistentialLayoutTests
 }
 
 /// <summary>
+/// The class-bound existential carrier's metadata belongs to the runtime, not to whichever binding's
+/// module initializer happens to run first. A member of one module returning another module's
+/// class-bound <c>[any P]</c> sizes that array before anything has run the protocol owner's
+/// initializer, so the carrier must resolve with no registration at all. Nothing in this test
+/// process registers it.
+/// </summary>
+public class ClassBoundExistentialCarrierMetadataTests
+{
+    [Fact]
+    public void CarrierMetadata_ResolvesWithoutAnyModuleRegistration()
+    {
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<ClassExistentialContainer1>();
+
+        Assert.True(metadata.IsValid);
+        Assert.Equal(TypeMetadataKind.Existential, metadata.Kind);
+        // [reference][witness table]: two words, not the 40-byte opaque box.
+        Assert.Equal((nuint)(2 * IntPtr.Size), metadata.Size);
+        Assert.Equal((nuint)(2 * IntPtr.Size), metadata.Stride);
+    }
+
+    [Fact]
+    public void CarrierMetadata_IsAClassConstrainedExistentialWithOneWitnessTable()
+    {
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<ClassExistentialContainer1>();
+
+        // ExistentialTypeFlags follow the kind word: the low 24 bits count witness tables and the
+        // top bit is clear for a class constraint (the representation that retains word 0).
+        var flags = (uint)System.Runtime.InteropServices.Marshal.ReadInt32(metadata.Handle, IntPtr.Size);
+        Assert.Equal(1u, flags & 0x00FF_FFFFu);
+        Assert.Equal(0u, flags & 0x8000_0000u);
+    }
+
+    [Fact]
+    public void ArrayOfCarrier_ResolvesWithoutAnyModuleRegistration()
+    {
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftArray<ClassExistentialContainer1>>();
+
+        Assert.True(metadata.IsValid);
+        Assert.Equal((nuint)IntPtr.Size, metadata.Size);
+    }
+}
+
+/// <summary>
 /// An Objective-C class payload: NSObject metadata and its Hashable conformance from the
 /// ObjectiveC overlay. The reference word is never dereferenced by the factory, so a sentinel
 /// value stands in for a real instance.

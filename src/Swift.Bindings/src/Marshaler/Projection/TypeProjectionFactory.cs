@@ -538,9 +538,19 @@ public class TypeProjectionFactory
             resolvedDelegateType);
     }
 
+    /// <summary>
+    /// Where a projected composition registers its interface: the context's own collector, or else
+    /// the module's, which the module handler gives the emission context's marshaling handler. A
+    /// composition projected through a context that carries no collector (an array element of a
+    /// method-generic result, a specialization's result) otherwise registers nowhere, and the member
+    /// names an interface and proxy the module never emits.
+    /// </summary>
+    private static SortedDictionary<string, List<string>>? CompositionCollectorFor(ProjectionContext context)
+        => context.CompositionCollector ?? context.EmissionContext?.Marshaling?.Existential.CompositionCollector;
+
     private ITypeProjection? ProjectExistential(ProtocolListTypeSpec protocolList, ProjectionContext context)
     {
-        var handler = new ExistentialHandler(context.TypeDatabase, context.CompositionCollector)
+        var handler = new ExistentialHandler(context.TypeDatabase, CompositionCollectorFor(context))
         {
             CurrentModuleName = context.CurrentModuleName,
             SpecializationEngine = context.SpecializationEngine,
@@ -591,7 +601,8 @@ public class TypeProjectionFactory
         bool proxyIsSuppressed = proxyClassName != null &&
             handler.IsProxyReferenceUnavailable(protocolList, context.EmissionContext);
 
-        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed, isObjCExistential);
+        return new ExistentialProjection(containerType, publicType, proxyClassName, isBareAny, isClassBoundArity1, proxyIsSuppressed, isObjCExistential,
+            handler.HasOpaqueContainerLayout(protocolList));
     }
 
     /// <summary>

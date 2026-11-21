@@ -460,6 +460,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027LedgerExistentialArrayBuilder.objcCoded\u0027 \u2014 protocol-typed parameter/return not yet projected (Method has an @objc protocol existential in an unsupported nested position on \u0027\u0027 (container/tuple/closure); only bare \u0060any P\u0060 / \u0060Optional\u003Cany P\u003E\u0060 are supported.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027MacAuthenticator.tag\u0027 \u2014 protocol with associated types used as constraint (Method has constraints on protocols with associated types or self requirements.)",
       "count": 1
     },
@@ -1853,7 +1859,7 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "UnsupportedSwiftType",
       "reason": "Existential type fallback",
-      "count": 35
+      "count": 37
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
