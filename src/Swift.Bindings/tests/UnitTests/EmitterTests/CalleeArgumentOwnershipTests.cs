@@ -326,8 +326,7 @@ public class CalleeArgumentOwnershipTests
 
         var plan = projection.GetParameterPlan("value");
 
-        Assert.NotNull(plan.OwnedHandOverStatement);
-        Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
+        Assert.Equal(plan.PInvokeExpression, plan.OwnedHandOverHandle);
     }
 
     /// <summary>
@@ -348,9 +347,8 @@ public class CalleeArgumentOwnershipTests
 
         var plan = projection.GetParameterPlan("urls");
 
-        Assert.NotNull(plan.OwnedHandOverStatement);
-        Assert.Contains("urlsBuffer", plan.OwnedHandOverStatement);
-        Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
+        Assert.Equal("urlsBuffer", plan.OwnedHandOverHandle);
+        Assert.Equal(plan.PInvokeExpression, plan.OwnedHandOverHandle);
     }
 
     /// <summary>
@@ -377,9 +375,8 @@ public class CalleeArgumentOwnershipTests
 
         var plan = projection.GetParameterPlan("values");
 
-        Assert.NotNull(plan.OwnedHandOverStatement);
-        Assert.Contains("valuesBuffer", plan.OwnedHandOverStatement);
-        Assert.Contains(plan.PInvokeExpression, plan.OwnedHandOverStatement);
+        Assert.Equal("valuesBuffer", plan.OwnedHandOverHandle);
+        Assert.Equal(plan.PInvokeExpression, plan.OwnedHandOverHandle);
     }
 
     /// <summary>
@@ -406,9 +403,7 @@ public class CalleeArgumentOwnershipTests
         var plan = projection.GetParameterPlan("values");
 
         Assert.Equal("valuesBuffer", plan.PInvokeExpression);
-        Assert.NotNull(plan.OwnedHandOverStatement);
-        Assert.Contains("(valuesBuffer)", plan.OwnedHandOverStatement);
-        Assert.DoesNotContain("valuesValBuffer", plan.OwnedHandOverStatement);
+        Assert.Equal("valuesBuffer", plan.OwnedHandOverHandle);
     }
 
     /// <summary>
@@ -470,29 +465,26 @@ public class CalleeArgumentOwnershipTests
         var optionalOwner = Assert.Single(optional.SetupStatements.OfType<MarshalStatement.Using>());
         Assert.Equal(bareOwner.Name, optionalOwner.Name);
         Assert.Equal($"{bareOwner.Type}?", optionalOwner.Type);
-        Assert.Equal(bare.OwnedHandOverStatement, optional.OwnedHandOverStatement);
+        Assert.Equal(bare.OwnedHandOverHandle, optional.OwnedHandOverHandle);
         Assert.Contains($"IntPtr valuesBuffer = {bareOwner.Name}.Handle;",
             bare.SetupStatements.OfType<MarshalStatement.Line>().Select(l => l.Code));
     }
 
     /// <summary>
-    /// Every bridged shape mints its transfer through one helper, so the retain is the same
-    /// isa-dispatched, null-tolerant call whether the handle came from a leaf wrapper or a
-    /// container the plan built itself.
+    /// Every bridged shape names the handle the call passes, not a statement of its own, so the
+    /// render site mints one rollback-capable lease for all of them whether the handle came from a
+    /// leaf wrapper or a container the plan built itself.
     /// </summary>
     [Fact]
-    public void ObjCBridgedPlans_ShareOneHandOverShape()
+    public void ObjCBridgedPlans_HandOverTheHandleTheCallPasses()
     {
         var leaf = new ObjCBridgeableProjection("Foundation.NSUrl").GetParameterPlan("v");
         var array = new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true).GetParameterPlan("v");
 
-        Assert.Equal(
-            MarshallingHelpers.ObjCHandleHandOverStatement(leaf.PInvokeExpression),
-            leaf.OwnedHandOverStatement);
-        Assert.Equal(
-            MarshallingHelpers.ObjCHandleHandOverStatement(array.PInvokeExpression),
-            array.OwnedHandOverStatement);
-        Assert.Contains("UnknownObjectRetain", MarshallingHelpers.ObjCHandleHandOverStatement("h"));
+        Assert.Equal(leaf.PInvokeExpression, leaf.OwnedHandOverHandle);
+        Assert.Equal(array.PInvokeExpression, array.OwnedHandOverHandle);
+        Assert.DoesNotContain(leaf.SetupStatements.OfType<MarshalStatement.Line>(), l => l.Code.Contains("UnknownObjectRetain"));
+        Assert.DoesNotContain(array.SetupStatements.OfType<MarshalStatement.Line>(), l => l.Code.Contains("UnknownObjectRetain"));
     }
 
     [Theory]
@@ -670,7 +662,9 @@ public class CalleeArgumentOwnershipTests
     /// An ObjC-bridged argument is read as a bare handle off a managed object that keeps owning it,
     /// so it needs the same transfer — retained isa-dispatched, because an NSObject-rooted payload
     /// needs <c>objc_retain</c> rather than <c>swift_retain</c>. Exactly one: the pass-through walk
-    /// that covers plain Swift classes must not double up on the same argument.
+    /// that covers plain Swift classes must not double up on the same argument. The retain is a
+    /// lease (<c>OwnedArgument.ObjectTransfer</c>) declared before the call and completed after it,
+    /// so a later argument that throws first gives the count back instead of leaking it.
     /// </summary>
     [Fact]
     public void DirectInitializer_ObjCBridgedArgument_IsHandedOverExactlyOnce()
@@ -688,12 +682,45 @@ public class CalleeArgumentOwnershipTests
         // ObjC-bridged .Handle arguments travel as IntPtr, not the SafeHandle pass-through
         // carrier owned by ClassTransfer. Their marshalling arm must hand over exactly one +1
         // before native entry, without a second lease/complete pair from the pass-through walk.
-        Assert.Equal(1, CountOccurrences(csOutput, "UnknownObjectRetain"));
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedArgument.ObjectTransfer("));
+        Assert.DoesNotContain("UnknownObjectRetain", csOutput);
         Assert.DoesNotContain("OwnedArgument.ClassTransfer", csOutput);
-        Assert.DoesNotContain("OwnedTransfer.Complete", csOutput);
-        int retain = csOutput.IndexOf("UnknownObjectRetain");
-        int invocation = csOutput.IndexOf("PInvoke_init");
-        Assert.True(invocation > retain, "The bridged object's +1 must exist before native entry.");
+        Assert.Equal(1, CountOccurrences(csOutput, "OwnedTransfer.Complete()"));
+        int lease = csOutput.IndexOf("using var bridgedOwnedTransfer = new global::Swift.Runtime.OwnedArgument.ObjectTransfer(", StringComparison.Ordinal);
+        int invocation = csOutput.IndexOf("PInvoke_init", lease < 0 ? 0 : lease, StringComparison.Ordinal);
+        int complete = csOutput.IndexOf("bridgedOwnedTransfer.Complete()", StringComparison.Ordinal);
+        Assert.True(lease >= 0, "the bridged object's +1 is taken through a lease");
+        Assert.True(invocation > lease, "The bridged object's +1 must exist before native entry.");
+        Assert.True(complete > invocation, "the lease is completed only once the callee has consumed the count");
+    }
+
+    /// <summary>
+    /// A consumed <c>any Error</c> crosses as its box reference, read off an error object C# keeps
+    /// owning, so the callee needs a +1 of its own. The retain is a lease declared before the call
+    /// and completed after it: a later argument that throws first gives the count back. A bare
+    /// retain written into the call arguments leaks it instead.
+    /// </summary>
+    [Fact]
+    public void DirectInitializer_ErrorArgument_IsHandedOverThroughARollbackLease()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+
+        var (csOutput, _) = EmitConstructor(
+            CreateEmissionConstructor(parentDecl, moduleDecl, NestedFrozenArg(moduleDecl),
+                CreateEmissionArg("failure", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }), moduleDecl)),
+            typeDatabase);
+
+        Assert.Contains("CallConvSwift", csOutput);
+        Assert.DoesNotContain("UnknownObjectRetain", csOutput);
+        int lease = csOutput.IndexOf("using var failureErrorTransfer = new global::Swift.Runtime.OwnedArgument.ObjectTransfer(", StringComparison.Ordinal);
+        Assert.True(lease >= 0, "the consumed error's +1 is taken through a lease");
+        int call = csOutput.IndexOf("PInvoke_init", lease, StringComparison.Ordinal);
+        Assert.True(call > lease, "the lease exists before native entry");
+        Assert.Contains("failureErrorTransfer.Pointer", csOutput.Substring(call, csOutput.IndexOf(';', call) - call));
+        int complete = csOutput.IndexOf("failureErrorTransfer.Complete();", StringComparison.Ordinal);
+        Assert.True(complete > call, "the lease is completed only once the callee has consumed the count");
     }
 
     /// <summary>

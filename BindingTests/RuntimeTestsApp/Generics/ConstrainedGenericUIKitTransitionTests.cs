@@ -107,5 +107,14 @@ public class ConstrainedGenericUIKitTransitionTests : TestBase
         AssertEqual((nuint)(ulong)(UIControlState.Highlighted | UIControlState.Disabled),
             box.RawValue(UIControlState.Highlighted | UIControlState.Disabled), "rawValue(of:) reads the option set C# passed");
     }
+
+    public void TestControlEventOptionSetRoundTrip()
+    {
+        using var box = MakeBox(1);
+        AssertEqual(UIControlEvent.TouchUpInside, box.Events(valueChanged: false), "events(valueChanged: false) is .touchUpInside");
+        AssertEqual(UIControlEvent.TouchUpInside | UIControlEvent.ValueChanged, box.Events(valueChanged: true), "events(valueChanged: true) adds .valueChanged");
+        AssertEqual((nuint)(ulong)(UIControlEvent.TouchDown | UIControlEvent.EditingChanged),
+            box.RawEventValue(UIControlEvent.TouchDown | UIControlEvent.EditingChanged), "rawEventValue(of:) reads the option set C# passed");
+    }
 }
 #endif

@@ -22,13 +22,16 @@ public record MarshalPlan
     public List<(string Type, string Name)> UsingDeclarations { get; init; } = new();
 
     /// <summary>
-    /// A statement that hands this parameter's value to the callee at +1, emitted after
-    /// <see cref="SetupStatements"/> and only where the callee's Swift lowering takes the argument
-    /// <c>@owned</c> — an initializer's value parameters and every parameter of a setter, reached
-    /// without an intervening Swift-source frame. Null on plans whose value carries no reference to
-    /// transfer, and ignored on every borrowing call, so a plan can declare it unconditionally.
+    /// The object-handle local (declared by <see cref="SetupStatements"/>) that is handed to the
+    /// callee at +1, only where the callee's Swift lowering takes the argument <c>@owned</c> — an
+    /// initializer's value parameters and every parameter of a setter, reached without an
+    /// intervening Swift-source frame. The handle is read off an object the caller keeps owning, so
+    /// the render site retains it through a rollback-capable lease
+    /// (<c>OwnedArgument.ObjectTransfer</c>, isa-dispatched and null-tolerant) that a throw before
+    /// native entry releases again. Null on plans whose value carries no reference to transfer, and
+    /// ignored on every borrowing call, so a plan can declare it unconditionally.
     /// </summary>
-    public string? OwnedHandOverStatement { get; init; }
+    public string? OwnedHandOverHandle { get; init; }
 
     /// <summary>
     /// A value-witness copy provisionally owned until the consuming native call returns.

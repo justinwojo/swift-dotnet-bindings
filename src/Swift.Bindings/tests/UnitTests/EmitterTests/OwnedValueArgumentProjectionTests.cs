@@ -27,7 +27,7 @@ public class OwnedValueArgumentProjectionTests
         };
         var plan = projection.GetParameterPlan("value");
         Assert.Equal(new OwnedValueArgument(carrier, payload), plan.OwnedValueArgument);
-        Assert.Null(plan.OwnedHandOverStatement);
+        Assert.Null(plan.OwnedHandOverHandle);
         // The type that describes the copy is the owning carrier, never its projected C# type
         // (string/list/nullable) or a borrowed ABI Buffer. Setup retains its own normal disposal.
         Assert.NotEmpty(plan.SetupStatements);

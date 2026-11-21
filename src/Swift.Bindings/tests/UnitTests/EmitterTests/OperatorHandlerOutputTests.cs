@@ -1295,13 +1295,24 @@ public class OperatorHandlerOutputTests
         var operands = System.Text.RegularExpressions.Regex.Match(output,
             @"operator \+\(TestModule\.OperatorValue (\w+), TestModule\.OperatorValue (\w+)\)");
         Assert.True(operands.Success);
-        var handleLines = output.Split('\n').Select(line => line.Trim())
-            .Where(line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.Contains("GetLiveObjCArgumentHandle(")).ToList();
-        Assert.Equal(2, handleLines.Count);
+        var lines = output.Split('\n').Select(line => line.Trim()).ToList();
         string Live(string operand) => $"global::Swift.Runtime.SwiftHandleGuard.GetLiveObjCArgumentHandle({operand}, \"{operand}\")";
-        Assert.Contains(handleLines, line => line.EndsWith(
-            $"= global::Swift.Runtime.Arc.UnknownObjectRetain({Live(operands.Groups[1].Value)});", StringComparison.Ordinal));
-        Assert.Contains(handleLines, line => line.EndsWith($"= {Live(operands.Groups[2].Value)};", StringComparison.Ordinal));
+        var consumed = operands.Groups[1].Value;
+        var borrowed = operands.Groups[2].Value;
+
+        // The consumed operand's +1 is a lease taken before the call and completed after it, so a
+        // throw before native entry gives the count back.
+        Assert.DoesNotContain("UnknownObjectRetain", output);
+        var leaseLine = Assert.Single(lines, line => line.Contains("OwnedArgument.ObjectTransfer("));
+        Assert.EndsWith($"= new global::Swift.Runtime.OwnedArgument.ObjectTransfer({Live(consumed)}, {consumed});", leaseLine);
+        var leaseName = leaseLine.Split(' ')[2];
+        var consumedHandle = Assert.Single(lines, line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.EndsWith($"= {leaseName}.Pointer;", StringComparison.Ordinal));
+        var borrowedHandle = Assert.Single(lines, line => line.StartsWith("IntPtr ", StringComparison.Ordinal) && line.Contains("GetLiveObjCArgumentHandle("));
+        Assert.EndsWith($"= {Live(borrowed)};", borrowedHandle);
+
+        int call = output.IndexOf("PInvoke_", output.IndexOf(consumedHandle, StringComparison.Ordinal), StringComparison.Ordinal);
+        int complete = output.IndexOf($"{leaseName}.Complete();", StringComparison.Ordinal);
+        Assert.True(call >= 0 && complete > call, "the lease is completed after the call");
     }
 
     /// <summary>
