@@ -412,19 +412,19 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027InternalCarrier.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027InternalCarrier.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027InternalContractConformer.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027InternalContractConformer.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027InternalFrozenOperand.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027InternalFrozenOperand.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
       "count": 1
     },
     {
@@ -436,7 +436,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027InternalHolder.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027InternalHolder.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
       "count": 1
     },
     {
@@ -490,7 +490,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027NativeThunkReceiver.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027NativeThunkReceiver.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
       "count": 1
     },
     {
@@ -556,13 +556,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027PublicHostWithInternalMembers.makeCarrier\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027PublicHostWithInternalMembers.makeCarrier\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the member is not projected as public API.)",
       "count": 1
     },
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027PublicHostWithInternalMembers.registerCarrier\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027PublicHostWithInternalMembers.registerCarrier\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the member is not projected as public API.)",
       "count": 1
     },
     {
@@ -664,7 +664,13 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027ShortNameCollisionFixture.Data.init\u0027 \u2014 member signature reaches an @usableFromInline internal (or otherwise-suppressed) type (Signature reaches a @usableFromInline internal (or otherwise-suppressed) type; Swift wrapper cannot expose it.)",
+      "reason": "method \u0027ShortNameCollisionFixture.Data.init\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the initializer is not projected as public API.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "method \u0027ShortNameCollisionFixture.internalMarker\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the member is not projected as public API.)",
       "count": 1
     },
     {
@@ -940,7 +946,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027makeCarrier\u0027 \u2014 ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "reason": "method \u0027makeCarrier\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the module-level function is not projected as public API.)",
       "count": 1
     },
     {
@@ -1036,7 +1042,7 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
-      "reason": "method \u0027readCarrier\u0027 \u2014 ModuleInternal (Internal module-level function suppressed from bindings.)",
+      "reason": "method \u0027readCarrier\u0027 \u2014 ModuleInternal (Not public in the module\u0027s public Swift interface (internal, @usableFromInline internal or unavailable): the module-level function is not projected as public API.)",
       "count": 1
     },
     {
