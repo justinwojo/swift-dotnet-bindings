@@ -213,8 +213,9 @@ namespace BindingsGeneration
                     }
                     else
                     {
-                        var existentialType = _env.ExistentialHandler.GetPInvokeExistentialType(protocolList);
-                        SetReturnType(existentialType);
+                        // What Swift returns: the error box or a class-bound pair in registers,
+                        // any other existential through the indirect-result register.
+                        SetReturnType(_env.ExistentialHandler.GetSwiftConventionExistentialCarrier(protocolList));
                         return;
                     }
                 }
@@ -714,10 +715,11 @@ namespace BindingsGeneration
                             // the callee a pointer to the caller's buffer where it expects the
                             // object itself. The wrapper arm above is unaffected — it passes a
                             // pointer to the container by construction.
+                            // `any Error` is not a container on the wire either: Swift boxes it and
+                            // passes the one reference to the box.
                             bool classBoundArity1 = _env.ExistentialHandler.IsClassBoundArity1Existential(protocolList);
-                            var wireContainerType = classBoundArity1
-                                ? "Swift.Runtime.ClassExistentialContainer1"
-                                : containerType;
+                            bool boxedError = ExistentialHandler.IsBoxedErrorExistential(protocolList);
+                            var wireContainerType = _env.ExistentialHandler.GetSwiftConventionExistentialCarrier(protocolList);
                             AddParameter(
                                 new MarshalledType.Existential(wireContainerType, publicType)
                                 {
@@ -738,6 +740,7 @@ namespace BindingsGeneration
                                     // opaque value witness over words the class layout never fills;
                                     // the renderer narrows that container to the pair above.
                                     ClassBoundArity1 = classBoundArity1,
+                                    BoxedError = boxedError,
                                 },
                                 csName);
                         }

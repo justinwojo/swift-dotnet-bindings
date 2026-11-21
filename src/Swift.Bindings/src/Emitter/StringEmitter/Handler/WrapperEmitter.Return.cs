@@ -949,7 +949,13 @@ namespace BindingsGeneration
                 // Well-known protocol types (Swift.Error → AnyError) use direct runtime type
                 if (_env.ExistentialHandler.TryGetWellKnownProtocolType(protocolList, out var wellKnownReturnType))
                 {
-                    csWriter.WriteLine($"return new {wellKnownReturnType}({ReturnLocalName}{ExistentialHandler.WellKnownOwnedTransferArg(wellKnownReturnType)});");
+                    // A direct call returns the boxed error itself (the import's carrier is the box,
+                    // see GetSwiftConventionExistentialCarrier); the wrapper adopts it as the first
+                    // word of its container, as the optional `(any Error)?` return does.
+                    var returnedContainer = IsDirectBoxedErrorReturn(returnArg)
+                        ? $"new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {ReturnLocalName} }}"
+                        : ReturnLocalName;
+                    csWriter.WriteLine($"return new {wellKnownReturnType}({returnedContainer}{ExistentialHandler.WellKnownOwnedTransferArg(wellKnownReturnType)});");
                     return;
                 }
 
@@ -1085,6 +1091,17 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when the import returns a supported <c>any Error</c> on the Swift convention, which
+        /// <see cref="PInvokeEmitter"/> declares as the box rather than a container.
+        /// </summary>
+        private bool IsDirectBoxedErrorReturn(ArgumentDecl returnArg)
+            => !_env.MethodDecl.UsesCdeclWrapper
+               && _env.ExistentialHandler.IsExistential(returnArg.SwiftTypeSpec)
+               && _env.ExistentialHandler.ToProtocolListTypeSpec(returnArg.SwiftTypeSpec) is { } protocolList
+               && _env.ExistentialHandler.IsSupportedExistential(protocolList)
+               && ExistentialHandler.IsBoxedErrorExistential(protocolList);
+
+        /// <summary>
         /// Determines the return strategy based on method characteristics.
         /// </summary>
         private ReturnStrategy DetermineReturnStrategy()
@@ -1122,6 +1139,12 @@ namespace BindingsGeneration
                 ReturnStrategy.OutBuffer => "_optRetPtr",
                 _ => ReturnLocalName
             };
+
+            // A direct call returns a boxed `any Error` as the box itself (the import's carrier, see
+            // ExistentialHandler.GetSwiftConventionExistentialCarrier); the projection adopts the
+            // container whose first word it is.
+            if (strategy == ReturnStrategy.Direct && !usesCdecl && IsDirectBoxedErrorReturn(returnArg))
+                resultName = $"new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultName} }}";
 
             // A few projections declare a body local of their own with a fixed spelling rather than
             // deriving it from the name they were handed, so a parameter of this member could shadow

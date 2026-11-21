@@ -3,6 +3,7 @@
 
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
 
@@ -1773,6 +1774,30 @@ public class PropertyHandlerTests
         Assert.Contains("GC.KeepAlive(__keepAlive)", csOutput);
         // Setter passes decomposed args — NOT simple pass-through
         Assert.DoesNotContain("set => DataCache_Set(value)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_OptionalErrorProperty_DecomposedSetterNamesOnlyItsOwnParameters()
+    {
+        // The setter helper behind a decomposed optional takes (payload, hasValue), not the property's
+        // value: the public setter builds the optional and keeps its own operands alive, so nothing
+        // in the helper may name the `value` of the Swift accessor it does not declare.
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings"; // Enable xcframework mode
+
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("FailureHolder", moduleDecl);
+        var optionalErrorType = new NamedTypeSpec(
+            "Swift.Optional",
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "failure", optionalErrorType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        var helper = Regex.Match(csOutput, @"void Failure_Set\(\s*(global::System\.)?IntPtr payload,\s*bool hasValue\)(?<body>.*?)\bpartial void PInvoke_failure_Set", RegexOptions.Singleline);
+        Assert.True(helper.Success, "the decomposed setter helper is emitted");
+        Assert.Contains("PInvoke_failure_Set", helper.Groups["body"].Value);
+        Assert.DoesNotMatch(@"\bvalue\b", helper.Groups["body"].Value);
     }
 
     [Theory]

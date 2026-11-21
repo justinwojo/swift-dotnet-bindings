@@ -1159,6 +1159,9 @@ namespace BindingsGeneration
                 return true;
             }
 
+            if (projection is OptionalProjection && _env.ExistentialHandler.IsOptionalExistential(argumentDecl.SwiftTypeSpec))
+                _borrowedOptionalExistentialNames.Add(csName);
+
             var plan = projection.GetParameterPlan(csName);
 
             // @_cdecl wrapper: collection params (Array, Dictionary, Set) pass a pointer to the
@@ -1497,6 +1500,7 @@ namespace BindingsGeneration
                         var errorMintLib = _env.TypeDatabase.AsyncLibraryName
                             ?? _env.TypeDatabase.GetLibraryPath(moduleName);
                         SwiftErrorMintEmitter.EmitPInvokeIfNeeded(csWriter, moduleName, errorMintLib, _env, _emissionContext);
+                        RecordSwiftCallbackImport(csWriter, argumentDecl, useCdecl);
                         ClosureEmitter.EmitThrowingClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
                         ClosureEmitter.EmitThrowingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, moduleName, useCdecl, useBoxedContext);
                     }
@@ -1506,6 +1510,7 @@ namespace BindingsGeneration
                         // A non-cdecl escaping closure with an address-only return reaches this branch
                         // with a boxed context (see shared gate above); Swift passes the result buffer
                         // in its indirect-result register.
+                        RecordSwiftCallbackImport(csWriter, argumentDecl, useCdecl);
                         ClosureEmitter.EmitIndirectReturnCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
                         ClosureEmitter.EmitIndirectReturnCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl, useBoxedContext);
                     }
@@ -1516,12 +1521,28 @@ namespace BindingsGeneration
                         // so Swift's release of the closure deinits the box and frees the
                         // wrapped GCHandle. The trampoline must unbox to recover the GCHandle
                         // (useBoxedContext from the shared gate above).
+                        RecordSwiftCallbackImport(csWriter, argumentDecl, useCdecl);
                         ClosureEmitter.EmitClosureCallbackPointer(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl);
                         ClosureEmitter.EmitEscapingClosureCallback(csWriter, _env.MethodDecl.Name, argumentDecl.Name, closureTypeSpec, _env.ClosureHandler, _env.EmissionSymbol, useCdecl, useBoxedContext);
                     }
                     csWriter.WriteLine();
                 }
             }
+        }
+
+        /// <summary>
+        /// Records that this member's import hands the closure of <paramref name="argumentDecl"/> to Swift
+        /// as a Swift-convention callback, so a contradicted plan on the callback withdraws this member
+        /// (<see cref="SwiftPlanContradictions"/>). Recorded where the callback's own record goes
+        /// (<c>ClosureEmitter.RecordSwiftCallback</c>); a C-convention callback is not a Swift transition.
+        /// </summary>
+        private void RecordSwiftCallbackImport(CSharpWriter csWriter, ArgumentDecl argumentDecl, bool useCdecl)
+        {
+            if (useCdecl || _env.ClosureHandler.EmissionContext is not { } emissionContext)
+                return;
+            emissionContext.RecordCallbackImport(
+                ClosureHandler.GetCallbackFunctionName(_env.MethodDecl.Name, argumentDecl.Name, _env.EmissionSymbol),
+                CurrentImportKey(csWriter));
         }
 
         /// <summary>

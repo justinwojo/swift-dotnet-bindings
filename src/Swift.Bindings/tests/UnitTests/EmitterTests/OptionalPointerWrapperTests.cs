@@ -699,6 +699,69 @@ public class OptionalPointerWrapperTests
     }
 
     [Fact]
+    public void Emit_OptbufReturningAnyError_ImportReturnsTheErrorBox()
+    {
+        // Swift returns a boxed `any Error` as one reference in the first result register. The
+        // `@_silgen_name` wrapper keeps that lowering, so an import declaring the 40-byte opaque
+        // container takes its result through an indirect-result register the callee never writes.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("makeError", parentDecl, moduleDecl,
+            returnType: new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("message", optStringType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("_optbuf", swiftOutput);
+        Assert.Matches(@"static (extern |partial )?(global::System\.)?IntPtr PInvoke_makeError\w*\(", csOutput);
+        Assert.DoesNotMatch(@"ExistentialContainer1 PInvoke_makeError", csOutput);
+        Assert.DoesNotContain("SwiftIndirectResult", csOutput);
+        Assert.Matches(@"new (global::)?Swift\.Runtime\.ExistentialContainer1 \{ Payload0 = \w+ \}", csOutput);
+    }
+
+    [Fact]
+    public void Emit_OptbufTakingAnyError_PassesTheErrorBoxBorrowed()
+    {
+        // Swift passes a boxed `any Error` as the one box reference, guaranteed (borrowed): the
+        // argument is the container's first payload word, not the address of a managed copy, and the
+        // optbuf wrapper borrows it, so the call must not retain on the callee's behalf. The error
+        // object owns that box, so it stays reachable until the call has returned.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Foo", moduleDecl);
+
+        var optStringType = new NamedTypeSpec("Swift.Optional");
+        optStringType.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+
+        var method = CreateMethodDecl("code", parentDecl, moduleDecl,
+            returnType: new NamedTypeSpec("Swift.Int"), isAsync: false, throws: false,
+            methodType: MethodType.Static);
+        method.CSSignature.Add(CreateArgument("error", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }), moduleDecl));
+        method.CSSignature.Add(CreateArgument("message", optStringType, moduleDecl));
+        var optErrorType = new NamedTypeSpec("Swift.Optional");
+        optErrorType.GenericParameters.Add(new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") }));
+        method.CSSignature.Add(CreateArgument("underlying", optErrorType, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitMethod(method, typeDatabase);
+
+        Assert.Contains("_optbuf", swiftOutput);
+        Assert.Matches(@"PInvoke_code\w*\(\s*(global::System\.)?IntPtr error", csOutput);
+        Assert.Contains("GetExistentialContainer().Payload0", csOutput);
+        Assert.DoesNotContain("UnknownObjectRetain", csOutput);
+        Assert.DoesNotMatch(@"static (extern |partial )?\S+ PInvoke_code\w*\([^)]*ExistentialContainer1", csOutput);
+        Assert.Matches(@"PInvoke_code\w*\([^;]*Payload0[^;]*;\s*(global::)?System\.GC\.KeepAlive\(error\);", csOutput);
+        // The optional error is copied into the optional buffer without a retain, so it too must
+        // outlive the call.
+        Assert.Matches(@"PInvoke_code\w*\([^;]*;(\s*(global::)?System\.GC\.KeepAlive\(\w+\);)*\s*(global::)?System\.GC\.KeepAlive\(underlying\);", csOutput);
+    }
+
+    [Fact]
     public void Emit_InstanceMethod_SwiftWrapperHasSelfParam()
     {
         var typeDatabase = CreateTypeDatabase();

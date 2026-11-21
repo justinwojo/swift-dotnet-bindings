@@ -258,8 +258,9 @@ public class DocCommentPlacementTests : IDisposable
     /// <list type="bullet">
     /// <item><c>func shift(dx: Double, dy: Double) -&gt; Double</c> describes <c>dx</c> only, so
     /// <c>dy</c> needs an empty tag of its own (CS1573).</item>
-    /// <item><c>init?(seed: Int)</c> on the struct describes <c>seed</c> and has no
-    /// <c>Returns:</c>, yet its <c>TryCreate</c> appends an <c>out</c> result that needs a tag.</item>
+    /// <item><c>init?(seed: Int)</c> on the resilient struct describes <c>seed</c> and has no
+    /// <c>Returns:</c>, yet its <c>TryCreate</c> appends an <c>out</c> result that needs a tag. Its
+    /// optional result is returned by address, as the direct import declares.</item>
     /// <item><c>init?(result: Int)</c> on the class, a cdecl factory: the Swift parameter is
     /// already called <c>result</c>, so the <c>out</c> parameter is renamed, and the
     /// <c>Returns:</c> text must describe the renamed one rather than the Swift parameter.</item>
@@ -281,13 +282,14 @@ public class DocCommentPlacementTests : IDisposable
         };
         point.Methods.Add(shift);
 
-        var seeded = FailableInit(point, moduleDecl, "seed", intSpec, cdecl: false);
+        var box = moduleDecl.Types.OfType<StructDecl>().Single(t => t.Name == "Box");
+        var seeded = FailableInit(box, moduleDecl, "seed", intSpec, cdecl: false);
         seeded.Documentation = new DocComment
         {
             Summary = "Partially documented failable init seed.",
             Parameters = new Dictionary<string, string> { { "seed", "The seed value." } },
         };
-        point.Methods.Add(seeded);
+        box.Methods.Add(seeded);
 
         var registry = moduleDecl.Types.OfType<ClassDecl>().Single(t => t.Name == "Registry");
         var named = FailableInit(registry, moduleDecl, "result", intSpec, cdecl: true);
@@ -326,6 +328,11 @@ public class DocCommentPlacementTests : IDisposable
             parameters: new[] { TestDecls.Param(label, type) },
             returnType: new NamedTypeSpec(parent.SwiftTypeName.ToString()), module: moduleDecl.Name)
             with { ParentDecl = parent, ModuleDecl = moduleDecl, IsFailable = true };
+        // A direct Swift-convention import is planned against its symbol, so it carries the one
+        // `init?(label: Int)` really has: a placeholder names a different callee, whose lowering
+        // contradicts this import. A wrapper import calls the wrapper's own symbol instead.
+        if (!cdecl)
+            init = init with { MangledName = $"$s{moduleDecl.Name.Length}{moduleDecl.Name}{parent.Name.Length}{parent.Name}V{label.Length}{label}ACSgSi_tcfC" };
         init.UsesCdeclConstructorWrapper = cdecl;
         foreach (var arg in init.CSSignature)
             arg.ModuleDecl = moduleDecl;

@@ -140,6 +140,12 @@ namespace BindingsGeneration
         // Populated by TryEmitParameterConversionViaProjection, consumed by EmitObjCExistentialConformerKeepAlive.
         private readonly List<string> _objcConformerKeepAliveNames = new();
 
+        // Optional existential arguments this body converts into an optional buffer. The buffer holds a
+        // copy of the argument's container taken without a retain, so the argument object is pinned until
+        // the call returns. Populated by TryEmitParameterConversionViaProjection, consumed by
+        // EmitBorrowedExistentialArgumentKeepAlive.
+        private readonly List<string> _borrowedOptionalExistentialNames = new();
+
         // Counts currently-open raw-buffer `fixed (...)` blocks. Every call to
         // EmitRawBufferFixedStart increments by the number of UnsafeRawBufferPointer
         // parameters; the paired EmitRawBufferFixedEnd decrements by the same count.
@@ -1378,8 +1384,20 @@ namespace BindingsGeneration
                 _env.MethodDecl,
                 SkipReason.NonBlittableCallConvSwift,
                 skipDetail);
+            // The rolled-back body was the import's only call, so a contradicted plan on it reaches
+            // nothing: named here with the identity the import itself was declared under.
+            _emissionContext.RecordOrphanedImport(CurrentImportKey(csWriter));
             return true;
         }
+
+        /// <summary>
+        /// This member's import as its <see cref="AbiCallPlan"/> will name it: the entry point after
+        /// any wrapper suffix or dispatch thunk, the P/Invoke name and the plan owner.
+        /// </summary>
+        private SwiftPlanContradictions.ImportKey CurrentImportKey(CSharpWriter csWriter) => new(
+            PInvokeEmitter.ComputeEntryPoint(_env).entryPoint,
+            NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl),
+            PInvokeEmitter.ResolvePlanOwner(csWriter, _env.MethodDecl));
 
         /// <summary>
         /// Emits the declarations for allocations.
@@ -1708,6 +1726,22 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"global::System.GC.KeepAlive({name}KeepAlive);");
             }
+            EmitBorrowedExistentialArgumentKeepAlive(csWriter);
+        }
+
+        /// <summary>
+        /// Pins each existential argument until the P/Invoke returns. Its carrier is read out of the
+        /// argument object (the container, a boxed error's box pointer, or an optional's buffer holding a
+        /// copy of the container), so the callee borrows what that object owns; once the read is done
+        /// nothing else roots the object, and its finalizer would release the payload while Swift is
+        /// still using it.
+        /// </summary>
+        private void EmitBorrowedExistentialArgumentKeepAlive(CSharpWriter csWriter)
+        {
+            foreach (var parameter in _pInvokeSignature.Parameters.Where(p => p.Type is MarshalledType.Existential))
+                csWriter.WriteLine($"global::System.GC.KeepAlive({parameter.Name});");
+            foreach (var name in _borrowedOptionalExistentialNames)
+                csWriter.WriteLine($"global::System.GC.KeepAlive({name});");
         }
 
         /// <summary>

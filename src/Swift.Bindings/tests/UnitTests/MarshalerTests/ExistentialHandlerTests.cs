@@ -1634,6 +1634,55 @@ public class ExistentialHandlerTests
 
     #endregion
 
+    #region GetSwiftConventionExistentialCarrier Tests
+
+    // What a Swift-convention import declares for an existential taken or returned by value must be
+    // what Swift's lowering puts in the registers. Declaring the 40-byte opaque container for a boxed
+    // error or a class-bound protocol moves the value through an address the callee never reads.
+
+    [Fact]
+    public void SwiftConventionCarrier_AnyError_IsTheErrorBox()
+    {
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Error") });
+
+        Assert.True(ExistentialHandler.IsBoxedErrorExistential(protocolList));
+        Assert.Equal("IntPtr", _handler.GetSwiftConventionExistentialCarrier(protocolList));
+    }
+
+    [Fact]
+    public void SwiftConventionCarrier_ClassBoundProtocol_IsTheTwoWordPair()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.BoundProto", TypeRecordKind.Protocol,
+            TypeRecordFlags.Frozen | TypeRecordFlags.ClassBound);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.BoundProto") });
+
+        Assert.Equal("Swift.Runtime.ClassExistentialContainer1", handler.GetSwiftConventionExistentialCarrier(protocolList));
+    }
+
+    [Fact]
+    public void SwiftConventionCarrier_OpaqueProtocol_IsTheContainer()
+    {
+        var db = new ClassBoundCompositionMockDatabase();
+        db.Register("TestModule.OpaqueProto", TypeRecordKind.Protocol);
+        var handler = new ExistentialHandler(db);
+        var protocolList = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.OpaqueProto") });
+
+        Assert.False(ExistentialHandler.IsBoxedErrorExistential(protocolList));
+        Assert.Equal(handler.GetPInvokeExistentialType(protocolList), handler.GetSwiftConventionExistentialCarrier(protocolList));
+    }
+
+    [Fact]
+    public void BoxedError_IsOnlyTheStandardLibrarysError()
+    {
+        // A module's own protocol named Error is an ordinary opaque existential.
+        Assert.False(ExistentialHandler.IsBoxedErrorExistential(
+            new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.Error") })));
+    }
+
+    #endregion
+
     #region IsClassBoundArity1Existential Tests
 
     // This predicate is the single decision point that routes every class-bound existential
