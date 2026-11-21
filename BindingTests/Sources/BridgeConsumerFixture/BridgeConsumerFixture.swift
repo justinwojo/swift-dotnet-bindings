@@ -123,6 +123,53 @@ public final class BridgeAccount {
     }
 }
 
+// MARK: - An ordinary class
+
+/// A spending limit a ledger hands out.
+public protocol BridgeLimit {
+    /// Whether `amount` fits under the limit.
+    func allows(_ amount: Int64) -> Bool
+}
+
+/// The limit a ledger's balance sets.
+public struct BridgeCeiling: BridgeLimit {
+    public let limit: Int64
+
+    public init(limit: Int64) {
+        self.limit = limit
+    }
+
+    public func allows(_ amount: Int64) -> Bool {
+        amount <= limit
+    }
+}
+
+/// An ordinary class, not isolated to any actor. Its `ceiling()` returns an optional existential,
+/// which Swift returns indirectly: the binding calls the method's symbol directly with the result
+/// buffer and self in the self register (no native thunk carries that shape), so on Mono and the
+/// interpreter the call works only through its bridge. `record` and `balance` reach Swift through
+/// native thunks and need none.
+public final class BridgeLedger {
+    var entries: [Int64] = []
+
+    public init() {}
+
+    /// Appends one entry.
+    public func record(_ value: Int64) {
+        entries.append(value)
+    }
+
+    /// The sum of every recorded entry.
+    public func balance() -> Int64 {
+        entries.reduce(0, +)
+    }
+
+    /// The limit the balance sets, or nil while nothing is recorded.
+    public func ceiling() -> (any BridgeLimit)? {
+        entries.isEmpty ? nil : BridgeCeiling(limit: balance())
+    }
+}
+
 // MARK: - Array subscript getter
 
 public final class BridgeItem {

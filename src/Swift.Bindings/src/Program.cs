@@ -2121,7 +2121,7 @@ namespace BindingsGeneration
 
             // The module's lowering receipt is read from the IR of the wrapper each compile pass builds.
             // A relink with the bridges replaces it with a verification of the passes against that receipt.
-            var loweringPlatform = (platformStr ?? "ios").ToLowerInvariant();
+            var loweringPlatform = BindingsGeneratorCommand.LoweringPlatform(platformInfo);
             SwiftWrapperLoweringEvidence? lowering = null;
             string? loweringNotCollected = null;
             if (loweringReceiptPath != null)
