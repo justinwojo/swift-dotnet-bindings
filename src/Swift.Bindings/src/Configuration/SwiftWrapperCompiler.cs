@@ -1904,11 +1904,18 @@ namespace BindingsGeneration
             // "framework not found". CollectTransitiveFrameworkNames verifies the magic bytes
             // (not just file presence) and de-duplicates against already-seen names; the clang
             // thunk-only link path uses the same helper for parity.
+            var dependencyScanPaths = transitiveScanSearchPaths ?? additionalFrameworkSearchPaths;
             foreach (var frameworkName in
-                CollectTransitiveFrameworkNames(transitiveScanSearchPaths ?? additionalFrameworkSearchPaths, seenLinkedFrameworks))
+                CollectTransitiveFrameworkNames(dependencyScanPaths, seenLinkedFrameworks))
             {
                 seenLinkedFrameworks.Add(frameworkName);
                 transitiveFrameworkLinkerFlags.Append($"-Xlinker -framework -Xlinker {frameworkName} ");
+            }
+            // A library-type dependency slice (a bare .a or .dylib, not a .framework) has nothing a -F can
+            // find, so its binary goes on the link line by path (DependencyLinkInputs).
+            foreach (var libraryBinary in DependencyLinkInputs.CollectLibraryBinaries(dependencyScanPaths))
+            {
+                transitiveFrameworkLinkerFlags.Append($"-Xlinker \"{libraryBinary}\" ");
             }
 
             // Pre-compiled shadow module paths for collision resolution: each is a shadow
@@ -1972,9 +1979,9 @@ namespace BindingsGeneration
                         explicitLinkFlags.Append($"-Xlinker -framework -Xlinker {fw.Trim()} ");
                 }
             }
+            var seenLinkedLibraries = new HashSet<string>(StringComparer.Ordinal);
             if (linkLibraries != null)
             {
-                var seenLinkedLibraries = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var lib in linkLibraries)
                 {
                     if (string.IsNullOrWhiteSpace(lib)) continue;
@@ -1986,6 +1993,19 @@ namespace BindingsGeneration
                     if (name.Length > 0 && seenLinkedLibraries.Add(name))
                         explicitLinkFlags.Append($"-l{name} ");
                 }
+            }
+            // The system frameworks and libraries a static dependency archive's module map declares: the
+            // autolinking clang would have done had the wrapper imported that module (DependencyLinkInputs).
+            var dependencyAutolinks = DependencyLinkInputs.CollectStaticArchiveAutolinks(dependencyScanPaths, sdkPath, targetTriple);
+            foreach (var fw in dependencyAutolinks.Frameworks)
+            {
+                if (seenLinkedFrameworks.Add(fw))
+                    explicitLinkFlags.Append($"-Xlinker -framework -Xlinker {fw} ");
+            }
+            foreach (var lib in dependencyAutolinks.Libraries)
+            {
+                if (seenLinkedLibraries.Add(lib))
+                    explicitLinkFlags.Append($"-l{lib} ");
             }
 
             // The frontend flags: everything that decides how swiftc reads and lowers the wrapper. The
@@ -2554,6 +2574,9 @@ namespace BindingsGeneration
             }
             return result;
         }
+
+        /// <summary>Whether <paramref name="path"/> is a Mach-O image or an <c>ar</c> archive a linker can take.</summary>
+        internal static bool IsLinkableBinary(string path) => IsLinkableFrameworkBinary(path);
 
         private static bool IsLinkableFrameworkBinary(string path)
         {

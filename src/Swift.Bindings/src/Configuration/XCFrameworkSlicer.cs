@@ -346,6 +346,11 @@ namespace BindingsGeneration
                 AppendKey(doc, dict, "BinaryPath");
                 AppendString(doc, dict, slice.BinaryPath);
             }
+            if (!string.IsNullOrEmpty(slice.HeadersPath))
+            {
+                AppendKey(doc, dict, "HeadersPath");
+                AppendString(doc, dict, slice.HeadersPath);
+            }
             AppendKey(doc, dict, "LibraryIdentifier");
             AppendString(doc, dict, slice.LibraryIdentifier);
             AppendKey(doc, dict, "LibraryPath");

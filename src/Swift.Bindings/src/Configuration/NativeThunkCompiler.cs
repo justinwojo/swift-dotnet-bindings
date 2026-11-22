@@ -168,6 +168,12 @@ namespace BindingsGeneration
                 }
             }
 
+            // Mac Catalyst's iOS frameworks live under the SDK's iOSSupport tree, which the sysroot alone
+            // does not search; the swiftc path adds the same -F (SwiftWrapperCompiler.InvokeSwiftCompiler).
+            var catalystIOSSupportPath = SwiftWrapperCompiler.TryGetMacCatalystIOSSupportFrameworkPath(targetTriple, sdkPath);
+            if (catalystIOSSupportPath != null && seenSearchPaths.Add(catalystIOSSupportPath))
+                frameworkFlags += $"-F \"{catalystIOSSupportPath}\" ";
+
             // Transitive `-framework` flags for sibling framework-dependency xcframeworks, scanned
             // by the caller from the genuine user-passed `--framework-dependency` search paths (the
             // same raw set the swiftc path scans, excluding the internally-injected XCTest platform
@@ -183,6 +189,10 @@ namespace BindingsGeneration
                         frameworkFlags += $"-framework {name} ";
                 }
             }
+            // Library-type dependency slices (a bare .a or .dylib) from the same scanned dirs, by path,
+            // exactly as the swiftc path links them (DependencyLinkInputs).
+            foreach (var libraryBinary in DependencyLinkInputs.CollectLibraryBinaries(transitiveFrameworkSearchPaths))
+                frameworkFlags += $"\"{libraryBinary}\" ";
 
             // Gap 2: force-load a static-archive primary so this thunk-only wrapper carries
             // the framework's ObjC classes (a bare `-framework` against a static archive
@@ -213,9 +223,9 @@ namespace BindingsGeneration
                         frameworkFlags += $"-framework {name} ";
                 }
             }
+            var seenLibraries = new HashSet<string>(StringComparer.Ordinal);
             if (linkLibraries != null)
             {
-                var seenLibraries = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var lib in linkLibraries)
                 {
                     if (string.IsNullOrWhiteSpace(lib)) continue;
@@ -226,6 +236,19 @@ namespace BindingsGeneration
                     if (name.Length > 0 && seenLibraries.Add(name))
                         frameworkFlags += $"-l{name} ";
                 }
+            }
+            // A static dependency archive's module-map link declarations, as on the swiftc path.
+            var dependencyAutolinks = DependencyLinkInputs.CollectStaticArchiveAutolinks(
+                transitiveFrameworkSearchPaths, sdkPath, targetTriple);
+            foreach (var fw in dependencyAutolinks.Frameworks)
+            {
+                if (seenFrameworks.Add(fw))
+                    frameworkFlags += $"-framework {fw} ";
+            }
+            foreach (var lib in dependencyAutolinks.Libraries)
+            {
+                if (seenLibraries.Add(lib))
+                    frameworkFlags += $"-l{lib} ";
             }
 
             // P1: weak-link every OS-resident framework the link loads, exactly as the swiftc path does

@@ -234,6 +234,34 @@ namespace BindingsGeneration.Tests
             Assert.Equal("9999999999", valueNode.InnerText);
         }
 
+        [Fact]
+        public void WritePrunedInfoPlist_LibrarySlice_RoundTripsHeadersPath()
+        {
+            // A library-type slice (bare archive + headers directory) names its headers with
+            // HeadersPath; a sliced copy that drops it leaves consumers looking in the wrong place.
+            var dir = MakeTempDir();
+            var plistPath = Path.Combine(dir, "Info.plist");
+            XCFrameworkSlicer.WritePrunedInfoPlist(
+                new Dictionary<string, object> { ["CFBundlePackageType"] = "XFWK" },
+                new List<XCFrameworkSlice>
+                {
+                    new XCFrameworkSlice
+                    {
+                        BinaryPath = "libLib.a",
+                        HeadersPath = "include",
+                        LibraryIdentifier = "ios-arm64",
+                        LibraryPath = "libLib.a",
+                        SupportedArchitectures = new List<string> { "arm64" },
+                        SupportedPlatform = "ios",
+                    },
+                },
+                plistPath);
+
+            var reparsed = XCFrameworkResolver.ParseInfoPlist(plistPath);
+
+            Assert.Equal("include", Assert.Single(reparsed).HeadersPath);
+        }
+
         // x64 RIDs are arch-aware: platform must match AND the slice's fat binary must contain
         // the RID's CPU arch (x86_64). An arm64-only slice matches the platform but is declined
         // on architecture, which is what makes the Intel path fail loud instead of shipping arm64.
