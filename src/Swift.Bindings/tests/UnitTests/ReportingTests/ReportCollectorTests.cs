@@ -1052,6 +1052,31 @@ public class ReportCollectorTests
     }
 
     [Fact]
+    public void Complete_RefusedSpecialization_IsNotMarkedRecoveredBySiblingPairing()
+    {
+        // The call pin refused one pairing's specialization of `init` and another pairing's emitted.
+        // The recovery fact is keyed by (type, name), so without the exclusion the refused pairing's
+        // row would read as recovered by its sibling.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var init = TestModelFactory.CreateMethod("init", parent: classDecl, isConstructor: true);
+        var refused = DeclIdFactory.ForSpecialization(DeclIdFactory.ForMethod(init), "Value=M.Transform");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(refused, classDecl, SkipReason.AmbiguousSwiftOverloadCall, "refused");
+        ReportCollector.RecordMemberRecovered(init, "Box<Scalar>.init");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(refused.Canonical, row.DeclId);
+        Assert.Null(row.RecoveredBy);
+        Assert.NotEqual(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(row));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
     public void Complete_SkippedMemberWithNoProjection_StaysPlainSkip()
     {
         // The control: an AnyType skip with NO recorded recovery keeps RecoveredBy null and stays a

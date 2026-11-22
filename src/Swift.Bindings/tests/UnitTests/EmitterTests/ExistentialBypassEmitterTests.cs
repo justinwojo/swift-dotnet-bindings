@@ -517,7 +517,9 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        // Failable constructors are not supported — bypass should not be attempted
+        // Failable constructors are not supported — bypass should not be attempted, and no
+        // trimmed form is recovered: its factory needs the Optional helpers only the primary
+        // emission declares.
         Assert.Equal(string.Empty, csOutput);
         Assert.Equal(string.Empty, swiftOutput);
     }
@@ -543,9 +545,12 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        // Throwing constructors are not supported — bypass should not be attempted
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        // Throwing constructors are not supported — bypass should not be attempted. The
+        // defaulted existential is left to Swift instead: the trimmed throwing form.
+        AssertNoBypass(csOutput, swiftOutput);
+        Assert.Contains("public Config()", csOutput);
+        Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
+        Assert.Contains("return try TestModule.Config()", swiftOutput);
     }
 
     [Fact]
@@ -757,9 +762,11 @@ public class ExistentialBypassEmitterTests
 
         var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
 
-        // Bypass rejected because passthrough arg requires marshalling
-        Assert.Equal(string.Empty, csOutput);
-        Assert.Equal(string.Empty, swiftOutput);
+        // Bypass rejected because passthrough arg requires marshalling. The defaulted
+        // existential is left to Swift instead: the trimmed form keeps the passthrough.
+        AssertNoBypass(csOutput, swiftOutput);
+        Assert.Contains("public Config( IEnumerable<nint> items)", csOutput);
+        Assert.Contains("return TestModule.Config(items: items)", swiftOutput);
     }
 
     [Fact]
@@ -1237,6 +1244,18 @@ public class ExistentialBypassEmitterTests
             ParentDecl = null,
             ModuleDecl = moduleDecl
         };
+    }
+
+    /// <summary>
+    /// Nothing reaches the existential parameter: no bypass factory or wrapper, and no emitted
+    /// member names <c>options</c>.
+    /// </summary>
+    private static void AssertNoBypass(string csOutput, string swiftOutput)
+    {
+        Assert.DoesNotContain("SBSW_", csOutput);
+        Assert.DoesNotContain("SBSW_", swiftOutput);
+        Assert.DoesNotContain("options", csOutput);
+        Assert.DoesNotContain("options", swiftOutput);
     }
 
     private static (string csOutput, string swiftOutput) EmitConstructor(

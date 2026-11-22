@@ -751,6 +751,37 @@ public class ThirdPartyValidationFixTestsV3
         Assert.True(handler.TryGetFirstExistentialTypeArgument(arrayTypeSpec, out _));
     }
 
+    [Theory]
+    // A container lane marshals a known protocol's existential.
+    [InlineData("Swift.Dictionary", "TestModule.AnalyticsSdkType", false, false)]
+    [InlineData("Swift.Optional", "TestModule.AnalyticsSdkType", false, false)]
+    // No lane marshals an existential of a protocol with no record (an associated-type protocol's
+    // `(any P)?`), so the constructor path refuses it and a trimmed overload must not pass it.
+    [InlineData("Swift.Optional", "TestModule.UnrecordedSource", false, true)]
+    [InlineData("Swift.Dictionary", "TestModule.UnrecordedSource", false, true)]
+    // A method-level generic parameter is not a bound generic.
+    [InlineData("Swift.Optional", "TestModule.UnrecordedSource", true, false)]
+    public void HasUnroutedExistentialArgument_FollowsTheContainerLanes(
+        string container, string protocol, bool isGeneric, bool unrouted)
+    {
+        var handler = new BoundGenericsHandler(CreateTypeDatabaseWithDictionaryAndProtocol());
+        var spec = new NamedTypeSpec(container);
+        if (container == "Swift.Dictionary")
+            spec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        spec.GenericParameters.Add(new NamedTypeSpec(protocol) { IsAny = true });
+        var arg = new ArgumentDecl
+        {
+            Name = "value", PrivateName = "value", SwiftTypeSpec = spec, IsGeneric = isGeneric,
+            IsInOut = false, ParentDecl = null, ModuleDecl = null,
+        };
+
+        Assert.Equal(unrouted, handler.HasUnroutedExistentialArgument(arg, out var existentialType));
+        if (unrouted)
+            Assert.Contains("UnrecordedSource", existentialType);
+        else
+            Assert.Equal(string.Empty, existentialType);
+    }
+
     [Fact]
     public void ArrayException_NestedExistential_NowAdmittedViaRecursion()
     {

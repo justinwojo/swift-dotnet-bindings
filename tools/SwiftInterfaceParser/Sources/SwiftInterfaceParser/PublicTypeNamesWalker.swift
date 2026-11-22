@@ -30,18 +30,19 @@ import SwiftParser
 ///    the prefix (`ExtensionDeclRegex` pushes the qualified-after-first-dot name
 ///    onto the type stack).
 ///
-/// 6. **`final` modifier**: tolerated (`public final class Foo` → `Foo`).
+/// 6. **Other modifiers are irrelevant**: `public final class Foo` and
+///    `public indirect enum Tree` are both public; only the type's own access
+///    level decides (`DeclAccess`).
 ///
 /// 7. **`internal` types tracked for nesting only**: `public class Outer { internal
 ///    class Hidden { public class Sub {} } }` — `Hidden` is NOT emitted, but
 ///    `Sub` is keyed via the full nesting `Outer.Hidden.Sub` because brace-depth
 ///    tracking still pushes internal types as scope context.
 ///
-/// 8. **Two-gate logic**: `TypeDeclRegex` (public|internal|open + optional final)
-///    gates the scope push; `PublicTypeDeclRegex` (public|open + optional final)
-///    gates emission. Modifiers like `indirect` between access and the type keyword
-///    fail BOTH gates — so neither push nor emit happens. Types whose body opens
-///    on a later line also miss the `openBraces > 0` gate and are not pushed.
+/// 8. **Two-gate logic**: an access level the interface prints
+///    (public|open|internal|package) gates the scope push; public|open gates
+///    emission. Types whose body opens on a later line miss the `openBraces > 0`
+///    gate and are not pushed.
 final class PublicTypeNamesWalker: SyntaxVisitor {
     private(set) var publicTypeNames: [String] = []
 
@@ -136,10 +137,10 @@ final class PublicTypeNamesWalker: SyntaxVisitor {
     // MARK: - Helpers
 
     /// Two independent gates:
-    ///   * SCOPE PUSH gate: `TypeDeclRegex` (public|internal|open + optional final)
-    ///     plus `openBraces > 0`. If this fails, the type contributes no nesting
+    ///   * SCOPE PUSH gate: an access level the interface prints
+    ///     (public|open|internal|package) plus `openBraces > 0`. If this fails, the type contributes no nesting
     ///     prefix — no push, no emit, no context for its children.
-    ///   * EMIT gate: `PublicTypeDeclRegex` (public|open + optional final). If push
+    ///   * EMIT gate: public|open, whatever other modifiers follow. If push
     ///     succeeded but emit fails (e.g., `internal class`), the type contributes
     ///     scope context for its children but is not added to `publicTypeNames`.
     private func enterTypeDecl(name: String,
@@ -147,13 +148,16 @@ final class PublicTypeNamesWalker: SyntaxVisitor {
                                keyword: TokenSyntax,
                                leftBrace: TokenSyntax) -> SyntaxVisitorContinueKind {
         let sameLine = typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace)
-        // `TypeDeclRegex`/`PublicTypeDeclRegex` both end in bare `(\w+)` — names
-        // that aren't pure word characters (e.g., `\`class\``) miss the regex
-        // capture, so SwiftSyntax must skip them too.
-        if matchesTypeDeclShape(modifiers), sameLine, RegexShape.isWordIdentifier(name) {
+        // A keyword-named type keys by its unescaped name, as the ABI JSON prints it.
+        // Whether the type is public depends on its own access level alone: a
+        // `public indirect enum` is as public as a `public final class`, and a public
+        // type missing from this list reads as module-internal to the ABI parser.
+        let name = DeclAccess.unescape(name)
+        if DeclAccess.hasAccess(modifiers, DeclAccess.interfaceAccessLevels), sameLine,
+           RegexShape.isWordIdentifier(name) {
             scopeStack.append(name)
             scopePushed.append(true)
-            if matchesPublicTypeShape(modifiers) {
+            if DeclAccess.isPublicOrOpen(modifiers) {
                 publicTypeNames.append(scopeStack.joined(separator: "."))
             }
         } else {
@@ -168,34 +172,6 @@ final class PublicTypeNamesWalker: SyntaxVisitor {
         }
     }
 
-    /// `TypeDeclRegex` shape (scope-push gate):
-    /// `(?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
-    /// Same shape rules as in `MemberCollectionWalker`.
-    private func matchesTypeDeclShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// `PublicTypeDeclRegex` shape (emission gate):
-    /// `(?:public|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
-    /// STRICT order: only `final` is allowed between the access keyword and the type
-    /// keyword. Anything else (`indirect`, `nonisolated`, etc.) fails the shape —
-    /// skip emission. Modifiers BEFORE access are tolerated (unanchored scan).
-    private func matchesPublicTypeShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
     /// True iff the type/extension keyword and its body's opening `{` are on the
     /// same source line — the `openBraces > 0` condition on the `TypeDeclRegex`
     /// match line.
@@ -203,17 +179,5 @@ final class PublicTypeNamesWalker: SyntaxVisitor {
         let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
         let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
         return kwLine == braceLine
-    }
-
-    /// Iterator helper: consume modifiers until we find one whose `name.text` is in
-    /// `accessTexts` AND whose `detail` is nil. Modifiers before the access keyword
-    /// are tolerated (unanchored scan).
-    private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
-        while let mod = iter.next() {
-            if accessTexts.contains(mod.name.text) && mod.detail == nil {
-                return true
-            }
-        }
-        return false
     }
 }

@@ -98,13 +98,20 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   static), and <c>droppedExtensionCandidates</c> records every public extension declaration the
 ///   host did not take as a candidate. A v8 host drops those with no record, so a member of a
 ///   foreign receiver no other path reports vanishes from the binding silently.</item>
+/// <item><b>v10</b> — <c>publicMemberNames</c>, the signature facts and the availability facts
+///   follow a declaration's access level instead of an allow-list of the modifiers that may
+///   follow it, key keyword-named members by their unescaped name, and scope the members of a
+///   type whatever modifiers it carries (<c>public indirect enum</c>). A v9 host leaves
+///   <c>public __consuming func</c> and <c>func `repeat`</c> out of <c>publicMemberNames</c>,
+///   which the parser reads as negative space, so those public members are withdrawn as
+///   module-internal.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 9;
+    public const int ExpectedSchemaVersion = 10;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }
