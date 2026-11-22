@@ -282,14 +282,33 @@ public sealed class ModuleEmissionContext
         });
     }
 
-    // A dotted chain containing a `.Type` or `.Protocol` segment. After a dot those two words are
-    // postfix operators in Swift's type grammar — `Mod.Protocol` is the protocol metatype of a
-    // type `Mod`, not the member `Protocol` of module `Mod` — so a declared type with either name
-    // is reachable only as ``Mod.`Protocol` ``. The lookbehind anchors the match at the root of the
-    // chain; whether a segment really names a type (rather than being a metatype suffix) is decided
-    // against the type database, not by the regex.
-    private const string ReservedMemberChain =
-        @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*(?:\.\w+)*\.(?:Type|Protocol)\b(?:\.\w+)*)(?!`)";
+    // A dotted chain containing a segment Swift's type grammar does not read as a member name.
+    // After a dot, `Type` and `Protocol` are postfix operators — `Mod.Protocol` is the protocol
+    // metatype of a type `Mod`, not the member `Protocol` of module `Mod` — and a Swift keyword
+    // (`Mod.class`, `Mod.default`) is a syntax error in type position. A declared type with such a
+    // name is reachable only as ``Mod.`Protocol` `` or ``Mod.`class` ``. The lookbehind anchors the
+    // match at the root of the chain; whether a segment really names a type (rather than being a
+    // metatype suffix or `.self`) is decided against the type database, not by the regex.
+    private static readonly string ReservedMemberChain =
+        @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*(?:\.\w+)*\.(?:"
+        + string.Join("|", ReservedMemberSegments.Select(Regex.Escape))
+        + @")\b(?:\.\w+)*)(?!`)";
+
+    /// <summary>
+    /// Segment names a declared type can only be spelled with backticks after a dot:
+    /// <c>Type</c>, <c>Protocol</c>, and every Swift keyword.
+    /// </summary>
+    /// <remarks>
+    /// <c>self</c> and <c>init</c> are left out: after a type they are the metatype and initializer
+    /// expressions (<c>Host.self</c>, <c>Host.init(…)</c>) the wrapper writes for every type, and
+    /// escaping them would bind those to a nested type of that name instead.
+    /// </remarks>
+    private static IEnumerable<string> ReservedMemberSegments
+        => new[] { "Type", "Protocol" }.Concat(NameProvider.SwiftKeywords.Where(k => k is not ("self" or "init")));
+
+    private static bool IsReservedMemberSegment(string segment)
+        => segment is "Type" or "Protocol"
+            || (NameProvider.IsSwiftKeyword(segment) && segment is not ("self" or "init"));
 
     private static readonly Regex ReservedMemberChainPattern = new(ReservedMemberChain, RegexOptions.Compiled);
 
@@ -315,24 +334,30 @@ public sealed class ModuleEmissionContext
     }
 
     /// <summary>
-    /// Escapes each <c>Type</c>/<c>Protocol</c> segment of <paramref name="chain"/> whose qualified
-    /// prefix (ending at that segment) is a declared type. <paramref name="rootQualifier"/> is the
-    /// module prefix a collision rewrite removed from the chain; it takes part in the lookup but is
-    /// not written back. The leading segment is never escaped: in root position neither word is a
-    /// postfix operator.
+    /// Escapes each reserved segment (<see cref="ReservedMemberSegments"/>) of
+    /// <paramref name="chain"/> whose qualified prefix (ending at that segment) is a declared type.
+    /// <paramref name="rootQualifier"/> is the module prefix a collision rewrite removed from the
+    /// chain; it takes part in the lookup but is not written back. Without one the leading segment is
+    /// never escaped: it names a module or a type already in scope.
     /// </summary>
     private string EscapeReservedMemberSegments(string chain, string? rootQualifier)
     {
-        if (_isDeclaredType == null || (!chain.Contains(".Type", StringComparison.Ordinal) && !chain.Contains(".Protocol", StringComparison.Ordinal)))
+        if (_isDeclaredType == null)
             return chain;
 
         var segments = chain.Split('.');
-        var qualified = rootQualifier != null ? rootQualifier + "." + segments[0] : segments[0];
+        // Once a collision rewrite has removed the module prefix, the leading segment is a type name
+        // standing alone, and a keyword-named one needs its backticks as much as a nested one does.
+        var first = rootQualifier != null ? 0 : 1;
+        if (!segments.Skip(first).Any(IsReservedMemberSegment))
+            return chain;
+        var qualified = rootQualifier ?? segments[0];
         var changed = false;
-        for (var i = 1; i < segments.Length; i++)
+        for (var i = first; i < segments.Length; i++)
         {
-            qualified += "." + segments[i];
-            if (segments[i] is "Type" or "Protocol" && _isDeclaredType(qualified))
+            if (i > 0 || rootQualifier != null)
+                qualified += "." + segments[i];
+            if (IsReservedMemberSegment(segments[i]) && _isDeclaredType(qualified))
             {
                 segments[i] = "`" + segments[i] + "`";
                 changed = true;

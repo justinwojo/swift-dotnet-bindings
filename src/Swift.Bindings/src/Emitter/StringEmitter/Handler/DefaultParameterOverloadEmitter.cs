@@ -518,11 +518,18 @@ public static class DefaultParameterOverloadEmitter
                     // carries the disambiguation, so the numeric collision suffix applied above is irrelevant here
                     // (only the params substring, which the suffix leaves untouched, is used); adoption and a
                     // failable factory are mutually exclusive, so this never double-applies.
-                    if (overloadEnv.FailableFactoryName != null)
+                    //
+                    // The same holds for a failable init that kept the plain `TryCreate` name: its trims are
+                    // `TryCreate(…, out T)` factories too, which no constructor's `ctor(…)` key can duplicate. In
+                    // the ctor namespace a labelled plain sibling of the same input types (`init(fallback: any P)`
+                    // beside `init?(_: any P, anchor: … = nil)`) read as occupying the trim's signature and dropped
+                    // it. A same-named failable sibling with the same inputs is still refused, by
+                    // TryFindSignatureCollision below.
+                    if (overloadDecl.IsConstructor && overloadDecl.IsFailable && !overloadDecl.IsAsync)
                     {
                         int factoryParen = projectedKey.IndexOf('(');
                         if (factoryParen > 0)
-                            projectedKey = "failable-factory:" + overloadEnv.FailableFactoryName + projectedKey.Substring(factoryParen);
+                            projectedKey = "failable-factory:" + (overloadEnv.FailableFactoryName ?? "TryCreate") + projectedKey.Substring(factoryParen);
                     }
                     // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
                     // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
@@ -992,6 +999,11 @@ public static class DefaultParameterOverloadEmitter
             UsesWrapperLibrary = true,
             CallsDefaultArgumentShim = true,
             AvailabilityAnnotations = original.AvailabilityAnnotations,
+            // The overload's own wrapper calls a shim that carries the member's isolation
+            // (WriteShimDeclaration), so it has to decide its actor annotation from the same flags.
+            IsActorIsolated = original.IsActorIsolated,
+            IsMainActorIsolated = original.IsMainActorIsolated,
+            IsNonisolated = original.IsNonisolated,
         };
 
         // Copy return type
@@ -1418,6 +1430,12 @@ public static class DefaultParameterOverloadEmitter
     /// Writes a shim's declaration lines and describes the function they declare, so a binding
     /// that reaches the shim with the Swift convention carries its facts.
     /// </summary>
+    /// <remarks>
+    /// The shim calls <paramref name="forwards"/> synchronously, so it takes the member's main-actor
+    /// isolation (<see cref="WrapperEmitterHelpers.EmitMainActorIfNeeded"/>): an extension of an
+    /// unisolated type inherits none, and Swift refuses a nonisolated shim's call to a member-level
+    /// <c>@MainActor</c> declaration.
+    /// </remarks>
     private static void WriteShimDeclaration(
         SwiftWriter swiftWriter,
         MethodEnvironment env,
@@ -1428,6 +1446,8 @@ public static class DefaultParameterOverloadEmitter
         TypeDecl? declaringType,
         params string[] declarationLines)
     {
+        WrapperEmitterHelpers.EmitMainActorIfNeeded(
+            swiftWriter, forwards.ParentDecl, forwards.IsMainActorIsolated, forwards.IsNonisolated);
         foreach (var line in declarationLines)
             swiftWriter.WriteLine(line);
         emissionContext?.RegisterSyntheticSwiftDeclaration(
@@ -1471,10 +1491,11 @@ public static class DefaultParameterOverloadEmitter
     /// specialized source was built from — is never its own rival.
     ///
     /// <para>Methods compare full projected signatures, so a sibling that only shares the arity does
-    /// not cost the overload. Constructors compare a sibling of equal arity by parameter types alone:
-    /// a trimmed initializer can emit under a factory name that a sibling's projected key does not
-    /// carry, so its real C# name cannot be rebuilt here, and treating the names as equal is the
-    /// conservative reading.</para>
+    /// not cost the overload. Constructors compare a sibling of equal arity and the same member kind
+    /// (<see cref="InitializerMemberKind"/>) by parameter types alone: a constructor never collides
+    /// with a <c>TryCreate</c> factory, but within one kind a trimmed initializer can emit under a
+    /// factory name that a sibling's projected key does not carry, so its real C# name cannot be
+    /// rebuilt here, and treating the names as equal is the conservative reading.</para>
     /// </summary>
     internal static bool TryFindSignatureCollision(
         MethodDecl sourceDecl,
@@ -1507,9 +1528,19 @@ public static class DefaultParameterOverloadEmitter
                 continue;
             }
 
+            // A module-internal sibling declares no C# member.
+            if (sibling.IsModuleInternal)
+                continue;
+
             if (overloadDecl.IsConstructor)
             {
                 if (sibling.CSSignature.Count - 1 != overloadParamCount)
+                    continue;
+                // An initializer's C# member kind follows its shape: a plain init is a constructor
+                // (or a `CreateWith…` factory), a failable one a `TryCreate…(…, out T)` factory, an
+                // async one a `Task<T>`-returning `Create…Async`. Members of different kinds never
+                // share a C# signature, so only a sibling of the same shape can cost the candidate.
+                if (InitializerMemberKind(sibling) != InitializerMemberKind(overloadDecl))
                     continue;
                 // The C# name of either side cannot be rebuilt here (an initializer may emit as a
                 // constructor or under a factory name), so compare the parameter types as though
@@ -1530,10 +1561,6 @@ public static class DefaultParameterOverloadEmitter
                 continue;
             }
 
-            // A module-internal sibling declares no C# member.
-            if (sibling.IsModuleInternal)
-                continue;
-
             var siblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
             bool sameSignature = string.Equals(
                 ConcreteProtocolSpecializationEmitter.CsmOverloadLedger.CanonicalSpelling(siblingKey),
@@ -1550,6 +1577,19 @@ public static class DefaultParameterOverloadEmitter
         }
         return false;
     }
+
+    /// <summary>
+    /// The C# member kind an initializer emits as, which is part of its C# signature: an async
+    /// initializer (failable or not) is a static <c>Task</c>-returning <c>CreateAsync</c> factory, a
+    /// failable one a static <c>TryCreate…</c> factory with a trailing <c>out</c> result, and any
+    /// other a constructor.
+    /// </summary>
+    internal static InitializerKind InitializerMemberKind(MethodDecl initializer)
+        => initializer.IsAsync ? InitializerKind.AsyncFactory
+            : initializer.IsFailable ? InitializerKind.FailableFactory
+            : InitializerKind.Constructor;
+
+    internal enum InitializerKind { Constructor, FailableFactory, AsyncFactory }
 
     /// <summary>
     /// Builds the wrapper symbol name: DBW_{TypeName}_{MethodName}_{Hash8}_{TrimCount}

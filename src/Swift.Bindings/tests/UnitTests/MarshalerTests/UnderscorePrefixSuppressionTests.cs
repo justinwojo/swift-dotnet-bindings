@@ -163,6 +163,42 @@ public class UnderscorePrefixSuppressionTests
         Assert.Contains("underscore", recommendation, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData("_event", "TestModule.event")]
+    [InlineData("_class", "TestModule.class")]
+    [InlineData("_default", "TestModule.default")]
+    public void KeywordNamedType_IsNotSuppressed(string storedName, string qualifiedName)
+    {
+        // The parser stores a C#-keyword name with an underscore in front; the type is public
+        // Swift, not an implementation detail.
+        var module = CreateModule("TestModule", CreateStruct(storedName, qualifiedName));
+
+        Assert.Empty(BindingsGenerator.CollectUnderscoreSuppressedTypeNames(module));
+    }
+
+    [Fact]
+    public void NestedKeywordNamedType_IsNotSuppressed_NestedUnderscoreTypeIs()
+    {
+        var host = CreateClassWithNestedType("Host", "TestModule.Host",
+            CreateStruct("_object", "TestModule.Host.object"));
+        host.Types.Add(CreateStruct("_Storage", "TestModule.Host._Storage"));
+        var module = CreateModule("TestModule", host);
+
+        var result = BindingsGenerator.CollectUnderscoreSuppressedTypeNames(module);
+
+        Assert.DoesNotContain("TestModule.Host.object", result);
+        Assert.Contains("TestModule.Host._Storage", result);
+    }
+
+    [Fact]
+    public void UnderscoreTypeWhoseRestIsAKeyword_IsStillSuppressed()
+    {
+        // A Swift type genuinely named `_class` keeps its underscore in its Swift name too.
+        var module = CreateModule("TestModule", CreateStruct("_class", "TestModule._class"));
+
+        Assert.Contains("TestModule._class", BindingsGenerator.CollectUnderscoreSuppressedTypeNames(module));
+    }
+
     #region Helper Methods
 
     private static ModuleDecl CreateModule(string name, params TypeDecl[] types)

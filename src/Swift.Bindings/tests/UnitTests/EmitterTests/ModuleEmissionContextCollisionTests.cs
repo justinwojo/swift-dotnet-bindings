@@ -187,6 +187,36 @@ public class ModuleEmissionContextCollisionTests
     }
 
     [Fact]
+    public void SwiftKeywordTypeNames_AreEscapedOnlyWhenDeclared()
+    {
+        // Swift accepts `KwLib.class` after a dot in an expression but not in type position
+        // (`Unmanaged<KwLib.class>` is "expected identifier in dotted type"), so a declared type
+        // named after a Swift keyword is written backtick-escaped everywhere.
+        var declared = new HashSet<string>(StringComparer.Ordinal)
+            { "KwLib.class", "KwLib.default", "KwLib.Host", "KwLib.Host.struct", "KwLib.event" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input =
+            "let u: Unmanaged<KwLib.class> = x\n" +
+            "let d = KwLib.default.by\n" +
+            "let w: KwLib.Host.struct = KwLib.Host.struct(width: 1)\n" +
+            "let e: KwLib.event = KwLib.event()\n" +
+            "let m = KwLib.class.self\n" +
+            "let n = value.default\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Contains("Unmanaged<KwLib.`class`>", output);
+        Assert.Contains("KwLib.`default`.by", output);
+        Assert.Contains("let w: KwLib.Host.`struct` = KwLib.Host.`struct`(width: 1)", output);
+        Assert.Contains("let e: KwLib.event = KwLib.event()", output);
+        Assert.Contains("KwLib.`class`.self", output);
+        Assert.Contains("let n = value.default", output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
+
+    [Fact]
     public void ReservedMemberTypeNames_WithoutPredicate_AreUnchanged()
     {
         var ctx = new ModuleEmissionContext();
@@ -206,6 +236,39 @@ public class ModuleEmissionContextCollisionTests
         var output = ctx.QualifyForWrapperSource(input, journal);
 
         Assert.Equal("let k: Holder.`Type` = Holder.`Type`(); let b = Other.Protocol.self\n", output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
+
+    [Fact]
+    public void MetatypeAndInitializerExpressions_AreNotEscaped_EvenBesideANestedTypeOfThatName()
+    {
+        // `Host.self` and `Host.init(…)` name the metatype and initializer of `Host` itself; a nested
+        // type spelled `self` or `init` is reachable only through its backticks, so escaping these
+        // would rebind every such expression to it.
+        var declared = new HashSet<string>(StringComparer.Ordinal) { "KwLib.Host", "KwLib.Host.self", "KwLib.Host.init" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input = "p.assumingMemoryBound(to: KwLib.Host.self); let h = KwLib.Host.init(x: 1)\n";
+        Assert.Equal(input, ctx.QualifyForWrapperSource(input));
+    }
+
+    [Fact]
+    public void KeywordNamedTypes_AreEscapedOnceACollisionRewriteStripsTheModule()
+    {
+        // In a module that declares a type of its own name, the module prefix is removed: a top-level
+        // keyword-named type is left standing alone, and a keyword-named type nested in the colliding
+        // class keeps its qualifier. Either way the keyword segment needs its backticks.
+        var declared = new HashSet<string>(StringComparer.Ordinal) { "Soup", "Soup.class", "Soup.default" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Soup", nestedTypesInCollidingClass: new HashSet<string>(StringComparer.Ordinal) { "default" });
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input = "let c: Unmanaged<Soup.class> = x; let d: Soup.default = y\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Equal("let c: Unmanaged<`class`> = x; let d: Soup.`default` = y\n", output);
         Assert.Equal(output.Length, journal.MapOffset(input.Length));
     }
 }
