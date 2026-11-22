@@ -50,6 +50,18 @@ public class ToolchainTargetsTests
         Assert.Equal(consumer, lane.ConsumerTfm("macos"));
     }
 
+    // The copy an Apple-framework fixture packs is the one its pairing produces: the pack refuses a
+    // copy labelled below its SDK's major (SWIFTBIND137), and the Xcode 26 copy is the 26.0 floor.
+    [Theory]
+    [InlineData(null, "ios", "net10.0-ios26.0")]
+    [InlineData("net10-xcode26", "maccatalyst", "net10.0-maccatalyst26.0")]
+    [InlineData("net10-xcode27", "ios", "net10.0-ios27.2")]
+    [InlineData("net11-xcode27", "tvos", "net11.0-tvos27.2")]
+    public void AppleFrameworkCopyTfm_IsTheCopyThePairingPacks(string? profile, string suffix, string expected)
+    {
+        Assert.Equal(expected, FromRepo(profile).AppleFrameworkCopyTfm(suffix));
+    }
+
     [Fact]
     public void EveryCommittedProfile_DeclaresItsApplePlatformVersion()
     {

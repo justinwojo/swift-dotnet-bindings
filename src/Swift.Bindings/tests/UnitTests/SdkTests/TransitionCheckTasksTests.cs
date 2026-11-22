@@ -315,6 +315,25 @@ public sealed class TransitionCheckTasksTests : IDisposable
         (exit, output) = Pack(missing);
         Assert.NotEqual(0, exit);
         Assert.Contains("no image of SwiftBindingsRuntime was found", output);
+
+        // Nor against a matching image outside every copy: the copy's targets never reference it.
+        (string, byte[])[] shared = RuntimeSlices.Select((p, i) => (
+            $"native/SwiftBindingsRuntime.xcframework/{i}/SwiftBindingsRuntime.framework/SwiftBindingsRuntime", File.ReadAllBytes(p))).ToArray();
+        var outside = Package("OutsideCopy.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. shared]);
+        (exit, output) = Pack(outside);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Swift.Runtime.dll would be refused", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+
+        // A one-copy package is known by its declaration: its only wrapper outside native/<tfm>/ does
+        // not pass it as a package without copies.
+        var declaration = ("buildTransitive/net10.0-ios26.0/Acme.Kit.props",
+            Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", "0.21.0")));
+        (exit, output) = Pack(Package("StrayCopy.1.0.0.nupkg", [older, declaration, .. shared]));
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+        (exit, output) = Pack(Package("SharedOnly.1.0.0.nupkg", [older, .. shared]));
+        Assert.True(exit == 0, output);
     }
 
     // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------
@@ -333,6 +352,8 @@ public sealed class TransitionCheckTasksTests : IDisposable
             Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
         var dll = Path.Combine(root, "lib", resolvedFrom, "Acme.Kit.dll");
         File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
+        Directory.CreateDirectory(Path.Combine(root, "buildTransitive", "net10.0-ios26.0"));
+        File.WriteAllText(Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.targets"), "<Project />");
         var copy = $"""
             <SwiftBindingPackageCopy Include="Acme.Kit">
               <CopyTfm>net10.0-ios26.0</CopyTfm>

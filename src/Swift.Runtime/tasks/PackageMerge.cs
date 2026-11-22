@@ -19,11 +19,12 @@ using SwiftBindings.TransitionGate;
 namespace SwiftBindings.Tasks;
 
 /// <summary>The outcome of <see cref="SwiftBindingPackageMerge.Merge"/>.</summary>
-/// <param name="Package">The merged package; null when refused.</param>
+/// <param name="Package">The merged package, staged beside <paramref name="Destination"/> until it is checked; null when refused.</param>
+/// <param name="Destination">Where <see cref="SwiftBindingPackageMerge.Publish"/> moves the checked package.</param>
 /// <param name="Copies">Its copies, in order.</param>
 /// <param name="Problems">Why the contributions were refused; empty when merged.</param>
 /// <param name="Notes">What the merge did, for the log.</param>
-public sealed record PackageMergeResult(string? Package, ImmutableArray<string> Copies, ImmutableArray<string> Problems, ImmutableArray<string> Notes);
+public sealed record PackageMergeResult(string? Package, string? Destination, ImmutableArray<string> Copies, ImmutableArray<string> Problems, ImmutableArray<string> Notes);
 
 /// <summary>The merge of per-toolchain binding package contributions, free of MSBuild.</summary>
 public static class SwiftBindingPackageMerge
@@ -157,11 +158,20 @@ public static class SwiftBindingPackageMerge
             return Refused(problems, notes);
 
         var nuspec = MergedNuspec(first, copies, problems);
+        var destination = Path.GetFullPath(Path.Combine(outputDirectory, $"{stem}.nupkg"));
+        var target = Path.GetFullPath(Path.Combine(outputDirectory, $"{stem}.merging.nupkg"));
+        // Compared without case: the default Apple and Windows volumes are case-insensitive, so a
+        // differently cased name is the same file. Refusing a distinct file on a case-sensitive volume
+        // costs only a rename.
+        foreach (var c in read.Where(c => Path.GetFullPath(c.Path) is var full
+            && (string.Equals(full, destination, StringComparison.OrdinalIgnoreCase) || string.Equals(full, target, StringComparison.OrdinalIgnoreCase))))
+            problems.Add($"The merge would replace the contribution {c.Path} (it writes {Path.GetFileName(target)}, then {Path.GetFileName(destination)}): write it to another directory (SwiftBindingsMergeOutput).");
         if (problems.Count > 0)
             return Refused(problems, notes);
 
+        // Staged under another name: nothing at the destination changes until the merged package has
+        // passed its checks (Publish).
         Directory.CreateDirectory(outputDirectory);
-        var target = Path.Combine(outputDirectory, $"{stem}.nupkg");
         if (File.Exists(target))
             File.Delete(target);
         using (var zip = ZipFile.Open(target, ZipArchiveMode.Create))
@@ -173,11 +183,21 @@ public static class SwiftBindingPackageMerge
             foreach (var (name, data) in output)
                 Write(zip, name, data);
         }
-        return new PackageMergeResult(target, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray());
+        return new PackageMergeResult(target, destination, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray());
     }
 
+    /// <summary>Moves a merged package that passed its checks from its staging name to its destination.</summary>
+    public static string Publish(PackageMergeResult result)
+    {
+        File.Move(result.Package!, result.Destination!, overwrite: true);
+        return result.Destination!;
+    }
+
+    private static bool IsPlainName(string value) =>
+        value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '.' or '-' or '_' or '+') && !value.Contains("..", StringComparison.Ordinal);
+
     private static PackageMergeResult Refused(List<string> problems, List<string> notes) =>
-        new(null, [], problems.ToImmutableArray(), notes.ToImmutableArray());
+        new(null, null, [], problems.ToImmutableArray(), notes.ToImmutableArray());
 
     private static string Name(Contribution c) => System.IO.Path.GetFileName(c.Path);
 
@@ -235,6 +255,13 @@ public static class SwiftBindingPackageMerge
         if (id.Length == 0 || version.Length == 0)
         {
             problems.Add($"{name}'s nuspec names no id or version.");
+            return null;
+        }
+        // The id and version name the merged package's file, so they must be plain names (NuGet's
+        // grammar allows neither separators nor a parent segment).
+        if (!IsPlainName(id) || !IsPlainName(version))
+        {
+            problems.Add($"{name}'s nuspec id '{id}' or version '{version}' is not a plain package name.");
             return null;
         }
 
@@ -354,7 +381,13 @@ public static class SwiftBindingPackageMerge
                 var element = copy.From.Nuspec.Root?.Elements().FirstOrDefault(e => e.Name.LocalName == "metadata")?
                     .Elements().FirstOrDefault(e => e.Name.LocalName == section);
                 if (element is null)
+                {
+                    // Every copy depends on the runtime, so a copy without a dependency group would
+                    // restore another copy's.
+                    if (section == "dependencies")
+                        problems.Add($"{Name(copy.From)}'s nuspec has no dependency group for {copy.Tfm}; a copy has exactly one.");
                     continue;
+                }
                 any = true;
                 if (element.Elements().Any(e => e.Name.LocalName != "group"))
                 {
@@ -428,7 +461,7 @@ public static class SwiftBindingPackageMerge
     {
         var problems = new List<string>();
         var prefix = $"native/{older.Tfm}/";
-        foreach (var (name, image) in older.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal) && IsFrameworkBinary(f.Key)))
+        foreach (var (name, image) in older.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal) && IsDynamicImage(f.Key)))
         {
             var relative = name[prefix.Length..];
             if (!newer.From.Files.TryGetValue($"native/{newer.Tfm}/{relative}", out var newerImage))
@@ -470,9 +503,14 @@ public static class SwiftBindingPackageMerge
     // The manifest hash symbol differs per copy by design.
     private const string SwiftTransitionManifestFormatPrefix = BindingsGeneration.SwiftTransitionManifestFormat.NativeSymbolPrefix;
 
-    /// <summary>A framework's binary: <c>X.framework/X</c> (flat) or <c>X.framework/Versions/A/X</c>.</summary>
-    private static bool IsFrameworkBinary(string path)
+    /// <summary>
+    /// A dynamic image of an xcframework slice: a framework's binary (<c>X.framework/X</c> flat or
+    /// <c>X.framework/Versions/A/X</c>) or a bare dylib slice.
+    /// </summary>
+    private static bool IsDynamicImage(string path)
     {
+        if (path.EndsWith(".dylib", StringComparison.Ordinal) && !path.Contains(".dSYM/", StringComparison.Ordinal))
+            return true;
         var parts = path.Split('/');
         for (var i = 0; i < parts.Length - 1; i++)
         {
@@ -510,13 +548,26 @@ public static class SwiftBindingPackageMerge
                 _ => false,
             };
         }
+        string EntityName(EntityHandle h) => h.Kind switch
+        {
+            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(md, (TypeDefinitionHandle)h, 0),
+            HandleKind.TypeReference => provider.GetTypeFromReference(md, (TypeReferenceHandle)h, 0),
+            HandleKind.TypeSpecification => provider.GetTypeFromSpecification(md, md, (TypeSpecificationHandle)h, 0),
+            _ => h.Kind.ToString(),
+        };
         foreach (var handle in md.TypeDefinitions)
         {
             if (!Visible(handle))
                 continue;
             var type = md.GetTypeDefinition(handle);
             var name = TypeName(handle);
-            set.Add($"T {name}");
+            set.Add($"T {((type.Attributes & TypeAttributes.Interface) != 0 ? "interface" : "type")} {name}");
+            // What the type converts to: a newer copy that drops a base or an interface breaks a
+            // library compiled against the older copy at its first cast, even with every member kept.
+            if (!type.BaseType.IsNil)
+                set.Add($"B {name} : {EntityName(type.BaseType)}");
+            foreach (var ih in type.GetInterfaceImplementations())
+                set.Add($"I {name} : {EntityName(md.GetInterfaceImplementation(ih).Interface)}");
             foreach (var mh in type.GetMethods())
             {
                 var method = md.GetMethodDefinition(mh);
@@ -524,14 +575,15 @@ public static class SwiftBindingPackageMerge
                 if (access is not (MethodAttributes.Public or MethodAttributes.Family or MethodAttributes.FamORAssem))
                     continue;
                 var signature = method.DecodeSignature(provider, md);
-                set.Add($"M {name}::{md.GetString(method.Name)}`{signature.GenericParameterCount}({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}");
+                var binding = (method.Attributes & MethodAttributes.Static) != 0 ? "static" : "instance";
+                set.Add($"M {binding} {name}::{md.GetString(method.Name)}`{signature.GenericParameterCount}({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}");
             }
             foreach (var fh in type.GetFields())
             {
                 var field = md.GetFieldDefinition(fh);
                 var access = field.Attributes & FieldAttributes.FieldAccessMask;
                 if (access is FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem)
-                    set.Add($"F {name}::{md.GetString(field.Name)}:{field.DecodeSignature(provider, md)}");
+                    set.Add($"F {((field.Attributes & FieldAttributes.Static) != 0 ? "static" : "instance")} {name}::{md.GetString(field.Name)}:{field.DecodeSignature(provider, md)}");
             }
         }
         return set;

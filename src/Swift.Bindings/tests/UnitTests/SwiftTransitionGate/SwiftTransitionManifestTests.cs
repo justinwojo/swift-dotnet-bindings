@@ -437,6 +437,11 @@ public class SwiftTransitionManifestTests
 
             var missing = PackageTransitionEvidence.Check([older, newer], Natives("net10.0-ios26.0", false), requireRoutedBridges: true, Path.Combine(scratch, "missing"));
             Assert.Contains(missing.Problems, p => p.Contains("no image of it in native/net10.0-ios27.2/", StringComparison.Ordinal));
+
+            // A matching image outside every copy does not stand in for a copy's own.
+            var shared = RuntimeSlices.Select(p => new PackagedNative("SwiftBindingsRuntime", $"native/{Path.GetFileName(p)}", File.ReadAllBytes(p))).ToList();
+            var outside = PackageTransitionEvidence.Check([older, newer], [.. Natives("net10.0-ios26.0", false), .. shared], requireRoutedBridges: true, Path.Combine(scratch, "outside"));
+            Assert.Contains(outside.Problems, p => p.Contains("no image of it in native/net10.0-ios27.2/", StringComparison.Ordinal));
         }
         finally
         {

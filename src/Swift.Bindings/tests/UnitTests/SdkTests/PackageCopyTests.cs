@@ -93,6 +93,8 @@ public sealed class PackageCopyTests : IDisposable
     [Theory]
     [InlineData("$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/Kit.xcframework", "runtimes/")]
     [InlineData("$(MSBuildThisFileDirectory)../../native/net10.0-ios27.2/Kit.xcframework", "native/net10.0-ios27.2/")]
+    [InlineData("$(MSBuildThisFileDirectory)..\\..\\native\\net10.0-ios27.2\\Kit.xcframework", "native/net10.0-ios27.2/")]
+    [InlineData("$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/../net10.0-ios27.2/Kit.xcframework", "leaves the copy's native/net10.0-ios26.0/")]
     public void TargetsReferences_AnotherLayoutOrCopy_IsRefused(string reference, string named)
     {
         var problems = PackageCopyRules.CheckTargetsReferences("net10.0-ios26.0", $"<Project><ItemGroup><NativeReference Include=\"{reference}\" /></ItemGroup></Project>").ToList();
@@ -122,6 +124,17 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Equal(PackageCopyFindingKind.Mismatch, finding.Kind);
         Assert.Contains("net10.0-ios27.2", finding.Text);
         Assert.Contains("net10.0-ios26.0 consumer targets", finding.Text);
+    }
+
+    [Fact]
+    public void Selection_ACopyWhoseConsumerTargetsAreMissing_IsRefused()
+    {
+        var (copy, reference) = Resolved("net10.0-ios26.0", "net10.0-ios26.0");
+        File.Delete(copy.TargetsFile);
+        var finding = Assert.Single(PackageCopyCheck.Evaluate([copy], [reference], "net10.0-ios", "26.2", requireExactCopy: false));
+        Assert.Equal(PackageCopyFindingKind.Mismatch, finding.Kind);
+        Assert.Contains("consumer targets", finding.Text);
+        Assert.Contains("are missing", finding.Text);
     }
 
     [Fact]
@@ -372,6 +385,99 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_AContributionWithNoDependencies_IsRefused()
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"]), Contribution("x27", ["net10.0-ios27.2"], noDependencies: true)], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains("has no dependency group for net10.0-ios27.2", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AMemberThatTurnsFromStaticToInstance_IsRefused()
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public class Kit { public static int A() => 1; }");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public class Kit { public int A() => 1; }");
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains("lacks 1 public API member(s)", StringComparison.Ordinal) && p.Contains("static", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ANewerBareDylibSliceThatLosesAnExport_IsRefused()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        const string binary = "Kit.xcframework/ios-arm64/libKit.dylib";
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], extra: [($"native/net10.0-ios26.0/{binary}", Dylib("bare-older", "int kit_a(void){return 1;} int kit_b(void){return 2;}"))]),
+            Contribution("x27", ["net10.0-ios27.2"], extra: [($"native/net10.0-ios27.2/{binary}", Dylib("bare-newer", "int kit_a(void){return 1;}"))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains("libKit.dylib", StringComparison.Ordinal) && p.Contains("kit_b", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_IsStagedUntilPublished_AndNeverReplacesAContribution()
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"]);
+        var output = Path.Combine(tempDir, "staged");
+        var result = SwiftBindingPackageMerge.Merge([older, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], output);
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        Assert.NotEqual(result.Destination, result.Package);
+        Assert.False(File.Exists(result.Destination), "nothing reaches the destination before the merged package is checked");
+        Assert.Equal(result.Destination, SwiftBindingPackageMerge.Publish(result));
+        Assert.True(File.Exists(result.Destination));
+        Assert.False(File.Exists(result.Package));
+
+        // Merging into the directory of a contribution named like the merged package is refused,
+        // and leaves the contribution where it was.
+        var host = Path.Combine(tempDir, "host");
+        Directory.CreateDirectory(host);
+        var own = Path.Combine(host, "Acme.Kit.1.0.0.nupkg");
+        File.Copy(older, own);
+        var refused = SwiftBindingPackageMerge.Merge([own, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host);
+        Assert.Null(refused.Package);
+        Assert.Contains(refused.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
+        Assert.True(File.Exists(own));
+
+        // So is one the volume resolves to the same file under another case, or one named like the
+        // staged package.
+        var cased = SwiftBindingPackageMerge.Merge([own, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host.ToUpperInvariant());
+        Assert.Contains(cased.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
+        var staging = Path.Combine(host, "Acme.Kit.1.0.0.merging.nupkg");
+        File.Move(own, staging);
+        var restaged = SwiftBindingPackageMerge.Merge([staging, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host);
+        Assert.Contains(restaged.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
+        Assert.True(File.Exists(staging));
+    }
+
+    [Theory]
+    [InlineData(Id, "../../escape")]
+    [InlineData(Id, "1.0.0\\x")]
+    public void Merge_AnIdOrVersionThatIsNotAPlainName_IsRefused(string id, string version)
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], id: id, version: version)], "net10.0-ios26.0");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains("is not a plain package name", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    [InlineData("public interface IKit { } public class Kit : IKit { public int A() => 1; }", "public interface IKit { } public class Kit { public int A() => 1; }", "IKit")]
+    [InlineData("public class Base { } public class Kit : Base { }", "public class Base { } public class Kit { }", "Base")]
+    public void Merge_ANewerTypeThatDropsABaseOrInterface_IsRefused(string olderApi, string newerApi, string key)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains("lacks", StringComparison.Ordinal) && p.Contains($"Kit : ", StringComparison.Ordinal) && p.Contains(key, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ANewerTypeThatAddsAnInterface_IsAccepted()
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public interface IKit { } public class Kit { }");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public interface IKit { } public class Kit : IKit { }");
+        Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+    }
+
+    [Fact]
     public void Merge_AnEntryPastTheWindowsPathBudget_IsRefused()
     {
         var deep = $"native/net10.0-ios26.0/Kit.xcframework/{new string('a', 200)}/Info.plist";
@@ -395,6 +501,7 @@ public sealed class PackageCopyTests : IDisposable
         {
             Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
             Directory.CreateDirectory(Path.Combine(root, "buildTransitive", tfm));
+            File.WriteAllText(Path.Combine(root, "buildTransitive", tfm, "Acme.Kit.targets"), "<Project />");
             Directory.CreateDirectory(Path.Combine(root, "native", tfm));
         }
         return root;
@@ -414,7 +521,7 @@ public sealed class PackageCopyTests : IDisposable
     private string Contribution(string name, string[] tfms, string id = Id, string version = "1.0.0", string generator = Generator,
         string api = "public static class Kit { public static int A() => 1; }", string description = "Kit",
         (string Path, byte[] Data)[]? extra = null, string? omit = null, Func<string, string>? targetsFor = null,
-        Func<string, string>? declares = null, bool duplicateGroup = false)
+        Func<string, string>? declares = null, bool duplicateGroup = false, bool noDependencies = false)
     {
         var assembly = SwiftTransitionManifestTests.Compile("Acme.Kit", api);
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
@@ -440,7 +547,7 @@ public sealed class PackageCopyTests : IDisposable
         files[$"{id}.nuspec"] = Encoding.UTF8.GetBytes(
             $"<?xml version=\"1.0\" encoding=\"utf-8\"?><package xmlns=\"http://schemas.microsoft.com/packaging/2013/05/nuspec.xsd\"><metadata>"
             + $"<id>{id}</id><version>{version}</version><authors>Acme</authors><description>{description}</description>{readme}"
-            + $"<dependencies>{groups}</dependencies></metadata></package>");
+            + (noDependencies ? "" : $"<dependencies>{groups}</dependencies>") + "</metadata></package>");
         files["[Content_Types].xml"] = Encoding.UTF8.GetBytes("<?xml version=\"1.0\" encoding=\"utf-8\"?><Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"dll\" ContentType=\"application/octet\" /></Types>");
         files["_rels/.rels"] = Encoding.UTF8.GetBytes("<Relationships />");
 

@@ -17,7 +17,10 @@ buildTransitive/<T>/<Module>Database.xml, ILLink.Descriptors.xml, …
 native/<T>/<Module>SwiftBindings.xcframework (+ bridge, source xcframework, resource bundles)
 ```
 
-`<T>` is the copy's **full** target framework, for example `net10.0-ios26.0`. NuGet chooses `lib/`
+`<T>` is the copy's **full** target framework, for example `net10.0-ios26.0`: the folder NuGet packs
+the managed assembly under, read from NuGet's own folder-name task over the target framework and
+platform monikers (so the workload's platform version completes a versionless `TargetFramework`). `SwiftAppleFrameworkPlatformVersion` selects the SDK surface an Apple-framework
+binding is generated from; it never relabels the copy. NuGet chooses `lib/`
 and `buildTransitive/` separately, by the same nearest-framework rule, so the two agree only when the
 package holds the same set of TFMs in both (and one nuspec dependency group per TFM). Each copy's
 targets name their own `native/<T>/` literally, so the natives follow the targets NuGet chose. A
@@ -42,10 +45,10 @@ pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitt
 | Code | Where | What it refuses |
 |---|---|---|
 | SWIFTBIND136 | every app build (`SwiftBindings.Runtime` targets, `_SwiftBindingsCheckPackageCopies`, before `CoreCompile`) | a binding assembly resolved from another copy's `lib/` than the copy whose targets NuGet imported, or an assembly of a copy-layout package with no declared copy at all. Each build also prints one line per package naming the copy it selected and its lib, native and targets paths. |
-| SWIFTBIND137 | pack (`PrepareSwiftBindingPackageCopy`) | an Apple-framework copy labelled for another platform SDK than the one it was generated from: the label must have the SDK's major version and be no newer. A library binding is never refused, so a versionless `net10.0-ios` library binding packed on Xcode 27.2 keeps its 26.0 label and serves .NET 10 + Xcode 26 apps: its surface is the library's, not the SDK's. |
+| SWIFTBIND137 | pack (`PrepareSwiftBindingPackageCopy`) | an Apple-framework copy labelled for another platform SDK than the one it was generated from: the label must have the SDK's major version and be no newer. A versionless Apple-framework project (the template's default) is labelled 26.0 on every .NET 10 workload, so on Xcode 27.2 it must name its copy (`net10.0-ios27.2`) to pack. A library binding is never refused, so a versionless `net10.0-ios` library binding packed on Xcode 27.2 keeps its 26.0 label and serves .NET 10 + Xcode 26 apps: its surface is the library's, not the SDK's. |
 | SWIFTBIND138 | pack and merge | consumer targets that reference `runtimes/` or another copy's `native/`; at merge, every refusal below. |
 | SWIFTBIND139 | every app build | a copy older than the build's toolchain (another .NET version, or a lower platform SDK major): an informational message by default, an error with `SwiftBindingsRequireExactCopy=true`. |
-| SWIFTBIND133 | pack and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. |
+| SWIFTBIND133 | pack and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. |
 | SWIFTBIND132 | every app build | reads the natives the app actually references, which are the selected copy's (SWIFTBIND136 guarantees the assembly is that copy's too). |
 
 The build's own transition-evidence and packed residual-guard checks pair assemblies and natives the
@@ -57,20 +60,28 @@ Each pairing packs its own explicitly versioned TFMs from one source revision an
 SDK version; the pipeline owns the matrix. The SDK merges the contributions:
 
 ```
-dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages
-  -p:SwiftBindingsMergeContributions="x26.nupkg;x27.nupkg;n11.nupkg"
-  -p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"
+dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages \
+  '-p:SwiftBindingsMergeContributions="x26.nupkg;x27.nupkg;n11.nupkg"' \
+  '-p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"' \
   [-p:SwiftBindingsMergeOutput=dir]
 ```
+
+The inner double quotes keep MSBuild from splitting the lists at their semicolons; the outer single
+quotes keep the shell from removing them.
 
 It refuses (SWIFTBIND138) contributions that are not one package (id, version, nuspec metadata
 other than the per-copy groups, SwiftBindings SDK), a signed contribution, a matrix the contributions
 do not carry exactly once each, a contribution whose `lib/`, `buildTransitive/` and `native/` TFM sets
 differ or that ships files outside the copy layout, a copy without its declaration, targets or own
 natives, a shared file that differs between contributions (the readme is taken from the newest
-copy), and — per platform, ordered by .NET and platform version — a newer copy whose public API or
-per-architecture native exports lack an older copy's (a library compiles against the oldest copy,
+copy), an id or version that is not a plain file name, and — per platform, ordered by .NET and
+platform version — a newer copy whose public API (types with their base and interfaces, members
+with their signatures and static or instance binding) or per-architecture native exports lack an
+older copy's (a library compiles against the oldest copy,
 the app that consumes it runs the newest). The manifest-hash symbol (`SBTM_`) differs per copy by
 design and is not compared. It writes a nuspec with each copy's own dependency group, checks the
-Windows restore path budget for the real id and version, and runs SWIFTBIND133 on the result.
+Windows restore path budget for the real id and version, and runs SWIFTBIND133 on the result. The
+merged package is staged under another name until those checks pass, and the merge refuses an
+output directory where its staged or final package would replace one of its own contributions
+(compared without case, as the default Apple and Windows volumes resolve names).
 Implementation: `src/Swift.Runtime/tasks/PackageMerge.cs`.

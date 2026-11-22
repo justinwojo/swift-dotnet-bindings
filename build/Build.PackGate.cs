@@ -747,6 +747,13 @@ partial class Build
             string.Join(", ", macosTfms), string.Join(", ", shippedCopies), bridgeReferencingTargets.Count);
     }
 
+    /// <summary>The lane's Apple-framework copy TFMs for <paramref name="suffixes"/> (<see cref="ToolchainTargets.AppleFrameworkCopyTfm"/>).</summary>
+    static string AppleFrameworkFixtureTfms(params string[] suffixes)
+    {
+        var lane = ToolchainTargets.FromEnvironment(RootDirectory / "build" / "toolchains");
+        return string.Join(";", suffixes.Select(lane.AppleFrameworkCopyTfm));
+    }
+
     static void WritePackGateFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir)
     {
         // The fixture's purpose is to exercise the nupkg-emission pipeline and assert
@@ -758,11 +765,11 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{PackGateVersion}">
               <PropertyGroup>
-                <!-- Both workload families retain the 26.0 library reference floor;
-                     intermediate SDK TPVs such as 26.2 are absent in the 27 workload.
-                     Exercise device + simulator slices on iOS/tvOS and the single-slice
-                     macOS/MacCatalyst paths without requiring that intermediate pack. -->
-                <TargetFrameworks>net10.0-ios26.0;net10.0-tvos26.0;net10.0-maccatalyst26.0;net10.0-macos26.0</TargetFrameworks>
+                <!-- The copy this lane's toolchain produces (26.0 on Xcode 26, the SDK's
+                     version on Xcode 27): an Apple-framework copy labelled below its SDK is
+                     refused at pack (SWIFTBIND137). Exercise device + simulator slices on
+                     iOS/tvOS and the single-slice macOS/MacCatalyst paths. -->
+                <TargetFrameworks>{AppleFrameworkFixtureTfms("ios", "tvos", "maccatalyst", "macos")}</TargetFrameworks>
                 <PackageId>PackGateFixture.{PackGateFixtureFramework}</PackageId>
                 <PackageVersion>{PackGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>

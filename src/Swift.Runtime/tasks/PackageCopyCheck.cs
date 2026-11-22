@@ -72,6 +72,13 @@ public static class PackageCopyCheck
                     + "Restore again; if this persists the package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ and native/<tfm>/ copy (rebuild it with SwiftBindings.Sdk, or merge its contributions with SwiftBindingsMergePackages)."));
                 continue;
             }
+            if (resolved.Count > 0 && !File.Exists(copy.TargetsFile))
+            {
+                findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Mismatch, copy.PackageId,
+                    $"{named}: this build ({targetFramework}) uses the package's {copy.CopyTfm} copy, but its consumer targets '{Full(copy.TargetsFile)}' are missing, "
+                    + "so no native payload would be linked. The package is malformed: every copy carries its declaration, its consumer targets and its native/<tfm>/ payload."));
+                continue;
+            }
             var built = copy.Toolchain.Length > 0 ? $" (built on {copy.Toolchain})" : "";
             findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Selected, copy.PackageId,
                 $"SwiftBindings copy: {named} -> {copy.CopyTfm}{built}; lib={expectedLib} native={Directory(copy.NativeDirectory)} targets={Full(copy.TargetsFile)}"));

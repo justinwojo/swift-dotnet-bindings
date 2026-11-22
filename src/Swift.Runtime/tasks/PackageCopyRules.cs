@@ -43,17 +43,23 @@ public static class PackageCopyRules
     /// </summary>
     public static IEnumerable<string> CheckTargetsReferences(string packTfm, string targets)
     {
-        if (targets.Contains("../runtimes/", StringComparison.Ordinal))
+        var text = targets.Replace('\\', '/');
+        if (text.Contains("../runtimes/", StringComparison.OrdinalIgnoreCase))
             yield return "reference natives under runtimes/, the layout of an earlier SwiftBindings.Sdk";
         var index = 0;
-        while ((index = targets.IndexOf("../native/", index, StringComparison.Ordinal)) >= 0)
+        while ((index = text.IndexOf("../native/", index, StringComparison.OrdinalIgnoreCase)) >= 0)
         {
             index += "../native/".Length;
-            var end = targets.IndexOf('/', index);
-            var folder = end < 0 ? targets[index..] : targets[index..end];
-            if (!string.Equals(folder, packTfm, StringComparison.Ordinal))
+            var end = text.IndexOfAny(['"', '\'', '<', ';', ' ', '\n', '\r', '\t'], index);
+            var segments = (end < 0 ? text[index..] : text[index..end]).Split('/');
+            if (!string.Equals(segments[0], packTfm, StringComparison.OrdinalIgnoreCase))
             {
-                yield return $"reference native/{folder}/, another copy's natives";
+                yield return $"reference native/{segments[0]}/, another copy's natives";
+                yield break;
+            }
+            if (Array.IndexOf(segments, "..") >= 0)
+            {
+                yield return $"reference native/{string.Join("/", segments)}, which leaves the copy's native/{packTfm}/";
                 yield break;
             }
         }

@@ -95,6 +95,9 @@ partial class Build
     // 27.2; 26.2 fails restore there with NETSDK1140).
     const string X64SimIosTfm = "net10.0-ios26.0";
     const string X64SimTvosTfm = "net10.0-tvos26.0";
+    // An Apple-framework copy names its SDK (SWIFTBIND137), so the Apple-framework fixtures take
+    // the lane's copy TFMs; on the unprofiled lane they are the 26.0 pair above.
+    static string X64SimAppleFrameworkTfms => AppleFrameworkFixtureTfms("ios", "tvos");
 
     // Consumer app TFMs stay versionless, so each workload builds the app against
     // the platform its own Xcode supports: an app pinned to 26.0 selects the 26.0
@@ -439,7 +442,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{X64SimGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>{X64SimIosTfm};{X64SimTvosTfm}</TargetFrameworks>
+                <TargetFrameworks>{X64SimAppleFrameworkTfms}</TargetFrameworks>
                 <PackageId>{X64SimAppleBindingsPackageId}</PackageId>
                 <PackageVersion>{X64SimGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -471,7 +474,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{X64SimGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>{X64SimIosTfm};{X64SimTvosTfm}</TargetFrameworks>
+                <TargetFrameworks>{X64SimAppleFrameworkTfms}</TargetFrameworks>
                 <PackageId>{X64SimAppleBindingsDeviceFirstPackageId}</PackageId>
                 <PackageVersion>{X64SimGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>
@@ -549,7 +552,7 @@ partial class Build
         var csproj = $"""
             <Project Sdk="SwiftBindings.Sdk/{X64SimGateVersion}">
               <PropertyGroup>
-                <TargetFrameworks>{X64SimIosTfm};{X64SimTvosTfm}</TargetFrameworks>
+                <TargetFrameworks>{X64SimAppleFrameworkTfms}</TargetFrameworks>
                 <PackageId>{X64SimTipKitDeviceFirstPackageId}</PackageId>
                 <PackageVersion>{X64SimGateVersion}</PackageVersion>
                 <IsPackable>true</IsPackable>

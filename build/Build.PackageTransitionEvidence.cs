@@ -112,9 +112,11 @@ partial class Build
                     .Concat(references.Select(r => NearestLibDirectory(r, framework)).OfType<string>())
                     .Append(host)
                     .ToArray();
-                // In a package of per-toolchain copies, lib/<tfm>/ is held to native/<tfm>/ only.
+                // In a package of per-toolchain copies, lib/<tfm>/ is held to native/<tfm>/ only. A copy is
+                // known by its declaration (or its natives), so one whose wrapper landed elsewhere is still
+                // held to its own native/<tfm>/.
                 var folder = Path.GetFileName(Path.GetDirectoryName(path)!);
-                var copy = IsCopyFolder(folder) && Directory.Exists(package / "native" / folder) ? folder : null;
+                var copy = IsCopyFolder(folder) && (Directory.Exists(package / "native" / folder) || DeclaresCopy(package, folder)) ? folder : null;
                 return new PackagedAssembly(path, File.ReadAllBytes(path), directories, copy);
             })
             .ToList();
@@ -147,10 +149,21 @@ partial class Build
     }
 
     /// <summary>The copy whose <c>native/&lt;tfm&gt;/</c> holds <paramref name="path"/>; null for a shared native.</summary>
-    static string? NativeCopy(AbsolutePath package, string path)
+    static string? NativeCopy(AbsolutePath package, string path) => NativeCopyOfEntry(Path.GetRelativePath(package, path));
+
+    /// <summary>The copy whose <c>native/&lt;tfm&gt;/</c> holds the package entry <paramref name="entry"/>; null for a shared native.</summary>
+    static string? NativeCopyOfEntry(string entry)
     {
-        var parts = Path.GetRelativePath(package, path).Replace('\\', '/').Split('/');
+        var parts = entry.Replace('\\', '/').Split('/');
         return parts.Length >= 3 && parts[0] == "native" && IsCopyFolder(parts[1]) ? parts[1] : null;
+    }
+
+    /// <summary>Whether <c>buildTransitive/<paramref name="folder"/>/</c> declares a package copy (<c>SwiftBindingPackageCopy</c>).</summary>
+    static bool DeclaresCopy(AbsolutePath package, string folder)
+    {
+        var build = package / "buildTransitive" / folder;
+        return Directory.Exists(build) && Directory.EnumerateFiles(build, "*.props")
+            .Any(f => File.ReadAllText(f).Contains("<SwiftBindingPackageCopy ", StringComparison.Ordinal));
     }
 
     /// <summary>Whether a package folder names a copy: a platform-versioned TFM such as <c>net10.0-ios26.0</c>.</summary>

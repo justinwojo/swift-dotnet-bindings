@@ -48,7 +48,6 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
             Log.LogError(null, PrepareSwiftBindingPackageCopy.LayoutCode, null, null, 0, 0, 0, 0, "{0}", problem);
         if (result.Package is null)
             return false;
-        MergedPackage = result.Package;
         var check = new SwiftTransitionPackageCheck
         {
             BuildEngine = BuildEngine,
@@ -58,8 +57,9 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
         };
         if (!check.Execute())
             return false;
+        MergedPackage = SwiftBindingPackageMerge.Publish(result);
         Log.LogMessage(MessageImportance.High, "Merged {0} contribution(s) into {1}: copies {2}.",
-            Contributions.Length, result.Package, string.Join(", ", result.Copies));
+            Contributions.Length, MergedPackage, string.Join(", ", result.Copies));
         return !Log.HasLoggedErrors;
     }
 }

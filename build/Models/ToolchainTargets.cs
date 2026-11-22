@@ -67,6 +67,19 @@ public sealed record ToolchainTargets(string? Profile, string ManagedFramework, 
     public string ConsumerTfm(string tfmSuffix) => $"{ManagedFramework}-{tfmSuffix}";
 
     /// <summary>
+    /// The copy TFM an Apple-framework binding packed on this pairing carries: the profile's
+    /// framework and SDK version (<c>net10.0-ios27.2</c>, <c>net11.0-ios27.2</c>), except that the
+    /// Xcode 26 copy, and the unprofiled lane's, is the .NET 10 floor <c>26.0</c>, the label a
+    /// versionless .NET 10 library restores. The pack refuses an Apple-framework copy labelled
+    /// below its SDK's major (SWIFTBIND137), so a fixture that packs one names this TFM.
+    /// </summary>
+    public string AppleFrameworkCopyTfm(string tfmSuffix)
+    {
+        var version = ApplePlatformVersion is { Length: > 0 } v && !v.StartsWith("26.", StringComparison.Ordinal) ? v : "26.0";
+        return $"{ManagedFramework}-{tfmSuffix}{version}";
+    }
+
+    /// <summary>
     /// Generator arguments that select the managed target of an Apple-framework binding:
     /// the pinned platform version outside a profile, the profile's own version and framework
     /// under one. net10.0 is the generator's default framework, so it is not spelled out.

@@ -74,6 +74,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 ? Directory.GetFiles(lib, "*.dll", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList()
                 : new List<string>();
             var packaged = new Lazy<List<(PackagedNative Native, NativeScope Scope)>>(() => ReadFrameworks(root));
+            var declaresCopies = DeclaresCopies(root);
             var refused = new List<string>();
             var verified = 0;
             foreach (var path in assemblies)
@@ -84,7 +85,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 var shown = Path.GetRelativePath(root, path).Replace('\\', '/');
                 var assembly = new PackagedAssembly(shown, image,
                     new[] { Path.GetDirectoryName(path)! }.Concat(references).ToArray());
-                var natives = new PlatformImages(packaged, TargetFrameworkPlatform(shown), TargetFrameworkFolder(shown));
+                var natives = new PlatformImages(packaged, declaresCopies, TargetFrameworkPlatform(shown), TargetFrameworkFolder(shown));
                 var result = ConsumerTransitionCheck.Check(assembly, natives, requireNativeImages: true,
                     Path.Combine(ScratchDirectory, "plans", $"{refused.Count + verified}"));
                 if (result.Verdict != ConsumerTransitionVerdict.Refused)
@@ -153,6 +154,20 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             .ToList();
 
     /// <summary>
+    /// Whether the package is one of per-toolchain copies: a <c>buildTransitive/&lt;tfm&gt;/</c> props
+    /// file declares a <c>SwiftBindingPackageCopy</c>. Read from the declarations, not from where the
+    /// natives landed, so a copy whose wrapper is outside its <c>native/&lt;tfm&gt;/</c> is not taken
+    /// for a package without copies.
+    /// </summary>
+    internal static bool DeclaresCopies(string root)
+    {
+        var build = Path.Combine(root, "buildTransitive");
+        return Directory.Exists(build)
+            && Directory.EnumerateFiles(build, "*.props", SearchOption.AllDirectories)
+                .Any(f => File.ReadAllText(f).Contains("<SwiftBindingPackageCopy ", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// The consumers a packaged native serves: a <c>native/&lt;tfm&gt;/</c> copy serves only the
     /// <c>lib/&lt;tfm&gt;/</c> of the same full target framework (a package can carry several copies of
     /// one platform, one per toolchain); a legacy <c>runtimes/&lt;rid&gt;/</c> native serves its
@@ -204,14 +219,20 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
 
     /// <summary>
     /// The framework slices a consumer of one copy's target framework links: its own
-    /// <c>native/&lt;tfm&gt;/</c>, the legacy <c>runtimes/&lt;rid&gt;/</c> of its platform, and natives
-    /// shared by every copy. Read when a manifest routes through a library, once per package.
+    /// <c>native/&lt;tfm&gt;/</c> in a package of copies; otherwise the legacy <c>runtimes/&lt;rid&gt;/</c>
+    /// of its platform and natives shared by every target framework. Read when a manifest routes
+    /// through a library, once per package.
     /// </summary>
-    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, string? platform, string? folder) : IReadOnlyList<PackagedNative>
+    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, bool declaresCopies, string? platform, string? folder) : IReadOnlyList<PackagedNative>
     {
-        private readonly Lazy<List<PackagedNative>> scoped = new(() => packaged.Value
-            .Where(n => n.Scope.Serves(platform, folder))
-            .Select(n => n.Native).ToList());
+        // In a package of copies an assembly links only its own copy's natives, never a shared or
+        // legacy image; those serve packages without copies (the runtime, the supplement, earlier layouts).
+        private readonly Lazy<List<PackagedNative>> scoped = new(() =>
+        {
+            var copies = declaresCopies || packaged.Value.Any(n => n.Scope.CopyTfm is not null);
+            return packaged.Value.Where(n => n.Scope.Serves(platform, folder) && (!copies || n.Scope.CopyTfm is not null))
+                .Select(n => n.Native).ToList();
+        });
 
         private List<PackagedNative> All => scoped.Value;
 

@@ -26,9 +26,12 @@ public sealed record PackagedAssembly(string DisplayPath, byte[] Image, IReadOnl
 /// </summary>
 public sealed record PackagedNative(string Library, string DisplayPath, byte[] Image, string? CopyTfm = null)
 {
-    /// <summary>Whether an app that loads <paramref name="assembly"/> links this image: a copy's natives serve only that copy.</summary>
+    /// <summary>
+    /// Whether an app that loads <paramref name="assembly"/> links this image: a copy's assembly links
+    /// only its copy's natives, and a shared image serves only assemblies outside every copy.
+    /// </summary>
     public bool Serves(PackagedAssembly assembly) =>
-        CopyTfm is null || string.Equals(CopyTfm, assembly.CopyTfm, StringComparison.OrdinalIgnoreCase);
+        CopyTfm is null ? assembly.CopyTfm is null : string.Equals(CopyTfm, assembly.CopyTfm, StringComparison.OrdinalIgnoreCase);
 }
 
 /// <summary>The verdict of <see cref="PackageTransitionEvidence.Check"/>.</summary>

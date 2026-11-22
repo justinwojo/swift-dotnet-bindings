@@ -4102,27 +4102,39 @@ echo &quot;$ISSUES&quot;"
     nearest-framework rule lands lib/ and buildTransitive/ on the same copy. The consumer
     targets (synthesized below, or emitted by the generator) name native/<tfm>/ literally.
 
-    NuGet NU1012 requires the platform version in framework-specific PackagePath entries
-    (buildTransitive/net10.0-ios26.0/, not buildTransitive/net10.0-ios/). A versionless
-    TargetFramework (net10.0-ios) still resolves $(TargetPlatformVersion) from the installed
-    workload; we detect the versionless form by checking whether $(TargetFramework) ends with
-    the bare platform identifier, and append the resolved version if so.
-
-    In Apple-framework direct mode, the consumer-settable $(SwiftAppleFrameworkPlatformVersion)
-    wins over $(TargetPlatformVersion) for the generator; use the same effective value here so
-    the generator output, the fingerprint, and the pack layout never disagree on the version.
+    The copy TFM is the folder NuGet itself packs lib/ under, read from the same task NuGet's
+    folder name comes from (GetNuGetShortFolderName over the target framework and platform
+    monikers): the workload's $(TargetPlatformVersion) is the version, so net10.0-ios on a .NET 10
+    workload packs lib/net10.0-ios26.0/, and a TargetFramework alias whose version disagrees with
+    an explicit TargetPlatformVersion packs under the latter. Without the monikers (an evaluation
+    that imports no .NET SDK targets), the lowercase TargetFramework with $(TargetPlatformVersion)
+    appended when it is versionless stands in. NuGet NU1012
+    requires that version in framework-specific PackagePath entries too, and the copy layout
+    needs buildTransitive/ and native/ under exactly lib/'s folder, so NuGet's nearest-framework
+    choice lands every asset group on the same copy. $(SwiftAppleFrameworkPlatformVersion) only
+    selects the SDK surface the generator reads; it never relabels the copy, because the managed
+    assembly NuGet packs stays under the TargetFramework's version whatever it says. A copy whose
+    label disagrees with the SDK it was generated from is refused at pack (SWIFTBIND137).
   -->
   <Target Name="_ComputeSwiftBindingPackTfm"
           DependsOnTargets="_DetectSwiftBindingTargetKind"
           Condition="'$(TargetFramework)' != ''">
     <PropertyGroup>
+      <_SwiftBindingPackTfmVersionless>false</_SwiftBindingPackTfmVersionless>
+      <_SwiftBindingPackTfmVersionless Condition="$(TargetFramework.ToLowerInvariant().EndsWith('-$(_SwiftBindingPlatform)'))">true</_SwiftBindingPackTfmVersionless>
       <_SwiftBindingEffectivePlatformVersion>$(TargetPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
-      <_SwiftBindingEffectivePlatformVersion
-          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftAppleFrameworkPlatformVersion)' != ''">$(SwiftAppleFrameworkPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
-      <_SwiftBindingPackTfm>$(TargetFramework)</_SwiftBindingPackTfm>
+      <_SwiftBindingPackTfm>$(TargetFramework.ToLowerInvariant())</_SwiftBindingPackTfm>
       <_SwiftBindingPackTfm
           Condition="'$(_SwiftBindingEffectivePlatformVersion)' != ''
-                     AND $(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))">$(TargetFramework)$(_SwiftBindingEffectivePlatformVersion)</_SwiftBindingPackTfm>
+                     AND '$(_SwiftBindingPackTfmVersionless)' == 'true'">$(_SwiftBindingPackTfm)$(_SwiftBindingEffectivePlatformVersion)</_SwiftBindingPackTfm>
+    </PropertyGroup>
+    <GetNuGetShortFolderName Condition="'$(TargetFrameworkMoniker)' != '' AND '$(TargetPlatformMoniker)' != ''"
+        TargetFrameworkMoniker="$(TargetFrameworkMoniker)"
+        TargetPlatformMoniker="$(TargetPlatformMoniker)">
+      <Output TaskParameter="NuGetShortFolderName" PropertyName="_SwiftBindingNuGetFolder" />
+    </GetNuGetShortFolderName>
+    <PropertyGroup>
+      <_SwiftBindingPackTfm Condition="'$(_SwiftBindingNuGetFolder)' != ''">$(_SwiftBindingNuGetFolder.ToLowerInvariant())</_SwiftBindingPackTfm>
       <_SwiftBindingNativePackRoot>native/$(_SwiftBindingPackTfm)/</_SwiftBindingNativePackRoot>
     </PropertyGroup>
   </Target>
@@ -4441,33 +4453,16 @@ TARGETSEOF"
           Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != ''"
           Returns="@(TfmSpecificPackageFile)">
 
-    <!--
-      Compute a version-qualified TFM for NuGet pack paths.
-      NuGet NU1012 requires platform version in framework-specific PackagePath entries
-      (e.g. buildTransitive/net10.0-ios26.0/, not buildTransitive/net10.0-ios/).
-      If the user specified a versionless TFM (e.g. net10.0-ios), the .NET SDK still
-      resolves $(TargetPlatformVersion) from the installed workload. We detect the
-      versionless form by checking if $(TargetFramework) ends with the bare platform
-      identifier, and append the resolved version if so.
-
-      In Apple-framework direct mode, the consumer-settable
-      $(SwiftAppleFrameworkPlatformVersion) wins over $(TargetPlatformVersion) for the
-      generator (see line ~213); use the same effective value here so the generator
-      output, the fingerprint, and the pack layout never disagree on the version. On a
-      multi-workload machine a versionless TFM with $(SwiftAppleFrameworkPlatformVersion)
-      set to 26.2 would otherwise produce 26.2 metadata staged under
-      buildTransitive/net10.0-ios26.0/ — the drift C2 eliminated for the generator path.
-    -->
-    <!-- $(_SwiftBindingPackTfm) / $(_SwiftBindingEffectivePlatformVersion): _ComputeSwiftBindingPackTfm. -->
+    <!-- The copy TFM every pack path uses, NuGet's own lib/ folder: _ComputeSwiftBindingPackTfm. -->
 
     <!-- Fail fast if we can't resolve a versioned TFM for pack. In Apple-framework
          direct mode SWIFTBIND016 already fires earlier when SwiftAppleFrameworkPlatformVersion
          is empty; this catches the xcframework-mode case and any direct-mode path that
          slipped past (defensive). -->
-    <Error Condition="$(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))
+    <Error Condition="'$(_SwiftBindingPackTfmVersionless)' == 'true'
                       AND '$(_SwiftBindingEffectivePlatformVersion)' == ''"
            Code="SWIFTBIND035"
-           Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0), install the corresponding platform workload, or in Apple-framework direct mode set &lt;SwiftAppleFrameworkPlatformVersion&gt;." />
+           Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0) or install the corresponding platform workload." />
 
     <!-- The copy's toolchain and platform SDK, recorded in its declaration
          (buildTransitive/<tfm>/<PackageId>.props) so every consumer build can name the copy it
@@ -4706,9 +4701,14 @@ TARGETSEOF"
        the same source and SwiftBindings.Sdk version, and this target merges those contributions:
 
          dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages
-           -p:SwiftBindingsMergeContributions="a.nupkg;b.nupkg;c.nupkg"
-           -p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"
+           '-p:SwiftBindingsMergeContributions="a.nupkg;b.nupkg;c.nupkg"'
+           '-p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"'
            [-p:SwiftBindingsMergeOutput=dir]
+
+       The inner double quotes keep MSBuild from splitting the lists at their semicolons, and the
+       outer single quotes keep the shell from removing them. The output directory must not hold a
+       contribution of the same id and version: the merge refuses rather than replace it, and
+       writes nothing there until the merged package has passed its checks.
 
        The merge refuses (SWIFTBIND138) contributions that are not one package (id, version,
        metadata, SDK), a matrix it does not carry exactly, a contribution whose lib/,
