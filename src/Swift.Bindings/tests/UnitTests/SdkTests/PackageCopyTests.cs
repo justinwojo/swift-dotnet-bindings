@@ -95,6 +95,12 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("$(MSBuildThisFileDirectory)../../native/net10.0-ios27.2/Kit.xcframework", "native/net10.0-ios27.2/")]
     [InlineData("$(MSBuildThisFileDirectory)..\\..\\native\\net10.0-ios27.2\\Kit.xcframework", "native/net10.0-ios27.2/")]
     [InlineData("$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/../net10.0-ios27.2/Kit.xcframework", "leaves the copy's native/net10.0-ios26.0/")]
+    // What a scan of the text cannot see: each NativeReference is resolved from buildTransitive/<tfm>/.
+    [InlineData("$(MSBuildThisFileDirectory)../../../native/net10.0-ios26.0/Kit.xcframework", "outside the package")]
+    [InlineData("$(KitNatives)Kit.xcframework", "not a path from the targets' own directory")]
+    [InlineData("$(MSBuildThisFileDirectory)$(KitNatives)Kit.xcframework", "goes through a property or an item")]
+    [InlineData("/opt/acme/native/net10.0-ios26.0/Kit.xcframework", "not a path from the targets' own directory")]
+    [InlineData("$(MSBuildThisFileDirectory)Kit.xcframework", "resolves to buildTransitive/net10.0-ios26.0/Kit.xcframework")]
     public void TargetsReferences_AnotherLayoutOrCopy_IsRefused(string reference, string named)
     {
         var problems = PackageCopyRules.CheckTargetsReferences("net10.0-ios26.0", $"<Project><ItemGroup><NativeReference Include=\"{reference}\" /></ItemGroup></Project>").ToList();
@@ -508,12 +514,69 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
     }
 
+    [Theory]
+    // A member signature: the newer copy's F returns its own System.Uri, not the framework's.
+    [InlineData("public class Kit { public static System.Uri F() => null; }",
+        "namespace System { public class Uri { } } public class Kit { public static System.Uri F() => null; }", "Kit::F")]
+    // A field's type.
+    [InlineData("public class Kit { public System.Uri U; }",
+        "namespace System { public class Uri { } } public class Kit { public System.Uri U; }", "Kit::U")]
+    // A base: the newer Kit derives from a System.Exception of its own.
+    [InlineData("public class Kit : System.Exception { }",
+        "namespace System { public class Exception { } } public class Kit : System.Exception { }", "Kit : ")]
+    // An interface.
+    [InlineData("public class Kit : System.IDisposable { public void Dispose() { } }",
+        "namespace System { public interface IDisposable { void Dispose(); } } public class Kit : System.IDisposable { public void Dispose() { } }", "Kit : ")]
+    public void Merge_ATypeOfTheSameNameFromAnotherAssembly_IsAnotherType(string olderApi, string newerApi, string key)
+    {
+        // A library compiled against the older copy binds to the type in the assembly the older copy
+        // names, so the newer copy's same-named type of another assembly does not keep that API.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(result.Problems, p => p.Contains("lacks", StringComparison.Ordinal) && p.Contains(key, StringComparison.Ordinal));
+        // The same API from the same assembly is still the same API.
+        Assert.Empty(Merge([Contribution("x26b", ["net10.0-ios26.0"], api: olderApi), Contribution("x27b", ["net10.0-ios27.2"], api: olderApi)],
+            "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+    }
+
     [Fact]
-    public void Merge_AnEntryPastTheWindowsPathBudget_IsRefused()
+    public void Merge_AnEntryPastTheWindowsPathBudget_IsAWarning_AndARefusalWhenRequired()
     {
         var deep = $"native/net10.0-ios26.0/Kit.xcframework/{new string('a', 200)}/Info.plist";
         var result = Merge([Contribution("x26", ["net10.0-ios26.0"], extra: [(deep, [1])])], "net10.0-ios26.0");
-        Assert.Contains(result.Problems, p => p.Contains("Windows restore budget", StringComparison.Ordinal));
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        Assert.NotNull(result.Package);
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains("Windows restore budget", warning);
+        Assert.Contains("fails for every user profile", warning);
+        Assert.Contains("SwiftBindingsMergeRequireWindowsPathBudget=true", warning);
+
+        var required = SwiftBindingPackageMerge.Merge([Contribution("x26r", ["net10.0-ios26.0"], extra: [(deep, [1])])], ["net10.0-ios26.0"],
+            Path.Combine(tempDir, "out-required"), requireWindowsPathBudget: true);
+        Assert.Null(required.Package);
+        Assert.Contains(required.Problems, p => p.Contains("Windows restore budget", StringComparison.Ordinal));
+        Assert.Empty(required.Warnings);
+    }
+
+    [Fact]
+    public void Merge_TheLongestAppleFrameworkId_Merges_AndNamesTheUserProfilesAVisualStudioRestoreFits()
+    {
+        // The longest id of an Apple framework binding, with a wrapper binary at the depth the copy layout
+        // puts it (the same depth in a one-copy package).
+        const string id = "SwiftBindings.Apple.LiveCommunicationKit";
+        Assert.Equal(40, id.Length);
+        const string wrapper = "LiveCommunicationKitSwiftBindings";
+        var binary = $"native/net10.0-ios27.2/{wrapper}.xcframework/ios-arm64_x86_64-simulator/{wrapper}.framework/{wrapper}";
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], id: id, version: "27.2.0"),
+            Contribution("x27", ["net10.0-ios27.2"], id: id, version: "27.2.0", extra: [(binary, [1])])], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        Assert.NotNull(result.Package);
+        var budget = SwiftBindingPackageMerge.WindowsRestoreEntryBudget($"{id}.27.2.0".Length, 40);
+        Assert.Equal(145, budget);
+        var warning = Assert.Single(result.Warnings);
+        Assert.Contains($"{binary} is {binary.Length} characters, past the Windows restore budget of 145", warning);
+        Assert.Contains($"longer than {40 - (binary.Length - budget)} characters", warning);
     }
 
     // ---- fixtures -------------------------------------------------------------------------------

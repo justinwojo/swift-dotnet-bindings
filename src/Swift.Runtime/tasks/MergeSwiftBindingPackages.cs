@@ -11,7 +11,9 @@ namespace SwiftBindings.Tasks;
 /// Merges the per-toolchain contributions of one binding package (each packed by SwiftBindings.Sdk on
 /// its own .NET + Xcode pairing, same id, version and source) into the one package that ships, with a
 /// copy per toolchain. Refuses (SWIFTBIND138) contributions that do not make one well-formed package,
-/// then checks the merged package as a pack would (SWIFTBIND133, the Windows path budget).
+/// then checks the merged package as a pack would (SWIFTBIND133), and warns (SWIFTBIND140) when an
+/// entry is past the Windows restore path budget, or refuses it with
+/// <see cref="RequireWindowsPathBudget"/>.
 /// </summary>
 public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
 {
@@ -33,6 +35,15 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
     [Required]
     public string ScratchDirectory { get; set; } = "";
 
+    /// <summary>The Windows path budget diagnostic.</summary>
+    public const string PathBudgetCode = "SWIFTBIND140";
+
+    /// <summary>
+    /// Refuse a merged package with an entry past the Windows restore path budget instead of warning
+    /// (<c>SwiftBindingsMergeRequireWindowsPathBudget</c>).
+    /// </summary>
+    public bool RequireWindowsPathBudget { get; set; }
+
     /// <summary>The merged package written.</summary>
     [Output]
     public string MergedPackage { get; set; } = "";
@@ -42,9 +53,12 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
         var result = SwiftBindingPackageMerge.Merge(
             Contributions.Select(c => c.GetMetadata("FullPath")).ToList(),
             TargetFrameworks.Select(t => t.ItemSpec.Trim()).Where(t => t.Length > 0).ToList(),
-            OutputDirectory);
+            OutputDirectory,
+            RequireWindowsPathBudget);
         foreach (var line in result.Notes)
             Log.LogMessage(MessageImportance.High, "{0}", line);
+        foreach (var warning in result.Warnings)
+            Log.LogWarning(null, PathBudgetCode, null, null, 0, 0, 0, 0, "{0}", warning);
         foreach (var problem in result.Problems)
             Log.LogError(null, PrepareSwiftBindingPackageCopy.LayoutCode, null, null, 0, 0, 0, 0, "{0}", problem);
         if (result.Package is null)

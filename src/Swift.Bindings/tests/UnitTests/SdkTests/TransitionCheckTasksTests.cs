@@ -341,6 +341,79 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.True(exit == 0, output);
     }
 
+    [Fact]
+    public void Pack_ACopysWrapperSwappedForAnotherCopys_IsRefused()
+    {
+        // NEG-C: the newer copy's native/<tfm>/ holds the older copy's wrapper. Neither wrapper routes
+        // bridges, so no manifest hash tells them apart; the wrapper identity each was generated with does.
+        var older = WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2");
+        var newer = WrapperIdentityTests.Identity("net10.0-ios27.2", "27.2");
+        var scratch = Directory.CreateDirectory(Path.Combine(tempDir, "natives")).FullName;
+        var olderWrapper = WrapperIdentityTests.StampedDylib(scratch, "older", older);
+        var newerWrapper = WrapperIdentityTests.StampedDylib(scratch, "newer", newer);
+        (string, byte[])[] Copies(byte[] newerCopysWrapper) =>
+        [
+            ("lib/net10.0-ios26.0/Kit.dll", WrapperIdentityTests.StampedAssembly(older)),
+            ("lib/net10.0-ios27.2/Kit.dll", WrapperIdentityTests.StampedAssembly(newer)),
+            ("native/net10.0-ios26.0/Kit.xcframework/ios-arm64/Kit.framework/Kit", olderWrapper),
+            ("native/net10.0-ios27.2/Kit.xcframework/ios-arm64/Kit.framework/Kit", newerCopysWrapper),
+            ("buildTransitive/net10.0-ios26.0/Acme.Kit.props",
+                Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", "0.21.0"))),
+            ("buildTransitive/net10.0-ios27.2/Acme.Kit.props",
+                Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios27.2", ".NET 10 + Xcode 27.2", "27.2", "0.21.0"))),
+        ];
+
+        var (exit, output) = Pack(Package("Acme.Kit.1.0.0.nupkg", Copies(newerWrapper)));
+        Assert.True(exit == 0, output);
+
+        var swapped = Package("Acme.Kit.1.0.1.nupkg", Copies(olderWrapper));
+        (exit, output) = Pack(swapped);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("error SWIFTBIND133", output);
+        Assert.Contains("lib/net10.0-ios27.2/Kit.dll would be refused", output);
+        Assert.Contains("generated as copy net10.0-ios26.0 from the 26.2 SDK", output);
+        Assert.Contains("is not the one this assembly was generated with", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Kit.dll would be refused", output);
+        Assert.False(File.Exists(swapped));
+    }
+
+    // ---- the producer label (SWIFTBIND137) ------------------------------------------------------
+
+    [Theory]
+    // Generated on Xcode 26, packed after Xcode 27 was selected: labelled by the SDK it came from.
+    [InlineData("26.2", "27.2", 0, "26.2")]
+    // Generated on Xcode 27, packed after Xcode 26 was selected: a 26.0 label would be selected by
+    // Xcode 26 apps and compile against API their SDK lacks.
+    [InlineData("27.2", "26.2", 1, "error SWIFTBIND137")]
+    // An assembly that records no SDK is judged by the SDK selected now.
+    [InlineData(null, "26.2", 0, "26.2")]
+    [InlineData(null, "27.2", 1, "error SWIFTBIND137")]
+    public void Label_IsJudgedByTheSdkTheBindingWasGeneratedFrom(string? generatedSdk, string selectedSdk, int exit, string expected)
+    {
+        var assembly = Path.Combine(tempDir, "Acme.Kit.dll");
+        File.WriteAllBytes(assembly, generatedSdk is null
+            ? Compile("Acme.Kit", PrimitiveOnly)
+            : WrapperIdentityTests.StampedAssembly(WrapperIdentityTests.Identity("net10.0-ios26.0", generatedSdk), "Acme.Kit"));
+        var declaration = Path.Combine(tempDir, "pack", "Acme.Kit.props");
+        var project = Path.Combine(tempDir, "label.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="{SecurityElement.Escape(TasksDll)}" />
+              <Target Name="Label">
+                <PrepareSwiftBindingPackageCopy PackageId="Acme.Kit" PackTfm="net10.0-ios26.0" TargetKind="AppleFramework"
+                    PlatformSdkVersion="{selectedSdk}" Assembly="{SecurityElement.Escape(assembly)}"
+                    Toolchain=".NET 10 + Xcode" Generator="0.21.0" DeclarationFile="{SecurityElement.Escape(declaration)}" />
+              </Target>
+            </Project>
+            """);
+        var (code, output) = MSBuild(project, "Label", "minimal");
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        if (exit == 0)
+            Assert.Contains($"<PlatformSdkVersion>{expected}</PlatformSdkVersion>", File.ReadAllText(declaration));
+        else
+            Assert.Contains(expected, output);
+    }
+
     // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------
 
     [Theory]

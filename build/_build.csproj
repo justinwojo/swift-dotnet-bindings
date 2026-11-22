@@ -64,6 +64,8 @@
          (SwiftTransitionGate/SwiftTransitionManifestReader.cs). Base class library only. -->
     <Compile Include="..\src\Swift.Bindings\src\Emitter\CallFacts\SwiftTransitionManifestFormat.cs"
              Link="Helpers\SwiftTransitionManifestFormat.cs" />
+    <Compile Include="..\src\Swift.Bindings\src\Emitter\CallFacts\SwiftWrapperIdentityFormat.cs"
+             Link="Helpers\SwiftWrapperIdentityFormat.cs" />
     <!-- The engine refusal table a withdrawn bridge's record and the package checks name engines by. -->
     <Compile Include="..\src\Swift.Bindings\src\Emitter\CallFacts\SwiftTransitionEngines.cs"
              Link="Helpers\SwiftTransitionEngines.cs" />

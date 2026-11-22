@@ -4468,7 +4468,9 @@ TARGETSEOF"
          (buildTransitive/<tfm>/<PackageId>.props) so every consumer build can name the copy it
          selected and the merge can check its contributions; and the producer label guard
          (SWIFTBIND137): an Apple-framework copy labelled below the SDK it was generated from would
-         be selected by apps on an older toolchain. The pure-ObjC lane ships no consumer targets
+         be selected by apps on an older toolchain. The SDK judged and declared is the one the
+         binding's assembly records it was generated from (its wrapper identity); the SDK selected
+         now stands in only for an assembly that records none. The pure-ObjC lane ships no consumer targets
          and no native/<tfm>/, so it declares no copy. -->
     <PropertyGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
       <_SwiftBindingCopyXcrunSdk>macosx</_SwiftBindingCopyXcrunSdk>
@@ -4491,6 +4493,7 @@ TARGETSEOF"
         PackTfm="$(_SwiftBindingPackTfm)"
         TargetKind="$(_SwiftBindingTargetKind)"
         PlatformSdkVersion="$(_SwiftBindingCopySdkVersion)"
+        Assembly="$(TargetPath)"
         Toolchain=".NET $(NETCoreSdkVersion) + $(_SwiftBindingCopyXcode)"
         Generator="$(_SwiftBindingSdkVersion)"
         ConsumerTargetsFile="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
@@ -4742,7 +4745,8 @@ TARGETSEOF"
                                TargetFrameworks="@(_SwiftBindingsMergeTfm)"
                                OutputDirectory="$([MSBuild]::ValueOrDefault('$(SwiftBindingsMergeOutput)', '$(PackageOutputPath)'))"
                                ReferenceDirectories="@(_SwiftBindingsMergeReference)"
-                               ScratchDirectory="$(BaseIntermediateOutputPath)swift-binding-merge">
+                               ScratchDirectory="$(BaseIntermediateOutputPath)swift-binding-merge"
+                               RequireWindowsPathBudget="$([MSBuild]::ValueOrDefault('$(SwiftBindingsMergeRequireWindowsPathBudget)', 'false'))">
       <Output TaskParameter="MergedPackage" PropertyName="SwiftBindingsMergedPackage" />
     </MergeSwiftBindingPackages>
   </Target>

@@ -16,7 +16,13 @@ namespace BindingsGeneration
         public required IReadOnlyList<string> ObjectFiles { get; init; }
 
         /// <summary>
-        /// Number of .arm64.s files that were compiled.
+        /// How many of <see cref="ObjectFiles"/> are thunks; the rest are the wrapper identity's data
+        /// (<see cref="SwiftWrapperIdentityFormat"/>), which alone is no reason to link a wrapper.
+        /// </summary>
+        public int ThunkObjectCount { get; init; }
+
+        /// <summary>
+        /// Number of assembly files that were compiled.
         /// </summary>
         public int CompiledFileCount => ObjectFiles.Count;
     }
@@ -46,7 +52,10 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             string arch = "arm64")
         {
-            var assemblyFiles = CollectAssemblyFiles(outputDirectory, arch);
+            var thunkFiles = CollectAssemblyFiles(outputDirectory, arch);
+            // The wrapper identity holds only data, so its one file links into every architecture's slice.
+            var identityFiles = CollectIdentityFiles(outputDirectory);
+            var assemblyFiles = thunkFiles.Concat(identityFiles).ToList();
             if (assemblyFiles.Count == 0)
             {
                 logger.LogDebug("No .{Arch}.s thunk files found in {Dir} — skipping thunk compilation.", arch, outputDirectory);
@@ -69,7 +78,8 @@ namespace BindingsGeneration
 
             return new NativeThunkCompilationResult
             {
-                ObjectFiles = objectFiles
+                ObjectFiles = objectFiles,
+                ThunkObjectCount = thunkFiles.Count,
             };
         }
 
@@ -299,6 +309,24 @@ namespace BindingsGeneration
                 return new List<string>();
 
             return Directory.GetFiles(outputDirectory, $"*.{arch}.s")
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .ToList();
+        }
+
+        /// <summary>
+        /// Collects the wrapper identity's assembly files (<see cref="SwiftWrapperIdentityFormat.AssemblyFileSuffix"/>)
+        /// from the output directory. They are not thunks: <see cref="CollectAssemblyFiles"/> does not return them.
+        /// </summary>
+        internal static bool IsIdentityObject(string objectFile) =>
+            objectFile.EndsWith(Path.ChangeExtension(SwiftWrapperIdentityFormat.AssemblyFileSuffix, ".o"), StringComparison.Ordinal);
+
+        /// <summary>The wrapper identity's assembly files in <paramref name="outputDirectory"/>.</summary>
+        internal static List<string> CollectIdentityFiles(string outputDirectory)
+        {
+            if (!Directory.Exists(outputDirectory))
+                return new List<string>();
+
+            return Directory.GetFiles(outputDirectory, "*" + SwiftWrapperIdentityFormat.AssemblyFileSuffix)
                 .OrderBy(f => f, StringComparer.Ordinal)
                 .ToList();
         }

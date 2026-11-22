@@ -159,7 +159,10 @@ partial class Build
         // Still thunk-only: assembly thunks generated, and no fixture member reaches Swift through a
         // @_cdecl wrapper. The wrapper's Swift file always holds the module infrastructure (free,
         // task cancellation, error and metadata accessors); only member wrappers end the shape.
-        var thunkSources = Directory.GetFiles(artifact.OutputDirectory, "*.s", SearchOption.TopDirectoryOnly);
+        // The wrapper identity's data-only assembly file is not a thunk.
+        var thunkSources = Directory.GetFiles(artifact.OutputDirectory, "*.s", SearchOption.TopDirectoryOnly)
+            .Where(f => !f.EndsWith(BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix, StringComparison.Ordinal))
+            .ToArray();
         if (thunkSources.Length == 0)
             failures.Add("the generation emitted no thunk assembly (*.s)");
         var memberWrappers = report.Sites

@@ -425,7 +425,7 @@ namespace BindingsGeneration
                         strippedSymbols: allStrippedSymbols);
                     sliceCount++;
                 }
-                else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
+                else if (simThunkResult != null && simThunkResult.ThunkObjectCount > 0)
                 {
                     logger.LogInformation("No Swift wrappers — linking thunk objects with clang (simulator).");
                     lowering?.Fail(simTargetTriple, NoWrapperSourceReason);
@@ -503,7 +503,12 @@ namespace BindingsGeneration
                         }
 
                         if (anyFiltered)
+                        {
+                            // The wrapper identity links into the device slice too.
+                            foreach (var identityFile in NativeThunkCompiler.CollectIdentityFiles(outputDirectory))
+                                File.Copy(identityFile, Path.Combine(deviceThunkBuildDir, Path.GetFileName(identityFile)), overwrite: true);
                             deviceThunkDir = deviceThunkBuildDir;
+                        }
                     }
 
                     if (!skipThunkCompilation)
@@ -585,7 +590,7 @@ namespace BindingsGeneration
                             strippedSymbols: allStrippedSymbols);
                         sliceCount++;
                     }
-                    else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
+                    else if (devThunkResult != null && devThunkResult.ThunkObjectCount > 0)
                     {
                         logger.LogInformation("No Swift wrappers — linking thunk objects with clang (device).");
                         lowering?.Fail(devTargetTriple, NoWrapperSourceReason);
@@ -951,7 +956,7 @@ namespace BindingsGeneration
                         lowering: lowering,
                         strippedSymbols: allStrippedSymbols);
                 }
-                else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
+                else if (objectFilesToLink != null && thunkResult!.ThunkObjectCount > 0)
                 {
                     // Edge case: no Swift wrappers (all functions thunked).
                     // swiftc requires at least one .swift input, so use clang -shared.
@@ -1854,7 +1859,7 @@ namespace BindingsGeneration
                 // The Swift import in the wrapper .swift file auto-links the framework for Swift symbols,
                 // but thunk .o files reference symbols via bl instructions that the linker needs to resolve.
                 // Adding -framework explicitly ensures the linker includes the framework in its search.
-                if (!string.IsNullOrEmpty(originalModuleName))
+                if (!string.IsNullOrEmpty(originalModuleName) && thunkObjectFiles.Any(f => !NativeThunkCompiler.IsIdentityObject(f)))
                 {
                     thunkLinkerFlags = $"-Xlinker -framework -Xlinker {originalModuleName} ";
                 }

@@ -37,6 +37,7 @@
   <ItemGroup>
     <Compile Include="../../../build/SwiftTransitionGate/*.cs" Link="Engine/%(Filename)%(Extension)" />
     <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftTransitionManifestFormat.cs" Link="Engine/SwiftTransitionManifestFormat.cs" />
+    <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftWrapperIdentityFormat.cs" Link="Engine/SwiftWrapperIdentityFormat.cs" />
     <Compile Include="../../Swift.Bindings/src/Emitter/CallFacts/SwiftTransitionEngines.cs" Link="Engine/SwiftTransitionEngines.cs" />
     <!-- The copy declaration a binding package's buildTransitive/<tfm>/<Id>.props carries: one writer
          for the generator's standalone projects and the SDK's pack. -->

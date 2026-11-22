@@ -140,6 +140,9 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             ConsumerTransitionRemedy.WithdrawalIncoherent =>
                 relink + "The binding does not hold up as the withdrawal it records, which a clean rebuild does not fix: fix the relink failure so the binding routes its bridges, "
                 + "or regenerate it with the current SwiftBindings.Sdk if the package was altered after it was built.",
+            ConsumerTransitionRemedy.WrapperMismatch =>
+                "A native wrapper in the package is not the one this assembly was generated with: each copy's lib/<tfm>/ and native/<tfm>/ must come from one build. "
+                + "Rebuild the binding clean (delete its bin/ and obj/) and pack again; for a merged package, merge the contributions exactly as each toolchain packed them.",
             _ => "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project) and pack again.",
         };
     }

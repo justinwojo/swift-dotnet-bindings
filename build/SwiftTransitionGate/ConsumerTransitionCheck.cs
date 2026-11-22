@@ -54,6 +54,14 @@ public enum ConsumerTransitionRemedy
     /// routes its bridges.
     /// </summary>
     WithdrawalIncoherent,
+
+    /// <summary>
+    /// A native wrapper is not the one the assembly was generated with
+    /// (<see cref="SwiftWrapperIdentityCheck"/>): a wrapper of another copy of the package, of another
+    /// build, or from before wrappers carried their identity. The assembly and its natives must come
+    /// from one build of the binding.
+    /// </summary>
+    WrapperMismatch,
 }
 
 /// <summary>The consumer check's result for one assembly.</summary>
@@ -166,17 +174,25 @@ public static class ConsumerTransitionCheck
     {
         var read = SwiftTransitionManifestReader.Read(assembly.Image, assembly.DisplayPath,
             new SwiftTransitionScanOptions { ReferenceDirectories = assembly.ReferenceDirectories });
+        // The wrapper the assembly was generated with, whatever its transitions: a wrapper of another
+        // copy or build is refused even under a primitive-only assembly.
+        // A wrapper library no image provides is not reported: the app's load fails on the missing wrapper.
+        var (wrapperProblems, _) = SwiftWrapperIdentityCheck.Check(assembly, natives);
         switch (read.State)
         {
+            case TransitionEvidenceState.AbsentPrimitiveOnly when !wrapperProblems.IsEmpty:
+                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, wrapperProblems, [],
+                    Remedy: ConsumerTransitionRemedy.WrapperMismatch);
             case TransitionEvidenceState.AbsentPrimitiveOnly:
                 return new(read.AssemblyName, ConsumerTransitionVerdict.PrimitiveOnly, read.State, [], []);
             case TransitionEvidenceState.AbsentNonPrimitive:
-                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems, [], Remedy: ConsumerTransitionRemedy.Regenerate);
+                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems.AddRange(wrapperProblems), [],
+                    Remedy: ConsumerTransitionRemedy.Regenerate);
             case TransitionEvidenceState.TamperedOrMismatched:
                 // A dangling bridge import shows here: what a withdrawal the manifests record says
                 // decides whether a clean rebuild can help.
                 var recorded = RecordedWithdrawals(read);
-                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems, [], recorded,
+                return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems.AddRange(wrapperProblems), [], recorded,
                     recorded.IsEmpty ? ConsumerTransitionRemedy.Regenerate : RemedyOf(recorded));
         }
 
@@ -209,8 +225,10 @@ public static class ConsumerTransitionCheck
             problems.AddRange(WithdrawnRoutingLeftovers(withdrawals, natives,
                 routedLibraries.Concat(withdrawals.Select(w => w.Library)).ToHashSet(StringComparer.Ordinal)));
 
+        problems.AddRange(wrapperProblems);
         var refused = problems.Count > 0;
         var remedy = !refused ? ConsumerTransitionRemedy.None
+            : problems.Count == wrapperProblems.Length ? ConsumerTransitionRemedy.WrapperMismatch
             : withdrawals.Any(w => w.Cause == TransitionWithdrawal.ReceiptMismatch) ? ConsumerTransitionRemedy.ReceiptMismatch
             : ruleFailures == 0 ? ConsumerTransitionRemedy.CleanRebuild
             : !withdrawals.IsEmpty ? ConsumerTransitionRemedy.WithdrawalIncoherent

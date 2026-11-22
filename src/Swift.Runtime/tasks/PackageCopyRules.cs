@@ -5,6 +5,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Xml;
+using System.Xml.Linq;
 
 namespace SwiftBindings.Tasks;
 
@@ -39,9 +42,19 @@ public static class PackageCopyRules
 
     /// <summary>
     /// SWIFTBIND138: what is wrong with the native references of a copy's consumer targets: each must
-    /// point into <c>native/&lt;packTfm&gt;/</c>, and none into <c>runtimes/</c> or another copy.
+    /// point into <c>native/&lt;packTfm&gt;/</c>, and none into <c>runtimes/</c> or another copy. The
+    /// text is scanned for package-relative paths (a property or a condition can name one too), and
+    /// every <c>NativeReference</c> is resolved as NuGet lays the file out, from
+    /// <c>buildTransitive/&lt;packTfm&gt;/</c>, so a reference the scan cannot see (through a property,
+    /// relative to the consuming project, or absolute) is refused as well.
     /// </summary>
     public static IEnumerable<string> CheckTargetsReferences(string packTfm, string targets)
+    {
+        var scanned = ScanTargetsText(packTfm, targets).ToList();
+        return scanned.Count > 0 ? scanned : ResolveNativeReferences(packTfm, targets);
+    }
+
+    private static IEnumerable<string> ScanTargetsText(string packTfm, string targets)
     {
         var text = targets.Replace('\\', '/');
         if (text.Contains("../runtimes/", StringComparison.OrdinalIgnoreCase))
@@ -63,5 +76,65 @@ public static class PackageCopyRules
                 yield break;
             }
         }
+    }
+
+    private const string ThisFileDirectory = "$(MSBuildThisFileDirectory)";
+
+    /// <summary>Each <c>NativeReference</c> of <paramref name="targets"/>, resolved from <c>buildTransitive/&lt;packTfm&gt;/</c>.</summary>
+    private static IEnumerable<string> ResolveNativeReferences(string packTfm, string targets)
+    {
+        XDocument document;
+        try
+        {
+            document = XDocument.Parse(targets);
+        }
+        catch (XmlException ex)
+        {
+            return [$"do not read as an MSBuild project ({ex.Message})"];
+        }
+        var problems = new List<string>();
+        var own = $"native/{packTfm}/";
+        foreach (var element in document.Descendants().Where(e => e.Name.LocalName == "NativeReference"))
+        {
+            foreach (var include in ((string?)element.Attribute("Include") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                var path = include.Replace('\\', '/');
+                if (!path.StartsWith(ThisFileDirectory, StringComparison.OrdinalIgnoreCase))
+                {
+                    problems.Add($"reference {include}, which is not a path from the targets' own directory into the copy's {own}");
+                    continue;
+                }
+                var rest = path[ThisFileDirectory.Length..];
+                if (rest.Contains("$(", StringComparison.Ordinal) || rest.Contains("@(", StringComparison.Ordinal) || rest.Contains("%(", StringComparison.Ordinal))
+                {
+                    problems.Add($"reference {include}, which goes through a property or an item the pack cannot resolve into the copy's {own}");
+                    continue;
+                }
+                var resolved = Resolve($"buildTransitive/{packTfm}/{rest}");
+                if (resolved is null || !resolved.StartsWith(own, StringComparison.OrdinalIgnoreCase) || resolved.Length == own.Length)
+                    problems.Add($"reference {include}, which resolves to {resolved ?? "a path outside the package"}, outside the copy's {own}");
+            }
+        }
+        return problems;
+    }
+
+    /// <summary><paramref name="path"/> with its <c>.</c> and <c>..</c> segments applied; null when it leaves the package root.</summary>
+    private static string? Resolve(string path)
+    {
+        var segments = new List<string>();
+        foreach (var segment in path.Split('/'))
+        {
+            if (segment is "" or ".")
+                continue;
+            if (segment == "..")
+            {
+                if (segments.Count == 0)
+                    return null;
+                segments.RemoveAt(segments.Count - 1);
+                continue;
+            }
+            segments.Add(segment);
+        }
+        return string.Join("/", segments) + (path.EndsWith('/') ? "/" : "");
     }
 }

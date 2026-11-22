@@ -309,6 +309,9 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
             nameof(ConsumerTransitionRemedy.WithdrawalIncoherent) => relink
                 + "The binding does not hold up as the withdrawal it records, which a clean rebuild does not fix: "
                 + (package ? $"update {candidate.SuppressionKey} to a version that routes its bridges." : "fix the relink failure so the binding routes its bridges."),
+            nameof(ConsumerTransitionRemedy.WrapperMismatch) => package
+                ? $"Its native wrapper is not the one its assembly was generated with (a wrapper of another copy or build of the package): update {candidate.SuppressionKey} to a version packed from one clean build per copy."
+                : "Its native wrapper is not the one its assembly was generated with: rebuild the binding clean (delete its bin/ and obj/).",
             _ => package
                 ? $"Update {candidate.SuppressionKey} to a version built with the current SwiftBindings.Sdk, or regenerate the binding with the current SDK."
                 : "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project).",

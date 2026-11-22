@@ -568,6 +568,13 @@ namespace BindingsGeneration
                     </EmbeddedResource>
                   </ItemGroup>
 
+                  <!-- The identity of the native wrapper this binding was generated with
+                       (SwiftWrapperIdentityFormat): the wrapper exports the same value, so a wrapper of
+                       another copy or build is refused where the binding is packed and consumed. -->
+                  <ItemGroup Condition="Exists('{SwiftWrapperIdentityFormat.AttributeFileName(resolvedNamespace)}')">
+                    <Compile Include="{SwiftWrapperIdentityFormat.AttributeFileName(resolvedNamespace)}" />
+                  </ItemGroup>
+
                   <!-- ILLink trimmer descriptor — only emitted when the generator produced at
                        least one open-generic ISwiftObject in this module. ILC does not auto-
                        discover descriptors embedded in referenced assemblies, so TrimmerRootDescriptor

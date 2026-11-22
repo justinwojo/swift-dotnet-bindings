@@ -62,6 +62,8 @@
        from CompileCheck.dll. -->
   <ItemGroup>
     <Compile Include="../output/*.SwiftTransitionManifest.g.cs" />
+    <!-- Each module's wrapper identity, as a generated binding project carries it. -->
+    <Compile Include="../output/*.WrapperIdentity.g.cs" />
     <EmbeddedResource Include="../output/*.swift-transition-manifest.json">
       <LogicalName>%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

@@ -24,7 +24,9 @@ namespace SwiftBindings.Tasks;
 /// <param name="Copies">Its copies, in order.</param>
 /// <param name="Problems">Why the contributions were refused; empty when merged.</param>
 /// <param name="Notes">What the merge did, for the log.</param>
-public sealed record PackageMergeResult(string? Package, string? Destination, ImmutableArray<string> Copies, ImmutableArray<string> Problems, ImmutableArray<string> Notes);
+/// <param name="Warnings">What the merged package risks without being refused (SWIFTBIND140, the Windows path budget).</param>
+public sealed record PackageMergeResult(string? Package, string? Destination, ImmutableArray<string> Copies, ImmutableArray<string> Problems, ImmutableArray<string> Notes,
+    ImmutableArray<string> Warnings);
 
 /// <summary>The merge of per-toolchain binding package contributions, free of MSBuild.</summary>
 public static class SwiftBindingPackageMerge
@@ -47,10 +49,12 @@ public static class SwiftBindingPackageMerge
     /// and native exports contain the older's, since a library compiles against the oldest copy while
     /// the app that consumes it runs the newest.
     /// </summary>
-    public static PackageMergeResult Merge(IReadOnlyList<string> contributions, IReadOnlyList<string> expectedTfms, string outputDirectory)
+    public static PackageMergeResult Merge(IReadOnlyList<string> contributions, IReadOnlyList<string> expectedTfms, string outputDirectory,
+        bool requireWindowsPathBudget = false)
     {
         var problems = new List<string>();
         var notes = new List<string>();
+        var warnings = new List<string>();
         var read = new List<Contribution>();
         if (contributions.Count == 0)
             problems.Add("No contribution packages were given.");
@@ -146,12 +150,28 @@ public static class SwiftBindingPackageMerge
         if (readme is not null && !output.ContainsKey(readme))
             output[readme] = first.Files.TryGetValue(readme, out var r) ? r : [];
 
-        // The Windows restore path budget, for the real id and version.
+        // The Windows restore path budget, for the real id and version. An entry past it restores with
+        // the dotnet CLI, which handles long paths, but not in a Visual Studio restore, which stops at
+        // MAX_PATH: a warning naming the longest user profile that still fits, or with
+        // requireWindowsPathBudget, a refusal. Packages of long Apple framework ids are past it in the
+        // single-copy layout too, so refusing by default would refuse those ids outright.
         var stem = $"{first.Id}.{first.Version}";
-        var budget = WindowsMaxPath - 1 - (@"C:\Users\".Length + AssumedMaxUserProfile + @"\.nuget\packages\".Length + stem.Length + 1);
+        var budget = WindowsRestoreEntryBudget(stem.Length, AssumedMaxUserProfile);
         var longest = output.Keys.Append(first.NuspecName).MaxBy(k => k.Length)!;
         if (longest.Length > budget)
-            problems.Add($"{longest} is {longest.Length} characters, past the Windows restore budget of {budget} for {stem} (a {AssumedMaxUserProfile}-character user profile under the 260-character MAX_PATH).");
+        {
+            var fits = AssumedMaxUserProfile - (longest.Length - budget);
+            var finding = $"{longest} is {longest.Length} characters, past the Windows restore budget of {budget} for {stem} "
+                          + $"(a {AssumedMaxUserProfile}-character user profile under the 260-character MAX_PATH). "
+                          + (fits > 0
+                              ? $"A Visual Studio restore on Windows fails for a user profile (C:\\Users\\<name>) longer than {fits} characters; "
+                              : "A Visual Studio restore on Windows fails for every user profile; ")
+                          + "the dotnet CLI restores it on any profile.";
+            if (requireWindowsPathBudget)
+                problems.Add(finding);
+            else
+                warnings.Add(finding + " Set SwiftBindingsMergeRequireWindowsPathBudget=true to refuse such a merge.");
+        }
         else
             notes.Add($"  Windows path budget: longest entry {longest.Length}/{budget} ({longest}).");
         if (problems.Count > 0)
@@ -181,7 +201,7 @@ public static class SwiftBindingPackageMerge
             foreach (var (name, data) in output)
                 Write(zip, name, data);
         }
-        return new PackageMergeResult(target, destination, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray());
+        return new PackageMergeResult(target, destination, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray(), warnings.ToImmutableArray());
     }
 
     /// <summary>Moves a merged package that passed its checks from its staging name to its destination.</summary>
@@ -211,7 +231,15 @@ public static class SwiftBindingPackageMerge
         value.All(ch => char.IsAsciiLetterOrDigit(ch) || ch is '.' or '-' or '_' or '+') && !value.Contains("..", StringComparison.Ordinal);
 
     private static PackageMergeResult Refused(List<string> problems, List<string> notes) =>
-        new(null, null, [], problems.ToImmutableArray(), notes.ToImmutableArray());
+        new(null, null, [], problems.ToImmutableArray(), notes.ToImmutableArray(), []);
+
+    /// <summary>
+    /// The longest package-relative entry that restores under MAX_PATH (259 usable characters) at
+    /// <c>C:\Users\&lt;profile&gt;\.nuget\packages\&lt;id&gt;\&lt;version&gt;\</c>: NuGet writes each entry
+    /// there directly, and the folder is as long as the <c>&lt;id&gt;.&lt;version&gt;</c> stem.
+    /// </summary>
+    public static int WindowsRestoreEntryBudget(int stemLength, int userProfileLength) =>
+        WindowsMaxPath - 1 - (@"C:\Users\".Length + userProfileLength + @"\.nuget\packages\".Length + stemLength + 1);
 
     private static string Name(Contribution c) => System.IO.Path.GetFileName(c.Path);
 
@@ -665,12 +693,21 @@ public static class SwiftBindingPackageMerge
             var declaring = t.GetDeclaringType();
             return declaring.IsNil ? $"{reader.GetString(t.Namespace)}.{reader.GetString(t.Name)}" : $"{GetTypeFromDefinition(reader, declaring, rawTypeKind)}+{reader.GetString(t.Name)}";
         }
+        // A referenced type is named with the assembly it resolves in: two copies naming types of one
+        // name in different assemblies name different types, which a compiled library tells apart.
+        // A type of the assembly itself (a definition, or a reference scoped to its own module) is
+        // named bare, the same in every copy.
         public string GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
         {
             var t = reader.GetTypeReference(handle);
-            return t.ResolutionScope.Kind == HandleKind.TypeReference
-                ? $"{GetTypeFromReference(reader, (TypeReferenceHandle)t.ResolutionScope, rawTypeKind)}+{reader.GetString(t.Name)}"
-                : $"{reader.GetString(t.Namespace)}.{reader.GetString(t.Name)}";
+            var name = $"{reader.GetString(t.Namespace)}.{reader.GetString(t.Name)}";
+            return t.ResolutionScope.Kind switch
+            {
+                HandleKind.TypeReference => $"{GetTypeFromReference(reader, (TypeReferenceHandle)t.ResolutionScope, rawTypeKind)}+{reader.GetString(t.Name)}",
+                HandleKind.AssemblyReference => $"[{reader.GetString(reader.GetAssemblyReference((AssemblyReferenceHandle)t.ResolutionScope).Name)}]{name}",
+                HandleKind.ModuleReference => $"[module {reader.GetString(reader.GetModuleReference((ModuleReferenceHandle)t.ResolutionScope).Name)}]{name}",
+                _ => name,
+            };
         }
         public string GetTypeFromSpecification(MetadataReader reader, MetadataReader context, TypeSpecificationHandle handle, byte rawTypeKind) =>
             reader.GetTypeSpecification(handle).DecodeSignature(this, context);

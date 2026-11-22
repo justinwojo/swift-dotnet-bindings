@@ -1852,6 +1852,10 @@ public static class BindingsGeneratorCommand
                 logger: logger);
         }
 
+        // The wrapper identity every module of this run records: the copy it is generated for and the
+        // SDK its surface comes from, fixed before anything is emitted (SwiftWrapperIdentityFormat).
+        WrapperIdentityEmission.Current = ResolveWrapperIdentityContext(platformInfo, new SystemCommandRunner(), logger);
+
         // Load-safety P2: floor the members the generating SDK adds without a floor that the OS symbol
         // inventory's older OS does not ship.
         OsSymbolFloorContext? osSymbolFloors;
@@ -3454,6 +3458,26 @@ public static class BindingsGeneratorCommand
         => isSystemFrameworkTarget && !string.IsNullOrEmpty(moduleName)
             ? moduleName
             : runtimeLibraryName;
+
+    /// <summary>
+    /// The wrapper identity context of a run that generates <paramref name="platformInfo"/>'s copy: its
+    /// full target framework, the version of the platform SDK the selected Xcode resolves (the one the
+    /// surface is generated from and the wrapper compiled against), and the generator. Null, with a
+    /// warning, when the SDK cannot be identified: the binding then records no identity and its
+    /// wrapper is not checked against it.
+    /// </summary>
+    internal static WrapperIdentityContext? ResolveWrapperIdentityContext(PlatformInfo platformInfo, ICommandRunner commandRunner, ILogger logger)
+    {
+        var (exitCode, stdout, _) = commandRunner.Run("xcrun", $"--sdk {platformInfo.DeviceSlice.SdkName} --show-sdk-version");
+        var sdk = exitCode == 0 ? stdout.Trim() : "";
+        if (sdk.Length == 0 || !sdk.All(c => char.IsAsciiDigit(c) || c == '.'))
+        {
+            logger.LogWarning("The {Sdk} SDK's version could not be read (xcrun --sdk {Sdk} --show-sdk-version), so the binding records no wrapper identity.",
+                platformInfo.DeviceSlice.SdkName, platformInfo.DeviceSlice.SdkName);
+            return null;
+        }
+        return new WrapperIdentityContext(platformInfo.PackTfm, sdk, SwiftLoweringEvidenceCollector.Generator);
+    }
 
     /// <summary>
     /// Validate the <c>--platform-version</c> CLI value against the canonical Apple TPV

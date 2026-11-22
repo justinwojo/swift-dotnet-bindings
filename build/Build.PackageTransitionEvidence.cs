@@ -329,6 +329,39 @@ partial class Build
                 else
                     Log.Information("  evidence: {Count} slice(s) of {Library} hold the manifest hash and export exactly its bridges", slices.Count, library);
             }
+
+            // The wrapper identity: generation stamped both modules, and every slice of each one's
+            // wrapper exports the value the compile check embeds (SwiftWrapperIdentityCheck).
+            var image = File.ReadAllBytes(compileCheckOutput / name);
+            var identities = SwiftWrapperIdentityCheck.Read(image);
+            foreach (var problem in identities.Problems)
+                Log.Error("  wrapper identity: {Problem}", problem);
+            var stamped = identities.Identities.Select(i => i.Module).Order(StringComparer.Ordinal).ToArray();
+            if (identities.Problems.Length > 0 || !stamped.SequenceEqual(new[] { ModuleName, DepModuleName }.Order(StringComparer.Ordinal)))
+            {
+                Log.Error("  wrapper identity: CompileCheck.dll records the wrapper identities of [{Modules}], not of {Module} and {Dependency}", string.Join(", ", stamped), ModuleName, DepModuleName);
+                failed.Add($"{name} (wrapper identities)");
+                continue;
+            }
+            foreach (var identity in identities.Identities)
+            {
+                var natives = ConsumerTransitionCheck.FrameworkBinaries(BtOutputDir, identity.Library)
+                    .Select(p => new PackagedNative(identity.Library, p, File.ReadAllBytes(p))).ToList();
+                // Only this library's images: the other module's identity has none here and is not judged.
+                var (problems, _) = SwiftWrapperIdentityCheck.Check(new PackagedAssembly(name, image, references), natives);
+                foreach (var problem in problems)
+                    Log.Error("  wrapper identity {Problem}", problem);
+                if (natives.Count == 0)
+                {
+                    Log.Error("  wrapper identity: no framework slice of {Library} under {Output}", identity.Library, BtOutputDir);
+                    failed.Add($"{name} (no {identity.Library} slice)");
+                }
+                else if (problems.Length > 0)
+                    failed.Add($"{name} ({identity.Library} wrapper identity)");
+                else
+                    Log.Information("  wrapper identity: {Count} slice(s) of {Library} export {Module}'s ({Copy}, {Sdk} SDK)",
+                        natives.Count, identity.Library, identity.Module, identity.Copy, identity.Sdk);
+            }
         }
         return failed;
     }
