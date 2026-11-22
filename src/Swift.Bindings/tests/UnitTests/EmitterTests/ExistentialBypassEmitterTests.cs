@@ -524,6 +524,50 @@ public class ExistentialBypassEmitterTests
         Assert.Equal(string.Empty, swiftOutput);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void TryEmit_FailableClassConstructor_RecoversOnlyTheHelperFreeTrimmedFactory(bool wrapperLibrary)
+    {
+        // A failable CLASS init's trimmed form, routed through the @_cdecl constructor wrapper,
+        // returns the nullable retained pointer directly: its factory reads none of the Optional
+        // helpers only a primary emission declares, so the recovery is self-contained. Without a
+        // wrapper library there is no such route, and the trimmed factory is not recovered.
+        var typeDatabase = CreateTypeDatabase();
+        if (wrapperLibrary)
+            typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("name", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            });
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        AssertNoBypass(csOutput, swiftOutput);
+        if (!wrapperLibrary)
+        {
+            Assert.Equal(string.Empty, csOutput);
+            Assert.Equal(string.Empty, swiftOutput);
+            return;
+        }
+        Assert.Contains("public static bool TryCreate(", csOutput);
+        Assert.Contains("out Loader result)", csOutput);
+        Assert.DoesNotContain("SwiftOptional", csOutput);
+        Assert.Contains("TestModule.Loader(name: name)", swiftOutput);
+        Assert.Contains("Unmanaged.passRetained", swiftOutput);
+    }
+
     [Fact]
     public void TryEmit_ThrowingConstructor_ReturnsFalse()
     {
@@ -551,6 +595,38 @@ public class ExistentialBypassEmitterTests
         Assert.Contains("public Config()", csOutput);
         Assert.Contains("SwiftMarshal.ThrowSwiftError", csOutput);
         Assert.Contains("return try TestModule.Config()", swiftOutput);
+    }
+
+    [Fact]
+    public void TryEmit_ThrowingConstructor_TrailingDebugDefault_StillRecoversTrimmedForm()
+    {
+        // `init(options: [any Equatable] = [], line: UInt = #line) throws`: recovery runs before
+        // the debug parameters are stripped, so the trim has to count past `line` and leave it to
+        // Swift with the existential, not trim `line` alone and keep the existential.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateFrozenStructDecl("Config", moduleDecl, typeDatabase);
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            throws: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true),
+                CreateArgument("line", new NamedTypeSpec("Swift.UInt"), moduleDecl, hasDefault: true),
+            });
+
+        var (csOutput, swiftOutput) = EmitConstructor(constructor, typeDatabase);
+
+        AssertNoBypass(csOutput, swiftOutput);
+        Assert.Contains("public Config()", csOutput);
+        Assert.Contains("return try TestModule.Config()", swiftOutput);
+        Assert.DoesNotMatch(@"\bline\b", csOutput);
+        Assert.DoesNotMatch(@"\bline:", swiftOutput);
     }
 
     [Fact]
@@ -1167,7 +1243,7 @@ public class ExistentialBypassEmitterTests
 
     private static MethodDecl CreateConstructorDecl(
         string name,
-        StructDecl parentDecl,
+        TypeDecl parentDecl,
         ModuleDecl moduleDecl,
         bool throws = false,
         bool isFailable = false,

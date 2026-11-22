@@ -1721,10 +1721,9 @@ namespace BindingsGeneration
             var signature = operatorDecl.UnderlyingMethod.CSSignature;
             if (signature.Count == 0) return true;
 
-            bool IsParentType(TypeSpec? spec)
-                => spec is { IsDynamicSelf: true }
-                   || (spec is NamedTypeSpec named
-                       && string.Equals(named.Name, parentDecl.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal));
+            // The ABI spells a parent moved by @_originallyDefinedIn, in its own operators too, with
+            // the module that first defined it; both spellings name the one parent type.
+            bool IsParentType(TypeSpec? spec) => EqualityAvailability.NamesType(spec, parentDecl);
 
             if (signature.Skip(1).Any(operand => !IsParentType(operand.SwiftTypeSpec)))
                 return false;
@@ -1784,8 +1783,11 @@ namespace BindingsGeneration
             bool needsResultPtr = !returnsBool;
 
             // Resolve the actual Swift return type (may differ from parent type for some operators)
+            // A result naming the parent keeps the parent's current spelling: the ABI may spell it
+            // with the module @_originallyDefinedIn names, which the wrapper does not import.
             string swiftReturnType = moduleQualifiedSwiftName;
-            if (returnArg?.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule())
+            if (returnArg?.SwiftTypeSpec is NamedTypeSpec retNts && retNts.HasModule()
+                && !EqualityAvailability.NamesType(retNts, parentDecl))
                 swiftReturnType = retNts.Name;
 
             swiftWriter.WriteLine();

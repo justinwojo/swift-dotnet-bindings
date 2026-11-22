@@ -255,10 +255,13 @@ namespace BindingsGeneration
                     $"Constructor bound generic contains existential type argument '{firstExistentialType}'.");
                 // Recovery reuses helpers only the primary's emission declares, and it never ran:
                 // the generic-parameter mapping of a constructor with its own generics, and the
-                // Optional metadata and tag P/Invokes a failable constructor's factory reads.
-                if (!methodEnv.MethodDecl.IsFailable
-                    && !methodEnv.MethodDecl.CSSignature.Any(argument => argument.IsGeneric))
-                    DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
+                // Optional metadata and tag P/Invokes a failable value-type constructor's factory
+                // reads. A failable class constructor's @_cdecl route returns the nullable retained
+                // pointer and reads neither, so the recovery keeps only that route for it.
+                if (!methodEnv.MethodDecl.CSSignature.Any(argument => argument.IsGeneric)
+                    && (!methodEnv.MethodDecl.IsFailable || methodEnv.ParentDecl is ClassDecl))
+                    DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext(),
+                        failableNeedsHelperFreeRoute: true);
                 return;
             }
 

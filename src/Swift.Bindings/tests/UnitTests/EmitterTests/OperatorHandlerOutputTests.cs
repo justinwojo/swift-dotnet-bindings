@@ -30,6 +30,75 @@ public class OperatorHandlerOutputTests
         Assert.Contains("PInvoke_op_Equality", output);
     }
 
+    /// <summary>
+    /// A type moved by <c>@_originallyDefinedIn</c> keeps its original module in its stable mangled
+    /// name, and the ABI spells it with that module in its own operators' signatures. Both spellings
+    /// name the parent, so the @_cdecl operator wrapper carries the operator; a type of another
+    /// module that merely shares the type's name is still refused.
+    /// </summary>
+    [Theory]
+    [InlineData("OldModule.Point", "OldModule.Point", "Swift.Bool", true)]
+    [InlineData("TestModule.Point", "OldModule.Point", "OldModule.Point", true)]
+    [InlineData("OldModule.Point", "OtherModule.Point", "Swift.Bool", false)]
+    [InlineData("OtherModule.Point", "OtherModule.Point", "Swift.Bool", false)]
+    public void OperatorWrapperCarriesSignature_AcceptsTheOriginalModuleSpellingOfAMovedParent(
+        string leftType, string rightType, string returnType, bool expected)
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        parentType.MangledName = "$s9OldModule5PointV";
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, returnType, leftType, rightType);
+
+        Assert.Equal(expected, OperatorHandler.OperatorWrapperCarriesSignature(op, parentType));
+    }
+
+    [Fact]
+    public void EmitOperator_MovedParentResult_IsWrittenWithTheParentsCurrentModule()
+    {
+        // The wrapper imports the module that declares the type now; the module the ABI's
+        // @_originallyDefinedIn spelling names is not in scope, so the result cannot be spelled with it.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        // The database resolves the original-module spelling to the type, as the umbrella
+        // fallback resolves a RealityKit spelling to the RealityFoundation record.
+        var oldModule = new ModuleTypeDatabase("OldModule", "/tmp/TestModule.dylib");
+        oldModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OldModule.Point"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s9OldModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct
+            });
+        typeDatabase.AddModuleDatabase(oldModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        parentType.MangledName = "$s9OldModule5PointV";
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "OldModule.Point", "OldModule.Point", "OldModule.Point");
+
+        var swiftOutput = new StringWriter();
+        new OperatorHandler(new NullLogger<OperatorHandler>()).EmitOperator(
+            new CSharpWriter(new StringWriter()), op, typeDatabase, pinvokeHelperContext: null,
+            swiftWriter: new SwiftWriter(swiftOutput), emissionContext: new ModuleEmissionContext());
+
+        var swift = swiftOutput.ToString();
+        Assert.Contains("@_cdecl(", swift);
+        Assert.Contains("initializeMemory(as: TestModule.Point.self", swift);
+        Assert.DoesNotContain("OldModule.", swift);
+    }
+
+    [Fact]
+    public void OperatorWrapperCarriesSignature_UnmovedParent_RefusesAnotherModulesSpelling()
+    {
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentType = CreateStructDecl("Point", moduleDecl);
+        var op = CreateBinaryOperator("+", parentType, moduleDecl, "Swift.Bool", "OldModule.Point", "OldModule.Point");
+
+        Assert.False(OperatorHandler.OperatorWrapperCarriesSignature(op, parentType));
+    }
+
     [Fact]
     public void ValidateAndEmitPairs_WithOnlyEquality_SynthesizesInequality()
     {
