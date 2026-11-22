@@ -850,6 +850,16 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// The base the setter's <c>value</c> derives its scratch locals from (<c>valueFloorRoot</c>
+        /// and the rest of the floor walk). The index parameters share the accessor's scope, so an
+        /// index parameter spelled like one of those locals moves the base aside, the way
+        /// <see cref="NameProvider.ResolveMarshallingBaseName"/> keeps a method's parameters apart.
+        /// </summary>
+        internal static string SetterValueLocalBaseName(IEnumerable<string> indexParameterNames)
+            => NameProvider.ResolveMarshallingBaseName("value",
+                indexParameterNames.Select(NameProvider.StripVerbatimPrefix).ToList());
+
         private static void EmitIndexerSetterBody(
             CSharpWriter csWriter,
             SetAccessorDecl setter,
@@ -865,7 +875,8 @@ namespace BindingsGeneration
             // A floored enum case inside the new value is refused while it is still the public value:
             // the conversion below builds the Swift container the raw-typed accessor method takes.
             // (The indexer planner refuses container indices, so only the value can hold one.)
-            if (SimpleEnumCaseFloors.ContainedValueRefusalLine(subscriptDecl.ReturnTypeSpec, "value", "value", typeDatabase) is { } valueRefusal)
+            if (SimpleEnumCaseFloors.ContainedValueRefusalLine(subscriptDecl.ReturnTypeSpec, "value",
+                    SetterValueLocalBaseName(paramInfos.Select(p => p.paramName)), typeDatabase) is { } valueRefusal)
                 usingLines.Insert(0, valueRefusal);
             var args = convertedArgs;
             bool hasStringIndexParam = isCdecl && paramInfos.Any(p => p.projection is StringProjection);

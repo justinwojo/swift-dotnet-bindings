@@ -33,3 +33,26 @@ public final class SameArityInitSiblings {
         self.scale = config.scale
     }
 }
+
+// A failable initializer whose trimmed form projects onto another failable initializer's inputs.
+//
+// `init?(reading:config:)` trims to `TryCreate(int, out …)`, and `init?(fallback:unused:)` projects
+// to the same `TryCreate(int, out …)` once its empty-tuple parameter is erased, though Swift counts
+// two parameters. Only one of them may keep the plain `TryCreate` name: the trim, declared first,
+// keeps it, and the later full initializer is named after its label.
+public final class FailableTrimSiblingGauge {
+    public let reading: Int
+    public let source: String
+
+    public init?(reading: Int32, config: SameArityInitConfig = .init()) {
+        if reading < 0 { return nil }
+        self.reading = Int(reading) * config.scale
+        self.source = "reading"
+    }
+
+    public init?(fallback: Int32, unused: ()) {
+        if fallback < 0 { return nil }
+        self.reading = Int(fallback)
+        self.source = "fallback"
+    }
+}

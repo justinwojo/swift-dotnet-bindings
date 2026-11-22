@@ -61,3 +61,39 @@ extension DependencyPoint {
         abs(x) + abs(y)
     }
 }
+
+// MARK: - Main-actor members with a defaulted parameter that has no C# default
+//
+// A nonisolated class whose initializers and method are main-actor isolated one by one. Their
+// defaulted parameter is a non-frozen struct, which has no C# default, so the binding adds the
+// overload without it through a Swift shim that calls the member and lets Swift fill the default.
+// The shim is nonisolated unless it carries the member's isolation, and swiftc then refuses its call.
+
+/// A non-frozen unit, so a parameter of it has no C# default.
+public struct MainActorGaugeUnit {
+    public let factor: Int32
+
+    public init(factor: Int32 = 2) {
+        self.factor = factor
+    }
+}
+
+public final class MainActorGauge {
+    public let reading: Int32
+
+    @MainActor
+    public init?(reading: Int32, unit: MainActorGaugeUnit = MainActorGaugeUnit()) {
+        if reading < 0 { return nil }
+        self.reading = reading * unit.factor
+    }
+
+    @MainActor
+    public init(fixed: Int64, unit: MainActorGaugeUnit = MainActorGaugeUnit()) {
+        reading = Int32(fixed) * unit.factor
+    }
+
+    @MainActor
+    public func adjusted(by delta: Int32, unit: MainActorGaugeUnit = MainActorGaugeUnit()) -> Int32 {
+        reading + delta * unit.factor
+    }
+}

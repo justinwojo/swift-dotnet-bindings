@@ -695,7 +695,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("[global::Swift.SwiftSendable]");
             if (typeDecl.IsMainActorIsolated)
                 csWriter.WriteLine("[global::Swift.Runtime.SwiftMainActor]");
-            if (typeDecl.Name.StartsWith("_"))
+            if (SwiftDeclSpelling.HasUnderscoreSwiftName(typeDecl))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
         }
 

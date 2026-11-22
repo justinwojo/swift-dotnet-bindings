@@ -119,10 +119,13 @@ internal static class SimpleEnumCaseFloors
     /// container is built: a refusal then leaves nothing half-built in Swift memory to clean up.
     ///
     /// <para>Only a parameter's own value is checked (the managed-to-Swift direction), never a
-    /// callback's result: a throw inside a reverse P/Invoke ends the process. A top-level sequence
-    /// that is not a collection is materialized first, so the check and the container read the same
-    /// elements and a one-shot sequence is enumerated once. An <c>inout</c> parameter is left as the
-    /// caller passed it, since reassigning it would hand the caller a different object.</para>
+    /// callback's result: a throw inside a reverse P/Invoke ends the process. Every sequence the walk
+    /// would read that is not a collection is materialized first, wherever it sits (the parameter
+    /// itself, an array's elements, a dictionary's keys and values, a set's elements), so the check
+    /// and the container read the same elements and a one-shot or lazily computed sequence is
+    /// enumerated once. A level is copied only when something in it is such a sequence: a parameter
+    /// built of arrays and lists reaches the container as the caller passed it, an <c>inout</c> one
+    /// included.</para>
     ///
     /// <para>It is written where the parameter still has its public C# type: in a method body before
     /// the conversions, and in a property or subscript's public accessor before it converts the value
@@ -131,44 +134,150 @@ internal static class SimpleEnumCaseFloors
     /// <c>__{<paramref name="localBaseName"/>}Floor…</c>; pass the parameter's marshalling base name
     /// so they cannot take a sibling parameter's name.</para>
     ///
+    /// <para>Where a snapshot was taken, the parameter is pointed at it by a statement written after
+    /// the walk, so a refused call leaves an <c>inout</c> caller's variable as it was. A site checking
+    /// several parameters passes <paramref name="deferredCommits"/> to collect those statements and
+    /// writes them once every parameter has been checked, so a later parameter's refusal leaves an
+    /// earlier one untouched too.</para>
+    ///
     /// <para>Returns whether anything was written: false when the type holds no simple enum with a
     /// floored case, or names it only at the top level, where <see cref="ToNative(string?, string,
     /// string)"/> already refuses it.</para>
     /// </summary>
     internal static bool EmitContainedValueRefusal(CSharpWriter writer, TypeSpec typeSpec, string parameterName,
-        string localBaseName, bool isInOut, ITypeDatabase typeDatabase)
+        string localBaseName, ITypeDatabase typeDatabase, List<string>? deferredCommits = null)
     {
         if (!RefusesContainedValues(typeSpec, typeDatabase))
             return false;
         var baseName = NameProvider.StripVerbatimPrefix(localBaseName);
-        if (!isInOut && ContainerKind(typeSpec) == Container.Array)
-            writer.WriteLine($"{parameterName} = {Materialized(parameterName, typeSpec, baseName, 0)};");
+        // A lazy sequence would be read once by the walk and again by the container, so the walk reads
+        // a snapshot and the parameter is pointed at it only once the walk has let the call through:
+        // a refused call leaves an inout caller's variable as it was. The snapshot local starts as the
+        // parameter so the snapshot expression is target-typed to the parameter's own type.
+        var snapshot = HoldsSequence(typeSpec, typeDatabase) ? $"{baseName}FloorSnapshot" : null;
+        if (snapshot != null)
+        {
+            writer.WriteLine($"var {snapshot} = {parameterName};");
+            writer.WriteLine($"{snapshot} = {Snapshot(snapshot, typeSpec, baseName, 0, typeDatabase)};");
+        }
         // The walk tests a copy for null, so the compiler learns nothing about the parameter itself.
         var root = $"{baseName}FloorRoot";
-        writer.WriteLine($"var {root} = {parameterName};");
+        writer.WriteLine($"var {root} = {snapshot ?? parameterName};");
         var counter = 0;
         WriteRefusal(writer, typeSpec, root, baseName, ref counter, typeDatabase);
+        if (snapshot != null)
+        {
+            var commit = $"{parameterName} = {snapshot};";
+            if (deferredCommits != null)
+                deferredCommits.Add(commit);
+            else
+                writer.WriteLine(commit);
+        }
         return true;
     }
 
     /// <summary>
-    /// <paramref name="expression"/>, an array parameter's sequence, with every sequence the walk
-    /// reads made a collection: the array itself, and each array element of it in turn
-    /// (<c>[[Mode]]</c> arrives as a sequence of sequences). An array nested in anything else arrives
-    /// as a list already. The tests are type tests, not null tests: a null sequence still reaches the
-    /// container's ArgumentNullException, and the parameter keeps the non-null state the
-    /// marshalling after it reads.
+    /// Whether the walk reads a sequence the caller may have handed over lazily: an array holding the
+    /// guarded enum (a parameter's array arrives as a sequence), or a dictionary or set holding one.
+    /// An optional's contents are lists already, and a tuple holding an array is not a parameter the
+    /// binding can take.
     /// </summary>
-    private static string Materialized(string expression, TypeSpec arraySpec, string baseName, int depth)
+    private static bool HoldsSequence(TypeSpec typeSpec, ITypeDatabase typeDatabase)
     {
-        // The array holds the guarded enum, so an array element holds it too.
-        var element = arraySpec.GenericParameters[0];
-        if (ContainerKind(element) == Container.Array)
+        if (!HoldsGuardedEnum(typeSpec, typeDatabase))
+            return false;
+        return ContainerKind(typeSpec) switch
         {
-            var lambda = $"{baseName}FloorSequence{depth}";
-            return $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({expression}, {lambda} => {Materialized(lambda, element, baseName, depth + 1)}))";
+            Container.Array => true,
+            Container.Set => HoldsSequence(typeSpec.GenericParameters[0], typeDatabase),
+            Container.Dictionary => HoldsSequence(typeSpec.GenericParameters[0], typeDatabase)
+                || HoldsSequence(typeSpec.GenericParameters[1], typeDatabase),
+            _ => false,
+        };
+    }
+
+    /// <summary>
+    /// <paramref name="expression"/> with every sequence the walk reads made a collection, read once:
+    /// the value itself when nothing in it needs that (no copy), otherwise a copy of each level down
+    /// to the sequences. Each form is a conditional whose other arm is <paramref name="expression"/>,
+    /// so it keeps the expression's static type (a rebuilt <c>Dictionary</c> reads as the parameter's
+    /// <c>IDictionary</c>) and a nested level fits its parent's element type. A null sequence is not
+    /// a collection, so it still reaches an ArgumentNullException, as it did in the container.
+    /// Sequences are copied into a new <c>List</c> each, never <c>ToArray</c>, which hands every empty
+    /// sequence the one shared empty array: two empty sequences that were distinct keys of a dictionary
+    /// or elements of a set would become one.
+    /// </summary>
+    private static string Snapshot(string expression, TypeSpec typeSpec, string baseName, int depth,
+        ITypeDatabase typeDatabase)
+    {
+        const string Linq = "global::System.Linq.Enumerable";
+        var kind = ContainerKind(typeSpec);
+        if (kind == Container.Array && !HoldsSequence(typeSpec.GenericParameters[0], typeDatabase))
+            return $"({expression} is global::System.Collections.ICollection ? {expression} : {Linq}.ToList({expression}))";
+
+        string rebuilt;
+        switch (kind)
+        {
+            case Container.Array:
+            {
+                var item = $"{baseName}FloorSequence{depth}";
+                rebuilt = $"{Linq}.ToList({Linq}.Select({expression}, {item} => {Snapshot(item, typeSpec.GenericParameters[0], baseName, depth + 1, typeDatabase)}))";
+                break;
+            }
+            case Container.Set:
+            {
+                var item = $"{baseName}FloorItem{depth}";
+                rebuilt = $"{Linq}.ToHashSet({Linq}.Select({expression}, {item} => {Snapshot(item, typeSpec.GenericParameters[0], baseName, depth + 1, typeDatabase)}))";
+                break;
+            }
+            case Container.Dictionary:
+            {
+                var pair = $"{baseName}FloorPair{depth}";
+                rebuilt = $"{Linq}.ToDictionary({expression}, {pair} => {PartSnapshot($"{pair}.Key", typeSpec.GenericParameters[0])}, {pair} => {PartSnapshot($"{pair}.Value", typeSpec.GenericParameters[1])})";
+                break;
+            }
+            default:
+                return expression;
         }
-        return $"({expression} is global::System.Collections.ICollection ? {expression} : global::System.Linq.Enumerable.ToArray({expression}))";
+        return $"({NeedsSnapshot(expression, typeSpec, baseName, depth, typeDatabase)} ? {rebuilt} : {expression})";
+
+        string PartSnapshot(string part, TypeSpec partSpec) => HoldsSequence(partSpec, typeDatabase)
+            ? Snapshot(part, partSpec, baseName, depth + 1, typeDatabase)
+            : part;
+    }
+
+    /// <summary>
+    /// A test of <paramref name="expression"/> that is true when <see cref="Snapshot"/> has to copy
+    /// it. It enumerates only collections, and stops at the first sequence that is not one.
+    /// </summary>
+    private static string NeedsSnapshot(string expression, TypeSpec typeSpec, string baseName, int depth,
+        ITypeDatabase typeDatabase)
+    {
+        const string Linq = "global::System.Linq.Enumerable";
+        var probe = $"{baseName}FloorProbe{depth}";
+        switch (ContainerKind(typeSpec))
+        {
+            case Container.Array:
+            {
+                var notCollection = $"!({expression} is global::System.Collections.ICollection)";
+                var element = typeSpec.GenericParameters[0];
+                return HoldsSequence(element, typeDatabase)
+                    ? $"({notCollection} || {Linq}.Any({expression}, {probe} => {NeedsSnapshot(probe, element, baseName, depth + 1, typeDatabase)}))"
+                    : notCollection;
+            }
+            case Container.Set:
+                return $"{Linq}.Any({expression}, {probe} => {NeedsSnapshot(probe, typeSpec.GenericParameters[0], baseName, depth + 1, typeDatabase)})";
+            case Container.Dictionary:
+            {
+                var tests = new List<string>();
+                foreach (var (part, partSpec) in new[] { ("Key", typeSpec.GenericParameters[0]), ("Value", typeSpec.GenericParameters[1]) })
+                    if (HoldsSequence(partSpec, typeDatabase))
+                        tests.Add(NeedsSnapshot($"{probe}.{part}", partSpec, baseName, depth + 1, typeDatabase));
+                return $"{Linq}.Any({expression}, {probe} => {string.Join(" || ", tests)})";
+            }
+            default:
+                return "false";
+        }
     }
 
     /// <summary>Whether <see cref="EmitContainedValueRefusal"/> writes anything for <paramref name="typeSpec"/>.</summary>
@@ -183,7 +292,7 @@ internal static class SimpleEnumCaseFloors
         ITypeDatabase typeDatabase)
     {
         var output = new System.IO.StringWriter();
-        if (!EmitContainedValueRefusal(new CSharpWriter(output), typeSpec, parameterName, localBaseName, isInOut: false, typeDatabase))
+        if (!EmitContainedValueRefusal(new CSharpWriter(output), typeSpec, parameterName, localBaseName, typeDatabase))
             return null;
         return string.Join(" ", output.ToString().Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0));
     }

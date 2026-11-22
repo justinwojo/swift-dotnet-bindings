@@ -841,10 +841,13 @@ namespace BindingsGeneration
             // parameters are already raw: its property or subscript refuses them in its public body.
             if (!_env.MethodDecl.IsAccessor)
             {
+                var snapshotCommits = new List<string>();
                 foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
                     SimpleEnumCaseFloors.EmitContainedValueRefusal(csWriter, argumentDecl.SwiftTypeSpec,
                         NameProvider.GetCSharpParameterName(argumentDecl), NameProvider.GetMarshallingBaseName(argumentDecl),
-                        argumentDecl.IsInOut, _env.TypeDatabase);
+                        _env.TypeDatabase, snapshotCommits);
+                foreach (var commit in snapshotCommits)
+                    csWriter.WriteLine(commit);
             }
 
             // Skip type conversions for property accessors — property wrapper handles conversion

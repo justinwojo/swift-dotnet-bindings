@@ -63,6 +63,20 @@ public class FavoredExistentialInitTests : TestBase
         AssertFalse(TipGateHost.TryCreate(tip, out _), "init? returned nil for an empty title");
     }
 
+    public void TestFailableClassBesideALabelledConstructor_RunsTheFavoredInit()
+    {
+        using var tip = new BasicPopoverTip("labelled");
+        AssertTrue(TipGateLabelledHost.TryCreate(tip, out var host), "init?(_: any PopoverTip, …) succeeded beside init(fallback:)");
+        using (host)
+        {
+            AssertEqual("any:labelled", host.Route, "the favored failable init ran");
+        }
+        using var fallback = new TipGateLabelledHost(tip);
+        AssertEqual("fallback:labelled", fallback.Route, "init(fallback:) is still the constructor");
+        using var empty = new BasicPopoverTip("");
+        AssertFalse(TipGateLabelledHost.TryCreate(empty, out _), "init? returned nil for an empty title");
+    }
+
     public void TestTrailingLineDefault_RunsTheFavoredInit()
     {
         using var tip = new BasicPopoverTip("lined");

@@ -2682,21 +2682,9 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// The declaration's name as Swift source spells it: <c>event</c> for the type
-        /// <c>ExtractUniqueName</c> holds as <c>_event</c>. The C#-keyword prefix is undone only when
-        /// the type's <see cref="SwiftTypeName"/> confirms it, so every other name is returned as is.
+        /// The declaration's name as Swift source spells it (<see cref="SwiftDeclSpelling.SwiftSpelledName"/>).
         /// </summary>
-        private static string SwiftSpelledName(BaseDecl decl)
-        {
-            var name = decl.Name;
-            if (decl is TypeDecl { SwiftTypeName: { } swiftTypeName }
-                && name.Length == swiftTypeName.Name.Length + 1
-                && name[0] == '_'
-                && string.CompareOrdinal(name, 1, swiftTypeName.Name, 0, swiftTypeName.Name.Length) == 0
-                && SyntaxFacts.GetKeywordKind(swiftTypeName.Name) != SyntaxKind.None)
-                return swiftTypeName.Name;
-            return name;
-        }
+        private static string SwiftSpelledName(BaseDecl decl) => SwiftDeclSpelling.SwiftSpelledName(decl);
 
         /// <summary>
         /// Creates a class declaration from a node.
@@ -2947,7 +2935,11 @@ namespace BindingsGeneration
 
             var decl = new ProtocolDecl
             {
-                Name = ExtractUniqueName(node.Name),
+                // A protocol keeps its Swift spelling even when it is a C# keyword: its name never
+                // stands alone in C# (it projects as `I{Name}`, `{Name}Proxy`, `{Name}_vtable`), and
+                // the references built from its Swift type name spell it that way. Prefixing it would
+                // declare `I_readonly` while every reference names `Ireadonly`.
+                Name = StripIdentifierBackticks(node.Name),
                 SwiftTypeName = GetSwiftTypeName(parentDecl, node.Name, moduleNameOverride),
                 MangledName = node.MangledName,
                 Properties = new List<PropertyDecl>(),
@@ -4949,13 +4941,18 @@ namespace BindingsGeneration
         /// Returns a tuple: (csharpSafeName, originalSwiftName).
         /// originalSwiftName is non-null only when the name was modified (C# keyword prefix added).
         /// </summary>
+        /// <summary>
+        /// Strips Swift backtick escaping (<c>`default`</c> → <c>default</c>). Backticks escape a
+        /// keyword as an identifier; they are not part of the identifier itself.
+        /// </summary>
+        private static string StripIdentifierBackticks(string name)
+            => name.Length >= 2 && name[0] == '`' && name[name.Length - 1] == '`'
+                ? name.Substring(1, name.Length - 2)
+                : name;
+
         private static (string CSharpName, string? OriginalSwiftName) ExtractUniqueNameWithOriginal(string name)
         {
-            // Strip Swift backtick escaping (e.g., `default` → default).
-            // Backticks are used in Swift to escape keywords as identifiers;
-            // they are not part of the identifier itself.
-            if (name.Length >= 2 && name[0] == '`' && name[name.Length - 1] == '`')
-                name = name.Substring(1, name.Length - 2);
+            name = StripIdentifierBackticks(name);
 
             if (SyntaxFacts.GetKeywordKind(name) != SyntaxKind.None)
             {

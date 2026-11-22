@@ -119,10 +119,15 @@ internal static class NativeIntOverloadEmitter
         var keyName = isConstructorOverload && ctorShape.Kind == ConstructorEmissionKind.FailableFactory
             ? $"failable-factory:{constructorName}"
             : constructorName;
+        //
+        // The key is reserved only once every decline below has passed: a declined overload that
+        // kept its key would hold a signature nothing declares, and a real member arriving later
+        // (a failable init's plain `TryCreate`) would be pushed off its natural name by it.
+        string? overloadKey = null;
         if (methodEnv.EmittedProjectedSignatures != null)
         {
-            var overloadKey = BuildOverloadKey(methodEnv, conversions, keyName);
-            if (!methodEnv.EmittedProjectedSignatures.Add(overloadKey))
+            overloadKey = BuildOverloadKey(methodEnv, conversions, keyName);
+            if (methodEnv.EmittedProjectedSignatures.Contains(overloadKey))
                 return;
         }
 
@@ -248,6 +253,9 @@ internal static class NativeIntOverloadEmitter
         // convenience overload costs sugar; emitting it costs the whole binding.
         if (paramStr.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName))
             return;
+
+        if (overloadKey != null)
+            methodEnv.EmittedProjectedSignatures!.Add(overloadKey);
 
         // The primary member's own static decision, so a module-level free function (MethodType.Instance,
         // parent is the module) gets a static overload a consumer calling through the type name can reach.
