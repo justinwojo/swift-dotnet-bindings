@@ -155,6 +155,8 @@ namespace BindingsGeneration
         public required List<string> SupportedArchitectures { get; init; }
         public required string SupportedPlatform { get; init; }
         public string? SupportedPlatformVariant { get; init; }
+        /// <summary>A library-type slice's headers directory (Info.plist <c>HeadersPath</c>), or empty.</summary>
+        public string HeadersPath { get; init; } = "";
     }
 
     /// <summary>
@@ -846,7 +848,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Returns the binary path of every <c>*.framework</c> bundle found directly under the
-        /// given search paths (slice directories of dependency/sibling xcframeworks). Folded
+        /// given search paths (slice directories of dependency/sibling xcframeworks), and the bare
+        /// <c>.a</c>/<c>.dylib</c> of each library-type slice among them. Folded
         /// into the over-binding guard's symbol union so a class declared in this framework's
         /// headers but <em>defined</em> in a linked dependency is not false-dropped — biasing
         /// the removal-only guard toward keeping classes.
@@ -878,6 +881,7 @@ namespace BindingsGeneration
                         searchPath, ex.Message);
                 }
             }
+            result.AddRange(DependencyLinkInputs.CollectLibraryBinaries(searchPaths as IReadOnlyList<string> ?? searchPaths.ToList()));
             return result;
         }
 
@@ -1009,7 +1013,8 @@ namespace BindingsGeneration
                     LibraryPath = dict.TryGetValue("LibraryPath", out var lp) ? lp as string ?? "" : "",
                     SupportedArchitectures = architectures,
                     SupportedPlatform = dict.TryGetValue("SupportedPlatform", out var sp) ? sp as string ?? "" : "",
-                    SupportedPlatformVariant = dict.TryGetValue("SupportedPlatformVariant", out var spv) ? spv as string : null
+                    SupportedPlatformVariant = dict.TryGetValue("SupportedPlatformVariant", out var spv) ? spv as string : null,
+                    HeadersPath = dict.TryGetValue("HeadersPath", out var hp) ? hp as string ?? "" : "",
                 });
             }
 

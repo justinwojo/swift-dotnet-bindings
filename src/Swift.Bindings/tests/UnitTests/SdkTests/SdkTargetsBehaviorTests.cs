@@ -640,6 +640,68 @@ namespace BindingsGeneration.Tests
             Assert.NotEqual(firstFingerprint, File.ReadAllText(stamp!));
         }
 
+        [Fact]
+        public void StaticDependencyArchiveOrModuleMapChange_InvalidatesFingerprint()
+        {
+            // The wrapper link copies a library-type dependency's archive members in and applies a
+            // static dependency's module-map link declarations, so changing any of them must regenerate.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+            WriteFingerprintStampProbeProject(stubDir!);
+            var dep = Path.Combine(_tempDir, "Dep.xcframework");
+            var headers = Path.Combine(dep, "ios-arm64", "Headers", "Dep");
+            Directory.CreateDirectory(headers);
+            File.WriteAllText(Path.Combine(dep, "Info.plist"), "<plist/>");
+            var archive = Path.Combine(dep, "ios-arm64", "libDep.a");
+            File.WriteAllText(archive, "!<arch>\nv1");
+            var modulemap = Path.Combine(headers, "module.modulemap");
+            File.WriteAllText(modulemap, "module Dep { link framework \"Metal\" }");
+            var fwDep = Path.Combine(_tempDir, "FwDep.xcframework");
+            var fwModules = Path.Combine(fwDep, "ios-arm64", "FwDep.framework", "Modules");
+            Directory.CreateDirectory(fwModules);
+            File.WriteAllText(Path.Combine(fwDep, "Info.plist"), "<plist/>");
+            File.WriteAllText(Path.Combine(fwDep, "ios-arm64", "FwDep.framework", "FwDep"), "!<arch>\nfw");
+            var fwModulemap = Path.Combine(fwModules, "module.modulemap");
+            File.WriteAllText(fwModulemap, "framework module FwDep { link framework \"Metal\" }");
+            var projectPath = Path.Combine(_tempDir, "Test.csproj");
+            File.WriteAllText(projectPath, File.ReadAllText(projectPath).Replace("</Project>", $"""
+                  <ItemGroup>
+                    <SwiftFrameworkDependency Include="{dep}" />
+                    <SwiftFrameworkDependency Include="{fwDep}" />
+                  </ItemGroup>
+                </Project>
+                """, StringComparison.Ordinal));
+
+            bool Regenerated()
+            {
+                var result = RunDotnet($"msbuild \"{projectPath}\" -t:_GenerateSwiftBindings -nologo -v:n");
+                Assert.True(result.ExitCode == 0, $"Generate failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+                return (result.StdOut + result.StdErr).Contains("STUB_RECEIVED_ARGS:", StringComparison.Ordinal);
+            }
+
+            Assert.True(Regenerated());
+            Assert.False(Regenerated());
+            File.WriteAllText(archive, "!<arch>\nv2");
+            Assert.True(Regenerated(), "Replacing the dependency archive did not regenerate.");
+            File.WriteAllText(modulemap, "module Dep { link framework \"OpenGLES\" }");
+            Assert.True(Regenerated(), "Editing the dependency module map did not regenerate.");
+            File.WriteAllText(fwModulemap, "framework module FwDep { link framework \"OpenGLES\" }");
+            Assert.True(Regenerated(), "Editing a static framework dependency's module map did not regenerate.");
+
+            // A versioned bundle (the macOS layout) keeps the module map under Versions/A behind links.
+            var versioned = Path.Combine(fwDep, "macos-arm64", "FwDep.framework");
+            var versionedModules = Path.Combine(versioned, "Versions", "A", "Modules");
+            Directory.CreateDirectory(versionedModules);
+            File.CreateSymbolicLink(Path.Combine(versioned, "Versions", "Current"), "A");
+            File.CreateSymbolicLink(Path.Combine(versioned, "Modules"), "Versions/Current/Modules");
+            var versionedModulemap = Path.Combine(versionedModules, "module.modulemap");
+            File.WriteAllText(versionedModulemap, "framework module FwDep { link framework \"Metal\" }");
+            Assert.True(Regenerated());
+            File.WriteAllText(versionedModulemap, "framework module FwDep { link framework \"OpenGLES\" }");
+            Assert.True(Regenerated(), "Editing a versioned framework dependency's module map did not regenerate.");
+        }
+
         // ── SWIFTBIND010: the TargetFramework gate ──
         // The SDK and CLI support the same complete net10/net11 Apple TFM grammar.
         // Malformed prefixes and suffixes must fail before discovery or generation.
