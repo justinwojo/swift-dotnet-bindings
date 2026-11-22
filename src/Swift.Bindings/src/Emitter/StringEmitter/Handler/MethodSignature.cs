@@ -242,8 +242,10 @@ namespace BindingsGeneration
             {
                 { Type: MarshalledType.NonFrozenSafeHandleType } => $"{parameter.Name}.Payload",
                 { Type: MarshalledType.EnumSafeHandleType } => $"{parameter.Name}.Payload.DangerousGetHandle()",
-                // Simple enums: cast to underlying integer type for P/Invoke
-                { Type: MarshalledType.SimpleEnum(var underlyingType, _) } => $"({underlyingType}){parameter.Name}",
+                // Simple enums: cast to underlying integer type for P/Invoke, through the enum's guard
+                // when a case is floored above it (refused before Swift traps on it).
+                { Type: MarshalledType.SimpleEnum(var underlyingType, _) simpleEnum } =>
+                    SimpleEnumCaseFloors.ToNative(simpleEnum.CaseFloorGuard, underlyingType, parameter.Name),
                 // A boxed `any Error`: the box the error's container holds in its first word. The
                 // container read borrows the box; a consumed one is retained by a lease declared
                 // before the call (see ExistentialArgumentLease), so a throw before native entry

@@ -77,7 +77,15 @@ public abstract record MarshalledType
     public sealed record CdeclExistential(string ContainerType, string PublicType) : MarshalledType;
 
     /// <summary>Simple C# enum backed by an underlying integer type.</summary>
-    public sealed record SimpleEnum(string UnderlyingType, string EnumTypeName) : MarshalledType;
+    public sealed record SimpleEnum(string UnderlyingType, string EnumTypeName) : MarshalledType
+    {
+        /// <summary>
+        /// The enum's <c>Require</c> method (<see cref="TypeRecord.CaseFloorGuard"/>), which the call
+        /// argument passes the value through so a case floored above the running OS is refused before
+        /// it reaches Swift; null when no case of the enum is floored above it.
+        /// </summary>
+        public string? CaseFloorGuard { get; init; }
+    }
 
     /// <summary>ObjC bridged type (UIImage, etc.) marshalled via IntPtr + Handle.</summary>
     public sealed record ObjCBridged(string CSharpTypeName) : MarshalledType;

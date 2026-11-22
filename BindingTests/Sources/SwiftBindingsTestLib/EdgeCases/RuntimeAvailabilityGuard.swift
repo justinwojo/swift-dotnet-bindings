@@ -292,3 +292,76 @@ extension FlooredAdopter {
     public init(adopting value: some FloorWrappable) { source = 11 }
     public init(adopting fault: some (Error & FloorFaultMarker)) { source = 12 }
 }
+
+// MARK: - Floored simple-enum cases
+//
+// A simple enum can gain a case after the enum itself shipped. The C# enum is a bare integer,
+// so nothing stops a consumer handing the floored case to Swift on an OS below its floor, where
+// Swift has no such case: the enum's own wrappers rebuild `self` through a case-by-tag switch
+// whose `if #available … else fatalError` arm traps, and a raw-value conversion of an OS enum
+// returns nil and the wrapper's precondition traps. The binding must refuse the value in managed
+// code with PlatformNotSupportedException before it reaches Swift. The test lib defines every
+// case on every OS, so the iOS 99 case lets the refusal be observed on any simulator, and the
+// iOS 15 case proves it does not over-fire. A value Swift returns is never refused.
+
+/// Integral raw values. They equal the declaration order on purpose: the `.swiftinterface` drops
+/// a plain enum's raw-value literals, so the C# constants are the ordinals, and only raw values
+/// that match them round-trip through the raw-value conversion of a free function's argument.
+public enum FlooredCaseMode: Int32 {
+    case standard = 0
+
+    @available(iOS 15.0, macOS 12.0, tvOS 15.0, macCatalyst 15.0, *)
+    case enhanced = 1
+
+    @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+    case future = 2
+
+    /// An instance member: `self` crosses into Swift.
+    public var weight: Int32 { (rawValue + 1) * 10 }
+
+    /// An instance method with a second enum argument.
+    public func combined(with other: FlooredCaseMode) -> Int32 { rawValue * 100 + other.rawValue }
+}
+
+/// No raw values: the C# constant is the declaration-order tag.
+public enum FlooredCaseTag {
+    case alpha
+    case beta
+
+    @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+    case gamma
+
+    public var ordinal: Int32 {
+        switch self {
+        case .alpha: return 0
+        case .beta: return 1
+        case .gamma: return 2
+        }
+    }
+}
+
+/// A free function taking the enum: the argument crosses into Swift.
+public func flooredCaseModeRawValue(_ mode: FlooredCaseMode) -> Int32 {
+    return mode.rawValue
+}
+
+/// A free function taking the tag-only enum.
+public func flooredCaseTagOrdinal(_ tag: FlooredCaseTag) -> Int32 {
+    return tag.ordinal
+}
+
+/// Returns the floored case on every OS: the return direction must project it as a plain value
+/// and never trap. Swift itself cannot produce `.future` below its floor (naming it needs
+/// `#available(iOS 99)`, and the synthesized `init(rawValue:)` returns nil for it there), so the
+/// case is built from its tag (a payload-free enum of three cases is its one-byte tag), the way
+/// an OS library that has the case hands it back.
+public func flooredCaseModeLatest() -> FlooredCaseMode {
+    return unsafeBitCast(UInt8(2), to: FlooredCaseMode.self)
+}
+
+/// Returns the tag-only enum's floored case on every OS. Naming `.gamma` as a value needs
+/// `#available(iOS 99)`, so the case is built from its tag (a payload-free enum of three cases
+/// is its one-byte tag), the way an OS library that has the case hands it back.
+public func flooredCaseTagLatest() -> FlooredCaseTag {
+    return unsafeBitCast(UInt8(2), to: FlooredCaseTag.self)
+}

@@ -105,13 +105,18 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   <c>public __consuming func</c> and <c>func `repeat`</c> out of <c>publicMemberNames</c>,
 ///   which the parser reads as negative space, so those public members are withdrawn as
 ///   module-internal.</item>
+/// <item><b>v11</b> — the <c>availabilityAnnotations</c> disambiguation key of a function or
+///   initializer marks each <c>inout</c> parameter (<c>inout String</c>), so an overload pair that
+///   differs only in <c>inout</c> keeps a key per overload instead of sharing one and losing both
+///   floors. A v9 host keys the <c>inout</c> overload unmarked, where a v10 consumer no longer
+///   looks, and its floor would detach silently.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 10;
+    public const int ExpectedSchemaVersion = 11;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

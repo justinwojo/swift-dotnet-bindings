@@ -1351,7 +1351,7 @@ namespace BindingsGeneration
                 if (typeRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
                 {
                     var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
-                    return $"({underlyingType}){paramName}";
+                    return SimpleEnumCaseFloors.ToNative(typeRecord, underlyingType, paramName);
                 }
                 return $"{paramName}.Payload.DangerousGetHandle()";
             }

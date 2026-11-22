@@ -255,6 +255,31 @@ public static class ExtensionMarshallingHelper
     }
 
     /// <summary>
+    /// The <c>Require</c> method a simple enum's values pass through on their way to Swift
+    /// (<see cref="TypeRecord.CaseFloorGuard"/>), or null when <paramref name="typeSpec"/> is not a simple
+    /// enum or no case of it is floored above the enum.
+    /// </summary>
+    public static string? SimpleEnumCaseFloorGuard(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+    {
+        if (typeSpec is not NamedTypeSpec named)
+            return null;
+        SwiftTypeName swiftTypeName;
+        try
+        {
+            swiftTypeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+        return typeDatabase.TryGetTypeRecord(swiftTypeName, out var record)
+               && record.Kind == TypeRecordKind.Enum
+               && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+            ? record.CaseFloorGuard
+            : null;
+    }
+
+    /// <summary>
     /// Resolves a SimpleEnum TypeSpec to the raw-integer lowering used at the cdecl/silgen
     /// boundary: the C# underlying integer name (e.g. "int"), the matching Swift scalar (e.g.
     /// "Int32"), and the fully module-qualified Swift enum name for <c>T(rawValue:)</c>

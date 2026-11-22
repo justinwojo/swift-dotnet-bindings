@@ -475,6 +475,24 @@ internal static class AvailabilityAttributeEmitter
     }
 
     /// <summary>
+    /// True when <paramref name="floor"/> requires a newer OS than <paramref name="baseline"/> on some
+    /// platform: a platform the baseline leaves unfloored, or a strictly newer introduced version.
+    /// Both lists are compared as complete effective floors (macCatalyst lifted to iOS).
+    /// </summary>
+    public static bool IsStricterFloor(
+        IReadOnlyList<AvailabilityAnnotation>? floor, IReadOnlyList<AvailabilityAnnotation>? baseline)
+    {
+        var baselineFloors = ResolveStrictestFloors(baseline)
+            .ToDictionary(f => f.platform, f => f.version, StringComparer.Ordinal);
+        foreach (var (platform, version) in ResolveStrictestFloors(floor))
+        {
+            if (!baselineFloors.TryGetValue(platform, out var baselineVersion) || IsStrictlyNewer(version, baselineVersion))
+                return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Whether <paramref name="decl"/>'s effective availability floor is strictly newer than
     /// <paramref name="parentDecl"/>'s on at least one platform — i.e. the member declares a
     /// floor its enclosing type does not already guarantee, so a call to the member from code

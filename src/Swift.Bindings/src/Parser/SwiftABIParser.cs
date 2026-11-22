@@ -536,13 +536,20 @@ namespace BindingsGeneration
         /// a plain <c>[T]</c>, indistinguishable from an array-typed sibling, while the interface
         /// producer keys it by <c>T</c>; <paramref name="variadicParameters"/> (one flag per
         /// parameter, from the mangled name's variadic marker) selects the element spelling.
+        /// <para/>
+        /// With <paramref name="markInOut"/>, each parameter the ABI marks
+        /// <c>paramValueOwnership: InOut</c> is spelled <c>inout T</c>: the key a function's or
+        /// initializer's availability is stored under, which tells <c>init(rawValue: inout String)</c>
+        /// from <c>init(rawValue: String)</c> (the producer's <c>buildAvailabilityParamSignature</c>).
+        /// The typed-throws and parameter-fact keys are unmarked.
         /// </summary>
-        internal static string ComputeAbiParamSignature(Node node, IReadOnlyList<bool>? variadicParameters = null)
+        internal static string ComputeAbiParamSignature(Node node, IReadOnlyList<bool>? variadicParameters = null, bool markInOut = false)
         {
             if (node.Children == null) return string.Empty;
             var sourceNames = MapGenericParametersToSourceNames(node.GenericSig, node.sugared_genericSig);
             sourceNames = AddOpaqueParameterSpellings(node.GenericSig, sourceNames);
             var raw = new List<string>();
+            var inOut = new List<bool>();
             int i = 0;
             foreach (var child in node.Children)
             {
@@ -565,8 +572,12 @@ namespace BindingsGeneration
                 if (DepthIndexGenericParameterName.IsMatch(printed))
                     return string.Empty;
                 raw.Add(printed);
+                inOut.Add(markInOut && child.paramValueOwnership == "InOut");
             }
-            return MemberSignatureNormalizer.BuildSignature(raw);
+            if (!inOut.Contains(true))
+                return MemberSignatureNormalizer.BuildSignature(raw);
+            return string.Join(",", raw.Select((printed, k) =>
+                (inOut[k] ? "inout " : string.Empty) + MemberSignatureNormalizer.BuildSignature(new[] { printed })));
         }
 
         // A depth-and-index name standing alone: `Probe.τ_0_0` is a concrete type of that name.
@@ -3339,6 +3350,7 @@ namespace BindingsGeneration
                 .Select(p => IsVariadicArraySpec(p.SwiftTypeSpec))
                 .ToList();
             var signature = ComputeAbiParamSignature(node, variadicParameters);
+            var availabilitySignature = ComputeAbiParamSignature(node, variadicParameters, markInOut: true);
 
             // Look up typed throws error type from swiftinterface data
             if (methodDecl.Throws)
@@ -3368,15 +3380,15 @@ namespace BindingsGeneration
 
             if (parentDecl is TypeDecl parentType)
             {
-                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName, signature);
+                ApplyMemberAvailability(methodDecl, parentType, node.PrintedName, availabilitySignature);
             }
             else if (parentDecl is ModuleDecl)
             {
                 // Free function availability: keyed by bare printedName, with optional
                 // disamb suffix when overload disambiguation is needed.
-                if (!string.IsNullOrEmpty(signature) &&
+                if (!string.IsNullOrEmpty(availabilitySignature) &&
                     _facts.AvailabilityAnnotations.TryGetValue(
-                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, signature),
+                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, availabilitySignature),
                         out var disambFree))
                 {
                     methodDecl.AvailabilityAnnotations = disambFree;

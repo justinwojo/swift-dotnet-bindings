@@ -98,16 +98,28 @@ namespace BindingsGeneration
             // Find the init(rawValue:) constructor in the enum's methods: the one labeled rawValue: and
             // taking the raw type by value, which the wrappers call and whose symbol and floor FromRawValue
             // binds, ahead of another overload the enum declares (init(rawValue:) on another type or
-            // inout, or an unlabeled init(_ rawValue:)).
+            // inout, or an unlabeled init(_ rawValue:)). Only a synchronous, non-throwing initializer with
+            // no generic parameters of its own has the convention the raw-value P/Invokes declare (no
+            // async context, error register or extra metadata arguments), so an async, throwing or
+            // generic overload never takes its place. Generics the initializer inherits from an
+            // enclosing generic type are the enum's own context, which the metadata wrapper supplies.
+            // An initializer async only by isolation has a synchronous symbol and stays.
             var rawValueInitializers = enumDecl.Methods.Where(m =>
                 m.IsConstructor &&
                 m.Name == "init" &&
                 m.CSSignature.Count == 2 && // Return type + rawValue parameter
-                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue")).ToList();
+                m.CSSignature.Any(a => a.Name == "rawValue" || a.PrivateName == "rawValue") &&
+                (!m.IsAsync || m.IsAsyncByIsolation) &&
+                !m.Throws &&
+                !WrapperValidation.HasMethodOwnGenericParameters(m)).ToList();
+            // A labeled by-value initializer whose type is not a spelling of the raw type (a typealias
+            // NamesRawType does not know) is bound only when it is the only one: with two, nothing says
+            // which the RawRepresentable witness is. An unlabeled or inout initializer is never the
+            // witness and never bound; an enum offering only those emits no simple cases.
+            var labeledByValue = rawValueInitializers.Where(m => IsLabeledByValue(m.CSSignature[1])).ToList();
             var initRawValueMethod =
-                rawValueInitializers.FirstOrDefault(m => IsLabeledByValue(m.CSSignature[1]) && NamesRawType(m.CSSignature[1].SwiftTypeSpec, rawTypeName))
-                ?? rawValueInitializers.FirstOrDefault(m => IsLabeledByValue(m.CSSignature[1]))
-                ?? rawValueInitializers.FirstOrDefault();
+                labeledByValue.FirstOrDefault(m => NamesRawType(m.CSSignature[1].SwiftTypeSpec, rawTypeName))
+                ?? (labeledByValue.Count == 1 ? labeledByValue[0] : null);
             if (initRawValueMethod == null)
             {
                 _logger.LogWarning($"Enum '{enumTypeName}' is RawRepresentable but init(rawValue:) constructor not found. Skipping simple case emission.");

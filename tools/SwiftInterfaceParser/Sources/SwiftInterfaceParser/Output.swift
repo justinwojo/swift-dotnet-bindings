@@ -65,7 +65,10 @@ import Foundation
 // allow-list of modifiers; keyword-named members key unescaped. A v9 host leaves
 // `public __consuming func` and `func \`repeat\`` out of `publicMemberNames`, and the
 // parser withdraws them as module-internal.
-let kSchemaVersion = 10
+// v11: a function's or initializer's availability disambiguation key marks each `inout`
+// parameter, so overloads differing only in `inout` keep their own floors. A v9 host keys the
+// `inout` overload unmarked, where a v10 consumer no longer looks.
+let kSchemaVersion = 11
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///
