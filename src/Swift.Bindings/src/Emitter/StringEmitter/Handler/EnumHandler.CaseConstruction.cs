@@ -73,6 +73,10 @@ namespace BindingsGeneration
                 if (HasUnsupportedAnyTypeInPayload(typeSpec, csharpType, typeDatabase, boundGenericsHandler, enumGenericParams, moduleDecl))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping case.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, capitalizedName, enumDecl,
+                        SkipReason.AnyTypeFallback,
+                        $"Associated value {i} ('{typeSpec}') resolves to AnyType, so the case cannot be constructed.");
                     return false;
                 }
 

@@ -227,6 +227,26 @@ public class NativeDefaultOverloadRecoveryTests
         Assert.Empty(env.EmissionContext!.CompletedDefaultOverloadRecipes);
     }
 
+    [Fact]
+    public void Recovery_BuildsTrailingTrimsEvenWhenEveryDefaultMapsToCSharp()
+    {
+        // An emitted primary already carries `= 0` inline for both trailing defaults, so its trims
+        // add nothing. A recovery call has no primary: without the trims nothing calls the
+        // declaration at all (a favored `init(_: any P, delegate: (any D)? = nil)`).
+        var withPrimary = CreateEnvironment(mappableDefaults: true);
+        var (primaryManaged, _, _, _) = Emit(withPrimary);
+        Assert.Empty(withPrimary.EmissionContext!.AbiCallPlans);
+        Assert.DoesNotContain("_dbw_configure_", primaryManaged);
+
+        var recovery = CreateEnvironment(mappableDefaults: true);
+        var managed = new StringWriter();
+        var native = new StringWriter();
+        Assert.True(DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(
+            new CSharpWriter(managed), new SwiftWriter(native), recovery, NullLogger.Instance, recovery.EmissionContext));
+        Assert.Equal(2, recovery.EmissionContext!.AbiCallPlans.Count);
+        Assert.Contains("_dbw_configure_", native.ToString());
+    }
+
     private sealed class UnknownNamedSpec : NamedTypeSpec
     {
         public UnknownNamedSpec() : base("M.Unknown") { }
@@ -244,7 +264,7 @@ public class NativeDefaultOverloadRecoveryTests
         return (csText.ToString(), swiftText.ToString(), cs, swift);
     }
 
-    private static MethodEnvironment CreateEnvironment()
+    private static MethodEnvironment CreateEnvironment(bool mappableDefaults = false)
     {
         var db = new TypeDatabase { AsyncLibraryName = "MWrapper" };
         var swift = new ModuleTypeDatabase("Swift", "/usr/lib/swift/libswiftCore.dylib");
@@ -272,7 +292,8 @@ public class NativeDefaultOverloadRecoveryTests
         })
             method.CSSignature.Add(new ArgumentDecl { Name = name, PrivateName = name,
                 SwiftTypeSpec = new NamedTypeSpec("Swift." + type), IsInOut = inout, IsGeneric = false,
-                HasDefaultArg = defaulted, ParentDecl = method, ModuleDecl = module });
+                HasDefaultArg = defaulted, SwiftDefaultExpression = defaulted && mappableDefaults ? "0" : null,
+                ParentDecl = method, ModuleDecl = module });
         module.Methods.Add(method);
         return new MethodEnvironment(method, db) { EmissionContext = new ModuleEmissionContext(),
             EmittedProjectedSignatures = new(), ReservedOverloadShapes = new() };

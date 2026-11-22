@@ -76,11 +76,10 @@ import SwiftParser
 ///      * `parameterNames`: ANY access (public, open, internal, bare protocol
 ///        requirement) — every `func name(` / `init(` line qualifies; no shape gate
 ///        is needed.
-///      * Other three facts: STRICT public-shape gate.
-///        Func shape: `(public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:mutating\s+)?func`.
-///        Init shape: `(public|open)\s+(?:convenience\s+)?init`.
-///        Lines like `public nonisolated func`, `public override func`, or
-///        `public required init` do NOT contribute (those shapes are excluded).
+///      * Other facts: public members only — the declaration's own access level
+///        is `public` or `open` (`DeclAccess.isPublicOrOpen`), whatever other
+///        modifiers it carries (`public nonisolated func`, `public override func`,
+///        `public __consuming func`, `public required init` all contribute).
 ///
 /// 6. **Inclusion guards** — only emit when the per-fact list has the relevant
 ///    signal:
@@ -156,8 +155,9 @@ final class SignatureFactsWalker: SyntaxVisitor {
         try! NSRegularExpression(pattern: "@(?:\\w+\\.)?(MainActor|Sendable)\\b")
 
     /// Parallel stack: each visited type/extension records whether it actually
-    /// pushed a `Scope` on the main stack. Types/extensions that fail the shape
-    /// gate (access modifier check + same-line `{`) are not pushed, so their
+    /// pushed a `Scope` on the main stack. Types that state no access level or whose
+    /// name is no word identifier, and extensions of a non-dotted-word type, are
+    /// not pushed, so their
     /// members must NOT be keyed by the type scope. Each `visitPost` pops only
     /// when its visit pushed.
     private var scopePushed: [Bool] = []
@@ -190,7 +190,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
                 walker.constLiteralParameters, walker.closureParameterAttributes)
     }
 
-    // MARK: - Type decls (gated push: access-modifier shape + same-line `{`)
+    // MARK: - Type decls (pushed when the type states an access level)
 
     override func visit(_ node: ClassDeclSyntax) -> SyntaxVisitorContinueKind {
         return enterTypeScope(name: node.name.text, modifiers: node.modifiers,
@@ -233,12 +233,13 @@ final class SignatureFactsWalker: SyntaxVisitor {
                                 keyword: TokenSyntax,
                                 leftBrace: TokenSyntax,
                                 isProtocol: Bool = false) -> SyntaxVisitorContinueKind {
-        // The type-name capture requires a word identifier (`\w+`) — backtick-escaped
-        // names fail the Unicode word-class check, so SwiftSyntax must also skip
-        // pushing them.
-        if matchesTypeDeclShape(modifiers),
+        // Every type the interface declares with an access level scopes its members,
+        // whatever other modifiers it carries (`public indirect enum`). A type left
+        // unscoped would key its members under the enclosing type.
+        let name = DeclAccess.unescape(name)
+        if DeclAccess.hasAccess(modifiers, DeclAccess.interfaceAccessLevels),
            RegexShape.isWordIdentifier(name),
-           typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
+           RegexShape.opensOnSameLine(keyword: keyword, leftBrace: leftBrace, converter: converter) {
             scopeStack.append(Scope(paramNamesKey: name, trackerKey: name,
                                     isExtension: false, isProtocol: isProtocol))
             scopePushed.append(true)
@@ -254,41 +255,16 @@ final class SignatureFactsWalker: SyntaxVisitor {
         }
     }
 
-    /// Shape: `(?:public|internal|open)\s+(?:final\s+)?(?:class|struct|enum|actor|protocol)\s+(\w+)`.
-    /// Modifiers BEFORE access are tolerated (unanchored scan); after access only
-    /// an optional `final` is allowed. `public indirect enum`, etc. fail this gate
-    /// and so are not pushed onto the scope stack.
-    private func matchesTypeDeclShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// True iff the type/extension keyword and its body's opening `{` are on the
-    /// same source line (same-line brace gate).
-    private func typeOpensOnSameLine(keyword: TokenSyntax, leftBrace: TokenSyntax) -> Bool {
-        let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
-        let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
-        return kwLine == braceLine
-    }
-
     // MARK: - Extensions (DIVERGENT push: lastDot vs firstDotStrip; same-line `{` gated)
 
     override func visit(_ node: ExtensionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Extensions have no modifier filter — any `extension <type>` line qualifies —
-        // but the same-line `{` gate still applies AND the extended type must match
-        // `[\w.]+` (word characters and dots only). Enforce all three constraints.
-        guard typeOpensOnSameLine(keyword: node.extensionKeyword,
-                                  leftBrace: node.memberBlock.leftBrace) else {
-            scopePushed.append(false)
-            return .visitChildren
-        }
+        // Extensions have no modifier filter, but the extended type must match
+        // `[\w.]+` (word characters and dots only) and the body `{` must be on the
+        // keyword's line, as in every other walker.
         let qualified = node.extendedType.dottedDescription
-        guard RegexShape.isWordOrDotOnly(qualified) else {
+        guard RegexShape.opensOnSameLine(keyword: node.extensionKeyword,
+                                         leftBrace: node.memberBlock.leftBrace, converter: converter),
+              RegexShape.isWordOrDotOnly(qualified) else {
             scopePushed.append(false)
             return .visitChildren
         }
@@ -317,12 +293,11 @@ final class SignatureFactsWalker: SyntaxVisitor {
     // MARK: - Members
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Operator functions (`public static func == (...)`) have a `name` token
-        // whose `.text` is the operator symbol. The word-identifier gate (`\w+`)
-        // skips these since `\w` excludes `=`, `+`, etc. Skip non-identifier names.
-        guard isIdentifierName(node.name.text) else { return .skipChildren }
+        // Operator functions (`public static func == (...)`) are skipped. A
+        // keyword-named function keys by its unescaped name, as the ABI prints it.
+        guard let name = DeclAccess.memberName(node.name) else { return .skipChildren }
         emitForFunctionLike(
-            funcName: node.name.text,
+            funcName: name,
             params: node.signature.parameterClause.parameters,
             modifiers: node.modifiers,
             isInit: false,
@@ -453,9 +428,7 @@ final class SignatureFactsWalker: SyntaxVisitor {
             Self.stage(internalNames, signature: signature, key: paramNamesKey, in: &stagedParameterNames)
         }
 
-        let publicShapeOk = isInit
-            ? matchesPublicInitShape(modifiers)
-            : matchesPublicFuncShape(modifiers)
+        let publicShapeOk = DeclAccess.isPublicOrOpen(modifiers)
 
         // ClosureParameterAttributes — emit on (public-shape OR inside-protocol)
         // members. Bare protocol requirements (which fail the public-shape gate)
@@ -473,11 +446,8 @@ final class SignatureFactsWalker: SyntaxVisitor {
             Self.stage(closureAttrs, signature: signature, key: trackerKey, in: &stagedClosureParameterAttributes)
         }
 
-        // Defaults / Autoclosure / Variadic / ConstLiteral — STRICT public-shape gate.
-        // Only specific modifier shapes between `public/open` and `func`/`init` are
-        // accepted; e.g. `public nonisolated func` and `public required init` do NOT
-        // contribute. ConstLiteralParameters uses the same public-shape set (no
-        // protocol-requirement relaxation).
+        // Defaults / Autoclosure / Variadic / ConstLiteral — public members only
+        // (no protocol-requirement relaxation).
         if !publicShapeOk { return }
 
         if defaults.contains(where: { $0 != nil }) {
@@ -637,82 +607,5 @@ final class SignatureFactsWalker: SyntaxVisitor {
     private func makeParamNamesKey(printedName: String) -> String {
         guard let top = scopeStack.last else { return printedName }
         return "\(top.paramNamesKey).\(printedName)"
-    }
-
-    // MARK: - Modifier-shape matchers
-
-    /// Iterator helper: consume modifiers until we find one whose `name.text` is in
-    /// `accessTexts` AND whose `detail` is nil. Returns `true` and leaves the iterator
-    /// positioned just after the access modifier; `false` if no matching access
-    /// modifier exists. Modifiers BEFORE access are tolerated (unanchored scan);
-    /// modifiers AFTER must satisfy the per-shape allow-list in order.
-    private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
-        while let mod = iter.next() {
-            if accessTexts.contains(mod.name.text) && mod.detail == nil {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// `PublicFuncRegex` shape (strict, used by tracker.IsMemberLine):
-    /// `(public|open)\s+(?:final\s+)?(?:static\s+|class\s+)?(?:(?:mutating|consuming|borrowing)\s+)?func`.
-    /// Disallows `nonisolated`, `nonmutating`, `override`, etc., between access
-    /// and `func` — those lines do NOT contribute to defaults/autoclosure/variadic.
-    private func matchesPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        if let mod = current, (mod.name.text == "static" || mod.name.text == "class"), mod.detail == nil {
-            current = iter.next()
-        }
-        // PublicFuncRegex allows one of {mutating, consuming, borrowing} in this slot — the
-        // `consuming`/`borrowing` ownership modifiers appear on `~Copyable` instance methods.
-        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// `PublicInitRegex` shape (strict, used by tracker.IsMemberLine):
-    /// `(public|open)\s+(?:convenience\s+)?init`.
-    /// Disallows `required`/`override` between access and `init` — those lines do
-    /// NOT contribute to defaults/autoclosure/variadic.
-    private func matchesPublicInitShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "convenience", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// True iff `s` matches .NET's default `\w+` semantics — Unicode word characters
-    /// (general categories `L`, `Mn`, `Nd`, `Pc`, `Lm`). Used to skip operator
-    /// functions whose `name.text` is the symbol literal (`==`, `+`, `<`, etc.) —
-    /// the word-identifier gate (`\w+`) rejects those. Names like `GreetCafé`
-    /// (Latin letter with diacritic) DO match `\w+` and so MUST pass this gate.
-    ///
-    /// Backticks are NOT stripped: the function-name capture is bare `(\w+)` with
-    /// no `\`?` wrapper, so `func \`class\`()` (where SwiftSyntax keeps the backticks
-    /// in `name.text`) is rejected. Backtick is not a word character, so this gate
-    /// rejects backtick-escaped function names naturally.
-    private func isIdentifierName(_ s: String) -> Bool {
-        if s.isEmpty { return false }
-        for scalar in s.unicodeScalars {
-            switch scalar.properties.generalCategory {
-            case .uppercaseLetter, .lowercaseLetter, .titlecaseLetter,
-                 .modifierLetter, .otherLetter,
-                 .nonspacingMark, .decimalNumber, .connectorPunctuation:
-                continue
-            default:
-                return false
-            }
-        }
-        return true
     }
 }

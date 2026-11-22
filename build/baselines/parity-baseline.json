@@ -30,6 +30,7 @@
     "MapperSeed",
     "MarkerBooksEnum",
     "MarkerCameraEnum",
+    "MotionAnimatable",
     "NcPortRight",
     "Permitted",
     "PinFineGranularity",

@@ -122,14 +122,9 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// combining accent), which name different types to the compiler.
     private var memberSignatures: [ExactText: [ExactText: [MemberDeclaration]]] = [:]
 
-    // Modifier-shape gates for PublicFuncRegex / PublicInitRegex / PublicVarRegex /
-    // subscript shapes. ORDER matters — the walker steps through `node.modifiers` in
-    // source order and rejects any modifier that falls outside the allowed sequence
-    // or appears in the wrong slot. ANY modifier mismatch causes the decl to be
-    // skipped entirely (`override`, `weak`, `required`, `nonisolated`, `dynamic`,
-    // `lazy`, `unowned`, `nonmutating`, `indirect`, `final`-after-`mutating`, etc.).
-    // SEMANTIC CLIFF: SwiftSyntax sees all of these modifiers, but the line-shape
-    // patterns do not admit them.
+    // Member gates follow the access level alone (`DeclAccess.isPublicOrOpen`): a
+    // public member's annotations count whatever other modifiers it carries
+    // (`override`, `required`, `nonisolated`, `dynamic`, `__consuming`, …).
 
     init(filePath: String, source: String) {
         self.filePath = filePath
@@ -393,98 +388,6 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
     }
 
-    /// PublicFuncRegex shape: `(public|open) final? (static|class)? (mutating|consuming|borrowing)? func`.
-    /// UNANCHORED scan: the match starts at the first `public`/`open` modifier and
-    /// checks the ALLOWED-AFTER sequence up to `func`. Any modifiers BEFORE the
-    /// access keyword (`@MainActor`, `nonisolated`, `final`, `weak`, `dynamic`,
-    /// attributes that survive into the modifier list, …) are tolerated and ignored.
-    /// Once the access keyword is found, modifiers AFTER it must follow the strict
-    /// pattern — anything outside that sequence (e.g., `nonisolated` between
-    /// `public` and `func`) breaks the match. Implemented by ignoring everything up
-    /// to and including the first `public`/`open` modifier and validating the tail.
-    private func matchesPublicFuncShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        if let mod = current, (mod.name.text == "static" || mod.name.text == "class"), mod.detail == nil {
-            current = iter.next()
-        }
-        // PublicFuncRegex allows one of {mutating, consuming, borrowing} in this slot — the
-        // `consuming`/`borrowing` ownership modifiers appear on `~Copyable` instance methods.
-        if let mod = current, ["mutating", "consuming", "borrowing"].contains(mod.name.text), mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// PublicInitRegex shape: `(public|open) convenience? init`.
-    /// Same unanchored-match rule as `matchesPublicFuncShape`.
-    private func matchesPublicInitShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "convenience", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// PublicVarRegex shape: `(public|open) ((private|internal|public)\(set\))?
-    /// final? (static|class)? (var|let)`. Same unanchored-match rule.
-    private func matchesPublicVarShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        // Optional setter-restriction: e.g., `private(set)`.
-        if let mod = current,
-           (mod.name.text == "private" || mod.name.text == "internal" || mod.name.text == "public"),
-           let detail = mod.detail,
-           detail.detail.text == "set" {
-            current = iter.next()
-        }
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        if let mod = current, (mod.name.text == "static" || mod.name.text == "class"), mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// TypeDeclRegex shape: `(public|internal|open) final? (class|struct|enum|actor|protocol) Name`.
-    /// The type-keyword and `{` must be on the same source line — the walker
-    /// enforces this via `typeOpensOnSameLine`.
-    ///
-    /// Same unanchored-match rule as `matchesPublicFuncShape` — modifiers before
-    /// access (`final public class TipGroup`, `@objc public class Foo`, …) are
-    /// tolerated and ignored.
-    private func matchesPublicTypeShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "internal", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "final", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
-    }
-
-    /// Iterator helper: consume modifiers until we find one whose `name.text` is in
-    /// `accessTexts` AND whose `detail` is nil. Returns `true` and leaves the iterator
-    /// positioned just after the access modifier; `false` if no matching access
-    /// modifier exists in the list. Implements the unanchored scan for the access
-    /// keyword.
-    private func advanceToAccess(_ iter: inout DeclModifierListSyntax.Iterator, _ accessTexts: [String]) -> Bool {
-        while let mod = iter.next() {
-            if accessTexts.contains(mod.name.text) && mod.detail == nil {
-                return true
-            }
-        }
-        return false
-    }
-
     /// True iff the type's keyword and its body's opening `{` are on the same
     /// source line. Types whose body opens on a later line are not pushed onto
     /// the scope stack.
@@ -492,18 +395,6 @@ final class AvailabilityWalker: SyntaxVisitor {
         let kwLine = converter.location(for: keyword.positionAfterSkippingLeadingTrivia).line
         let braceLine = converter.location(for: leftBrace.positionAfterSkippingLeadingTrivia).line
         return kwLine == braceLine
-    }
-
-    /// Subscript shape: `(public|open) static? subscript`.
-    /// Same unanchored-match rule as `matchesPublicFuncShape`.
-    private func matchesPublicSubscriptShape(_ modifiers: DeclModifierListSyntax) -> Bool {
-        var iter = modifiers.makeIterator()
-        guard advanceToAccess(&iter, ["public", "open"]) else { return false }
-        var current = iter.next()
-        if let mod = current, mod.name.text == "static", mod.detail == nil {
-            current = iter.next()
-        }
-        return current == nil
     }
 
     /// Returns the position of the last token of the decl signature (excluding
@@ -558,21 +449,20 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// the shape gate and no scope was pushed.
     private var scopePushed: [Bool] = []
 
-    /// Common type-decl visit logic. Push scope and emit only when the type
-    /// passes the modifier-shape + same-line `{` gate. Member keying inside the
-    /// body still works because we push the scope in the gated path; for the
-    /// failing path, members under the body get keyed at module scope (the type
-    /// is never pushed onto the scope stack).
+    /// Common type-decl visit logic. Push scope and emit when the type states an
+    /// access level, whatever other modifiers it carries (`public indirect enum`),
+    /// and its body opens on the keyword's line, the same scope gate the member
+    /// and signature walkers apply.
+    /// A type that is not pushed would key its own annotations nowhere and its
+    /// members' under the enclosing scope.
     private func visitTypeDecl(name: String,
                                 modifiers: DeclModifierListSyntax,
                                 attributes: AttributeListSyntax,
                                 keyword: TokenSyntax,
                                 leftBrace: TokenSyntax,
                                 isProtocol: Bool = false) -> SyntaxVisitorContinueKind {
-        // `PublicTypeDeclRegex` ends in bare `(\w+)` — backtick-escaped names
-        // (`public struct \`class\``) fail the word-identifier gate and are not
-        // pushed onto the scope stack.
-        if matchesPublicTypeShape(modifiers),
+        let name = DeclAccess.unescape(name)
+        if DeclAccess.hasAccess(modifiers, DeclAccess.interfaceAccessLevels),
            RegexShape.isWordIdentifier(name),
            typeOpensOnSameLine(keyword: keyword, leftBrace: leftBrace) {
             let qualified = pushTypeScope(name: name, isProtocol: isProtocol)
@@ -705,11 +595,11 @@ final class AvailabilityWalker: SyntaxVisitor {
     // MARK: - Member declarations
 
     override func visit(_ node: FunctionDeclSyntax) -> SyntaxVisitorContinueKind {
-        // Order-strict PublicFuncRegex shape gate. SKIPPED inside protocol
+        // Public members only. SKIPPED inside protocol
         // bodies — protocol requirements have no access modifier in swiftinterface
         // text (Family-F-2).
         if !isInsideProtocol {
-            guard matchesPublicFuncShape(node.modifiers) else {
+            guard DeclAccess.isPublicOrOpen(node.modifiers) else {
                 return .skipChildren
             }
         }
@@ -719,13 +609,14 @@ final class AvailabilityWalker: SyntaxVisitor {
         // equality wrapper for retroactive Equatable conformances (e.g.
         // RealityFoundation.TextureResource — class is iOS 13+, Equatable is
         // iOS 18+) compiles at the type's lower @available than the conformance
-        // requires. Backtick-escaped identifier names (`var \`class\``) fail the
-        // word-identifier gate (`\w+`) and are skipped.
-        guard RegexShape.isWordIdentifier(node.name.text) ||
-              RegexShape.isOperatorIdentifier(node.name.text) else {
+        // requires. A keyword-named function keys by its unescaped name, as the
+        // ABI prints it.
+        let funcName = DeclAccess.unescape(node.name.text)
+        guard RegexShape.isWordIdentifier(funcName) ||
+              RegexShape.isOperatorIdentifier(funcName) else {
             return .skipChildren
         }
-        let printed = buildPrintedName(funcName: node.name.text, params: node.signature.parameterClause)
+        let printed = buildPrintedName(funcName: funcName, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
         let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
         let annotations = collectAnnotations(declAttrs: node.attributes)
@@ -741,7 +632,7 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     override func visit(_ node: InitializerDeclSyntax) -> SyntaxVisitorContinueKind {
         if !isInsideProtocol {
-            guard matchesPublicInitShape(node.modifiers) else {
+            guard DeclAccess.isPublicOrOpen(node.modifiers) else {
                 return .skipChildren
             }
         }
@@ -761,7 +652,7 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     override func visit(_ node: VariableDeclSyntax) -> SyntaxVisitorContinueKind {
         if !isInsideProtocol {
-            guard matchesPublicVarShape(node.modifiers) else {
+            guard DeclAccess.isPublicOrOpen(node.modifiers) else {
                 return .skipChildren
             }
         }
@@ -771,12 +662,12 @@ final class AvailabilityWalker: SyntaxVisitor {
               let identifier = firstBinding.pattern.as(IdentifierPatternSyntax.self) else {
             return .skipChildren
         }
-        // `PublicVarRegex` ends in bare `(\w+)` — backtick-escaped names
-        // (`public var \`class\``) fail the capture and never key into the result.
-        guard RegexShape.isWordIdentifier(identifier.identifier.text) else {
+        // A keyword-named property keys by its unescaped name, as the ABI prints it.
+        let varName = DeclAccess.unescape(identifier.identifier.text)
+        guard RegexShape.isWordIdentifier(varName) else {
             return .skipChildren
         }
-        let key = memberKey(printedName: identifier.identifier.text)
+        let key = memberKey(printedName: varName)
         // Vars cannot be overloaded; sig is empty. Recording still ensures the
         // bare-key path stays the storage path.
         let annotations = collectAnnotations(declAttrs: node.attributes)
@@ -790,7 +681,7 @@ final class AvailabilityWalker: SyntaxVisitor {
 
     override func visit(_ node: SubscriptDeclSyntax) -> SyntaxVisitorContinueKind {
         if !isInsideProtocol {
-            guard matchesPublicSubscriptShape(node.modifiers) else {
+            guard DeclAccess.isPublicOrOpen(node.modifiers) else {
                 return .skipChildren
             }
         }

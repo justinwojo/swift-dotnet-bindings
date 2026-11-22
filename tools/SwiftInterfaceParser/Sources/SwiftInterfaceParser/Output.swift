@@ -61,7 +61,11 @@ import Foundation
 // v9: `extensionMemberCandidates` carries `class func` members (as static) and
 // `droppedExtensionCandidates` records every public extension declaration the host did not take.
 // A v8 host drops those with no record, so a foreign receiver's member can vanish silently.
-let kSchemaVersion = 9
+// v10: public member, signature and availability facts follow the access level, not an
+// allow-list of modifiers; keyword-named members key unescaped. A v9 host leaves
+// `public __consuming func` and `func \`repeat\`` out of `publicMemberNames`, and the
+// parser withdraws them as module-internal.
+let kSchemaVersion = 10
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

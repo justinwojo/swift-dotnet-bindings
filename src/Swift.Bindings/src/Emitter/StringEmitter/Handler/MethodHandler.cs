@@ -195,18 +195,12 @@ namespace BindingsGeneration
 
             foreach (var argument in methodEnv.MethodDecl.CSSignature)
             {
-                if (!methodEnv.BoundGenericsHandler.IsBoundGeneric(argument))
-                    continue;
-
-                if (methodEnv.BoundGenericsHandler.TryGetFirstExistentialTypeArgument(argument.SwiftTypeSpec, out var existentialType))
+                // Containers with supported existential elements go through normal emission:
+                // Array<any P>, Dictionary<K, any P>, Optional<any P> all have dedicated handling.
+                if (methodEnv.BoundGenericsHandler.HasUnroutedExistentialArgument(argument, out var existentialType))
                 {
-                    // Allow containers with supported existential elements through to normal emission.
-                    // Array<any P>, Dictionary<K, any P>, Optional<any P> all have dedicated handling.
-                    if (!methodEnv.BoundGenericsHandler.IsContainerWithSupportedDirectExistential(argument.SwiftTypeSpec))
-                    {
-                        hasExistentialArg = true;
-                        firstExistentialType ??= existentialType;
-                    }
+                    hasExistentialArg = true;
+                    firstExistentialType ??= existentialType;
                 }
             }
 
@@ -245,7 +239,13 @@ namespace BindingsGeneration
                 if (MethodHandler.TryRefuseAmbiguousSwiftCall(methodEnv, _logger))
                     return;
 
-                // Fallback: skip as before
+                // The full constructor is unbindable. When every such parameter is defaulted, a
+                // trimmed overload that leaves them to Swift still binds this declaration (the
+                // overload emitter refuses any trim that keeps one, and plans every trimmed call
+                // against same-named siblings). That is often the only route to the type: a
+                // favored `init(_: any P, delegate: (any D)? = nil, …)` beside a disfavored
+                // `some P` twin whose concrete specializations the call pin refuses because Swift
+                // resolves their calls to this declaration.
                 _logger.LogWarning($"Skipping constructor {methodEnv.MethodDecl.Name}: bound generic contains unsupported existential type argument '{firstExistentialType}'.");
                 ReportCollector.RecordMemberSkipped(
                     BindingItemKind.Method,
@@ -253,6 +253,12 @@ namespace BindingsGeneration
                     methodEnv.MethodDecl.ParentDecl,
                     SkipReason.UnsupportedExistential,
                     $"Constructor bound generic contains existential type argument '{firstExistentialType}'.");
+                // Recovery reuses helpers only the primary's emission declares, and it never ran:
+                // the generic-parameter mapping of a constructor with its own generics, and the
+                // Optional metadata and tag P/Invokes a failable constructor's factory reads.
+                if (!methodEnv.MethodDecl.IsFailable
+                    && !methodEnv.MethodDecl.CSSignature.Any(argument => argument.IsGeneric))
+                    DefaultParameterOverloadEmitter.TryEmitRecoveryOverloads(csWriter, swiftWriter, methodEnv, _logger, context.GetEmissionContext());
                 return;
             }
 

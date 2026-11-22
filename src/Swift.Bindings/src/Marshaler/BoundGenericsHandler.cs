@@ -513,6 +513,26 @@ public class BoundGenericsHandler
     }
 
     /// <summary>
+    /// True when <paramref name="arg"/> is a bound generic carrying an existential type argument
+    /// that no container lane marshals (anything but <c>Array&lt;any P&gt;</c>,
+    /// <c>Dictionary&lt;K, any P&gt;</c>, <c>Optional&lt;any P&gt;</c> and their nestings over a
+    /// supported existential). The constructor path refuses such a parameter, and a default-trimmed
+    /// overload that still passes one is refused the same way.
+    /// </summary>
+    public bool HasUnroutedExistentialArgument(ArgumentDecl arg, out string existentialType)
+    {
+        existentialType = string.Empty;
+        if (!IsBoundGeneric(arg))
+            return false;
+        if (!TryGetFirstExistentialTypeArgument(arg.SwiftTypeSpec, out var found))
+            return false;
+        if (IsContainerWithSupportedDirectExistential(arg.SwiftTypeSpec))
+            return false;
+        existentialType = found;
+        return true;
+    }
+
+    /// <summary>
     /// Tries to find the first existential type argument within a bound generic type
     /// that is NOT supported (i.e., has more than 8 protocols).
     /// Supported existentials (0-8 protocols) are skipped so they can be emitted as ExistentialContainer types.

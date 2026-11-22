@@ -3536,6 +3536,47 @@ public class ConcreteSpecializationEngineTests
             "a sugared/desugared spelling of the same SameType concrete target must be admitted, not false-rejected");
     }
 
+    [Theory]
+    // The ABI names an @_originallyDefinedIn type by the module that first defined it.
+    [InlineData("$s6OldLib4PoseV", "OldLib.Pose", true)]
+    [InlineData("$s6OldLib4PoseV", "TestLib.Pose", true)]
+    // Another module's same-named type is a different type.
+    [InlineData("$s6OldLib4PoseV", "ThirdLib.Pose", false)]
+    // Without the attribute the conformer has no other spelling.
+    [InlineData("$s7TestLib4PoseV", "OldLib.Pose", false)]
+    [InlineData("", "OldLib.Pose", false)]
+    public void ParentTupleSatisfiesMethodConstraints_SameType_OriginalModuleSpelling(
+        string conformerMangledName, string target, bool admits)
+    {
+        // `extension Bag where Value == OldLib.Pose`: the ABI spells a type moved by
+        // @_originallyDefinedIn with its original module, while the conformer carries its current
+        // one. The conformer's own mangled name records the original module, so the two spellings
+        // name one type, and every member of the extension specializes for it.
+        var poseName = SwiftTypeName.FromModuleQualifiedName("TestLib.Pose");
+        var engine = new ConcreteSpecializationEngine(CreateEmptyTypeDatabase());
+        engine.IndexModuleConformances(CreateModuleWithTypeOnly("TestLib", "TestLib.Pose", conformerMangledName));
+        var method = CreateMethodWithSig("init", $"<τ_0_0 where τ_0_0 == {target}>");
+        var parent = CreateGenericStructDecl("Bag", "τ_0_0");
+
+        var conformer = new ConcreteSpecializationEngine.ConcreteConformer(
+            SwiftQualifiedName: "TestLib.Pose",
+            CSharpType: "Pose",
+            SwiftType: poseName);
+        var specParam = new ConcreteSpecializationEngine.SpecializableParam(
+            GenericParam: parent.GenericParameters[0],
+            ConstraintProtocol: SwiftTypeName.FromModuleQualifiedName("TestLib.Animatable"),
+            Conformers: new List<ConcreteSpecializationEngine.ConcreteConformer> { conformer },
+            CouplingConstraints: null,
+            IsParentGeneric: true);
+
+        var parentTuple = new List<(ConcreteSpecializationEngine.SpecializableParam, ConcreteSpecializationEngine.ConcreteConformer)>
+        {
+            (specParam, conformer)
+        };
+
+        Assert.Equal(admits, engine.ParentTupleSatisfiesMethodConstraints(method, parent, parentTuple));
+    }
+
     [Fact]
     public void ParentTupleSatisfiesMethodConstraints_Conformance_CompositeTarget_DeclinesWithoutThrowing()
     {
@@ -4231,7 +4272,7 @@ public class ConcreteSpecializationEngineTests
     /// Used to exercise the ABI cross-check: a hint conformer for a type indexed
     /// here (but not declaring the target protocol) must be dropped.
     /// </summary>
-    private static ModuleDecl CreateModuleWithTypeOnly(string moduleName, string typeQualifiedName)
+    private static ModuleDecl CreateModuleWithTypeOnly(string moduleName, string typeQualifiedName, string mangledName = "")
     {
         var typeName = SwiftTypeName.FromModuleQualifiedName(typeQualifiedName);
         var structDecl = new StructDecl
@@ -4240,7 +4281,7 @@ public class ConcreteSpecializationEngineTests
             ParentDecl = null,
             ModuleDecl = null,
             SwiftTypeName = typeName,
-            MangledName = "",
+            MangledName = mangledName,
             IsFrozen = true,
             GenericParameters = new List<GenericArgumentDecl>(),
             Properties = new List<PropertyDecl>(),

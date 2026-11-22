@@ -61,7 +61,25 @@ internal static class EqualityAvailability
     private static bool NamesType(TypeSpec? spec, TypeDecl type) =>
         spec is { IsDynamicSelf: true }
         || (spec is NamedTypeSpec named
-            && string.Equals(named.Name, type.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal));
+            && (string.Equals(named.Name, type.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal)
+                || string.Equals(named.Name, OriginalModuleSpelling(type), StringComparison.Ordinal)));
+
+    /// <summary>
+    /// The type's name under the module that first defined it, when that differs from its current
+    /// module. The ABI spells a type moved by <c>@_originallyDefinedIn</c>, and every type nested in
+    /// one, that way (<c>RealityKit.Entity.ConfigurationCatalog</c> for a type now in
+    /// <c>RealityFoundation</c>), and the type's stable mangled name records that module. Null when
+    /// the type was not moved.
+    /// </summary>
+    private static string? OriginalModuleSpelling(TypeDecl type)
+    {
+        var current = type.SwiftTypeName;
+        if (!ManglingProbes.TryGetModuleFromMangledName(type.MangledName, out var original)
+            || string.Equals(original, current.Module, StringComparison.Ordinal)
+            || !current.ModuleQualifiedName.StartsWith(current.Module + ".", StringComparison.Ordinal))
+            return null;
+        return original + current.ModuleQualifiedName[current.Module.Length..];
+    }
 
     private static IReadOnlyList<AvailabilityAnnotation>? WithConformanceFloors(
         IReadOnlyList<AvailabilityAnnotation>? floor, TypeDecl type, string protocol)

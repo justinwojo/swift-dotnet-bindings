@@ -423,6 +423,17 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     $"{parentTypeDecl.Name}.{SwiftOverloadCallPinning.Describe(method)} specialized for {safeConformerName}",
                     $"Swift {winner}",
                     candidateWasFuller: false);
+                // The skip report is what a consumer and the skip gates read, so the refusal gets a
+                // row there too. It is keyed on the specialization: the generic member usually holds
+                // a row of its own (an open-generic constructor C# cannot declare), and each refused
+                // pairing is a member the consumer would otherwise have had.
+                ReportCollector.RecordMemberSkipped(
+                    surfaceOwner ?? DeclIdFactory.ForSpecialization(DeclIdFactory.ForMethod(method), SpecializationKey(pairing)),
+                    parentTypeDecl,
+                    SkipReason.AmbiguousSwiftOverloadCall,
+                    $"The specialization for {string.Join(", ", pairing.Select(p => p.Conformer.SwiftQualifiedName))} " +
+                    $"leaves defaulted arguments out, and without them the call to '{SwiftOverloadCallPinning.Describe(method)}' " +
+                    $"can resolve to '{winner}' instead.");
             }
             return false;
         }

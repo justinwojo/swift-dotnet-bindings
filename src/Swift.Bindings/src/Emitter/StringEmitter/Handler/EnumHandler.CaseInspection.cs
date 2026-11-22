@@ -226,6 +226,10 @@ namespace BindingsGeneration
                 if (csharpType.Contains(anyTypeName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported associated value type at index {i}. Skipping TryGet method.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                        SkipReason.AnyTypeFallback,
+                        $"Associated value {i} ('{typeSpec}') resolves to AnyType, which cannot be read back out of the case.");
                     return;
                 }
 
@@ -478,6 +482,10 @@ namespace BindingsGeneration
                 if (csharpType.Contains(anyTypeName))
                 {
                     _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has unsupported tuple element type at index {i}. Skipping TryGet method.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl,
+                        SkipReason.AnyTypeFallback,
+                        $"Tuple element {i} ('{element}') resolves to AnyType, which cannot be read back out of the case.");
                     return;
                 }
 
