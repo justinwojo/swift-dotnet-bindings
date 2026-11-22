@@ -75,13 +75,15 @@ do not carry exactly once each, a contribution whose `lib/`, `buildTransitive/` 
 differ or that ships files outside the copy layout, a copy without its declaration, targets or own
 natives, a shared file that differs between contributions (the readme is taken from the newest
 copy), an id or version that is not a plain file name, and — per platform, ordered by .NET and
-platform version — a newer copy whose public API (types with their base and interfaces, members
-with their signatures and static or instance binding) or per-architecture native exports lack an
+platform version — a newer copy whose public API (types with the bases and interfaces they convert
+to through the assembly's own base chain, members with their signatures, static or instance binding
+and public or protected access; widening protected to public is allowed) or per-architecture native exports lack an
 older copy's (a library compiles against the oldest copy,
 the app that consumes it runs the newest). The manifest-hash symbol (`SBTM_`) differs per copy by
 design and is not compared. It writes a nuspec with each copy's own dependency group, checks the
 Windows restore path budget for the real id and version, and runs SWIFTBIND133 on the result. The
-merged package is staged under another name until those checks pass, and the merge refuses an
-output directory where its staged or final package would replace one of its own contributions
-(compared without case, as the default Apple and Windows volumes resolve names).
+merged package is staged under a name of the merge's own until those checks pass, and the merge
+refuses an output directory where the merged package would replace one of its own contributions
+(compared through symbolic links and without case, as the default Apple and Windows volumes
+resolve names).
 Implementation: `src/Swift.Runtime/tasks/PackageMerge.cs`.

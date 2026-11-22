@@ -159,21 +159,19 @@ public static class SwiftBindingPackageMerge
 
         var nuspec = MergedNuspec(first, copies, problems);
         var destination = Path.GetFullPath(Path.Combine(outputDirectory, $"{stem}.nupkg"));
-        var target = Path.GetFullPath(Path.Combine(outputDirectory, $"{stem}.merging.nupkg"));
-        // Compared without case: the default Apple and Windows volumes are case-insensitive, so a
-        // differently cased name is the same file. Refusing a distinct file on a case-sensitive volume
-        // costs only a rename.
-        foreach (var c in read.Where(c => Path.GetFullPath(c.Path) is var full
-            && (string.Equals(full, destination, StringComparison.OrdinalIgnoreCase) || string.Equals(full, target, StringComparison.OrdinalIgnoreCase))))
-            problems.Add($"The merge would replace the contribution {c.Path} (it writes {Path.GetFileName(target)}, then {Path.GetFileName(destination)}): write it to another directory (SwiftBindingsMergeOutput).");
+        // Compared by real path (symlinked directories resolved, as /tmp is on macOS) and without
+        // case: the default Apple and Windows volumes are case-insensitive, so a differently cased
+        // name is the same file. Refusing a distinct file on a case-sensitive volume costs only a rename.
+        var real = RealPath(destination);
+        foreach (var c in read.Where(c => string.Equals(RealPath(c.Path), real, StringComparison.OrdinalIgnoreCase)))
+            problems.Add($"The merge would replace the contribution {c.Path} with the merged package {destination}: write it to another directory (SwiftBindingsMergeOutput).");
         if (problems.Count > 0)
             return Refused(problems, notes);
 
-        // Staged under another name: nothing at the destination changes until the merged package has
-        // passed its checks (Publish).
+        // Staged under a name of this merge's own: nothing at the destination changes until the merged
+        // package has passed its checks (Publish), and no other merge or contribution shares the name.
         Directory.CreateDirectory(outputDirectory);
-        if (File.Exists(target))
-            File.Delete(target);
+        var target = Path.Combine(outputDirectory, $"{stem}.{Guid.NewGuid():N}.merging.nupkg");
         using (var zip = ZipFile.Open(target, ZipArchiveMode.Create))
         {
             Write(zip, first.NuspecName, Encoding.UTF8.GetBytes(nuspec));
@@ -191,6 +189,22 @@ public static class SwiftBindingPackageMerge
     {
         File.Move(result.Package!, result.Destination!, overwrite: true);
         return result.Destination!;
+    }
+
+    /// <summary><paramref name="path"/> with every symbolic link along it resolved.</summary>
+    private static string RealPath(string path)
+    {
+        var full = Path.GetFullPath(path);
+        var root = Path.GetPathRoot(full) ?? "";
+        var current = root;
+        foreach (var part in full[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries))
+        {
+            current = Path.Combine(current, part);
+            FileSystemInfo info = Directory.Exists(current) ? new DirectoryInfo(current) : new FileInfo(current);
+            if (info.Exists && info.LinkTarget is not null && info.ResolveLinkTarget(returnFinalTarget: true) is { } resolved)
+                current = RealPath(resolved.FullName);
+        }
+        return current;
     }
 
     private static bool IsPlainName(string value) =>
@@ -447,7 +461,10 @@ public static class SwiftBindingPackageMerge
             }
             var before = PublicApi(image);
             var after = PublicApi(newerImage);
-            var removed = before.Except(after).Order(StringComparer.Ordinal).ToList();
+            // A protected member the newer copy made public is still reachable from every subclass.
+            var removed = before.Except(after)
+                .Where(k => !(k.StartsWith("protected ", StringComparison.Ordinal) && after.Contains("public " + k["protected ".Length..])))
+                .Order(StringComparer.Ordinal).ToList();
             notes.Add($"  API {file}: {older.Tfm} {before.Count} -> {newer.Tfm} {after.Count} ({removed.Count} removed, {after.Except(before).Count()} added)");
             if (removed.Count > 0)
                 problems.Add($"{file}: the copy {newer.Tfm} lacks {removed.Count} public API member(s) of the older copy {older.Tfm} ({string.Join("; ", removed.Take(5))}{(removed.Count > 5 ? "; …" : "")}). "
@@ -564,10 +581,20 @@ public static class SwiftBindingPackageMerge
             set.Add($"T {((type.Attributes & TypeAttributes.Interface) != 0 ? "interface" : "type")} {name}");
             // What the type converts to: a newer copy that drops a base or an interface breaks a
             // library compiled against the older copy at its first cast, even with every member kept.
-            if (!type.BaseType.IsNil)
-                set.Add($"B {name} : {EntityName(type.BaseType)}");
-            foreach (var ih in type.GetInterfaceImplementations())
-                set.Add($"I {name} : {EntityName(md.GetInterfaceImplementation(ih).Interface)}");
+            // Read through the base chain this assembly defines, so moving a conformance onto a base
+            // or inserting an intermediate base keeps every conversion the older copy had.
+            for (var current = handle; ;)
+            {
+                var t = md.GetTypeDefinition(current);
+                foreach (var ih in t.GetInterfaceImplementations())
+                    set.Add($"I {name} : {EntityName(md.GetInterfaceImplementation(ih).Interface)}");
+                if (t.BaseType.IsNil)
+                    break;
+                set.Add($"B {name} : {EntityName(t.BaseType)}");
+                if (t.BaseType.Kind != HandleKind.TypeDefinition)
+                    break;
+                current = (TypeDefinitionHandle)t.BaseType;
+            }
             foreach (var mh in type.GetMethods())
             {
                 var method = md.GetMethodDefinition(mh);
@@ -576,14 +603,17 @@ public static class SwiftBindingPackageMerge
                     continue;
                 var signature = method.DecodeSignature(provider, md);
                 var binding = (method.Attributes & MethodAttributes.Static) != 0 ? "static" : "instance";
-                set.Add($"M {binding} {name}::{md.GetString(method.Name)}`{signature.GenericParameterCount}({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}");
+                var key = $"M {binding} {name}::{md.GetString(method.Name)}`{signature.GenericParameterCount}({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}";
+                set.Add((access == MethodAttributes.Public ? "public " : "protected ") + key);
             }
             foreach (var fh in type.GetFields())
             {
                 var field = md.GetFieldDefinition(fh);
                 var access = field.Attributes & FieldAttributes.FieldAccessMask;
-                if (access is FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem)
-                    set.Add($"F {((field.Attributes & FieldAttributes.Static) != 0 ? "static" : "instance")} {name}::{md.GetString(field.Name)}:{field.DecodeSignature(provider, md)}");
+                if (access is not (FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem))
+                    continue;
+                var key = $"F {((field.Attributes & FieldAttributes.Static) != 0 ? "static" : "instance")} {name}::{md.GetString(field.Name)}:{field.DecodeSignature(provider, md)}";
+                set.Add((access == FieldAttributes.Public ? "public " : "protected ") + key);
             }
         }
         return set;

@@ -437,15 +437,39 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Contains(refused.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
         Assert.True(File.Exists(own));
 
-        // So is one the volume resolves to the same file under another case, or one named like the
-        // staged package.
+        // So is one the volume resolves to the same file under another case, or through a symbolic link.
         var cased = SwiftBindingPackageMerge.Merge([own, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host.ToUpperInvariant());
         Assert.Contains(cased.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
+        var alias = Path.Combine(tempDir, "alias");
+        Directory.CreateSymbolicLink(alias, host);
+        var linked = SwiftBindingPackageMerge.Merge([own, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], alias);
+        Assert.Contains(linked.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
+
+        // Each merge stages under a name of its own, so a contribution named like a staged package, or
+        // a second merge into the same directory, is never replaced before its checks.
         var staging = Path.Combine(host, "Acme.Kit.1.0.0.merging.nupkg");
         File.Move(own, staging);
-        var restaged = SwiftBindingPackageMerge.Merge([staging, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host);
-        Assert.Contains(restaged.Problems, p => p.Contains("would replace the contribution", StringComparison.Ordinal));
-        Assert.True(File.Exists(staging));
+        var bytes = File.ReadAllBytes(staging);
+        var first = SwiftBindingPackageMerge.Merge([staging, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host);
+        var second = SwiftBindingPackageMerge.Merge([staging, Contribution("x27", ["net10.0-ios27.2"])], ["net10.0-ios26.0", "net10.0-ios27.2"], host);
+        Assert.True(first.Problems.IsEmpty && second.Problems.IsEmpty, string.Join("\n", first.Problems.Concat(second.Problems)));
+        Assert.NotEqual(first.Package, second.Package);
+        Assert.Equal(bytes, File.ReadAllBytes(staging));
+    }
+
+    [Theory]
+    [InlineData("public class Kit { public static int F() => 1; }", "public class Kit { protected static int F() => 1; }", false)]
+    [InlineData("public class Kit { protected static int F() => 1; }", "public class Kit { public static int F() => 1; }", true)]
+    [InlineData("public class Kit { public int F; }", "public class Kit { protected int F; }", false)]
+    public void Merge_ANewerCopyThatNarrowsAccess_IsRefused_AndOneThatWidensIt_IsAccepted(string olderApi, string newerApi, bool accepted)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var problems = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems;
+        if (accepted)
+            Assert.Empty(problems);
+        else
+            Assert.Contains(problems, p => p.Contains("public ", StringComparison.Ordinal) && p.Contains("Kit::F", StringComparison.Ordinal));
     }
 
     [Theory]
@@ -469,11 +493,14 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Contains(result.Problems, p => p.Contains("lacks", StringComparison.Ordinal) && p.Contains($"Kit : ", StringComparison.Ordinal) && p.Contains(key, StringComparison.Ordinal));
     }
 
-    [Fact]
-    public void Merge_ANewerTypeThatAddsAnInterface_IsAccepted()
+    [Theory]
+    [InlineData("public interface IKit { } public class Kit { }", "public interface IKit { } public class Kit : IKit { }")]
+    [InlineData("public interface IKit { } public class Base { } public class Kit : Base, IKit { }", "public interface IKit { } public class Base : IKit { } public class Kit : Base { }")]
+    [InlineData("public class Base { } public class Kit : Base { }", "public class Base { } public class Mid : Base { } public class Kit : Mid { }")]
+    public void Merge_ANewerTypeThatKeepsEveryConversion_IsAccepted(string olderApi, string newerApi)
     {
-        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public interface IKit { } public class Kit { }");
-        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public interface IKit { } public class Kit : IKit { }");
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
         Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
     }
 
