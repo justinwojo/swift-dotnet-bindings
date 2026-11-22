@@ -93,6 +93,28 @@ public class EqualityFloorEmissionTests
     }
 
     /// <summary>
+    /// A type moved by <c>@_originallyDefinedIn</c> (or nested in one) is spelled in the ABI by the
+    /// module that first defined it, so its self <c>==</c> names its operands that way. That is still
+    /// the self equality: its floor, newer than the type's, is the wrapper's.
+    /// </summary>
+    [Theory]
+    [InlineData(Kind.Enum)]
+    [InlineData(Kind.RefStruct)]
+    [InlineData(Kind.ValueStruct)]
+    [InlineData(Kind.Class)]
+    public void EqualityHolder_ReadsTheSelfEqualityFloor_WhenTheAbiSpellsTheTypeByItsOriginalModule(Kind kind)
+    {
+        var type = Create(kind);
+        type.MangledName = "$s9OldModule5Shape" + type.MangledName[^1];
+        AddOperator(type, rhs: "OldModule.Shape", Ann("iOS", "99.0"), lhs: "OldModule.Shape");
+
+        var (swift, cs) = Emit(kind, type);
+
+        Assert.Contains("@available(iOS 99.0, *)", swift);
+        AssertRefusesBefore(cs, Holder(kind), "PInvoke_eq(", "\"ios\", 99, 0");
+    }
+
+    /// <summary>
     /// An Objective-C-rooted Hashable class hashes through a Swift wrapper that goes through the
     /// Hashable witness, so GetHashCode, which calls it, refuses below that conformance's floor.
     /// </summary>
@@ -184,7 +206,7 @@ public class EqualityFloorEmissionTests
         return type;
     }
 
-    private static void AddOperator(TypeDecl type, string rhs, AvailabilityAnnotation floor)
+    private static void AddOperator(TypeDecl type, string rhs, AvailabilityAnnotation floor, string? lhs = null)
     {
         ArgumentDecl Arg(string typeName, string label) => new()
         {
@@ -203,7 +225,7 @@ public class EqualityFloorEmissionTests
                 MangledName = $"$s10TestModule5ShapeV2eeoiySbAC_{rhs.Length}tFZ",
                 MethodType = MethodType.Static,
                 IsConstructor = false,
-                CSSignature = new List<ArgumentDecl> { Arg("Swift.Bool", string.Empty), Arg($"{Module}.Shape", "lhs"), Arg(rhs, "rhs") },
+                CSSignature = new List<ArgumentDecl> { Arg("Swift.Bool", string.Empty), Arg(lhs ?? $"{Module}.Shape", "lhs"), Arg(rhs, "rhs") },
                 GenericParameters = new List<GenericArgumentDecl>(),
                 ParentDecl = type,
                 ModuleDecl = type.ModuleDecl,

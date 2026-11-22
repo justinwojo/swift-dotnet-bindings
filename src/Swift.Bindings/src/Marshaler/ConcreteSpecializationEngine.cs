@@ -1585,6 +1585,7 @@ public class ConcreteSpecializationEngine
                             NormalizeTypeForComparison(entry.Conformer.SwiftLiteral!),
                             normalizedTarget,
                             StringComparison.Ordinal)) continue;
+                    if (IsOriginalModuleSpellingOf(entry.Conformer, normalizedTarget)) continue;
                     RecordMethodWhereRejection(
                         parentTypeDecl, method, entry.Param.GenericParam,
                         entry.Param.ConstraintProtocol, entry.Conformer,
@@ -1679,6 +1680,28 @@ public class ConcreteSpecializationEngine
     /// canonical spelling so a witness and a raw generic-sig target that name the same type
     /// compare equal. Falls back to the raw string when parsing fails.
     /// </summary>
+    /// <summary>
+    /// True when <paramref name="normalizedTarget"/> names <paramref name="conformer"/> by the module
+    /// that first defined it. The ABI spells a type moved by <c>@_originallyDefinedIn</c> with that
+    /// module everywhere it appears in a signature (a <c>where Value == RealityKit.Transform</c>
+    /// clause on a RealityFoundation extension), while the conformer is named by its current module,
+    /// so the two spellings of one type would otherwise read as different types and every member of
+    /// such a constrained extension would be withdrawn. The conformer's own declaration records the
+    /// original module in its stable mangled name, so the match is by the type's identity, never by
+    /// an unqualified name alone.
+    /// </summary>
+    private bool IsOriginalModuleSpellingOf(ConcreteConformer conformer, string normalizedTarget)
+    {
+        if (conformer.SwiftType is not { } currentName
+            || !_abiTypeDecls.TryGetValue(conformer.SwiftQualifiedName, out var conformerDecl)
+            || !ManglingProbes.TryGetModuleFromMangledName(conformerDecl.MangledName, out var originalModule)
+            || string.Equals(originalModule, currentName.Module, StringComparison.Ordinal)
+            || !conformer.SwiftQualifiedName.StartsWith(currentName.Module + ".", StringComparison.Ordinal))
+            return false;
+        var originalSpelling = originalModule + conformer.SwiftQualifiedName[currentName.Module.Length..];
+        return string.Equals(NormalizeTypeForComparison(originalSpelling), normalizedTarget, StringComparison.Ordinal);
+    }
+
     internal static string NormalizeTypeForComparison(string raw)
     {
         try

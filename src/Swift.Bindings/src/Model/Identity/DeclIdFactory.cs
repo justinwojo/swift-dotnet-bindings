@@ -211,6 +211,14 @@ public static class DeclIdFactory
         };
     }
 
+    /// <summary>
+    /// True when <paramref name="canonical"/> names one specialization of a member
+    /// (<see cref="ForSpecialization"/>) rather than the member itself.
+    /// </summary>
+    public static bool IsSpecialization(string? canonical) =>
+        DeclId.TryParse(canonical, out var id)
+        && id.Discriminator.Split(';').Any(part => part.StartsWith("spec=", StringComparison.Ordinal));
+
     private static string? ExtensionMemberSymbol(ProtocolExtensionMethodDecl member, bool includeConstraints)
     {
         var signature = member.IsProperty ? null : member.RawSignature;

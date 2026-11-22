@@ -42,6 +42,9 @@ public static class DefaultParameterOverloadEmitter
     /// placeholder sits in a required parameter or the return type (no trim can remove it). The
     /// caller uses the return value to suppress the loud "unsupported" drop comment when a working
     /// truncated form was recovered, so it does not sit under a misleading drop notice.
+    ///
+    /// The primary was not emitted, so the trailing trims are built even when every trailing
+    /// default maps to an inline C# default: no emitted signature carries that tail.
     /// </summary>
     public static bool TryEmitRecoveryOverloads(
         CSharpWriter csWriter,
@@ -50,7 +53,7 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext = null)
     {
-        return TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext);
+        return TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: false);
     }
 
     /// <summary>
@@ -64,7 +67,7 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext = null)
     {
-        TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext);
+        TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: true);
     }
 
     private static bool TryEmitOverloadsWithRecipe(
@@ -72,7 +75,8 @@ public static class DefaultParameterOverloadEmitter
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         ILogger logger,
-        ModuleEmissionContext? emissionContext)
+        ModuleEmissionContext? emissionContext,
+        bool primaryEmitted)
     {
         emissionContext ??= env.EmissionContext;
         DefaultOverloadReplayRecipe? recipe = null;
@@ -83,7 +87,7 @@ public static class DefaultParameterOverloadEmitter
             producerEnv = recipe.CreateEnvironment(env);
             producerEnv.EmissionContext = emissionContext;
         }
-        var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext);
+        var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext, primaryEmitted);
         // The core reads producer inputs and mutates its candidate declarations/environments.
         // Capture only when a real bundle completed, preserving cheap declines (including unknown
         // TypeSpecs on methods with no defaults). A swallowed containment signal abandons the render.
@@ -100,7 +104,8 @@ public static class DefaultParameterOverloadEmitter
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         ILogger logger,
-        ModuleEmissionContext? emissionContext)
+        ModuleEmissionContext? emissionContext,
+        bool primaryEmitted)
     {
         var methodDecl = env.MethodDecl;
         int emittedCount = 0;
@@ -187,8 +192,10 @@ public static class DefaultParameterOverloadEmitter
         // never become a C# optional (C# optionals must be trailing), so the ergonomic
         // "supply only what Swift requires" form is unreachable from the primary alone. A primary
         // that omits every default (PrimaryOmitsDefaultedParameters) carries no inline tail at all,
-        // so for it the trailing trims are the only way to pass a mappable default.
-        bool trailingDefaultsAreMappable = !env.PrimaryOmitsDefaultedParameters &&
+        // so for it the trailing trims are the only way to pass a mappable default. A recovery call
+        // has no primary at all (its full signature was unbindable), so nothing reaches those forms
+        // unless the trims are built.
+        bool trailingDefaultsAreMappable = primaryEmitted && !env.PrimaryOmitsDefaultedParameters &&
             AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase);
 
         // The all-defaults form is redundant when the trim loop already reaches it (every default is
@@ -427,6 +434,14 @@ public static class DefaultParameterOverloadEmitter
                 if (signatureHandler.GetWrapperSignature().ContainsPlaceholder)
                 {
                     logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — signature contains placeholder", trim, methodDecl.Name);
+                    return;
+                }
+
+                // A trim that still passes an existential no container lane marshals is refused
+                // as the full constructor is: recovery reaches here from that refusal.
+                if (overloadDecl.CSSignature.Skip(1).Any(a => overloadEnv.BoundGenericsHandler.HasUnroutedExistentialArgument(a, out _)))
+                {
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — a remaining parameter carries an unsupported existential", trim, methodDecl.Name);
                     return;
                 }
 

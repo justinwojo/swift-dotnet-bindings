@@ -261,6 +261,10 @@ public static class ReportCollector
                     // denied with it.
                     if (item.Reason == SkipReason.EmitterFault)
                         continue;
+                    // A row keyed to one specialization names one closed pairing, and the name key
+                    // cannot tell it from the sibling pairings that did emit.
+                    if (DeclIdFactory.IsSpecialization(item.DeclId))
+                        continue;
                     if (session.RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
                         item.RecoveredBy = recoverers.OrderBy(x => x, StringComparer.Ordinal).ToList();
                 }
