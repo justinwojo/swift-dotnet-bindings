@@ -1488,7 +1488,7 @@ public class ProtocolClosureSkipTests : TestBase
         var errorCount = 0;
         var successValue = 0;
         var progressValue = 0.0;
-        var errorValue = 0;
+        VendedClosureFailure? errorValue = null;
 
         loader.Load(
             value =>
@@ -1504,7 +1504,7 @@ public class ProtocolClosureSkipTests : TestBase
             error =>
             {
                 errorCount++;
-                errorValue = (int)error;
+                errorValue = error;
             });
 
         ForceGCThorough();
@@ -1515,7 +1515,10 @@ public class ProtocolClosureSkipTests : TestBase
         AssertEqual(1, progressCount, "Delayed progress closure fired exactly once");
         AssertEqual(0.625, progressValue, "Delayed progress payload round-tripped");
         AssertEqual(1, errorCount, "Delayed typed-error closure fired exactly once");
-        AssertEqual(23, errorValue, "Delayed typed-error payload round-tripped");
+        // Swift's raw value 23 is not the C# constant: the case crosses as itself, and its raw value
+        // comes from Swift.
+        AssertEqual(VendedClosureFailure.Rejected, errorValue, "Delayed typed-error payload round-tripped");
+        AssertEqual(23, errorValue!.Value.ToRawValue(), "Delayed typed-error payload keeps its Swift raw value");
 
         ((IDisposable)loader).Dispose();
         AssertThrows<ObjectDisposedException>(
