@@ -568,6 +568,58 @@ public class ExistentialBypassEmitterTests
         Assert.Contains("Unmanaged.passRetained", swiftOutput);
     }
 
+    [Theory]
+    [InlineData(false, false, true)]
+    [InlineData(true, false, false)]
+    [InlineData(false, true, true)]
+    public void TryEmit_FailableClassConstructor_SiblingOfAnotherInitShape_DoesNotSuppressTrimmedFactory(
+        bool siblingFailable, bool siblingAlreadyEmitted, bool expectFactory)
+    {
+        // `init(other: Int)` emits the constructor `Loader(nint)`; the trimmed form of
+        // `init?(value: Int, options: [any Equatable] = [])` emits `TryCreate(nint, out Loader)`.
+        // The two are different C# members and coexist, so the ordinary sibling must not cost the
+        // recovery. A failable sibling of the same input types would emit a second
+        // `TryCreate(nint, out Loader)`, which is a real collision and still refuses.
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestModuleSwiftBindings";
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var parentDecl = CreateClassDecl("Loader", moduleDecl, typeDatabase);
+
+        var sibling = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: siblingFailable,
+            parameters: new List<ArgumentDecl> { CreateArgument("other", new NamedTypeSpec("Swift.Int"), moduleDecl) },
+            mangledName: "$s10TestModule6LoaderC5otherACSi_tcfc");
+
+        var existentialArg = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("Swift.Equatable") });
+        var constructor = CreateConstructorDecl(
+            "init",
+            parentDecl,
+            moduleDecl,
+            isFailable: true,
+            parameters: new List<ArgumentDecl>
+            {
+                CreateArgument("value", new NamedTypeSpec("Swift.Int"), moduleDecl),
+                CreateArgument("options", new NamedTypeSpec("Swift.Array", existentialArg), moduleDecl, hasDefault: true)
+            },
+            mangledName: "$s10TestModule6LoaderC5value7optionsACSgSi_SaypGtcfc");
+
+        // The type's member walk reserves each emitted member's projected key in one set the
+        // recovery reads; an already-emitted constructor holds `ctor(nint)` there.
+        HashSet<string>? emitted = siblingAlreadyEmitted
+            ? new HashSet<string> { DefaultParameterOverloadEmitter.GetProjectedOverloadKey(sibling, typeDatabase) }
+            : null;
+        var (csOutput, _) = EmitConstructor(constructor, typeDatabase, emittedProjectedSignatures: emitted);
+
+        AssertNoBypass(csOutput, string.Empty);
+        if (expectFactory)
+            Assert.Contains("public static bool TryCreate(", csOutput);
+        else
+            Assert.DoesNotContain("public static bool TryCreate(", csOutput);
+    }
+
     [Fact]
     public void TryEmit_ThrowingConstructor_ReturnsFalse()
     {
@@ -1247,7 +1299,8 @@ public class ExistentialBypassEmitterTests
         ModuleDecl moduleDecl,
         bool throws = false,
         bool isFailable = false,
-        List<ArgumentDecl>? parameters = null)
+        List<ArgumentDecl>? parameters = null,
+        string? mangledName = null)
     {
         var signature = new List<ArgumentDecl>
         {
@@ -1261,7 +1314,7 @@ public class ExistentialBypassEmitterTests
         var method = new MethodDecl
         {
             Name = name,
-            MangledName = $"$s10TestModule6ConfigV{name}yACyF",
+            MangledName = mangledName ?? $"$s10TestModule6ConfigV{name}yACyF",
             MethodType = MethodType.Static,
             IsConstructor = true,
             IsFailable = isFailable,
@@ -1335,7 +1388,8 @@ public class ExistentialBypassEmitterTests
     }
 
     private static (string csOutput, string swiftOutput) EmitConstructor(
-        MethodDecl methodDecl, TypeDatabase typeDatabase, ModuleEmissionContext? emissionContext = null)
+        MethodDecl methodDecl, TypeDatabase typeDatabase, ModuleEmissionContext? emissionContext = null,
+        HashSet<string>? emittedProjectedSignatures = null)
     {
         var csOutput = new StringWriter();
         var swiftOutput = new StringWriter();
@@ -1344,6 +1398,11 @@ public class ExistentialBypassEmitterTests
 
         var handler = new ConstructorHandler(new NullLogger<ConstructorHandler>(), new HashSet<string>());
         var env = new MethodEnvironment(methodDecl, typeDatabase);
+        if (emittedProjectedSignatures != null)
+        {
+            env.EmittedProjectedSignatures = emittedProjectedSignatures;
+            env.ReservedOverloadShapes = new Dictionary<string, int>();
+        }
         var conductor = new Conductor(new NullLoggerFactory());
         // An explicit per-test ModuleEmissionContext, so the structural-claim guard in
         // ExistentialBypassEmitter sees this test's wrapper-symbol claims and no one else's.

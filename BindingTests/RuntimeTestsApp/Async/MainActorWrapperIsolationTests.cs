@@ -65,6 +65,19 @@ public class MainActorWrapperIsolationTests : TestBase
             "Sort(Year, ascending=false) reached the main-actor member through the nint overload");
     }
 
+    public void TestMainActorMembersWithoutTheirDefaultedArgumentReachTheMembers()
+    {
+        AssertTrue(MainActorGauge.TryCreate(21, out var gauge), "init?(reading:) with Swift's default unit succeeded");
+        using (gauge)
+        {
+            AssertEqual(42, gauge.Reading, "the default unit doubles the reading");
+            AssertEqual(48, gauge.Adjusted(3), "adjusted(by:) with Swift's default unit");
+        }
+        AssertFalse(MainActorGauge.TryCreate(-1, out _), "init?(reading:) returned nil for a negative reading");
+        using var fixedGauge = new MainActorGauge(5L);
+        AssertEqual(10, fixedGauge.Reading, "init(fixed:) with Swift's default unit");
+    }
+
     // The C# side of each member above carries the Debug main-thread guard, as every regular
     // main-actor member does. Off the main thread a Debug build must refuse the call before any
     // Swift code runs. MainActorGuard is [Conditional("DEBUG")], so a Release build has no guard

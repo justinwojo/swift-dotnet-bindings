@@ -749,7 +749,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine("    DiagnosticId = \"SB0010\",");
                 csWriter.WriteLine("    UrlFormat = \"https://github.com/justinwojo/swift-dotnet-bindings/wiki/Troubleshooting\")]");
             }
-            if (protocolDecl.Name.StartsWith("_"))
+            if (SwiftDeclSpelling.HasUnderscoreSwiftName(protocolDecl))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             var whereClause = GetInterfaceWhereClause(protocolDecl);
             if (inheritedInterfaces.Count > 0)

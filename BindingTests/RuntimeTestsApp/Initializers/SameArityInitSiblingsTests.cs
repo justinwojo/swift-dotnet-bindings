@@ -61,4 +61,21 @@ public class SameArityInitSiblingsTests : TestBase
         AssertEqual("data:2", value.Source, "(data) reaches init(data:config:)");
         AssertEqual(3, (int)value.Scale, "(data) leaves config to Swift's default (scale 3)");
     }
+
+    public void TestFailableTrimAndAnEmptyTupleSiblingEachReachTheirInitializer()
+    {
+        AssertTrue(FailableTrimSiblingGauge.TryCreate(7, out var trimmed), "(reading) builds");
+        using (trimmed)
+        {
+            AssertEqual("reading", trimmed!.Source, "TryCreate(int) reaches init?(reading:config:)");
+            AssertEqual(21, (int)trimmed.Reading, "(reading) leaves config to Swift's default (scale 3)");
+        }
+        AssertTrue(FailableTrimSiblingGauge.TryCreateWithFallback(5, out var fallback), "(fallback) builds");
+        using (fallback)
+        {
+            AssertEqual("fallback", fallback!.Source, "TryCreateWithFallback reaches init?(fallback:unused:)");
+            AssertEqual(5, (int)fallback.Reading, "(fallback) passes its argument");
+        }
+        AssertFalse(FailableTrimSiblingGauge.TryCreate(-1, out _), "a failing init returns false");
+    }
 }

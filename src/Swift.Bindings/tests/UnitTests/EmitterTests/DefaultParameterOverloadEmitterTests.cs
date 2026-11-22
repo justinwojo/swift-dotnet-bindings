@@ -247,6 +247,30 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     [Fact]
+    public void BuildOverloadDecl_PreservesActorIsolationFlags()
+    {
+        // The trimmed overload's own @_cdecl wrapper decides its @MainActor annotation from these
+        // flags, so dropping them leaves a nonisolated wrapper calling a main-actor shim.
+        var method = CreateMethodWithArgs(
+            CreateArg("name", hasDefault: false),
+            CreateArg("options", hasDefault: true));
+        method.IsActorIsolated = true;
+        method.IsMainActorIsolated = true;
+        method.IsNonisolated = false;
+
+        var overload = DefaultParameterOverloadEmitter.BuildOverloadDecl(method, trimCount: 1);
+
+        Assert.True(overload.IsActorIsolated);
+        Assert.True(overload.IsMainActorIsolated);
+
+        var nonisolated = CreateMethodWithArgs(
+            CreateArg("name", hasDefault: false),
+            CreateArg("options", hasDefault: true));
+        nonisolated.IsNonisolated = true;
+        Assert.True(DefaultParameterOverloadEmitter.BuildOverloadDecl(nonisolated, trimCount: 1).IsNonisolated);
+    }
+
+    [Fact]
     public void BuildGateReducedDecl_PreservesActorIsolationFlags()
     {
         // A dropped @MainActor flag makes the reduced @_cdecl wrapper omit its actor annotation
@@ -1049,6 +1073,71 @@ public class DefaultParameterOverloadEmitterTests
         Assert.NotEmpty(swiftOutput);
         Assert.Contains("@available(iOS 26.0, *)", swiftOutput);
         Assert.Contains("@available(macOS 26.0, *)", swiftOutput);
+    }
+
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, false, true)]
+    [InlineData(true, true, false)]
+    [InlineData(false, true, false)]
+    public void TryEmitOverloads_MemberLevelMainActor_ShimCarriesTheIsolation(
+        bool isConstructor, bool memberNonisolated, bool expectMainActor)
+    {
+        // `@MainActor init?(name: Int, token: Int = 0)` (or a `@MainActor` method) on an
+        // unisolated type: the shim's extension inherits no isolation, so the shim has to say
+        // @MainActor itself or Swift rejects its synchronous call. A plain member gets none.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Vault");
+        var parentDecl = new StructDecl
+        {
+            Name = "Vault",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Vault"),
+            MangledName = "$s10TestModule5VaultVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            MetadataAccessor = "$s10TestModule5VaultVMa",
+        };
+
+        var method = new MethodDecl
+        {
+            Name = isConstructor ? "init" : "open",
+            MangledName = isConstructor
+                ? "$s10TestModule5VaultV4name5tokenACSgSi_SitcfC"
+                : "$s10TestModule5VaultV4open4name5tokenySi_SitF",
+            MethodType = isConstructor ? MethodType.Static : MethodType.Instance,
+            IsConstructor = isConstructor,
+            IsFailable = isConstructor,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("name", hasDefault: false),
+                CreateArg("token", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            IsActorIsolated = !memberNonisolated,
+            IsMainActorIsolated = !memberNonisolated,
+            IsNonisolated = memberNonisolated,
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        var silgen = swiftOutput.IndexOf("@_silgen_name(", StringComparison.Ordinal);
+        Assert.True(silgen >= 0, swiftOutput);
+        var preamble = swiftOutput.Substring(swiftOutput.LastIndexOf("extension ", silgen, StringComparison.Ordinal), silgen - swiftOutput.LastIndexOf("extension ", silgen, StringComparison.Ordinal));
+        Assert.Equal(expectMainActor, preamble.Contains("@MainActor", StringComparison.Ordinal));
     }
 
     [Fact]

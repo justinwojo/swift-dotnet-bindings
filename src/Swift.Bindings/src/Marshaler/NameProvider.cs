@@ -1085,6 +1085,9 @@ public static class NameProvider
     /// </summary>
     public static bool IsSwiftKeyword(string name) => _swiftKeywords.Contains(name);
 
+    /// <summary>The Swift keywords <see cref="IsSwiftKeyword"/> recognizes.</summary>
+    public static IReadOnlyCollection<string> SwiftKeywords => _swiftKeywords;
+
     /// <summary>
     /// Applies the C# verbatim identifier prefix (@) if the name is a C# keyword.
     /// GetCSharpParameterName already returns @-prefixed names, so this is mainly

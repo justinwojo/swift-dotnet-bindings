@@ -120,6 +120,42 @@ public class FlooredEnumCaseTests : TestBase
         AssertEqual(1, enumerations, "The lazy sequence is enumerated once");
     }
 
+    /// <summary>
+    /// A lazily computed sequence inside a container, or passed <c>inout</c>, is read once too. Each
+    /// sequence here yields a met case on its first enumeration and the floored case on every later
+    /// one, so a second read by the container would hand Swift the floored case unrefused.
+    /// </summary>
+    public void TestLazySequencesInsideContainers_AreReadOnce()
+    {
+        var enumerations = 0;
+        IEnumerable<FlooredCaseMode> Shifting()
+        {
+            yield return enumerations++ == 0 ? Enhanced : Future;
+        }
+
+        AssertEqual(1, TestLibFunctions.FlooredCaseModeGroupedSum(
+            new Dictionary<string, IEnumerable<FlooredCaseMode>> { ["a"] = Shifting() }), "Swift received the met case the dictionary's lazy value produced");
+        AssertEqual(1, enumerations, "The dictionary's lazy value is enumerated once");
+
+        enumerations = 0;
+        IEnumerable<FlooredCaseMode> modes = Shifting();
+        AssertEqual(1, TestLibFunctions.FlooredCaseModeInOutSum(ref modes), "Swift received the met case the inout lazy sequence produced");
+        AssertEqual(1, enumerations, "The inout lazy sequence is enumerated once");
+    }
+
+    /// <summary>A floored case inside a dictionary's array value, or an inout array, is refused.</summary>
+    public void TestFlooredCaseInsideDictionaryArraysAndInOutArrays_RefusesBeforeSwift()
+    {
+        AssertRefused(() => TestLibFunctions.FlooredCaseModeGroupedSum(
+            new Dictionary<string, IEnumerable<FlooredCaseMode>> { ["a"] = new[] { Enhanced, Future } }), "A dictionary's array element");
+        IEnumerable<FlooredCaseMode> modes = new[] { Future };
+        AssertRefused(() => TestLibFunctions.FlooredCaseModeInOutSum(ref modes), "An inout array element");
+        IEnumerable<FlooredCaseMode> met = new List<FlooredCaseMode> { Enhanced, Enhanced };
+        var original = met;
+        AssertEqual(2, TestLibFunctions.FlooredCaseModeInOutSum(ref met), "An inout list of met cases reaches Swift");
+        AssertTrue(ReferenceEquals(original, met), "An inout list is not replaced");
+    }
+
     /// <summary>The initializer and the property setters of a class taking containers of the enum.</summary>
     public void TestFlooredCaseInsideMemberContainers_RefusesBeforeSwift()
     {

@@ -699,9 +699,10 @@ namespace BindingsGeneration
                     // over-stripping. E.g., LoggingLib.Level should stay qualified
                     // because Level is nested in class LoggingLib, not a module-level type.
                     var nestedNames = new HashSet<string>(StringComparer.Ordinal);
+                    // Keyed the way wrapper source spells the type (`class`, not the stored `_class`).
                     foreach (var innerType in collidingType.Types)
                     {
-                        nestedNames.Add(innerType.Name);
+                        nestedNames.Add(SwiftDeclSpelling.SwiftSpelledName(innerType));
                     }
                     // A nested `typealias` is reached through the class exactly like a nested
                     // nominal type, but it isn't one of its Types, so it needs collecting
@@ -3417,14 +3418,17 @@ namespace BindingsGeneration
         {
             foreach (var t in types)
             {
+                // The convention is Swift's, so it reads the Swift spelling: a keyword-named public
+                // type (`struct event`, stored as `_event`) is not an implementation detail.
                 var qualifiedName = t.SwiftTypeName?.ToString();
-                if (qualifiedName != null && t.Name.StartsWith("_"))
+                bool underscored = SwiftDeclSpelling.HasUnderscoreSwiftName(t);
+                if (qualifiedName != null && underscored)
                 {
                     underscoreTypes.Add(qualifiedName);
                 }
 
                 // Check if this non-underscore type references underscore-prefixed types
-                if (!t.Name.StartsWith("_"))
+                if (!underscored)
                 {
                     // Superclass references (ClassDecl only)
                     if (t is ClassDecl classDecl && classDecl.DirectSuperclassName != null

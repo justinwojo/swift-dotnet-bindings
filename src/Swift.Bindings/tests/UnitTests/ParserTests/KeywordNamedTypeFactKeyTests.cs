@@ -114,8 +114,27 @@ public class KeywordNamedTypeFactKeyTests
         }, extraNode: CreateNode(kind: "TypeDecl", declKind: "Protocol", name: "default",
             mangledName: "$s10TestModule7defaultP"));
 
-        var protocol = Assert.IsType<ProtocolDecl>(fixture.Result.ModuleDecl.Types.Single(t => t.Name == "_default"));
+        var protocol = Assert.IsType<ProtocolDecl>(fixture.Result.ModuleDecl.Types.Single(t => t.Name == "default"));
         Assert.True(protocol.HasConventionCClosureParameters);
+    }
+
+    [Fact]
+    public void KeywordNamedProtocol_KeepsItsSwiftSpelling_KeywordNamedStructIsPrefixed()
+    {
+        // A protocol's name never stands alone in C# (`I{Name}`, `{Name}Proxy`), and every reference
+        // built from its Swift type name spells it bare, so the declaration has to as well; a struct's
+        // C# name comes from the type database, and its stored name keeps the keyword escape.
+        using var fixture = CreateFixture(SwiftInterfaceFacts.Empty, extraNode: CreateNode(
+            kind: "TypeDecl", declKind: "Protocol", name: "readonly", mangledName: "$s10TestModule8readonlyP"));
+
+        var protocol = Assert.IsType<ProtocolDecl>(fixture.Result.ModuleDecl.Types.Single(t => t is ProtocolDecl));
+        Assert.Equal("readonly", protocol.Name);
+        Assert.Equal("readonly", SwiftDeclSpelling.SwiftSpelledName(protocol));
+        Assert.Equal("_event", EventType(fixture).Name);
+        Assert.Equal("event", SwiftDeclSpelling.SwiftSpelledName(EventType(fixture)));
+        Assert.False(SwiftDeclSpelling.HasUnderscoreSwiftName(EventType(fixture)));
+        Assert.True(SwiftDeclSpelling.HasUnderscoreSwiftName(
+            fixture.Result.ModuleDecl.Types.Single(t => t.SwiftTypeName.Name == "_class")));
     }
 
     private static TypeDecl EventType(ParserFixture fixture) =>

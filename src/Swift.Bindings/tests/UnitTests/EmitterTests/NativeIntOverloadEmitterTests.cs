@@ -265,6 +265,37 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_DeclinedFailableOverload_LeavesItsSignatureFree()
+    {
+        // `init?(exact: Int32)` declares `TryCreate(int, out …)` itself, so the convenience overload of
+        // `init?(wide: Int)` is declined. It must not keep that signature reserved: the real factory,
+        // emitted later, would read it as taken and lose its plain `TryCreate` name to the wide init.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("wide", "Swift.Int"));
+        method.IsConstructor = true;
+        method.IsFailable = true;
+
+        var sibling = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("exact", "Swift.Int32")) with
+        { MangledName = "$s10TestModule9TestClassC5exactACSgs5Int32V_tcfc" };
+        sibling.IsConstructor = true;
+        sibling.IsFailable = true;
+
+        var parentType = (ClassDecl)method.ParentDecl!;
+        sibling.ParentDecl = parentType;
+        parentType.Methods.Add(method);
+        parentType.Methods.Add(sibling);
+
+        var signatures = new HashSet<string>();
+        var output = EmitMethodOverload(method, env => env.EmittedProjectedSignatures = signatures);
+
+        Assert.Equal(string.Empty, output);
+        Assert.Empty(signatures);
+    }
+
+    [Fact]
     public void TryEmitOverload_Accessor_Skips()
     {
         var method = CreateMethod("value_Get", MethodType.Instance,

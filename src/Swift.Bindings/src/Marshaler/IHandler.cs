@@ -586,8 +586,8 @@ namespace BindingsGeneration
                     // FB-1b: recovered static-factory name for a colliding failable init; null keeps the
                     // default "TryCreate" (winner / no-collision).
                     string? failableFactoryName = null;
-                    // The factory-namespace key this member claims, if it takes the recovery path —
-                    // carried out to the shape recording below so the guard can read its optional tail.
+                    // The factory-namespace key this failable init claims (its plain `TryCreate`, or the recovered
+                    // factory name) — carried out to the shape recording below so the guard can read its optional tail.
                     string? reservedFactoryKey = null;
                     // A NON-failable init whose projected constructor signature is shared with a
                     // label-differing sibling emits as a static `CreateWith{Labels}` factory instead of
@@ -609,7 +609,21 @@ namespace BindingsGeneration
                             reservedKey = initFactoryName + projectedKey.Substring(initFactoryParen);
                         }
                     }
-                    if (!emittedProjectedSignatures.Add(reservedKey))
+                    // A failable init that keeps the plain name emits a `TryCreate` factory, which the
+                    // default-parameter trims and the native-int overloads of other failable inits reserve
+                    // in the "failable-factory:" namespace. Holding only the constructor key would let one
+                    // of those emit a second `TryCreate` with the same inputs, so the plain factory key is
+                    // checked and reserved too. The constructor key stays this member's own; a trim already
+                    // holding the factory key sends it down the recovery path to a label-named factory.
+                    string? plainFailableFactoryKey = null;
+                    if (methodDecl.IsConstructor && methodDecl.IsFailable && !methodDecl.IsAsync)
+                    {
+                        int plainFactoryParen = reservedKey.IndexOf('(');
+                        if (plainFactoryParen > 0)
+                            plainFailableFactoryKey = "failable-factory:TryCreate" + reservedKey.Substring(plainFactoryParen);
+                    }
+                    bool plainFactoryTaken = plainFailableFactoryKey != null && emittedProjectedSignatures.Contains(plainFailableFactoryKey);
+                    if (plainFactoryTaken || !emittedProjectedSignatures.Add(reservedKey))
                     {
                         if (methodDecl.IsConstructor)
                         {
@@ -708,6 +722,11 @@ namespace BindingsGeneration
                     else
                     {
                         ClaimProjectedKey(reservedKey);
+                        if (plainFailableFactoryKey != null && emittedProjectedSignatures.Add(plainFailableFactoryKey))
+                        {
+                            ClaimProjectedKey(plainFailableFactoryKey);
+                            reservedFactoryKey = plainFailableFactoryKey;
+                        }
                         // FB-1b: the first failable init to claim a projected key is the winner — it keeps the
                         // plain `TryCreate` name and later same-key failable siblings disambiguate against it.
                         if (methodDecl.IsConstructor && methodDecl.IsFailable &&

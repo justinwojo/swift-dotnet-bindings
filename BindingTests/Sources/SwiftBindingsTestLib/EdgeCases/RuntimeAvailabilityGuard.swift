@@ -408,6 +408,17 @@ public func flooredCaseModeNestedSum(_ groups: [[FlooredCaseMode]?]) -> Int32 {
     return groups.reduce(0) { total, group in total + (group ?? []).reduce(0) { $0 + $1.rawValue } }
 }
 
+/// A dictionary argument holding arrays of the enum: the sum of every raw value. Each array arrives
+/// from C# as a sequence, which may be computed lazily.
+public func flooredCaseModeGroupedSum(_ groups: [String: [FlooredCaseMode]]) -> Int32 {
+    return groups.values.reduce(0) { total, group in total + group.reduce(0) { $0 + $1.rawValue } }
+}
+
+/// An inout array argument: the sum of the raw values Swift received.
+public func flooredCaseModeInOutSum(_ modes: inout [FlooredCaseMode]) -> Int32 {
+    return modes.reduce(0) { $0 + $1.rawValue }
+}
+
 /// A class whose initializer and property setters take containers of the enum.
 public final class FlooredCaseModeHolder {
     public var modes: [FlooredCaseMode]

@@ -740,7 +740,7 @@ namespace BindingsGeneration
         {
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
-            if (enumDecl.Name.StartsWith("_"))
+            if (SwiftDeclSpelling.HasUnderscoreSwiftName(enumDecl))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             csWriter.WriteLine($"public enum {enumDecl.Name}");
             csWriter.WriteLine("{");
@@ -767,7 +767,7 @@ namespace BindingsGeneration
 
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
-            if (enumDecl.Name.StartsWith("_"))
+            if (SwiftDeclSpelling.HasUnderscoreSwiftName(enumDecl))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
             var classDeclaration = $"public static partial class {typeNameWithGenerics}";
             if (!string.IsNullOrEmpty(whereClause))

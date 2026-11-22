@@ -91,3 +91,25 @@ public final class TipGateHost {
         anchored = anchor != nil
     }
 }
+
+/// The failable pair beside a labelled plain initializer of the same input type. The plain one is a
+/// C# constructor and the favored failable one's trimmed form a `TryCreate` factory; the two are
+/// different C# members, so the constructor must not cost the recovery.
+public final class TipGateLabelledHost {
+    public let route: String
+
+    public init(fallback tip: any PopoverTip) {
+        route = "fallback:" + tip.title
+    }
+
+    public init?(_ tip: any PopoverTip, anchor: (any PopoverAnchor)? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        if tip.title.isEmpty { return nil }
+        route = "any:" + tip.title
+    }
+
+    @_disfavoredOverload
+    public init?(_ tip: some PopoverTip, anchor: (any PopoverAnchor)? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        if tip.title.isEmpty { return nil }
+        route = "some:" + tip.title
+    }
+}
