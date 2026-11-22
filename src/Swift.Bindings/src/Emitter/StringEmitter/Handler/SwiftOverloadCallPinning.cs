@@ -100,6 +100,70 @@ internal static class SwiftOverloadCallPinning
         ITypeDatabase? typeDatabase,
         Func<ArgumentDecl, string?>? concreteArgType = null)
     {
+        if (callTarget.GateReducedFrom is { } reduction)
+            return PlanReducedCall(callTarget, reduction, isOmitted, typeDatabase, concreteArgType);
+        return PlanCall(callTarget, isOmitted, typeDatabase, concreteArgType, canPin: null);
+    }
+
+    /// <summary>
+    /// A gate-reduced overload's wrapper calls the declaration it was reduced from, leaving out the
+    /// parameters the reduction dropped as well as those <paramref name="isOmitted"/> accepts, and
+    /// Swift ranks that call against the full declaration. Only a parameter the overload still
+    /// carries can be spelled out, so a call that needs a dropped one written out is refused.
+    /// </summary>
+    private static SwiftCallPinPlan PlanReducedCall(
+        MethodDecl callTarget,
+        GateReductionOrigin reduction,
+        Func<ArgumentDecl, bool> isOmitted,
+        ITypeDatabase? typeDatabase,
+        Func<ArgumentDecl, string?>? concreteArgType)
+    {
+        var originalArgs = reduction.Original.CSSignature.Skip(1).ToList();
+        // The overload's parameters pair with the kept indices by position. Once emission has
+        // stripped the debug parameters, the signature holds the kept list without them (a replayed
+        // render may hold copies of its arguments), and those are left to Swift as well.
+        var keptArgs = (callTarget.SignatureBeforeDebugStrip ?? callTarget.CSSignature).Skip(1).ToList();
+        var carriedArgs = callTarget.CSSignature.Skip(1).ToList();
+        bool debugStripped = callTarget.SignatureBeforeDebugStrip != null;
+        var counterpart = new Dictionary<ArgumentDecl, ArgumentDecl>(ReferenceEqualityComparer.Instance);
+        int carriedCount = 0;
+        for (int k = 0; k < keptArgs.Count; k++)
+        {
+            if (debugStripped && DefaultParameterOverloadEmitter.IsDebugParameter(keptArgs[k]))
+                continue;
+            // A signature that no longer lines up with the reduction cannot be replayed; refuse.
+            if (k >= reduction.KeptIndices.Count || reduction.KeptIndices[k] >= originalArgs.Count || carriedCount >= carriedArgs.Count)
+                return new SwiftCallPinPlan(NoPins, Describe(reduction.Original));
+            counterpart[originalArgs[reduction.KeptIndices[k]]] = carriedArgs[carriedCount++];
+        }
+        if (carriedCount != carriedArgs.Count)
+            return new SwiftCallPinPlan(NoPins, Describe(reduction.Original));
+
+        var plan = PlanCall(
+            reduction.Original,
+            arg => !counterpart.TryGetValue(arg, out var own) || isOmitted(own),
+            typeDatabase,
+            concreteArgType is null ? null : arg => counterpart.TryGetValue(arg, out var own) ? concreteArgType(own) : null,
+            canPin: counterpart.ContainsKey);
+        if (plan.IsRefused || plan.PinCount == 0)
+            return plan;
+
+        var pins = new Dictionary<ArgumentDecl, string>(ReferenceEqualityComparer.Instance);
+        foreach (var (arg, own) in counterpart)
+        {
+            if (plan.PinFor(arg) is { } pin)
+                pins[own] = pin;
+        }
+        return new SwiftCallPinPlan(pins, null);
+    }
+
+    private static SwiftCallPinPlan PlanCall(
+        MethodDecl callTarget,
+        Func<ArgumentDecl, bool> isOmitted,
+        ITypeDatabase? typeDatabase,
+        Func<ArgumentDecl, string?>? concreteArgType,
+        Func<ArgumentDecl, bool>? canPin)
+    {
         var kinds = new NominalKinds(typeDatabase);
         var args = callTarget.CSSignature.Skip(1).Where(a => !a.SwiftTypeSpec.IsEmptyTuple).ToList();
         var omitted = new HashSet<ArgumentDecl>(
@@ -130,7 +194,7 @@ internal static class SwiftOverloadCallPinning
         var spellable = new List<(ArgumentDecl Arg, string Pin)>();
         foreach (var arg in args)
         {
-            if (omitted.Contains(arg) && defaultsTrusted && SpellDefault(arg) is { } pin)
+            if (omitted.Contains(arg) && defaultsTrusted && (canPin?.Invoke(arg) ?? true) && SpellDefault(arg) is { } pin)
                 spellable.Add((arg, pin));
         }
 

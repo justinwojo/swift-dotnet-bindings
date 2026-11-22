@@ -598,6 +598,14 @@ namespace BindingsGeneration
         public bool IsGateReducedOverload { get; set; } = false;
 
         /// <summary>
+        /// For a gate-reduced overload (<see cref="IsGateReducedOverload"/>), the declaration it was
+        /// reduced from and where each parameter it kept sits in that declaration's list. Its wrapper
+        /// calls that declaration by name, so overload analysis replays the call against the full
+        /// list, the dropped parameters included. Null for every other decl.
+        /// </summary>
+        internal GateReductionOrigin? GateReducedFrom { get; init; }
+
+        /// <summary>
         /// True for a reduced-arity (default-argument) overload whose Swift side is a
         /// <c>@_silgen_name</c> shim that fills the dropped defaults. The shim takes every
         /// parameter <c>OptionalPointerWrapperEmitter.ShouldWidenParam</c> widens as an address,
@@ -655,4 +663,10 @@ namespace BindingsGeneration
         /// <summary>Method routed through a native ARM64 assembly thunk (cdecl → swiftcc bridge).</summary>
         NativeThunk,
     }
+
+    /// <summary>
+    /// The declaration a gate-reduced overload was reduced from, and for each parameter the overload
+    /// kept (in order, the result excluded) its index in <paramref name="Original"/>'s parameter list.
+    /// </summary>
+    internal sealed record GateReductionOrigin(MethodDecl Original, IReadOnlyList<int> KeptIndices);
 }

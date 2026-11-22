@@ -155,7 +155,8 @@ final class ProtocolFactsWalker: SyntaxVisitor {
         guard let accessToken = firstAccessModifierToken(node.modifiers, accept: ["public", "open"]) else {
             return .visitChildren
         }
-        let protoName = node.name.text
+        // A keyword-named protocol keys by its unescaped name, as the ABI JSON prints it.
+        let protoName = DeclAccess.unescape(node.name.text)
 
         // Pass 1 (convention): walk each direct member; flag if any contains
         // `@convention(c)`/`@convention(block)` directly OR a word-boundary alias name.
@@ -216,7 +217,7 @@ final class ProtocolFactsWalker: SyntaxVisitor {
             // Unqualified extensions are always same-module.
             simpleName = qualified
         }
-        guard let target = simpleName else { return .visitChildren }
+        guard let target = simpleName.map({ $0.replacingOccurrences(of: "`", with: "") }) else { return .visitChildren }
 
         // SOURCE-ORDER: do NOT gate on `requirementCandidates[target] != nil`.
         // An extension default declared BEFORE its protocol in source order still

@@ -51,9 +51,11 @@ public static class DefaultParameterOverloadEmitter
         SwiftWriter swiftWriter,
         MethodEnvironment env,
         ILogger logger,
-        ModuleEmissionContext? emissionContext = null)
+        ModuleEmissionContext? emissionContext = null,
+        bool failableNeedsHelperFreeRoute = false)
     {
-        return TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: false);
+        return TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: false,
+            failableNeedsHelperFreeRoute);
     }
 
     /// <summary>
@@ -67,7 +69,8 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext = null)
     {
-        TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: true);
+        TryEmitOverloadsWithRecipe(csWriter, swiftWriter, env, logger, emissionContext, primaryEmitted: true,
+            failableNeedsHelperFreeRoute: false);
     }
 
     private static bool TryEmitOverloadsWithRecipe(
@@ -76,7 +79,8 @@ public static class DefaultParameterOverloadEmitter
         MethodEnvironment env,
         ILogger logger,
         ModuleEmissionContext? emissionContext,
-        bool primaryEmitted)
+        bool primaryEmitted,
+        bool failableNeedsHelperFreeRoute)
     {
         emissionContext ??= env.EmissionContext;
         DefaultOverloadReplayRecipe? recipe = null;
@@ -87,7 +91,8 @@ public static class DefaultParameterOverloadEmitter
             producerEnv = recipe.CreateEnvironment(env);
             producerEnv.EmissionContext = emissionContext;
         }
-        var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext, primaryEmitted);
+        var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext, primaryEmitted,
+            failableNeedsHelperFreeRoute);
         // The core reads producer inputs and mutates its candidate declarations/environments.
         // Capture only when a real bundle completed, preserving cheap declines (including unknown
         // TypeSpecs on methods with no defaults). A swallowed containment signal abandons the render.
@@ -105,7 +110,8 @@ public static class DefaultParameterOverloadEmitter
         MethodEnvironment env,
         ILogger logger,
         ModuleEmissionContext? emissionContext,
-        bool primaryEmitted)
+        bool primaryEmitted,
+        bool failableNeedsHelperFreeRoute)
     {
         var methodDecl = env.MethodDecl;
         int emittedCount = 0;
@@ -219,7 +225,7 @@ public static class DefaultParameterOverloadEmitter
         if (wantAllDefaultsForm)
         {
             var allDefaultsDropped = new HashSet<ArgumentDecl>(
-                defaultedIndices.Select(i => allArgs[i]), ReferenceEqualityComparer.Instance);
+                WithDebugParameters(allArgs, defaultedIndices).Select(i => allArgs[i]), ReferenceEqualityComparer.Instance);
             var allDefaultsPlan = SwiftOverloadCallPinning.Plan(methodDecl, allDefaultsDropped.Contains, env.TypeDatabase);
             if (allDefaultsPlan.IsRefused)
             {
@@ -232,7 +238,7 @@ public static class DefaultParameterOverloadEmitter
                     allDefaultsPlan.WinningSibling);
                 emissionContext?.TryRecordSuppressedAmbiguousOverload(
                     GetProjectedOverloadKey(
-                        BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, defaultedIndices),
+                        BuildOverloadDeclCore(GetOverloadSymbolBase(env), methodDecl, WithDebugParameters(allArgs, defaultedIndices), defaultedIndices.Count),
                         env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput),
                     "Swift " + allDefaultsPlan.WinningSibling,
                     candidateWasFuller: false);
@@ -248,7 +254,7 @@ public static class DefaultParameterOverloadEmitter
             // no trace anywhere — the one decline in this emitter a reader could not account for.
             else
             {
-                var allDefaultsDecl = BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, defaultedIndices);
+                var allDefaultsDecl = BuildOverloadDeclCore(GetOverloadSymbolBase(env), methodDecl, WithDebugParameters(allArgs, defaultedIndices), defaultedIndices.Count);
                 var declinedKey = GetProjectedOverloadKey(
                     allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
                 if (TryFindSignatureCollision(
@@ -303,12 +309,13 @@ public static class DefaultParameterOverloadEmitter
         foreach (var (symbolTrim, dropIndices) in candidateSpecs)
         {
             int trim = symbolTrim;
-            var overloadDecl = dropIndices == null
-                ? BuildOverloadDecl(GetOverloadSymbolBase(env), methodDecl, trim)
-                : BuildOverloadDeclDropping(GetOverloadSymbolBase(env), methodDecl, dropIndices);
+            // Debug parameters are always left to Swift. A primary strips them before its overloads
+            // run, but a recovery call reaches here with them still declared, so the trailing trim
+            // counts past them (as CountTrailingDefaults does) and every one of them is dropped.
+            var omitted = WithDebugParameters(allArgs, dropIndices ?? TrailingTrimIndices(allArgs, trim));
+            var overloadDecl = BuildOverloadDeclCore(GetOverloadSymbolBase(env), methodDecl, omitted, trim);
             var droppedArgs = new HashSet<ArgumentDecl>(
-                (dropIndices ?? Enumerable.Range(allArgs.Count - trim, trim).ToList()).Select(i => allArgs[i]),
-                ReferenceEqualityComparer.Instance);
+                omitted.Select(i => allArgs[i]), ReferenceEqualityComparer.Instance);
 
             // Identity is fixed by the captured producer symbol. Deny before preparation or
             // reservations so a withdrawn trim cannot consume a healthy sibling's name.
@@ -427,6 +434,17 @@ public static class DefaultParameterOverloadEmitter
                         if (overloadDecl.CSSignature.Skip(1).Any(overloadEnv.ClosureHandler.IsClosure))
                             overloadDecl.HasClosureParams = true;
                     }
+                }
+
+                // A failable factory reads the SwiftOptional metadata accessor (and, for a frozen
+                // value type, the tag helper) that the primary's emission declares. When the caller
+                // never ran that emission, only the class @_cdecl route is self-contained: it returns
+                // the nullable retained pointer and reads neither.
+                if (failableNeedsHelperFreeRoute && overloadDecl.IsFailable &&
+                    !(overloadDecl.UsesCdeclConstructorWrapper && overloadDecl.ParentDecl is ClassDecl))
+                {
+                    logger.LogDebug("DefaultParameterOverload: skipping overload (trim {Trim}) for {Name} — its failable factory needs Optional helpers no emission declared", trim, methodDecl.Name);
+                    return;
                 }
 
                 // Check if the overload signature is fully marshallable
@@ -887,9 +905,54 @@ public static class DefaultParameterOverloadEmitter
     /// </summary>
     internal static MethodDecl BuildOverloadDecl(string baseSymbol, MethodDecl original, int trimCount)
     {
-        var argCount = original.CSSignature.Count - 1;
-        var dropped = new HashSet<int>(Enumerable.Range(argCount - trimCount, trimCount));
-        return BuildOverloadDeclCore(baseSymbol, original, dropped, trimCount);
+        var args = original.CSSignature.Skip(1).ToList();
+        return BuildOverloadDeclCore(baseSymbol, original, WithDebugParameters(args, TrailingTrimIndices(args, trimCount)), trimCount);
+    }
+
+    /// <summary>
+    /// The parameter indices (return type excluded) a trailing trim of <paramref name="trimCount"/>
+    /// defaults omits: the last <paramref name="trimCount"/> parameters that are not debug
+    /// parameters, plus every debug parameter at or after the first of them. The count skips debug
+    /// parameters exactly as <see cref="CountTrailingDefaults"/> does, so a trailing
+    /// <c>line: UInt = #line</c> never takes the place of a real default. For a list with no debug
+    /// parameters this is the last <paramref name="trimCount"/> indices.
+    /// </summary>
+    internal static List<int> TrailingTrimIndices(IReadOnlyList<ArgumentDecl> args, int trimCount)
+    {
+        var indices = new List<int>();
+        int counted = 0;
+        for (int i = args.Count - 1; i >= 0 && counted < trimCount; i--)
+        {
+            indices.Add(i);
+            if (!IsDebugParameter(args[i]))
+                counted++;
+        }
+        indices.Reverse();
+        return indices;
+    }
+
+    /// <summary>
+    /// The parameters a gate-reduced call (<see cref="BuildGateReducedDecl"/>) leaves to Swift: the
+    /// last <paramref name="dropCount"/> defaults and every debug parameter, interior ones included,
+    /// since the @_cdecl wrapper never writes a debug argument out.
+    /// </summary>
+    internal static HashSet<int> GateReductionOmittedIndices(IReadOnlyList<ArgumentDecl> args, int dropCount) =>
+        WithDebugParameters(args, TrailingTrimIndices(args, dropCount));
+
+    /// <summary>
+    /// <paramref name="dropIndices"/> together with the index of every debug parameter in
+    /// <paramref name="args"/>: those are compiler-filled and never reach a C# signature, so any
+    /// shortened call leaves them to Swift.
+    /// </summary>
+    private static HashSet<int> WithDebugParameters(IReadOnlyList<ArgumentDecl> args, IEnumerable<int> dropIndices)
+    {
+        var omitted = new HashSet<int>(dropIndices);
+        for (int i = 0; i < args.Count; i++)
+        {
+            if (IsDebugParameter(args[i]))
+                omitted.Add(i);
+        }
+        return omitted;
     }
 
     /// <summary>
@@ -991,6 +1054,13 @@ public static class DefaultParameterOverloadEmitter
     /// </summary>
     internal static MethodDecl BuildGateReducedDecl(MethodDecl original, int dropCount)
     {
+        // The drop count counts defaults as CountTrailingDefaults does, past any debug parameter, so
+        // a trailing `line: UInt = #line` is dropped along with the defaults it follows instead of
+        // taking one of their places.
+        var args = original.CSSignature.Skip(1).ToList();
+        var dropped = new HashSet<int>(TrailingTrimIndices(args, dropCount));
+        var kept = Enumerable.Range(0, args.Count).Where(i => !dropped.Contains(i)).ToList();
+
         // Clone via `with` so EVERY parser ABI fact carries over unchanged — override / final /
         // actor-isolation / SPI / extension-method / consuming-or-borrowing-self / typed-throws /
         // variadic / … — and only the parameter list shrinks. Hand-copying a hand-picked subset
@@ -1013,6 +1083,7 @@ public static class DefaultParameterOverloadEmitter
             // and suppress the native thunk (which would `bl` the full-ABI symbol with the dropped
             // parameter's register uninitialized → runtime fault).
             IsGateReducedOverload = true,
+            GateReducedFrom = new GateReductionOrigin(original, kept),
         };
 
         // Clone each kept ArgumentDecl with `with` so EVERY per-parameter parser fact carries over
@@ -1027,12 +1098,8 @@ public static class DefaultParameterOverloadEmitter
         var returnArg = original.CSSignature[0];
         reduced.CSSignature.Add(returnArg with { ParentDecl = reduced, CSharpName = null });
 
-        var args = original.CSSignature.Skip(1).ToList();
-        var keepCount = args.Count - dropCount;
-        for (int i = 0; i < keepCount; i++)
-        {
+        foreach (var i in kept)
             reduced.CSSignature.Add(args[i] with { ParentDecl = reduced, CSharpName = null });
-        }
 
         return reduced;
     }

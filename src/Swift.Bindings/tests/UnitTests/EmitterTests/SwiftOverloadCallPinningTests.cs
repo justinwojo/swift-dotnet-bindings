@@ -432,6 +432,93 @@ public class SwiftOverloadCallPinningTests
     }
 
     [Fact]
+    public void GateReduction_LeavesAnInteriorDebugParameterToSwift()
+    {
+        // f(value:file: = #file, edges: = computed(), line: = #line) reduced by one default: the
+        // @_cdecl wrapper calls f(value:) and lets Swift fill `file` too, so the sibling
+        // f(value:count:other:), needing two defaults to the target's three, wins the call.
+        var file = Arg("file", "Swift.StaticString", "#file");
+        var target = Method("f", disfavored: false, Arg("value", "Swift.Int"), file,
+            Arg("edges", "Swift.Int", "computed()"), Arg("line", "Swift.UInt", "#line"));
+        var sibling = Method("f", disfavored: false, Arg("value", "Swift.Int"),
+            Arg("count", "Swift.Int", "computed()"), Arg("other", "Swift.Int", "computed()"));
+        Host(target, sibling);
+
+        var args = target.CSSignature.Skip(1).ToList();
+        var omitted = new HashSet<ArgumentDecl>(
+            DefaultParameterOverloadEmitter.GateReductionOmittedIndices(args, 1).Select(i => args[i]),
+            ReferenceEqualityComparer.Instance);
+        Assert.Contains(file, omitted);
+
+        var plan = SwiftOverloadCallPinning.Plan(target, omitted.Contains, typeDatabase: null);
+
+        Assert.True(plan.IsRefused || plan.PinCount > 0);
+    }
+
+    [Fact]
+    public void GateReducedOverload_IsReplayedAgainstTheDeclarationItWasReducedFrom()
+    {
+        // f(value:x: = computed(), edges: = computed(), line: = #line) reduced by one default is
+        // f(value:x:), which the sibling f(value:count:other:) cannot take. Trimming `x` from the
+        // reduced form calls f(value:): Swift weighs the full declaration's three omitted defaults
+        // against the sibling's two, so the sibling wins it.
+        var target = Method("f", disfavored: false, Arg("value", "Swift.Int"), Arg("x", "Swift.Int", "computed()"),
+            Arg("edges", "Swift.Int", "computed()"), Arg("line", "Swift.UInt", "#line"));
+        var sibling = Method("f", disfavored: false, Arg("value", "Swift.Int"),
+            Arg("count", "Swift.Int", "computed()"), Arg("other", "Swift.Int", "computed()"));
+        Host(target, sibling);
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(target, 1);
+        var x = reduced.CSSignature.Single(a => a.Name == "x");
+
+        Assert.False(SwiftOverloadCallPinning.Plan(reduced, _ => false, typeDatabase: null).IsRefused);
+        Assert.True(SwiftOverloadCallPinning.Plan(reduced, arg => ReferenceEquals(arg, x), typeDatabase: null).IsRefused);
+    }
+
+    [Fact]
+    public void GateReducedOverload_WithCopiedArgumentsAfterTheDebugStrip_PairsThemByPosition()
+    {
+        // init(value:file:x:y:edges:line:) reduced by one default and debug-stripped is
+        // (value, x, y); a replayed render holds copies of those arguments beside the stripped
+        // list. Trimming `y` calls init(value:x:), which the sibling init(value:x:other:misc:),
+        // needing two defaults to the full declaration's four, wins.
+        var target = Method("init", disfavored: false, Arg("value", "Swift.Int"), Arg("file", "Swift.StaticString", "#file"),
+            Arg("x", "Swift.Int", "computed()"), Arg("y", "Swift.Int", "computed()"),
+            Arg("edges", "Swift.Int", "computed()"), Arg("line", "Swift.UInt", "#line"));
+        var sibling = Method("init", disfavored: false, Arg("value", "Swift.Int"), Arg("x", "Swift.Int"),
+            Arg("other", "Swift.Int", "computed()"), Arg("misc", "Swift.Int", "computed()"));
+        Host(target, sibling);
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(target, 1);
+        reduced.SignatureBeforeDebugStrip = reduced.CSSignature;
+        reduced.CSSignature = reduced.CSSignature
+            .Where((a, i) => i == 0 || !DefaultParameterOverloadEmitter.IsDebugParameter(a))
+            .Select(a => a with { })
+            .ToList();
+        var y = reduced.CSSignature.Single(a => a.Name == "y");
+
+        Assert.True(SwiftOverloadCallPinning.Plan(reduced, arg => ReferenceEquals(arg, y), typeDatabase: null).IsRefused);
+    }
+
+    [Fact]
+    public void GateReducedOverload_SpellsOutOnlyAParameterItStillCarries()
+    {
+        // f(value:x: = 1, edges: = 2) beside f(value:count: = computed()): reduced to f(value:x:)
+        // and trimmed to f(value:), the call needs `x: 1` written out, which the reduced form can
+        // still do; `edges` is gone from it and is never pinned.
+        var x = Arg("x", "Swift.Int", "1");
+        var target = Method("f", disfavored: false, Arg("value", "Swift.Int"), x, Arg("edges", "Swift.Int", "2"));
+        var sibling = Method("f", disfavored: false, Arg("value", "Swift.Int"), Arg("count", "Swift.Int", "computed()"));
+        Host(target, sibling);
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(target, 1);
+        var reducedX = reduced.CSSignature.Single(a => a.Name == "x");
+
+        var plan = SwiftOverloadCallPinning.Plan(reduced, arg => ReferenceEquals(arg, reducedX), typeDatabase: null);
+
+        Assert.False(plan.IsRefused);
+        Assert.Equal(1, plan.PinCount);
+        Assert.Equal("x: 1", plan.PinFor(reducedX));
+    }
+
+    [Fact]
     public void VariadicSibling_TakesTheCallWithoutVariadicArguments()
     {
         // make(using:flag: = false) beside make(using:_: Int...): a variadic parameter may take no

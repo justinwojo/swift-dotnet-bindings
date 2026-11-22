@@ -27,3 +27,28 @@ public class GateReducedInitHost {
         self.total = value + edges.count
     }
 }
+
+/// A favored `init(_: any PopoverTip, …)` and a `@_disfavoredOverload` `some PopoverTip` twin whose
+/// trailing defaults are a SwiftUI-typed `Edge?` and a closure, the shape of an Apple tip view's
+/// initializer. The member-emission gate drops both full forms for the SwiftUI type; the rescue
+/// binds the favored one with its defaults left to Swift, so the type stays constructible from any
+/// tip. The twin's specializations stay refused: Swift resolves their call to the favored
+/// declaration. The route records which declaration ran.
+public final class TipEdgeHost {
+    public let route: String
+    public let edged: Bool
+    private let actionHandler: (Int) -> Void
+
+    public init(_ tip: any PopoverTip, arrowEdge: Edge? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        route = "any:" + tip.title
+        edged = arrowEdge != nil
+        self.actionHandler = actionHandler
+    }
+
+    @_disfavoredOverload
+    public init(_ tip: some PopoverTip, arrowEdge: Edge? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        route = "some:" + tip.title
+        edged = arrowEdge != nil
+        self.actionHandler = actionHandler
+    }
+}
