@@ -48,8 +48,8 @@ public class KeywordNamedTypeTests : TestBase
 
     public void TestRawValueEnumNamedFixed()
     {
-        AssertEqual(4, (int)TestLibFunctions.KeywordTypeRaw(Fixed.Readonly), "keyword case `readonly` keeps raw value 4");
-        AssertEqual(5, (int)TestLibFunctions.KeywordTypeRaw(Fixed.Static), "keyword case `static` keeps raw value 5");
+        AssertEqual(0, (int)TestLibFunctions.KeywordTypeRaw(Fixed.Readonly), "keyword case `readonly` reaches Swift as raw value 0");
+        AssertEqual(1, (int)TestLibFunctions.KeywordTypeRaw(Fixed.Static), "keyword case `static` reaches Swift as raw value 1");
     }
 
     public void TestNestedKeywordNamedTypes()

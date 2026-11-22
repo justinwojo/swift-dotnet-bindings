@@ -40,10 +40,12 @@ public enum `default` {
     }
 }
 
-/// A raw-value enum named after a C#-only keyword, with keyword-named cases.
+/// A raw-value enum named after a C#-only keyword, with keyword-named cases. The raw values are
+/// the implicit ordinals: a module interface does not print explicit integer raw values, so the
+/// binding carries ordinals for a Swift integer enum whatever its declared values.
 public enum fixed: Int {
-    case `readonly` = 4
-    case `static` = 5
+    case `readonly`
+    case `static`
 }
 
 /// Hosts nested keyword-named types: one named after a C#-only keyword, one after a keyword of
