@@ -28,14 +28,16 @@ namespace BindingsGeneration
 
         /// <summary>
         /// True when the call site emits anything at all: an error check, a hand-over for a
-        /// consumed argument, or the lease an existential argument is held by across the call
-        /// (<see cref="Signature.GetExistentialArgumentLease"/>, which the call arguments read). A
-        /// body that needs none of them keeps its plain call.
+        /// consumed argument, the lease an existential argument is held by across the call
+        /// (<see cref="Signature.GetExistentialArgumentLease"/>, which the call arguments read), or
+        /// the pin that keeps an existential or Optional-existential argument's owner alive until
+        /// the call returns. A body that needs none of them keeps its plain call.
         /// </summary>
         internal static bool CallSiteNeedsOwnershipOrErrorHalves(MethodEnvironment env)
             => (!env.MethodDecl.IsAsync && env.MethodDecl.Throws)
                || env.MethodDecl.CSSignature.Skip(1).Any(a => CalleeArgumentOwnership.IsHandedOverToCallee(env.MethodDecl, a))
-               || env.MethodDecl.CSSignature.Skip(1).Any(a => env.ExistentialHandler.IsExistential(a.SwiftTypeSpec));
+               || env.MethodDecl.CSSignature.Skip(1).Any(a => env.ExistentialHandler.IsExistential(a.SwiftTypeSpec)
+                                                            || env.ExistentialHandler.IsOptionalExistential(a.SwiftTypeSpec));
 
         /// <summary>
         /// Writes the member-level declarations the error check calls: the error-description and
@@ -60,14 +62,16 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Writes what follows the call, before its result is read: completes the hand-overs (the
-        /// callee now owns those counts, whether it returned or threw), then checks the error slot and
-        /// throws the member's Swift-error exception, releasing the error box exactly as an ordinary
-        /// throwing member does. A thrown error leaves the result register undefined, so nothing may
-        /// interpret it first.
+        /// callee now owns those counts, whether it returned or threw), pins every existential
+        /// argument whose carrier was read out of its owner until here, exactly as an ordinary body
+        /// does, then checks the error slot and throws the member's Swift-error exception, releasing
+        /// the error box exactly as an ordinary throwing member does. A thrown error leaves the
+        /// result register undefined, so nothing may interpret it first.
         /// </summary>
         internal void EmitCallSiteEpilogue(CSharpWriter csWriter)
         {
             EmitConsumedArgumentTransfersCompleted(csWriter);
+            EmitBorrowedExistentialArgumentKeepAlive(csWriter);
             EmitSwiftError(csWriter);
         }
 

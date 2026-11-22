@@ -736,7 +736,7 @@ namespace BindingsGeneration
         /// </summary>
         private bool EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string pinvokeName, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
         {
-            var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals);
+            var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals, methodEnv?.SyntheticLocals);
 
             // The ordinary body converts its parameters before the call-site preamble; so does this one.
             if (marshalling.Marshaller is { } operandMarshaller)

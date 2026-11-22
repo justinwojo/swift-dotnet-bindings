@@ -418,7 +418,7 @@ namespace BindingsGeneration
         {
             foreach (var parameter in _pInvokeSignature.Parameters)
             {
-                if (Signature.GetExistentialArgumentLease(parameter) is not { } lease)
+                if (Signature.GetExistentialArgumentLease(parameter, _env.SyntheticLocals) is not { } lease)
                     continue;
                 csWriter.WriteLine(lease.Declaration);
                 if (lease.CompletesOnNativeReturn)
@@ -899,7 +899,7 @@ namespace BindingsGeneration
                 // Zero-witness (EC0) boxes the plain value; well-known types (AnyError) and
                 // compositions (EC2+) use the direct cast.
                 bool owningCandidate = IsOwningExistentialCandidate(protocolList);
-                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList, _env.TypeDatabase);
                 if (owningCandidate)
                 {
                     // Auto-wrap fallback only when we actually emit a proxy class for the protocol.
@@ -979,7 +979,7 @@ namespace BindingsGeneration
                     // owning-candidate path pins the GetOrCreate-boxed proxy local, the EC2+/well-known
                     // borrowed path pins the parameter itself (owns=false — it never boxed a +1). The
                     // zero-witness box owns its +1 and references nothing managed, so it pins nothing.
-                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
+                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList, _env.TypeDatabase).Count;
                     var holderCtor = owningCandidate
                         ? $"new ExistentialContainerHeap((IntPtr){csName}Heap, {csName}Owns, {witnessTableCount}, {csName}KeepAlive)"
                         : zeroWitness

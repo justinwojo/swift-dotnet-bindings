@@ -571,7 +571,7 @@ public class TypeProjectionFactory
         // the ExistentialContainer0 ABI and marshal via Box/Unbox. Treat both as bare Any so the
         // projection's Box/Unbox arms are selected; the proxy / ISwiftExistentialConvertible arms cannot
         // apply to the `object` public surface a marker-only existential degrades to.
-        bool isBareAny = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+        bool isBareAny = ExistentialHandler.IsZeroWitnessExistential(protocolList, context.TypeDatabase);
         bool isClassBoundArity1 = handler.IsClassBoundArity1Existential(protocolList);
         // @objc protocol existentials are a single 8-byte ObjC object pointer (no witness table, no
         // descriptor). The projection routes them through the bare class-pointer wire representation

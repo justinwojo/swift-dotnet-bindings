@@ -1584,7 +1584,7 @@ internal class MethodMarshalPlanBuilder
         if (_requiresIndirectResult && MarshallingHelpers.ReturnsGenericAsSwiftReference(_env))
             returnPrefix = "*(IntPtr*)_cdeclBuf = ";
         var pInvokeName = NameProvider.GetPInvokeName(_env.EmissionSymbol, _env.MethodDecl);
-        var callArgs = _pInvokeSignature.CallArgumentsString();
+        var callArgs = _pInvokeSignature.CallArgumentsString(leaseScope: _env.SyntheticLocals);
 
         if (_env.PInvokeHelperContext != null)
         {

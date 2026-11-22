@@ -240,6 +240,38 @@ namespace BindingsGeneration
                 return false;
             }
 
+            // The direct path passes its arguments inline (GetPInvokeArgument), with no statement to
+            // hold a borrowed existential's owner across the call or to undo a minted +1 when a later
+            // argument throws, while the case takes its payload owned. Existential payloads are
+            // prepared only by the @_cdecl case factory, which owns that lifetime.
+            if (!useCdeclWrapper && parameters.Any(p => DirectPathPreparesExistential(p.typeSpec, typeDatabase)))
+            {
+                _logger.LogWarning(
+                    "Enum case '{Enum}.{Case}' has an existential payload and no @_cdecl case factory; the direct path cannot keep the payload alive or roll back its count. Skipping the C# factory.",
+                    enumDecl.Name, caseName);
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.UnsupportedExistential,
+                    "existential payload-case constructor has no @_cdecl case factory; the direct call would pass the payload with no keep-alive across the call and no rollback of its +1.",
+                    containingDecl: caseDecl.ParentDecl);
+                return false;
+            }
+
+            // A library marker that changes the existential's layout (class-bound, or beside Error
+            // alone) leaves no container either factory can build at Swift's size, held directly or
+            // inside an optional, a collection or a tuple.
+            var layoutCheck = new ExistentialHandler(typeDatabase);
+            if (parameters.Any(p => layoutCheck.ContainsLayoutChangingMarker(p.typeSpec)))
+            {
+                _logger.LogWarning(
+                    "Enum case '{Enum}.{Case}' has an existential payload whose library marker changes its layout. Skipping the C# factory.",
+                    enumDecl.Name, caseName);
+                UnsupportedCommentEmitter.EmitMemberSkipped(
+                    csWriter, capitalizedName, BindingItemKind.Method, SkipReason.UnsupportedExistential,
+                    "existential payload has a library marker protocol that changes its layout (class-bound, or beside Error alone), which no carrier mirrors.",
+                    containingDecl: caseDecl.ParentDecl);
+                return false;
+            }
+
             // Generate the static method for this case — prefer symbol graph doc over synthetic
             if (caseDecl.Documentation != null && !caseDecl.Documentation.IsEmpty)
             {
@@ -558,7 +590,7 @@ namespace BindingsGeneration
                             bool hasTypeRecords = preScanHandler.AllProtocolsHaveTypeRecords(protocolList);
                             // A zero-witness existential (bare Any, `any Sendable`) is boxed by
                             // ExistentialContainer0.Box, which always yields an owned +1 container.
-                            bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                            bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase);
                             bool owningCandidate =
                                 !zeroWitness &&
                                 hasTypeRecords &&
@@ -583,7 +615,7 @@ namespace BindingsGeneration
                                 : null;
                             // The destroy runs with the container's layout metadata, and marker protocols
                             // contribute no witness table to that layout.
-                            existentialHeaps.Add((heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList).Count, keepAliveVar));
+                            existentialHeaps.Add((heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList, typeDatabase).Count, keepAliveVar));
                             csWriter.WriteLine($"void* {heapName} = null;");
                             if (ownsVar != null)
                                 csWriter.WriteLine($"bool {ownsVar} = false;");
@@ -624,7 +656,7 @@ namespace BindingsGeneration
                         if (protocolList != null)
                         {
                             var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                            bool boxesZeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                            bool boxesZeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase);
                             if (boxesZeroWitness)
                             {
                                 // Zero-witness existential (bare Any, `any Sendable`): the public type is
@@ -1131,7 +1163,7 @@ namespace BindingsGeneration
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                 // Zero-witness existentials (bare Any, `any Sendable`) project to `object` through
                 // ExistentialContainer0.Box/Unbox, as they do in every other member position.
-                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase))
                     return "object";
                 if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {
@@ -1142,7 +1174,7 @@ namespace BindingsGeneration
             // Handle protocol list types (protocol composition)
             if (typeSpec is ProtocolListTypeSpec protocolListSpec)
             {
-                if (ExistentialHandler.IsZeroWitnessExistential(protocolListSpec))
+                if (ExistentialHandler.IsZeroWitnessExistential(protocolListSpec, typeDatabase))
                     return "object";
                 if (existentialHandler.AllProtocolsHaveTypeRecords(protocolListSpec))
                 {
@@ -1211,6 +1243,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when <see cref="GetPInvokeArgument"/> would prepare an existential (a payload, or a
+        /// tuple element of one) for the direct case path, which has no lifetime statements.
+        /// </summary>
+        private static bool DirectPathPreparesExistential(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        {
+            if (typeSpec is NamedTypeSpec named && TypeSpecHelpers.IsGenericTypeParameter(named.Name))
+                return false;
+            if (new ExistentialHandler(typeDatabase).IsExistential(typeSpec))
+                return true;
+            return typeSpec is TupleTypeSpec tuple
+                && tuple.Elements.Any(e => DirectPathPreparesExistential(e, typeDatabase));
+        }
+
+        /// <summary>
         /// Gets the P/Invoke argument expression for a parameter.
         /// </summary>
         private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null, ModuleDecl? moduleDecl = null)
@@ -1232,7 +1278,7 @@ namespace BindingsGeneration
                 var protocolList = existentialHandler.ToProtocolListTypeSpec(typeSpec);
                 // Zero-witness existential (bare Any, `any Sendable`): the `object` argument is boxed.
                 // The case constructor takes its payload owned, so the call consumes the box's +1.
-                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                if (protocolList != null && ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase))
                     return $"Swift.Runtime.ExistentialContainer0.Box({paramName})";
                 if (protocolList != null && existentialHandler.AllProtocolsHaveTypeRecords(protocolList))
                 {

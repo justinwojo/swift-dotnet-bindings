@@ -449,8 +449,10 @@ public static partial class ClosureEmitter
         string resultExpr,
         ClosureHandler closureHandler)
     {
-        if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out _))
-            return $"{resultExpr}.GetExistentialContainer()";
+        // A well-known existential (any Error) lends its container; Swift takes the result at +1.
+        if (closureHandler.NeedsWellKnownProtocolWrapping(returnType, out var wellKnownType))
+            return ExistentialHandler.WellKnownOwnedHandOff(wellKnownType, resultExpr)
+                ?? $"{resultExpr}.GetExistentialContainer()";
 
         if (closureHandler.NeedsProxyWrapping(returnType, out _))
         {
@@ -577,8 +579,9 @@ public static partial class ClosureEmitter
             {
                 var elem = retTuple.Elements[i];
                 var acc = $"_tupleResult.Item{i + 1}";
-                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out _))
-                    elems.Add($"{acc}.GetExistentialContainer()");
+                if (closureHandler.NeedsWellKnownProtocolWrapping(elem, out var wellKnownElement))
+                    elems.Add(ExistentialHandler.WellKnownOwnedHandOff(wellKnownElement, acc)
+                              ?? $"{acc}.GetExistentialContainer()");
                 else if (closureHandler.NeedsProxyWrapping(elem, out _))
                 {
                     if (closureHandler.ShouldUseGetOrCreate(elem))

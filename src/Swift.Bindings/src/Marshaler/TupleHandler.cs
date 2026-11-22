@@ -500,7 +500,7 @@ public class TupleHandler
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(element);
         if (protocolList == null
             || !_existentialHandler.IsSupportedExistential(protocolList)
-            || ExistentialHandler.GetNonMarkerProtocols(protocolList).Count < 2)
+            || ExistentialHandler.GetNonMarkerProtocols(protocolList, _typeDatabase).Count < 2)
             return false;
         // Parity with ExistentialHandler.GetEffectiveProtocols (per-module ObjC-prefix gate): a mixed
         // ObjC+Swift composition (e.g. any NSItemProviderWriting & SwiftP) projects its PUBLIC element
@@ -535,7 +535,7 @@ public class TupleHandler
     public int GetCompositionExistentialElementProtocolCount(TypeSpec element)
     {
         var protocolList = _existentialHandler.ToProtocolListTypeSpec(element)!;
-        return ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
+        return ExistentialHandler.GetNonMarkerProtocols(protocolList, _typeDatabase).Count;
     }
 
     /// <summary>

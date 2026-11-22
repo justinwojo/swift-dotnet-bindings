@@ -469,15 +469,16 @@ public class ConcreteSpecializationEngineTests
     }
 
     /// <summary>
-    /// The carrier counts witness tables by dropping markers by their Swift name. A library's own
-    /// protocol named <c>Sendable</c> has a witness table, and a library's own <c>@_marker</c>
-    /// protocol has none, so for either the carrier's stride is wrong and the specialization is
-    /// refused.
+    /// The carrier counts witness tables by each protocol's declaration, not its name. A library's
+    /// own protocol named <c>Sendable</c> has a witness table, so the composition is the two-table
+    /// carrier; a library's own <c>@_marker</c> protocol has none, so the composition reads at the
+    /// one-table stride of its only real protocol.
     /// </summary>
     [Theory]
-    [InlineData("MyLib.Sendable", TypeRecordFlags.None)]
-    [InlineData("MyLib.TransferTag", TypeRecordFlags.MarkerProtocol)]
-    public void TryResolveExistentialArrayReturn_ProtocolTheCarrierMiscounts_IsRefused(string protocol, TypeRecordFlags flags)
+    [InlineData("MyLib.Sendable", TypeRecordFlags.None, "Swift.Runtime.ExistentialContainer2")]
+    [InlineData("MyLib.TransferTag", TypeRecordFlags.MarkerProtocol, "Swift.Runtime.ExistentialContainer1")]
+    public void TryResolveExistentialArrayReturn_ProtocolNamedLikeAMarker_ReadsAtItsDeclaredStride(
+        string protocol, TypeRecordFlags flags, string carrier)
     {
         var db = new ResolvingTypeDatabase();
         db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
@@ -488,9 +489,37 @@ public class ConcreteSpecializationEngineTests
         var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
         var composition = new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestLib.Coded"), new NamedTypeSpec(protocol) });
 
-        Assert.False(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+        Assert.True(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
             new NamedTypeSpec("Swift.Array", composition), host, "TestLib", db, emissionContext: null, out var resolved));
+        var shape = Assert.NotNull(resolved);
+        Assert.Equal($"global::Swift.SwiftArray<{carrier}>", shape.MarshalType);
+    }
+
+    /// <summary>
+    /// A class-bound marker (<c>@_marker protocol ClassTag: AnyObject</c>) adds no witness table but
+    /// makes the existential a class existential, alone or beside an ordinary protocol: a layout no
+    /// carrier mirrors, so the array is refused rather than read at an opaque container's stride.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TryResolveExistentialArrayReturn_ClassBoundMarker_IsRefused(bool besideAProtocol)
+    {
+        var db = new ResolvingTypeDatabase();
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Host"), "TestLib", "Host");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("Swift.Array"), "Swift", "SwiftArray");
+        db.Register(SwiftTypeName.FromModuleQualifiedName("TestLib.Coded"), "TestLib", "Coded", TypeRecordKind.Protocol);
+        db.Register(SwiftTypeName.FromModuleQualifiedName("MyLib.ClassTag"), "MyLib", "ClassTag",
+            TypeRecordKind.Protocol, flags: TypeRecordFlags.MarkerProtocol | TypeRecordFlags.ClassBound);
+        var host = CreateClassWithSomeCollectionElementMethod("Host", "Swift.String");
+        var participants = besideAProtocol
+            ? new[] { new NamedTypeSpec("TestLib.Coded"), new NamedTypeSpec("MyLib.ClassTag") }
+            : new[] { new NamedTypeSpec("MyLib.ClassTag") };
+
+        Assert.False(ConcreteProtocolSpecializationEmitter.TryResolveExistentialArrayReturn(
+            new NamedTypeSpec("Swift.Array", new ProtocolListTypeSpec(participants)), host, "TestLib", db, emissionContext: null, out var resolved));
         Assert.Null(resolved);
+        Assert.False(new ExistentialHandler(db).IsSupportedExistential(new ProtocolListTypeSpec(participants)));
     }
 
     [Fact]

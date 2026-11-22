@@ -449,7 +449,8 @@ public class ExistentialProjection : ITypeProjection
                         // lends its container, so mint the reference Swift consumes.
                         : (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
                             ? ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, _isClassBoundArity1)
-                            : null)
+                            // A boxed any Error lends its container too: take the count Swift consumes.
+                            : ExistentialHandler.WellKnownOwnedHandOff(_publicType, elementVar))
                           ?? $"((ISwiftExistentialConvertible<{_containerType}>){elementVar}).GetExistentialContainer()";
 
     /// <summary>
@@ -497,6 +498,22 @@ public class ExistentialProjection : ITypeProjection
                 : $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedExistential1<{_publicType}>({elementVar}, static __v => new {_proxyClassName}(__v))";
         }
 
+        // A composition (any P & Q…) element is owned by its carrier too, and its only conformer is
+        // a Swift-vended proxy whose container is borrowed: mint an independent copy. Handing the
+        // carrier the proxy's own container would let the __owned store and the carrier's destroy
+        // release the proxy's single count.
+        if (_proxyClassName != null && ExistentialHandler.IsOwnedExistentialContainerType(_containerType))
+            return $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<{_publicType}, {_containerType}>({elementVar})";
+
+        // No proxy class (object, or the read-only union): the value is an owning box that only lends
+        // its container, so the carrier gets a count of its own.
+        if (ExistentialHandler.IsNoProxyExistentialCarrier(_publicType)
+            && ExistentialHandler.NoProxyExistentialToOwnedContainer(_containerType, elementVar, _isClassBoundArity1) is { } ownedNoProxy)
+            return ownedNoProxy;
+
+        // Bare Any boxes a fresh +1 already. A well-known existential (any Error) stays borrowed: in
+        // an Optional carrier its metadata word reads as .none, so the carrier's destroy releases
+        // nothing, and a mint there would leak.
         return GetParameterElementConversion(elementVar);
     }
 
