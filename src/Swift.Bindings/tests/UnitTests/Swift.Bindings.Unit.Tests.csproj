@@ -147,6 +147,11 @@
     <!-- The byte-level negative controls of a recorded bridge withdrawal, which the bridge-consumer gate's
          rollback mode runs over the packed binding; held here to the refusals the controls must reach. -->
     <Compile Include="../../../../build/Models/BridgeWithdrawalControls.cs" Link="SwiftTransitionGate/Engine/BridgeWithdrawalControls.cs" />
+    <!-- The package-copy rules the Runtime and SDK tasks run (copy selection, copy label, merge),
+         MSBuild-free, so each refusal is held here to its own seeded red. -->
+    <Compile Include="../../../Swift.Runtime/tasks/PackageCopyCheck.cs" Link="Packaging/PackageCopyCheck.cs" />
+    <Compile Include="../../../Swift.Runtime/tasks/PackageCopyRules.cs" Link="Packaging/PackageCopyRules.cs" />
+    <Compile Include="../../../Swift.Runtime/tasks/PackageMerge.cs" Link="Packaging/PackageMerge.cs" />
     <Compile Include="../../../../build/InterpIdentity/*.cs" Link="InterpIdentity/Engine/%(Filename)%(Extension)" />
     <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
     <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />

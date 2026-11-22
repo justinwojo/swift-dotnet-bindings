@@ -284,6 +284,82 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("no image of SwiftBindingsRuntime was found", output);
     }
 
+    [Fact]
+    public void Pack_EachCopy_IsCheckedAgainstItsOwnCopysNatives()
+    {
+        // A multi-toolchain package carries one copy per toolchain of one platform, keyed by the full
+        // TFM: lib/<tfm>/ is held to native/<tfm>/ only, never to another copy of the same platform.
+        var hash = SwiftTransitionManifestReader.Read(RuntimeDll, new SwiftTransitionScanOptions { ReferenceDirectories = [AppContext.BaseDirectory] }).Manifests.Single().Hash;
+        var other = SwiftTransitionManifestFormat.Hash("another copy's manifest");
+        (string, byte[])[] Natives(string tfm, bool otherManifest) => RuntimeSlices.Select((p, i) => (
+            $"native/{tfm}/SwiftBindingsRuntime.xcframework/{i}/SwiftBindingsRuntime.framework/SwiftBindingsRuntime",
+            otherManifest ? Replace(File.ReadAllBytes(p), Encoding.ASCII.GetBytes(hash), Encoding.ASCII.GetBytes(other)) : File.ReadAllBytes(p))).ToArray();
+        var older = ("lib/net10.0-ios26.0/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+        var newer = ("lib/net10.0-ios27.2/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+
+        var whole = Package("Whole.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", false)]);
+        var (exit, output) = Pack(whole);
+        Assert.True(exit == 0, output);
+
+        // The newer copy's wrapper was swapped for one built from another managed binding: only that
+        // copy is refused, though the older copy's natives of the same platform would satisfy it.
+        var swapped = Package("Swapped.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", true)]);
+        (exit, output) = Pack(swapped);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Swift.Runtime.dll would be refused", output);
+        Assert.Contains("native/net10.0-ios27.2/", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+
+        // A copy whose natives are missing is refused, not checked against another copy's.
+        var missing = Package("MissingCopy.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false)]);
+        (exit, output) = Pack(missing);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("no image of SwiftBindingsRuntime was found", output);
+    }
+
+    // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------
+
+    [Theory]
+    [InlineData("net10.0-ios26.0", "26.2", "", 0, "SwiftBindings copy: Acme.Kit 1.0.0 -> net10.0-ios26.0 (built on .NET 10 + Xcode 26.3)")]
+    [InlineData("net10.0-ios27.2", "27.2", "", 1, "error SWIFTBIND136")]
+    [InlineData("net10.0-ios26.0", "27.2", "", 0, "SWIFTBIND139")]
+    [InlineData("net10.0-ios26.0", "27.2", "<SwiftBindingsRequireExactCopy>true</SwiftBindingsRequireExactCopy>", 1, "error SWIFTBIND139")]
+    public void CopyCheck_RunsInEveryAppBuild_OnTheDeclaredCopy(string resolvedFrom, string platformVersion, string extra, int exit, string expected)
+    {
+        // NuGet imported the 26.0 copy's declaration (buildTransitive/net10.0-ios26.0/Acme.Kit.props);
+        // the build resolved the assembly from resolvedFrom's lib/.
+        var root = Path.Combine(tempDir, "packages", "acme.kit", "1.0.0");
+        foreach (var tfm in new[] { "net10.0-ios26.0", "net10.0-ios27.2" })
+            Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
+        var dll = Path.Combine(root, "lib", resolvedFrom, "Acme.Kit.dll");
+        File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
+        var copy = $"""
+            <SwiftBindingPackageCopy Include="Acme.Kit">
+              <CopyTfm>net10.0-ios26.0</CopyTfm>
+              <Toolchain>.NET 10 + Xcode 26.3</Toolchain>
+              <LibDirectory>{SecurityElement.Escape(root)}/lib/net10.0-ios26.0/</LibDirectory>
+              <NativeDirectory>{SecurityElement.Escape(root)}/native/net10.0-ios26.0/</NativeDirectory>
+              <TargetsFile>{SecurityElement.Escape(root)}/buildTransitive/net10.0-ios26.0/Acme.Kit.targets</TargetsFile>
+            </SwiftBindingPackageCopy>
+            """;
+
+        var (code, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Kit"),
+            $"<TargetPlatformVersion>{platformVersion}</TargetPlatformVersion>{extra}", items: copy);
+
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        Assert.Contains(expected, output);
+    }
+
+    [Fact]
+    public void CopyCheck_WithNoDeclaredCopies_IsSilent()
+    {
+        var dll = Fixture("lib", PrimitiveOnly);
+        var (code, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Binding"));
+        Assert.True(code == 0, output);
+        Assert.DoesNotContain("SwiftBindings copy:", output);
+        Assert.DoesNotContain("SWIFTBIND136", output);
+    }
+
     // ---- fixtures -------------------------------------------------------------------------------
 
     private string CacheFile => Path.Combine(tempDir, "obj", "swiftbindings-transition-check.json");

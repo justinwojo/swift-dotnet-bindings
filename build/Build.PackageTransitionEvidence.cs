@@ -112,7 +112,10 @@ partial class Build
                     .Concat(references.Select(r => NearestLibDirectory(r, framework)).OfType<string>())
                     .Append(host)
                     .ToArray();
-                return new PackagedAssembly(path, File.ReadAllBytes(path), directories);
+                // In a package of per-toolchain copies, lib/<tfm>/ is held to native/<tfm>/ only.
+                var folder = Path.GetFileName(Path.GetDirectoryName(path)!);
+                var copy = IsCopyFolder(folder) && Directory.Exists(package / "native" / folder) ? folder : null;
+                return new PackagedAssembly(path, File.ReadAllBytes(path), directories, copy);
             })
             .ToList();
     }
@@ -139,8 +142,22 @@ partial class Build
         if (!Directory.Exists(root))
             Assert.Fail($"Package transition evidence: the package holds no {subject.NativeRoot}.");
         return ConsumerTransitionCheck.FrameworkBinaries(root, subject.Library)
-            .Select(p => new PackagedNative(subject.Library, p, File.ReadAllBytes(p)))
+            .Select(p => new PackagedNative(subject.Library, p, File.ReadAllBytes(p), NativeCopy(package, p)))
             .ToList();
+    }
+
+    /// <summary>The copy whose <c>native/&lt;tfm&gt;/</c> holds <paramref name="path"/>; null for a shared native.</summary>
+    static string? NativeCopy(AbsolutePath package, string path)
+    {
+        var parts = Path.GetRelativePath(package, path).Replace('\\', '/').Split('/');
+        return parts.Length >= 3 && parts[0] == "native" && IsCopyFolder(parts[1]) ? parts[1] : null;
+    }
+
+    /// <summary>Whether a package folder names a copy: a platform-versioned TFM such as <c>net10.0-ios26.0</c>.</summary>
+    static bool IsCopyFolder(string folder)
+    {
+        var framework = NuGetFramework.ParseFolder(folder);
+        return framework.HasPlatform && framework.PlatformVersion > new Version(0, 0, 0, 0);
     }
 
     /// <summary>

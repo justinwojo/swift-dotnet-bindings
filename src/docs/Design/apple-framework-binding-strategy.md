@@ -11,7 +11,7 @@ Companion: [`apple-swift-types-architecture.md`](apple-swift-types-architecture.
 1. **ABI source**: `swift-api-digester -dump-sdk -module <X>` against the iPhoneOS / iPhoneSimulator SDK, **not** a wrapper Swift package.
 2. **Generator runs in direct mode** (`-a/-d/-t -l '\@rpath/<X>.framework/<X>'`) with Apple-framework target auto-detection: when the ABI module name matches a built-in `*Database.xml`, that stub is dropped before parse-and-emit so the framework can be a target rather than a dependency (disable via `--keep-builtin-database`). The SDK item is `SwiftAppleFrameworkTarget`.
 3. **Generator emits** `<Module>.cs`, `<Module>.Wrapper.swift`, and a packable project (default name `{Module}.Swift.iOS.csproj`) referencing `SwiftBindings.Runtime` at the published version (passed via `--swift-runtime-version`). Published Apple packages override `PackageId` to `SwiftBindings.Apple.<Framework>`.
-4. **Wrapper compiles** into `<Module>SwiftBindings.xcframework` (one slice per platform/target) which is bundled into the NuGet at `runtimes/<rid>/native/`.
+4. **Wrapper compiles** into `<Module>SwiftBindings.xcframework` (one slice per platform/target) which is bundled into the NuGet at `native/<tfm>/`, keyed by the same TFM as the package's `lib/<tfm>/`.
 5. **P/Invokes resolve through `SwiftFrameworkResolver`**, which treats `@rpath/`, `@executable_path/`, `@loader_path/`, and absolute filesystem paths as dyld-resolvable and passes them verbatim to `NativeLibrary.TryLoad`. The wrapper dylib's own load commands link the system framework via `/System/Library/Frameworks/<X>.framework/<X>`, so dyld pulls the framework into the process transitively before any P/Invoke fires.
 6. **Consumers reference the package** and use an `extern alias` **only where the C# namespace collides with Microsoft.iOS** (e.g. StoreKit). Pure-Swift frameworks (CryptoKit, WeatherKit, TipKit, MusicKit, …) need none.
 
@@ -38,10 +38,13 @@ Package contents — where `iosX.Y` is the explicit Apple-workload platform vers
 
 ```
 lib/net10.0-iosX.Y/<PackageId>.dll                                           # Generated C# bindings
-buildTransitive/net10.0-iosX.Y/<PackageId>.targets                           # Consumer-side targets (extern alias hints, etc.)
-runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/Info.plist       # Wrapper xcframework root
-runtimes/ios-arm64/native/<Module>SwiftBindings.xcframework/<slice>/<Module>SwiftBindings.framework/<Module>SwiftBindings
+buildTransitive/net10.0-iosX.Y/<PackageId>.targets                           # Consumer-side targets (NativeReference into native/, extern alias hints, etc.)
+buildTransitive/net10.0-iosX.Y/<PackageId>.props                             # Copy declaration (SwiftBindingPackageCopy)
+native/net10.0-iosX.Y/<Module>SwiftBindings.xcframework/Info.plist           # Wrapper xcframework root
+native/net10.0-iosX.Y/<Module>SwiftBindings.xcframework/<slice>/<Module>SwiftBindings.framework/<Module>SwiftBindings
 ```
+
+Every per-copy payload (wrapper, sliced source xcframework, SwiftUI bridge, resource bundles) sits under `native/<tfm>/`, one per `lib/<tfm>/`, so a package can carry several copies of one platform (for example `net10.0-ios26.0` beside `net11.0-ios27.2`). Binding packages ship no `runtimes/` directory.
 
 `SwiftBindings.Runtime` is a published `<PackageReference>` dependency on the framework package — not bundled — emitted as a bounded version range (e.g. `[0.8.0,0.9.0)`) so ABI-compatible patch releases reach consumers without re-publishing the framework matrix while a future minor bump (allowed to break ABI) cannot silently resolve into older bindings. Each Apple-framework package floats its own version independently of `SwiftBindings.Runtime`'s.
 

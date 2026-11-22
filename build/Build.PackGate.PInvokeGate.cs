@@ -4,7 +4,7 @@
 // Build.PackGate.PInvokeGate.cs — P/Invoke-vs-nupkg resolution gate
 //
 // Every other pack-gate leg asks "is the native artifact we expected in the
-// nupkg?" — an expectation written by hand, per fixture, per RID. This leg asks
+// nupkg?" — an expectation written by hand, per fixture, per copy. This leg asks
 // the inverse and self-describing question: "does every native library the
 // SHIPPED ASSEMBLY names actually exist?" It reflects the P/Invoke library name
 // out of each managed assembly in lib/ and resolves it against what the package
@@ -40,7 +40,7 @@ partial class Build
     /// <summary>How a P/Invoke library name was (or was not) accounted for.</summary>
     internal enum PackGatePInvokeVerdict
     {
-        /// <summary>A native artifact of that name ships in the package for this TFM's RID.</summary>
+        /// <summary>A native artifact of that name ships in the package for this TFM (under native/&lt;tfm&gt;/).</summary>
         Packed,
 
         /// <summary>The OS supplies it — an Apple SDK framework, /usr/lib, or a statically linked symbol.</summary>
@@ -246,33 +246,17 @@ partial class Build
     }
 
     /// <summary>
-    /// Maps a pack TFM (e.g. <c>net10.0-ios26.2</c>) to the NuGet RID the SDK packs native content
-    /// under, mirroring <c>_SwiftBindingNuGetRid</c> in Sdk.props. Returns null for a TFM with no
-    /// Apple platform (a plain <c>net10.0</c> lib folder ships no native and needs no RID).
+    /// Bare native-artifact names the package ships for the lib copy <paramref name="tfm"/>: the
+    /// xcframework / framework / dylib / archive entries directly under <c>native/&lt;tfm&gt;/</c>
+    /// (the binding layout keys every copy's natives by its lib TFM), plus anything carried in the
+    /// pure-ObjC lane's <c>lib/&lt;tfm&gt;/*.resources[.zip]</c> sidecar, which is where a
+    /// Microsoft.iOS binding project's NativeReferences ship instead.
     /// </summary>
-    static string? PackGateRidForTfm(string tfm)
-    {
-        // Order matters: "-maccatalyst" must be tested before "-macos" would ever be considered,
-        // and neither contains the other, but keep the explicit list so a new TFM fails loudly
-        // rather than silently mapping to the wrong RID.
-        if (tfm.Contains("-maccatalyst", StringComparison.OrdinalIgnoreCase)) return "maccatalyst-arm64";
-        if (tfm.Contains("-ios", StringComparison.OrdinalIgnoreCase)) return "ios-arm64";
-        if (tfm.Contains("-tvos", StringComparison.OrdinalIgnoreCase)) return "tvos-arm64";
-        if (tfm.Contains("-macos", StringComparison.OrdinalIgnoreCase)) return "osx-arm64";
-        return null;
-    }
-
-    /// <summary>
-    /// Bare native-artifact names the package ships for <paramref name="rid"/>: the xcframework /
-    /// framework / dylib / archive entries directly under <c>runtimes/&lt;rid&gt;/native/</c>, plus
-    /// anything carried in the pure-ObjC lane's <c>lib/&lt;tfm&gt;/*.resources[.zip]</c> sidecar,
-    /// which is where a Microsoft.iOS binding project's NativeReferences ship instead of runtimes/.
-    /// </summary>
-    static HashSet<string> PackGatePackagedNativeNames(AbsolutePath extractDir, string rid, string tfm)
+    static HashSet<string> PackGatePackagedNativeNames(AbsolutePath extractDir, string tfm)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
 
-        var nativeDir = extractDir / "runtimes" / rid / "native";
+        var nativeDir = PackedNativeDir(extractDir, tfm);
         if (Directory.Exists(nativeDir))
         {
             foreach (var entry in Directory.EnumerateFileSystemEntries(nativeDir))
@@ -327,16 +311,13 @@ partial class Build
         foreach (var tfmDir in Directory.EnumerateDirectories(libRoot).OrderBy(d => d, StringComparer.Ordinal))
         {
             var tfm = Path.GetFileName(tfmDir);
-            var rid = PackGateRidForTfm(tfm);
-            var packagedNatives = rid == null
-                ? new HashSet<string>(StringComparer.Ordinal)
-                : PackGatePackagedNativeNames(extractDir, rid, tfm);
+            var packagedNatives = PackGatePackagedNativeNames(extractDir, tfm);
 
             foreach (var dll in Directory.EnumerateFiles(tfmDir, "*.dll").OrderBy(f => f, StringComparer.Ordinal))
             {
                 foreach (var site in PackGateCollectPInvokes(dll, tfm))
                 {
-                    findings.Add(PackGateClassify(site, packagedNatives, appleFrameworks, soleCarrier, rid));
+                    findings.Add(PackGateClassify(site, packagedNatives, appleFrameworks, soleCarrier));
                 }
             }
         }
@@ -348,8 +329,7 @@ partial class Build
         PackGatePInvoke site,
         HashSet<string> packagedNatives,
         IReadOnlyDictionary<string, string[]> appleFrameworks,
-        HashSet<string> staticSoleCarrierModules,
-        string? rid)
+        HashSet<string> staticSoleCarrierModules)
     {
         var raw = site.Library;
 
@@ -376,14 +356,14 @@ partial class Build
         if (packagedNatives.Contains(bare))
         {
             return new PackGatePInvokeFinding(site, PackGatePInvokeVerdict.Packed,
-                $"runtimes/{rid}/native/ ships '{bare}'");
+                $"{PackedNativeRelative(site.Tfm)} ships '{bare}'");
         }
 
         if (appleFrameworks.TryGetValue(bare, out var unavailableOn))
         {
             // Being a real Apple framework is not enough — it has to be real on THIS pack's
             // platform. A UIKit P/Invoke in a net10.0-macos assembly names a framework that exists,
-            // just not anywhere osx-arm64 can load it, and accepting it globally would certify a
+            // just not anywhere a macOS app can load it, and accepting it globally would certify a
             // pack that cannot run.
             var platform = PackGateApplePlatformForTfm(site.Tfm);
             if (platform != null
@@ -417,9 +397,9 @@ partial class Build
                 $"'{bare}SwiftBindings' is the sole carrier");
         }
 
-        var detail = rid == null
-            ? $"'{raw}' is not an OS library and the TFM maps to no RID, so the package ships no native for it"
-            : $"'{raw}' is neither packaged under runtimes/{rid}/native/ nor supplied by the OS";
+        var detail = PackGateApplePlatformForTfm(site.Tfm) == null
+            ? $"'{raw}' is not an OS library and the TFM has no Apple platform, so the package ships no native for it"
+            : $"'{raw}' is neither packaged under {PackedNativeRelative(site.Tfm)} nor supplied by the OS";
         if (staticSoleCarrierModules.Contains(bare))
         {
             // Declared static, but the wrapper that was supposed to carry it is missing too — the
@@ -494,7 +474,8 @@ partial class Build
     /// <summary>
     /// Red/green proof that the resolver above can actually fail. Copies the real extracted nupkg,
     /// deletes one native artifact the shipped assemblies genuinely P/Invoke, and asserts the
-    /// analysis reports exactly that library as unresolved for exactly the RID it was removed from.
+    /// analysis reports exactly that library as unresolved for exactly the lib copy (TFM) it was
+    /// removed from.
     ///
     /// Mutating a real pack rather than building a second, deliberately-broken one is the point:
     /// it runs the identical code path over real assemblies with real IL, costs no extra pack, and
@@ -529,8 +510,8 @@ partial class Build
         }
 
         var victimBare = PackGateNormalizeLibraryName(victim.Site.Library);
-        var rid = PackGateRidForTfm(victim.Site.Tfm)!;
-        var nativeDir = mutated / "runtimes" / rid / "native";
+        var victimNative = PackedNativeRelative(victim.Site.Tfm);
+        var nativeDir = PackedNativeDir(mutated, victim.Site.Tfm);
         var removed = Directory.EnumerateFileSystemEntries(nativeDir)
             .Where(e => string.Equals(PackGateBareLibraryName(Path.GetFileName(e)), victimBare,
                 StringComparison.Ordinal))
@@ -553,12 +534,12 @@ partial class Build
         {
             Assert.Fail(
                 $"PackGate (pinvoke/{label}) negative control: removed " +
-                $"runtimes/{rid}/native/{victim.Site.Library}.* but the resolver still reported no unresolved " +
+                $"{victimNative}{victim.Site.Library}.* but the resolver still reported no unresolved " +
                 $"P/Invoke for '{victim.Site.Library}' on {victim.Site.Tfm}. The gate cannot detect a missing " +
                 "native and would pass the exact defect it exists to catch.");
         }
 
-        // Removing one RID's native must not implicate the others: the check is per-TFM, which is
+        // Removing one copy's native must not implicate the others: the check is per-TFM, which is
         // what makes it catch a native that ships for some platforms and not the one an assembly
         // was compiled for.
         var collateral = after
@@ -570,8 +551,8 @@ partial class Build
         {
             Assert.Fail(
                 $"PackGate (pinvoke/{label}) negative control: removing {victim.Site.Library} from " +
-                $"runtimes/{rid}/ also marked [{string.Join(", ", collateral)}] unresolved on other TFMs — " +
-                "resolution is not per-RID and would misreport which platform is actually broken.");
+                $"{victimNative} also marked [{string.Join(", ", collateral)}] unresolved on other TFMs — " +
+                "resolution is not per-TFM and would misreport which copy is actually broken.");
         }
 
         // When the artifact just removed was a declared static module's sole carrier, that module's
@@ -608,9 +589,9 @@ partial class Build
         mutated.DeleteDirectory();
 
         Log.Information(
-            "PackGate (pinvoke/{Label}) negative control OK — removing runtimes/{Rid}/native/{Victim} produced " +
+            "PackGate (pinvoke/{Label}) negative control OK — removing {Native}{Victim} produced " +
             "{Count} unresolved declaration(s) on {Tfm} and none elsewhere{Exemption}",
-            label, rid, victimBare, tripped.Count, victim.Site.Tfm,
+            label, victimNative, victimBare, tripped.Count, victim.Site.Tfm,
             exemptionProven ? $", and revoked the static-source exemption for '{orphaned}'" : string.Empty);
     }
 }

@@ -109,7 +109,7 @@ namespace BindingsGeneration
             var sanitized = SanitizeModuleName(options.ModuleName);
             var targetsPath = Path.Combine(options.OutputDirectory, $"{options.PackageId}.targets");
 
-            var wrapperXcfwPath = $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}SwiftBindings.xcframework";
+            var wrapperXcfwPath = $"$(MSBuildThisFileDirectory)../../{pi.NativePackRoot}{options.ModuleName}SwiftBindings.xcframework";
             var wrapperNativeRef = options.HasWrapperXCFramework
                 ? $"""
                           <NativeReference Include="{wrapperXcfwPath}"
@@ -130,13 +130,13 @@ namespace BindingsGeneration
             // self-heals as the sole carrier. Dynamic sources and a static source with no wrapper
             // are referenced unconditionally. The pack item (disk-based) keeps the source in tandem
             // when the wrapper is absent at pack, so within an internally-consistent nupkg the
-            // runtimes/ path carries whichever xcframework this fallback resolves to: a static
+            // native/<tfm>/ path carries whichever xcframework this fallback resolves to: a static
             // source dropped at pack means the wrapper WAS on disk and is therefore packed, so the
             // consumer's Exists(wrapper) is satisfied. (The one unrecoverable case — a nupkg that
             // drops the source yet ships no wrapper — is post-pack corruption, not a pack decision
             // this code can make.) NativePackagingPolicy is the shared authority; the carrier here
             // is the "will be produced" intent (HasWrapperXCFramework).
-            var sourceXcfwPath = $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}.xcframework";
+            var sourceXcfwPath = $"$(MSBuildThisFileDirectory)../../{pi.NativePackRoot}{options.ModuleName}.xcframework";
             var sourceCondition = NativePackagingPolicy.ResolveConsumerSourceReferenceMode(
                     options.SourceNativeLinkage, options.HasWrapperXCFramework) == SourceReferenceMode.WrapperAbsentFallback
                 ? $"!Exists('{wrapperXcfwPath}') AND Exists('{sourceXcfwPath}')"
@@ -154,15 +154,15 @@ namespace BindingsGeneration
             // fail with MT158. Mac Catalyst keeps it — its TFM does not contain "-macos".
             var bridgeNativeRef = options.HasBridgeXCFramework
                 ? $"""
-                          <NativeReference Include="$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework"
-                                           Condition="Exists('$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/{options.ModuleName}Bridge.xcframework') AND !$(TargetFramework.Contains('-macos'))">
+                          <NativeReference Include="$(MSBuildThisFileDirectory)../../{pi.NativePackRoot}{options.ModuleName}Bridge.xcframework"
+                                           Condition="Exists('$(MSBuildThisFileDirectory)../../{pi.NativePackRoot}{options.ModuleName}Bridge.xcframework') AND !$(TargetFramework.Contains('-macos'))">
                             <Kind>Framework</Kind>
                           </NativeReference>
                 """
                 : "";
 
             var resourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
-                $"$(MSBuildThisFileDirectory)../../runtimes/{pi.NuGetRid}/native/");
+                $"$(MSBuildThisFileDirectory)../../{pi.NativePackRoot}");
 
             var content = $"""
                 <Project>
@@ -247,6 +247,12 @@ namespace BindingsGeneration
 
             File.WriteAllText(targetsPath, content);
             logger.LogInformation("Wrote consumer targets to {Path}", targetsPath);
+
+            // The copy declaration packed beside the targets (standalone projects pack it as is;
+            // SwiftBindings.Sdk writes its own at pack time, naming the toolchain it packed on).
+            File.WriteAllText(Path.Combine(options.OutputDirectory, PackageCopyDeclarationEmitter.FileName(options.PackageId)),
+                PackageCopyDeclarationEmitter.Compose(options.PackageId, pi.PackTfm, "SwiftBindings generator (standalone project)",
+                    platformSdkVersion: "", generator: BindingArtifactManifestStore.GetGeneratorVersion() ?? ""));
 
             // Also emit a ProjectReference-friendly targets file.
             // NativeReference doesn't propagate through ProjectReference in .NET iOS,

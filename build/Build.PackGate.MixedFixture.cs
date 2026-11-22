@@ -97,9 +97,9 @@ partial class Build
     // The platforms the multi-TFM mixed leg packs into ONE package. iOS + macOS are the
     // load-bearing pair; Mac Catalyst (UIKit-on-mac) and tvOS have distinct linkers and
     // runtimes, so the per-TFM companion-embed + single-package contract is proven on them
-    // too (Gap #2). The runtimes/<rid>/native dir each platform's lib TFM resolves to comes
-    // from ApplePlatform.NativeRid (host Rid, or the device slice id for sim-deployed
-    // platforms) — derived from the model so there is no parallel RID list to drift.
+    // too (Gap #2). Each platform's natives are read from native/<tfm>/ of every lib/<tfm>/
+    // copy of that platform the package carries (PackedLibTfms), so there is no parallel
+    // RID or TFM list to drift.
     static readonly ApplePlatform[] PackGateMixedMultiTfmPlatforms =
     {
         ApplePlatform.IOS,
@@ -181,8 +181,8 @@ partial class Build
         ExtractNupkg(swiftNupkg, extract);
 
         // Static source across every TFM, so the bare module name is exempt on each of them; the
-        // wrapper still has to be packed per RID for the exemption to hold. This is the leg where
-        // per-RID scoping matters most — four TFMs, four independent native trees.
+        // wrapper still has to be packed per TFM for the exemption to hold. This is the leg where
+        // per-TFM scoping matters most — four TFMs, four independent native/<tfm>/ trees.
         VerifyPackagePInvokesResolve(extract, "mixed/multi-tfm", module);
 
         var failures = new List<string>();
@@ -205,20 +205,29 @@ partial class Build
                 if (own.TfmSuffix != foreign.TfmSuffix)
                     AssertCompanionNotInForeignSlice(extract, $"{module}.ObjC.{own.PackageSuffix}.dll", foreignInfix: foreign.TfmSuffix, failures);
 
-        // (d) per-RID native wrappers for EVERY platform ship in the one package; and because
-        //     the fixture source is STATIC, the source xcframework is DROPPED from every RID —
-        //     the wrapper force-loads the static archive and is the sole carrier (Gap 2), so the
-        //     source must never ship alongside the wrapper (double-embed = duplicate ObjC-class
-        //     registration at link/run). Assert both per RID, matching the static leg's rigor.
+        // (d) per-copy native wrappers for EVERY platform ship in the one package (under
+        //     native/<tfm>/ of each lib/<tfm>/); and because the fixture source is STATIC, the
+        //     source xcframework is DROPPED from every copy — the wrapper force-loads the static
+        //     archive and is the sole carrier (Gap 2), so the source must never ship alongside
+        //     the wrapper (double-embed = duplicate ObjC-class registration at link/run). Assert
+        //     both per copy, matching the static leg's rigor; no runtimes/ tree may ship at all.
         foreach (var p in PackGateMixedMultiTfmPlatforms)
         {
-            var rid = p.NativeRid;
-            var nativeDir = extract / "runtimes" / rid / "native";
-            if (!Directory.Exists(nativeDir / $"{module}SwiftBindings.xcframework"))
-                failures.Add($"missing wrapper xcframework for {rid}: runtimes/{rid}/native/{module}SwiftBindings.xcframework/ — the multi-TFM package must ship native for every targeted platform.");
-            if (Directory.Exists(nativeDir / $"{module}.xcframework"))
-                failures.Add($"static source xcframework was packed for {rid}: runtimes/{rid}/native/{module}.xcframework/ — for static linkage the wrapper is the sole carrier; the source must be dropped (Gap 2 double-embed hazard).");
+            var platformTfms = PackedLibTfms(extract, p.TfmSuffix);
+            if (platformTfms.Count == 0)
+                failures.Add($"no lib/<tfm>/ copy for {p.Name} — the multi-TFM package must ship every targeted platform.");
+            foreach (var tfm in platformTfms)
+            {
+                var nativeDir = PackedNativeDir(extract, tfm);
+                var native = PackedNativeRelative(tfm);
+                if (!Directory.Exists(nativeDir / $"{module}SwiftBindings.xcframework"))
+                    failures.Add($"missing wrapper xcframework for {tfm}: {native}{module}SwiftBindings.xcframework/ — the multi-TFM package must ship native for every targeted platform.");
+                if (Directory.Exists(nativeDir / $"{module}.xcframework"))
+                    failures.Add($"static source xcframework was packed for {tfm}: {native}{module}.xcframework/ — for static linkage the wrapper is the sole carrier; the source must be dropped (Gap 2 double-embed hazard).");
+            }
         }
+        if (PackedRuntimesDirViolation(extract) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
 
         // (e) the companions are embedded, never promoted to nuspec <dependency> items.
         AssertNuspecHasNoCompanionDependency(extract, "PackGateMixedFixture", module, failures);
@@ -230,7 +239,7 @@ partial class Build
             foreach (var f in failures) Log.Error("  {Detail}", f);
             Assert.Fail($"PackGate (mixed/multi-tfm): {failures.Count} structural defect(s) — see log.");
         }
-        Log.Information("PackGate (mixed/multi-tfm) structural OK — exactly one package; per-platform .ObjC.<{Platforms}> companions each isolated to their own lib slice; wrapper-only native for every RID (static source dropped)",
+        Log.Information("PackGate (mixed/multi-tfm) structural OK — exactly one package; per-platform .ObjC.<{Platforms}> companions each isolated to their own lib slice; wrapper-only native for every copy (static source dropped)",
             string.Join(",", PackGateMixedMultiTfmPlatforms.Select(p => p.PackageSuffix)));
     }
 
@@ -369,42 +378,51 @@ partial class Build
         VerifyPInvokeGateDetectsMissingNative(extract, legRoot, "mixed/static", module);
 
         var failures = new List<string>();
-        var native = extract / "runtimes" / PackGateMixedRid / "native";
-        var sourceXcfw = native / $"{module}.xcframework";
-        var wrapperXcfw = native / $"{module}SwiftBindings.xcframework";
-
-        // (a) STATIC source is dropped — the wrapper is the sole native carrier.
-        if (Directory.Exists(sourceXcfw))
-            failures.Add(
-                $"static source xcframework was packed (Gap 2 double-embed hazard): " +
-                $"runtimes/{PackGateMixedRid}/native/{module}.xcframework/ — for static linkage the " +
-                $"wrapper force-loads the archive and is the sole carrier; the source must be dropped.");
-
-        // (b) the wrapper IS shipped and (c) it actually carries the force-loaded ObjC class.
-        if (!Directory.Exists(wrapperXcfw))
+        if (PackedRuntimesDirViolation(extract) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
+        var macosTfms = PackedLibTfms(extract, "macos");
+        if (macosTfms.Count == 0)
+            failures.Add("no lib/<net*-macos*>/ copy in the package — the macOS fixture shipped no platform copy to check.");
+        foreach (var tfm in macosTfms)
         {
-            failures.Add($"missing wrapper xcframework: runtimes/{PackGateMixedRid}/native/{module}SwiftBindings.xcframework/");
-        }
-        else
-        {
-            var wrapperBinary = Directory
-                .EnumerateFiles(wrapperXcfw, $"{module}SwiftBindings", SearchOption.AllDirectories)
-                .FirstOrDefault(p => !p.EndsWith(".plist", StringComparison.Ordinal));
-            if (wrapperBinary is null)
-            {
-                failures.Add($"wrapper binary {module}SwiftBindings not found inside the packed wrapper xcframework");
-            }
-            else if (!NmDefinedGlobals(wrapperBinary).Contains($"_OBJC_CLASS_$_{probeClass}", StringComparison.Ordinal))
-            {
+            var native = PackedNativeDir(extract, tfm);
+            var nativeRel = PackedNativeRelative(tfm);
+            var sourceXcfw = native / $"{module}.xcframework";
+            var wrapperXcfw = native / $"{module}SwiftBindings.xcframework";
+
+            // (a) STATIC source is dropped — the wrapper is the sole native carrier.
+            if (Directory.Exists(sourceXcfw))
                 failures.Add(
-                    $"packed wrapper binary does not export _OBJC_CLASS_$_{probeClass} — force_load did not carry the " +
-                    $"static ObjC class through the pack pipeline, so the dropped source leaves the class unregistered.");
+                    $"static source xcframework was packed (Gap 2 double-embed hazard): " +
+                    $"{nativeRel}{module}.xcframework/ — for static linkage the " +
+                    $"wrapper force-loads the archive and is the sole carrier; the source must be dropped.");
+
+            // (b) the wrapper IS shipped and (c) it actually carries the force-loaded ObjC class.
+            if (!Directory.Exists(wrapperXcfw))
+            {
+                failures.Add($"missing wrapper xcframework: {nativeRel}{module}SwiftBindings.xcframework/");
+            }
+            else
+            {
+                var wrapperBinary = Directory
+                    .EnumerateFiles(wrapperXcfw, $"{module}SwiftBindings", SearchOption.AllDirectories)
+                    .FirstOrDefault(p => !p.EndsWith(".plist", StringComparison.Ordinal));
+                if (wrapperBinary is null)
+                {
+                    failures.Add($"wrapper binary {module}SwiftBindings not found inside the packed wrapper xcframework");
+                }
+                else if (!NmDefinedGlobals(wrapperBinary).Contains($"_OBJC_CLASS_$_{probeClass}", StringComparison.Ordinal))
+                {
+                    failures.Add(
+                        $"packed wrapper binary does not export _OBJC_CLASS_$_{probeClass} — force_load did not carry the " +
+                        $"static ObjC class through the pack pipeline, so the dropped source leaves the class unregistered.");
+                }
             }
         }
 
         // (d) every consumer .targets references the wrapper behind an Exists() guard
         //     and the source ONLY as a wrapper-absent fallback (never unconditionally).
-        AssertConsumerTargetsWrapperGuard(extract, module, PackGateMixedRid, failures);
+        AssertConsumerTargetsWrapperGuard(extract, module, failures);
 
         // (e) the Swift nupkg EMBEDS the companion's managed assembly under lib/
         //     (single-package topology — no separate package, no nuspec dependency).
@@ -483,19 +501,28 @@ partial class Build
         VerifyPackagePInvokesResolve(extract, "mixed/dynamic");
 
         var failures = new List<string>();
-        var native = extract / "runtimes" / PackGateMixedRid / "native";
+        if (PackedRuntimesDirViolation(extract) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
+        var macosTfms = PackedLibTfms(extract, "macos");
+        if (macosTfms.Count == 0)
+            failures.Add("no lib/<net*-macos*>/ copy in the package — the macOS fixture shipped no platform copy to check.");
 
         // For DYNAMIC linkage the source dylib xcframework MUST be retained — the
         // wrapper links it by install_name at load time, so dropping it would
         // DllNotFound at runtime. This is the deliberate complement to the static
         // leg's drop assertion: it proves the policy is linkage-conditional.
-        if (!Directory.Exists(native / $"{module}.xcframework"))
-            failures.Add(
-                $"dynamic source xcframework was dropped: runtimes/{PackGateMixedRid}/native/{module}.xcframework/ is " +
-                $"missing — only STATIC sources are dropped (wrapper sole-carrier); a dynamic source must ship so the " +
-                $"wrapper can link it by install_name.");
-        if (!Directory.Exists(native / $"{module}SwiftBindings.xcframework"))
-            failures.Add($"missing wrapper xcframework: runtimes/{PackGateMixedRid}/native/{module}SwiftBindings.xcframework/");
+        foreach (var tfm in macosTfms)
+        {
+            var native = PackedNativeDir(extract, tfm);
+            var nativeRel = PackedNativeRelative(tfm);
+            if (!Directory.Exists(native / $"{module}.xcframework"))
+                failures.Add(
+                    $"dynamic source xcframework was dropped: {nativeRel}{module}.xcframework/ is " +
+                    $"missing — only STATIC sources are dropped (wrapper sole-carrier); a dynamic source must ship so the " +
+                    $"wrapper can link it by install_name.");
+            if (!Directory.Exists(native / $"{module}SwiftBindings.xcframework"))
+                failures.Add($"missing wrapper xcframework: {nativeRel}{module}SwiftBindings.xcframework/");
+        }
 
         AssertCompanionEmbeddedInLib(extract, module, "macOS", "macos", failures);
         AssertNuspecHasNoCompanionDependency(extract, "PackGateMixedFixture", module, failures);
@@ -871,7 +898,7 @@ partial class Build
     // Single-PackageReference consumer: a <lane framework>-macos console app that takes ONE
     // PackageReference to the Swift binding and uses the ObjC type (the companion
     // managed dll arrives EMBEDDED in that package's lib/ and the wrapper native
-    // through its runtimes/ — both from the one reference). Builds with a
+    // through its native/<tfm>/ — both from the one reference). Builds with a
     // RuntimeIdentifier (full native link), launches on the host, and asserts the
     // ObjC greeting round-trips. When assertSingleRegistration is set, also asserts
     // dyld emitted no duplicate-class ("implemented in both") warning — the
@@ -1354,7 +1381,7 @@ partial class Build
     // Asserts the consumer .targets reference the wrapper behind Exists() and the
     // source xcframework ONLY as a wrapper-absent fallback — never unconditionally.
     static void AssertConsumerTargetsWrapperGuard(
-        AbsolutePath extract, string module, string rid, List<string> failures)
+        AbsolutePath extract, string module, List<string> failures)
     {
         var targetsFiles = new[] { extract / "buildTransitive", extract / "build" }
             .Where(d => Directory.Exists(d))

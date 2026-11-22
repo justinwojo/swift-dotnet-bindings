@@ -1100,7 +1100,7 @@ namespace BindingsGeneration.Tests
         }
 
         // ── SWIFTBIND074: pure-ObjC pack shape (the sidecar is the only native carrier) ──
-        // A pure-ObjC binding ($(SwiftFrameworkType) == 'ObjC') packs no runtimes/ and emits
+        // A pure-ObjC binding ($(SwiftFrameworkType) == 'ObjC') packs no native/<tfm>/ and emits
         // no buildTransitive consumer .targets — the classic Microsoft.iOS binding sidecar
         // lib/<tfm>/$(AssemblyName).resources[.zip] carries the whole native payload, and the
         // consumer's ResolveNativeReferences extracts/embeds/signs it. That makes the sidecar
@@ -1485,7 +1485,7 @@ namespace BindingsGeneration.Tests
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
-            // Swift/mixed packs carry their native under runtimes/ and wire it through a
+            // Swift/mixed packs carry their native under native/<tfm>/ and wire it through a
             // packed consumer .targets — they have no sidecar and must not trip this guard.
             WriteObjCPackShapeProject(swiftFrameworkType: "Swift");
             StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
@@ -4788,6 +4788,8 @@ namespace BindingsGeneration.Tests
                     <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
                     <_SwiftBindingIncludeSourceXcframework>{includeSourceXcframework}</_SwiftBindingIncludeSourceXcframework>
                     <TargetPath>{dummyTargetPath}</TargetPath>
+                    <!-- The copy declaration's task (PrepareSwiftBindingPackageCopy), built beside the tests. -->
+                    <_SwiftBindingsSdkTasksAssembly>{System.IO.Path.Combine(AppContext.BaseDirectory, "SwiftBindings.Tasks.dll")}</_SwiftBindingsSdkTasksAssembly>
                   </PropertyGroup>
                   <!-- Stub everything in _ConfigureSwiftBindingPack's DependsOnTargets and BeforeTargets
                        graph EXCEPT _BuildMixedObjCCompanion, which must run to (not) capture the companion. -->

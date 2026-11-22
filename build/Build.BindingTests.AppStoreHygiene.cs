@@ -641,7 +641,7 @@ partial class Build
 
     // Framework name → "its source xcframework ships a PrivacyInfo.xcprivacy in at least one slice".
     // Reads every nupkg in the leg's local feed and covers both native carriers: the Swift/mixed
-    // runtimes/<rid>/native/<Name>.xcframework/** tree, and the pure-ObjC binding sidecar
+    // native/<tfm>/<Name>.xcframework/** tree, and the pure-ObjC binding sidecar
     // lib/<tfm>/<Assembly>.resources[.zip] (see Design/objc-binding-consumption.md). A framework seen
     // without a manifest is recorded false rather than omitted, so the log can distinguish
     // "no source has one" from "no source was found at all".

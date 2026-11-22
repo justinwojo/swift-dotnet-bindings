@@ -1012,11 +1012,26 @@ partial class Build
         var images = new List<string>();
         using (var archive = ZipFile.OpenRead(nupkg))
         {
+            // Binding natives live under native/<tfm>/, one per lib/<tfm>/ copy; the retired
+            // RID-keyed runtimes/ tree must not ship at all.
+            var stale = archive.Entries.FirstOrDefault(e => e.FullName.StartsWith("runtimes/", StringComparison.Ordinal));
+            if (stale != null)
+                throw new Exception($"--bridge-consumer: {nupkg.Name} ships a runtimes/ entry ({stale.FullName}); binding natives belong under native/<tfm>/ only.");
+            var libTfms = archive.Entries.Select(e => e.FullName.Split('/'))
+                .Where(parts => parts.Length > 2 && parts[0] == "lib")
+                .Select(parts => parts[1])
+                .ToHashSet(StringComparer.Ordinal);
+
             // A Mac framework may be versioned (Versions/A/<binary>), so match the binary by name
             // anywhere under the wrapper framework.
             foreach (var entry in archive.Entries.Where(e =>
                          e.FullName.Contains($"/{BcfWrapperModule}.framework/", StringComparison.Ordinal) && e.Name == BcfWrapperModule))
             {
+                var parts = entry.FullName.Split('/');
+                if (parts.Length < 3 || parts[0] != "native" || !libTfms.Contains(parts[1]))
+                    throw new Exception(
+                        $"--bridge-consumer: {nupkg.Name} ships wrapper slice {entry.FullName} outside native/<tfm>/ of a " +
+                        $"packed lib/<tfm>/ copy (lib copies: {string.Join(", ", libTfms.OrderBy(t => t, StringComparer.Ordinal))}).");
                 var target = extract / entry.FullName.Replace('/', Path.DirectorySeparatorChar);
                 target.Parent.CreateDirectory();
                 entry.ExtractToFile(target, overwrite: true);

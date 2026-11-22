@@ -13,7 +13,7 @@
 //      arm64-only device slices (iOS, tvOS).
 //   2. Pack a 4-TFM SDK bindings library against it at a throwaway version.
 //   3. Leg B (build/slice/package, all four x86_64 RIDs): extract the nupkg and
-//      assert the per-RID wrapper *and* source framework binaries carry exactly
+//      assert the per-copy (native/<tfm>/) wrapper *and* source framework binaries carry exactly
 //      the expected arch set — fat where an x86_64 slice exists, arm64-only for
 //      the device slices. `lipo -archs` on the real Mach-O is the load-bearing
 //      check; the xcframework Info.plist SupportedArchitectures is asserted too
@@ -74,32 +74,33 @@ partial class Build
     AbsolutePath X64PackFixtureSource =>
         RootDirectory / "build" / "X64PackGate" / "Fixture" / "X64PackFixture.swift";
 
-    // Expected per-RID WRAPPER slice arch sets in the packed nupkg. Slice ids are
+    // Expected per-platform WRAPPER slice arch sets in the packed nupkg, checked under
+    // native/<tfm>/ of every lib/<tfm>/ copy of the platform. Slice ids are
     // the SDK-normalized identifiers (mirrors Sdk.props _SwiftBinding*SliceId), not
     // the upstream fat `arm64_x86_64` form. The binary is fat (arm64+x86_64) for
     // every slice that has an x86_64 target; arm64-only for the device slices.
-    static readonly (string Rid, string SliceId, string[] Archs)[] X64PackWrapperExpected =
+    static readonly (string Platform, string SliceId, string[] Archs)[] X64PackWrapperExpected =
     [
-        ("osx-arm64",         "macos-arm64",           ["arm64", "x86_64"]),
-        ("maccatalyst-arm64", "ios-arm64-maccatalyst", ["arm64", "x86_64"]),
-        ("ios-arm64",         "ios-arm64",             ["arm64"]),
-        ("ios-arm64",         "ios-arm64-simulator",   ["arm64", "x86_64"]),
-        ("tvos-arm64",        "tvos-arm64",            ["arm64"]),
-        ("tvos-arm64",        "tvos-arm64-simulator",  ["arm64", "x86_64"]),
+        ("macos",        "macos-arm64",           ["arm64", "x86_64"]),
+        ("maccatalyst",  "ios-arm64-maccatalyst", ["arm64", "x86_64"]),
+        ("ios",          "ios-arm64",             ["arm64"]),
+        ("ios",          "ios-arm64-simulator",   ["arm64", "x86_64"]),
+        ("tvos",         "tvos-arm64",            ["arm64"]),
+        ("tvos",         "tvos-arm64-simulator",  ["arm64", "x86_64"]),
     ];
 
-    // Expected per-RID SOURCE slice arch sets. Slice ids are the on-disk names
+    // Expected per-platform SOURCE slice arch sets. Slice ids are the on-disk names
     // xcodebuild -create-xcframework assigns (fat slices keep the combined
     // `arm64_x86_64` form). Source fat slices must be preserved through slicing —
-    // option (b) keeps one universal source binary per RID, not an arm64-only one.
-    static readonly (string Rid, string SliceId, string[] Archs)[] X64PackSourceExpected =
+    // option (b) keeps one universal source binary per platform copy, not an arm64-only one.
+    static readonly (string Platform, string SliceId, string[] Archs)[] X64PackSourceExpected =
     [
-        ("osx-arm64",         "macos-arm64_x86_64",            ["arm64", "x86_64"]),
-        ("maccatalyst-arm64", "ios-arm64_x86_64-maccatalyst",  ["arm64", "x86_64"]),
-        ("ios-arm64",         "ios-arm64",                     ["arm64"]),
-        ("ios-arm64",         "ios-arm64_x86_64-simulator",    ["arm64", "x86_64"]),
-        ("tvos-arm64",        "tvos-arm64",                    ["arm64"]),
-        ("tvos-arm64",        "tvos-arm64_x86_64-simulator",   ["arm64", "x86_64"]),
+        ("macos",        "macos-arm64_x86_64",            ["arm64", "x86_64"]),
+        ("maccatalyst",  "ios-arm64_x86_64-maccatalyst",  ["arm64", "x86_64"]),
+        ("ios",          "ios-arm64",                     ["arm64"]),
+        ("ios",          "ios-arm64_x86_64-simulator",    ["arm64", "x86_64"]),
+        ("tvos",         "tvos-arm64",                    ["arm64"]),
+        ("tvos",         "tvos-arm64_x86_64-simulator",   ["arm64", "x86_64"]),
     ];
 
     Target X64PackGate => _ => _
@@ -201,7 +202,7 @@ partial class Build
             var bindingsNupkg = Directory.GetFiles(bindingsOut, "*.nupkg").FirstOrDefault()
                 ?? throw new Exception("X64PackGate: bindings pack produced no nupkg");
 
-            // 5. Leg B — extract + assert per-RID wrapper and source arch sets.
+            // 5. Leg B — extract + assert per-copy wrapper and source arch sets.
             Log.Information("  [5/6] Verifying packed wrapper + source arch slices (Leg B)");
             var extractDir = bindingsOut / "extract";
             if (Directory.Exists(extractDir)) extractDir.DeleteDirectory();
@@ -362,6 +363,8 @@ partial class Build
     {
         var failures = new List<string>();
 
+        if (PackedRuntimesDirViolation(extractDir) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
         VerifyX64PackSliceSet(extractDir, X64PackWrapperModule, X64PackWrapperExpected, failures);
         VerifyX64PackSliceSet(extractDir, X64PackModule, X64PackSourceExpected, failures);
 
@@ -374,48 +377,57 @@ partial class Build
             Assert.Fail($"X64PackGate (Leg B): {failures.Count} arch/layout mismatch(es) in {nupkgPath}");
         }
 
-        Log.Information("X64PackGate (Leg B) OK — wrapper + source slices carry the expected arch sets across all four x86_64 RIDs");
+        Log.Information("X64PackGate (Leg B) OK — wrapper + source slices carry the expected arch sets in every platform copy");
     }
 
     static void VerifyX64PackSliceSet(
         AbsolutePath extractDir, string module,
-        (string Rid, string SliceId, string[] Archs)[] expected, List<string> failures)
+        (string Platform, string SliceId, string[] Archs)[] expected, List<string> failures)
     {
-        foreach (var (rid, sliceId, archs) in expected)
+        foreach (var (platform, sliceId, archs) in expected)
         {
-            var fwBinary = extractDir / "runtimes" / rid / "native" / $"{module}.xcframework"
-                / sliceId / $"{module}.framework" / module;
-            if (!File.Exists(fwBinary))
+            var tfms = PackedLibTfms(extractDir, platform);
+            if (tfms.Count == 0)
             {
-                failures.Add($"missing binary: runtimes/{rid}/native/{module}.xcframework/{sliceId}/{module}.framework/{module}");
+                failures.Add($"{module} {platform}/{sliceId}: no lib/<tfm>/ copy for {platform}, so no native/<tfm>/ to check");
                 continue;
             }
 
-            var actual = LipoArchs(fwBinary);
-            var want = archs.OrderBy(a => a, StringComparer.Ordinal).ToArray();
-            if (!actual.SequenceEqual(want, StringComparer.Ordinal))
+            foreach (var tfm in tfms)
             {
-                failures.Add(
-                    $"{module} {rid}/{sliceId}: binary archs [{string.Join(", ", actual)}], " +
-                    $"expected [{string.Join(", ", want)}]");
-            }
+                var native = PackedNativeRelative(tfm);
+                var xcfw = PackedNativeDir(extractDir, tfm) / $"{module}.xcframework";
+                var fwBinary = xcfw / sliceId / $"{module}.framework" / module;
+                if (!File.Exists(fwBinary))
+                {
+                    failures.Add($"missing binary: {native}{module}.xcframework/{sliceId}/{module}.framework/{module}");
+                    continue;
+                }
 
-            // Defense-in-depth: the xcframework Info.plist's SupportedArchitectures
-            // for this slice must agree with the binary. A plist that lies (claims
-            // x86_64 the binary lacks, or vice versa) breaks consumer slice
-            // selection even when the binary is correct.
-            var plistArchs = XcframeworkPlistArchs(
-                extractDir / "runtimes" / rid / "native" / $"{module}.xcframework" / "Info.plist",
-                sliceId);
-            if (plistArchs is null)
-            {
-                failures.Add($"{module} {rid}/{sliceId}: no LibraryIdentifier '{sliceId}' in xcframework Info.plist");
-            }
-            else if (!plistArchs.SequenceEqual(want, StringComparer.Ordinal))
-            {
-                failures.Add(
-                    $"{module} {rid}/{sliceId}: Info.plist SupportedArchitectures [{string.Join(", ", plistArchs)}], " +
-                    $"expected [{string.Join(", ", want)}]");
+                var actual = LipoArchs(fwBinary);
+                var want = archs.OrderBy(a => a, StringComparer.Ordinal).ToArray();
+                if (!actual.SequenceEqual(want, StringComparer.Ordinal))
+                {
+                    failures.Add(
+                        $"{module} {tfm}/{sliceId}: binary archs [{string.Join(", ", actual)}], " +
+                        $"expected [{string.Join(", ", want)}]");
+                }
+
+                // Defense-in-depth: the xcframework Info.plist's SupportedArchitectures
+                // for this slice must agree with the binary. A plist that lies (claims
+                // x86_64 the binary lacks, or vice versa) breaks consumer slice
+                // selection even when the binary is correct.
+                var plistArchs = XcframeworkPlistArchs(xcfw / "Info.plist", sliceId);
+                if (plistArchs is null)
+                {
+                    failures.Add($"{module} {tfm}/{sliceId}: no LibraryIdentifier '{sliceId}' in xcframework Info.plist");
+                }
+                else if (!plistArchs.SequenceEqual(want, StringComparer.Ordinal))
+                {
+                    failures.Add(
+                        $"{module} {tfm}/{sliceId}: Info.plist SupportedArchitectures [{string.Join(", ", plistArchs)}], " +
+                        $"expected [{string.Join(", ", want)}]");
+                }
             }
         }
     }

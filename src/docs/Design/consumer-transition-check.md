@@ -87,9 +87,10 @@ ignores case. A suppression that matches nothing is logged.
 task `SwiftTransitionPackageCheck`). It reads the package it just wrote, as a consumer would receive
 it, and checks every `lib/` assembly with Swift transitions. Here a routed library must be in the
 package: every framework slice must hold the manifest hash and export exactly its bridges. An
-assembly is checked against the slices a consumer of its target framework links: those under a
-`runtimes/<rid>/` of its own platform, and any under no Apple RID. A binding for iOS and tvOS ships
-one wrapper per platform, and the two manifests differ wherever the platforms' routing does. A
+assembly in `lib/<tfm>/` is checked against the slices a consumer of that copy links: those under
+`native/<tfm>/` of the same TFM, a legacy `runtimes/<rid>/` of its platform (packages from before
+the per-TFM layout), and natives shared by every copy. A binding for iOS and
+tvOS ships one wrapper per copy, and the manifests differ wherever the copies' routing does. A
 refused package is deleted and the build fails with `error SWIFTBIND133`.
 
 The error names the remedy by cause. A wrapper that kept an earlier routing (the wrapper-compile

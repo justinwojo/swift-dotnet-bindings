@@ -51,13 +51,19 @@ partial class Build
 
         if (!skipApple)
         {
-            var runtimeImages = PackedResidualCheck.ReadLibEntries(runtimeNupkg, RuntimeAssemblyFile)
-                .ToDictionary(e => PackedResidualCheck.ProjectFramework(e.Framework), e => e.Image, StringComparer.Ordinal);
+            // Keyed by the full TFM: a supplement copy is read against the runtime copy of the same
+            // TFM, and only a runtime that carries no such copy falls back to its build of the platform.
+            var runtimeEntries = PackedResidualCheck.ReadLibEntries(runtimeNupkg, RuntimeAssemblyFile).ToList();
+            var runtimeImages = runtimeEntries.ToDictionary(e => e.Framework, e => e.Image, StringComparer.OrdinalIgnoreCase);
+            foreach (var group in runtimeEntries.GroupBy(e => PackedResidualCheck.ProjectFramework(e.Framework), StringComparer.Ordinal))
+                if (group.Count() == 1)
+                    runtimeImages.TryAdd(group.Key, group.Single().Image);
             var appleNupkg = outputDir / $"SwiftBindings.Apple.{appleVersion}.nupkg";
             var appleFrameworks = ProjectTargetFrameworks(AppleSupplementDir / "Swift.Bindings.Apple.csproj");
             var ledgers = new Dictionary<string, AbsolutePath>(StringComparer.Ordinal);
             var apple = PackedResidualCheck.Check(appleNupkg, AppleSupplementAssemblyFile,
-                framework => runtimeImages.TryGetValue(PackedResidualCheck.ProjectFramework(framework), out var image)
+                framework => runtimeImages.TryGetValue(framework, out var image)
+                             || runtimeImages.TryGetValue(PackedResidualCheck.ProjectFramework(framework), out image)
                     ? new[] { image }
                     : throw new Exception($"Packed residual-guard check: the runtime package has no {PackedResidualCheck.ProjectFramework(framework)} build for the supplement's {framework}."),
                 framework => ledgers[framework] = AppleSupplementDir / "obj" / "Release" / PackedResidualCheck.ProjectFramework(framework) / "AppleTypes",

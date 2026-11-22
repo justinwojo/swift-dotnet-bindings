@@ -3256,7 +3256,7 @@ done; true"
       <_SwiftWrapperCmd Condition="'$(SwiftPlatformTarget)' != ''">$(_SwiftWrapperCmd) --platform-target $(SwiftPlatformTarget)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) --wrapper-architectures $(SwiftWrapperArchitectures)</_SwiftWrapperCmd>
       <!-- 'auto' (default) fattens the wrapper to arm64+x86_64 only when the source slice ships
-           x86_64, so one runtimes/<rid>/native/ tree serves Apple Silicon and Intel/Rosetta. -->
+           x86_64, so one native/<tfm>/ copy serves Apple Silicon and Intel/Rosetta. -->
       <_SwiftWrapperCmd Condition="'$(SwiftTargetArchitectures)' != ''">$(_SwiftWrapperCmd) --target-architectures $(SwiftTargetArchitectures)</_SwiftWrapperCmd>
       <_SwiftWrapperCmd>$(_SwiftWrapperCmd) -v $(SwiftGeneratorVerbosity)</_SwiftWrapperCmd>
       <!-- Resolved ProjectReference dependency xcframework paths (preferred, absolute).
@@ -3987,7 +3987,7 @@ done; true"
   <!-- _ExpandNativeReferences finds it next to the restored assembly          -->
   <!-- (_ReferencesWithNativeReferencesToExpand) and ResolveNativeReferences   -->
   <!-- extracts, embeds and signs the frameworks. No buildTransitive/ and no   -->
-  <!-- runtimes/ are involved — see src/docs/Design/objc-binding-consumption.md. -->
+  <!-- native/ payloads are involved — see src/docs/Design/objc-binding-consumption.md. -->
   <!--                                                                         -->
   <!-- CompressBindingResourcePackage defaults to 'auto', so the sidecar is    -->
   <!-- either a .zip or a .resources DIRECTORY; both are accepted here.        -->
@@ -4085,11 +4085,46 @@ echo &quot;$ISSUES&quot;"
 
     <Error Condition="'$(_ObjCBindingPackShapeIssues)' != '' AND $(_ObjCBindingPackShapeIssues.Contains('MISSING_SIDECAR'))"
            Code="SWIFTBIND074"
-           Text="Pure-ObjC binding pack is missing its native payload: there is no binding resource package at '$(_ObjCBindingResourceBase)' or '$(_ObjCBindingResourceBase).zip', or the one that exists carries no xcframework. On this lane the sidecar is the ONLY carrier of the native xcframework (no buildTransitive/ consumer .targets is emitted and no runtimes/ is packed), so the resulting nupkg would restore managed-only and fail at the consumer's link/dyld with missing ObjC symbols. Verify the project is a real binding project (&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;), that &lt;NoBindingEmbedding&gt; is not disabled, and that the build produced the sidecar next to $(TargetName).dll before packing." />
+           Text="Pure-ObjC binding pack is missing its native payload: there is no binding resource package at '$(_ObjCBindingResourceBase)' or '$(_ObjCBindingResourceBase).zip', or the one that exists carries no xcframework. On this lane the sidecar is the ONLY carrier of the native xcframework (no buildTransitive/ consumer .targets is emitted and no native/ is packed), so the resulting nupkg would restore managed-only and fail at the consumer's link/dyld with missing ObjC symbols. Verify the project is a real binding project (&lt;IsBindingProject&gt;true&lt;/IsBindingProject&gt;), that &lt;NoBindingEmbedding&gt; is not disabled, and that the build produced the sidecar next to $(TargetName).dll before packing." />
 
     <Error Condition="'$(_ObjCBindingPackShapeIssues)' != '' AND '$(_ObjCBindingPackShapeIssues.Trim())' != '' AND !$(_ObjCBindingPackShapeIssues.Contains('MISSING_SIDECAR'))"
            Code="SWIFTBIND074"
            Text="Pure-ObjC binding resource package at '$(_ObjCBindingResourceBase)[.zip]' does not match the xcframeworks it was built from — $(_ObjCBindingPackShapeIssues.Trim()) ('&lt;Name&gt;:absent' = that xcframework is not in the sidecar at all; '&lt;Name&gt;/&lt;slice&gt;:missing-from-sidecar' = the source xcframework has that slice and the packed copy lost it). The sidecar is the only native carrier on this lane, so a consumer building for the dropped slice restores the package and then fails to link. This is a packaging defect, not a vendor one: a source xcframework that genuinely ships fewer slices packs faithfully and does not reach this message. Find the copy step that dropped the slice, or set &lt;IsPackable&gt;false&lt;/IsPackable&gt; for local-only use." />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 7a': The copy identity: the version-qualified pack TFM          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    A binding package keys every per-copy payload by the full pack TFM: lib/<tfm>/,
+    buildTransitive/<tfm>/ and native/<tfm>/, so one package can carry a copy per toolchain
+    (net10.0-ios26.0 built with Xcode 26.3, net10.0-ios27.2, net11.0-ios27.2) and NuGet's
+    nearest-framework rule lands lib/ and buildTransitive/ on the same copy. The consumer
+    targets (synthesized below, or emitted by the generator) name native/<tfm>/ literally.
+
+    NuGet NU1012 requires the platform version in framework-specific PackagePath entries
+    (buildTransitive/net10.0-ios26.0/, not buildTransitive/net10.0-ios/). A versionless
+    TargetFramework (net10.0-ios) still resolves $(TargetPlatformVersion) from the installed
+    workload; we detect the versionless form by checking whether $(TargetFramework) ends with
+    the bare platform identifier, and append the resolved version if so.
+
+    In Apple-framework direct mode, the consumer-settable $(SwiftAppleFrameworkPlatformVersion)
+    wins over $(TargetPlatformVersion) for the generator; use the same effective value here so
+    the generator output, the fingerprint, and the pack layout never disagree on the version.
+  -->
+  <Target Name="_ComputeSwiftBindingPackTfm"
+          DependsOnTargets="_DetectSwiftBindingTargetKind"
+          Condition="'$(TargetFramework)' != ''">
+    <PropertyGroup>
+      <_SwiftBindingEffectivePlatformVersion>$(TargetPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
+      <_SwiftBindingEffectivePlatformVersion
+          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftAppleFrameworkPlatformVersion)' != ''">$(SwiftAppleFrameworkPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
+      <_SwiftBindingPackTfm>$(TargetFramework)</_SwiftBindingPackTfm>
+      <_SwiftBindingPackTfm
+          Condition="'$(_SwiftBindingEffectivePlatformVersion)' != ''
+                     AND $(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))">$(TargetFramework)$(_SwiftBindingEffectivePlatformVersion)</_SwiftBindingPackTfm>
+      <_SwiftBindingNativePackRoot>native/$(_SwiftBindingPackTfm)/</_SwiftBindingNativePackRoot>
+    </PropertyGroup>
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
@@ -4101,6 +4136,7 @@ echo &quot;$ISSUES&quot;"
   <Target Name="_SynthesizeAppleFrameworkConsumerTargets"
           AfterTargets="_ImportSwiftBindingMetadata"
           BeforeTargets="ResolveProjectReferences"
+          DependsOnTargets="_ComputeSwiftBindingPackTfm"
           Condition="'@(SwiftAppleFrameworkTarget)' != ''
                      AND '$(_SwiftBindingModuleName)' != ''
                      AND ('$(_SwiftBindingUpToDate)' != 'true'
@@ -4125,8 +4161,8 @@ echo &quot;$ISSUES&quot;"
     <Exec Command="WRAPPER=&quot;&quot;; \
 if [ &quot;$(_SwiftBindingHasWrapperXCFramework)&quot; = &quot;True&quot; ]; then \
   read -r -d '' WRAPPER &lt;&lt;'WRAPPEREOF'
-      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework&quot;
-                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework')&quot;&gt;
+      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../$(_SwiftBindingNativePackRoot)$(_SwiftBindingWrapperModuleName).xcframework&quot;
+                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../$(_SwiftBindingNativePackRoot)$(_SwiftBindingWrapperModuleName).xcframework')&quot;&gt;
         &lt;Kind&gt;Framework&lt;/Kind&gt;
       &lt;/NativeReference&gt;
 WRAPPEREOF
@@ -4138,8 +4174,8 @@ if [ &quot;$(_SwiftBindingHasBridgeXCFramework)&quot; = &quot;True&quot; ]; then
            slice; referencing it makes a native-macOS consumer fail with MT158. The
            %24(TargetFramework) check is evaluated in the CONSUMER build. Catalyst
            keeps the bridge — net*-maccatalyst does not contain &quot;-macos&quot;. --&gt;
-      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework&quot;
-                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework') AND !%24(TargetFramework.Contains('-macos'))&quot;&gt;
+      &lt;NativeReference Include=&quot;%24(MSBuildThisFileDirectory)../../$(_SwiftBindingNativePackRoot)$(_SwiftBindingBridgeModuleName).xcframework&quot;
+                       Condition=&quot;Exists('%24(MSBuildThisFileDirectory)../../$(_SwiftBindingNativePackRoot)$(_SwiftBindingBridgeModuleName).xcframework') AND !%24(TargetFramework.Contains('-macos'))&quot;&gt;
         &lt;Kind&gt;Framework&lt;/Kind&gt;
       &lt;/NativeReference&gt;
 BRIDGEEOF
@@ -4235,7 +4271,7 @@ TARGETSEOF"
   <!--                                                                         -->
   <!-- Source xcframeworks ship every slice (iOS, tvOS, macOS, watchOS, …)    -->
   <!-- per RID; the slicer drops slices the current RID can't consume so the  -->
-  <!-- per-RID runtimes/<rid>/native/ directory only contains slices that RID -->
+  <!-- per-copy native/<tfm>/ directory only contains slices that RID     -->
   <!-- can actually use. Properties have to be set in a separate target so    -->
   <!-- both the slicer Target and the pack Target see them — Inputs/Outputs   -->
   <!-- are evaluated before the body of the same target runs.                 -->
@@ -4277,7 +4313,7 @@ TARGETSEOF"
   <!-- Glob CodeResources files explicitly so a re-signed-in-place source     -->
   <!-- xcframework invalidates the staged slice and we don't ship stale sigs. -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
-  <!-- Pure-ObjC packs don't ship runtimes/ at all (the sidecar resources.zip carries the
+  <!-- Pure-ObjC packs don't ship native/ at all (the sidecar resources.zip carries the
        native), so slicing for a directory that is never packed is pure cost — skipped here
        rather than at the pack item. Unlike the static-archive drop above, this decision is a
        stable property read from persisted metadata, so a target-level Condition is safe (it
@@ -4394,14 +4430,14 @@ TARGETSEOF"
     dynamically-populated @(SwiftFramework) item, MSBuild evaluates that Condition
     to false in inner-pack (the item hasn't been discovered yet), the entire target
     — including DependsOnTargets — is skipped, and the resulting nupkg ships with
-    only the managed DLL: no runtimes/<rid>/native/, no buildTransitive/, no
+    only the managed DLL: no native/<tfm>/, no buildTransitive/, no
     module database. (Issue #39: silent regression on auto-discovery bindings.)
     Stable-property Condition keeps us in the build graph; _DiscoverSwiftFrameworks
     explicitly in DependsOnTargets populates @(SwiftFramework) before the body's
     per-item Conditions are evaluated.
   -->
   <Target Name="_ConfigureSwiftBindingPack"
-          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_SetSlicePaths;_ComputeSwiftBindingSourceXcframeworkInclusion;_BuildMixedObjCCompanion"
+          DependsOnTargets="_DiscoverSwiftFrameworks;_ImportSwiftBindingMetadata;_SetSlicePaths;_ComputeSwiftBindingSourceXcframeworkInclusion;_BuildMixedObjCCompanion;_ComputeSwiftBindingPackTfm"
           Condition="'$(IsPackable)' == 'true' AND '$(TargetFramework)' != ''"
           Returns="@(TfmSpecificPackageFile)">
 
@@ -4422,15 +4458,7 @@ TARGETSEOF"
       set to 26.2 would otherwise produce 26.2 metadata staged under
       buildTransitive/net10.0-ios26.0/ — the drift C2 eliminated for the generator path.
     -->
-    <PropertyGroup>
-      <_SwiftBindingEffectivePlatformVersion>$(TargetPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
-      <_SwiftBindingEffectivePlatformVersion
-          Condition="'$(_SwiftBindingTargetKind)' == 'AppleFramework' AND '$(SwiftAppleFrameworkPlatformVersion)' != ''">$(SwiftAppleFrameworkPlatformVersion)</_SwiftBindingEffectivePlatformVersion>
-      <_SwiftBindingPackTfm>$(TargetFramework)</_SwiftBindingPackTfm>
-      <_SwiftBindingPackTfm
-          Condition="'$(_SwiftBindingEffectivePlatformVersion)' != ''
-                     AND $(TargetFramework.EndsWith('$(_SwiftBindingPlatform)'))">$(TargetFramework)$(_SwiftBindingEffectivePlatformVersion)</_SwiftBindingPackTfm>
-    </PropertyGroup>
+    <!-- $(_SwiftBindingPackTfm) / $(_SwiftBindingEffectivePlatformVersion): _ComputeSwiftBindingPackTfm. -->
 
     <!-- Fail fast if we can't resolve a versioned TFM for pack. In Apple-framework
          direct mode SWIFTBIND016 already fires earlier when SwiftAppleFrameworkPlatformVersion
@@ -4441,11 +4469,43 @@ TARGETSEOF"
            Code="SWIFTBIND035"
            Text="Cannot resolve platform version for NuGet pack. Specify a versioned TargetFramework (e.g. net10.0-ios26.0), install the corresponding platform workload, or in Apple-framework direct mode set &lt;SwiftAppleFrameworkPlatformVersion&gt;." />
 
+    <!-- The copy's toolchain and platform SDK, recorded in its declaration
+         (buildTransitive/<tfm>/<PackageId>.props) so every consumer build can name the copy it
+         selected and the merge can check its contributions; and the producer label guard
+         (SWIFTBIND137): an Apple-framework copy labelled below the SDK it was generated from would
+         be selected by apps on an older toolchain. The pure-ObjC lane ships no consumer targets
+         and no native/<tfm>/, so it declares no copy. -->
+    <PropertyGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
+      <_SwiftBindingCopyXcrunSdk>macosx</_SwiftBindingCopyXcrunSdk>
+      <_SwiftBindingCopyXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios'">iphoneos</_SwiftBindingCopyXcrunSdk>
+      <_SwiftBindingCopyXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos'">appletvos</_SwiftBindingCopyXcrunSdk>
+      <_SwiftBindingCopyDeclaration>$(_SwiftBindingIntermediateDir)pack/$(PackageId).props</_SwiftBindingCopyDeclaration>
+    </PropertyGroup>
+    <Exec Condition="'$(SwiftFrameworkType)' != 'ObjC'"
+          Command="xcrun --sdk $(_SwiftBindingCopyXcrunSdk) --show-sdk-version 2&gt;/dev/null"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingCopySdkVersion" />
+    </Exec>
+    <Exec Condition="'$(SwiftFrameworkType)' != 'ObjC'"
+          Command="xcodebuild -version 2&gt;/dev/null | head -1"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingCopyXcode" />
+    </Exec>
+    <PrepareSwiftBindingPackageCopy Condition="'$(SwiftFrameworkType)' != 'ObjC'"
+        PackageId="$(PackageId)"
+        PackTfm="$(_SwiftBindingPackTfm)"
+        TargetKind="$(_SwiftBindingTargetKind)"
+        PlatformSdkVersion="$(_SwiftBindingCopySdkVersion)"
+        Toolchain=".NET $(NETCoreSdkVersion) + $(_SwiftBindingCopyXcode)"
+        Generator="$(_SwiftBindingSdkVersion)"
+        ConsumerTargetsFile="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
+        DeclarationFile="$(_SwiftBindingCopyDeclaration)" />
+
     <!--
       Guard: the managed DLL is added to lib/ by the .NET SDK's pack pipeline (not by our
       TfmSpecificPackageFile ItemGroup below). If a consumer config accidentally suppresses
       it (OutputType=Module, IncludeBuildOutput=false, or a missing compile), the resulting
-      nupkg would ship with native xcframeworks in runtimes/ but nothing in lib/ — bindings
+      nupkg would ship with native xcframeworks in native/<tfm>/ but nothing in lib/ — bindings
       at runtime would throw TypeLoadException. Verify the target assembly exists on disk
       so we fail at pack, not at the consumer's first DllImport.
     -->
@@ -4474,6 +4534,10 @@ TARGETSEOF"
            Exists() guard no-ops otherwise. Its <assembly fullname> is rooted under $(AssemblyName)
            (passed via the assembly-name generator option) so it matches the managed DLL packed
            under lib/. -->
+      <!-- The copy declaration (SwiftBindingPackageCopy), beside the consumer targets. -->
+      <TfmSpecificPackageFile Include="$(_SwiftBindingCopyDeclaration)"
+            PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
+            Condition="'$(SwiftFrameworkType)' != 'ObjC' AND Exists('$(_SwiftBindingCopyDeclaration)')" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')" />
@@ -4496,27 +4560,27 @@ TARGETSEOF"
            project (IsBindingProject=true), so the workload already packs its @(NativeReference)
            xcframeworks into the classic sidecar lib/<tfm>/$(AssemblyName).resources.zip, which
            the CONSUMER's build extracts, embeds and signs. Nothing on this lane ever reads
-           runtimes/: ConsumerTargetsEmitter is unreachable on the pure-ObjC generator branch
+           native/: ConsumerTargetsEmitter is unreachable on the pure-ObjC generator branch
            (BindingsGeneratorCommand returns after ObjCPipeline.Run) and
            _SynthesizeAppleFrameworkConsumerTargets is @(SwiftAppleFrameworkTarget)-only, so no
-           $(PackageId).targets exists to emit a NativeReference into runtimes/ — the payload was
+           $(PackageId).targets exists to emit a NativeReference into native/ — the payload was
            a byte-for-byte duplicate of the sidecar with no reference pointing at it. The sidecar
            is the load-bearing copy and _ValidateObjCBindingPackShape (SWIFTBIND074) asserts it.
-           Swift/mixed packs KEEP runtimes/: their packed consumer .targets NativeReference into
-           exactly this path. See src/docs/Design/objc-binding-consumption.md. -->
+           Swift/mixed packs KEEP native/<tfm>/: their packed consumer .targets NativeReference into
+           exactly this path, and only their own copy's. See src/docs/Design/objc-binding-consumption.md. -->
       <TfmSpecificPackageFile Include="$(_StagedSourceXcfwDir)**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingSourceXcfwName)/"
+            PackagePath="$(_SwiftBindingNativePackRoot)$(_SwiftBindingSourceXcfwName)/"
             Condition="'@(SwiftFramework)' != ''
                        AND '$(SwiftFrameworkType)' != 'ObjC'
                        AND '$(_SwiftBindingIncludeSourceXcframework)' == 'true'" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingWrapperModuleName).xcframework/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingWrapperModuleName).xcframework/"
+            PackagePath="$(_SwiftBindingNativePackRoot)$(_SwiftBindingWrapperModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasWrapperXCFramework)' == 'True'" />
       <!-- Native-macOS exclusion: don't ship the UIKit-only bridge's empty macOS
            slice (it would MT158 if a consumer referenced it). Catalyst still packs
            its bridge — net*-maccatalyst does not contain "-macos". -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingBridgeModuleName).xcframework/**"
-            PackagePath="runtimes/$(_SwiftBindingNuGetRid)/native/$(_SwiftBindingBridgeModuleName).xcframework/"
+            PackagePath="$(_SwiftBindingNativePackRoot)$(_SwiftBindingBridgeModuleName).xcframework/"
             Condition="'$(_SwiftBindingHasBridgeXCFramework)' == 'True' AND !$(TargetFramework.Contains('-macos'))" />
       <!-- Module database for cross-module type resolution in downstream binding projects -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)$(_SwiftBindingModuleName)Database.xml"
@@ -4527,7 +4591,7 @@ TARGETSEOF"
            one xcframework. _BuildMixedObjCCompanion (DependsOnTargets) builds the companion and
            sets _SwiftBindingCompanionBuildOutput to its assembly path (via GetTargetPath). The
            companion is managed-only — its native ObjC class is force-loaded from the wrapper /
-           source already shipped under runtimes/, so no native is duplicated. -->
+           source already shipped under native/<tfm>/, so no native is duplicated. -->
       <TfmSpecificPackageFile Include="@(_SwiftBindingCompanionBuildOutput)"
             PackagePath="lib/$(_SwiftBindingPackTfm)/"
             Condition="'@(_SwiftBindingCompanionBuildOutput)' != ''" />
@@ -4576,7 +4640,7 @@ TARGETSEOF"
        consumers would refuse is never written. Each lib/ assembly that can make a Swift transition
        must be primitive-only or carry a valid transition manifest whose rules hold, and every
        framework slice of a library the manifests route bridges through, among those its target
-       framework's consumers link (runtimes/<rid>/ of the same platform), must hold the manifest
+       framework's consumers link (native/<tfm>/ of the same full target framework), must hold the manifest
        hash and export exactly those bridges. A missing slice is a refusal here (a
        package must carry its natives). A refused package is deleted.
 
@@ -4602,6 +4666,8 @@ TARGETSEOF"
     <_SwiftBindingsSdkTasksAssembly Condition="'$(_SwiftBindingsSdkTasksAssembly)' == ''">$(MSBuildThisFileDirectory)tasks/net10.0/SwiftBindings.Tasks.dll</_SwiftBindingsSdkTasksAssembly>
   </PropertyGroup>
   <UsingTask TaskName="SwiftBindings.Tasks.SwiftTransitionPackageCheck" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
+  <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
+  <UsingTask TaskName="SwiftBindings.Tasks.MergeSwiftBindingPackages" AssemblyFile="$(_SwiftBindingsSdkTasksAssembly)" />
 
   <Target Name="_SwiftTransitionPackReferenceDirectories"
           DependsOnTargets="ResolveAssemblyReferences"
@@ -4629,5 +4695,55 @@ TARGETSEOF"
     <SwiftTransitionPackageCheck Packages="@(NuGetPackOutput)"
                                  ReferenceDirectories="@(_SwiftTransitionPackReference)"
                                  ScratchDirectory="$(BaseIntermediateOutputPath)swift-transition-pack-check" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Multi-toolchain package merge (SWIFTBIND138)                            -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- One binding package ships one copy per supported toolchain: each .NET + Xcode pairing packs
+       its own explicitly versioned TargetFrameworks (for example net10.0-ios26.0 on .NET 10 + Xcode
+       26.3, net10.0-ios27.2 on .NET 10 + Xcode 27.2, net11.0-ios27.2 on .NET 11 + Xcode 27.2) from
+       the same source and SwiftBindings.Sdk version, and this target merges those contributions:
+
+         dotnet msbuild My.Binding.csproj -t:SwiftBindingsMergePackages
+           -p:SwiftBindingsMergeContributions="a.nupkg;b.nupkg;c.nupkg"
+           -p:SwiftBindingsMergeTargetFrameworks="net10.0-ios26.0;net10.0-ios27.2;net11.0-ios27.2"
+           [-p:SwiftBindingsMergeOutput=dir]
+
+       The merge refuses (SWIFTBIND138) contributions that are not one package (id, version,
+       metadata, SDK), a matrix it does not carry exactly, a contribution whose lib/,
+       buildTransitive/ and native/ copies differ or whose consumer targets reference another
+       copy's natives, and a newer copy whose public API or native exports lack an older copy's of
+       the same platform (a library compiles against the oldest copy; the app runs the newest). It
+       writes a fresh nuspec with each copy's own dependency group, then checks the merged package's
+       Windows restore path budget and runs the pack-time transition check (SWIFTBIND133) on it. The
+       pipeline owns the matrix; the merge only proves the contributions make one package. -->
+  <Target Name="SwiftBindingsMergePackages">
+    <ItemGroup>
+      <_SwiftBindingsMergeContribution Include="$(SwiftBindingsMergeContributions)" />
+      <_SwiftBindingsMergeTfm Include="$(SwiftBindingsMergeTargetFrameworks)" />
+      <_SwiftBindingsMergeProjectTfm Include="$(TargetFrameworks)" Condition="'$(TargetFrameworks)' != ''" />
+      <_SwiftBindingsMergeProjectTfm Include="$(TargetFramework)" Condition="'$(TargetFrameworks)' == '' AND '$(TargetFramework)' != ''" />
+    </ItemGroup>
+    <Error Code="SWIFTBIND138" Condition="'@(_SwiftBindingsMergeContribution)' == '' OR '@(_SwiftBindingsMergeTfm)' == ''"
+           Text="SwiftBindingsMergePackages needs the contribution packages (SwiftBindingsMergeContributions) and the target frameworks the merged package must carry (SwiftBindingsMergeTargetFrameworks)." />
+    <Error Code="SWIFTBIND133"
+           Condition="!Exists('$(_SwiftBindingsSdkTasksAssembly)')"
+           Text="The SwiftBindings task assembly $(_SwiftBindingsSdkTasksAssembly) is missing, so the packages cannot be merged. Restore SwiftBindings.Sdk again." />
+    <!-- The runtime the copies reference, for the transition check's carrier types: resolved by this
+         project on the toolchain running the merge. -->
+    <MSBuild Projects="$(MSBuildProjectFullPath)"
+             Targets="_SwiftTransitionPackReferenceDirectories"
+             Properties="TargetFramework=%(_SwiftBindingsMergeProjectTfm.Identity)"
+             Condition="'@(_SwiftBindingsMergeProjectTfm)' != ''">
+      <Output TaskParameter="TargetOutputs" ItemName="_SwiftBindingsMergeReference" />
+    </MSBuild>
+    <MergeSwiftBindingPackages Contributions="@(_SwiftBindingsMergeContribution)"
+                               TargetFrameworks="@(_SwiftBindingsMergeTfm)"
+                               OutputDirectory="$([MSBuild]::ValueOrDefault('$(SwiftBindingsMergeOutput)', '$(PackageOutputPath)'))"
+                               ReferenceDirectories="@(_SwiftBindingsMergeReference)"
+                               ScratchDirectory="$(BaseIntermediateOutputPath)swift-binding-merge">
+      <Output TaskParameter="MergedPackage" PropertyName="SwiftBindingsMergedPackage" />
+    </MergeSwiftBindingPackages>
   </Target>
 </Project>

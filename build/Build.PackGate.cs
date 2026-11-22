@@ -211,43 +211,62 @@ partial class Build
             var failures = new List<string>();
             var verifiedSlices = 0;
 
-            foreach (var (rid, sliceIds) in ExpectedXcframeworkLayout)
+            // Binding natives live under native/<tfm>/, one per lib/<tfm>/ copy; a runtimes/
+            // tree is the retired RID-keyed layout and fails the gate.
+            if (PackedRuntimesDirViolation(extractDir) is { } runtimesViolation)
+                failures.Add(runtimesViolation);
+
+            var expectedSliceCount = 0;
+            foreach (var (platform, sliceIds) in ExpectedXcframeworkLayout)
             {
-                var xcfw = extractDir / "runtimes" / rid / "native" / $"{wrapperModule}.xcframework";
-                if (!Directory.Exists(xcfw))
+                var tfms = PackedLibTfms(extractDir, platform);
+                if (tfms.Count == 0)
                 {
-                    failures.Add($"missing xcframework: runtimes/{rid}/native/{wrapperModule}.xcframework/");
+                    failures.Add($"no lib/<tfm>/ for platform {platform}, so no native/<tfm>/ to verify — the fixture targets {platform}");
+                    expectedSliceCount += sliceIds.Length;
                     continue;
                 }
-                if (!File.Exists(xcfw / "Info.plist"))
-                    failures.Add($"missing xcframework Info.plist: runtimes/{rid}/native/{wrapperModule}.xcframework/Info.plist");
 
-                foreach (var sliceId in sliceIds)
+                // A platform may ship several copies (one per lib/<tfm>/); each carries its own wrapper.
+                foreach (var tfm in tfms)
                 {
-                    var slice = xcfw / sliceId;
-                    if (!Directory.Exists(slice))
+                    expectedSliceCount += sliceIds.Length;
+                    var native = PackedNativeRelative(tfm);
+                    var xcfw = PackedNativeDir(extractDir, tfm) / $"{wrapperModule}.xcframework";
+                    if (!Directory.Exists(xcfw))
                     {
-                        failures.Add($"missing slice: runtimes/{rid}/native/{wrapperModule}.xcframework/{sliceId}/");
+                        failures.Add($"missing xcframework: {native}{wrapperModule}.xcframework/");
                         continue;
                     }
-                    var fwDir = slice / $"{wrapperModule}.framework";
-                    if (!Directory.Exists(fwDir))
+                    if (!File.Exists(xcfw / "Info.plist"))
+                        failures.Add($"missing xcframework Info.plist: {native}{wrapperModule}.xcframework/Info.plist");
+
+                    foreach (var sliceId in sliceIds)
                     {
-                        failures.Add($"missing .framework: runtimes/{rid}/native/{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/");
-                        continue;
+                        var slice = xcfw / sliceId;
+                        if (!Directory.Exists(slice))
+                        {
+                            failures.Add($"missing slice: {native}{wrapperModule}.xcframework/{sliceId}/");
+                            continue;
+                        }
+                        var fwDir = slice / $"{wrapperModule}.framework";
+                        if (!Directory.Exists(fwDir))
+                        {
+                            failures.Add($"missing .framework: {native}{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/");
+                            continue;
+                        }
+                        if (!File.Exists(fwDir / wrapperModule))
+                            failures.Add($"missing binary: {native}{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/{wrapperModule}");
+                        if (!File.Exists(fwDir / "Info.plist"))
+                        {
+                            failures.Add($"missing Info.plist: {native}{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/Info.plist");
+                            continue;
+                        }
+                        verifiedSlices++;
                     }
-                    if (!File.Exists(fwDir / wrapperModule))
-                        failures.Add($"missing binary: runtimes/{rid}/native/{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/{wrapperModule}");
-                    if (!File.Exists(fwDir / "Info.plist"))
-                    {
-                        failures.Add($"missing Info.plist: runtimes/{rid}/native/{wrapperModule}.xcframework/{sliceId}/{wrapperModule}.framework/Info.plist");
-                        continue;
-                    }
-                    verifiedSlices++;
                 }
             }
 
-            var expectedSliceCount = ExpectedXcframeworkLayout.Sum(p => p.Value.Length);
 
             if (failures.Count > 0)
             {
@@ -263,7 +282,7 @@ partial class Build
                 Assert.Fail($"PackGate: verified {verifiedSlices} slice(s), expected {expectedSliceCount} in {nupkgPath}");
             }
 
-            Log.Information("PackGate OK — verified {Slices} slice(s) across {Xcfw} xcframework(s) in {Nupkg}",
+            Log.Information("PackGate OK — verified {Slices} slice(s) across {Platforms} platform(s) in {Nupkg}, no runtimes/ tree",
                 verifiedSlices, ExpectedXcframeworkLayout.Length, Path.GetFileName(nupkgPath));
 
             // 5b. Bridge macOS-exclusion gate (MT158). TipKit has SwiftUI views, so the
@@ -289,9 +308,9 @@ partial class Build
 
             // 6-8. Source xcframework slicing assertions. Packs a second fixture
             //    that references a real multi-platform source xcframework
-            //    and asserts the per-RID slice subset is exact — no extras
+            //    and asserts the per-copy slice subset is exact — no extras
             //    (regression where slicing silently stops working would otherwise
-            //    ship full content under every RID), no missing required slice.
+            //    ship full content under every native/<tfm>/), no missing required slice.
             //    Skipped when the source xcframework isn't available on disk; CI is expected to run
             //    `nuke fetch` beforehand if it wires PackGate in. The consumer-run
             //    end-to-end gate (step 9 below) is independent of the source xcframework and runs
@@ -327,28 +346,8 @@ partial class Build
                 VerifyPackagePInvokesResolve(sourceExtractDir, "source-xcfw");
 
                 var sourceFailures = new List<string>();
-                var verifiedSourceSlices = 0;
-                foreach (var (rid, expectedSlices) in ExpectedSourceXcframeworkLayout)
-                {
-                    var xcfw = sourceExtractDir / "runtimes" / rid / "native" / "Nuke.xcframework";
-                    if (!Directory.Exists(xcfw))
-                    {
-                        sourceFailures.Add($"missing source xcframework: runtimes/{rid}/native/Nuke.xcframework/");
-                        continue;
-                    }
-                    var actualSlices = Directory.EnumerateDirectories(xcfw)
-                        .Select(Path.GetFileName).Where(n => n != null).Cast<string>()
-                        .OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                    var expected = expectedSlices.OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                    if (!actualSlices.SequenceEqual(expected))
-                    {
-                        sourceFailures.Add(
-                            $"runtimes/{rid}/native/Nuke.xcframework/ slice mismatch — " +
-                            $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
-                        continue;
-                    }
-                    verifiedSourceSlices += actualSlices.Length;
-                }
+                var verifiedSourceSlices = VerifyPackedSourceXcframeworkSlices(
+                    sourceExtractDir, "Nuke", missingDetail: null, sourceFailures);
 
                 if (sourceFailures.Count > 0)
                 {
@@ -356,15 +355,15 @@ partial class Build
                         sourceFailures.Count, Path.GetFileName(sourceNupkgPath));
                     foreach (var f in sourceFailures)
                         Log.Error("  {Detail}", f);
-                    Assert.Fail($"PackGate (source-xcfw): {sourceFailures.Count} per-RID slice mismatch(es) in {sourceNupkgPath}");
+                    Assert.Fail($"PackGate (source-xcfw): {sourceFailures.Count} per-copy slice mismatch(es) in {sourceNupkgPath}");
                 }
 
-                Log.Information("PackGate (source-xcfw) OK — verified {Slices} slice(s) across {Rids} RID(s) in {Nupkg}",
+                Log.Information("PackGate (source-xcfw) OK — verified {Slices} slice(s) across {Platforms} platform(s) in {Nupkg}",
                     verifiedSourceSlices, ExpectedSourceXcframeworkLayout.Length, Path.GetFileName(sourceNupkgPath));
 
                 // 7. Filtered-slice NU5123 sanity. The slice-set assertion above already
                 //    guarantees no filtered slice (watchos, maccatalyst) is in the
-                //    nupkg's runtimes/ tree. Defense-in-depth: walk the extract dir and
+                //    nupkg's native/<tfm>/ trees. Defense-in-depth: walk the extract dir and
                 //    fail if any path mentions a filtered slice id, in case a future
                 //    layout change accidentally smuggles them in via a different path.
                 //    Long-path NU5123 from KEPT slices' swiftinterfaces is a separate
@@ -420,10 +419,10 @@ partial class Build
                 //    NuGet inner-pack subgraph because the target's Condition
                 //    referenced @(SwiftFramework) which was empty before discovery
                 //    could fire there. Result: managed-only nupkg, no
-                //    runtimes/<rid>/native/ content, DllNotFoundException at
+                //    native content, DllNotFoundException at
                 //    consumer runtime. This fixture copies the source xcframework
                 //    physically into the project dir, declares NO <SwiftFramework>
-                //    item, and asserts the per-RID native content is still
+                //    item, and asserts the per-copy native content is still
                 //    produced — the exact shape consumers get from
                 //    `dotnet new swift-binding` + a present xcframework.
                 Log.Information("=== PackGate (auto-discover): packing source xcframework fixture without explicit <SwiftFramework> ===");
@@ -448,42 +447,26 @@ partial class Build
                 VerifyPackagePInvokesResolve(autoExtractDir, "auto-discover");
 
                 var autoFailures = new List<string>();
-                var verifiedAutoSlices = 0;
-                foreach (var (rid, expectedSlices) in ExpectedSourceXcframeworkLayout)
-                {
-                    var xcfw = autoExtractDir / "runtimes" / rid / "native" / "Nuke.xcframework";
-                    if (!Directory.Exists(xcfw))
-                    {
-                        autoFailures.Add(
-                            $"missing source xcframework: runtimes/{rid}/native/Nuke.xcframework/ — " +
-                            "auto-discovery did not propagate to the pack target (issue #39 regression)");
-                        continue;
-                    }
-                    var actualSlices = Directory.EnumerateDirectories(xcfw)
-                        .Select(Path.GetFileName).Where(n => n != null).Cast<string>()
-                        .OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                    var expected = expectedSlices.OrderBy(s => s, StringComparer.Ordinal).ToArray();
-                    if (!actualSlices.SequenceEqual(expected))
-                    {
-                        autoFailures.Add(
-                            $"runtimes/{rid}/native/Nuke.xcframework/ slice mismatch — " +
-                            $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
-                        continue;
-                    }
-                    verifiedAutoSlices += actualSlices.Length;
-                }
+                var verifiedAutoSlices = VerifyPackedSourceXcframeworkSlices(
+                    autoExtractDir, "Nuke",
+                    missingDetail: "auto-discovery did not propagate to the pack target (issue #39 regression)",
+                    autoFailures);
 
                 // Wrapper xcframework presence proves the full pipeline ran
                 // (generator + wrapper compile + wrapper pack), not just discovery.
                 // Without this leg a future regression where discovery succeeds but
                 // wrapper pack silently no-ops would still ship a broken nupkg.
-                // Asserting on every RID rather than a single one keeps coverage
-                // matched to the source xcframework slice set.
-                foreach (var (rid, _) in ExpectedSourceXcframeworkLayout)
+                // Asserting on every packed copy rather than a single one keeps coverage
+                // matched to the source xcframework slice set. (A platform with no
+                // lib/<tfm>/ copy at all was already reported by the slice check above.)
+                foreach (var (platform, _) in ExpectedSourceXcframeworkLayout)
                 {
-                    var wrapperXcfw = autoExtractDir / "runtimes" / rid / "native" / "NukeSwiftBindings.xcframework";
-                    if (!Directory.Exists(wrapperXcfw))
-                        autoFailures.Add($"missing wrapper xcframework: runtimes/{rid}/native/NukeSwiftBindings.xcframework/");
+                    foreach (var tfm in PackedLibTfms(autoExtractDir, platform))
+                    {
+                        var wrapperXcfw = PackedNativeDir(autoExtractDir, tfm) / "NukeSwiftBindings.xcframework";
+                        if (!Directory.Exists(wrapperXcfw))
+                            autoFailures.Add($"missing wrapper xcframework: {PackedNativeRelative(tfm)}NukeSwiftBindings.xcframework/");
+                    }
                 }
 
                 // buildTransitive content: the consuming project picks up the
@@ -585,8 +568,8 @@ partial class Build
             validationPromotion?.Record("PackGate");
         });
 
-    // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by NuGet RID
-    // (mirrors Sdk.props _SwiftBindingNuGetRid). Kept as a data-driven expected
+    // Expected nupkg layout for the 4-TFM TipKit fixture. Keyed by platform; the gate
+    // checks native/<tfm>/ for every lib/<tfm>/ of that platform. Kept as a data-driven expected
     // set so a future regression that drops a whole xcframework or slice fails
     // the gate explicitly rather than silently.
     //
@@ -602,33 +585,80 @@ partial class Build
     // arm64-only in the Apple-direct path.
     static readonly KeyValuePair<string, string[]>[] ExpectedXcframeworkLayout =
     [
-        new("ios-arm64",          new[] { "ios-arm64",          "ios-arm64_x86_64-simulator" }),
-        new("tvos-arm64",         new[] { "tvos-arm64",         "tvos-arm64_x86_64-simulator" }),
-        new("osx-arm64",          new[] { "macos-arm64" }),
-        new("maccatalyst-arm64",  new[] { "ios-arm64-maccatalyst" }),
+        new("ios",          new[] { "ios-arm64",          "ios-arm64_x86_64-simulator" }),
+        new("tvos",         new[] { "tvos-arm64",         "tvos-arm64_x86_64-simulator" }),
+        new("macos",        new[] { "macos-arm64" }),
+        new("maccatalyst",  new[] { "ios-arm64-maccatalyst" }),
     ];
 
-    // Expected per-RID source-xcframework slice layout for the source-xcfw
-    // fixture. Asserted as an EXACT set (no extras, no missing) — a regression
+    // Expected per-platform source-xcframework slice layout for the source-xcfw
+    // fixture, checked under native/<tfm>/ of every lib/<tfm>/ copy of the platform.
+    // Asserted as an EXACT set (no extras, no missing) — a regression
     // where slicing silently stops working would otherwise quietly ship every
-    // slice under every RID and the gate would still pass. Slice ids are the
+    // slice under every copy and the gate would still pass. Slice ids are the
     // upstream source xcframework's actual on-disk identifiers (e.g. fat
     // `arm64_x86_64-simulator` form, not the workload's normalized names).
-    // The source xcframework ships no maccatalyst slice, so the Catalyst RID is absent from the
+    // The source xcframework ships no maccatalyst slice, so Catalyst is absent from the
     // fixture's TFM list — TipKit fixture above already covers maccatalyst.
     static readonly KeyValuePair<string, string[]>[] ExpectedSourceXcframeworkLayout =
     [
-        new("ios-arm64",   new[] { "ios-arm64", "ios-arm64_x86_64-simulator" }),
-        new("tvos-arm64",  new[] { "tvos-arm64", "tvos-arm64_x86_64-simulator" }),
-        new("osx-arm64",   new[] { "macos-arm64_x86_64" }),
+        new("ios",    new[] { "ios-arm64", "ios-arm64_x86_64-simulator" }),
+        new("tvos",   new[] { "tvos-arm64", "tvos-arm64_x86_64-simulator" }),
+        new("macos",  new[] { "macos-arm64_x86_64" }),
     ];
+
+    // Checks the source xcframework <module>.xcframework under native/<tfm>/ of every
+    // lib/<tfm>/ copy of each platform in ExpectedSourceXcframeworkLayout, as an EXACT slice
+    // set. A platform with no copy, a missing xcframework or a slice mismatch is a failure.
+    // Returns the number of slices verified.
+    static int VerifyPackedSourceXcframeworkSlices(
+        AbsolutePath extractDir, string module, string? missingDetail, List<string> failures)
+    {
+        var verified = 0;
+        foreach (var (platform, expectedSlices) in ExpectedSourceXcframeworkLayout)
+        {
+            var tfms = PackedLibTfms(extractDir, platform);
+            if (tfms.Count == 0)
+            {
+                failures.Add($"no lib/<tfm>/ copy for platform {platform}, so no native/<tfm>/{module}.xcframework/ to verify");
+                continue;
+            }
+            var expected = expectedSlices.OrderBy(x => x, StringComparer.Ordinal).ToArray();
+            foreach (var tfm in tfms)
+            {
+                var native = PackedNativeRelative(tfm);
+                var xcfw = PackedNativeDir(extractDir, tfm) / $"{module}.xcframework";
+                if (!Directory.Exists(xcfw))
+                {
+                    failures.Add($"missing source xcframework: {native}{module}.xcframework/"
+                                 + (missingDetail == null ? string.Empty : $" — {missingDetail}"));
+                    continue;
+                }
+                var actualSlices = Directory.EnumerateDirectories(xcfw)
+                    .Select(Path.GetFileName).OfType<string>()
+                    .OrderBy(x => x, StringComparer.Ordinal).ToArray();
+                if (!actualSlices.SequenceEqual(expected))
+                {
+                    failures.Add(
+                        $"{native}{module}.xcframework/ slice mismatch — " +
+                        $"expected [{string.Join(", ", expected)}], got [{string.Join(", ", actualSlices)}]");
+                    continue;
+                }
+                verified += actualSlices.Length;
+            }
+        }
+        if (PackedRuntimesDirViolation(extractDir) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
+        return verified;
+    }
 
     // MT158 regression gate. Given the extracted TipKit fixture nupkg and the bridge
     // module name (e.g. "TipKitBridge"), assert the UIKit-only SwiftUI bridge is
-    // excluded on native macOS but preserved on the UIKit RIDs:
-    //   (a) the osx RID ships NO bridge xcframework (pack item gated on !-macos), so
-    //       a native-macOS consumer cannot restore an empty Mach-O slice;
-    //   (b) at least one UIKit RID DOES ship the bridge (the gate must not over-reach
+    // excluded on native macOS but preserved on the UIKit platforms:
+    //   (a) no macOS copy (native/<net*-macos*>/) ships a bridge xcframework (pack item
+    //       gated on !-macos), so a native-macOS consumer cannot restore an empty
+    //       Mach-O slice;
+    //   (b) every UIKit copy DOES ship the bridge (the gate must not over-reach
     //       and drop the bridge where it is valid); and
     //   (c) every emitted consumer .targets that references the bridge carries the
     //       !$(TargetFramework.Contains('-macos')) exclusion on that reference, so a
@@ -640,29 +670,46 @@ partial class Build
     {
         var failures = new List<string>();
 
-        // (a) native-macOS RID must not carry the empty UIKit-only bridge slice.
-        var macosBridge = extractDir / "runtimes" / "osx-arm64" / "native" / $"{bridgeModule}.xcframework";
-        if (Directory.Exists(macosBridge))
-            failures.Add(
-                $"native-macOS bridge slice was packed (MT158 hazard): " +
-                $"runtimes/osx-arm64/native/{bridgeModule}.xcframework/ — the bridge pack " +
-                $"item must be gated on !$(TargetFramework.Contains('-macos')).");
+        // (a) no native-macOS copy may carry the empty UIKit-only bridge slice. The fixture
+        //     targets macOS, so a package with no macOS copy would make this vacuous: fail it.
+        var macosTfms = PackedLibTfms(extractDir, "macos");
+        if (macosTfms.Count == 0)
+            failures.Add("no lib/<net*-macos*>/ copy in the package — the macOS bridge exclusion cannot be checked.");
+        foreach (var tfm in macosTfms)
+        {
+            if (Directory.Exists(PackedNativeDir(extractDir, tfm) / $"{bridgeModule}.xcframework"))
+                failures.Add(
+                    $"native-macOS bridge slice was packed (MT158 hazard): " +
+                    $"{PackedNativeRelative(tfm)}{bridgeModule}.xcframework/ — the bridge pack " +
+                    $"item must be gated on !$(TargetFramework.Contains('-macos')).");
+        }
 
-        // (b) the bridge must still ship on EVERY UIKit RID — guards against the gate
+        // (b) the bridge must still ship in EVERY UIKit copy — guards against the gate
         //     over-reaching and stripping the bridge where SwiftUI views work. The
-        //     fixture spans all three UIKit TFMs, so the bridge must be present on all
-        //     three RIDs; asserting the exact set (not "at least one") catches a
-        //     regression that drops the bridge from a single UIKit platform.
-        var uikitBridgeRids = new[] { "ios-arm64", "tvos-arm64", "maccatalyst-arm64" };
-        var shippedRids = uikitBridgeRids
-            .Where(rid => Directory.Exists(extractDir / "runtimes" / rid / "native" / $"{bridgeModule}.xcframework"))
-            .ToList();
-        var missingRids = uikitBridgeRids.Except(shippedRids).ToList();
-        if (missingRids.Count > 0)
+        //     fixture spans all three UIKit platforms, so the bridge must be present in
+        //     every lib/<tfm>/ copy of each; asserting the exact set (not "at least one")
+        //     catches a regression that drops the bridge from a single UIKit copy.
+        var uikitBridgePlatforms = new[] { "ios", "tvos", "maccatalyst" };
+        var shippedCopies = new List<string>();
+        var missingCopies = new List<string>();
+        foreach (var platform in uikitBridgePlatforms)
+        {
+            var tfms = PackedLibTfms(extractDir, platform);
+            if (tfms.Count == 0)
+                missingCopies.Add($"{platform} (no lib/<tfm>/ copy)");
+            foreach (var tfm in tfms)
+            {
+                if (Directory.Exists(PackedNativeDir(extractDir, tfm) / $"{bridgeModule}.xcframework"))
+                    shippedCopies.Add(tfm);
+                else
+                    missingCopies.Add(tfm);
+            }
+        }
+        if (missingCopies.Count > 0)
             failures.Add(
-                $"bridge xcframework {bridgeModule}.xcframework missing on UIKit RID(s) " +
-                $"[{string.Join(", ", missingRids)}] — the native-macOS exclusion over-reached " +
-                $"(expected the bridge on all of {string.Join(", ", uikitBridgeRids)}).");
+                $"bridge xcframework {bridgeModule}.xcframework missing in UIKit cop(ies) " +
+                $"[{string.Join(", ", missingCopies)}] — the native-macOS exclusion over-reached " +
+                $"(expected the bridge under native/<tfm>/ of every {string.Join(", ", uikitBridgePlatforms)} copy).");
 
         // (c) every consumer .targets that references the bridge must gate that
         //     reference on !-macos.
@@ -695,9 +742,9 @@ partial class Build
         }
 
         Log.Information(
-            "PackGate (bridge-macos-gate) OK — osx RID ships no bridge slice; bridge present on [{Rids}]; " +
+            "PackGate (bridge-macos-gate) OK — macOS cop(ies) [{Macos}] ship no bridge slice; bridge present in [{Copies}]; " +
             "{Count} consumer .targets gate the bridge ref on !-macos",
-            string.Join(", ", shippedRids), bridgeReferencingTargets.Count);
+            string.Join(", ", macosTfms), string.Join(", ", shippedCopies), bridgeReferencingTargets.Count);
     }
 
     static void WritePackGateFixture(AbsolutePath fixtureDir, AbsolutePath nupkgDir)
