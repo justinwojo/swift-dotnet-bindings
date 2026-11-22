@@ -365,3 +365,73 @@ public func flooredCaseModeLatest() -> FlooredCaseMode {
 public func flooredCaseTagLatest() -> FlooredCaseTag {
     return unsafeBitCast(UInt8(2), to: FlooredCaseTag.self)
 }
+
+// MARK: - Floored simple-enum cases inside containers
+//
+// An enum held in an optional, array, set or dictionary crosses as a container the runtime
+// builds from the C# values: each enum's integer is written straight into Swift memory as its tag,
+// with no raw-value conversion and no wrapper switch to refuse it. The binding must refuse a
+// floored case there too, before the container is built.
+
+/// An optional argument.
+public func flooredCaseModeOptionalRawValue(_ mode: FlooredCaseMode?) -> Int32 {
+    return mode?.rawValue ?? -1
+}
+
+/// An array argument: the sum of the raw values.
+public func flooredCaseModeArraySum(_ modes: [FlooredCaseMode]) -> Int32 {
+    return modes.reduce(0) { $0 + $1.rawValue }
+}
+
+/// A set argument: the sum of the raw values.
+public func flooredCaseModeSetSum(_ modes: Set<FlooredCaseMode>) -> Int32 {
+    return modes.reduce(0) { $0 + $1.rawValue }
+}
+
+/// A dictionary argument keyed by the enum: each key's raw value times 100 plus its value.
+public func flooredCaseModeKeyedSum(_ weights: [FlooredCaseMode: Int32]) -> Int32 {
+    return weights.reduce(0) { $0 + $1.key.rawValue * 100 + $1.value }
+}
+
+/// A dictionary argument holding the enum as its values.
+public func flooredCaseModeValueSum(_ modes: [String: FlooredCaseMode]) -> Int32 {
+    return modes.values.reduce(0) { $0 + $1.rawValue }
+}
+
+/// An array of the tag-only enum.
+public func flooredCaseTagArrayOrdinalSum(_ tags: [FlooredCaseTag]) -> Int32 {
+    return tags.reduce(0) { $0 + $1.ordinal }
+}
+
+/// Nested containers: an array of optional arrays.
+public func flooredCaseModeNestedSum(_ groups: [[FlooredCaseMode]?]) -> Int32 {
+    return groups.reduce(0) { total, group in total + (group ?? []).reduce(0) { $0 + $1.rawValue } }
+}
+
+/// A class whose initializer and property setters take containers of the enum.
+public final class FlooredCaseModeHolder {
+    public var modes: [FlooredCaseMode]
+    public var preferred: FlooredCaseMode?
+
+    public init(modes: [FlooredCaseMode]) {
+        self.modes = modes
+        self.preferred = nil
+    }
+
+    public var total: Int32 {
+        return modes.reduce(0) { $0 + $1.rawValue } + (preferred?.rawValue ?? 0) * 100
+    }
+}
+
+// MARK: - Floored simple-enum cases a callback returns
+
+/// A throwing callback returning the enum. A floored case the C# callback returns is refused before
+/// Swift rebuilds the enum from it (below the floor its init(rawValue:) finds no such case), and
+/// the refusal reaches Swift as the error the closure throws.
+public func flooredCaseModeFromThrowingCallback(_ make: () throws -> FlooredCaseMode) -> Int32 {
+    do {
+        return try make().rawValue
+    } catch {
+        return -1
+    }
+}

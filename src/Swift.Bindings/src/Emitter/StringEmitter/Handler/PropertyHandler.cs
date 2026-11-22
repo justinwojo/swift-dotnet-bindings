@@ -1644,6 +1644,9 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             foreach (var proxyName in SuppressedProxyProjectionWalk.CollectSuppressedProxyNames(projection))
                 SuppressedProxyReporting.Record(propertyDecl, SuppressedProxyReporting.Site.ConsumeDegraded, proxyName, AccessorKind.Setter);
 
+            // A floored enum case inside the value is refused while it is still the public value,
+            // before the conversion builds the Swift container the accessor method takes.
+            var refusal = SimpleEnumCaseFloors.ContainedValueRefusalLine(propertyDecl.SwiftTypeSpec, "value", "value", propertyEnv.TypeDatabase);
             var (conv, requiresDisposal) = GetAccessorSetterConversion(projection, "value");
             if (conv != null)
             {
@@ -1656,12 +1659,22 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                         or SetProjection { UsesObjCContainerBridge: true }
                         or DictionaryProjection { UsesObjCContainerBridge: true }
                         ? "__val.Handle" : "__val";
-                    csWriter.WriteLine($"set {{ using var __val = {conv}; {methodName}({valArg}); }}");
+                    csWriter.WriteLine($"set {{ {(refusal is null ? "" : refusal + " ")}using var __val = {conv}; {methodName}({valArg}); }}");
+                }
+                else if (refusal != null)
+                {
+                    csWriter.WriteLine($"set {{ {refusal} {methodName}({conv}); }}");
                 }
                 else
                 {
                     csWriter.WriteLine($"set => {methodName}({conv});");
                 }
+                return;
+            }
+            // No conversion: the accessor method takes the public value as it is.
+            if (refusal != null && !isNarrowedNint)
+            {
+                csWriter.WriteLine($"set {{ {refusal} {methodName}(value); }}");
                 return;
             }
         }

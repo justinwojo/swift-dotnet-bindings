@@ -110,13 +110,17 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   differs only in <c>inout</c> keeps a key per overload instead of sharing one and losing both
 ///   floors. A v9 host keys the <c>inout</c> overload unmarked, where a v10 consumer no longer
 ///   looks, and its floor would detach silently.</item>
+/// <item><b>v12</b> — that key ends an <c>async</c> declaration's signature with <c>@async</c>,
+///   so a sync and an async overload (<c>init(rawValue:)</c> beside <c>init(rawValue:) async</c>)
+///   keep a key each instead of the sync one taking the async one's floor. A v11 host keys the
+///   async overload unmarked, where a v12 consumer no longer looks.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 11;
+    public const int ExpectedSchemaVersion = 12;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

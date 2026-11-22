@@ -543,7 +543,8 @@ public static partial class SwiftUIBridgeEmitter
                     CSharpPInvokeType: abiMapping.Value.CSharpType,
                     BridgeTypeName: swiftSimpleName,
                     CSharpTypeName: csharpName,
-                    IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+                    IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum),
+                    CaseFloorGuard: record.CaseFloorGuard);
             }
 
             // Non-raw-value enums (associated values, no RawRepresentable conformance):
@@ -1066,7 +1067,13 @@ public record BridgeParameter(
     string? OriginalSwiftName = null,
     /// <summary>The init parameter's own closure type, for a closure parameter the bridge stores
     /// and passes to the View's init. Null for every other kind.</summary>
-    ClosureTypeSpec? SwiftClosureType = null)
+    ClosureTypeSpec? SwiftClosureType = null,
+    /// <summary>For a simple <see cref="BridgeParameterKind.BoundEnum"/> with a case floored above
+    /// the enum, the enum's <c>Require</c> (<see cref="TypeRecord.CaseFloorGuard"/>): every value the
+    /// C# side hands the bridge passes through it, so a case the running OS lacks is refused with
+    /// <see cref="System.PlatformNotSupportedException"/> before the bridge's <c>init(rawValue:)</c>
+    /// turns it into a null session or a dropped update. Null otherwise.</summary>
+    string? CaseFloorGuard = null)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

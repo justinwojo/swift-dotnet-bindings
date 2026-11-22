@@ -275,9 +275,8 @@ internal static class MemberSignatureNormalizer
     /// the interface producer's <c>buildAvailabilityParamSignature</c>, so overloads differing only
     /// in <c>inout</c> keep their own floors.
     /// </summary>
-    public static string BuildAvailabilitySignature(IReadOnlyList<string> rawParamTypes)
+    public static string BuildAvailabilitySignature(IReadOnlyList<string> rawParamTypes, bool isAsync = false)
     {
-        if (rawParamTypes.Count == 0) return string.Empty;
         var sb = new StringBuilder();
         for (int i = 0; i < rawParamTypes.Count; i++)
         {
@@ -286,8 +285,26 @@ internal static class MemberSignatureNormalizer
                 sb.Append("inout ");
             sb.Append(NormalizeParamType(rawParamTypes[i]));
         }
-        return sb.ToString();
+        return WithAsyncMarker(sb.ToString(), isAsync);
     }
+
+    /// <summary>
+    /// The trailing element of an <c>async</c> declaration's availability signature. Swift
+    /// overloads on <c>async</c>, so <c>init(rawValue:) async</c> beside <c>init(rawValue:)</c>
+    /// would otherwise share one key and the sync initializer would take the async one's floor.
+    /// <c>@</c> starts no parameter type, so the marker never reads as one. Mirrors the interface
+    /// producer's <c>asyncSignatureMarker</c>.
+    /// </summary>
+    public const string AsyncSignatureMarker = "@async";
+
+    /// <summary>
+    /// <paramref name="signature"/> ended with <see cref="AsyncSignatureMarker"/> when the
+    /// declaration is <paramref name="isAsync"/>, unchanged otherwise.
+    /// </summary>
+    public static string WithAsyncMarker(string signature, bool isAsync) =>
+        !isAsync ? signature
+        : signature.Length == 0 ? AsyncSignatureMarker
+        : signature + "," + AsyncSignatureMarker;
 
     /// <summary>
     /// Composes a disambiguated availability key from a bare member key and a
@@ -298,6 +315,22 @@ internal static class MemberSignatureNormalizer
     public static string ComposeKey(string bareKey, string signature)
     {
         return string.IsNullOrEmpty(signature) ? bareKey : bareKey + "|" + signature;
+    }
+
+    /// <summary>
+    /// Looks up a member's availability: under <c>{bareKey}|{signature}</c> first, then under the
+    /// bare key, which holds a member whose name has one overload. Unlike <see cref="ComposeKey"/>
+    /// an empty signature (no parameters) is tried as <c>{bareKey}|</c>, where the interface
+    /// producer keys it when an <c>async</c> sibling shares its name: the sibling's own lookup
+    /// falls back to the bare key, which must then not hold the sync member's floor. A
+    /// <see langword="null"/> signature (one that could not be computed) reads the bare key only.
+    /// </summary>
+    public static bool TryGetMemberAvailability<TValue>(IReadOnlyDictionary<string, TValue> availability,
+        string bareKey, string? signature, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out TValue annotations)
+    {
+        if (signature != null && availability.TryGetValue(bareKey + "|" + signature, out annotations))
+            return true;
+        return availability.TryGetValue(bareKey, out annotations);
     }
 
     private static readonly string[] _prefixesToStrip = new[]

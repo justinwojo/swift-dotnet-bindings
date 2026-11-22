@@ -336,6 +336,23 @@ namespace BindingsGeneration
             };
         }
 
+        /// <summary>
+        /// These facts reduced to availability (the annotations and their source positions), every
+        /// other fact empty. A dependency read for the bound module takes only its declarations'
+        /// floors from its interface: the bound module refuses what the running OS lacks from them
+        /// (a dependency enum's floored cases), while every other dependency decision stays the one
+        /// its ABI read makes, so the declarations it contributes do not otherwise change.
+        /// </summary>
+        public SwiftInterfaceFacts AvailabilityOnly()
+        {
+            var empty = Empty;
+            return empty with
+            {
+                AvailabilityAnnotations = AvailabilityAnnotations,
+                AvailabilityAnnotationPositions = AvailabilityAnnotationPositions,
+            };
+        }
+
         /// <summary>The "no swiftinterface" sentinel — every collection empty. Hand this to
         /// <see cref="SwiftABIParser"/> when no swiftinterface is available (dependency
         /// modules, test fixtures); behavior is identical to passing <c>null</c> for each

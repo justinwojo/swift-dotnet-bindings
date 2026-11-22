@@ -862,6 +862,11 @@ namespace BindingsGeneration
             var methodName = NameProvider.GetMethodName(setter.Method.Name, null);
             bool isCdecl = setter.Method.UsesCdeclPropertyWrapper;
             var (convertedArgs, setupLines, usingLines) = BuildIndexParamConversions(paramInfos, isCdecl);
+            // A floored enum case inside the new value is refused while it is still the public value:
+            // the conversion below builds the Swift container the raw-typed accessor method takes.
+            // (The indexer planner refuses container indices, so only the value can hold one.)
+            if (SimpleEnumCaseFloors.ContainedValueRefusalLine(subscriptDecl.ReturnTypeSpec, "value", "value", typeDatabase) is { } valueRefusal)
+                usingLines.Insert(0, valueRefusal);
             var args = convertedArgs;
             bool hasStringIndexParam = isCdecl && paramInfos.Any(p => p.projection is StringProjection);
 
