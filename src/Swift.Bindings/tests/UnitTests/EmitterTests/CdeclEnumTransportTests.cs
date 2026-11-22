@@ -120,29 +120,4 @@ public class CdeclEnumTransportTests
         };
         Assert.Equal(expected, SimpleEnumCrossing.CrossesAsRawValue(record));
     }
-
-    [Fact]
-    public void ScalarToOptionalCase_RawValueUsesFailableInit_TagLoadsTheCaseOnlyInRange()
-    {
-        Assert.Equal("M.E(rawValue: v)", SimpleEnumCrossing.ScalarToOptionalCase(true, 0, "M.E", "v"));
-        var tag = SimpleEnumCrossing.ScalarToOptionalCase(false, 3, "M.E", "v");
-        // A tag outside the enum's cases names no case: the site gets nil, as init(rawValue:) gives it.
-        Assert.Contains("..<3).contains(Swift.Int64(truncatingIfNeeded: v))", tag);
-        Assert.Contains("Swift.Optional<M.E>.some(", tag);
-        Assert.Contains("load(as: M.E.self)", tag);
-        Assert.EndsWith(": Swift.Optional<M.E>.none", tag);
-        Assert.DoesNotContain("rawValue", tag);
-        // A tag-crossing enum with no known case count cannot be range-checked, so emission refuses it.
-        Assert.Throws<InvalidOperationException>(() => SimpleEnumCrossing.ScalarToOptionalCase(false, 0, "M.E", "v"));
-    }
-
-    [Fact]
-    public void CaseToScalar_RawValueConverts_TagCopiesTheEnumBytes()
-    {
-        Assert.Equal("Int64((x).rawValue)", SimpleEnumCrossing.CaseToScalar(true, "M.E", "Int64", "x"));
-        var tag = SimpleEnumCrossing.CaseToScalar(false, "M.E", "Int64", "x");
-        Assert.Contains("var __sbTag: Int64 = 0", tag);
-        Assert.Contains("byteCount: Swift.MemoryLayout<M.E>.size", tag);
-        Assert.DoesNotContain("rawValue", tag);
-    }
 }

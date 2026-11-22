@@ -1023,10 +1023,10 @@ public class ClosureEmitterDirectTests
     }
 
     [Fact]
-    public void SwiftClosureAdapter_CaseTagEnumArg_CopiesTheTagNotTheRawValue()
+    public void SwiftClosureAdapter_CaseTagEnumArg_MapsTheCaseNotTheRawValue()
     {
-        // A plain Swift `enum: Int` whose raw values its interface omits crosses as its case tag,
-        // so the adapter hands managed code the tag bytes, never `.rawValue`.
+        // A plain Swift `enum: Int` whose raw values its interface omits crosses by case identity,
+        // so the adapter hands managed code the case's constant, never `.rawValue` or its bytes.
         var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
 
@@ -1040,7 +1040,8 @@ public class ClosureEmitterDirectTests
 
         var result = string.Join("\n", lines);
         Assert.DoesNotContain("rawValue", result);
-        Assert.Contains("MemoryLayout", result);
+        Assert.DoesNotContain("MemoryLayout", result);
+        Assert.Matches(@"\(truncatingIfNeeded: __sbIndexOf_\w*TaggedShade_[0-9A-F]+\(p0\)\)", result);
     }
 
     private static TypeDatabase CreateTypeDatabaseWithSimpleEnum()
@@ -1083,7 +1084,9 @@ public class ClosureEmitterDirectTests
                 Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = "Int",
-                RawValueCrossesAsCaseTag = true
+                RawValueCrossesAsCaseTag = true,
+                CrossingCases = new[] { new SimpleEnumCrossingCase("light", 0, null), new SimpleEnumCrossingCase("dark", 1, null) },
+                CrossingSlotCount = 2
             });
         // Tag-only enum: payload-less with NO raw value. hasRawValue is false, so the invoke
         // thunk has no .rawValue to use and must copy the enum's tag bytes through a scalar.
@@ -1095,8 +1098,10 @@ public class ClosureEmitterDirectTests
                 SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.PlainMode"),
                 MetadataAccessor = "$s10TestModule9PlainModeOMa",
                 Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
-                Kind = TypeRecordKind.Enum
+                Kind = TypeRecordKind.Enum,
                 // RawValueTypeName omitted → tag-only
+                CrossingCases = new[] { new SimpleEnumCrossingCase("fast", 0, null), new SimpleEnumCrossingCase("slow", 1, null) },
+                CrossingSlotCount = 2
             });
         typeDatabase.AddModuleDatabase(testModule);
 
@@ -1662,11 +1667,11 @@ public class ClosureEmitterDirectTests
     }
 
     [Fact]
-    public void EmitSwiftInvokeThunk_TagOnlyEnumArgAndReturn_CopiesTagBytes()
+    public void EmitSwiftInvokeThunk_TagOnlyEnumArgAndReturn_MapsByCase()
     {
         // Closure: (PlainMode) -> PlainMode. PlainMode is a tag-only simple enum (no raw value),
-        // so there is no .rawValue. The thunk must copy the enum's tag bytes through a
-        // zero-initialised scalar in both directions (load on the arg side, byte copy on return).
+        // so there is no .rawValue. The thunk maps the constant to the case and back through the
+        // enum's helpers, never through the enum's bytes.
         var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
         var closureHandler = new ClosureHandler(typeDatabase);
         var closureTypeSpec = new ClosureTypeSpec(
@@ -1683,11 +1688,13 @@ public class ClosureEmitterDirectTests
         var result = output.ToString();
         // Tag-only enums have no rawValue — must NOT emit init(rawValue:) or .rawValue.
         Assert.DoesNotContain("rawValue", result);
-        // Arg side: load the enum from the incoming scalar's bytes.
-        Assert.Contains("load(as: PlainMode.self)", result);
-        // Return side: byte-copy the enum into a zero-initialised scalar.
-        Assert.Contains("var __scalar: Swift.Int32 = 0", result);
-        Assert.Contains("MemoryLayout<TestModule.PlainMode>.size", result);
+        Assert.DoesNotContain("load(as:", result);
+        Assert.DoesNotContain("MemoryLayout<TestModule.PlainMode>", result);
+        // Arg side: the constant names a case, or the thunk refuses it.
+        Assert.Contains("guard let __sbCase = __sbCaseOf_", result);
+        Assert.Contains("names no case of", result);
+        // Return side: the case's constant.
+        Assert.Contains("(truncatingIfNeeded: __sbIndexOf_TestModule_PlainMode_", result);
     }
 
     [Fact]

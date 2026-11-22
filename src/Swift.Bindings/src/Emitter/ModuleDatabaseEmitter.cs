@@ -384,6 +384,23 @@ namespace BindingsGeneration
             // Only emitted when at least one annotation is present; omission round-trips
             // to null on read, which the consumer treats as "no availability info" (legacy
             // database or always-available type — same fallback as before this field existed).
+            // The cases a simple enum crossing by identity maps its constants to (SimpleEnumCrossing).
+            if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0 && record.CrossingCases is { } crossingCases)
+            {
+                writer.WriteStartElement("crossingCases");
+                writer.WriteAttributeString("slots", record.CrossingSlotCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                foreach (var crossingCase in crossingCases)
+                {
+                    writer.WriteStartElement("case");
+                    writer.WriteAttributeString("name", crossingCase.SwiftName);
+                    writer.WriteAttributeString("value", crossingCase.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                    if (crossingCase.AvailableClause != null)
+                        writer.WriteAttributeString("available", crossingCase.AvailableClause);
+                    writer.WriteEndElement();
+                }
+                writer.WriteEndElement();
+            }
+
             if (record.AvailabilityAnnotations is { Count: > 0 } annotations)
             {
                 writer.WriteStartElement("availability");

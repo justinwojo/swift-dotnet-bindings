@@ -827,6 +827,20 @@ public static partial class ClosureEmitter
                 """;
         }
 
+        // Optional of a simple enum crossing by identity: the adapter sized the buffer for the managed
+        // one-byte carrier (SimpleEnumCrossing.GetOptionalCarrierMap) and reads the case from it, so
+        // the callback writes its SwiftOptional's carrier, which refuses a value that names no case.
+        if (csharpTypeOverride is null &&
+            SimpleEnumCrossing.GetOptionalCarrierMap(returnType, closureHandler.TypeDatabase) is not null)
+        {
+            var enumType = closureHandler.TranslateTypeSpecToCSharp(((NamedTypeSpec)returnType).GenericParameters[0]);
+            return $$"""
+                    var {{local}} = {{resultExpr}};
+                            using var {{local}}Opt = {{local}} is { } {{local}}Value ? SwiftOptional<{{enumType}}>.NewSome({{local}}Value) : SwiftOptional<{{enumType}}>.NewNone();
+                            *(byte*)(void*){{bufferExpr}} = *(byte*){{local}}Opt.Payload.DangerousGetHandle();
+                """;
+        }
+
         // Optional<resilient struct / payload enum>: the buffer is an Optional<T>, but the managed
         // `T?` is only an annotation over the wrapper class, so the generic write below would use T's
         // metadata and never store the empty case. Build the whole Optional and copy it in.

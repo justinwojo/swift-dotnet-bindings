@@ -223,6 +223,20 @@ public static partial class ClosureEmitter
                 *(IntPtr*)indirectResult = result.Handle;
                 """;
         }
+        else if (useCdecl && SimpleEnumCrossing.GetOptionalCarrierMap(closureTypeSpec.ReturnType, closureHandler.TypeDatabase) is not null)
+        {
+            // Optional of a simple enum crossing by identity: the @_cdecl adapter reads the case from
+            // the managed one-byte carrier, so write the SwiftOptional's carrier (which refuses a value
+            // that names no case), not a metadata-sized copy of the Swift layout.
+            var enumType = closureHandler.TranslateTypeSpecToCSharp(((NamedTypeSpec)closureTypeSpec.ReturnType!).GenericParameters[0]);
+            marshalBlock = $$"""
+                // Optional simple enum: write the managed carrier byte.
+                using var _swiftOpt = result is { } _resultValue
+                    ? SwiftOptional<{{enumType}}>.NewSome(_resultValue)
+                    : SwiftOptional<{{enumType}}>.NewNone();
+                *(byte*)indirectResult = *(byte*)_swiftOpt.Payload.DangerousGetHandle();
+                """;
+        }
         else if (isOptionalValueWrapper)
         {
             var payloadType = closureHandler.TranslateTypeSpecToCSharp(optionalPayload);

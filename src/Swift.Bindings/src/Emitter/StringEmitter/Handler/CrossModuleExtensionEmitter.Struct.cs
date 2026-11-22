@@ -365,9 +365,9 @@ public static partial class CrossModuleExtensionEmitter
                     : null,
                 SimpleEnumCrossesAsRawValue: paramCategory == ParamKind.SimpleEnum
                     && ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(arg.SwiftTypeSpec, typeDatabase),
-                SimpleEnumCaseTagCount: paramCategory == ParamKind.SimpleEnum
-                    ? ExtensionMarshallingHelper.SimpleEnumCaseTagCount(arg.SwiftTypeSpec, typeDatabase)
-                    : 0));
+                SimpleEnumCaseMap: paramCategory == ParamKind.SimpleEnum
+                    ? ExtensionMarshallingHelper.SimpleEnumCaseMap(arg.SwiftTypeSpec, typeDatabase)
+                    : null));
         }
 
         var methodName = NameProvider.ToPascalCase(method.Name);
@@ -680,7 +680,7 @@ public static partial class CrossModuleExtensionEmitter
             if (p.Kind == ParamKind.SimpleEnum)
             {
                 var reconstructed = SimpleEnumCrossing.ScalarToOptionalCase(
-                    p.SimpleEnumCrossesAsRawValue, p.SimpleEnumCaseTagCount, p.SimpleEnumQualifiedSwiftType!, p.SwiftBindingName);
+                    p.SimpleEnumCrossesAsRawValue ? null : p.SimpleEnumCaseMap, p.SimpleEnumQualifiedSwiftType!, p.SwiftBindingName);
                 swiftWriter.WriteLine($"guard let {p.SwiftBindingName}Val = {reconstructed} else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({p.SwiftBindingName}) for {p.SimpleEnumQualifiedSwiftType}\") }}");
             }
         }
@@ -718,7 +718,7 @@ public static partial class CrossModuleExtensionEmitter
                 break;
             case ReturnKind.Primitive when returnEnumLowering is { } retEnum:
                 // Simple-enum return: surface the scalar the enum crosses as (SimpleEnumCrossing).
-                swiftWriter.WriteLine($"return {SimpleEnumCrossing.CaseToScalar(retEnum.CrossesAsRawValue, retEnum.QualifiedSwiftType, retEnum.UnderlyingSwiftType, callExpr)}");
+                swiftWriter.WriteLine($"return {SimpleEnumCrossing.CaseToScalar(retEnum.CrossesAsRawValue ? null : retEnum.CaseMap, retEnum.QualifiedSwiftType, retEnum.UnderlyingSwiftType, callExpr)}");
                 break;
             case ReturnKind.Primitive:
                 swiftWriter.WriteLine($"return {callExpr}");
@@ -782,7 +782,7 @@ public static partial class CrossModuleExtensionEmitter
         switch (returnCategory)
         {
             case ReturnKind.Primitive when returnEnumLowering is { } retEnum:
-                swiftWriter.WriteLine($"return {SimpleEnumCrossing.CaseToScalar(retEnum.CrossesAsRawValue, retEnum.QualifiedSwiftType, retEnum.UnderlyingSwiftType, accessExpr)}");
+                swiftWriter.WriteLine($"return {SimpleEnumCrossing.CaseToScalar(retEnum.CrossesAsRawValue ? null : retEnum.CaseMap, retEnum.QualifiedSwiftType, retEnum.UnderlyingSwiftType, accessExpr)}");
                 break;
             case ReturnKind.Primitive:
                 swiftWriter.WriteLine($"return {accessExpr}");
@@ -830,7 +830,7 @@ public static partial class CrossModuleExtensionEmitter
         swiftWriter.Indent++;
         if (enumLowering is { } el)
         {
-            var reconstructed = SimpleEnumCrossing.ScalarToOptionalCase(el.CrossesAsRawValue, el.CaseTagCount, el.QualifiedSwiftType, "newValue");
+            var reconstructed = SimpleEnumCrossing.ScalarToOptionalCase(el.CrossesAsRawValue ? null : el.CaseMap, el.QualifiedSwiftType, "newValue");
             swiftWriter.WriteLine($"guard let newValueVal = {reconstructed} else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\(newValue) for {el.QualifiedSwiftType}\") }}");
             swiftWriter.WriteLine($"self_.assumingMemoryBound(to: {origSwiftTypeQualified}.self).pointee.{NameProvider.EscapeSwiftKeyword(property.Name)} = newValueVal");
         }
@@ -975,7 +975,7 @@ public static partial class CrossModuleExtensionEmitter
             return null;
         return new SimpleEnumLowering(cs!, sw!, qs!,
             ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(typeSpec, typeDatabase),
-            ExtensionMarshallingHelper.SimpleEnumCaseTagCount(typeSpec, typeDatabase));
+            ExtensionMarshallingHelper.SimpleEnumCaseMap(typeSpec, typeDatabase));
     }
 
     /// <summary>
@@ -1013,7 +1013,7 @@ public static partial class CrossModuleExtensionEmitter
         string UnderlyingSwiftType,
         string QualifiedSwiftType,
         bool CrossesAsRawValue,
-        int CaseTagCount);
+        SimpleEnumCaseMap? CaseMap);
 
     private static string SafeTypeName(string name) => name.Replace(".", "_");
 
@@ -1036,8 +1036,8 @@ public static partial class CrossModuleExtensionEmitter
         string? SimpleEnumCaseFloorGuard = null,
         // Whether the enum crosses as .rawValue rather than its case tag (SimpleEnumCrossing).
         bool SimpleEnumCrossesAsRawValue = false,
-        // Its case count when it crosses as the case tag, which an incoming tag is checked against.
-        int SimpleEnumCaseTagCount = 0,
+        // Its case map when it crosses by case identity (SimpleEnumCrossing).
+        SimpleEnumCaseMap? SimpleEnumCaseMap = null,
         // Seeded by EmitSwiftMethodTrampoline (via `with`) once the full param list is known, so
         // the escape can also dodge sibling bindings. Null until then → synthetic-only fallback.
         string? ResolvedSwiftBinding = null)

@@ -595,6 +595,27 @@ namespace BindingsGeneration
                 // that predate this field, in which case the cross-module availability merge
                 // falls back to parent-only behavior (the dependency type is treated as
                 // always-available, preserving prior behavior).
+                // Simple-enum crossing cases. Optional element — null on a database that predates it.
+                IReadOnlyList<SimpleEnumCrossingCase>? crossingCases = null;
+                int crossingSlotCount = 0;
+                XmlNode? crossingCasesNode = typeDeclarationNode?.SelectSingleNode("crossingCases");
+                if (crossingCasesNode != null)
+                {
+                    var list = new List<SimpleEnumCrossingCase>();
+                    foreach (XmlNode? caseNode in crossingCasesNode.ChildNodes)
+                    {
+                        if (caseNode?.NodeType != XmlNodeType.Element || caseNode.Name != "case") continue;
+                        var caseName = caseNode.Attributes?["name"]?.Value;
+                        var caseValue = caseNode.Attributes?["value"]?.Value;
+                        if (string.IsNullOrEmpty(caseName)
+                            || !long.TryParse(caseValue, System.Globalization.NumberStyles.AllowLeadingSign, System.Globalization.CultureInfo.InvariantCulture, out var parsedValue))
+                            continue;
+                        list.Add(new SimpleEnumCrossingCase(caseName, parsedValue, caseNode.Attributes?["available"]?.Value));
+                    }
+                    crossingCases = list;
+                    _ = int.TryParse(crossingCasesNode.Attributes?["slots"]?.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out crossingSlotCount);
+                }
+
                 IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null;
                 XmlNode? availabilityNode = typeDeclarationNode?.SelectSingleNode("availability");
                 if (availabilityNode != null)
@@ -697,6 +718,8 @@ namespace BindingsGeneration
                     HasCaseFloorGuard = string.Equals(hasCaseFloorGuard, "true", StringComparison.OrdinalIgnoreCase),
                     RawValueCrossesAsCaseTag = string.Equals(rawValueCrossesAsCaseTag, "true", StringComparison.OrdinalIgnoreCase),
                     CaseTagCount = int.TryParse(caseTagCountStr, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var caseTagCount) ? caseTagCount : 0,
+                    CrossingCases = crossingCases,
+                    CrossingSlotCount = crossingSlotCount,
                 };
 
                 moduleDatabase.Register(swiftTypeName, typeRecord, ConflictPolicy.Overwrite);

@@ -523,6 +523,22 @@ public record TypeRecord
     public int CaseTagCount { get; init; }
 
     /// <summary>
+    /// The cases of a simple enum that crosses by case identity rather than as its raw value
+    /// (<see cref="SimpleEnumCrossing.GetCaseMap(TypeRecord)"/>): each nameable case with its C#
+    /// constant and the availability clause it needs. Persisted across the cross-module XML round-trip
+    /// so a downstream wrapper maps the same constants to the same cases; null on a database that
+    /// predates the list, whose values cross as the in-memory tag as they did then.
+    /// </summary>
+    public IReadOnlyList<SimpleEnumCrossingCase>? CrossingCases { get; init; }
+
+    /// <summary>
+    /// The number of C# constant slots of a simple enum with <see cref="CrossingCases"/>: one per
+    /// declared case, @_spi ones included. The unnamed values of cases the binding does not know are
+    /// kept above it. Persisted with <see cref="CrossingCases"/>.
+    /// </summary>
+    public int CrossingSlotCount { get; init; }
+
+    /// <summary>
     /// The fully qualified <c>Require</c> of a simple enum with <see cref="HasCaseFloorGuard"/>, named
     /// from the record's current C# name so it follows a rename of an enclosing type; null otherwise.
     /// </summary>

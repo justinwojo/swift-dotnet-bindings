@@ -355,6 +355,18 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
+        // Optional<simple enum crossing by identity>: the managed SwiftOptional<T> holds its one-byte
+        // carrier (the C# constant, or the case count for nil), not Swift's layout, whose tags need not
+        // follow the interface's order. Read the carrier and map it to the case.
+        if (SimpleEnumCrossing.GetOptionalCarrierMap(swiftTypeSpec, env.TypeDatabase) is { } carrierMap)
+        {
+            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(((NamedTypeSpec)swiftTypeSpec).GenericParameters[0]);
+            return Simple(CdeclParamCategory.GenericContainer,
+                    $"_ {label}: Swift.UnsafeRawPointer",
+                    $"let {label}Val = {SimpleEnumCrossing.OptionalCarrierToCase(carrierMap, innerType, $"{label}.load(as: Swift.UInt8.self)")}",
+                    $"{argLabel}{label}Val");
+        }
+
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))
@@ -598,9 +610,11 @@ public static class CdeclParamMapper
                     // RawValue at all, because its RawValue is not a C-ABI scalar (Bool,
                     // floating-point, String), or because it is a non-@objc integral enum whose raw
                     // values no input carries (SimpleEnumCrossing); the managed enum carries the
-                    // ordinal in each case. C# sends that index as a widened integer; extract the tag from the low
-                    // bytes via a safe memory load (little-endian: tag is in the first N bytes).
-                    conversion = $"var {label}Raw = {label}; let {label}Val = Swift.withUnsafeMutablePointer(to: &{label}Raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }}";
+                    // ordinal in each case. That constant maps to its case by name (SimpleEnumCrossing),
+                    // never by loading it as the enum's bytes: the binary's tags need not follow the
+                    // interface's order.
+                    // (A record from a module database without the case list loads the tag, as it did.)
+                    conversion = $"let {label}Val = {SimpleEnumCrossing.ScalarToCaseOrTrap(SimpleEnumCrossing.GetCaseMap(typeRecord)!, swiftType, label)}";
                 }
 
                 return Simple(CdeclParamCategory.SimpleEnum, $"_ {label}: {rawType}", conversion, $"{argLabel}{label}Val");

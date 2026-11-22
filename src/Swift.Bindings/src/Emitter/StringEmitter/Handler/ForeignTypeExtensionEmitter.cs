@@ -1239,8 +1239,7 @@ public static class ForeignTypeExtensionEmitter
                 // matching CrossModuleExtensionEmitter's identical SimpleEnum reconstruction).
                 var localName = $"{paramName}Val";
                 var reconstructed = SimpleEnumCrossing.ScalarToOptionalCase(
-                    ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(typeSpec, typeDatabase),
-                    ExtensionMarshallingHelper.SimpleEnumCaseTagCount(typeSpec, typeDatabase), qualifiedSwiftType!, paramName);
+                    ExtensionMarshallingHelper.SimpleEnumCaseMap(typeSpec, typeDatabase), qualifiedSwiftType!, paramName);
                 ctx.AddForeignExtWrapperLine($"    guard let {localName} = {reconstructed} else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
@@ -2145,11 +2144,11 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
-    /// The scalar a simple-enum result crosses as: its <c>.rawValue</c>, or its case tag for an enum
-    /// whose raw values no input carries (<see cref="SimpleEnumCrossing"/>).
+    /// The scalar a simple-enum result crosses as: its <c>.rawValue</c>, or its case's C# constant for
+    /// an enum whose raw values no input carries (<see cref="SimpleEnumCrossing"/>).
     /// </summary>
     private static string SimpleEnumReturnScalar(TypeSpec typeSpec, ITypeDatabase typeDatabase, string scalarType, string valueExpr)
-        => ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(typeSpec, typeDatabase)
-            ? $"({valueExpr}).rawValue"
-            : SimpleEnumCrossing.CaseToTag(ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec), scalarType, valueExpr);
+        => ExtensionMarshallingHelper.SimpleEnumCaseMap(typeSpec, typeDatabase) is { } map
+            ? SimpleEnumCrossing.CaseToScalar(map, ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec), scalarType, valueExpr)
+            : $"({valueExpr}).rawValue";
 }

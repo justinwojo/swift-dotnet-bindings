@@ -418,7 +418,7 @@ public class SimpleEnumCaseFloorTests
         var env = handler.Marshal(enumDecl, typeDatabase);
         var context = new TypeHandlerContext(null, new(), null, EmissionContext: new ModuleEmissionContext());
         handler.Emit(new CSharpWriter(csOutput), new SwiftWriter(swiftOutput), env, new Conductor(new NullLoggerFactory()), context);
-        return (csOutput.ToString(), swiftOutput.ToString());
+        return (csOutput.ToString(), SimpleEnumCrossing.AppendHelperDefinitions(swiftOutput.ToString()));
     }
 
     private static void AssertParses(string cs)

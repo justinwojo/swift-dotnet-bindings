@@ -1863,7 +1863,8 @@ public static class NestedClosureBridge
                         : paramName;
                     return $"{swiftType}(rawValue: {rawCast})!";
                 }
-                return $"{{ var __raw = {paramName}; return Swift.withUnsafeMutablePointer(to: &__raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
+                // By case identity (SimpleEnumCrossing); a value naming no case traps.
+                return SimpleEnumCrossing.ScalarToCaseOrTrap(env.ClosureHandler.GetSimpleEnumCaseMap(argType)!, swiftType, paramName);
             }
 
             // ObjC / classes: Unmanaged.fromOpaque().takeUnretainedValue()
@@ -1920,7 +1921,8 @@ public static class NestedClosureBridge
                     // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
                     return $"{enumInfo.Value.swiftScalar}({paramName}.rawValue)";
                 var enumSwiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(argType);
-                return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {paramName}; Swift.withUnsafeMutablePointer(to: &__s) {{ dst in Swift.withUnsafePointer(to: &__e) {{ src in Swift.UnsafeMutableRawPointer(dst).copyMemory(from: Swift.UnsafeRawPointer(src), byteCount: Swift.MemoryLayout<{enumSwiftType}>.size) }} }}; return __s }}()";
+                // By case identity: the case's C# constant (SimpleEnumCrossing).
+                return SimpleEnumCrossing.CaseToScalar(env.ClosureHandler.GetSimpleEnumCaseMap(argType)!, enumSwiftType, enumInfo.Value.swiftScalar, paramName);
             }
 
             // ObjC / classes: Unmanaged.passUnretained().toOpaque()

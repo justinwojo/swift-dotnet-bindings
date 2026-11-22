@@ -546,7 +546,7 @@ public static partial class SwiftUIBridgeEmitter
                     IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum),
                     CaseFloorGuard: record.CaseFloorGuard,
                     CrossesAsCaseTag: !SimpleEnumCrossing.CrossesAsRawValue(record),
-                    CaseTagCount: SimpleEnumCrossing.CaseTagCount(record));
+                    CaseMap: SimpleEnumCrossing.GetCaseMap(record));
             }
 
             // Non-raw-value enums (associated values, no RawRepresentable conformance):
@@ -1076,12 +1076,11 @@ public record BridgeParameter(
     /// <see cref="System.PlatformNotSupportedException"/> before the bridge's <c>init(rawValue:)</c>
     /// turns it into a null session or a dropped update. Null otherwise.</summary>
     string? CaseFloorGuard = null,
-    /// <summary>True for a BoundEnum whose values cross as the case tag rather than
+    /// <summary>True for a BoundEnum whose values cross by case identity rather than
     /// <c>.rawValue</c> (<see cref="SimpleEnumCrossing"/>).</summary>
     bool CrossesAsCaseTag = false,
-    /// <summary>The enum's case count when <see cref="CrossesAsCaseTag"/> (<see cref="TypeRecord.CaseTagCount"/>):
-    /// an incoming tag outside it names no case.</summary>
-    int CaseTagCount = 0)
+    /// <summary>The enum's case map when <see cref="CrossesAsCaseTag"/> (<see cref="SimpleEnumCrossing.GetCaseMap(TypeRecord)"/>).</summary>
+    SimpleEnumCaseMap? CaseMap = null)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

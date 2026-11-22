@@ -349,6 +349,22 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public static unsafe SwiftOptional<T> NewSome(T value)
     {
+        // One byte cannot hold every value of a simple enum's underlying type. A value no member
+        // declares, whose carrier reads back as nil or as another value, would reach Swift as a
+        // case the caller did not pass, so it is refused before anything is allocated. A declared
+        // constant keeps the byte it always had: a raw-value enum's wrapper reads its own layout.
+        bool isDeclaredSimpleEnum = IsSimpleEnumType() && Enum.IsDefined(typeof(T), value!);
+        if (IsSimpleEnumType() && !isDeclaredSimpleEnum)
+        {
+            byte carrier = SimpleEnumCarrierByte(value);
+            if (!IsSimpleEnumCarrierSome(carrier) ||
+                !EqualityComparer<T>.Default.Equals(SimpleEnumFromCarrierByte(carrier), value))
+            {
+                throw new ArgumentOutOfRangeException(nameof(value), value,
+                    $"{typeof(T).Name} value {value} names no case that crosses into Swift as an Optional.");
+            }
+        }
+
         var instance = new SwiftOptional<T>();
         bool success = false;
         instance._payload.DangerousAddRef(ref success);
@@ -363,7 +379,9 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             // enum's integer value directly as a single byte.
             if (IsSimpleEnumType())
             {
-                payload[0] = (byte)Convert.ToInt32(value);
+                // A declared constant writes the byte it always did; an undeclared value passed the
+                // carrier check above.
+                payload[0] = isDeclaredSimpleEnum ? (byte)Convert.ToInt32(value) : SimpleEnumCarrierByte(value);
                 return instance;
             }
 
@@ -518,7 +536,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 // against the case count.
                 if (IsSimpleEnumType())
                 {
-                    return payload[0] < SimpleEnumCaseCount() ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
+                    return IsSimpleEnumCarrierSome(payload[0]) ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
                 }
 
                 // Tag byte fast path: for types without extra inhabitants (optionalSize > innerSize),
@@ -595,8 +613,7 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
                 // Can't use MarshalFromSwift which would read 4 bytes from a 1-byte payload.
                 if (IsSimpleEnumType())
                 {
-                    int caseValue = sourcePayload[0];
-                    return (T)Enum.ToObject(typeof(T), caseValue);
+                    return SimpleEnumFromCarrierByte(sourcePayload[0]);
                 }
 
                 // Copy the payload out into a fresh, independently-owned wrapper. ExtractCopiedValue
@@ -748,6 +765,32 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     private static bool IsSimpleEnumTypeUncached()
     {
         return typeof(T).IsEnum && !typeof(ISwiftObject).IsAssignableFrom(typeof(T));
+    }
+
+    /// <summary>
+    /// The carrier byte of a simple enum value: the low byte of its integer value, whatever the C#
+    /// enum's underlying type. A published constant is its case index (below the case count). A
+    /// case the binding does not name arrives from generated Swift as an unnamed value counted down
+    /// from the top of the underlying type's range, whose low byte is at least <c>0x80</c> and above
+    /// the case count, and sign-extends back to that value (<see cref="SimpleEnumFromCarrierByte"/>).
+    /// </summary>
+    private static byte SimpleEnumCarrierByte(T value) => Unsafe.As<T, byte>(ref value);
+
+    /// <summary>
+    /// Whether a carrier byte holds a value: a case index, or an unnamed value's high byte. The case
+    /// count itself is <c>nil</c>, and so is a byte between it and <c>0x80</c>, which nothing writes.
+    /// </summary>
+    private static bool IsSimpleEnumCarrierSome(byte carrier)
+    {
+        int count = SimpleEnumCaseCount();
+        return carrier < count || (carrier > count && carrier >= 0x80);
+    }
+
+    /// <summary>The value a carrier byte holds (see <see cref="SimpleEnumCarrierByte"/>).</summary>
+    private static T SimpleEnumFromCarrierByte(byte carrier)
+    {
+        long value = carrier < SimpleEnumCaseCount() ? carrier : (sbyte)carrier;
+        return (T)Enum.ToObject(typeof(T), value);
     }
 
     /// <summary>
