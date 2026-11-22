@@ -73,6 +73,23 @@ public sealed class BorrowedExistentialArgument : IDisposable
     }
 
     /// <summary>
+    /// Borrows <paramref name="value"/> on the consumer-owned lane: a setter whose storage does not
+    /// retain (<c>weak</c>/<c>unowned</c>), reached through a frame that borrows its new value. The
+    /// memo behind
+    /// <see cref="ExistentialContainerFactory.GetOrCreateConsumerOwned{TProtocol}(TProtocol, Func{TProtocol, ISwiftExistentialConvertible{ExistentialContainer1}}, out bool, out object)"/>
+    /// roots an auto-wrapped proxy for as long as the implementation lives; a boxable conformer's
+    /// fresh +1 still has nobody else to release it, so the lease destroys it after the call.
+    /// </summary>
+    public static BorrowedExistentialArgument BeginConsumerOwned<TProtocol>(
+        TProtocol value,
+        Func<TProtocol, ISwiftExistentialConvertible<ExistentialContainer1>> wrapFallback)
+        where TProtocol : class
+    {
+        var container = ExistentialContainerFactory.GetOrCreateConsumerOwned(value, wrapFallback, out bool owns, out object? keepAlive);
+        return new BorrowedExistentialArgument(container, owns, keepAlive);
+    }
+
+    /// <summary>
     /// Ends the borrow: destroys the container when boxing minted its +1, and releases the reference
     /// that kept the proxy alive. Idempotent.
     /// </summary>

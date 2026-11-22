@@ -772,7 +772,7 @@ namespace BindingsGeneration
                 // a zero-witness existential (`Any`, markers only) is the plain value UnboxOwned copies
                 // out before destroying the container (as the synchronous return does); a no-proxy
                 // `object` or union carrier adopts it; AnyError adopts it.
-                if (ExistentialHandler.IsZeroWitnessExistential(asyncProtocolList))
+                if (ExistentialHandler.IsZeroWitnessExistential(asyncProtocolList, _env.TypeDatabase))
                     asyncWrapExpr = "Swift.Runtime.ExistentialContainer0.UnboxOwned(__existentialResult)";
                 else if (ExistentialHandler.IsNoProxyExistentialCarrier(asyncPublicType))
                     asyncWrapExpr = ExistentialHandler.NoProxyExistentialRead(asyncPublicType, asyncContainerType, "__existentialResult",
@@ -843,7 +843,7 @@ namespace BindingsGeneration
                 // structural value-witness Destroy releases the payload's +1 — the same opaque-existential
                 // metadata path WrapperEmitter and the proxy emitters already use. The per-shape release
                 // is built by BuildSuppressedExistentialCarrierRelease (unit-locked there).
-                var asyncExistentialArity = ExistentialHandler.GetNonMarkerProtocols(asyncProtocolList).Count;
+                var asyncExistentialArity = ExistentialHandler.GetNonMarkerProtocols(asyncProtocolList, _env.TypeDatabase).Count;
                 var asyncSuppressedRelease = BuildSuppressedExistentialCarrierRelease(
                     _env.ExistentialHandler.IsClassBoundArity1Existential(asyncProtocolList),
                     asyncExistentialArity,

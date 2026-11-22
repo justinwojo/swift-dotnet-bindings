@@ -80,7 +80,7 @@ internal sealed class ExistentialStrategy : IResolutionStrategy
         // Parity with ExistentialHandler.GetEffectiveProtocols: marker and
         // ObjC-bridged protocols are stripped before projection. The single-protocol
         // path then sees an empty effective list and returns "object", not I{Name}.
-        if (ExistentialHandler.IsMarkerProtocol(named))
+        if (ExistentialHandler.IsMarkerProtocol(named, typeDatabase))
             return false;
         if (TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(named))
             return false;

@@ -21,7 +21,7 @@ public class MarkerCompositionLoweringTests
     {
         var db = new TypeDatabase();
         var module = new ModuleTypeDatabase(Module, $"/tmp/{Module}.dylib");
-        void Register(string name, TypeRecordKind kind)
+        void Register(string name, TypeRecordKind kind, TypeRecordFlags flags = TypeRecordFlags.None)
         {
             var swiftName = SwiftTypeName.FromModuleQualifiedName($"{Module}.{name}");
             module.RegisterType(swiftName, new TypeRecord
@@ -29,7 +29,7 @@ public class MarkerCompositionLoweringTests
                 CSharpTypeName = CSharpTypeName.FromNamespaceAndName(Module, name),
                 SwiftTypeName = swiftName,
                 MetadataAccessor = string.Empty,
-                Flags = TypeRecordFlags.None,
+                Flags = flags,
                 Kind = kind,
             });
         }
@@ -38,6 +38,7 @@ public class MarkerCompositionLoweringTests
         Register("Describable", TypeRecordKind.Protocol);
         Register("Box", TypeRecordKind.Struct);
         Register("Shelf", TypeRecordKind.Class);
+        Register("Tag", TypeRecordKind.Protocol, TypeRecordFlags.MarkerProtocol);
         db.AddModuleDatabase(module);
         return db;
     }
@@ -100,6 +101,9 @@ public class MarkerCompositionLoweringTests
     [InlineData("any TestModule.Clip & Swift.Sendable")]
     // Swift's own generic types are invariant: Box<Asset> is not Box<any Asset & Sendable>.
     [InlineData("TestModule.Box<" + Composition + ">")]
+    // A library's own marker is checked statically: a wrapper's plain Asset does not convert to
+    // `any Asset & Tag` unless Asset itself conforms, so only the standard markers are erased.
+    [InlineData("any TestModule.Asset & TestModule.Tag")]
     public void CompositionThatIsNotTheBareClass_IsLeftAlone(string type)
     {
         var original = Spec(type).ToString();

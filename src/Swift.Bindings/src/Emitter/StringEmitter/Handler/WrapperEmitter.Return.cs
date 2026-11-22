@@ -222,7 +222,7 @@ namespace BindingsGeneration
             // Zero-witness existential (Any, or markers only): the public type is 'object', so hand
             // back the plain value, never the container. The read is the callee's +1 copy, which
             // UnboxOwned destroys once the value is out.
-            if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+            if (ExistentialHandler.IsZeroWitnessExistential(protocolList, _env.TypeDatabase))
             {
                 csWriter.WriteLine($"return Swift.Runtime.ExistentialContainer0.UnboxOwned({ExistentialResultName});");
                 return true;
@@ -930,7 +930,7 @@ namespace BindingsGeneration
 
                 // Zero-witness existential (Any, or markers only) → no proxy class; the public type is
                 // the plain value. The container is the callee's +1, which UnboxOwned destroys.
-                if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                if (ExistentialHandler.IsZeroWitnessExistential(protocolList, _env.TypeDatabase))
                 {
                     csWriter.WriteLine($"return Swift.Runtime.ExistentialContainer0.UnboxOwned({ReturnLocalName});");
                     return;

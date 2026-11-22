@@ -115,6 +115,7 @@
       "NativeRegistrationOwnership",
       "NominalTypeDescriptor",
       "OwnedArgument",
+      "OwnedExistentialArgument",
       "PayloadBuffer",
       "PayloadConstructionSemantics",
       "ProtocolConformanceDescriptor",

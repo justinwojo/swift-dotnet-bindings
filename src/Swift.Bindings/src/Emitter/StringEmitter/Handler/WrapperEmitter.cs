@@ -1454,7 +1454,7 @@ namespace BindingsGeneration
                 // A zero-witness existential (bare `Any`, or markers only such as `any Sendable`) is
                 // boxed from a plain C# value by ExistentialContainer0.Box, which always yields a +1
                 // the borrowing wrapper copies rather than consumes — so it too threads an owns-bit.
-                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList);
+                bool zeroWitness = ExistentialHandler.IsZeroWitnessExistential(protocolList, _env.TypeDatabase);
                 string? ownsVar = owningCandidate || zeroWitness ? $"{csName}Owns" : null;
                 // Both existential-arg paths must pin the backing reference across the borrowed native
                 // call (change 4): the JIT may treat the source as dead once its bytes are copied into
@@ -1470,7 +1470,7 @@ namespace BindingsGeneration
                 string? keepAliveVar = owningCandidate ? $"{csName}KeepAlive" : zeroWitness ? null : csName;
                 // The destroy's layout is the container actually built, whose witness-table count
                 // excludes marker protocols (`any Sendable` is a 4-word ExistentialContainer0).
-                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList).Count, keepAliveVar));
+                _existentialHeapNames.Add(new ExistentialHeapInfo(heapName, ownsVar, ExistentialHandler.GetNonMarkerProtocols(protocolList, _env.TypeDatabase).Count, keepAliveVar));
                 csWriter.WriteLine($"void* {heapName} = null;");
                 if (ownsVar != null)
                     csWriter.WriteLine($"bool {ownsVar} = false;");

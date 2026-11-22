@@ -424,6 +424,25 @@ public class MarshalPlanRegressionTests
         Assert.Equal(2, finallyBlocks[0].Body.Count); // key + value disposal
     }
 
+    /// <summary>
+    /// A dictionary whose values mint owned existential copies streams its pairs into the Swift
+    /// dictionary as they convert, as an array does: a materialized pair list would leave the
+    /// copies already minted in a list nothing releases when a later value's conversion throws.
+    /// </summary>
+    [Fact]
+    public void Dictionary_OwnedExistentialValue_ParameterPlan_StreamsPairsIntoTheDictionary()
+    {
+        var value = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer2", "ICodedAndLabelled", "CodedAndLabelledProxy");
+        var proj = new DictionaryProjection(new BlittableProjection("nint"), value, isParameter: true);
+        var plan = proj.GetParameterPlan("dict");
+
+        var lines = plan.SetupStatements.OfType<MarshalStatement.Line>().Select(l => l.Code).ToList();
+        Assert.DoesNotContain(lines, l => l.Contains("ToList"));
+        Assert.Contains(lines, l => l.Contains("CreateOwnedCompositionExistential<ICodedAndLabelled, Swift.Runtime.ExistentialContainer2>(kvp.Value)"));
+        Assert.Contains(lines, l => l.Contains(".FromDictionary(dictPairs)"));
+    }
+
     [Fact]
     public void Dictionary_StringString_ReturnPlan_AsProjectedWithConversions()
     {
@@ -738,6 +757,68 @@ public class MarshalPlanRegressionTests
         var plan = proj.GetReturnPlan("result", ReturnStrategy.Direct);
 
         Assert.Equal("new Swift.Runtime.SwiftExistential<Swift.Runtime.ExistentialContainer1>(result, classBound: false)", plan.PInvokeExpression);
+    }
+
+    /// <summary>
+    /// A collection or Optional carrier owns its elements: the store consumes one count per element
+    /// and the carrier's destroy releases it. A composition element's only conformer is a
+    /// Swift-vended proxy whose container is borrowed, so the carrier gets an independent copy;
+    /// handing it the proxy's own container released the proxy's single count twice.
+    /// </summary>
+    [Fact]
+    public void Existential_Composition_CarrierElement_MintsAnIndependentCopy()
+    {
+        var proj = new ExistentialProjection(
+            "Swift.Runtime.ExistentialContainer2", "ICodedAndLabelled", "CodedAndLabelledProxy");
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<ICodedAndLabelled, Swift.Runtime.ExistentialContainer2>(e)",
+            proj.GetArrayElementCarrierConversion("e"));
+    }
+
+    /// <summary>
+    /// The no-proxy carrier element (an owning box that only lends its container) gets a count of
+    /// its own too, the same mint the owned scalar hand-off uses.
+    /// </summary>
+    [Theory]
+    [InlineData("object")]
+    [InlineData("Swift.Runtime.ExistentialUnion")]
+    public void Existential_NoProxy_CarrierElement_MintsItsOwnReference(string publicType)
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer2", publicType, null);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedCompositionExistential<object, Swift.Runtime.ExistentialContainer2>(e)",
+            proj.GetArrayElementCarrierConversion("e"));
+    }
+
+    /// <summary>
+    /// Borrowing control: a boxed any Error stays borrowed inside a carrier. In an Optional its
+    /// metadata word reads as .none, so the carrier's destroy releases nothing and a mint would leak.
+    /// </summary>
+    [Fact]
+    public void Existential_AnyError_CarrierElement_StaysBorrowed()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", null);
+
+        var conversion = proj.GetArrayElementCarrierConversion("e");
+        Assert.Contains("GetExistentialContainer()", conversion);
+        Assert.DoesNotContain("CreateOwned", conversion);
+    }
+
+    /// <summary>
+    /// A boxed any Error handed to Swift at +1 (a reverse-dispatch getter's return) lends its
+    /// container, so the hand-off retains the box for Swift; passing the lent container released
+    /// the box once more than it was retained.
+    /// </summary>
+    [Fact]
+    public void Existential_AnyError_OwnedHandOffToSwift_RetainsTheBox()
+    {
+        var proj = new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "Swift.Foundation.AnyError", null);
+
+        Assert.Equal(
+            "Swift.Runtime.ExistentialContainerFactory.CreateOwnedErrorExistential(error)",
+            proj.GetOwnedParameterElementConversion("error"));
     }
 
     [Theory]

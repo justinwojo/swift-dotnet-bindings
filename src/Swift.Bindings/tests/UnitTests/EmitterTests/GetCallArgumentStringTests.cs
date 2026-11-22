@@ -125,10 +125,15 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1<IMyProtocol>", result);
-        Assert.DoesNotContain("GetOrCreate", result);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        // The mint happens before the call, in a lease the body completes once Swift has the count.
+        Assert.Equal("handlerExistentialLease.Container", result);
+        Assert.NotNull(lease);
+        Assert.Contains("OwnedExistentialArgument.Begin<IMyProtocol>(handler, ", lease!.Declaration);
         // The wrap fallback still rides along, or a plain C# conformer has nothing to box.
-        Assert.Contains("new MyProtocolProxy(__v)", result);
+        Assert.Contains("new MyProtocolProxy(__v)", lease.Declaration);
+        Assert.Contains("classBoundCarrier: false", lease.Declaration);
+        Assert.True(lease.CompletesOnNativeReturn);
     }
 
     /// <summary>
@@ -148,8 +153,12 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1ConsumerOwned<IMyProtocol>", result);
-        Assert.Contains("ProxyImplOwnership.ConsumerOwned", result);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.Equal("handlerExistentialLease.Container", result);
+        Assert.NotNull(lease);
+        Assert.Contains("OwnedExistentialArgument.BeginConsumerOwned<IMyProtocol>(handler, ", lease!.Declaration);
+        Assert.Contains("ProxyImplOwnership.ConsumerOwned", lease.Declaration);
+        Assert.True(lease.CompletesOnNativeReturn);
     }
 
     /// <summary>
@@ -168,10 +177,13 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.Equal("handlerExistentialLease.Container", result);
+        Assert.NotNull(lease);
         Assert.Contains(
-            "CreateOwnedCompositionExistential<IFirstAndSecond, Swift.Runtime.ExistentialContainer2>",
-            result);
-        Assert.DoesNotContain("GetExistentialContainer()", result);
+            "OwnedExistentialArgument.BeginComposition<IFirstAndSecond, Swift.Runtime.ExistentialContainer2>(handler)",
+            lease!.Declaration);
+        Assert.True(lease.CompletesOnNativeReturn);
     }
 
     /// <summary>
@@ -248,9 +260,120 @@ public class GetCallArgumentStringTests
             },
             "handler");
         var result = Signature.GetCallArgumentString(param);
-        Assert.Contains("ExistentialContainerFactory.CreateOwnedExistential1<IMyClassBound>", result);
-        Assert.Contains("classBoundCarrier: true", result);
-        Assert.StartsWith("Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1(", result);
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.Equal("Swift.Runtime.ClassExistentialContainer1.FromExistentialContainer1(handlerExistentialLease.Container)", result);
+        Assert.NotNull(lease);
+        Assert.Contains("OwnedExistentialArgument.Begin<IMyClassBound>(handler, ", lease!.Declaration);
+        Assert.Contains("classBoundCarrier: true", lease.Declaration);
+        Assert.True(lease.CompletesOnNativeReturn);
+    }
+
+    /// <summary>
+    /// A consumed existential's +1 must not be minted inside the call's argument list: a later
+    /// argument that throws while the list is evaluated (a disposed proxy, an incompatible
+    /// implementation) would strand it with no owner. Every consumed existential of a call is
+    /// minted in its own lease before the call, and the call only reads the leases.
+    /// </summary>
+    [Fact]
+    public void CallArguments_ConsumedExistentials_MintNothingInsideTheCall()
+    {
+        var signature = new Signature(
+            "void",
+            new[]
+            {
+                new Parameter(
+                    new MarshalledType.Existential("Swift.Runtime.ExistentialContainer1", "IMyProtocol")
+                    {
+                        ProxyClassName = "MyProtocolProxy",
+                        HandedOverToCallee = true,
+                    },
+                    "first"),
+                new Parameter(
+                    new MarshalledType.Existential("Swift.Runtime.ExistentialContainer2", "IFirstAndSecond")
+                    {
+                        HandedOverToCallee = true,
+                    },
+                    "second"),
+            });
+        var call = signature.CallArgumentsString();
+        Assert.Equal("firstExistentialLease.Container, secondExistentialLease.Container", call);
+        Assert.DoesNotContain("CreateOwned", call);
+        Assert.DoesNotContain("GetOrCreate", call);
+        foreach (var parameter in signature.Parameters)
+            Assert.True(Signature.GetExistentialArgumentLease(parameter)!.CompletesOnNativeReturn);
+    }
+
+    /// <summary>
+    /// A consumed existential with no proxy to wrap with (an interface only Swift-vended or boxable
+    /// conformers implement) still gets its own lease rather than an inline mint.
+    /// </summary>
+    [Fact]
+    public void GetExistentialArgumentLease_ConsumedExistentialWithoutProxy_MintsWithoutAWrap()
+    {
+        var param = new Parameter(
+            new MarshalledType.Existential("Swift.Runtime.ExistentialContainer1", "IMyProtocol")
+            {
+                HandedOverToCallee = true,
+            },
+            "handler");
+        var lease = Signature.GetExistentialArgumentLease(param);
+        Assert.NotNull(lease);
+        Assert.Equal(
+            "using var handlerExistentialLease = global::Swift.Runtime.OwnedExistentialArgument.Begin<IMyProtocol>(handler, classBoundCarrier: false);",
+            lease!.Declaration);
+        Assert.Equal("handlerExistentialLease.Container", Signature.GetCallArgumentString(param));
+    }
+
+    /// <summary>
+    /// The lease is a local of the member's body, so it must not take a name a parameter already
+    /// has: a parameter spelled like another one's lease leaves that lease, declaration and read
+    /// alike, under a fresh name.
+    /// </summary>
+    [Fact]
+    public void ExistentialArgumentLeaseName_AParameterSpelledLikeTheLease_MovesTheLease()
+    {
+        var scope = SyntheticLocalNames.Resolve(MethodTakingParametersNamed("handler", "handlerExistentialLease"));
+        var param = new Parameter(
+            new MarshalledType.Existential("Swift.Runtime.ExistentialContainer1", "IMyProtocol")
+            {
+                ProxyClassName = "MyProtocolProxy",
+                HandedOverToCallee = true,
+            },
+            "handler");
+        var name = Signature.ExistentialArgumentLeaseName(param, scope);
+        Assert.NotEqual("handlerExistentialLease", name);
+        Assert.StartsWith($"using var {name} = ", Signature.GetExistentialArgumentLease(param, scope)!.Declaration);
+        Assert.Equal($"{name}.Container", Signature.GetCallArgumentString(param, leaseScope: scope));
+    }
+
+    private static MethodDecl MethodTakingParametersNamed(params string[] names)
+    {
+        static ArgumentDecl Argument(string name) => new()
+        {
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+            Name = name,
+            PrivateName = name,
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+        var signature = new List<ArgumentDecl> { Argument(string.Empty) };
+        signature.AddRange(names.Select(Argument));
+        return new MethodDecl
+        {
+            Name = "compute",
+            MangledName = "$s10TestModule7computeyF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            CSSignature = signature,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false
+        };
     }
 
     /// <summary>

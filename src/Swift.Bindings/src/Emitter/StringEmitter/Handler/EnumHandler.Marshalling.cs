@@ -179,7 +179,7 @@ namespace BindingsGeneration
                 {
                     // Marker protocols (Sendable, Copyable, ...) carry no witness table, so they do not
                     // count toward the existential's layout: `any Sendable` is the zero-witness `Any` type.
-                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList).Count;
+                    var witnessTableCount = ExistentialHandler.GetNonMarkerProtocols(protocolList, typeDatabase).Count;
                     csWriter.WriteLine($"elementMetadataArray[{index}] = TypeMetadata.GetExistentialTypeMetadata({witnessTableCount});");
                     return;
                 }
@@ -376,7 +376,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase))
                     {
                         EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
                             sourcePtrExpr: $"{sourcePtr} + (int){offsetVar}", declareVar: false);
@@ -605,7 +605,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase))
                     {
                         EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
                             sourcePtrExpr: sourcePtr, declareVar: false);
@@ -889,7 +889,7 @@ namespace BindingsGeneration
                 if (protocolList != null)
                 {
                     var containerType = existentialHandler.GetCSharpExistentialType(protocolList);
-                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList))
+                    if (ExistentialHandler.IsZeroWitnessExistential(protocolList, typeDatabase))
                     {
                         EmitZeroWitnessExistentialPayloadExtraction(csWriter, varName,
                             sourcePtrExpr: sourcePtr, declareVar: true);

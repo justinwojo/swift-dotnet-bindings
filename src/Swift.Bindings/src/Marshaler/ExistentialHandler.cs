@@ -81,6 +81,17 @@ public class ExistentialHandler
     public static string WellKnownOwnedTransferArg(string? wellKnownType) =>
         wellKnownType == "Swift.Foundation.AnyError" ? ", ownsContainer: true" : string.Empty;
 
+    /// <summary>
+    /// The C#→Swift counterpart of <see cref="WellKnownOwnedTransferArg"/>: the expression that hands
+    /// Swift a well-known existential at +1 (a closure result, a reverse-dispatch return), or null for
+    /// a type with no owned hand-off. <c>Swift.Foundation.AnyError</c> only lends its boxed error, so
+    /// the runtime retains the box for Swift.
+    /// </summary>
+    public static string? WellKnownOwnedHandOff(string? wellKnownType, string valueExpression) =>
+        wellKnownType == "Swift.Foundation.AnyError"
+            ? $"Swift.Runtime.ExistentialContainerFactory.CreateOwnedErrorExistential({valueExpression})"
+            : null;
+
     /// <summary>The public type a PAT existential with known conformers takes in a read position.</summary>
     public const string ExistentialUnionType = "Swift.Runtime.ExistentialUnion";
 
@@ -167,24 +178,65 @@ public class ExistentialHandler
     internal SortedDictionary<string, List<string>>? CompositionCollector => _compositionCollector;
 
     /// <summary>
-    /// Returns true if the protocol is a marker protocol (no witness table, no C# representation).
-    /// Marker protocols: Sendable, Escapable, Copyable, SendableMetatype.
+    /// True when <paramref name="protocol"/> is one of the standard library's own marker protocols
+    /// (<c>Swift.Sendable</c>, <c>Swift.Copyable</c>, <c>Swift.Escapable</c>,
+    /// <c>Swift.SendableMetatype</c>, <c>Swift.BitwiseCopyable</c>): no witness table, no C#
+    /// representation. Decided by identity, not by name: a library's own protocol that shares a
+    /// marker's name (<c>MyLib.Sendable</c>) is a real protocol with a witness table, so it is not a
+    /// marker. A bare name is the standard library's, the only spelling the ABI dump gives one without
+    /// its module.
     /// </summary>
+    /// <remarks>
+    /// This form knows only the standard library's markers. A library can declare markers of its own
+    /// (<c>@_marker protocol Tag {}</c>), which the ABI descriptor flags and only the type database
+    /// records; every caller that counts witness tables or names a container's protocols uses
+    /// <see cref="IsMarkerProtocol(NamedTypeSpec, ITypeDatabase?)"/>.
+    /// </remarks>
     public static bool IsMarkerProtocol(NamedTypeSpec protocol)
+        => TypeDatabaseExtensions.IsStdlibMarkerProtocol(
+            protocol.HasModule() ? protocol.Name : $"Swift.{protocol.Name}");
+
+    /// <summary>
+    /// True when <paramref name="protocol"/> is a marker protocol: one of the standard library's
+    /// (<see cref="IsMarkerProtocol(NamedTypeSpec)"/>), or a protocol whose declaration the ABI
+    /// descriptor marks as a marker (<see cref="TypeRecordFlags.MarkerProtocol"/>, from
+    /// <c>@_marker</c>), in this module or a dependency whose database records it. A marker has no
+    /// witness table, so it does not count toward an existential's container arity.
+    /// </summary>
+    public static bool IsMarkerProtocol(NamedTypeSpec protocol, ITypeDatabase? typeDatabase)
     {
-        var simpleName = protocol.NameWithoutModule;
-        return simpleName is "Sendable" or "Escapable" or "Copyable" or "SendableMetatype";
+        if (IsMarkerProtocol(protocol))
+            return true;
+        // The standard library's markers are a closed set, all known by name above. Not probing
+        // its other protocols also keeps a classification free of the resolver's side effects
+        // (resolving Swift.Error records the Apple supplement's AnyError).
+        if (typeDatabase is null || !protocol.HasModule()
+            || protocol.Name.StartsWith("Swift.", StringComparison.Ordinal))
+            return false;
+        try
+        {
+            return typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(protocol), out var record)
+                && record.Kind == TypeRecordKind.Protocol
+                && (record.Flags & TypeRecordFlags.MarkerProtocol) != 0;
+        }
+        catch (ArgumentException)
+        {
+            // A name the type database cannot parse has no record to mark it.
+            return false;
+        }
     }
 
     /// <summary>
     /// Returns the non-marker protocols in a composition — excluding only marker protocols.
     /// Used for ABI-sensitive logic (EC container type, container size) where ObjC protocols
     /// DO contribute witness tables. Only markers are excluded (they have no witness tables).
+    /// <paramref name="typeDatabase"/> identifies a library's own markers; without one only the
+    /// standard library's are recognised.
     /// </summary>
-    public static IReadOnlyList<NamedTypeSpec> GetNonMarkerProtocols(ProtocolListTypeSpec protocolList)
+    public static IReadOnlyList<NamedTypeSpec> GetNonMarkerProtocols(ProtocolListTypeSpec protocolList, ITypeDatabase? typeDatabase)
     {
         return protocolList.Protocols.Keys
-            .Where(p => !IsMarkerProtocol(p))
+            .Where(p => !IsMarkerProtocol(p, typeDatabase))
             .ToList();
     }
 
@@ -193,12 +245,20 @@ public class ExistentialHandler
     /// Used for public API naming (proxy classes, interface names) where ObjC module types have no
     /// emitted interfaces and markers have no C# representation. NOT for ABI/container size computation.
     /// </summary>
-    public static IReadOnlyList<NamedTypeSpec> GetEffectiveProtocols(ProtocolListTypeSpec protocolList)
+    public static IReadOnlyList<NamedTypeSpec> GetEffectiveProtocols(ProtocolListTypeSpec protocolList, ITypeDatabase? typeDatabase)
     {
         return protocolList.Protocols.Keys
-            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
+            .Where(p => !IsMarkerProtocol(p, typeDatabase) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
             .ToList();
     }
+
+    /// <summary>The non-marker protocols of a composition, by this handler's type database.</summary>
+    private IReadOnlyList<NamedTypeSpec> NonMarkerProtocols(ProtocolListTypeSpec protocolList)
+        => GetNonMarkerProtocols(protocolList, _typeDatabase);
+
+    /// <summary>The effective protocols of a composition, by this handler's type database.</summary>
+    private IReadOnlyList<NamedTypeSpec> EffectiveProtocols(ProtocolListTypeSpec protocolList)
+        => GetEffectiveProtocols(protocolList, _typeDatabase);
 
     /// <summary>
     /// Returns true when the composition includes at least one non-protocol participant
@@ -216,7 +276,7 @@ public class ExistentialHandler
     {
         foreach (var p in protocolList.Protocols.Keys)
         {
-            if (IsMarkerProtocol(p))
+            if (IsMarkerProtocol(p, _typeDatabase))
                 continue;
 
             // Swift-side: resolved TypeRecord with a non-protocol kind.
@@ -255,6 +315,68 @@ public class ExistentialHandler
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// True when a library's own marker participant gives the existential a layout no carrier here
+    /// mirrors, though it adds no witness table. A class-bound marker (<c>@_marker protocol Tag:
+    /// AnyObject</c>) makes it a class existential: <c>any Tag</c> is one class reference and
+    /// <c>any P &amp; Tag</c> a reference beside P's table. Beside <c>Error</c> alone, a marker takes
+    /// the composition off the boxed-error representation, which is <c>any Error</c>'s only: <c>any
+    /// Error &amp; Tag</c> is an opaque one-table container, and no proxy carries Error's table.
+    /// </summary>
+    public bool MarkerChangesTheLayout(ProtocolListTypeSpec protocolList)
+    {
+        var customMarkers = protocolList.Protocols.Keys
+            .Where(p => !IsMarkerProtocol(p) && IsMarkerProtocol(p, _typeDatabase))
+            .ToList();
+        if (customMarkers.Count == 0)
+            return false;
+        if (customMarkers.Any(p => IsClassBoundMarker(p, _typeDatabase)))
+            return true;
+        var nonMarker = NonMarkerProtocols(protocolList);
+        return nonMarker.Count == 1 && nonMarker[0].Name == "Swift.Error";
+    }
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/> is, or holds as a tuple element, generic argument or
+    /// closure argument or result, an existential for which <see cref="MarkerChangesTheLayout"/>
+    /// holds. For positions no member validation covers (an enum case's payload), where an
+    /// <c>Optional</c> or <c>Array</c> of such an existential would otherwise mint its container.
+    /// </summary>
+    public bool ContainsLayoutChangingMarker(TypeSpec typeSpec)
+    {
+        switch (typeSpec)
+        {
+            case TupleTypeSpec tuple:
+                return tuple.Elements.Any(ContainsLayoutChangingMarker);
+            case ClosureTypeSpec closure:
+                return ContainsLayoutChangingMarker(closure.Arguments) || ContainsLayoutChangingMarker(closure.ReturnType);
+            case NamedTypeSpec named when named.GenericParameters.Any(ContainsLayoutChangingMarker):
+                return true;
+        }
+        if (!IsExistential(typeSpec))
+            return false;
+        var protocolList = ToProtocolListTypeSpec(typeSpec);
+        return protocolList != null && MarkerChangesTheLayout(protocolList);
+    }
+
+    /// <summary>Whether a marker participant is class-bound, by its type record (the standard library's markers are not).</summary>
+    private static bool IsClassBoundMarker(NamedTypeSpec marker, ITypeDatabase? typeDatabase)
+    {
+        if (typeDatabase == null || !marker.HasModule() || marker.Name.StartsWith("Swift.", StringComparison.Ordinal))
+            return false;
+        try
+        {
+            return typeDatabase.TryGetTypeRecord(SwiftTypeName.FromTypeSpec(marker), out var record)
+                && record.Kind == TypeRecordKind.Protocol
+                && (record.Flags & TypeRecordFlags.MarkerProtocol) != 0
+                && (record.Flags & TypeRecordFlags.ClassBound) != 0;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -368,10 +490,14 @@ public class ExistentialHandler
     /// indistinguishable at the existential-container ABI). Mirrors the <see cref="GetCSharpExistentialType"/>
     /// container-arity computation (<c>GetNonMarkerProtocols(...).Count</c> == 0 ⟺ Container0). An
     /// ObjC-only existential is deliberately NOT included: an ObjC protocol contributes a witness table
-    /// (Container1), so it is not zero-witness and has no Box/Unbox path.
+    /// (Container1), so it is not zero-witness and has no Box/Unbox path. Nor is a composition with a
+    /// library's class-bound marker (<c>@_marker protocol Tag: AnyObject</c>): <c>any Tag</c> is one
+    /// class reference, not the opaque container, so it takes the refused path
+    /// (<see cref="MarkerChangesTheLayout"/>).
     /// </summary>
-    public static bool IsZeroWitnessExistential(ProtocolListTypeSpec protocolList) =>
-        GetNonMarkerProtocols(protocolList).Count == 0;
+    public static bool IsZeroWitnessExistential(ProtocolListTypeSpec protocolList, ITypeDatabase? typeDatabase) =>
+        GetNonMarkerProtocols(protocolList, typeDatabase).Count == 0
+        && !protocolList.Protocols.Keys.Any(p => IsClassBoundMarker(p, typeDatabase));
 
     /// <summary>
     /// Determines whether the existential type is a supported type.
@@ -399,7 +525,7 @@ public class ExistentialHandler
         // casting to `ISwiftExistentialConvertible<ExistentialContainer2>` — which the
         // concrete class does not implement and which throws at the first real call.
         // Reject the whole member instead.
-        if (CompositionHasNonProtocolParticipant(protocolList))
+        if (CompositionHasNonProtocolParticipant(protocolList) || MarkerChangesTheLayout(protocolList))
             return false;
 
         // All protocols in the composition must be known
@@ -420,7 +546,7 @@ public class ExistentialHandler
     /// <returns>The C# existential container type name.</returns>
     public string GetCSharpExistentialType(ProtocolListTypeSpec protocolList)
     {
-        var count = GetNonMarkerProtocols(protocolList).Count;
+        var count = NonMarkerProtocols(protocolList).Count;
         return $"Swift.Runtime.ExistentialContainer{count}";
     }
 
@@ -438,7 +564,7 @@ public class ExistentialHandler
     /// <returns><c>true</c> for a single class-bound protocol existential.</returns>
     public bool IsClassBoundArity1Existential(ProtocolListTypeSpec protocolList)
     {
-        var nonMarker = GetNonMarkerProtocols(protocolList);
+        var nonMarker = NonMarkerProtocols(protocolList);
         if (nonMarker.Count != 1)
             return false;
 
@@ -476,7 +602,7 @@ public class ExistentialHandler
     /// </summary>
     public bool HasOpaqueContainerLayout(ProtocolListTypeSpec protocolList)
     {
-        var nonMarker = GetNonMarkerProtocols(protocolList);
+        var nonMarker = NonMarkerProtocols(protocolList);
         if (nonMarker.Count == 0)
             return false;
         foreach (var protocol in nonMarker)
@@ -510,7 +636,7 @@ public class ExistentialHandler
     /// <returns><c>true</c> for a single <c>@objc</c> protocol existential.</returns>
     public bool IsObjCProtocolExistential(ProtocolListTypeSpec protocolList)
     {
-        var nonMarker = GetNonMarkerProtocols(protocolList);
+        var nonMarker = NonMarkerProtocols(protocolList);
         return nonMarker.Count == 1 && IsObjCProtocolNamed(nonMarker[0], _typeDatabase);
     }
 
@@ -534,7 +660,7 @@ public class ExistentialHandler
 
         if (spec is ProtocolListTypeSpec protocolList)
         {
-            var nonMarker = GetNonMarkerProtocols(protocolList);
+            var nonMarker = GetNonMarkerProtocols(protocolList, typeDatabase);
             return nonMarker.Count == 1 && IsObjCProtocolNamed(nonMarker[0], typeDatabase);
         }
         if (spec is NamedTypeSpec named && IsExistentialValue(named))
@@ -688,7 +814,7 @@ public class ExistentialHandler
     {
         // 3 words for payload + 1 word for metadata + N words for witness tables
         // Marker protocols have no witness tables; ObjC protocols DO have witness tables.
-        return 4 + GetNonMarkerProtocols(protocolList).Count;
+        return 4 + NonMarkerProtocols(protocolList).Count;
     }
 
     /// <summary>
@@ -883,7 +1009,7 @@ public class ExistentialHandler
     public bool ProjectsToProxyInterface(ProtocolListTypeSpec protocolList)
     {
         // Dispatch exactly like GetPublicExistentialType: markers + ObjC filtered, then on count.
-        var effective = GetEffectiveProtocols(protocolList);
+        var effective = EffectiveProtocols(protocolList);
         if (effective.Count != 1)
             return false; // 0 → object/bareAny; 2+ → composition (marshals via EC2+, no single-proxy fallback)
         var protocol = effective[0];
@@ -943,13 +1069,13 @@ public class ExistentialHandler
         // different layout than a regular composition, and there is no I{ClassName}
         // interface for the class side. Collapse to object so callers skip the member
         // or fall back to the raw container instead of synthesising a broken interface.
-        if (CompositionHasNonProtocolParticipant(protocolList))
+        if (CompositionHasNonProtocolParticipant(protocolList) || MarkerChangesTheLayout(protocolList))
             return "object";
 
         // Filter markers and ObjC before dispatching on count.
         // Marker protocols (Sendable, Escapable, etc.) have no C# representation;
         // ObjC module types have no emitted interfaces.
-        var effective = GetEffectiveProtocols(protocolList);
+        var effective = EffectiveProtocols(protocolList);
 
         if (effective.Count == 0)
             return "object"; // 'Any', pure-marker (e.g., 'any Sendable'), or pure-ObjC → object
@@ -1095,7 +1221,7 @@ public class ExistentialHandler
     /// </summary>
     private bool EffectiveCompositionHasSelfOrAssociatedType(ProtocolListTypeSpec protocolList)
     {
-        foreach (var protocol in GetEffectiveProtocols(protocolList))
+        foreach (var protocol in EffectiveProtocols(protocolList))
         {
             try
             {
@@ -1230,7 +1356,14 @@ public class ExistentialHandler
     /// <returns>The proxy class name.</returns>
     public string GetProxyClassName(ProtocolListTypeSpec protocolList)
     {
-        if (protocolList.Protocols.Count == 1)
+        // Marker protocols name no proxy: the collector registers a composition under its
+        // effective protocols (`any P & Q & Sendable` emits `PAndQProxy`), so a reference has to
+        // drop them the same way or it names a class the module never writes. A marker-only list
+        // has no proxy at all; keep its raw spelling for the callers that still ask.
+        var participants = NonMarkerProtocols(protocolList);
+        if (participants.Count == 0)
+            participants = protocolList.Protocols.Keys.ToList();
+        if (participants.Count == 1)
         {
             // Use the LEAF protocol name only — for a nested protocol like
             // `NestedProtoOuter.Listener`, NameWithoutModule returns the dotted path
@@ -1240,13 +1373,13 @@ public class ExistentialHandler
             // the leaf), so the call-site reference must match. The cross-module
             // qualification still happens later via QualifyProxyClassName.
             // The proxy class is emitted at module level using the leaf name; the call-site reference must match.
-            var protocolName = LeafName(protocolList.Protocols.Keys.First().NameWithoutModule);
+            var protocolName = LeafName(participants[0].NameWithoutModule);
             return $"{protocolName}Proxy";
         }
 
         // Multi-protocol: combined proxy name (leaf names so nested protocols compose
         // with the same shape as top-level protocols).
-        var names = protocolList.Protocols.Keys
+        var names = participants
             .Select(p => LeafName(p.NameWithoutModule))
             .OrderBy(n => n, StringComparer.Ordinal)
             .ToList();
@@ -1293,7 +1426,7 @@ public class ExistentialHandler
         // lives in RealityFoundation) collapse to the source module's namespace where the
         // proxy class is emitted. Mirrors GetPublicExistentialType's resolution path.
         var protocolModule = protocolList.Protocols.Keys
-            .Where(p => !IsMarkerProtocol(p) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
+            .Where(p => !IsMarkerProtocol(p, _typeDatabase) && !TypeDatabaseExtensions.IsObjCExistentialBridgedProtocol(p))
             .Select(p => ProtocolConformanceHelper.ResolveProtocolEmissionModule(SwiftTypeName.FromTypeSpec(p), _typeDatabase))
             .FirstOrDefault(m => !string.IsNullOrEmpty(m));
 
@@ -1388,7 +1521,7 @@ public class ExistentialHandler
     {
         // Over the same non-marker set AllProtocolsHaveTypeRecords already verified has TypeRecords,
         // mirror EmitProxyClass's Self/AT early-return: any such protocol yields no `{P}Proxy` class.
-        foreach (var protocol in GetNonMarkerProtocols(protocolList))
+        foreach (var protocol in NonMarkerProtocols(protocolList))
         {
             try
             {
@@ -1499,7 +1632,7 @@ public class ExistentialHandler
         if (protocolList.Protocols.Count == 0)
             return false;
 
-        var effective = GetEffectiveProtocols(protocolList);
+        var effective = EffectiveProtocols(protocolList);
         if (effective.Count == 0)
             return true; // Pure-marker / pure-ObjC composition — handled downstream
 
@@ -1525,7 +1658,7 @@ public class ExistentialHandler
         if (protocolList.Protocols.Count == 0)
             return false; // 'Any' (no protocols) → false
 
-        var nonMarker = GetNonMarkerProtocols(protocolList);
+        var nonMarker = NonMarkerProtocols(protocolList);
         if (nonMarker.Count == 0)
             return true; // Pure-marker (e.g., 'any Sendable') → vacuously true
 
@@ -1554,7 +1687,7 @@ public class ExistentialHandler
     public bool TryGetFilteredProxyClassName(ProtocolListTypeSpec protocolList, out string proxyClassName)
     {
         proxyClassName = "";
-        var protocols = GetEffectiveProtocols(protocolList)
+        var protocols = EffectiveProtocols(protocolList)
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
         if (protocols.Count == 0) return false;
@@ -1574,7 +1707,7 @@ public class ExistentialHandler
     public string GetCompositionInterfaceName(ProtocolListTypeSpec protocolList)
     {
         // Filter out ObjC module types (no emitted interfaces) and marker protocols (no C# representation).
-        var protocols = GetEffectiveProtocols(protocolList)
+        var protocols = EffectiveProtocols(protocolList)
             .OrderBy(p => p.NameWithoutModule, StringComparer.Ordinal)
             .ToList();
 
