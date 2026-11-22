@@ -1675,7 +1675,7 @@ public static class NestedClosureBridge
             // Simple enum: cast to underlying integer type
             var enumInfo = env.ClosureHandler.GetSimpleEnumInfo(argType);
             if (enumInfo != null)
-                return $"({enumInfo.Value.csUnderlying}){varName}";
+                return SimpleEnumCaseFloors.ToNative(env.ClosureHandler.GetSimpleEnumCaseFloorGuard(argType), enumInfo.Value.csUnderlying, varName);
 
             // ObjC class: .Handle
             if (env.ClosureHandler.IsObjCBridgedClass(argType))

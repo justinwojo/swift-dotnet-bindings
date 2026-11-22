@@ -1189,10 +1189,13 @@ namespace BindingsGeneration
                 }
             }
 
+            var enumCSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier);
             var typeRecord = new TypeRecord
             {
                 SwiftTypeName = enumDecl.SwiftTypeName,
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, csharpTypeIdentifier),
+                CSharpTypeName = enumCSharpTypeName,
+                // A simple enum's floored cases are refused on their way to Swift (SimpleEnumCaseFloors).
+                HasCaseFloorGuard = (flags & TypeRecordFlags.SimpleEnum) != 0 && SimpleEnumCaseFloors.NeedsGuard(enumDecl),
                 SwiftTypeInfo = swiftTypeInfo,
                 MetadataAccessor = enumDecl.MetadataAccessor,
                 Flags = flags,

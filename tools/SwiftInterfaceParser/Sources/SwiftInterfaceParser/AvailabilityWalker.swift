@@ -618,7 +618,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         let printed = buildPrintedName(funcName: funcName, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
-        let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
+        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(params: node.signature.parameterClause)
         let annotations = collectAnnotations(declAttrs: node.attributes)
         recordMemberSignature(bareKey: key, paramSig: paramSig,
                               rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
@@ -638,7 +638,7 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         let printed = buildPrintedName(funcName: "init", params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
-        let paramSig = AvailabilityWalker.buildParamSignature(params: node.signature.parameterClause)
+        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(params: node.signature.parameterClause)
         let annotations = collectAnnotations(declAttrs: node.attributes)
         recordMemberSignature(bareKey: key, paramSig: paramSig,
                               rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
@@ -764,6 +764,26 @@ final class AvailabilityWalker: SyntaxVisitor {
         for param in paramList {
             let raw = param.type.dottedDescription
             tails.append(normalizeParamType(raw))
+        }
+        return tails.joined(separator: ",")
+    }
+
+    /// `buildParamSignature` with each `inout` parameter marked `inout `: the signature that keys a
+    /// function's or initializer's availability. `inout T` and `T` normalize to one type, so an
+    /// overload pair differing only in `inout` (`init(rawValue: inout String)` beside
+    /// `init(rawValue: String)`) would share one key and, disagreeing on their floors, both lose
+    /// them. The marker keeps their keys apart. Mirrors the .NET side's
+    /// `SwiftABIParser.ComputeAbiParamSignature(node, …, markInOut: true)`, which reads the
+    /// ABI's `paramValueOwnership: InOut`. The typed-throws and parameter-fact keys keep the
+    /// unmarked signature.
+    static func buildAvailabilityParamSignature(params: FunctionParameterClauseSyntax) -> String {
+        let paramList = params.parameters
+        if paramList.isEmpty { return "" }
+        var tails: [String] = []
+        for param in paramList {
+            let raw = param.type.dottedDescription
+            let isInOut = raw.trimmingCharacters(in: .whitespaces).hasPrefix("inout ")
+            tails.append((isInOut ? "inout " : "") + normalizeParamType(raw))
         }
         return tails.joined(separator: ",")
     }

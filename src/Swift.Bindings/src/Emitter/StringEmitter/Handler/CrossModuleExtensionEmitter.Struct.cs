@@ -359,7 +359,10 @@ public static partial class CrossModuleExtensionEmitter
                 TypeSpec: arg.SwiftTypeSpec,
                 SimpleEnumUnderlyingCSType: simpleEnumUnderlyingCS,
                 SimpleEnumUnderlyingSwiftType: simpleEnumUnderlyingSwift,
-                SimpleEnumQualifiedSwiftType: simpleEnumQualifiedSwift));
+                SimpleEnumQualifiedSwiftType: simpleEnumQualifiedSwift,
+                SimpleEnumCaseFloorGuard: paramCategory == ParamKind.SimpleEnum
+                    ? ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(arg.SwiftTypeSpec, typeDatabase)
+                    : null));
         }
 
         var methodName = NameProvider.ToPascalCase(method.Name);
@@ -576,7 +579,9 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine("{");
             csWriter.Indent++;
             var setterValueExpr = setterEnumLowering is { } se
-                ? $"({se.UnderlyingCSType}){SetterValueParameterName}"
+                ? SimpleEnumCaseFloors.ToNative(
+                    ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(property.SwiftTypeSpec, typeDatabase),
+                    se.UnderlyingCSType, SetterValueParameterName)
                 : SetterValueParameterName;
             csWriter.WriteLine($"NativeMethods.{setterPInvoke}({setterValueExpr}, (IntPtr){pinnedSelfLocal});");
             csWriter.Indent--;
@@ -888,7 +893,7 @@ public static partial class CrossModuleExtensionEmitter
         // Simple enums lower to their raw integer across the cdecl boundary.
         // The C# enum's underlying type matches the Swift RawValue (e.g. Int32 -> int),
         // so the cast is a no-op at runtime but enforces the correct P/Invoke shape.
-        ParamKind.SimpleEnum => $"({p.SimpleEnumUnderlyingCSType}){p.Name}",
+        ParamKind.SimpleEnum => SimpleEnumCaseFloors.ToNative(p.SimpleEnumCaseFloorGuard, p.SimpleEnumUnderlyingCSType!, p.Name),
         _ => p.Name,
     };
 
@@ -1015,6 +1020,8 @@ public static partial class CrossModuleExtensionEmitter
         string? SimpleEnumUnderlyingCSType = null,
         string? SimpleEnumUnderlyingSwiftType = null,
         string? SimpleEnumQualifiedSwiftType = null,
+        // The enum's Require method when a case is floored above it (SimpleEnumCaseFloors).
+        string? SimpleEnumCaseFloorGuard = null,
         // Seeded by EmitSwiftMethodTrampoline (via `with`) once the full param list is known, so
         // the escape can also dodge sibling bindings. Null until then → synthetic-only fallback.
         string? ResolvedSwiftBinding = null)

@@ -66,4 +66,27 @@ public class ClassEqualityOperatorTests : TestBase
         AssertEqual(a.GetHashCode(), b.GetHashCode(), "Equal values hash alike");
         AssertEqual(1, new HashSet<OperatorEquatableDerived> { a, b }.Count, "HashSet matches Swift's Set");
     }
+    /// <summary>
+    /// A subclass <c>==</c> floored above the running OS does not floor <c>Equals</c>, which reaches
+    /// the base's inherited Equatable witness: <c>Equals</c> and <c>GetHashCode</c> work, and only the
+    /// subclass's own <c>==</c> refuses with PlatformNotSupportedException before reaching Swift.
+    /// </summary>
+    public void TestFlooredSubclassOperatorDoesNotFloorInheritedEquality()
+    {
+        using var a = new OperatorEquatableFlooredDerived(9, 1);
+        using var b = new OperatorEquatableFlooredDerived(9, 2);
+        using var c = new OperatorEquatableFlooredDerived(10, 1);
+        AssertTrue(a.Equals(b), "Equals follows the inherited witness (key only)");
+        AssertFalse(a.Equals(c), "Equals distinguishes keys");
+        AssertEqual(a.GetHashCode(), b.GetHashCode(), "Equal values hash alike");
+        AssertEqual(1, new HashSet<OperatorEquatableFlooredDerived> { a, b }.Count, "HashSet merges witness-equal values");
+        var op = typeof(OperatorEquatableFlooredDerived).GetMethods(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .FirstOrDefault(m => m.Name == "op_Equality" && m.GetParameters().Length == 2
+                && m.GetParameters()[0].ParameterType == typeof(OperatorEquatableFlooredDerived));
+        AssertTrue(op != null, "The subclass's own == is bound");
+        var thrown = false;
+        try { op!.Invoke(null, new object[] { a, b }); }
+        catch (System.Reflection.TargetInvocationException e) when (e.InnerException is PlatformNotSupportedException) { thrown = true; }
+        AssertTrue(thrown, "The subclass's iOS 99 == refuses before Swift");
+    }
 }

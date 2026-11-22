@@ -138,6 +138,73 @@ public class EqualityFloorEmissionTests
         Assert.Contains("SupportedOSPlatform(\"ios27.2\")", AttributesBefore(cs, "public override int GetHashCode()"));
     }
 
+    /// <summary>
+    /// A class compares through its Equatable witness, the <c>==</c> of the class declaring the
+    /// conformance. A subclass inheriting it lists the conformance with no descriptor, so its own
+    /// <c>==</c> (floored above the OS, say) does not floor the wrapper, and the declaring base's does.
+    /// </summary>
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public void ClassInheritingEquatable_TakesTheFloorOfTheDeclaringBasesOperator(bool baseOperatorFloored, bool derivedOperatorFloored)
+    {
+        var derived = (ClassDecl)Create(Kind.Class);
+        var baseClass = (ClassDecl)Create(Kind.Class);
+        baseClass.Name = "Base";
+        baseClass.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{Module}.Base");
+        baseClass.Conformances[0] = new TypeConformance(baseClass.SwiftTypeName,
+            SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"), "$s10TestModule4BaseCSQAAMc");
+        derived.Conformances[0] = derived.Conformances[0] with { ProtocolConformanceDescriptor = string.Empty };
+        derived.ResolvedSuperclass = baseClass;
+        if (baseOperatorFloored)
+            AddOperator(baseClass, rhs: $"{Module}.Base", Ann("iOS", "99.0"), lhs: $"{Module}.Base");
+        if (derivedOperatorFloored)
+            AddOperator(derived, rhs: $"{Module}.Shape", Ann("iOS", "99.0"));
+
+        Assert.Same(baseClass, EqualityAvailability.ConformanceDeclarer(derived, "Swift.Equatable"));
+        var (swift, cs) = Emit(Kind.Class, derived);
+
+        Assert.Equal(baseOperatorFloored, swift.Contains("@available(iOS 99.0, *)", StringComparison.Ordinal));
+        Assert.Equal(baseOperatorFloored, Body(cs, Holder(Kind.Class)).Contains("\"ios\", 99, 0", StringComparison.Ordinal));
+    }
+
+    /// <summary>
+    /// The declaring base's Equatable conformance floor reaches a subclass inheriting it, whose own
+    /// listing of the conformance carries no descriptor to look a floor up by.
+    /// </summary>
+    [Fact]
+    public void ClassInheritingEquatable_RefusesBelowTheDeclaringBasesConformanceFloor()
+    {
+        var derived = (ClassDecl)Create(Kind.Class);
+        var baseClass = (ClassDecl)Create(Kind.Class);
+        baseClass.Name = "Base";
+        baseClass.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{Module}.Base");
+        derived.Conformances[0] = derived.Conformances[0] with { ProtocolConformanceDescriptor = string.Empty };
+        derived.ResolvedSuperclass = baseClass;
+        baseClass.ModuleDecl!.InferredConformanceFloors[EquatableDescriptor] = new List<AvailabilityAnnotation> { InferredFloor("27.2") };
+
+        var (_, cs) = Emit(Kind.Class, derived);
+
+        AssertRefusesBefore(cs, Holder(Kind.Class), "PInvoke_eq(", "\"ios\", 27, 2");
+    }
+
+    /// <summary>
+    /// With no class in the resolved chain declaring the conformance (a superclass in another module),
+    /// the witness cannot be named, and the class's own <c>==</c> floor stands in: never less than before.
+    /// </summary>
+    [Fact]
+    public void ClassWhoseConformanceDeclarerIsOutsideTheModule_KeepsItsOwnOperatorsFloor()
+    {
+        var derived = (ClassDecl)Create(Kind.Class);
+        derived.Conformances[0] = derived.Conformances[0] with { ProtocolConformanceDescriptor = string.Empty };
+        AddOperator(derived, rhs: $"{Module}.Shape", Ann("iOS", "99.0"));
+
+        Assert.Same(derived, EqualityAvailability.ConformanceDeclarer(derived, "Swift.Equatable"));
+        var (_, cs) = Emit(Kind.Class, derived);
+
+        AssertRefusesBefore(cs, Holder(Kind.Class), "PInvoke_eq(", "\"ios\", 99, 0");
+    }
+
     // --- helpers ---
 
     private const string EquatableDescriptor = "$s10TestModule5ShapeVSQAAMc";

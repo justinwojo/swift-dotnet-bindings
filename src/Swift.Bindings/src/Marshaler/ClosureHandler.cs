@@ -2276,6 +2276,14 @@ public partial class ClosureHandler
     }
 
     /// <summary>
+    /// The <c>Require</c> method a simple enum's values pass through on their way to Swift
+    /// (<see cref="TypeRecord.CaseFloorGuard"/>); null when <paramref name="typeSpec"/> is not a simple
+    /// enum or no case of it is floored above the enum.
+    /// </summary>
+    public string? GetSimpleEnumCaseFloorGuard(TypeSpec typeSpec)
+        => ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(typeSpec, _typeDatabase);
+
+    /// <summary>
     /// Gets the C# underlying type and Swift scalar type for a simple enum.
     /// Returns null if the type is not a simple enum.
     /// </summary>

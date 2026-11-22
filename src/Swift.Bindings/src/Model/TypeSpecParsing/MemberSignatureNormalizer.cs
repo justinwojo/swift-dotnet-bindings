@@ -270,6 +270,26 @@ internal static class MemberSignatureNormalizer
     }
 
     /// <summary>
+    /// <see cref="BuildSignature"/> with each parameter written <c>inout T</c> spelled
+    /// <c>inout T</c>: the signature a function's or initializer's availability is keyed by. Mirrors
+    /// the interface producer's <c>buildAvailabilityParamSignature</c>, so overloads differing only
+    /// in <c>inout</c> keep their own floors.
+    /// </summary>
+    public static string BuildAvailabilitySignature(IReadOnlyList<string> rawParamTypes)
+    {
+        if (rawParamTypes.Count == 0) return string.Empty;
+        var sb = new StringBuilder();
+        for (int i = 0; i < rawParamTypes.Count; i++)
+        {
+            if (i > 0) sb.Append(',');
+            if (rawParamTypes[i].Trim().StartsWith("inout ", StringComparison.Ordinal))
+                sb.Append("inout ");
+            sb.Append(NormalizeParamType(rawParamTypes[i]));
+        }
+        return sb.ToString();
+    }
+
+    /// <summary>
     /// Composes a disambiguated availability key from a bare member key and a
     /// parameter-type signature. Empty signature produces the bare key unchanged.
     /// Both producer (parser) and consumer (ABI) MUST use this helper so the

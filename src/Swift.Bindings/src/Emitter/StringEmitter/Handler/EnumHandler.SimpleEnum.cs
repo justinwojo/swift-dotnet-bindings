@@ -167,6 +167,13 @@ namespace BindingsGeneration
             csWriter.WriteLine("}");
             csWriter.WriteLine();
 
+            // A case floored above the enum is refused before its value reaches Swift, which cannot
+            // represent it on an older OS and traps. Every site that hands this enum's value to native
+            // code calls the guard the enum's type record names; it is written here, beside the enum.
+            if (CaseFloorGuardOf(enumDecl, typeDatabase) != null
+                && typeDatabase.TryGetTypeRecord(enumDecl.SwiftTypeName, out var enumRecord))
+                SimpleEnumCaseFloors.EmitGuard(csWriter, enumDecl, enumRecord.CSharpTypeName, caseNameMap);
+
             // Emit @_cdecl metadata wrapper for simple enums (needed for correct SwiftOptional<T> layout).
             // Simple enums can't implement ISwiftObject, so metadata is registered via module initializer.
             // Gate on the SAME "can wrapper source spell this type?" predicate the enum-level Swift
@@ -602,12 +609,12 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
                 EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
-                var callArgs = new List<string> { $"({csUnderlyingType})self" };
+                var callArgs = new List<string> { SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self") };
                 foreach (var param in paramDecls)
                 {
                     bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                     var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
                 }
                 var resultPtrName = bodyScope.Mint("resultPtr");
                 var sliceName = bodyScope.Mint("slice");
@@ -655,12 +662,12 @@ namespace BindingsGeneration
                 EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
 
                 // Build P/Invoke call arguments: cast enum to underlying type
-                var callArgs = new List<string> { $"({csUnderlyingType})self" };
+                var callArgs = new List<string> { SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self") };
                 foreach (var param in paramDecls)
                 {
                     bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                     var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
                 }
 
                 if (returnsVoid)
@@ -871,7 +878,10 @@ namespace BindingsGeneration
         /// Returns the case's availability annotations only when they introduce a tighter
         /// platform intro than the parent enum — i.e., cases that require a newer OS version
         /// than the enum itself. Returns empty when the case inherits the enum's intros.
-        /// Used by <see cref="EmitTagToEnumSwitch"/> to emit <c>#available</c> guards.
+        /// Used by <see cref="EmitTagToEnumSwitch"/> and <see cref="EnumParamConversionArm"/> to emit
+        /// <c>#available</c> guards. A platform appears once, at its highest floor: a case can carry
+        /// a declared floor and an inferred one for the same platform, and Swift rejects an
+        /// <c>#available</c> naming a platform twice.
         /// </summary>
         private static List<AvailabilityAnnotation> GetTighterCaseAvailability(EnumCaseDecl caseDecl, EnumDecl enumDecl)
         {
@@ -879,17 +889,31 @@ namespace BindingsGeneration
             if (caseDecl.AvailabilityAnnotations is not { Count: > 0 } caseAvail)
                 return result;
 
-            var enumAvail = enumDecl.AvailabilityAnnotations;
-            foreach (var ca in caseAvail)
+            foreach (var ca in HighestPerPlatform(caseAvail))
             {
-                if (ca.Platform == null || ca.IntroducedVersion == null)
-                    continue;
                 // Skip if the enum itself introduces the same-or-newer version on this platform.
-                var parentVersion = enumAvail?.FirstOrDefault(pa =>
+                var parentVersion = HighestPerPlatform(enumDecl.AvailabilityAnnotations).FirstOrDefault(pa =>
                     string.Equals(pa.Platform, ca.Platform, StringComparison.OrdinalIgnoreCase))?.IntroducedVersion;
-                if (parentVersion != null && CompareSwiftVersions(parentVersion, ca.IntroducedVersion) >= 0)
+                if (parentVersion != null && CompareSwiftVersions(parentVersion, ca.IntroducedVersion!) >= 0)
                     continue;
                 result.Add(ca);
+            }
+            return result;
+        }
+
+        /// <summary>The introducing annotations, one per platform: the highest, in first-seen order.</summary>
+        private static List<AvailabilityAnnotation> HighestPerPlatform(IEnumerable<AvailabilityAnnotation>? annotations)
+        {
+            var result = new List<AvailabilityAnnotation>();
+            foreach (var annotation in annotations ?? [])
+            {
+                if (annotation.Platform == null || annotation.IntroducedVersion == null)
+                    continue;
+                var index = result.FindIndex(r => string.Equals(r.Platform, annotation.Platform, StringComparison.OrdinalIgnoreCase));
+                if (index < 0)
+                    result.Add(annotation);
+                else if (CompareSwiftVersions(annotation.IntroducedVersion, result[index].IntroducedVersion!) > 0)
+                    result[index] = annotation;
             }
             return result;
         }
@@ -994,7 +1018,8 @@ namespace BindingsGeneration
                 // Utf8Slice struct is shared at module level
                 EmitStringReturnExtensionMethod(csWriter, enumName, propertyPascalName,
                     wrapperSymbol, csUnderlyingType, moduleName, isStatic: false, isNullable: returnsOptionalString,
-                    mainActor: mainActor, availabilityMember: propertyDecl, enumDecl: enumDecl);
+                    mainActor: mainActor, availabilityMember: propertyDecl, enumDecl: enumDecl,
+                    caseFloorGuard: CaseFloorGuardOf(enumDecl, typeDatabase));
             }
             else
             {
@@ -1007,9 +1032,9 @@ namespace BindingsGeneration
                 EmitMemberAvailabilityGuard(csWriter, propertyDecl, enumDecl, $"{enumName}.{propertyPascalName}");
 
                 if (returnsEnum)
-                    csWriter.WriteLine($"return ({enumName})PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
+                    csWriter.WriteLine($"return ({enumName})PInvoke_Get{propertyPascalName}({SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self")});");
                 else
-                    csWriter.WriteLine($"return PInvoke_Get{propertyPascalName}(({csUnderlyingType})self);");
+                    csWriter.WriteLine($"return PInvoke_Get{propertyPascalName}({SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self")});");
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -1118,7 +1143,7 @@ namespace BindingsGeneration
                 {
                     bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                     var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
                 }
 
                 if (returnsVoid)
@@ -1327,6 +1352,17 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsStringOrOptionalStringReturn(TypeSpec? typeSpec) =>
             IsStringReturn(typeSpec) || IsOptionalStringReturn(typeSpec);
+
+        /// <summary>
+        /// The <c>Require</c> method this enum's values pass through on their way to Swift
+        /// (<see cref="SimpleEnumCaseFloors"/>), as its type record names it; null when no case is
+        /// floored above the enum.
+        /// </summary>
+        private static string? CaseFloorGuardOf(EnumDecl enumDecl, ITypeDatabase typeDatabase)
+            => typeDatabase.TryGetTypeRecord(enumDecl.SwiftTypeName, out var record)
+               && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+                ? record.CaseFloorGuard
+                : null;
 
         /// <summary>
         /// Checks whether a TypeSpec represents a parameter of the same enum type.
@@ -1578,11 +1614,11 @@ namespace BindingsGeneration
         private void EmitStringReturnExtensionMethod(CSharpWriter csWriter, string enumName,
             string propertyPascalName, string wrapperSymbol, string csUnderlyingType, string moduleName,
             bool isStatic, bool isNullable = false, bool mainActor = false,
-            BaseDecl? availabilityMember = null, EnumDecl? enumDecl = null)
+            BaseDecl? availabilityMember = null, EnumDecl? enumDecl = null, string? caseFloorGuard = null)
         {
             var freeSymbol = Utf8SliceEmitter.GetFreeSymbolName(moduleName);
             var selfParam = isStatic ? "" : $"this {enumName} self";
-            var callArg = isStatic ? "" : $"({csUnderlyingType})self";
+            var callArg = isStatic ? "" : SimpleEnumCaseFloors.ToNative(caseFloorGuard, csUnderlyingType, "self");
             var returnType = isNullable ? "string?" : "string";
 
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
@@ -1664,7 +1700,7 @@ namespace BindingsGeneration
             {
                 bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
                 var argName = NameProvider.GetCSharpParameterName(param);
-                callArgs.Add(isEnumParam ? $"({csUnderlyingType}){argName}" : argName);
+                callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
             }
 
             csWriter.WriteLine($"IntPtr {resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
@@ -1941,13 +1977,28 @@ namespace BindingsGeneration
             // GetCaseMarshalScalar — the SAME value the C# side passed (the cast enum member),
             // i.e. the real Swift raw value for integral RawRepresentable enums and the
             // declaration-order tag otherwise. Generate an inline closure with the switch.
+            // A case floored above the enum is named only under `#available`, as in
+            // EmitTagToEnumSwitch: naming it bare does not compile below its floor. The managed side
+            // refuses it there first (SimpleEnumCaseFloors), so the else arm is never reached.
             return $"{{ () -> {enumQualifiedName} in\n" +
                    $"    switch {paramExpr} {{\n" +
-                   string.Join("\n", enumDecl.Cases.Select(c =>
-                       $"    case {enumDecl.GetCaseMarshalScalar(c)}: return .{NameProvider.EscapeSwiftKeyword(c.Name)}")) +
+                   string.Join("\n", enumDecl.Cases.Select(c => EnumParamConversionArm(enumDecl, c))) +
                    $"\n    default: Swift.fatalError(\"[SwiftBindings] Invalid enum tag\")\n" +
                    $"    }}\n" +
                    $"}}()";
+        }
+
+        private static string EnumParamConversionArm(EnumDecl enumDecl, EnumCaseDecl caseDecl)
+        {
+            var tag = enumDecl.GetCaseMarshalScalar(caseDecl);
+            if (caseDecl.IsSpiProtected)
+                return $"    case {tag}: Swift.fatalError(\"[SwiftBindings] Case at index \\({tag}) is @_spi protected\")";
+            var caseName = NameProvider.EscapeSwiftKeyword(caseDecl.Name);
+            var caseAvailability = GetTighterCaseAvailability(caseDecl, enumDecl);
+            if (caseAvailability.Count == 0)
+                return $"    case {tag}: return .{caseName}";
+            return $"    case {tag}: if #available({BuildIfAvailableClause(caseAvailability)}) {{ return .{caseName} }} " +
+                   $"else {{ Swift.fatalError(\"[SwiftBindings] Case {caseDecl.Name} requires a newer OS version\") }}";
         }
 
         private static string DeterministicHash8(string input) => EmitterUtility.DeterministicHash8(input);
