@@ -987,7 +987,7 @@ public static partial class SwiftUIBridgeEmitter
                     sb.AppendLine($"            var {param.Name}Elements: [{inner.BridgeTypeName}] = []");
                     sb.AppendLine($"            {param.Name}Elements.reserveCapacity({param.Name}Count)");
                     sb.AppendLine($"            for {param.Name}Raw in Swift.UnsafeBufferPointer(start: ptr, count: {param.Name}Count) {{");
-                    sb.AppendLine($"                guard let {param.Name}Element = {inner.BridgeTypeName}(rawValue: {param.Name}Raw) else {{ return nil }}");
+                    sb.AppendLine($"                guard let {param.Name}Element = {SimpleEnumCrossing.ScalarToOptionalCase(!inner.CrossesAsCaseTag, inner.CaseTagCount, inner.BridgeTypeName!, $"{param.Name}Raw")} else {{ return nil }}");
                     sb.AppendLine($"                {param.Name}Elements.append({param.Name}Element)");
                     sb.AppendLine($"            }}");
                     sb.AppendLine($"            self.{param.SwiftName} = {param.Name}Elements");
@@ -1495,7 +1495,7 @@ public static partial class SwiftUIBridgeEmitter
         {
             // Out-of-range raw value fails creation (return nil from the failable init →
             // C# InvalidOperationException) instead of trapping via force-unwrap.
-            sb.AppendLine($"        guard let {param.Name}Converted = {param.BridgeTypeName}(rawValue: {param.SwiftName}) else {{ return nil }}");
+            sb.AppendLine($"        guard let {param.Name}Converted = {SimpleEnumCrossing.ScalarToOptionalCase(!param.CrossesAsCaseTag, param.CaseTagCount, param.BridgeTypeName!, param.SwiftName)} else {{ return nil }}");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
         {
@@ -1553,7 +1553,7 @@ public static partial class SwiftUIBridgeEmitter
                 // rather than trapping. A nil Optional (HasValue == 0) stays nil.
                 sb.AppendLine($"        let {param.Name}Converted: {GetSwiftNativeType(param)}");
                 sb.AppendLine($"        if {param.Name}HasValue != 0 {{");
-                sb.AppendLine($"            guard let {param.Name}Case = {inner.BridgeTypeName}(rawValue: {param.Name}Value) else {{ return nil }}");
+                sb.AppendLine($"            guard let {param.Name}Case = {SimpleEnumCrossing.ScalarToOptionalCase(!inner.CrossesAsCaseTag, inner.CaseTagCount, inner.BridgeTypeName!, $"{param.Name}Value")} else {{ return nil }}");
                 sb.AppendLine($"            {param.Name}Converted = {param.Name}Case");
                 sb.AppendLine($"        }} else {{");
                 sb.AppendLine($"            {param.Name}Converted = nil");
@@ -1756,7 +1756,7 @@ public static partial class SwiftUIBridgeEmitter
         else if (param.Kind == BridgeParameterKind.BoundEnum)
         {
             // Out-of-range raw value leaves state unchanged (return) instead of trapping.
-            sb.AppendLine($"        guard let newValueConverted = {param.BridgeTypeName}(rawValue: newValue) else {{ return }}");
+            sb.AppendLine($"        guard let newValueConverted = {SimpleEnumCrossing.ScalarToOptionalCase(!param.CrossesAsCaseTag, param.CaseTagCount, param.BridgeTypeName!, "newValue")} else {{ return }}");
             sb.AppendLine($"        session.state.{param.SwiftName} = newValueConverted");
         }
         else if (param.Kind == BridgeParameterKind.BoundType)
@@ -1809,7 +1809,7 @@ public static partial class SwiftUIBridgeEmitter
                 // A present out-of-range raw value leaves state unchanged (return) rather
                 // than trapping; a nil Optional (HasValue == 0) clears the state to nil.
                 sb.AppendLine($"        if newValueHasValue != 0 {{");
-                sb.AppendLine($"            guard let newValueCase = {inner.BridgeTypeName}(rawValue: newValueValue) else {{ return }}");
+                sb.AppendLine($"            guard let newValueCase = {SimpleEnumCrossing.ScalarToOptionalCase(!inner.CrossesAsCaseTag, inner.CaseTagCount, inner.BridgeTypeName!, "newValueValue")} else {{ return }}");
                 sb.AppendLine($"            session.state.{param.SwiftName} = newValueCase");
                 sb.AppendLine($"        }} else {{");
                 sb.AppendLine($"            session.state.{param.SwiftName} = nil");
@@ -2259,7 +2259,7 @@ public static partial class SwiftUIBridgeEmitter
                     // A present out-of-range raw value leaves the modifier state unchanged
                     // (return) rather than trapping; a nil Optional (hasValue == 0) clears it.
                     sb.AppendLine($"        if hasValue != 0 {{");
-                    sb.AppendLine($"            guard let modCase = {param.BridgeTypeName}(rawValue: value) else {{ return }}");
+                    sb.AppendLine($"            guard let modCase = {SimpleEnumCrossing.ScalarToOptionalCase(!param.CrossesAsCaseTag, param.CaseTagCount, param.BridgeTypeName!, "value")} else {{ return }}");
                     sb.AppendLine($"            session.state.mod_{mod.MethodName} = modCase");
                     sb.AppendLine($"        }} else {{");
                     sb.AppendLine($"            session.state.mod_{mod.MethodName} = nil");

@@ -280,6 +280,44 @@ public static class ExtensionMarshallingHelper
     }
 
     /// <summary>
+    /// Whether a simple enum's value crosses as Swift's <c>.rawValue</c> rather than its case tag
+    /// (<see cref="SimpleEnumCrossing.CrossesAsRawValue"/>). False when <paramref name="typeSpec"/>
+    /// does not resolve to a simple enum record.
+    /// </summary>
+    public static bool SimpleEnumCrossesAsRawValue(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => TryGetSimpleEnumRecord(typeSpec, typeDatabase, out var record) && SimpleEnumCrossing.CrossesAsRawValue(record);
+
+    /// <summary>
+    /// A simple enum's case count when its value crosses as the case tag
+    /// (<see cref="SimpleEnumCrossing.CaseTagCount"/>); 0 when it crosses as the raw value or
+    /// <paramref name="typeSpec"/> does not resolve to a simple enum record.
+    /// </summary>
+    public static int SimpleEnumCaseTagCount(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => TryGetSimpleEnumRecord(typeSpec, typeDatabase, out var record) ? SimpleEnumCrossing.CaseTagCount(record) : 0;
+
+    private static bool TryGetSimpleEnumRecord(TypeSpec typeSpec, ITypeDatabase typeDatabase, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out TypeRecord? record)
+    {
+        record = null;
+        if (typeSpec is not NamedTypeSpec named)
+            return false;
+        SwiftTypeName swiftTypeName;
+        try
+        {
+            swiftTypeName = SwiftTypeName.FromModuleQualifiedName(named.Name);
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        if (!typeDatabase.TryGetTypeRecord(swiftTypeName, out var found)
+            || found.Kind != TypeRecordKind.Enum
+            || !found.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
+            return false;
+        record = found;
+        return true;
+    }
+
+    /// <summary>
     /// Resolves a SimpleEnum TypeSpec to the raw-integer lowering used at the cdecl/silgen
     /// boundary: the C# underlying integer name (e.g. "int"), the matching Swift scalar (e.g.
     /// "Int32"), and the fully module-qualified Swift enum name for <c>T(rawValue:)</c>

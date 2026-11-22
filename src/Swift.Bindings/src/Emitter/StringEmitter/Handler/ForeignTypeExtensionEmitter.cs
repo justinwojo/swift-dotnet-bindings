@@ -1061,7 +1061,7 @@ public static class ForeignTypeExtensionEmitter
         {
             var propertyAccess = $"instance.{NameProvider.EscapeSwiftKeyword(extMethod.MethodName)}";
             ctx.AddForeignExtWrapperLine(returnIsSimpleEnum
-                ? $"    return ({propertyAccess}).rawValue"
+                ? $"    return {SimpleEnumReturnScalar(propertyTypeSpec, typeDatabase, returnUnderlyingSwiftType!, propertyAccess)}"
                 : $"    return {propertyAccess}");
         }
         else
@@ -1238,7 +1238,10 @@ public static class ForeignTypeExtensionEmitter
                 // Reconstruct the enum from its raw scalar (guard-let / preconditionFailure,
                 // matching CrossModuleExtensionEmitter's identical SimpleEnum reconstruction).
                 var localName = $"{paramName}Val";
-                ctx.AddForeignExtWrapperLine($"    guard let {localName} = {qualifiedSwiftType}(rawValue: {paramName}) else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
+                var reconstructed = SimpleEnumCrossing.ScalarToOptionalCase(
+                    ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(typeSpec, typeDatabase),
+                    ExtensionMarshallingHelper.SimpleEnumCaseTagCount(typeSpec, typeDatabase), qualifiedSwiftType!, paramName);
+                ctx.AddForeignExtWrapperLine($"    guard let {localName} = {reconstructed} else {{ Swift.preconditionFailure(\"[SwiftBindings] Invalid raw value \\({paramName}) for {qualifiedSwiftType}\") }}");
                 callArgs.Add(label == "_" ? localName : $"{label}: {localName}");
             }
             else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
@@ -1261,7 +1264,7 @@ public static class ForeignTypeExtensionEmitter
         {
             // Cross the boundary as the raw scalar, not the enum's physical tag — see the
             // returnIsSimpleEnum comment above.
-            callStr = $"({callStr}).rawValue";
+            callStr = SimpleEnumReturnScalar(returnTypeSpec!, typeDatabase, returnUnderlyingSwiftType!, callStr);
         }
 
         if (returnIsClass)
@@ -2140,4 +2143,13 @@ public static class ForeignTypeExtensionEmitter
             ModuleName = moduleName,
         });
     }
+
+    /// <summary>
+    /// The scalar a simple-enum result crosses as: its <c>.rawValue</c>, or its case tag for an enum
+    /// whose raw values no input carries (<see cref="SimpleEnumCrossing"/>).
+    /// </summary>
+    private static string SimpleEnumReturnScalar(TypeSpec typeSpec, ITypeDatabase typeDatabase, string scalarType, string valueExpr)
+        => ExtensionMarshallingHelper.SimpleEnumCrossesAsRawValue(typeSpec, typeDatabase)
+            ? $"({valueExpr}).rawValue"
+            : SimpleEnumCrossing.CaseToTag(ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec), scalarType, valueExpr);
 }

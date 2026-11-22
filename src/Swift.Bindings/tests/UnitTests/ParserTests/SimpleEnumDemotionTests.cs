@@ -244,6 +244,59 @@ public class SimpleEnumDemotionTests
             "Simple enum in Swift.Array should retain SimpleEnum flag (projected to IReadOnlyList<T>)");
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IntRawValueEnum_CrossesAsCaseTagOnlyWhileASimpleEnum(bool usedAsConstrainedGenericArg)
+    {
+        // A non-@objc `enum E: Int` crosses as its case tag, range-checked against its case count. Once
+        // demoted to a class projection it hands Swift `.RawValue`, so its record must stop saying
+        // it crosses as the tag (a SwiftUI bridge would otherwise decode the raw value as a tag).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", "TestModule", isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases = new List<EnumCaseDecl>
+        {
+            new EnumCaseDecl { Name = "light", RawValue = "1", MangledName = "$s_light", ParentDecl = null, ModuleDecl = null },
+            new EnumCaseDecl { Name = "dark", RawValue = "2", MangledName = "$s_dark", ParentDecl = null, ModuleDecl = null },
+        };
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            [new NamedTypeSpec("TestModule.Shade")] = enumDecl,
+        };
+        if (usedAsConstrainedGenericArg)
+        {
+            var genericClass = CreateClassDecl("ConstrainedBox", "TestModule");
+            genericClass.GenericParameters = new List<GenericArgumentDecl>
+            {
+                new GenericArgumentDecl("τ_0_0", "T", new List<GenericParameterConformance>
+                {
+                    new GenericParameterConformance(new[] { "" }, SwiftTypeName.FromModuleQualifiedName("Swift.Equatable"), ConformanceKind.Protocol)
+                }, new List<GenericParameterConformance>()),
+            };
+            genericClass.Properties.Add(new PropertyDecl
+            {
+                Name = "result",
+                ParentDecl = genericClass,
+                ModuleDecl = moduleDecl,
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.ConstrainedBox", new NamedTypeSpec("TestModule.Shade")),
+                HasStorage = true,
+                IsStatic = false,
+                Accessors = new List<AccessorDecl>(),
+            });
+            typeDecls[new NamedTypeSpec("TestModule.ConstrainedBox")] = genericClass;
+        }
+
+        var processor = new ModuleProcessor("TestModule", "/tmp/dummy.dylib", "TestModule", typeDecls, new TypeDatabase(), NullLogger.Instance);
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+
+        Assert.True(result.ModuleDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName("TestModule.Shade"), out var record));
+        Assert.Equal(!usedAsConstrainedGenericArg, record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.Equal(!usedAsConstrainedGenericArg, record.RawValueCrossesAsCaseTag);
+        Assert.Equal(usedAsConstrainedGenericArg ? 0 : 2, record.CaseTagCount);
+        Assert.Equal(usedAsConstrainedGenericArg, SimpleEnumCrossing.CrossesAsRawValue(record));
+    }
+
     [Fact]
     public void SimpleEnumNotUsedAsGenericArg_RetainsSimpleFlag()
     {

@@ -2311,7 +2311,8 @@ public partial class ClosureHandler
         // @_cdecl carriers' single oracle rather than naming the excluded types again here —
         // spelling the rule twice is how the module-qualified "Swift.String" spelling slipped
         // past an unqualified-only exclusion.
-        var hasRawValue = CdeclParamMapper.HasCdeclScalarRawValue(typeRecord.RawValueTypeName);
+        // A non-@objc integral enum crosses as its case tag too (SimpleEnumCrossing).
+        var hasRawValue = SimpleEnumCrossing.CrossesAsRawValue(typeRecord);
         // swiftRawType: the actual Swift raw value type (e.g., "Int") which may differ
         // from swiftScalar (e.g., "Int64"). Needed for init(rawValue:) casts where
         // Swift treats Int and Int64 as distinct types.

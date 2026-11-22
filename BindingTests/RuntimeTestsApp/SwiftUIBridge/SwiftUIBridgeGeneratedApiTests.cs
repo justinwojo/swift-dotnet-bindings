@@ -291,6 +291,45 @@ public class SwiftUIBridgeGeneratedApiTests : TestBase
         session.UpdatePreferred(null);
         AssertTrue(session.GetViewController() != IntPtr.Zero, "FlooredModeView survives the refused updates");
     }
+
+    /// <summary>
+    /// <c>RawShade</c>'s raw values (light = 1, dark = 2) are not its case indices. The view records
+    /// the raw values it received (shade * 10000 + preferred * 100 + the shades as digits), so each
+    /// bridge argument — scalar, optional and array element — must reach Swift as its own case.
+    /// </summary>
+    // SwiftUI builds RawShadeView, which records what reached Swift, only when it evaluates the
+    // hosting controller's body, so each check first measures and lays out the hosted view.
+    private static void RenderRawShadeView(global::SwiftBindingsTestLib.RawShadeViewSession session)
+    {
+        var view = session.ViewController!.View!;
+        view.Frame = new global::CoreGraphics.CGRect(0, 0, 320, 480);
+        view.SizeThatFits(new global::CoreGraphics.CGSize(320, 480));
+        view.SetNeedsLayout();
+        view.LayoutIfNeeded();
+    }
+
+    public void TestRawShadeView_ExplicitRawValueCasesReachSwiftAsThemselves()
+    {
+        var light = global::SwiftBindingsTestLib.RawShade.Light;
+        var dark = global::SwiftBindingsTestLib.RawShade.Dark;
+
+        using (var session = global::SwiftBindingsTestLib.RawShadeViewSession.Create(dark, light, new[] { light, dark, dark }))
+        {
+            AssertTrue(session.GetViewController() != IntPtr.Zero, "RawShadeView builds");
+            RenderRawShadeView(session);
+            AssertEqual((nint)20_222, TestLibFunctions.GetRawShadeViewLastRaw(),
+                "dark, light and [light, dark, dark] reach Swift as themselves");
+            session.UpdateShade(light);
+            session.UpdatePreferred(null);
+        }
+
+        using (var session = global::SwiftBindingsTestLib.RawShadeViewSession.Create(light, null, new[] { dark }))
+        {
+            RenderRawShadeView(session);
+            AssertEqual((nint)10_002, TestLibFunctions.GetRawShadeViewLastRaw(),
+                "light, nil and [dark] reach Swift as themselves");
+        }
+    }
 }
 
 #endif

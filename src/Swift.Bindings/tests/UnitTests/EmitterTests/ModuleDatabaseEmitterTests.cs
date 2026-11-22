@@ -112,6 +112,48 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Theory]
+        [InlineData(true)]
+        [InlineData(false)]
+        public async Task Emit_SimpleEnum_PreservesCaseTagCrossing(bool crossesAsCaseTag)
+        {
+            // A dependent module reconstructs a dependency's enum from this record alone, so whether
+            // its values cross as the case tag must survive the module database, or the dependent
+            // would hand Swift the tag as a raw value.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Shade");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Shade"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib5ShadeO",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    RawValueTypeName = "Int",
+                    RawValueCrossesAsCaseTag = crossesAsCaseTag,
+                    CaseTagCount = crossesAsCaseTag ? 3 : 0
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+                Assert.Equal(crossesAsCaseTag, File.ReadAllText(path!).Contains("rawValueCrossesAsCaseTag=\"true\""));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(crossesAsCaseTag, loaded!.RawValueCrossesAsCaseTag);
+                Assert.Equal(!crossesAsCaseTag, SimpleEnumCrossing.CrossesAsRawValue(loaded));
+                // A dependent range-checks an incoming tag against the case count, so it travels too.
+                Assert.Equal(crossesAsCaseTag ? 3 : 0, SimpleEnumCrossing.CaseTagCount(loaded));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         [Fact]
         public async Task Emit_OptionSetEnum_PreservesOptionSetFlag()
         {
