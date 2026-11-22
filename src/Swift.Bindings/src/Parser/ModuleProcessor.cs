@@ -1196,6 +1196,9 @@ namespace BindingsGeneration
                 CSharpTypeName = enumCSharpTypeName,
                 // A simple enum's floored cases are refused on their way to Swift (SimpleEnumCaseFloors).
                 HasCaseFloorGuard = (flags & TypeRecordFlags.SimpleEnum) != 0 && SimpleEnumCaseFloors.NeedsGuard(enumDecl),
+                // A non-@objc enum's raw values are in no input, so its values cross as the case tag.
+                RawValueCrossesAsCaseTag = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag,
+                CaseTagCount = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag ? enumDecl.Cases.Count : 0,
                 SwiftTypeInfo = swiftTypeInfo,
                 MetadataAccessor = enumDecl.MetadataAccessor,
                 Flags = flags,
@@ -1387,7 +1390,14 @@ namespace BindingsGeneration
                 if (!record.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
                     continue;
 
-                var demotedRecord = record with { Flags = record.Flags & ~TypeRecordFlags.SimpleEnum };
+                // A class-projected enum hands Swift its raw value (`.RawValue`), so it no longer
+                // crosses as the case tag either.
+                var demotedRecord = record with
+                {
+                    Flags = record.Flags & ~TypeRecordFlags.SimpleEnum,
+                    RawValueCrossesAsCaseTag = false,
+                    CaseTagCount = 0,
+                };
                 _moduleDatabase.Register(swiftTypeName, demotedRecord, ConflictPolicy.Overwrite);
                 _logger.LogInformation($"Demoted simple enum '{swiftTypeName}' to class-based: used as generic type argument with ISwiftObject constraint.");
             }

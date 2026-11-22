@@ -48,17 +48,20 @@ public class NonStandardEnumTests : TestBase
         TestLogger.Info($"FeatureFlag underlying type: {underlyingType.Name}");
     }
 
-    [Skip("Non-@objc enums export no raw values: the Swift compiler strips explicit raw values (execute=4) from the .swiftinterface for plain `enum: UInt32`, and the ABI JSON lacks them too, so there is no source of truth — execute necessarily falls back to the declaration-order ordinal 3. @objc enums DO preserve raw values; that path is gated by the AuthErrorCodeLike tests below.")]
+    /// <summary>
+    /// Swift declares none=0, read=1, write=2, execute=4. A non-@objc enum's interface prints no
+    /// raw values, so the members are the case indices (execute is 3) and the raw value comes from
+    /// Swift through <c>ToRawValue</c>/<c>FromRawValue</c>.
+    /// </summary>
     public void TestPermissionCaseValues()
     {
-        // Swift declares none=0, read=1, write=2, execute=4. For a non-@objc enum those raw
-        // values are absent from every generator input, so execute emits as the ordinal 3.
-        // These assertions encode the INTENDED Swift values; if a future toolchain preserves
-        // non-@objc raw values, un-skipping this will start passing.
-        AssertEqual(Permission.None, (Permission)(uint)0, "None is 0");
-        AssertEqual(Permission.Read, (Permission)(uint)1, "Read is 1");
-        AssertEqual(Permission.Write, (Permission)(uint)2, "Write is 2");
-        AssertEqual(Permission.Execute, (Permission)(uint)4, "Execute is 4 (Swift raw value)");
+        AssertEqual(Permission.Execute, (Permission)(uint)3, "Execute is case 3");
+        AssertEqual(0u, Permission.None.ToRawValue(), "None raw value is 0");
+        AssertEqual(1u, Permission.Read.ToRawValue(), "Read raw value is 1");
+        AssertEqual(2u, Permission.Write.ToRawValue(), "Write raw value is 2");
+        AssertEqual(4u, Permission.Execute.ToRawValue(), "Execute raw value is 4 (Swift raw value)");
+        AssertEqual<Permission?>(Permission.Execute, PermissionExtensions.FromRawValue(4), "FromRawValue(4) is Execute");
+        AssertEqual<Permission?>(null, PermissionExtensions.FromRawValue(3), "3 names no Permission case");
         TestLogger.Info("Permission case values passed");
     }
 

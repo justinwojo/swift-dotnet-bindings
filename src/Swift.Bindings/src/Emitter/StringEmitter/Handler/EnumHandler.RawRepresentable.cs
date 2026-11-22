@@ -67,7 +67,10 @@ namespace BindingsGeneration
             var rawTypeName = enumDecl.RawValueTypeName!;
             var libPath = typeDatabase.GetLibraryPath(moduleDecl.Name);
             var wrapperLibPath = typeDatabase.AsyncLibraryName ?? libPath;
-            var isStringRawType = rawTypeName == "String";
+            // A Character raw value crosses as the String it spells: C# has no Character, and a
+            // @_cdecl wrapper cannot take one, so both text raw types share the UTF-8 slice path.
+            var isCharacterRawType = rawTypeName == "Character";
+            var isStringRawType = rawTypeName == "String" || isCharacterRawType;
             // Per-enum suffix for helper P/Invoke method names to avoid dedup collisions
             // when multiple enums share a PInvokeHelperContext (nested in same generic parent).
             // Uses module-qualified name (e.g., "Mod_Outer_Foo_Status") so same-named enums
@@ -91,7 +94,7 @@ namespace BindingsGeneration
                 "UInt64" => "ulong",
                 "Float" => "float",
                 "Double" or "CGFloat" => "double",
-                "String" => "string",
+                "String" or "Character" => "string",
                 _ => rawTypeName // Fall back to the Swift name
             };
 
@@ -166,7 +169,7 @@ namespace BindingsGeneration
                 // Use full module-qualified name to avoid collisions for same-named nested enums
                 // (e.g., Module.Foo.ErrorType and Module.Bar.ErrorType get unique symbols)
                 wrapperSymbol = $"SBW_{sanitizedName}_InitWithRawValue";
-                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, rawValueFloor, ctx, viaMetadata);
+                EmitStringRawValueSwiftWrapper(swiftWriter, enumDecl, moduleDecl, wrapperSymbol, rawValueFloor, ctx, viaMetadata, isCharacterRawType);
             }
             else if (WrapperValidation.IsXCFrameworkMode(typeDatabase))
             {
@@ -683,7 +686,7 @@ namespace BindingsGeneration
         /// </param>
         /// <param name="availability">The initializer's floor merged with the enum's and its ancestors':
         /// @_cdecl wrappers are top-level functions and don't inherit enclosing type availability.</param>
-        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, IReadOnlyList<AvailabilityAnnotation>? availability, ModuleEmissionContext? ctx = null, bool viaMetadata = false)
+        private void EmitStringRawValueSwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl, ModuleDecl moduleDecl, string wrapperSymbol, IReadOnlyList<AvailabilityAnnotation>? availability, ModuleEmissionContext? ctx = null, bool viaMetadata = false, bool characterRawValue = false)
         {
             ctx ??= ModuleEmissionContext.CreateImplicitFallback();
             // RawRep wrappers live in a dedicated `_enum_raw_rep` bucket — no other emitter writes to it. One init(rawValue:) wrapper per enum, keyed by symbol name.
@@ -711,6 +714,11 @@ namespace BindingsGeneration
                 }
                 """;
 
+            // A Character raw value arrives as its String; one that is not exactly one grapheme names no
+            // case (Character(_:) would trap on it), so it fails like any other unknown raw value.
+            var rawValueExpr = characterRawValue ? "Swift.Character(str)" : "str";
+            var rawValueGuard = characterRawValue ? "str.count == 1, " : "";
+
             // Determine if enum is frozen (affects return style)
             if (enumDecl.IsFrozen)
             {
@@ -718,7 +726,7 @@ namespace BindingsGeneration
                 // Returns nil (NULL) if rawValue is invalid
                 var body = $$"""
                     {{decodeSlice}}
-                    guard let result = {{enumFullName}}(rawValue: str) else {
+                    guard {{rawValueGuard}}let result = {{enumFullName}}(rawValue: {{rawValueExpr}}) else {
                         return nil
                     }
                     let ptr = Swift.UnsafeMutablePointer<{{enumFullName}}>.allocate(capacity: 1)
@@ -736,7 +744,7 @@ namespace BindingsGeneration
                 // BitwiseCopyable requirement (Swift 6+) for Swift.Optional<Enum> with String raw values
                 var body = $$"""
                     {{decodeSlice}}
-                    let result: {{enumFullName}}? = {{enumFullName}}(rawValue: str)
+                    let result: {{enumFullName}}? = {{(characterRawValue ? $"str.count == 1 ? {enumFullName}(rawValue: {rawValueExpr}) : nil" : $"{enumFullName}(rawValue: str)")}}
                     Swift.withUnsafePointer(to: result) { _srcPtr in
                         resultPtr.copyMemory(from: Swift.UnsafeRawPointer(_srcPtr), byteCount: Swift.MemoryLayout<{{enumFullName}}?>.size)
                     }

@@ -505,6 +505,24 @@ public record TypeRecord
     public bool HasCaseFloorGuard { get; init; }
 
     /// <summary>
+    /// True for a simple enum with an integral raw value whose values cross the native boundary as
+    /// the case tag (its in-memory representation, and the C# constant) rather than as Swift's
+    /// <c>.rawValue</c>: every non-<c>@objc</c> Swift enum, whose raw values no generation input
+    /// carries (<see cref="EnumDecl.CrossesAsCaseTag"/>). False for an <c>@objc</c> enum, an ObjC
+    /// NS_ENUM and an Apple enum synthesized from the managed surface, whose raw values are known
+    /// and are their in-memory representation. Persisted across the cross-module XML round-trip; a
+    /// database that predates the field reads false, which is how its bindings marshalled.
+    /// </summary>
+    public bool RawValueCrossesAsCaseTag { get; init; }
+
+    /// <summary>
+    /// The number of case tags of a simple enum with <see cref="RawValueCrossesAsCaseTag"/> (its case
+    /// count), which a site that turns an incoming tag back into a case checks it against; 0 otherwise.
+    /// Persisted with <see cref="RawValueCrossesAsCaseTag"/>.
+    /// </summary>
+    public int CaseTagCount { get; init; }
+
+    /// <summary>
     /// The fully qualified <c>Require</c> of a simple enum with <see cref="HasCaseFloorGuard"/>, named
     /// from the record's current C# name so it follows a rename of an enclosing type; null otherwise.
     /// </summary>

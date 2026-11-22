@@ -436,6 +436,9 @@ namespace BindingsGeneration
                 string objcBridgeable = typeDeclarationNode?.Attributes?["objcBridgeable"]?.Value ?? "false";
                 string? rawValueType = typeDeclarationNode?.Attributes?["rawValueType"]?.Value;
                 string hasCaseFloorGuard = typeDeclarationNode?.Attributes?["hasCaseFloorGuard"]?.Value ?? "false";
+                // Absent on databases that predate the field: their bindings marshalled the raw value.
+                string rawValueCrossesAsCaseTag = typeDeclarationNode?.Attributes?["rawValueCrossesAsCaseTag"]?.Value ?? "false";
+                string? caseTagCountStr = typeDeclarationNode?.Attributes?["caseTagCount"]?.Value;
                 // Absent on every record whose C# name is already its ObjC name, and on databases
                 // written before the Swift-import rename existed — null is the correct reading of both.
                 string? objcRuntimeName = typeDeclarationNode?.Attributes?["objcRuntimeName"]?.Value;
@@ -692,6 +695,8 @@ namespace BindingsGeneration
                     EmittedMetadataPInvoke = emittedMetadataPInvoke,
                     AvailabilityAnnotations = availabilityAnnotations,
                     HasCaseFloorGuard = string.Equals(hasCaseFloorGuard, "true", StringComparison.OrdinalIgnoreCase),
+                    RawValueCrossesAsCaseTag = string.Equals(rawValueCrossesAsCaseTag, "true", StringComparison.OrdinalIgnoreCase),
+                    CaseTagCount = int.TryParse(caseTagCountStr, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var caseTagCount) ? caseTagCount : 0,
                 };
 
                 moduleDatabase.Register(swiftTypeName, typeRecord, ConflictPolicy.Overwrite);

@@ -544,7 +544,9 @@ public static partial class SwiftUIBridgeEmitter
                     BridgeTypeName: swiftSimpleName,
                     CSharpTypeName: csharpName,
                     IsSimpleEnum: record.Flags.HasFlag(TypeRecordFlags.SimpleEnum),
-                    CaseFloorGuard: record.CaseFloorGuard);
+                    CaseFloorGuard: record.CaseFloorGuard,
+                    CrossesAsCaseTag: !SimpleEnumCrossing.CrossesAsRawValue(record),
+                    CaseTagCount: SimpleEnumCrossing.CaseTagCount(record));
             }
 
             // Non-raw-value enums (associated values, no RawRepresentable conformance):
@@ -1073,7 +1075,13 @@ public record BridgeParameter(
     /// C# side hands the bridge passes through it, so a case the running OS lacks is refused with
     /// <see cref="System.PlatformNotSupportedException"/> before the bridge's <c>init(rawValue:)</c>
     /// turns it into a null session or a dropped update. Null otherwise.</summary>
-    string? CaseFloorGuard = null)
+    string? CaseFloorGuard = null,
+    /// <summary>True for a BoundEnum whose values cross as the case tag rather than
+    /// <c>.rawValue</c> (<see cref="SimpleEnumCrossing"/>).</summary>
+    bool CrossesAsCaseTag = false,
+    /// <summary>The enum's case count when <see cref="CrossesAsCaseTag"/> (<see cref="TypeRecord.CaseTagCount"/>):
+    /// an incoming tag outside it names no case.</summary>
+    int CaseTagCount = 0)
 {
     /// <summary>
     /// Returns true for parameter kinds that support Update* methods (two-way state binding).

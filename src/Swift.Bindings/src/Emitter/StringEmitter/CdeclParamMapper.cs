@@ -572,7 +572,7 @@ public static class CdeclParamMapper
                     // and a `guard let` / force-unwrap on a non-optional would not compile.
                     conversion = $"let {label}Val = {swiftType}(rawValue: {rawArg})";
                 }
-                else if (HasCdeclScalarRawValue(typeRecord.RawValueTypeName))
+                else if (SimpleEnumCrossing.CrossesAsRawValue(typeRecord))
                 {
                     // RawRepresentable enum: init(rawValue:) safely maps raw value → case
                     // regardless of in-memory storage size. The synthesized init?(rawValue:)
@@ -594,10 +594,11 @@ public static class CdeclParamMapper
                 }
                 else
                 {
-                    // The case index crosses instead of a raw value — either because the enum has
-                    // no RawValue at all, or because its RawValue is not a C-ABI scalar (Bool,
-                    // floating-point, String), in which case the managed enum carries ordinals
-                    // too. C# sends that index as a widened integer; extract the tag from the low
+                    // The case index crosses instead of a raw value — because the enum has no
+                    // RawValue at all, because its RawValue is not a C-ABI scalar (Bool,
+                    // floating-point, String), or because it is a non-@objc integral enum whose raw
+                    // values no input carries (SimpleEnumCrossing); the managed enum carries the
+                    // ordinal in each case. C# sends that index as a widened integer; extract the tag from the low
                     // bytes via a safe memory load (little-endian: tag is in the first N bytes).
                     conversion = $"var {label}Raw = {label}; let {label}Val = Swift.withUnsafeMutablePointer(to: &{label}Raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }}";
                 }

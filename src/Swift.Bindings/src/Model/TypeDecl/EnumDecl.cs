@@ -180,6 +180,28 @@ namespace BindingsGeneration
         public bool IsIntegralRawRepresentable => IsRawRepresentable && IsIntegralRawValue();
 
         /// <summary>
+        /// Whether a value of this integral RawRepresentable enum crosses the native boundary as its
+        /// case tag rather than its Swift raw value. True for every such enum that is not
+        /// <c>@objc</c>.
+        /// <para>
+        /// A non-<c>@objc</c> enum's <c>.swiftinterface</c> prints no raw values (<c>case light = 1</c>
+        /// prints as <c>case light</c>, <c>@frozen</c> or not), and neither the ABI descriptor nor
+        /// swift-api-digester's output, both built from that interface, carries them. Library
+        /// evolution lets the author change them without breaking ABI, so no generation-time source
+        /// knows them for certain. Its in-memory value is the declaration-order case tag, which is
+        /// what the container, Optional and metadata paths read. So the C# constant is that tag on
+        /// every crossing, and the raw value is offered only through Swift's own <c>.rawValue</c> and
+        /// <c>init(rawValue:)</c> (the generated <c>ToRawValue</c>/<c>FromRawValue</c>).
+        /// </para>
+        /// <para>
+        /// An <c>@objc</c> enum is a C enum: the interface prints its raw values (Swift's implicit
+        /// raw values follow the C auto-increment rule) and its in-memory value is the raw value
+        /// itself, so it keeps crossing as the raw value.
+        /// </para>
+        /// </summary>
+        public bool CrossesAsCaseTag => IsIntegralRawRepresentable && !IsObjC;
+
+        /// <summary>
         /// Whether this enum qualifies for emission as a C# enum with String raw value conversions.
         /// Requires: no associated values, frozen, non-generic, String raw value.
         /// IsFrozen stays — non-frozen String enums use indirect return patterns requiring SafeHandle.
@@ -238,13 +260,15 @@ namespace BindingsGeneration
         /// (b) the @_cdecl wrapper uses to marshal this case across the boundary. The two
         /// MUST agree, so a single source computes both.
         ///
-        /// For an integral RawRepresentable enum whose explicit Swift raw values are known
-        /// (parsed from the .swiftinterface into <see cref="EnumCaseDecl.RawValue"/>), this
+        /// For an <c>@objc</c> integral RawRepresentable enum, whose explicit Swift raw values are
+        /// known (parsed from the .swiftinterface into <see cref="EnumCaseDecl.RawValue"/>), this
         /// is the Swift source raw value — so <c>(long)MyEnum.Case</c> equals the Swift
         /// <c>.rawValue</c> and matches the bridged ObjC NS_ENUM constant. Cases without an
         /// explicit raw value follow Swift's auto-increment rule (previous case's value + 1,
         /// the first implicit case being 0), exactly as the compiler assigns them. For every
-        /// other enum (no raw value, or a non-integral raw value such as String), this is the
+        /// other enum (no raw value, a non-integral raw value such as String, or a
+        /// non-<c>@objc</c> integral enum whose raw values no input carries — see
+        /// <see cref="CrossesAsCaseTag"/>), this is the
         /// declaration-order tag from <see cref="GetCaseTag"/> — the in-memory discriminant
         /// the marshalling switch keys on.
         ///
@@ -259,7 +283,7 @@ namespace BindingsGeneration
         /// </summary>
         public long GetCaseMarshalScalar(EnumCaseDecl target)
         {
-            if (!IsIntegralRawRepresentable || !IntegralRawValuesRepresentableAsInt64())
+            if (!IsIntegralRawRepresentable || CrossesAsCaseTag || !IntegralRawValuesRepresentableAsInt64())
                 return GetCaseTag(target);
 
             // Walk cases in declaration order, mirroring Swift's raw-value assignment: an
