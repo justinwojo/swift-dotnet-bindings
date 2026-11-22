@@ -33379,6 +33379,61 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "TipEdgeHost.Edged",
+      "symbol": "thunk_SwiftBindingsTestLib_3d98a607"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipEdgeHost.Route",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_TipEdgeHost_route"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipEdgeHost.TipEdgeHost(IPopoverTip)",
+      "symbol": "SBW_SwiftBindingsTestLib_TipEdgeHost_init_7F902CF0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipGateHost.Anchored",
+      "symbol": "thunk_SwiftBindingsTestLib_0b9b9fb5"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipGateHost.Route",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_TipGateHost_route"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipGateHost.TryCreate(IPopoverTip,out TipGateHost)",
+      "symbol": "SBW_SwiftBindingsTestLib_TipGateHost_init_829CA9C4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipLineHost.Anchored",
+      "symbol": "thunk_SwiftBindingsTestLib_7ca191dc"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipLineHost.Line",
+      "symbol": "thunk_SwiftBindingsTestLib_212aefdb"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipLineHost.LineNative",
+      "symbol": "thunk_SwiftBindingsTestLib_212aefdb"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipLineHost.Route",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_TipLineHost_route"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "TipLineHost.TipLineHost(IPopoverTip)",
+      "symbol": "SBW_SwiftBindingsTestLib_TipLineHost_init_BE53AB37"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "TipPopoverHost.Anchored",
       "symbol": "thunk_SwiftBindingsTestLib_6d706f1e"
     },

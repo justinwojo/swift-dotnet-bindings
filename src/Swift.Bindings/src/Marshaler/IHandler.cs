@@ -977,7 +977,8 @@ namespace BindingsGeneration
                 // defaults back in, so decline and leave the member to the gate's own skip.
                 var allArgs = methodDecl.CSSignature.Skip(1).ToList();
                 var droppedArgs = new HashSet<ArgumentDecl>(
-                    allArgs.Skip(allArgs.Count - drop), ReferenceEqualityComparer.Instance);
+                    DefaultParameterOverloadEmitter.GateReductionOmittedIndices(allArgs, drop).Select(i => allArgs[i]),
+                    ReferenceEqualityComparer.Instance);
                 var callPlan = SwiftOverloadCallPinning.Plan(methodDecl, droppedArgs.Contains, typeDatabase);
                 if (callPlan.IsRefused || callPlan.PinCount > 0)
                 {

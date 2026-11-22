@@ -1567,6 +1567,44 @@ public class DefaultParameterOverloadEmitterTests
     }
 
     [Fact]
+    public void TrailingTrims_CountPastATrailingDebugParameter()
+    {
+        // (tip: Int, anchor: Int = 0, handler: Int = 0, line: UInt = #line): CountTrailingDefaults
+        // says two, so the deepest trim (recovery's trailing trim and the gate reduction alike) must
+        // leave out anchor and handler, and the debug parameter goes with them.
+        var method = CreateMethodWithArgs(
+            CreateArg("tip", hasDefault: false),
+            CreateArg("anchor", hasDefault: true),
+            CreateArg("handler", hasDefault: true),
+            WithSwiftType(CreateArg("line", hasDefault: true), "Swift.UInt"));
+        Assert.Equal(2, DefaultParameterOverloadEmitter.CountTrailingDefaults(method));
+
+        var trimmed = DefaultParameterOverloadEmitter.BuildOverloadDecl(method.MangledName, method, 2);
+        Assert.Equal(new[] { "tip" }, trimmed.CSSignature.Skip(1).Select(a => a.Name));
+        var shallow = DefaultParameterOverloadEmitter.BuildOverloadDecl(method.MangledName, method, 1);
+        Assert.Equal(new[] { "tip", "anchor" }, shallow.CSSignature.Skip(1).Select(a => a.Name));
+
+        var reduced = DefaultParameterOverloadEmitter.BuildGateReducedDecl(method, 2);
+        Assert.Equal(new[] { "tip" }, reduced.CSSignature.Skip(1).Select(a => a.Name));
+        Assert.Equal(method.MangledName, reduced.MangledName);
+    }
+
+    [Fact]
+    public void TrailingTrimIndices_WithoutDebugParameters_IsTheLastIndices()
+    {
+        // The historical trailing trim, unchanged for every list without a debug parameter.
+        var args = new[]
+        {
+            CreateArg("a", hasDefault: false),
+            CreateArg("b", hasDefault: true),
+            CreateArg("c", hasDefault: true),
+        };
+        Assert.Equal(new[] { 1, 2 }, DefaultParameterOverloadEmitter.TrailingTrimIndices(args, 2));
+        Assert.Equal(new[] { 2 }, DefaultParameterOverloadEmitter.TrailingTrimIndices(args, 1));
+        Assert.Empty(DefaultParameterOverloadEmitter.TrailingTrimIndices(args, 0));
+    }
+
+    [Fact]
     public void BuildOverloadDeclDropping_PreservesOwnershipAndInOutOnKeptParameters()
     {
         // Ownership is an intrinsic property of the parameter: losing `consuming` on a surviving

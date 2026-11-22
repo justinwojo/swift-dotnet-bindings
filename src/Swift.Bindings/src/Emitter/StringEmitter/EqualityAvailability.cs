@@ -97,7 +97,11 @@ internal static class EqualityAvailability
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             writer, floor, AvailabilityHelpers.MergeAvailabilityFromAncestors(null, type));
 
-    private static bool NamesType(TypeSpec? spec, TypeDecl type) =>
+    /// <summary>
+    /// Whether <paramref name="spec"/> names <paramref name="type"/>: <c>Self</c>, the type's current
+    /// module-qualified name, or its original-module spelling (<see cref="OriginalModuleSpelling"/>).
+    /// </summary>
+    internal static bool NamesType(TypeSpec? spec, TypeDecl type) =>
         spec is { IsDynamicSelf: true }
         || (spec is NamedTypeSpec named
             && (string.Equals(named.Name, type.SwiftTypeName.ModuleQualifiedName, StringComparison.Ordinal)

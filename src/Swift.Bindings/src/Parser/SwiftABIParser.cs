@@ -420,7 +420,7 @@ namespace BindingsGeneration
         {
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{printedName}";
-            var shortKey = $"{parentTypeDecl.Name}.{printedName}";
+            var shortKey = $"{SwiftSpelledName(parentTypeDecl)}.{printedName}";
 
             if (_facts.ActorIsolatedMembers.Contains(key))
                 methodDecl.IsActorIsolated = true;
@@ -444,7 +444,7 @@ namespace BindingsGeneration
         {
             var qualifiedPath = BuildTypeQualifiedPath(parentTypeDecl);
             var key = $"{qualifiedPath}.{propertyDecl.Name}";
-            var shortKey = $"{parentTypeDecl.Name}.{propertyDecl.Name}";
+            var shortKey = $"{SwiftSpelledName(parentTypeDecl)}.{propertyDecl.Name}";
 
             if (_facts.ActorIsolatedMembers.Contains(key))
                 propertyDecl.IsActorIsolated = true;
@@ -768,7 +768,7 @@ namespace BindingsGeneration
                 return;
             }
             if (typeDecl is ProtocolDecl &&
-                _facts.ConventionCProtocolPositions.TryGetValue(typeDecl.Name, out pos))
+                _facts.ConventionCProtocolPositions.TryGetValue(SwiftSpelledName(typeDecl), out pos))
             {
                 typeDecl.Position = pos;
             }
@@ -1164,7 +1164,7 @@ namespace BindingsGeneration
                 if (typeDecl.IsModuleInternal && !isCurrentModuleMember)
                     return false;
 
-                var key = $"{typeDecl.Name}.{printedName}";
+                var key = $"{SwiftSpelledName(typeDecl)}.{printedName}";
                 return !_facts.PublicMemberNames.Contains(key);
             }
 
@@ -1971,7 +1971,7 @@ namespace BindingsGeneration
                     // Comparing names — not just protocol identity — keeps us from
                     // suppressing valid proxies whenever the swiftinterface happens to
                     // declare a __-name.
-                    if (_facts.HiddenRequirementProtocols.TryGetValue(decl.Name, out var swiftinterfaceUnderscored) &&
+                    if (_facts.HiddenRequirementProtocols.TryGetValue(SwiftSpelledName(decl), out var swiftinterfaceUnderscored) &&
                         swiftinterfaceUnderscored.Count > 0)
                     {
                         // Collect ALL protocol-requirement member names present in the ABI JSON
@@ -2654,17 +2654,27 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds a fully-qualified type path by walking up the parent chain.
-        /// Returns a dot-joined string, e.g., "OrderContainer.Status" for Status nested
-        /// inside OrderContainer.
+        /// The dot-joined path of a type and its enclosing types, each component spelled the way
+        /// Swift source spells it: the key shape of every interface fact.
         /// </summary>
+        /// <remarks>
+        /// <para>A <see cref="TypeDecl"/> stores its <c>Name</c> after <c>ExtractUniqueName</c>, which
+        /// prefixes a C#-keyword name with an underscore — Swift's <c>struct event</c> is held as
+        /// <c>_event</c>. Interface facts are keyed by Swift identifiers, so a lookup built from the sanitized chain
+        /// silently misses every keyword-named type: its public-type membership, its members'
+        /// availability floors, actor isolation and the rest.</para>
+        /// <para>The type's <see cref="SwiftTypeName"/> keeps the Swift spelling, so a component
+        /// is read back from it only where <c>Name</c> is exactly that spelling with the
+        /// sanitizer's underscore in front (<see cref="SwiftSpelledName"/>). A Swift type genuinely
+        /// named <c>_class</c> keeps its name.</para>
+        /// </remarks>
         private static string BuildTypeQualifiedPath(TypeDecl typeDecl)
         {
             var parts = new List<string>();
             BaseDecl? current = typeDecl;
             while (current is TypeDecl td)
             {
-                parts.Add(td.Name);
+                parts.Add(SwiftSpelledName(td));
                 current = td.ParentDecl;
             }
             parts.Reverse();
@@ -2672,45 +2682,20 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Builds the same dot-joined path as <see cref="BuildTypeQualifiedPath"/>, but with each
-        /// component spelled the way Swift source spells it.
+        /// The declaration's name as Swift source spells it: <c>event</c> for the type
+        /// <c>ExtractUniqueName</c> holds as <c>_event</c>. The C#-keyword prefix is undone only when
+        /// the type's <see cref="SwiftTypeName"/> confirms it, so every other name is returned as is.
         /// </summary>
-        /// <remarks>
-        /// <para>A <see cref="TypeDecl"/> stores its <c>Name</c> after <c>ExtractUniqueName</c>, which
-        /// prefixes a C#-keyword name with an underscore — Swift's <c>struct event</c> is held as
-        /// <c>_event</c> — and type declarations record no original-name provenance to recover from.
-        /// Interface facts are keyed by Swift identifiers, so a lookup built from the sanitized chain
-        /// silently misses every keyword-named type.</para>
-        /// <para>Undoing the prefix is deterministic in the direction that matters: an underscore
-        /// followed by a C# keyword is exactly and only what that sanitizer emits. A Swift type
-        /// genuinely named <c>_class</c> inverts to <c>class</c> and finds no fact — the lookup is
-        /// then simply silent, the same silence as a library shipped without a .swiftinterface, and
-        /// never a false positive.</para>
-        /// </remarks>
-        private static string BuildSwiftTypeQualifiedPath(TypeDecl typeDecl)
+        private static string SwiftSpelledName(BaseDecl decl)
         {
-            var parts = new List<string>();
-            BaseDecl? current = typeDecl;
-            while (current is TypeDecl td)
-            {
-                parts.Add(UnsanitizeKeywordName(td.Name));
-                current = td.ParentDecl;
-            }
-            parts.Reverse();
-            return string.Join(".", parts);
-        }
-
-        /// <summary>
-        /// Inverse of the C#-keyword escaping <c>ExtractUniqueName</c> applies: strips a leading
-        /// underscore when what follows is a C# keyword, leaving every other name untouched.
-        /// </summary>
-        private static string UnsanitizeKeywordName(string name)
-        {
-            return name.Length > 1
+            var name = decl.Name;
+            if (decl is TypeDecl { SwiftTypeName: { } swiftTypeName }
+                && name.Length == swiftTypeName.Name.Length + 1
                 && name[0] == '_'
-                && SyntaxFacts.GetKeywordKind(name.Substring(1)) != SyntaxKind.None
-                ? name.Substring(1)
-                : name;
+                && string.CompareOrdinal(name, 1, swiftTypeName.Name, 0, swiftTypeName.Name.Length) == 0
+                && SyntaxFacts.GetKeywordKind(swiftTypeName.Name) != SyntaxKind.None)
+                return swiftTypeName.Name;
+            return name;
         }
 
         /// <summary>
@@ -2997,7 +2982,7 @@ namespace BindingsGeneration
             PopulateDocumentation(decl, node);
 
             // Mark protocols whose methods have @convention(c)/@convention(block) closure parameters
-            if (_facts.ConventionCProtocols.Contains(decl.Name))
+            if (_facts.ConventionCProtocols.Contains(SwiftSpelledName(decl)))
                 decl.HasConventionCClosureParameters = true;
 
             return decl;
@@ -3066,7 +3051,7 @@ namespace BindingsGeneration
                 IsOverride = node.overriding == true || node.DeclAttributes?.Contains("Override") == true,
                 IsImplicit = node.@implicit == true,
                 IsModuleInternal = IsNodeModuleInternal(node) ||
-                    IsInternalFromSwiftInterface(parentDecl.Name, node.PrintedName, node),
+                    IsInternalFromSwiftInterface(SwiftSpelledName(parentDecl), node.PrintedName, node),
                 IsSpiProtected = IsNodeSpiProtected(node),
                 IsObjCOptional = node.DeclAttributes?.Contains("Optional") == true,
                 IsDisfavoredOverload = node.DeclAttributes?.Contains("DisfavoredOverload") == true,
@@ -3185,7 +3170,7 @@ namespace BindingsGeneration
             // Try type-scoped key first (e.g., "Dog.speak(_:_:)"). A free function's parent is its
             // module, and the producer keys free functions by the bare name alone: `Module.name` is the
             // key of a member of a type that shares the module's name, never the function's own.
-            var paramScopedKey = parentDecl is ModuleDecl ? null : $"{parentDecl.Name}.{node.PrintedName}";
+            var paramScopedKey = parentDecl is ModuleDecl ? null : $"{SwiftSpelledName(parentDecl)}.{node.PrintedName}";
             if (paramScopedKey is null || !_facts.ParameterNames.TryGetValue(paramScopedKey, out internalParamNames))
             {
                 // Try module-level key (free functions, e.g., "sumTwo(_:_:)")
@@ -3367,7 +3352,7 @@ namespace BindingsGeneration
             if (methodDecl.Throws)
             {
                 var throwsKey = parentDecl is TypeDecl throwsParent
-                    ? $"{BuildSwiftTypeQualifiedPath(throwsParent)}.{node.PrintedName}"
+                    ? $"{BuildTypeQualifiedPath(throwsParent)}.{node.PrintedName}"
                     : node.PrintedName;
                 if (!_facts.TypedThrowsErrors.TryGetValue(MemberSignatureNormalizer.ComposeKey(throwsKey, signature), out var errorTypeName))
                     _facts.TypedThrowsErrors.TryGetValue(throwsKey, out errorTypeName);
@@ -3603,7 +3588,7 @@ namespace BindingsGeneration
             //     silence is indistinguishable from "synchronous".
             //  2. The .swiftinterface: the source text literally spells `get async`, harvested into
             //     AsyncAccessorMembers keyed by the type-qualified path as Swift source spells it —
-            //     BuildSwiftTypeQualifiedPath's shape, not the C#-sanitized one. This oracle goes
+            //     BuildTypeQualifiedPath's shape, not the C#-sanitized one. This oracle goes
             //     silent when no .swiftinterface is available, or when the accessor is declared
             //     somewhere the walker's key shape can't render.
             //
@@ -3619,7 +3604,7 @@ namespace BindingsGeneration
             // drag its synchronous instance namesake onto the async path as well.
             var isStaticAccessor = accessor.@static ?? false;
             var asyncFactKey = parentDecl is TypeDecl asyncParentType
-                ? $"{BuildSwiftTypeQualifiedPath(asyncParentType)}.{swiftFieldName}"
+                ? $"{BuildTypeQualifiedPath(asyncParentType)}.{swiftFieldName}"
                 : swiftFieldName;
             if (isStaticAccessor)
             {
@@ -3831,7 +3816,7 @@ namespace BindingsGeneration
             // swiftinterface key format — see IsInternalFromSwiftInterface doc comment).
             if (!decl.IsModuleInternal && parentDecl is TypeDecl propParentForInternal)
             {
-                decl.IsModuleInternal = IsInternalFromSwiftInterface(propParentForInternal.Name, sanitizedName, node);
+                decl.IsModuleInternal = IsInternalFromSwiftInterface(SwiftSpelledName(propParentForInternal), sanitizedName, node);
             }
             // Negative-space detection: property not in public swiftinterface is internal.
             if (!decl.IsModuleInternal)
@@ -3988,7 +3973,7 @@ namespace BindingsGeneration
             // marks both: that over-marking only refuses the sibling indexer, whereas under-marking
             // emits a synchronous indexer over an async entry point.
             var subscriptAsyncFactKey = parentDecl is TypeDecl asyncSubscriptParentType
-                ? $"{BuildSwiftTypeQualifiedPath(asyncSubscriptParentType)}.{node.PrintedName}"
+                ? $"{BuildTypeQualifiedPath(asyncSubscriptParentType)}.{node.PrintedName}"
                 : node.PrintedName;
             if (node.@static ?? false)
             {

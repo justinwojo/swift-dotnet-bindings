@@ -48,3 +48,46 @@ public final class TipPopoverHost {
         self.actionHandler = actionHandler
     }
 }
+
+/// The same favored/disfavored pair with a trailing `line: UInt = #line`. The trimmed form leaves the
+/// anchor and the line to Swift: a trim that counted `line` as one of the defaults to drop kept the
+/// unbindable anchor and recovered nothing, leaving the type without a Swift-tip initializer.
+public final class TipLineHost {
+    public let route: String
+    public let anchored: Bool
+    public let line: UInt
+
+    public init(_ tip: any PopoverTip, anchor: (any PopoverAnchor)? = nil, line: UInt = #line) {
+        route = "any:" + tip.title
+        anchored = anchor != nil
+        self.line = line
+    }
+
+    @_disfavoredOverload
+    public init(_ tip: some PopoverTip, anchor: (any PopoverAnchor)? = nil, line: UInt = #line) {
+        route = "some:" + tip.title
+        anchored = anchor != nil
+        self.line = line
+    }
+}
+
+/// A failable favored/disfavored pair on a class. The trimmed form's wrapper returns the nullable
+/// retained pointer, so its factory needs no Optional helper from a primary emission that never ran:
+/// it is recovered as a `TryCreate` that reports Swift's `nil` as false.
+public final class TipGateHost {
+    public let route: String
+    public let anchored: Bool
+
+    public init?(_ tip: any PopoverTip, anchor: (any PopoverAnchor)? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        if tip.title.isEmpty { return nil }
+        route = "any:" + tip.title
+        anchored = anchor != nil
+    }
+
+    @_disfavoredOverload
+    public init?(_ tip: some PopoverTip, anchor: (any PopoverAnchor)? = nil, actionHandler: @escaping (Int) -> Void = { _ in }) {
+        if tip.title.isEmpty { return nil }
+        route = "some:" + tip.title
+        anchored = anchor != nil
+    }
+}

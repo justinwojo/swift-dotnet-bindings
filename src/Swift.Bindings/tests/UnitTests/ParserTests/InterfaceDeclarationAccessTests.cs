@@ -181,6 +181,22 @@ public class InterfaceDeclarationAccessTests
         }
     }
 
+    [SkippableFact]
+    public void KeywordNamedProtocol_KeysItsProtocolFactsByTheUnescapedName()
+    {
+        // The interface prints a keyword-named protocol backticked; the ABI JSON names it bare.
+        var facts = Produce("""
+            // swift-module-flags: -module-name Kit
+            public protocol `default` {
+              var __hidden: Swift.Int { get }
+              func run(_ callback: @convention(c) () -> Swift.Void)
+            }
+            """);
+        Assert.Contains("default", facts.ConventionCProtocols!);
+        Assert.True(facts.ConventionCProtocolPositions!.ContainsKey("default"));
+        Assert.True(facts.HiddenRequirementProtocols!.ContainsKey("default"));
+    }
+
     private static PartialSwiftInterfaceFacts Produce(string source)
     {
         var binaryPath = SwiftSyntaxInterfaceFactsProducer.TryLocateBinary();
