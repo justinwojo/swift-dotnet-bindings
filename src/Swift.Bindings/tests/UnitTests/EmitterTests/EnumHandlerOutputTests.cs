@@ -167,6 +167,115 @@ public class EnumHandlerOutputTests
     }
 
     /// <summary>
+    /// The raw-value P/Invokes declare a synchronous, non-throwing, non-generic call. An async,
+    /// throwing or generic <c>init(rawValue:)</c> taking the raw type has another convention (an async
+    /// context, the error register, metadata arguments), so declaring one ahead of the plain
+    /// initializer does not make FromRawValue bind its symbol or floor.
+    /// </summary>
+    [Theory]
+    [InlineData("async")]
+    [InlineData("throws")]
+    [InlineData("generic")]
+    public void Emit_RawValueFactory_SkipsAConventionChangingRawValueOverload(string variant)
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var decoy = CreateRawValueInitializer(declaration, module) with
+        {
+            MangledName = "$s10TestModule5StageO8rawValueACSgSi_tYacfC",
+            IsAsync = variant == "async",
+            Throws = variant == "throws",
+            GenericParameters = variant == "generic"
+                ? new List<GenericArgumentDecl> { new("τ_0_0", "T", new List<GenericParameterConformance>(), new List<GenericParameterConformance>()) }
+                : new List<GenericArgumentDecl>(),
+        };
+        decoy.AvailabilityAnnotations = new List<AvailabilityAnnotation> { new("iOS", "99.0", null, null, false, false, null, null) };
+        declaration.Methods.Add(decoy);
+        var initializer = CreateRawValueInitializer(declaration, module) with { MangledName = "$s10TestModule5StageO8rawValueACSgSi_tcfC" };
+        declaration.Methods.Add(initializer);
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        Assert.Contains($"EntryPoint = \"{initializer.MangledName}\"", output);
+        Assert.DoesNotContain(decoy.MangledName, output);
+        Assert.DoesNotContain("\"ios\", 99, 0", output);
+    }
+
+    /// <summary>
+    /// An initializer async only because of its type's isolation has a synchronous symbol, so it is
+    /// still the one FromRawValue binds.
+    /// </summary>
+    [Fact]
+    public void Emit_RawValueFactory_BindsAnInitializerAsyncOnlyByIsolation()
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var initializer = CreateRawValueInitializer(declaration, module) with
+        {
+            MangledName = "$s10TestModule5StageO8rawValueACSgSi_tcfC",
+            IsAsync = true,
+            IsAsyncByIsolation = true,
+        };
+        declaration.Methods.Add(initializer);
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        Assert.Contains($"EntryPoint = \"{initializer.MangledName}\"", output);
+    }
+
+    /// <summary>
+    /// With no initializer naming the raw type, a single labeled by-value one is taken as the witness
+    /// (a raw type spelled through a typealias); with two, nothing says which the witness is, and an
+    /// unlabeled or inout one is never it, so FromRawValue binds neither.
+    /// </summary>
+    [Theory]
+    [InlineData(1, false, true)]
+    [InlineData(2, false, false)]
+    [InlineData(1, true, false)]
+    public void Emit_RawValueFactory_FallsBackOnlyToAnUnambiguousLabeledInitializer(int count, bool inOut, bool binds)
+    {
+        var database = CreateTypeDatabaseWithString();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Stage", module, isFrozen: true);
+        declaration.RawValueTypeName = "Int";
+        declaration.Cases.Add(CreateCase("early"));
+        var payload = CreateCase("payload");
+        payload.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        declaration.Cases.Add(payload);
+        var symbols = new List<string>();
+        for (var i = 0; i < count; i++)
+        {
+            var candidate = CreateTypedRawValueInitializer(declaration, module, $"Other.Code{i}") with
+            {
+                MangledName = $"$s10TestModule5StageO8rawValueAC5Other5Code{i}V_tcfC",
+            };
+            candidate.CSSignature[1].IsInOut = inOut;
+            declaration.Methods.Add(candidate);
+            symbols.Add(candidate.MangledName);
+        }
+
+        var (output, _) = EmitEnum(declaration, database);
+
+        if (binds)
+            Assert.Contains($"EntryPoint = \"{symbols[0]}\"", output);
+        foreach (var symbol in binds ? symbols.Skip(1) : symbols)
+            Assert.DoesNotContain(symbol, output);
+        Assert.Equal(binds, output.Contains("FromRawValue(", StringComparison.Ordinal));
+    }
+
+    /// <summary>
     /// Without a wrapper library a blittable enum's case accessors construct their case through
     /// FromRawValue, so they advertise the initializer's floor too (and do not call an API floored
     /// above their own, which CA1416 would report in the binding).

@@ -225,6 +225,11 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(record.RawValueTypeName))
                 writer.WriteAttributeString("rawValueType", record.RawValueTypeName);
 
+            // A simple enum whose values pass through a Require on their way to Swift, which refuses a
+            // case floored above the running OS (SimpleEnumCaseFloors). Absent when no case is floored.
+            if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0 && record.HasCaseFloorGuard)
+                writer.WriteAttributeString("hasCaseFloorGuard", "true");
+
             // Present only on a mixed-framework ObjC type whose C# name is its Swift-import name
             // rather than its ObjC spelling. A downstream module resolving this type as a superclass
             // has both spellings available (the ABI gives the Swift name, the Clang USR the ObjC one)

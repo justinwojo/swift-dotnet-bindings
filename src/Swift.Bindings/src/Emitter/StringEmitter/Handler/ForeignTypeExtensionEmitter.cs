@@ -638,8 +638,8 @@ public static class ForeignTypeExtensionEmitter
     /// <summary>
     /// Computes the normalized parameter signature for an extension method by
     /// scraping the source-text parameter list out of the raw signature. Mirrors
-    /// the swiftinterface walker's <c>buildParamSignature</c> (which feeds the
-    /// same key the consumer composes). Returns the empty string for zero-param
+    /// the swiftinterface walker's <c>buildAvailabilityParamSignature</c> (which feeds the
+    /// same key the consumer composes, <c>inout</c> parameters marked). Returns the empty string for zero-param
     /// methods so the caller falls back to the bare-key lookup unchanged.
     /// </summary>
     private static string TryComputeMethodParamSig(ProtocolExtensionMethodDecl extMethod)
@@ -648,7 +648,7 @@ public static class ForeignTypeExtensionEmitter
         if (SwiftParameterClause.Find(sig) is not { } clause) return string.Empty;
         var inside = sig.Substring(clause.Open + 1, clause.Close - clause.Open - 1).Trim();
         if (string.IsNullOrEmpty(inside)) return string.Empty;
-        return MemberSignatureNormalizer.BuildSignature(
+        return MemberSignatureNormalizer.BuildAvailabilitySignature(
             MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(inside));
     }
 
@@ -1552,7 +1552,8 @@ public static class ForeignTypeExtensionEmitter
             if (ExtensionMarshallingHelper.TryGetSimpleEnumLowering(typeSpec, typeDatabase,
                 out var simpleEnumUnderlyingCS, out _, out _))
             {
-                nativeArgs.Add($"({simpleEnumUnderlyingCS}){paramName}");
+                nativeArgs.Add(SimpleEnumCaseFloors.ToNative(
+                    ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(typeSpec, typeDatabase), simpleEnumUnderlyingCS!, paramName));
             }
             else if (typeSpec is NamedTypeSpec namedType && !namedType.ContainsGenericParameters &&
                 !MarshallingHelpers.IsSwiftPrimitive(namedType.Name) &&

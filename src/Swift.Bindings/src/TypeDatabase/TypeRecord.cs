@@ -494,6 +494,24 @@ public record TypeRecord
     /// always-available, which preserves the pre-extension behavior).
     /// </summary>
     public IReadOnlyList<AvailabilityAnnotation>? AvailabilityAnnotations { get; init; }
+
+    /// <summary>
+    /// True for a simple enum with a case floored above the enum, whose values pass through a
+    /// generated <c>Require</c> on their way to Swift that refuses a case the running OS lacks
+    /// (<see cref="SimpleEnumCaseFloors"/>). False on module databases that predate the field (their
+    /// values reach Swift unchecked). Persisted across the cross-module XML round-trip so a downstream
+    /// binding refuses the same values.
+    /// </summary>
+    public bool HasCaseFloorGuard { get; init; }
+
+    /// <summary>
+    /// The fully qualified <c>Require</c> of a simple enum with <see cref="HasCaseFloorGuard"/>, named
+    /// from the record's current C# name so it follows a rename of an enclosing type; null otherwise.
+    /// </summary>
+    public string? CaseFloorGuard =>
+        HasCaseFloorGuard && (Flags & TypeRecordFlags.SimpleEnum) != 0
+            ? SimpleEnumCaseFloors.GuardName(CSharpTypeName)
+            : null;
 }
 
 /// <summary>

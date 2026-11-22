@@ -98,13 +98,18 @@ internal partial class InterfaceFactsJsonContext : JsonSerializerContext
 ///   static), and <c>droppedExtensionCandidates</c> records every public extension declaration the
 ///   host did not take as a candidate. A v8 host drops those with no record, so a member of a
 ///   foreign receiver no other path reports vanishes from the binding silently.</item>
+/// <item><b>v10</b> — the <c>availabilityAnnotations</c> disambiguation key of a function or
+///   initializer marks each <c>inout</c> parameter (<c>inout String</c>), so an overload pair that
+///   differs only in <c>inout</c> keeps a key per overload instead of sharing one and losing both
+///   floors. A v9 host keys the <c>inout</c> overload unmarked, where a v10 consumer no longer
+///   looks, and its floor would detach silently.</item>
 /// </list>
 /// </summary>
 internal sealed class InterfaceFactsJson
 {
     /// <summary>Bump in lockstep with <c>kSchemaVersion</c> in
     /// <c>tools/SwiftInterfaceParser/Sources/SwiftInterfaceParser/Output.swift</c>.</summary>
-    public const int ExpectedSchemaVersion = 9;
+    public const int ExpectedSchemaVersion = 10;
 
     [JsonPropertyName("schemaVersion")]
     public int SchemaVersion { get; set; }

@@ -81,3 +81,13 @@ public func operatorEquatableSetCount(_ a: OperatorEquatableDerived, _ b: Operat
 public func operatorObjCSetCount(_ a: OperatorEqualityObjCDerived, _ b: OperatorEqualityObjCDerived) -> Int32 {
     Int32(Set<NSObject>([a, b]).count)
 }
+
+/// Declares its own `==` at a floor no current OS meets, beside the base's inherited `Equatable`.
+/// `Equals` compares through the inherited witness (the base's `==`), which every OS has, so it
+/// and `GetHashCode` must work; only the subclass's own `==` is floored, and only it refuses.
+public class OperatorEquatableFlooredDerived: OperatorEquatableBase {
+    @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+    public static func == (lhs: OperatorEquatableFlooredDerived, rhs: OperatorEquatableFlooredDerived) -> Bool {
+        lhs.key == rhs.key && lhs.detail == rhs.detail
+    }
+}

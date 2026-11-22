@@ -906,7 +906,10 @@ namespace BindingsGeneration
                     {
                         // Simple enums are C# enum value types — pass as underlying int
                         var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(argumentTypeRecord.RawValueTypeName);
-                        AddParameter(new MarshalledType.SimpleEnum(underlyingType, argumentTypeRecord.CSharpTypeName.FullyQualifiedName), csName);
+                        AddParameter(new MarshalledType.SimpleEnum(underlyingType, argumentTypeRecord.CSharpTypeName.FullyQualifiedName)
+                        {
+                            CaseFloorGuard = argumentTypeRecord.CaseFloorGuard,
+                        }, csName);
                     }
                     else if (_env.MethodDecl.IsAsync)
                         AddParameter(MarshalledType.NonFrozenIntPtr, csName);

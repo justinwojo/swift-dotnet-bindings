@@ -1607,7 +1607,7 @@ public static partial class ClosureEmitter
         if (closureHandler != null && closureHandler.IsSimpleEnum(typeSpec))
         {
             var underlyingType = closureHandler.GetSimpleEnumInfo(typeSpec)?.csUnderlying ?? "int";
-            return $"({underlyingType})_arg{argIndex}";
+            return SimpleEnumCaseFloors.ToNative(closureHandler.GetSimpleEnumCaseFloorGuard(typeSpec), underlyingType, $"_arg{argIndex}");
         }
 
         // Complex enum: extract payload handle for P/Invoke or function pointer
@@ -1721,7 +1721,7 @@ public static partial class ClosureEmitter
                     else if (closureHandler.IsSimpleEnum(elem))
                     {
                         var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
-                        elements.Add($"({underlyingType}){acc}");
+                        elements.Add(SimpleEnumCaseFloors.ToNative(closureHandler.GetSimpleEnumCaseFloorGuard(elem), underlyingType, acc));
                     }
                     else
                         elements.Add(acc);

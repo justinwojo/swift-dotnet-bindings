@@ -638,6 +638,10 @@ public static partial class CrossModuleExtensionEmitter
             var paramName = NameProvider.GetCSharpParameterName(arg);
             var csharpType = ResolveCSharpTypeName(arg.SwiftTypeSpec, typeDatabase);
             var pinvokeExpr = GetPInvokeArgExpression(paramName, paramCategory.Value);
+            // A simple enum crosses as itself; a case floored above the running OS is refused first.
+            if (paramCategory == ParamKind.SimpleEnum)
+                pinvokeExpr = SimpleEnumCaseFloors.RequireAvailable(
+                    ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(arg.SwiftTypeSpec, typeDatabase), pinvokeExpr);
             parameters.Add((paramName, csharpType, pinvokeExpr, arg.SwiftTypeSpec));
         }
 

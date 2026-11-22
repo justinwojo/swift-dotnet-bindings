@@ -12564,6 +12564,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeRawValue(SwiftBindingsTestLib.FlooredCaseMode)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeRawValue_31BA38F3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseTagOrdinal(SwiftBindingsTestLib.FlooredCaseTag)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseTagOrdinal_ECC05C5A"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "FlooredHost.FlooredHost()",
       "symbol": "SBW_SwiftBindingsTestLib_FlooredHost_init_4C4DEF32"
     },
@@ -14026,6 +14036,16 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetEquatablePayloadEmpty()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_equatablePayloadEmpty_2D884730"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetFlooredCaseModeLatest()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeLatest_0A9DA609"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetFlooredCaseTagLatest()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseTagLatest_5EEC6BC1"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -23136,6 +23156,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "OperatorEquatableDerived.OperatorEquatableDerived(int,int)",
       "symbol": "thunk_SwiftBindingsTestLib_fe86bea2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "OperatorEquatableFlooredDerived.OperatorEquatableFlooredDerived(int,int)",
+      "symbol": "thunk_SwiftBindingsTestLib_c71c9477"
     },
     {
       "module": "SwiftBindingsTestLib",

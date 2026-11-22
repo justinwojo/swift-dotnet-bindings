@@ -61,7 +61,10 @@ import Foundation
 // v9: `extensionMemberCandidates` carries `class func` members (as static) and
 // `droppedExtensionCandidates` records every public extension declaration the host did not take.
 // A v8 host drops those with no record, so a foreign receiver's member can vanish silently.
-let kSchemaVersion = 9
+// v10: a function's or initializer's availability disambiguation key marks each `inout`
+// parameter, so overloads differing only in `inout` keep their own floors. A v9 host keys the
+// `inout` overload unmarked, where a v10 consumer no longer looks.
+let kSchemaVersion = 10
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

@@ -233,6 +233,56 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         finally { File.Delete(path); }
     }
 
+    [SkippableTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OverloadsDifferingOnlyInInOut_KeepTheirOwnFloors(bool floorTheInOutOverload)
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OverloadsDifferingOnlyInInOut_KeepTheirOwnFloors));
+        // `inout String` and `String` normalize to one parameter type. Unmarked, the two
+        // initializers would share one key, and with floors that disagree both would lose them:
+        // the floored one would bind with no floor at all. The marked key keeps them apart, on
+        // the producer (the real walker) and on both consumers (the ABI parser, which reads
+        // `paramValueOwnership: InOut`, and the foreign-extension lookup, which reads the clause).
+        const string floor = "@available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)";
+        var source = $$"""
+            // swift-module-flags: -module-name Kit
+            public struct Host {
+              {{(floorTheInOutOverload ? floor : "")}}
+              public init(rawValue: inout Swift.String)
+              {{(floorTheInOutOverload ? "" : floor)}}
+              public init(rawValue: Swift.String)
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var keys = string.Join(", ", facts.AvailabilityAnnotations!.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)));
+
+            var inOut = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", "init(rawValue:)", "Kit.Host", "Swift.String");
+            inOut.Children.ElementAt(1).paramValueOwnership = "InOut";
+            var byValue = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", "init(rawValue:)", "Kit.Host", "Swift.String");
+            var inOutSig = SwiftABIParser.ComputeAbiParamSignature(inOut, markInOut: true);
+            var byValueSig = SwiftABIParser.ComputeAbiParamSignature(byValue, markInOut: true);
+            Assert.NotEqual(inOutSig, byValueSig);
+            Assert.Equal(inOutSig, MemberSignatureNormalizer.BuildAvailabilitySignature(
+                MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause("rawValue: inout Swift.String")));
+            Assert.Equal(byValueSig, MemberSignatureNormalizer.BuildAvailabilitySignature(
+                MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause("rawValue: Swift.String")));
+
+            var flooredKey = MemberSignatureNormalizer.ComposeKey("Host.init(rawValue:)", floorTheInOutOverload ? inOutSig : byValueSig);
+            var openKey = MemberSignatureNormalizer.ComposeKey("Host.init(rawValue:)", floorTheInOutOverload ? byValueSig : inOutSig);
+            Assert.True(facts.AvailabilityAnnotations!.TryGetValue(flooredKey, out var floored), $"no availability under '{flooredKey}'; keys: {keys}");
+            Assert.Contains(floored!, a => a.Platform == "iOS" && a.IntroducedVersion == "99");
+            Assert.False(facts.AvailabilityAnnotations.TryGetValue(openKey, out var open) && open.Any(a => a.IntroducedVersion == "99"),
+                $"the unfloored overload took the other's floor under '{openKey}'; keys: {keys}");
+            Assert.False(facts.AvailabilityAnnotations.ContainsKey("Host.init(rawValue:)"),
+                $"an overloaded initializer's floor must not sit under its bare key; keys: {keys}");
+        }
+        finally { File.Delete(path); }
+    }
+
     [SkippableFact]
     public void OptionalAndParenthesizedOpaqueOverloads_KeepTheirOwnFloors()
     {

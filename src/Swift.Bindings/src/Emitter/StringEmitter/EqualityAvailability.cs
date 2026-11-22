@@ -9,10 +9,10 @@ namespace BindingsGeneration;
 /// method that calls the wrapper, and for the <c>[SupportedOSPlatform]</c> of the public
 /// <c>Equals</c>, <c>==</c> and <c>!=</c> that reach it.
 ///
-/// <para>The wrapper's body is <c>l == r</c> over two values of the type (a class compares through
-/// its Equatable witness), so it needs what that expression needs: the type, the <c>==</c> Swift
-/// resolves for two operands of the type (not some other overload the type declares, such as one
-/// comparing it with an <c>Int</c>), and the Equatable conformance, whose floor the OS symbol
+/// <para>The wrapper's body compares two values of the type (a struct or enum with <c>l == r</c>, a
+/// class through its Equatable witness), so it needs what that comparison needs: the type, the
+/// <c>==</c> it reaches (not some other overload the type declares, such as one comparing it with an
+/// <c>Int</c>), and the Equatable conformance, whose floor the OS symbol
 /// inference records apart from the type's when the conformance is newer than the type on the
 /// inventory's OS (<see cref="ModuleDecl.InferredConformanceFloors"/>).</para>
 /// </summary>
@@ -35,20 +35,59 @@ internal static class EqualityAvailability
             && op.UnderlyingMethod.CSSignature.Skip(1).All(operand => NamesType(operand.SwiftTypeSpec, type)));
 
     /// <summary>
-    /// The floor of the type's equality wrapper: the self <c>==</c>'s floor, the type's own (with its
-    /// enclosing types') and the Equatable conformance's inferred floor. Null when none is floored.
+    /// The floor of the type's equality wrapper: the floor of the <c>==</c> the comparison reaches, the
+    /// type's own (with its enclosing types') and the Equatable conformance's inferred floor. Null when
+    /// none is floored.
+    ///
+    /// <para>A struct or enum compares with <c>l == r</c>, which resolves to the type's own self
+    /// <c>==</c>. A class compares through its Equatable witness, which is the <c>==</c> of the class
+    /// that declares the conformance (<see cref="ConformanceDeclarer"/>): a subclass that inherits the
+    /// conformance and declares an <c>==</c> of its own (at a later floor, say) does not move the
+    /// witness, so the subclass's operator floors only that operator, not the wrapper.</para>
     /// </summary>
-    internal static IReadOnlyList<AvailabilityAnnotation>? EqualityFloor(TypeDecl type) =>
-        WithConformanceFloors(
-            AvailabilityHelpers.MergeAvailabilityFromAncestors(SelfEqualityOperator(type)?.AvailabilityAnnotations, type),
-            type, Equatable);
+    internal static IReadOnlyList<AvailabilityAnnotation>? EqualityFloor(TypeDecl type)
+    {
+        var declarer = ConformanceDeclarer(type, Equatable);
+        var floor = AvailabilityHelpers.MergeAvailabilityFromAncestors(SelfEqualityOperator(declarer)?.AvailabilityAnnotations, declarer);
+        if (!ReferenceEquals(declarer, type))
+            floor = Merge(floor, AvailabilityHelpers.MergeAvailabilityFromAncestors(null, type));
+        return WithConformanceFloors(floor, declarer, Equatable);
+    }
 
     /// <summary>
     /// The floor of a hash wrapper over the type's Hashable witness: the equality floor (Hashable
-    /// refines Equatable) and the Hashable conformance's inferred floor.
+    /// refines Equatable) and the inferred floor of the Hashable conformance, the one its declaring
+    /// class holds for an inherited conformance.
     /// </summary>
     internal static IReadOnlyList<AvailabilityAnnotation>? HashFloor(TypeDecl type) =>
-        WithConformanceFloors(EqualityFloor(type), type, Hashable);
+        WithConformanceFloors(EqualityFloor(type), ConformanceDeclarer(type, Hashable), Hashable);
+
+    /// <summary>
+    /// The type whose conformance to <paramref name="protocol"/> a value of <paramref name="type"/>
+    /// reaches through the protocol's witness. A struct or enum declares its own. A class inheriting
+    /// the conformance lists it with no conformance descriptor (Swift forbids restating it), so the
+    /// declarer is the nearest superclass in the module listing it with one. When no class in the
+    /// resolved chain lists it so (a superclass in another module or in Objective-C), the declarer
+    /// cannot be named and the type itself stands in: its own operator and floors, never less.
+    /// </summary>
+    internal static TypeDecl ConformanceDeclarer(TypeDecl type, string protocol)
+    {
+        if (type is not ClassDecl cls)
+            return type;
+        for (ClassDecl? current = cls; current != null; current = current.ResolvedSuperclass)
+        {
+            if (current.Conformances.Any(c => c.Protocol.ModuleQualifiedName == protocol
+                    && !string.IsNullOrEmpty(c.ProtocolConformanceDescriptor)))
+                return current;
+        }
+        return type;
+    }
+
+    private static IReadOnlyList<AvailabilityAnnotation>? Merge(
+        IReadOnlyList<AvailabilityAnnotation>? first, IReadOnlyList<AvailabilityAnnotation>? second) =>
+        first is not { Count: > 0 } ? second
+        : second is not { Count: > 0 } ? first
+        : first.Concat(second).ToList();
 
     /// <summary>
     /// Writes the <c>[SupportedOSPlatform]</c> a public equality member carries when
@@ -67,8 +106,6 @@ internal static class EqualityAvailability
         IReadOnlyList<AvailabilityAnnotation>? floor, TypeDecl type, string protocol)
     {
         var conformanceFloor = AvailabilityHelpers.InferredConformanceFloor(type, protocol).ToList();
-        if (conformanceFloor.Count == 0)
-            return floor;
-        return floor is { Count: > 0 } ? floor.Concat(conformanceFloor).ToList() : conformanceFloor;
+        return Merge(floor, conformanceFloor);
     }
 }
