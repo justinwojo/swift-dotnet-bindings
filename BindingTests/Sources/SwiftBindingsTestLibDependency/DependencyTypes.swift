@@ -540,3 +540,17 @@ public func makeDependencyGvpPat(count: Int32) -> GvpPat<GvpDependencyConcrete> 
 public protocol DepAccepting {
     func accept(_ value: Int32) -> Bool
 }
+
+/// A dependency enum whose explicit raw values are not its declaration order. The interface drops
+/// them, so a module binding against the dependency must cross each value as its case, whether it
+/// reads the dependency from its module database or from its xcframework alone.
+public enum DependencyRawCode: Int {
+    case alpha = 11
+    case beta = 22
+    case gamma = -5
+}
+
+/// The raw value Swift sees for a dependency case, so a caller can tell which case arrived.
+public func dependencyRawCodeValue(_ code: DependencyRawCode) -> Int {
+    return code.rawValue
+}

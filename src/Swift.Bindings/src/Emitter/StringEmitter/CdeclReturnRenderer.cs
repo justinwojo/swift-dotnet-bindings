@@ -209,7 +209,7 @@ internal static class CdeclReturnRenderer
     /// </summary>
     private static bool HasRawValue(TypeSpec typeSpec, ITypeDatabase typeDatabase)
         => typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord)
-           && CdeclParamMapper.HasCdeclScalarRawValue(enumRecord.RawValueTypeName);
+           && SimpleEnumCrossing.CrossesAsRawValue(enumRecord);
 
     /// <summary>
     /// The raw-value conversion used to hand a Swift enum back across the <c>@_cdecl</c> boundary.

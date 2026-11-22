@@ -807,13 +807,14 @@ public static class MethodClosureBridge
                         // Complex enums use heap allocation — C# takes ownership via SwiftSafeHandle
                         heapAllocArgs.Add((i, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType)));
                     }
-                    else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true } enumInfo)
+                    else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { } enumInfo)
                     {
-                        // Simple enums with numeric raw values marshal as their underlying scalar.
-                        // Swift's raw value type (e.g., `Int`) and the cdecl scalar (e.g., `Int64`)
-                        // are nominally distinct, so wrap in an explicit conversion to satisfy the
-                        // @convention(c) signature.
-                        directArgs.Add((i, $"{enumInfo.swiftScalar}({paramName}.rawValue)"));
+                        // A simple enum's callback slot is its underlying scalar
+                        // (SwiftBuilder.GetSwiftCdeclParamType): the raw value where it crosses as
+                        // one, converted because Swift's raw type (e.g., `Int`) and the cdecl scalar
+                        // (e.g., `Int64`) are nominally distinct, and the case tag otherwise.
+                        directArgs.Add((i, SimpleEnumCrossing.CaseToScalar(
+                            enumInfo.hasRawValue, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType), enumInfo.swiftScalar, paramName)));
                     }
                     else
                     {
@@ -1910,10 +1911,10 @@ public static class MethodClosureBridge
             // Destroy). Use MarshalFromSwift.
             csWriter.WriteLine($"var __a{index} = SwiftMarshal.MarshalFromSwift<{csharpType}>(__p{index});");
         }
-        else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is { hasRawValue: true })
+        else if (env.ClosureHandler.GetSimpleEnumInfo(argType) is not null)
         {
-            // Simple enum with numeric raw value — Swift wrapper passed `.rawValue`, so the
-            // callback receives the underlying integer directly. Cast to the typed enum.
+            // Simple enum — the Swift adapter passed its scalar (the raw value or the case tag,
+            // which is the C# constant either way), so cast it to the typed enum.
             csWriter.WriteLine($"var __a{index} = ({csharpType})__p{index};");
         }
         else if (env.ClosureHandler.IsOptionalReferenceArg(argType) &&

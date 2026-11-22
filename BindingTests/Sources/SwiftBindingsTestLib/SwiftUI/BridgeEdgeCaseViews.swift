@@ -25,6 +25,8 @@
 //   FlooredModeView        an enum with a case floored above it, as a scalar, an optional
 //                          and an array: the C# side refuses the floored case before the
 //                          bridge's init(rawValue:) turns it into a null session
+//   RawShadeView           an enum whose explicit raw values are not its case indices, as a
+//                          scalar, an optional and an array: each must reach Swift as its case
 
 // SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
 // compiler environment despite the module importing successfully.
@@ -337,6 +339,26 @@ public struct FlooredModeView: View {
 
     public var body: some View {
         Text("FlooredMode: \(mode.rawValue) \(preferred?.rawValue ?? -1) \(modes.count)")
+    }
+}
+
+// MARK: - Enum with explicit raw values
+
+/// Records what reached Swift (`rawShadeViewLastRaw`), so the test can tell which case arrived.
+public struct RawShadeView: View {
+    public let shade: RawShade
+    public let preferred: RawShade?
+    public let shades: [RawShade]
+
+    public init(shade: RawShade, preferred: RawShade?, shades: [RawShade]) {
+        self.shade = shade
+        self.preferred = preferred
+        self.shades = shades
+        rawShadeViewRecord(shade.rawValue * 10_000 + (preferred?.rawValue ?? 0) * 100 + shades.reduce(0) { $0 * 10 + $1.rawValue })
+    }
+
+    public var body: some View {
+        Text("RawShade: \(shade.rawValue)")
     }
 }
 
