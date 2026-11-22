@@ -367,8 +367,8 @@ public class EnumHandlerOutputTests
         Assert.Contains("public enum Status : long", csOutput);
         Assert.Contains("Ok = 0,", csOutput);
         Assert.Contains("Error = 1,", csOutput);
-        // Should NOT contain class-based emission
-        Assert.DoesNotContain("FromRawValue", csOutput);
+        // Should NOT contain class-based emission (the only class is the helpers' extensions class)
+        Assert.DoesNotMatch(@"class Status\b", csOutput);
         Assert.DoesNotContain("SwiftSafeHandle", csOutput);
     }
 
@@ -462,7 +462,7 @@ public class EnumHandlerOutputTests
         Assert.Contains("public enum Status : int", csOutput);
         Assert.Contains("Active = 0,", csOutput);
         Assert.Contains("Inactive = 1,", csOutput);
-        Assert.DoesNotContain("class Status", csOutput);
+        Assert.DoesNotMatch(@"class Status\b", csOutput);
         Assert.DoesNotContain("SwiftSafeHandle", csOutput);
     }
 
@@ -1257,7 +1257,7 @@ public class EnumHandlerOutputTests
 
         // Synthesized hash(into:) is excluded — emits as simple C# enum
         Assert.Contains("public enum Color", csOutput);
-        Assert.DoesNotContain("class Color", csOutput);
+        Assert.DoesNotMatch(@"class Color\b", csOutput);
     }
 
     [Fact]
@@ -1307,7 +1307,7 @@ public class EnumHandlerOutputTests
 
         // Synthesized properties excluded — emits as C# enum, not class
         Assert.Contains("public enum Priority", csOutput);
-        Assert.DoesNotContain("class Priority", csOutput);
+        Assert.DoesNotMatch(@"class Priority\b", csOutput);
     }
 
     [Fact]
@@ -1338,7 +1338,7 @@ public class EnumHandlerOutputTests
 
         // BX2: enum still emits as simple (property skipped, not blocking)
         Assert.Contains("public enum Status", csOutput);
-        Assert.DoesNotContain("class Status", csOutput);
+        Assert.DoesNotMatch(@"class Status\b", csOutput);
     }
 
     [Fact]
@@ -3489,10 +3489,11 @@ public class EnumHandlerOutputTests
         // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should be a C# enum with no wrapper P/Invokes
+        // Should be a C# enum whose only wrapper P/Invokes are its raw-value helpers
         Assert.Contains("public enum ErrorCode", csOutput);
         Assert.Contains("ToRawValue", csOutput);
-        Assert.DoesNotContain("LibraryImport(", csOutput);
+        var imports = Regex.Matches(csOutput, "EntryPoint = \"([^\"]+)\"").Select(m => m.Groups[1].Value).ToList();
+        Assert.Equal(new[] { "SBW_TestModule_ErrorCode_ToRawValue", "SBW_TestModule_ErrorCode_FromRawValue" }, imports);
     }
 
     [Fact]
@@ -3535,8 +3536,8 @@ public class EnumHandlerOutputTests
         Assert.Contains("Unknown = 0,", csOutput);
         Assert.Contains("Timeout = 1,", csOutput);
         Assert.Contains("ErrorCodeExtensions", csOutput);
-        Assert.Contains("\"unknown\" => ErrorCode.Unknown,", csOutput);
-        Assert.Contains("\"timeout\" => ErrorCode.Timeout,", csOutput);
+        Assert.Contains("public static unsafe string ToRawValue(this ErrorCode value)", csOutput);
+        Assert.Contains("public static unsafe ErrorCode? FromRawValue(string rawValue)", csOutput);
     }
 
     [Fact]
@@ -3769,10 +3770,9 @@ public class EnumHandlerOutputTests
         // Context-based tracking: tests use default context (no parallelism)
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
-        // Must emit ToRawValue extension method
-        Assert.Contains("public static string ToRawValue(this Level value)", csOutput);
-        Assert.Contains("\"low\"", csOutput);
-        Assert.Contains("\"high\"", csOutput);
+        // Must emit ToRawValue extension method, reading the raw value from Swift
+        Assert.Contains("public static unsafe string ToRawValue(this Level value)", csOutput);
+        Assert.Contains("PInvoke_ToRawValue(", csOutput);
     }
 
     [Fact]
@@ -3790,7 +3790,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         // Must emit FromRawValue extension method
-        Assert.Contains("public static Level? FromRawValue(", csOutput);
+        Assert.Contains("public static unsafe Level? FromRawValue(string rawValue)", csOutput);
     }
 
     [Fact]
@@ -5833,27 +5833,19 @@ public class EnumHandlerOutputTests
             ModuleDecl = moduleDecl
         });
 
-        var (cs, _) = EmitEnum(enumDecl, typeDatabase);
+        var (cs, swift) = EmitEnum(enumDecl, typeDatabase);
 
         foreach (var signature in new[]
                  {
-                     "public static string ToRawValue(this Level value)",
-                     "public static Level? FromRawValue(string rawValue)",
+                     "public static unsafe string ToRawValue(this Level value)",
+                     "public static unsafe Level? FromRawValue(string rawValue)",
                      "public static global::System.Collections.Generic.IReadOnlyList<Level> AllCases",
                  })
             Assert.Contains("SupportedOSPlatform(\"ios27.2\")", EqualityFloorEmissionTests.AttributesBefore(cs, signature));
-        foreach (var (signature, arm) in new[]
-                 {
-                     ("ToRawValue(this Level value)", "Level.High =>"),
-                     ("FromRawValue(string rawValue)", "=> Level.High,"),
-                 })
-        {
-            var body = cs[cs.IndexOf(signature, StringComparison.Ordinal)..];
-            var disable = body.IndexOf("#pragma warning disable CA1416", StringComparison.Ordinal);
-            var restore = body.IndexOf("#pragma warning restore CA1416", StringComparison.Ordinal);
-            var armAt = body.IndexOf(arm, StringComparison.Ordinal);
-            Assert.True(disable >= 0 && disable < armAt && armAt < restore, $"{arm} must sit under the CA1416 suppression:\n{body}");
-        }
+        // The helpers ask Swift, whose wrapper names the floored case only under #available (the
+        // managed refusal before the call is the record's guard; RawStaged covers it at runtime).
+        var toRawWrapper = swift[swift.IndexOf("SBW_TestModule_Level_ToRawValue", StringComparison.Ordinal)..];
+        Assert.Contains("#available(iOS 28.0", toRawWrapper[..toRawWrapper.IndexOf("value.rawValue", StringComparison.Ordinal)]);
     }
 
     [Fact]
@@ -6100,8 +6092,10 @@ public class EnumHandlerOutputTests
 
         var (_, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
-        // Should NOT use rawValue initializer (C# tags don't match Swift raw values)
-        Assert.DoesNotContain("rawValue:", swiftOutput);
+        // Should NOT use rawValue initializer (C# tags don't match Swift raw values); only the
+        // FromRawValue helper, whose job is to run it, does.
+        foreach (var wrapper in swiftOutput.Split("@_cdecl(").Skip(1).Where(w => !w.StartsWith("\"SBW_TestModule_Status_FromRawValue\"", StringComparison.Ordinal)))
+            Assert.DoesNotContain("rawValue:", wrapper);
         // Should use switch-based conversion
         Assert.Contains("switch", swiftOutput);
     }
@@ -6780,9 +6774,10 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void Emit_StringRawValueEnum_UsesCustomRawValues()
+    public void Emit_StringRawValueEnum_RawValueHelpersAskSwift()
     {
-        // When EnumCaseDecl.RawValue is set, ToRawValue/FromRawValue use actual raw values
+        // A non-@objc enum's interface prints no raw values, so ToRawValue/FromRawValue never
+        // spell one in C#: they call wrappers running Swift's own .rawValue and init(rawValue:).
         var typeDatabase = CreateTypeDatabaseWithString();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("LogLevel", moduleDecl, isFrozen: true);
@@ -6795,22 +6790,29 @@ public class EnumHandlerOutputTests
         enumDecl.Cases.Add(infoCase);
         enumDecl.Methods.Add(CreateStringRawValueInitializer(enumDecl, moduleDecl));
 
-        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
-        // ToRawValue must use custom raw values, not case names
-        Assert.Contains("\"[DEBUG]\"", csOutput);
-        Assert.Contains("\"[INFO]\"", csOutput);
-        Assert.DoesNotContain("=> \"debug\"", csOutput);
-        Assert.DoesNotContain("=> \"info\"", csOutput);
+        Assert.Contains("public static unsafe string ToRawValue(this LogLevel value)", csOutput);
+        Assert.Contains("public static unsafe LogLevel? FromRawValue(string rawValue)", csOutput);
+        Assert.Contains("EntryPoint = \"SBW_TestModule_LogLevel_ToRawValue\"", csOutput);
+        Assert.Contains("EntryPoint = \"SBW_TestModule_LogLevel_FromRawValue\"", csOutput);
+        Assert.DoesNotContain("\"debug\"", csOutput);
+        Assert.DoesNotContain("\"[DEBUG]\"", csOutput);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_LogLevel_ToRawValue\")", swiftOutput);
+        Assert.Contains("var rawValue: Swift.String = value.rawValue", swiftOutput);
+        Assert.Contains("TestModule.LogLevel(rawValue: rawValue)", swiftOutput);
     }
 
     [Fact]
-    public void Emit_StringRawValueEnum_FallsBackToCaseNameWhenNoRawValue()
+    public void Emit_MainActorStringRawValueEnum_FallsBackToCaseNames()
     {
-        // When EnumCaseDecl.RawValue is null, case name is used (Swift default)
+        // A main-actor enum's helpers cannot run its members from a wrapper, so they stay pure C#
+        // and use the case name where the interface prints no raw value (Swift's default for a
+        // case declared without one).
         var typeDatabase = CreateTypeDatabaseWithString();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: true);
+        enumDecl.IsMainActorIsolated = true;
         enumDecl.RawValueTypeName = "String";
         enumDecl.Cases.Add(CreateCase("active"));  // No RawValue set
         enumDecl.Cases.Add(CreateCase("inactive")); // No RawValue set
@@ -6833,6 +6835,8 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("AuthErrorCode", moduleDecl, isFrozen: true);
+        // Only an @objc enum's interface prints raw values (and its in-memory value is the raw value).
+        enumDecl.IsObjC = true;
         enumDecl.RawValueTypeName = "Int";
         var wrongPassword = CreateCase("wrongPassword");
         wrongPassword.RawValue = "17009";
@@ -6865,6 +6869,217 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_NonObjCIntRawValueEnum_ExplicitRawValues_CrossAsCaseTags()
+    {
+        // A plain Swift `enum Shade: Int { case light = 1; case dark = 2 }` crosses as its case
+        // tag: its interface prints no raw values, and its in-memory value is the declaration-order
+        // index. The C# constants, the enum->scalar switch and the scalar->enum switch must all use
+        // that index, never the raw value, or a member reaches Swift as the wrong case.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        var light = CreateCase("light");
+        light.RawValue = "1";
+        var dark = CreateCase("dark");
+        dark.RawValue = "2";
+        enumDecl.Cases.Add(light);
+        enumDecl.Cases.Add(dark);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethod("current", enumDecl, moduleDecl));
+        enumDecl.Methods.Add(CreateStaticMethodWithEnumParam("isFatal", enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("code", enumDecl, moduleDecl));
+
+        Assert.True(enumDecl.CrossesAsCaseTag);
+        Assert.Equal(0, enumDecl.GetCaseMarshalScalar(light));
+        Assert.Equal(1, enumDecl.GetCaseMarshalScalar(dark));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("Light = 0,", csOutput);
+        Assert.Contains("Dark = 1,", csOutput);
+        Assert.DoesNotContain("Light = 1,", csOutput);
+        Assert.DoesNotContain("Dark = 2,", csOutput);
+        Assert.Contains("case .light: return 0", swiftOutput);
+        Assert.Contains("case .dark: return 1", swiftOutput);
+        Assert.Contains("case 0: return .light", swiftOutput);
+        Assert.Contains("case 1: return .dark", swiftOutput);
+        Assert.DoesNotContain("case .dark: return 2", swiftOutput);
+        // The doc comment tells a consumer the members are indices, not raw values.
+        Assert.Contains("declaration-order indices, not their Swift raw values", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonObjCIntRawValueEnum_RawValueHelpersAskSwift()
+    {
+        // The raw value of a case-tag enum is only knowable from Swift, so ToRawValue and
+        // FromRawValue go through wrapper entry points that call `.rawValue` and
+        // `init(rawValue:)` on the real Swift type, rather than C# arithmetic on the constant.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        var light = CreateCase("light");
+        light.RawValue = "1";
+        var dark = CreateCase("dark");
+        dark.RawValue = "2";
+        enumDecl.Cases.Add(light);
+        enumDecl.Cases.Add(dark);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Shade_ToRawValue\")", swiftOutput);
+        Assert.Contains("@_cdecl(\"SBW_TestModule_Shade_FromRawValue\")", swiftOutput);
+        Assert.Contains("return value.rawValue", swiftOutput);
+        Assert.Contains("TestModule.Shade(rawValue: rawValue)", swiftOutput);
+        Assert.Contains("ToRawValue(this Shade value)", csOutput);
+        Assert.Contains("Shade? FromRawValue(", csOutput);
+        Assert.Contains("\"SBW_TestModule_Shade_ToRawValue\"", csOutput);
+        Assert.Contains("\"SBW_TestModule_Shade_FromRawValue\"", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonObjCIntRawValueEnum_ToRawValueRefusesANonMemberBeforeSwift()
+    {
+        // The ToRawValue wrapper's tag switch stops the process on a tag that is no case, so an
+        // undefined value cast to the enum is refused in C# first.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("light"));
+        enumDecl.Cases.Add(CreateCase("dark"));
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var toRaw = csOutput[csOutput.IndexOf("ToRawValue(this Shade value)", StringComparison.Ordinal)..];
+        var check = toRaw.IndexOf("unchecked((ulong)(long)tag) >= 2UL", StringComparison.Ordinal);
+        Assert.True(check > 0, toRaw);
+        Assert.True(check < toRaw.IndexOf("ArgumentOutOfRangeException", StringComparison.Ordinal));
+        Assert.True(toRaw.IndexOf("ArgumentOutOfRangeException", StringComparison.Ordinal) < toRaw.IndexOf("PInvoke_ToRawValue(tag)", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Emit_NonObjCIntRawValueEnum_SpiCase_HasNoMemberAndNamesNoRawValue()
+    {
+        // An @_spi case keeps its tag but has no C# member and no name the wrapper can spell, so
+        // ToRawValue refuses its index and FromRawValue reports its raw value as naming no member
+        // (the tag switch needs a default to be exhaustive without it).
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.Cases.Add(CreateCase("light"));
+        var hidden = CreateCase("hidden");
+        hidden.IsSpiProtected = true;
+        enumDecl.Cases.Add(hidden);
+        enumDecl.Cases.Add(CreateCase("dark"));
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("unchecked((ulong)(long)tag) >= 3UL || tag is 1", csOutput);
+        Assert.Matches(@"Dark\s*=\s*2", csOutput);
+        var fromRaw = swiftOutput[swiftOutput.IndexOf("@_cdecl(\"SBW_TestModule_Shade_FromRawValue\")", StringComparison.Ordinal)..];
+        Assert.Contains("default: found.pointee = 0; return 0", fromRaw);
+        Assert.DoesNotContain(".hidden", fromRaw);
+    }
+
+    [Fact]
+    public void Emit_MainActorIntRawValueEnum_RemarkPromisesNoHelpers()
+    {
+        // A main-actor enum gets no Swift-backed helpers, so its remark must not point at them.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.RawValueTypeName = "Int";
+        enumDecl.IsMainActorIsolated = true;
+        enumDecl.Cases.Add(CreateCase("light"));
+        enumDecl.Cases.Add(CreateCase("dark"));
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("declaration-order indices", csOutput);
+        Assert.DoesNotContain("ToRawValue", csOutput);
+        Assert.DoesNotContain("SBW_TestModule_Shade_ToRawValue", swiftOutput);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Emit_CharacterRawValueEnum_FromRawValueTakesTheStringItSpells(bool isFrozen)
+    {
+        // C# has no Character and a @_cdecl wrapper cannot take one: the raw value crosses as the
+        // one-grapheme string it spells, and a string that is not one grapheme names no case
+        // (Character(_:) would trap on it).
+        var database = CreateXCFrameworkTypeDatabase();
+        var module = CreateModuleDecl("TestModule");
+        var declaration = CreateEnumDecl("Letter", module, isFrozen);
+        declaration.RawValueTypeName = "Character";
+        declaration.Cases.Add(CreateCase("ex"));
+        declaration.Cases.Add(CreateCase("why"));
+        declaration.Methods.Add(CreateTypedRawValueInitializer(declaration, module, "Swift.Character"));
+
+        var (output, swift) = EmitEnum(declaration, database);
+
+        Assert.Contains("Letter? FromRawValue(string rawValue)", output);
+        Assert.DoesNotContain("Character rawValue", output);
+        var wrapper = swift[swift.IndexOf("@_cdecl(\"SBW_TestModule_Letter_InitWithRawValue\")", StringComparison.Ordinal)..];
+        Assert.Contains("_ slicePtr: Swift.UnsafeRawPointer", wrapper);
+        Assert.DoesNotContain("Swift.Character)", wrapper[..wrapper.IndexOf('{')]);
+        Assert.Contains("str.count == 1", wrapper);
+        Assert.Contains("(rawValue: Swift.Character(str))", wrapper);
+    }
+
+    [Fact]
+    public void Emit_ObjCIntRawValueEnum_HasNoSwiftRawValueHelpersOrIndexRemark()
+    {
+        // An @objc enum's constants already are its raw values, so it needs neither the
+        // Swift-backed helpers nor the remark that the members are indices.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Shade", moduleDecl, isFrozen: true);
+        enumDecl.IsObjC = true;
+        enumDecl.RawValueTypeName = "Int";
+        var light = CreateCase("light");
+        light.RawValue = "1";
+        var dark = CreateCase("dark");
+        dark.RawValue = "2";
+        enumDecl.Cases.Add(light);
+        enumDecl.Cases.Add(dark);
+        enumDecl.Methods.Add(CreateRawValueInitializer(enumDecl, moduleDecl));
+
+        Assert.False(enumDecl.CrossesAsCaseTag);
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains("Light = 1,", csOutput);
+        Assert.Contains("Dark = 2,", csOutput);
+        Assert.DoesNotContain("_ToRawValue", swiftOutput);
+        Assert.DoesNotContain("_FromRawValue", swiftOutput);
+        Assert.DoesNotContain("declaration-order indices", csOutput);
+    }
+
+    [Theory]
+    [InlineData("Int", false, true)]
+    [InlineData("Swift.UInt8", false, true)]
+    [InlineData("Int32", false, true)]
+    [InlineData("Int", true, false)]
+    [InlineData("String", false, false)]
+    [InlineData("Double", false, false)]
+    [InlineData(null, false, false)]
+    public void CrossesAsCaseTag_OnlyForNonObjCIntegralEnums(string? rawValueTypeName, bool isObjC, bool expected)
+    {
+        var enumDecl = CreateEnumDecl("Shade", CreateModuleDecl("TestModule"), isFrozen: true);
+        enumDecl.RawValueTypeName = rawValueTypeName;
+        enumDecl.IsObjC = isObjC;
+        enumDecl.Cases.Add(CreateCase("light"));
+        Assert.Equal(expected, enumDecl.CrossesAsCaseTag);
+    }
+
+    [Fact]
     public void Emit_IntRawValueEnum_AutoIncrementResumesAfterExplicit()
     {
         // Swift's raw-value assignment: an implicit case is previous + 1 (first implicit is
@@ -6873,6 +7088,8 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Code", moduleDecl, isFrozen: true);
+        // Only an @objc enum's interface prints raw values (and its in-memory value is the raw value).
+        enumDecl.IsObjC = true;
         enumDecl.RawValueTypeName = "Int";
         enumDecl.Cases.Add(CreateCase("a"));            // implicit -> 0
         var b = CreateCase("b");
@@ -6900,6 +7117,8 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("StorageError", moduleDecl, isFrozen: true);
+        // Only an @objc enum's interface prints raw values (and its in-memory value is the raw value).
+        enumDecl.IsObjC = true;
         enumDecl.RawValueTypeName = "Int32";
         var notFound = CreateCase("notFound");
         notFound.RawValue = "-1";
@@ -6929,6 +7148,8 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Flags", moduleDecl, isFrozen: true);
+        // Only an @objc enum's interface prints raw values (and its in-memory value is the raw value).
+        enumDecl.IsObjC = true;
         enumDecl.RawValueTypeName = "UInt64";
         var none = CreateCase("none");
         none.RawValue = "0";
@@ -6966,6 +7187,8 @@ public class EnumHandlerOutputTests
         var typeDatabase = CreateTypeDatabase();
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Boundary", moduleDecl, isFrozen: true);
+        // Only an @objc enum's interface prints raw values (and its in-memory value is the raw value).
+        enumDecl.IsObjC = true;
         enumDecl.RawValueTypeName = "UInt64";
         var signedMax = CreateCase("signedMax");
         signedMax.RawValue = "9223372036854775807"; // Int64.MaxValue — fits long

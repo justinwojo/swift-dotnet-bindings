@@ -1022,6 +1022,27 @@ public class ClosureEmitterDirectTests
         Assert.DoesNotContain(" p0.rawValue,", result); // No bare .rawValue without cast
     }
 
+    [Fact]
+    public void SwiftClosureAdapter_CaseTagEnumArg_CopiesTheTagNotTheRawValue()
+    {
+        // A plain Swift `enum: Int` whose raw values its interface omits crosses as its case tag,
+        // so the adapter hands managed code the tag bytes, never `.rawValue`.
+        var typeDatabase = CreateTypeDatabaseWithSimpleEnum();
+        var closureHandler = new ClosureHandler(typeDatabase);
+
+        var closureTypeSpec = new ClosureTypeSpec(
+            new NamedTypeSpec("TestModule.TaggedShade"),
+            TupleTypeSpec.Empty);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var lines = ClosureEmitter.GetSwiftClosureAdapterCode(
+            "callback", closureTypeSpec, closureHandler, isOptional: false);
+
+        var result = string.Join("\n", lines);
+        Assert.DoesNotContain("rawValue", result);
+        Assert.Contains("MemoryLayout", result);
+    }
+
     private static TypeDatabase CreateTypeDatabaseWithSimpleEnum()
     {
         var typeDatabase = new TypeDatabase();
@@ -1050,6 +1071,19 @@ public class ClosureEmitterDirectTests
                 Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = "Int"  // ABI JSON uses unqualified names
+            });
+        // Plain Swift `enum: Int`: an integral raw value whose values cross as the case tag.
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.TaggedShade"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "TaggedShade"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.TaggedShade"),
+                MetadataAccessor = "$s10TestModule11TaggedShadeOMa",
+                Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = "Int",
+                RawValueCrossesAsCaseTag = true
             });
         // Tag-only enum: payload-less with NO raw value. hasRawValue is false, so the invoke
         // thunk has no .rawValue to use and must copy the enum's tag bytes through a scalar.

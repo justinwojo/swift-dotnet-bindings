@@ -436,7 +436,8 @@ public static partial class SwiftUIBridgeEmitter
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
-                IsSimpleEnum: bp.IsSimpleEnum, CaseFloorGuard: bp.CaseFloorGuard),
+                IsSimpleEnum: bp.IsSimpleEnum, CaseFloorGuard: bp.CaseFloorGuard,
+                CrossesAsCaseTag: bp.CrossesAsCaseTag, CaseTagCount: bp.CaseTagCount),
             _ => null, // Closures, etc. not supported in async flattening yet
         };
     }
@@ -872,7 +873,7 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
                 // Out-of-range raw value reports via onError and returns instead of trapping.
-                sb.AppendLine($"    guard let {param.Name}Enum = {param.BridgeTypeName}(rawValue: {param.SwiftName}) else {{");
+                sb.AppendLine($"    guard let {param.Name}Enum = {SimpleEnumCrossing.ScalarToOptionalCase(!param.CrossesAsCaseTag, param.CaseTagCount, param.BridgeTypeName!, param.SwiftName)} else {{");
                 sb.AppendLine($"        if let {errorName} = {errorName} {{");
                 sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
                 sb.AppendLine($"            let utf8 = Swift.Array(msg.utf8)");
@@ -1688,7 +1689,11 @@ public record AsyncFlatParam(
     bool IsObjCBridgeable = false,
     bool IsSimpleEnum = false,
     bool? DefaultValue = null,
-    string? CaseFloorGuard = null)
+    string? CaseFloorGuard = null,
+    // A BoundEnum whose values cross as the case tag, not .rawValue (SimpleEnumCrossing), and its
+    // case count, which an incoming tag is checked against.
+    bool CrossesAsCaseTag = false,
+    int CaseTagCount = 0)
 {
     /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
     /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>

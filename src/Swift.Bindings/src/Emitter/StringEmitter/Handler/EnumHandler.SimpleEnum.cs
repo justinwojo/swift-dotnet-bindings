@@ -135,8 +135,31 @@ namespace BindingsGeneration
             // Compute case name map for case-insensitive collision avoidance
             var caseNameMap = NameProvider.ComputeCaseNameMap(enumDecl.Cases);
 
+            // Whether the raw-value helpers can ask Swift: a wrapper entry point that runs the enum's own
+            // .rawValue / init(rawValue:). Not for a module-internal enum (no wrapper reaches it) or a
+            // main-actor one (the wrapper would run its members off the main actor).
+            bool rawValueHelpersAskSwift = context.GetEmissionContext() != null
+                && !WrapperValidation.IsTypeOrEnclosingModuleInternal(enumDecl)
+                && !TypeAnnotationHelper.NeedsMainActorSurfacing(enumDecl, false, false);
+
             // Emit the C# enum declaration
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            if (enumDecl.CrossesAsCaseTag)
+            {
+                // The member values are case indices, not the Swift raw values (EnumDecl.CrossesAsCaseTag):
+                // say so where a consumer casting `(long)E.Member` reads it.
+                csWriter.WriteLine("/// <remarks>");
+                csWriter.WriteLine("/// The member values are the Swift cases' declaration-order indices, not their Swift raw values:");
+                csWriter.WriteLine("/// a Swift module interface does not publish the raw values of a non-<c>@objc</c> enum. Every");
+                csWriter.WriteLine("/// member maps to its own Swift case wherever the binding passes it.");
+                if (rawValueHelpersAskSwift)
+                {
+                    csWriter.WriteLine("/// Read a case's Swift raw value with <c>ToRawValue()</c> and find the case for a raw value");
+                    csWriter.WriteLine("/// with <c>FromRawValue</c>; both ask Swift.");
+                }
+                csWriter.WriteLine("/// Do not cast a member to an integer to get its raw value.");
+                csWriter.WriteLine("/// </remarks>");
+            }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
             if (enumDecl.Name.StartsWith("_"))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
@@ -219,8 +242,27 @@ namespace BindingsGeneration
             bool isNestedEnum = enumDecl.ParentDecl is TypeDecl;
             string qualifiedEnumName = isNestedEnum ? GetQualifiedEnumName(enumDecl, typeDatabase) : enumName;
 
-            // For String-raw-value enums, emit ToRawValue/FromRawValue extension methods
-            if (enumDecl.IsStringRawValue)
+            // For a String-raw-value enum, ToRawValue/FromRawValue ask Swift: its interface prints no raw
+            // values (`case get = "GET"` prints as `case get`), so the case name is only a guess.
+            if (enumDecl.IsStringRawValue && rawValueHelpersAskSwift)
+            {
+                var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
+                if (isNestedEnum)
+                {
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl, typeDatabase);
+                    var deferredSw = new System.IO.StringWriter();
+                    var deferredWriter = new CSharpWriter(deferredSw);
+                    deferredWriter.Indent = 1; // namespace level
+                    EmitSwiftBackedStringRawValueExtensions(deferredWriter, swiftWriter, enumDecl, qualifiedEnumName,
+                        wrapperLibName, typeDatabase, extensionsClassName: flatClassName);
+                    context.GetEmissionContext().AddDeferredEnumExtensionClass(deferredSw.ToString());
+                }
+                else
+                {
+                    EmitSwiftBackedStringRawValueExtensions(csWriter, swiftWriter, enumDecl, enumName, wrapperLibName, typeDatabase);
+                }
+            }
+            else if (enumDecl.IsStringRawValue)
             {
                 if (isNestedEnum)
                 {
@@ -234,6 +276,27 @@ namespace BindingsGeneration
                 else
                 {
                     EmitStringRawValueExtensions(csWriter, enumDecl, enumName, caseNameMap);
+                }
+            }
+
+            // For an integral enum whose values cross as case tags, the raw value is Swift's to report:
+            // ToRawValue/FromRawValue call its own .rawValue and init(rawValue:).
+            if (enumDecl.CrossesAsCaseTag && rawValueHelpersAskSwift)
+            {
+                var wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
+                if (isNestedEnum)
+                {
+                    var flatClassName = GetFlattenedExtensionClassName(enumDecl, typeDatabase);
+                    var deferredSw = new System.IO.StringWriter();
+                    var deferredWriter = new CSharpWriter(deferredSw);
+                    deferredWriter.Indent = 1; // namespace level
+                    EmitIntegralRawValueExtensions(deferredWriter, swiftWriter, enumDecl, qualifiedEnumName,
+                        wrapperLibName, typeDatabase, extensionsClassName: flatClassName);
+                    context.GetEmissionContext().AddDeferredEnumExtensionClass(deferredSw.ToString());
+                }
+                else
+                {
+                    EmitIntegralRawValueExtensions(csWriter, swiftWriter, enumDecl, enumName, wrapperLibName, typeDatabase);
                 }
             }
 
@@ -440,9 +503,9 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Emits ToRawValue/FromRawValue extension methods for String-raw-value enums.
-        /// These are pure C# (no Swift P/Invoke needed) since the mapping is known at codegen time.
-        /// Uses actual raw values from .swiftinterface when available, falls back to case names.
+        /// Emits pure C# ToRawValue/FromRawValue extension methods for a String-raw-value enum whose helpers
+        /// cannot ask Swift (module-internal or main-actor). Uses raw values from the interface when it prints
+        /// them and otherwise the case names, which are Swift's raw values only for a case declared without one.
         /// </summary>
         private static void EmitStringRawValueExtensions(CSharpWriter csWriter, EnumDecl enumDecl, string enumName, Dictionary<string, string>? caseNameMap = null, string? extensionsClassName = null)
         {
@@ -511,6 +574,232 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits <c>ToRawValue</c>/<c>FromRawValue</c> for a String-backed simple enum by asking Swift. A
+        /// module interface prints no raw values for a non-<c>@objc</c> enum (<c>case get = "GET"</c> prints
+        /// as <c>case get</c>), so the binding cannot spell them itself: a wrapper maps the case tag to the
+        /// case and copies its <c>.rawValue</c>'s UTF-8 into a caller buffer (returning the length, so a
+        /// longer value is fetched again into a buffer that fits), and another decodes the UTF-8 it is
+        /// handed and runs <c>init(rawValue:)</c>, returning the case's tag or reporting that none matched.
+        /// </summary>
+        private void EmitSwiftBackedStringRawValueExtensions(CSharpWriter csWriter, SwiftWriter swiftWriter,
+            EnumDecl enumDecl, string enumName, string wrapperLibName, ITypeDatabase typeDatabase,
+            string? extensionsClassName = null)
+        {
+            var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
+            var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var sanitizedName = enumQualifiedName.Replace(".", "_");
+            var toRawSymbol = $"SBW_{sanitizedName}_ToRawValue";
+            var fromRawSymbol = $"SBW_{sanitizedName}_FromRawValue";
+            var identifierPath = GetSwiftWrapperIdentifierPath(enumDecl);
+            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
+
+            swiftWriter.WriteLine($"// UTF-8 raw value of a {enumQualifiedName} case, for ToRawValue: copied when it fits, length returned.");
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLine($"@_cdecl(\"{toRawSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_toRawValue(_ tag: {swiftScalarType}, _ buffer: Swift.UnsafeMutableRawPointer?, _ capacity: Swift.Int) -> Swift.Int {{");
+            swiftWriter.Indent++;
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+            swiftWriter.WriteLine("var rawValue: Swift.String = value.rawValue");
+            swiftWriter.WriteLine("return rawValue.withUTF8 { utf8 in");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine("if let buffer = buffer, let base = utf8.baseAddress, utf8.count <= capacity {");
+            swiftWriter.WriteLine("    buffer.copyMemory(from: Swift.UnsafeRawPointer(base), byteCount: utf8.count)");
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine("return utf8.count");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+
+            swiftWriter.WriteLine($"// Case of a {enumQualifiedName} UTF-8 raw value, for FromRawValue.");
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLine($"@_cdecl(\"{fromRawSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_fromRawValue(_ bytes: Swift.UnsafePointer<Swift.UInt8>?, _ count: Swift.Int, _ found: Swift.UnsafeMutablePointer<Swift.UInt8>) -> {swiftScalarType} {{");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine("let rawValue = Swift.String(decoding: Swift.UnsafeBufferPointer(start: count > 0 ? bytes : nil, count: count > 0 ? count : 0), as: Swift.UTF8.self)");
+            swiftWriter.WriteLine($"guard let result = {enumQualifiedName}(rawValue: rawValue) else {{ found.pointee = 0; return 0 }}");
+            swiftWriter.WriteLine("found.pointee = 1");
+            EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType,
+                unnamedCaseStatement: FromRawValueUnnamedCase);
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+
+            var className = extensionsClassName ?? $"{enumName}Extensions";
+            var caseFloorGuard = CaseFloorGuardOf(enumDecl, typeDatabase);
+            csWriter.WriteLine($"public static partial class {className}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            csWriter.WriteLine("/// <summary>The Swift raw value of this case, read from Swift's <c>rawValue</c>.</summary>");
+            EmitEnumFloorAttributes(csWriter, enumDecl);
+            csWriter.WriteLine($"public static unsafe string ToRawValue(this {enumName} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var tag = {SimpleEnumCaseFloors.ToNative(caseFloorGuard, csUnderlyingType, "value")};");
+            EmitRequireMemberTag(csWriter, enumDecl);
+            csWriter.WriteLine("const int StackCapacity = 128;");
+            csWriter.WriteLine("byte* stackBuffer = stackalloc byte[StackCapacity];");
+            csWriter.WriteLine("var length = PInvoke_ToRawValue(tag, stackBuffer, StackCapacity);");
+            csWriter.WriteLine("if (length <= StackCapacity)");
+            csWriter.WriteLine("    return global::System.Text.Encoding.UTF8.GetString(stackBuffer, (int)length);");
+            csWriter.WriteLine("var heapBuffer = new byte[length];");
+            csWriter.WriteLine("fixed (byte* heap = heapBuffer)");
+            csWriter.WriteLine("    PInvoke_ToRawValue(tag, heap, length);");
+            csWriter.WriteLine("return global::System.Text.Encoding.UTF8.GetString(heapBuffer);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine("/// The case whose Swift raw value is <paramref name=\"rawValue\"/>, found by Swift's");
+            csWriter.WriteLine("/// <c>init(rawValue:)</c>, or null when no case has that raw value (or it is null).");
+            csWriter.WriteLine("/// </summary>");
+            EmitEnumFloorAttributes(csWriter, enumDecl);
+            csWriter.WriteLine($"public static unsafe {enumName}? FromRawValue(string rawValue)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("if (rawValue is null)");
+            csWriter.WriteLine("    return null;");
+            csWriter.WriteLine("var utf8 = global::System.Text.Encoding.UTF8.GetBytes(rawValue);");
+            csWriter.WriteLine("byte found = 0;");
+            csWriter.WriteLine($"{csUnderlyingType} tag;");
+            csWriter.WriteLine("fixed (byte* bytes = utf8)");
+            csWriter.WriteLine("    tag = PInvoke_FromRawValue(bytes, utf8.Length, &found);");
+            csWriter.WriteLine($"return found != 0 ? ({enumName})tag : null;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{toRawSymbol}\")]");
+            csWriter.WriteLine($"private static unsafe partial nint PInvoke_ToRawValue({csUnderlyingType} tag, byte* buffer, nint capacity);");
+            csWriter.WriteLine();
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{fromRawSymbol}\")]");
+            csWriter.WriteLine($"private static unsafe partial {csUnderlyingType} PInvoke_FromRawValue(byte* bytes, nint count, byte* found);");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// Emits <c>ToRawValue</c>/<c>FromRawValue</c> for an integral enum whose values cross as case tags
+        /// (<see cref="EnumDecl.CrossesAsCaseTag"/>). The binding does not know its raw values, so both ask
+        /// Swift: a wrapper maps the case tag to the case and returns its <c>.rawValue</c>, and another runs
+        /// <c>init(rawValue:)</c> and returns the case's tag, or reports that no case has that raw value.
+        /// </summary>
+        private void EmitIntegralRawValueExtensions(CSharpWriter csWriter, SwiftWriter swiftWriter,
+            EnumDecl enumDecl, string enumName, string wrapperLibName, ITypeDatabase typeDatabase,
+            string? extensionsClassName = null)
+        {
+            var csUnderlyingType = GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName);
+            var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
+            var swiftRawType = CdeclParamMapper.GetSwiftRawValueType(enumDecl.RawValueTypeName);
+            var enumQualifiedName = enumDecl.SwiftTypeName.ModuleQualifiedName;
+            var sanitizedName = enumQualifiedName.Replace(".", "_");
+            var toRawSymbol = $"SBW_{sanitizedName}_ToRawValue";
+            var fromRawSymbol = $"SBW_{sanitizedName}_FromRawValue";
+            var identifierPath = GetSwiftWrapperIdentifierPath(enumDecl);
+            var availability = WrapperEmitterHelpers.MergeAvailability(null, enumDecl);
+
+            // Swift: tag -> case -> .rawValue. The tag switch names a floored case only under #available.
+            swiftWriter.WriteLine($"// Raw value of a {enumQualifiedName} case, for ToRawValue.");
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLine($"@_cdecl(\"{toRawSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_toRawValue(_ tag: {swiftScalarType}) -> {swiftRawType} {{");
+            swiftWriter.Indent++;
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+            swiftWriter.WriteLine("return value.rawValue");
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+
+            // Swift: raw value -> init(rawValue:) -> tag, with a found flag.
+            swiftWriter.WriteLine($"// Case of a {enumQualifiedName} raw value, for FromRawValue.");
+            WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
+            swiftWriter.WriteLine($"@_cdecl(\"{fromRawSymbol}\")");
+            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_fromRawValue(_ rawValue: {swiftRawType}, _ found: Swift.UnsafeMutablePointer<Swift.UInt8>) -> {swiftScalarType} {{");
+            swiftWriter.Indent++;
+            swiftWriter.WriteLine($"guard let result = {enumQualifiedName}(rawValue: rawValue) else {{ found.pointee = 0; return 0 }}");
+            swiftWriter.WriteLine("found.pointee = 1");
+            EmitEnumToTagSwitch(swiftWriter, enumDecl, enumQualifiedName, "result", swiftScalarType,
+                unnamedCaseStatement: FromRawValueUnnamedCase);
+            swiftWriter.Indent--;
+            swiftWriter.WriteLine("}");
+            swiftWriter.WriteLine();
+
+            var className = extensionsClassName ?? $"{enumName}Extensions";
+            var caseFloorGuard = CaseFloorGuardOf(enumDecl, typeDatabase);
+            csWriter.WriteLine($"public static partial class {className}");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine("/// The Swift raw value of this case, read from Swift's <c>rawValue</c>. The member's own integer");
+            csWriter.WriteLine("/// value is its case index, not its raw value.");
+            csWriter.WriteLine("/// </summary>");
+            EmitEnumFloorAttributes(csWriter, enumDecl);
+            csWriter.WriteLine($"public static {csUnderlyingType} ToRawValue(this {enumName} value)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine($"var tag = {SimpleEnumCaseFloors.ToNative(caseFloorGuard, csUnderlyingType, "value")};");
+            EmitRequireMemberTag(csWriter, enumDecl);
+            csWriter.WriteLine("return PInvoke_ToRawValue(tag);");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine("/// <summary>");
+            csWriter.WriteLine("/// The case whose Swift raw value is <paramref name=\"rawValue\"/>, found by Swift's");
+            csWriter.WriteLine("/// <c>init(rawValue:)</c>, or null when no case has that raw value.");
+            csWriter.WriteLine("/// </summary>");
+            EmitEnumFloorAttributes(csWriter, enumDecl);
+            csWriter.WriteLine($"public static unsafe {enumName}? FromRawValue({csUnderlyingType} rawValue)");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine("byte found = 0;");
+            csWriter.WriteLine("var tag = PInvoke_FromRawValue(rawValue, &found);");
+            csWriter.WriteLine($"return found != 0 ? ({enumName})tag : null;");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{toRawSymbol}\")]");
+            csWriter.WriteLine($"private static partial {csUnderlyingType} PInvoke_ToRawValue({csUnderlyingType} tag);");
+            csWriter.WriteLine();
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{fromRawSymbol}\")]");
+            csWriter.WriteLine($"private static unsafe partial {csUnderlyingType} PInvoke_FromRawValue({csUnderlyingType} rawValue, byte* found);");
+
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine();
+        }
+
+        /// <summary>
+        /// What a <c>FromRawValue</c> wrapper does with a case its tag switch cannot name (an
+        /// <c>@_spi</c> case, which has no C# member): report that no member has the raw value.
+        /// </summary>
+        private const string FromRawValueUnnamedCase = "found.pointee = 0; return 0";
+
+        /// <summary>
+        /// Refuses, with <see cref="System.ArgumentOutOfRangeException"/>, a <c>tag</c> that is not a C#
+        /// member of <paramref name="enumDecl"/> (an undefined value cast to the enum, or an <c>@_spi</c>
+        /// case's index) before the raw-value wrapper's tag switch, which would stop the process on it.
+        /// </summary>
+        private static void EmitRequireMemberTag(CSharpWriter csWriter, EnumDecl enumDecl)
+        {
+            var caseCount = enumDecl.Cases.Count;
+            var spiTags = enumDecl.Cases.Where(c => c.IsSpiProtected).Select(enumDecl.GetCaseTag).ToList();
+            var condition = $"unchecked((ulong)(long)tag) >= {caseCount}UL";
+            if (spiTags.Count > 0)
+                condition += $" || tag is {string.Join(" or ", spiTags)}";
+            csWriter.WriteLine($"if ({condition})");
+            csWriter.WriteLine("    throw new global::System.ArgumentOutOfRangeException(nameof(value), value, null);");
         }
 
         /// <summary>
@@ -854,7 +1143,7 @@ namespace BindingsGeneration
         /// Emits a Swift switch statement that converts an enum case to a scalar tag.
         /// </summary>
         private void EmitEnumToTagSwitch(SwiftWriter swiftWriter, EnumDecl enumDecl,
-            string enumQualifiedName, string varName, string swiftScalarType)
+            string enumQualifiedName, string varName, string swiftScalarType, string? unnamedCaseStatement = null)
         {
             swiftWriter.WriteLine($"switch {varName} {{");
             foreach (var caseDecl in enumDecl.Cases)
@@ -865,9 +1154,15 @@ namespace BindingsGeneration
                 var tag = enumDecl.GetCaseMarshalScalar(caseDecl);
                 swiftWriter.WriteLine($"case .{NameProvider.EscapeSwiftKeyword(caseDecl.Name)}: return {tag}");
             }
+            // A caller with a statement for a case the switch skips gets a default for it (the
+            // switch is not exhaustive without the @_spi cases).
+            if (unnamedCaseStatement != null && enumDecl.Cases.Any(c => c.IsSpiProtected))
+            {
+                swiftWriter.WriteLine($"default: {unnamedCaseStatement}");
+            }
             // Cases introduced in newer OS versions add a @unknown default implicitly
             // (the switch is no longer exhaustive on the older deployment target).
-            if (enumDecl.Cases.Any(c => GetTighterCaseAvailability(c, enumDecl).Count > 0))
+            else if (enumDecl.Cases.Any(c => GetTighterCaseAvailability(c, enumDecl).Count > 0))
             {
                 swiftWriter.WriteLine("@unknown default: Swift.fatalError(\"[SwiftBindings] Unknown enum case\")");
             }

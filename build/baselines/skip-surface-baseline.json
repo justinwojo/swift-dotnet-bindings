@@ -1444,6 +1444,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "property \u0027RawLetter.rawValue\u0027 \u2014 type not exported in the module\u0027s public ABI (Type resolution failed for property type \u0027Swift.Character\u0027.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "property \u0027RefWeighedBox.label\u0027 \u2014 ModuleInternal (Internal property suppressed from bindings.)",
       "count": 1
     },
@@ -1793,6 +1799,12 @@
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
       "reason": "type \u0027RangeHolder\u0027 \u2014 frozen struct stored field has an indeterminate cross-compile Buffer layout (generic value-type instantiation) (stored property has a generic value-type layout whose per-instantiation size is not derivable cross-compile (e.g. ClosedRange\u003CBound\u003E, Result\u003CSuccess,Failure\u003E); a blitted Buffer would mis-size the field.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
+      "reason": "type \u0027RawShadeView\u0027 \u2014 SwiftUI View type (bridge file generated instead)",
       "count": 1
     },
     {

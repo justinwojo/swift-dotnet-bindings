@@ -291,6 +291,32 @@ public class SwiftUIBridgeGeneratedApiTests : TestBase
         session.UpdatePreferred(null);
         AssertTrue(session.GetViewController() != IntPtr.Zero, "FlooredModeView survives the refused updates");
     }
+
+    /// <summary>
+    /// <c>RawShade</c>'s raw values (light = 1, dark = 2) are not its case indices. The view records
+    /// the raw values it received (shade * 10000 + preferred * 100 + the shades as digits), so each
+    /// bridge argument — scalar, optional and array element — must reach Swift as its own case.
+    /// </summary>
+    public void TestRawShadeView_ExplicitRawValueCasesReachSwiftAsThemselves()
+    {
+        var light = global::SwiftBindingsTestLib.RawShade.Light;
+        var dark = global::SwiftBindingsTestLib.RawShade.Dark;
+
+        using (var session = global::SwiftBindingsTestLib.RawShadeViewSession.Create(dark, light, new[] { light, dark, dark }))
+        {
+            AssertTrue(session.GetViewController() != IntPtr.Zero, "RawShadeView builds");
+            AssertEqual((nint)20_222, TestLibFunctions.GetRawShadeViewLastRaw(),
+                "dark, light and [light, dark, dark] reach Swift as themselves");
+            session.UpdateShade(light);
+            session.UpdatePreferred(null);
+        }
+
+        using (var session = global::SwiftBindingsTestLib.RawShadeViewSession.Create(light, null, new[] { dark }))
+        {
+            AssertEqual((nint)10_002, TestLibFunctions.GetRawShadeViewLastRaw(),
+                "light, nil and [dark] reach Swift as themselves");
+        }
+    }
 }
 
 #endif

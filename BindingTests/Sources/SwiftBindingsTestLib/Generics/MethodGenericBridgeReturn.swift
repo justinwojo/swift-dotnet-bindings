@@ -35,6 +35,12 @@ public protocol BridgeProvider: AnyObject {
     var bridgeTag: Int32 { get }
 }
 
+/// A Swift conformer, so a test can hand `BridgeHost`'s generic methods a provider.
+public final class BridgeTagSource: BridgeProvider {
+    public let bridgeTag: Int32
+    public init(bridgeTag: Int32) { self.bridgeTag = bridgeTag }
+}
+
 /// Non-frozen struct (no `@frozen`): resilient layout → always an indirect result, projected as
 /// a SafeHandle-backed class. Routes to the MGB ownership-transfer branch (the returned SafeHandle
 /// adopts the `NativeMemory.Alloc`'d buffer; no finally-free).
