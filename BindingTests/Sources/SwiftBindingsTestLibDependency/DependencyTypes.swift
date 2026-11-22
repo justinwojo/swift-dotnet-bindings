@@ -83,6 +83,18 @@ public class DependencyService {
 }
 
 /// Enum from the dependency module.
+/// A dependency enum with a case floored above the enum. A module binding against the dependency
+/// must refuse the floored case in managed code, whichever way it reads the dependency: from its
+/// module database, or from its xcframework alone (where only the dependency's interface carries
+/// the floor). The dependency defines the case on every OS, so the refusal shows on any simulator.
+/// Raw values equal the declaration order: the interface drops a plain enum's raw-value literals.
+public enum DependencyFlooredMode: Int32 {
+    case basic = 0
+
+    @available(iOS 99.0, macOS 99.0, tvOS 99.0, macCatalyst 99.0, *)
+    case future = 1
+}
+
 /// Used for cross-module enum parameter/return testing.
 @frozen
 public enum DependencyStatus: Int32 {

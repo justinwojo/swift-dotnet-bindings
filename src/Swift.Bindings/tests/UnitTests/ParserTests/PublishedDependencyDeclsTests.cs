@@ -178,6 +178,7 @@ public class PublishedDependencyDeclsTests
             dependencyProtocols,
             new HashSet<string>(StringComparer.Ordinal),
             new NominalSkeletonIndex(),
+            () => throw new InvalidOperationException("A dependency without an interface reads no interface facts."),
             NullLoggerFactory.Instance,
             NullLogger.Instance);
     }

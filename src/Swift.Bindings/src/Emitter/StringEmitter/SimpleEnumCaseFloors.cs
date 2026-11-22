@@ -111,6 +111,164 @@ internal static class SimpleEnumCaseFloors
         => guard is null ? $"({underlyingType}){valueExpression}" : $"({underlyingType}){guard}({valueExpression})";
 
     /// <summary>
+    /// Refuses, before anything reaches Swift, a floored case held inside a parameter's container: an
+    /// <c>Optional</c>, <c>Array</c>, <c>Set</c> or <c>Dictionary</c> (keys and values) or a tuple, to
+    /// any depth. Those values cross as a container the runtime builds from the C# values, which writes
+    /// each enum straight into Swift memory with no <c>init(rawValue:)</c>, so no wrapper refuses them
+    /// and Swift receives a case the running OS may not have. Every element is checked before the
+    /// container is built: a refusal then leaves nothing half-built in Swift memory to clean up.
+    ///
+    /// <para>Only a parameter's own value is checked (the managed-to-Swift direction), never a
+    /// callback's result: a throw inside a reverse P/Invoke ends the process. A top-level sequence
+    /// that is not a collection is materialized first, so the check and the container read the same
+    /// elements and a one-shot sequence is enumerated once. An <c>inout</c> parameter is left as the
+    /// caller passed it, since reassigning it would hand the caller a different object.</para>
+    ///
+    /// <para>It is written where the parameter still has its public C# type: in a method body before
+    /// the conversions, and in a property or subscript's public accessor before it converts the value
+    /// for the raw-typed accessor method (whose Swift containers would already hold the case, and
+    /// whose <c>SwiftOptional</c> reads as the enum's default when empty). Its locals are named
+    /// <c>__{<paramref name="localBaseName"/>}Floor…</c>; pass the parameter's marshalling base name
+    /// so they cannot take a sibling parameter's name.</para>
+    ///
+    /// <para>Returns whether anything was written: false when the type holds no simple enum with a
+    /// floored case, or names it only at the top level, where <see cref="ToNative(string?, string,
+    /// string)"/> already refuses it.</para>
+    /// </summary>
+    internal static bool EmitContainedValueRefusal(CSharpWriter writer, TypeSpec typeSpec, string parameterName,
+        string localBaseName, bool isInOut, ITypeDatabase typeDatabase)
+    {
+        if (!RefusesContainedValues(typeSpec, typeDatabase))
+            return false;
+        var baseName = NameProvider.StripVerbatimPrefix(localBaseName);
+        if (!isInOut && ContainerKind(typeSpec) == Container.Array)
+            writer.WriteLine($"{parameterName} = {Materialized(parameterName, typeSpec, baseName, 0)};");
+        // The walk tests a copy for null, so the compiler learns nothing about the parameter itself.
+        var root = $"{baseName}FloorRoot";
+        writer.WriteLine($"var {root} = {parameterName};");
+        var counter = 0;
+        WriteRefusal(writer, typeSpec, root, baseName, ref counter, typeDatabase);
+        return true;
+    }
+
+    /// <summary>
+    /// <paramref name="expression"/>, an array parameter's sequence, with every sequence the walk
+    /// reads made a collection: the array itself, and each array element of it in turn
+    /// (<c>[[Mode]]</c> arrives as a sequence of sequences). An array nested in anything else arrives
+    /// as a list already. The tests are type tests, not null tests: a null sequence still reaches the
+    /// container's ArgumentNullException, and the parameter keeps the non-null state the
+    /// marshalling after it reads.
+    /// </summary>
+    private static string Materialized(string expression, TypeSpec arraySpec, string baseName, int depth)
+    {
+        // The array holds the guarded enum, so an array element holds it too.
+        var element = arraySpec.GenericParameters[0];
+        if (ContainerKind(element) == Container.Array)
+        {
+            var lambda = $"{baseName}FloorSequence{depth}";
+            return $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({expression}, {lambda} => {Materialized(lambda, element, baseName, depth + 1)}))";
+        }
+        return $"({expression} is global::System.Collections.ICollection ? {expression} : global::System.Linq.Enumerable.ToArray({expression}))";
+    }
+
+    /// <summary>Whether <see cref="EmitContainedValueRefusal"/> writes anything for <paramref name="typeSpec"/>.</summary>
+    internal static bool RefusesContainedValues(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => ContainerKind(typeSpec) != Container.None && HoldsGuardedEnum(typeSpec, typeDatabase);
+
+    /// <summary>
+    /// <see cref="EmitContainedValueRefusal"/> as one line of statements, for the accessor bodies
+    /// written on a single line; <see langword="null"/> when nothing needs refusing.
+    /// </summary>
+    internal static string? ContainedValueRefusalLine(TypeSpec typeSpec, string parameterName, string localBaseName,
+        ITypeDatabase typeDatabase)
+    {
+        var output = new System.IO.StringWriter();
+        if (!EmitContainedValueRefusal(new CSharpWriter(output), typeSpec, parameterName, localBaseName, isInOut: false, typeDatabase))
+            return null;
+        return string.Join(" ", output.ToString().Split('\n').Select(line => line.Trim()).Where(line => line.Length > 0));
+    }
+
+    private enum Container { None, Optional, Array, Set, Dictionary, Tuple }
+
+    private static Container ContainerKind(TypeSpec typeSpec) => typeSpec switch
+    {
+        TupleTypeSpec { Elements.Count: > 1 } => Container.Tuple,
+        TupleTypeSpec { Elements.Count: 1 } tuple => ContainerKind(tuple.Elements[0]),
+        NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } => Container.Optional,
+        NamedTypeSpec { Name: "Swift.Array", GenericParameters.Count: 1 } => Container.Array,
+        NamedTypeSpec { Name: "Swift.Set", GenericParameters.Count: 1 } => Container.Set,
+        NamedTypeSpec { Name: "Swift.Dictionary", GenericParameters.Count: 2 } => Container.Dictionary,
+        _ => Container.None,
+    };
+
+    private static IEnumerable<TypeSpec> ContainedTypes(TypeSpec typeSpec) => typeSpec switch
+    {
+        TupleTypeSpec tuple => tuple.Elements,
+        _ when ContainerKind(typeSpec) != Container.None => typeSpec.GenericParameters,
+        _ => Array.Empty<TypeSpec>(),
+    };
+
+    private static bool HoldsGuardedEnum(TypeSpec typeSpec, ITypeDatabase typeDatabase) =>
+        ContainerKind(typeSpec) == Container.None
+            ? ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(typeSpec, typeDatabase) != null
+            : ContainedTypes(typeSpec).Any(t => HoldsGuardedEnum(t, typeDatabase));
+
+    private static void WriteRefusal(CSharpWriter writer, TypeSpec typeSpec, string expression, string baseName,
+        ref int counter, ITypeDatabase typeDatabase)
+    {
+        if (!HoldsGuardedEnum(typeSpec, typeDatabase))
+            return;
+        var kind = ContainerKind(typeSpec);
+        if (kind == Container.None)
+        {
+            writer.WriteLine($"{ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(typeSpec, typeDatabase)}({expression});");
+            return;
+        }
+        if (typeSpec is TupleTypeSpec { Elements.Count: 1 } single)
+        {
+            WriteRefusal(writer, single.Elements[0], expression, baseName, ref counter, typeDatabase);
+            return;
+        }
+        if (kind == Container.Tuple)
+        {
+            var elements = ((TupleTypeSpec)typeSpec).Elements;
+            for (var i = 0; i < elements.Count; i++)
+                WriteRefusal(writer, elements[i], $"{expression}.Item{i + 1}", baseName, ref counter, typeDatabase);
+            return;
+        }
+        // A pattern binds the value once, whatever the expression is: a nullable value, a reference
+        // that may be null, or a tuple element.
+        var value = $"{baseName}FloorValue{counter++}";
+        writer.WriteLine($"if ({expression} is {{ }} {value})");
+        writer.WriteLine("{");
+        writer.Indent++;
+        if (kind == Container.Optional)
+        {
+            WriteRefusal(writer, typeSpec.GenericParameters[0], value, baseName, ref counter, typeDatabase);
+        }
+        else
+        {
+            var element = $"{baseName}FloorElement{counter++}";
+            writer.WriteLine($"foreach (var {element} in {value})");
+            writer.WriteLine("{");
+            writer.Indent++;
+            if (kind == Container.Dictionary)
+            {
+                WriteRefusal(writer, typeSpec.GenericParameters[0], $"{element}.Key", baseName, ref counter, typeDatabase);
+                WriteRefusal(writer, typeSpec.GenericParameters[1], $"{element}.Value", baseName, ref counter, typeDatabase);
+            }
+            else
+            {
+                WriteRefusal(writer, typeSpec.GenericParameters[0], element, baseName, ref counter, typeDatabase);
+            }
+            writer.Indent--;
+            writer.WriteLine("}");
+        }
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
+    /// <summary>
     /// Writes the enum's <c>Require</c> into its static guard class beside the enum, in the scope the
     /// enum is declared in (<paramref name="enumCSharpTypeName"/> is the enum's record name). Each
     /// floored case refuses below its floor; every other value, including an undeclared one, passes.

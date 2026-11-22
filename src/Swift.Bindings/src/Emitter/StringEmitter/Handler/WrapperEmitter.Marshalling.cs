@@ -836,6 +836,17 @@ namespace BindingsGeneration
         /// </summary>
         private void EmitTypeConversions(CSharpWriter csWriter)
         {
+            // Floored enum cases held in a container parameter are refused before any parameter is
+            // converted, so a refusal leaves no Swift container built for an earlier one. An accessor's
+            // parameters are already raw: its property or subscript refuses them in its public body.
+            if (!_env.MethodDecl.IsAccessor)
+            {
+                foreach (var argumentDecl in _env.MethodDecl.CSSignature.Skip(1))
+                    SimpleEnumCaseFloors.EmitContainedValueRefusal(csWriter, argumentDecl.SwiftTypeSpec,
+                        NameProvider.GetCSharpParameterName(argumentDecl), NameProvider.GetMarshallingBaseName(argumentDecl),
+                        argumentDecl.IsInOut, _env.TypeDatabase);
+            }
+
             // Skip type conversions for property accessors — property wrapper handles conversion
             // EXCEPT Optional-existential parameters which need container extraction here
             // (but NOT for @_cdecl setters — PropertyHandler.EmitSetter handles marshalling).

@@ -283,6 +283,61 @@ public class SwiftSyntaxInterfaceFactsProducerTests
         finally { File.Delete(path); }
     }
 
+    [SkippableTheory]
+    [InlineData(false, "rawValue: Swift.String", "init(rawValue:)")]
+    [InlineData(true, "rawValue: Swift.String", "init(rawValue:)")]
+    [InlineData(false, "", "init()")]
+    [InlineData(true, "", "init()")]
+    public void OverloadsDifferingOnlyInAsync_KeepTheirOwnFloors(bool floorTheAsyncOverload, string parameters, string printedName)
+    {
+        var binaryPath = ResolveBinaryOrSkip(nameof(OverloadsDifferingOnlyInAsync_KeepTheirOwnFloors));
+        // Swift overloads on `async`, and an async initializer and its sync sibling have the same
+        // parameters. Unmarked, the two would share one key, and the walker would merge their
+        // annotations under it: the sync initializer would take the async one's floor (or the
+        // other way round). The async marker keeps them apart on the producer (the real walker)
+        // and on both consumers (the ABI parser, from the method's declared async, and the
+        // foreign-extension lookup, from the raw signature), with or without parameters.
+        const string floor = "@available(iOS 99, macOS 99, tvOS 99, macCatalyst 99, *)";
+        var source = $$"""
+            // swift-module-flags: -module-name Kit
+            public struct Host {
+              {{(floorTheAsyncOverload ? floor : "")}}
+              public init({{parameters}}) async
+              {{(floorTheAsyncOverload ? "" : floor)}}
+              public init({{parameters}})
+            }
+            """;
+        var path = WriteTempFile(source);
+        try
+        {
+            var facts = new SwiftSyntaxInterfaceFactsProducer(binaryPath).Produce(path, NullLogger.Instance).Facts;
+            var keys = string.Join(", ", facts.AvailabilityAnnotations!.Keys.Where(k => k.StartsWith("Host.", StringComparison.Ordinal)));
+
+            var abiParameters = parameters.Length == 0 ? Array.Empty<string>() : new[] { "Swift.String" };
+            var node = SwiftABIParserRuntimeTests.MakeAbiFunctionNode("init", printedName, "Kit.Host", abiParameters);
+            var asyncSig = SwiftABIParser.ComputeAbiParamSignature(node, markInOut: true, markAsync: true);
+            var syncSig = SwiftABIParser.ComputeAbiParamSignature(node, markInOut: true);
+            Assert.NotEqual(asyncSig, syncSig);
+            var clauseTypes = parameters.Length == 0
+                ? Array.Empty<string>()
+                : MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(parameters).ToArray();
+            Assert.Equal(asyncSig, MemberSignatureNormalizer.BuildAvailabilitySignature(clauseTypes, isAsync: true));
+            Assert.Equal(syncSig, MemberSignatureNormalizer.BuildAvailabilitySignature(clauseTypes));
+
+            // Read as the consumers read it, bare-key fallback included: the unfloored overload
+            // finds no floor of the other's under its own key or under the bare one.
+            var bareKey = $"Host.{printedName}";
+            var (flooredSig, openSig) = floorTheAsyncOverload ? (asyncSig, syncSig) : (syncSig, asyncSig);
+            Assert.True(MemberSignatureNormalizer.TryGetMemberAvailability(facts.AvailabilityAnnotations!, bareKey, flooredSig, out var floored),
+                $"no availability for the floored overload ('{flooredSig}'); keys: {keys}");
+            Assert.Contains(floored!, a => a.Platform == "iOS" && a.IntroducedVersion == "99");
+            Assert.False(MemberSignatureNormalizer.TryGetMemberAvailability(facts.AvailabilityAnnotations!, bareKey, openSig, out var open)
+                    && open.Any(a => a.IntroducedVersion == "99"),
+                $"the unfloored overload ('{openSig}') took the other's floor; keys: {keys}");
+        }
+        finally { File.Delete(path); }
+    }
+
     [SkippableFact]
     public void OptionalAndParenthesizedOpaqueOverloads_KeepTheirOwnFloors()
     {

@@ -9609,6 +9609,16 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "DependencyFlooredModeArraySum(IEnumerable\u003CSwiftBindingsTestLibDependency.DependencyFlooredMode\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_dependencyFlooredModeArraySum_5E27016C"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "DependencyFlooredModeRawValue(SwiftBindingsTestLibDependency.DependencyFlooredMode)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_dependencyFlooredModeRawValue_1ABBB255"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "DependencyLoader.DependencyLoader(IEnumerable\u003CSwiftBindingsTestLibDependency.IDependencyProtocol\u003E)",
       "symbol": "SBW_SwiftBindingsTestLib_DependencyLoader_init_64ED3C1F"
     },
@@ -12619,8 +12629,68 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeArraySum(IEnumerable\u003CSwiftBindingsTestLib.FlooredCaseMode\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeArraySum_8DE840D8"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeFromThrowingCallback(global::System.Func\u003CSwift.SwiftResult\u003CSwiftBindingsTestLib.FlooredCaseMode, SwiftError\u003E\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeFromThrowingCallback_16228915"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeHolder.FlooredCaseModeHolder(IEnumerable\u003CSwiftBindingsTestLib.FlooredCaseMode\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_FlooredCaseModeHolder_init_DF7EBCDF"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeHolder.Modes",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_FlooredCaseModeHolder_modes|SBW_Set_SwiftBindingsTestLib_FlooredCaseModeHolder_modes"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeHolder.Preferred",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_FlooredCaseModeHolder_preferred|SBW_Set_SwiftBindingsTestLib_FlooredCaseModeHolder_preferred"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeHolder.Total",
+      "symbol": "thunk_SwiftBindingsTestLib_bd238cb2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeKeyedSum(IDictionary\u003CSwiftBindingsTestLib.FlooredCaseMode, int\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeKeyedSum_C6E086C1"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeNestedSum(IEnumerable\u003CIReadOnlyList\u003CSwiftBindingsTestLib.FlooredCaseMode\u003E?\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeNestedSum_84C3ED83"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeOptionalRawValue(SwiftBindingsTestLib.FlooredCaseMode?)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeOptionalRawValue_04F2E1AE"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "FlooredCaseModeRawValue(SwiftBindingsTestLib.FlooredCaseMode)",
       "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeRawValue_31BA38F3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeSetSum(IReadOnlySet\u003CSwiftBindingsTestLib.FlooredCaseMode\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeSetSum_52BBE3DC"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseModeValueSum(IDictionary\u003Cstring, SwiftBindingsTestLib.FlooredCaseMode\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseModeValueSum_D6F05569"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "FlooredCaseTagArrayOrdinalSum(IEnumerable\u003CSwiftBindingsTestLib.FlooredCaseTag\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_flooredCaseTagArrayOrdinalSum_46A17A44"
     },
     {
       "module": "SwiftBindingsTestLib",

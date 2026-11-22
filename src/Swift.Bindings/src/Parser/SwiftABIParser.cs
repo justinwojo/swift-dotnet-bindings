@@ -499,16 +499,7 @@ namespace BindingsGeneration
         private void ApplyMemberAvailability(BaseDecl decl, TypeDecl parentTypeDecl, string printedName, string? signature = null)
         {
             var bareKey = $"{BuildTypeQualifiedPath(parentTypeDecl)}.{printedName}";
-            if (!string.IsNullOrEmpty(signature))
-            {
-                var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, signature);
-                if (_facts.AvailabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
-                {
-                    decl.AvailabilityAnnotations = disambAnnotations;
-                    return;
-                }
-            }
-            if (_facts.AvailabilityAnnotations.TryGetValue(bareKey, out var annotations))
+            if (MemberSignatureNormalizer.TryGetMemberAvailability(_facts.AvailabilityAnnotations, bareKey, signature, out var annotations))
                 decl.AvailabilityAnnotations = annotations;
         }
 
@@ -542,9 +533,23 @@ namespace BindingsGeneration
         /// initializer's availability is stored under, which tells <c>init(rawValue: inout String)</c>
         /// from <c>init(rawValue: String)</c> (the producer's <c>buildAvailabilityParamSignature</c>).
         /// The typed-throws and parameter-fact keys are unmarked.
+        /// <para/>
+        /// With <paramref name="markAsync"/>, the signature ends with
+        /// <see cref="MemberSignatureNormalizer.AsyncSignatureMarker"/>: the declaration is written
+        /// <c>async</c>, and Swift overloads on it.
         /// </summary>
-        internal static string ComputeAbiParamSignature(Node node, IReadOnlyList<bool>? variadicParameters = null, bool markInOut = false)
+        internal static string ComputeAbiParamSignature(Node node, IReadOnlyList<bool>? variadicParameters = null, bool markInOut = false,
+            bool markAsync = false)
         {
+            var signature = ComputeAbiParameterTypes(node, variadicParameters, markInOut, out var spelled);
+            return spelled ? MemberSignatureNormalizer.WithAsyncMarker(signature, markAsync) : signature;
+        }
+
+        // The parameter part of ComputeAbiParamSignature. `spelled` is false when a parameter could
+        // not be spelled as the interface spells it, so no signature is offered at all.
+        private static string ComputeAbiParameterTypes(Node node, IReadOnlyList<bool>? variadicParameters, bool markInOut, out bool spelled)
+        {
+            spelled = true;
             if (node.Children == null) return string.Empty;
             var sourceNames = MapGenericParametersToSourceNames(node.GenericSig, node.sugared_genericSig);
             sourceNames = AddOpaqueParameterSpellings(node.GenericSig, sourceNames);
@@ -570,7 +575,10 @@ namespace BindingsGeneration
                 // concrete type of that name, so no signature is offered and the lookup falls
                 // back to the bare key.
                 if (DepthIndexGenericParameterName.IsMatch(printed))
+                {
+                    spelled = false;
                     return string.Empty;
+                }
                 raw.Add(printed);
                 inOut.Add(markInOut && child.paramValueOwnership == "InOut");
             }
@@ -3350,7 +3358,10 @@ namespace BindingsGeneration
                 .Select(p => IsVariadicArraySpec(p.SwiftTypeSpec))
                 .ToList();
             var signature = ComputeAbiParamSignature(node, variadicParameters);
-            var availabilitySignature = ComputeAbiParamSignature(node, variadicParameters, markInOut: true);
+            // An initializer or method made async by its actor's isolation is written sync in the
+            // interface, so only a declared async marks the key.
+            var availabilitySignature = ComputeAbiParamSignature(node, variadicParameters, markInOut: true,
+                markAsync: methodDecl.IsAsync && !methodDecl.IsAsyncByIsolation);
 
             // Look up typed throws error type from swiftinterface data
             if (methodDecl.Throws)
@@ -3386,14 +3397,8 @@ namespace BindingsGeneration
             {
                 // Free function availability: keyed by bare printedName, with optional
                 // disamb suffix when overload disambiguation is needed.
-                if (!string.IsNullOrEmpty(availabilitySignature) &&
-                    _facts.AvailabilityAnnotations.TryGetValue(
-                        MemberSignatureNormalizer.ComposeKey(node.PrintedName, availabilitySignature),
-                        out var disambFree))
-                {
-                    methodDecl.AvailabilityAnnotations = disambFree;
-                }
-                else if (_facts.AvailabilityAnnotations.TryGetValue(node.PrintedName, out var freeFuncAnnotations))
+                if (MemberSignatureNormalizer.TryGetMemberAvailability(_facts.AvailabilityAnnotations, node.PrintedName,
+                        availabilitySignature, out var freeFuncAnnotations))
                 {
                     methodDecl.AvailabilityAnnotations = freeFuncAnnotations;
                 }

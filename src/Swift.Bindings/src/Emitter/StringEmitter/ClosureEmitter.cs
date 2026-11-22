@@ -621,7 +621,7 @@ public static partial class ClosureEmitter
                 else if (closureHandler.IsSimpleEnum(elem))
                 {
                     var underlyingType = closureHandler.GetSimpleEnumInfo(elem)?.csUnderlying ?? "int";
-                    elems.Add($"({underlyingType}){acc}");
+                    elems.Add(SimpleEnumCaseFloors.ToNative(closureHandler.GetSimpleEnumCaseFloorGuard(elem), underlyingType, acc));
                 }
                 else
                     elems.Add(acc);
@@ -632,10 +632,15 @@ public static partial class ClosureEmitter
                 """;
         }
 
+        // A floored case the callback returns is refused before Swift rebuilds the enum from it,
+        // which on an OS below the floor finds no such case (a nil init(rawValue:) under the
+        // adapter's force unwrap, or a tag the OS does not have). A throwing closure's callback
+        // turns the refusal into the Swift error its adapter throws; a non-throwing one has no
+        // channel back, so its envelope ends the process with the refusal's message.
         if (closureHandler.IsSimpleEnum(returnType))
         {
             var underlyingType = closureHandler.GetSimpleEnumInfo(returnType)?.csUnderlying ?? "int";
-            return $"return ({underlyingType}){resultExpr};";
+            return $"return {SimpleEnumCaseFloors.ToNative(closureHandler.GetSimpleEnumCaseFloorGuard(returnType), underlyingType, resultExpr)};";
         }
 
         // String returns need special handling: System.String doesn't have Swift TypeMetadata,

@@ -178,9 +178,10 @@ final class AvailabilityWalker: SyntaxVisitor {
             if groups.count <= 1 {
                 storageKey = staged.bareKey
             } else {
-                storageKey = staged.paramSig.isEmpty
-                    ? staged.bareKey
-                    : "\(staged.bareKey)|\(staged.paramSig)"
+                // An empty signature (no parameters) is keyed `{bareKey}|` too: its overload
+                // group holds an `async` sibling (`@async`), and the bare key is what that
+                // sibling's lookup falls back to when it has no annotations of its own.
+                storageKey = "\(staged.bareKey)|\(staged.paramSig)"
                 if availabilityAnnotationPositions[storageKey] == nil,
                    let bp = positionsByBareKey[staged.bareKey] {
                     availabilityAnnotationPositions[storageKey] = bp
@@ -618,7 +619,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         let printed = buildPrintedName(funcName: funcName, params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
-        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(params: node.signature.parameterClause)
+        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(
+            params: node.signature.parameterClause,
+            isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil)
         let annotations = collectAnnotations(declAttrs: node.attributes)
         recordMemberSignature(bareKey: key, paramSig: paramSig,
                               rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
@@ -638,7 +641,9 @@ final class AvailabilityWalker: SyntaxVisitor {
         }
         let printed = buildPrintedName(funcName: "init", params: node.signature.parameterClause)
         let key = memberKey(printedName: printed)
-        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(params: node.signature.parameterClause)
+        let paramSig = AvailabilityWalker.buildAvailabilityParamSignature(
+            params: node.signature.parameterClause,
+            isAsync: node.signature.effectSpecifiers?.asyncSpecifier != nil)
         let annotations = collectAnnotations(declAttrs: node.attributes)
         recordMemberSignature(bareKey: key, paramSig: paramSig,
                               rawParams: AvailabilityWalker.writtenParamTypes(params: node.signature.parameterClause),
@@ -776,17 +781,25 @@ final class AvailabilityWalker: SyntaxVisitor {
     /// `SwiftABIParser.ComputeAbiParamSignature(node, …, markInOut: true)`, which reads the
     /// ABI's `paramValueOwnership: InOut`. The typed-throws and parameter-fact keys keep the
     /// unmarked signature.
-    static func buildAvailabilityParamSignature(params: FunctionParameterClauseSyntax) -> String {
-        let paramList = params.parameters
-        if paramList.isEmpty { return "" }
+    ///
+    /// An `async` declaration ends its signature with `asyncSignatureMarker`, for the same reason:
+    /// Swift overloads on `async`, so `init(rawValue:) async` beside `init(rawValue:)` would
+    /// otherwise share one key and the sync initializer would take the async one's floor. The .NET
+    /// side marks the same declarations (`MemberSignatureNormalizer.WithAsyncMarker`).
+    static func buildAvailabilityParamSignature(params: FunctionParameterClauseSyntax, isAsync: Bool = false) -> String {
         var tails: [String] = []
-        for param in paramList {
+        for param in params.parameters {
             let raw = param.type.dottedDescription
             let isInOut = raw.trimmingCharacters(in: .whitespaces).hasPrefix("inout ")
             tails.append((isInOut ? "inout " : "") + normalizeParamType(raw))
         }
+        if isAsync { tails.append(asyncSignatureMarker) }
         return tails.joined(separator: ",")
     }
+
+    /// The trailing element of an `async` declaration's availability signature. `@` starts no
+    /// parameter type, so the marker never reads as one.
+    static let asyncSignatureMarker = "@async"
 
     /// The parameter types as written, joined with `,`: two declarations whose written types
     /// differ are different overloads even when their normalized signatures agree.

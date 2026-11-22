@@ -2012,7 +2012,7 @@ public static partial class SwiftUIBridgeEmitter
             {
                 sb.AppendLine($"        public void Update{pascalName}({factoryType} newValue) =>");
                 if (param.IsSimpleEnum)
-                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, ({param.CSharpPInvokeType})newValue);");
+                    sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, {SimpleEnumCaseFloors.ToNative(param.CaseFloorGuard, param.CSharpPInvokeType, "newValue")});");
                 else
                     sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.RawValue);");
                 sb.AppendLine();
@@ -2056,7 +2056,7 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     if (inner.IsSimpleEnum)
                     {
-                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? ({inner.CSharpPInvokeType})newValue.Value : 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Update{pascalName}(Handle, newValue.HasValue ? 1 : 0, newValue.HasValue ? {SimpleEnumCaseFloors.ToNative(inner.CaseFloorGuard, inner.CSharpPInvokeType, "newValue.Value")} : 0);");
                     }
                     else
                     {
@@ -2388,7 +2388,7 @@ public static partial class SwiftUIBridgeEmitter
                     if (param.IsSimpleEnum)
                     {
                         sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
-                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? ({param.CSharpPInvokeType})value.Value : 0);");
+                        sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? {SimpleEnumCaseFloors.ToNative(param.CaseFloorGuard, param.CSharpPInvokeType, "value.Value")} : 0);");
                     }
                     else
                     {
@@ -3090,7 +3090,7 @@ public static partial class SwiftUIBridgeEmitter
                 sb.AppendLine($"{indent}    var {param.Name}Raw = new {rawArrayType}[{param.CSharpName}.Length];");
                 sb.AppendLine($"{indent}    for (int {iLocal} = 0; {iLocal} < {param.CSharpName}.Length; {iLocal}++)");
                 if (inner.IsSimpleEnum)
-                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = ({rawArrayType}){param.CSharpName}[{iLocal}];");
+                    sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {SimpleEnumCaseFloors.ToNative(inner.CaseFloorGuard, rawArrayType, $"{param.CSharpName}[{iLocal}]")};");
                 else
                     sb.AppendLine($"{indent}        {param.Name}Raw[{iLocal}] = {param.CSharpName}[{iLocal}].RawValue;");
                 sb.AppendLine($"{indent}    {param.Name}Handle = GCHandle.Alloc({param.Name}Raw, GCHandleType.Pinned);");
@@ -3215,7 +3215,7 @@ public static partial class SwiftUIBridgeEmitter
                 if (param.IsSimpleEnum)
                 {
                     // Simple enums are C# enum value types — cast to underlying int
-                    args.Add($"({param.CSharpPInvokeType}){param.CSharpName}");
+                    args.Add(SimpleEnumCaseFloors.ToNative(param.CaseFloorGuard, param.CSharpPInvokeType, param.CSharpName));
                 }
                 else
                 {
@@ -3241,7 +3241,7 @@ public static partial class SwiftUIBridgeEmitter
                     {
                         // Simple enum is a C# value type — use .HasValue, cast to int
                         args.Add($"{param.CSharpName}.HasValue ? 1 : 0");
-                        args.Add($"{param.CSharpName}.HasValue ? ({inner.CSharpPInvokeType}){param.CSharpName}.Value : 0");
+                        args.Add($"{param.CSharpName}.HasValue ? {SimpleEnumCaseFloors.ToNative(inner.CaseFloorGuard, inner.CSharpPInvokeType, $"{param.CSharpName}.Value")} : 0");
                     }
                     else
                     {

@@ -321,6 +321,12 @@ namespace BindingsGeneration
             // layout verdict). It is populated as each dependency finalizes (the hook session 07's
             // quarantine activates on) and, for a genuine module cycle, seeded before any member of
             // the cycle finalizes. It is deliberately kept OUT of the type-database lookup path.
+            // One interface-facts aggregator for the run, built on first use: a dependency's interface
+            // supplies its declarations' availability, the bound module's every fact.
+            var interfaceFactsAggregator = factsAggregator;
+            Producers.InterfaceFactsAggregator GetInterfaceFactsAggregator()
+                => interfaceFactsAggregator ??= Producers.InterfaceFactsAggregator.CreateDefault(logger);
+
             var crossModuleSkeletons = new NominalSkeletonIndex();
             if (resolvedDependencies != null && resolvedDependencies.Count > 0)
             {
@@ -444,10 +450,13 @@ namespace BindingsGeneration
                             var depDemangledTbd = preloadedDependencyTbds.TryGetValue(dep.ModuleName, out var preTbd)
                                 ? preTbd
                                 : Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                            // The dependency's availability comes from its interface: without it the
+                            // bound module would not know which of a dependency enum's cases the
+                            // running OS may lack, and would hand such a case to Swift unrefused.
                             var depParser = new SwiftABIParser(
                                 dep.AbiJsonPath!, typeDatabase, depDemangledTbd,
                                 loggerFactory.CreateLogger<SwiftABIParser>(),
-                                SwiftInterfaceFacts.Empty,
+                                ReadDependencyAvailabilityFacts(dep, GetInterfaceFactsAggregator, logger),
                                 new IndexBackedCrossModuleFactResolver(
                                     crossModuleFactIndex,
                                     new LegacyCrossModuleFactResolver(typeDatabase, depDemangledTbd)),
@@ -602,7 +611,8 @@ namespace BindingsGeneration
             {
                 ReadPublishedDependencyDecls(
                     resolvedDependencies, publishedDatabaseModules, currentModuleName, typeDatabase,
-                    crossModuleFactIndex, dependencyProtocols, dependencyQuarantinedTypeNames, crossModuleSkeletons, loggerFactory, logger);
+                    crossModuleFactIndex, dependencyProtocols, dependencyQuarantinedTypeNames, crossModuleSkeletons,
+                    GetInterfaceFactsAggregator, loggerFactory, logger);
             }
 
             logger.LogInformation("Starting bindings generation for {SwiftAbiPath}...", swiftAbiPath);
@@ -622,9 +632,7 @@ namespace BindingsGeneration
             SwiftInterfaceFacts facts;
             if (!string.IsNullOrWhiteSpace(swiftInterfacePath) && File.Exists(swiftInterfacePath))
             {
-                var aggregator = factsAggregator
-                    ?? Producers.InterfaceFactsAggregator.CreateDefault(logger);
-                facts = aggregator.Aggregate(swiftInterfacePath, logger);
+                facts = GetInterfaceFactsAggregator().Aggregate(swiftInterfacePath, logger);
             }
             else
             {
@@ -3118,6 +3126,7 @@ namespace BindingsGeneration
             Dictionary<string, List<ProtocolDecl>> dependencyProtocols,
             HashSet<string> dependencyQuarantinedTypeNames,
             NominalSkeletonIndex crossModuleSkeletons,
+            Func<Producers.InterfaceFactsAggregator> interfaceFactsAggregator,
             ILoggerFactory loggerFactory,
             ILogger logger)
         {
@@ -3136,10 +3145,11 @@ namespace BindingsGeneration
                 try
                 {
                     var depTbd = Demangling.DemanglingResults.FromTbd(dep.TbdPath!, loggerFactory);
+                    // The same availability the raw-ABI branch reads, so the declarations agree.
                     var depParser = new SwiftABIParser(
                         dep.AbiJsonPath!, typeDatabase, depTbd,
                         loggerFactory.CreateLogger<SwiftABIParser>(),
-                        SwiftInterfaceFacts.Empty,
+                        ReadDependencyAvailabilityFacts(dep, interfaceFactsAggregator, logger),
                         new PublishedModuleDeclarationResolver(
                             new IndexBackedCrossModuleFactResolver(
                                 crossModuleFactIndex,
@@ -3224,6 +3234,26 @@ namespace BindingsGeneration
                 }
                 CollectQuarantinedTypeNames(type.Types, sink);
             }
+        }
+
+        /// <summary>
+        /// The availability a dependency's declarations carry, read from its <c>.swiftinterface</c>
+        /// (<see cref="FrameworkDependencyInfo.SwiftInterfacePath"/>), with every other interface
+        /// fact empty (<see cref="SwiftInterfaceFacts.AvailabilityOnly"/>); empty when the slice
+        /// ships no interface. The ABI JSON records no availability, so without this a dependency
+        /// read from its xcframework alone has no floors: a dependency enum's case added in a later
+        /// OS gets no managed refusal in the bound module (<see cref="SimpleEnumCaseFloors"/>), and
+        /// the bound module's wrapper traps in <c>init(rawValue:)</c> when a consumer passes it on an
+        /// older OS. A failing read throws, so the caller's dependency failure policy applies.
+        /// </summary>
+        internal static SwiftInterfaceFacts ReadDependencyAvailabilityFacts(
+            FrameworkDependencyInfo dep,
+            Func<Producers.InterfaceFactsAggregator> interfaceFactsAggregator,
+            ILogger logger)
+        {
+            if (string.IsNullOrWhiteSpace(dep.SwiftInterfacePath) || !File.Exists(dep.SwiftInterfacePath))
+                return SwiftInterfaceFacts.Empty;
+            return interfaceFactsAggregator().Aggregate(dep.SwiftInterfacePath, logger).AvailabilityOnly();
         }
 
         /// <summary>
@@ -3487,6 +3517,7 @@ namespace BindingsGeneration
                 string depDylibPath;
                 string? depAbiJsonPath;
                 string? depTbdPath;
+                string? depSwiftInterfacePath;
 
                 try
                 {
@@ -3498,6 +3529,7 @@ namespace BindingsGeneration
                     depDylibPath = primaryDepResolution.DylibPath;
                     depAbiJsonPath = primaryDepResolution.AbiJsonPath;
                     depTbdPath = primaryDepResolution.TbdPath;
+                    depSwiftInterfacePath = primaryDepResolution.SwiftInterfacePath;
 
                     if (primaryDepResolution.IsSimulatorSlice)
                         simSearchPath = primaryDepResolution.FrameworkSearchPath;
@@ -3759,7 +3791,8 @@ namespace BindingsGeneration
                     DeviceFrameworkSearchPath = deviceSearchPath,
                     DylibPath = depDylibPath,
                     AbiJsonPath = depAbiJsonPath,
-                    TbdPath = depTbdPath
+                    TbdPath = depTbdPath,
+                    SwiftInterfacePath = depSwiftInterfacePath,
                 });
             }
 

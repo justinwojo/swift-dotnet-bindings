@@ -436,7 +436,7 @@ public static partial class SwiftUIBridgeEmitter
             BridgeParameterKind.BoundEnum => new AsyncFlatParam(
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
-                IsSimpleEnum: bp.IsSimpleEnum),
+                IsSimpleEnum: bp.IsSimpleEnum, CaseFloorGuard: bp.CaseFloorGuard),
             _ => null, // Closures, etc. not supported in async flattening yet
         };
     }
@@ -1500,7 +1500,7 @@ public static partial class SwiftUIBridgeEmitter
                 // Complex enums are C# classes exposing a .RawValue property; casting the
                 // class to int is CS0030 and breaks the generated binding's compile.
                 nativeArgs.Add(param.IsSimpleEnum
-                    ? $"({param.CSharpPInvokeType}){param.CSharpName}"
+                    ? SimpleEnumCaseFloors.ToNative(param.CaseFloorGuard, param.CSharpPInvokeType, param.CSharpName)
                     : $"{param.CSharpName}.RawValue");
             }
             else
@@ -1687,7 +1687,8 @@ public record AsyncFlatParam(
     string? SourceModule = null,
     bool IsObjCBridgeable = false,
     bool IsSimpleEnum = false,
-    bool? DefaultValue = null)
+    bool? DefaultValue = null,
+    string? CaseFloorGuard = null)
 {
     /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
     /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>

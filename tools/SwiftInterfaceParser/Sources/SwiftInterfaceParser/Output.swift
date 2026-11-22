@@ -68,7 +68,10 @@ import Foundation
 // v11: a function's or initializer's availability disambiguation key marks each `inout`
 // parameter, so overloads differing only in `inout` keep their own floors. A v9 host keys the
 // `inout` overload unmarked, where a v10 consumer no longer looks.
-let kSchemaVersion = 11
+// v12: a function's or initializer's availability disambiguation key ends an `async`
+// declaration's signature with `@async`, so a sync and an async overload keep their own floors.
+// A v11 host keys the async overload unmarked, where a v12 consumer no longer looks.
+let kSchemaVersion = 12
 
 /// Top-level JSON document. Mirrors the .NET-side `InterfaceFactsJson` contract.
 ///

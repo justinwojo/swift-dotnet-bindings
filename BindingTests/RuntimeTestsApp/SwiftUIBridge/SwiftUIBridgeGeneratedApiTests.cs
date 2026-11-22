@@ -245,6 +245,52 @@ public class SwiftUIBridgeGeneratedApiTests : TestBase
         AssertEqual(202, BridgeTestHelpers.HandleParamView_GetSession(session.Handle), "session field == 202");
         TestLogger.Info("HandleParamView: colliding-named params round-tripped without shadowing");
     }
+
+    // ────────────────────────────────────────────────────────────────
+    // FlooredModeView — a simple enum's case floored above the running OS
+    // ────────────────────────────────────────────────────────────────
+
+    // Reached by name: naming the iOS 99 constant would raise CA1416 at this call site.
+    private static global::SwiftBindingsTestLib.FlooredCaseMode FlooredFuture =>
+        Enum.Parse<global::SwiftBindingsTestLib.FlooredCaseMode>("Future");
+
+    private void AssertFlooredRefused(Action call, string what)
+    {
+        try
+        {
+            call();
+            AssertTrue(false, $"{what} reached Swift with a case the OS lacks");
+        }
+        catch (PlatformNotSupportedException e)
+        {
+            AssertTrue(e.Message.Contains("99.0", StringComparison.Ordinal), $"{what} names the case's floor: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// The bridge hands a bound enum to Swift as its raw value, and Swift's <c>init(rawValue:)</c>
+    /// has no floored case below its floor. Each argument, update and modifier the session takes
+    /// must refuse that case before the bridge call, as every other binding of the enum does,
+    /// while the met cases still build and update the view.
+    /// </summary>
+    public void TestFlooredModeView_FlooredCaseIsRefusedBeforeTheBridge()
+    {
+        var standard = global::SwiftBindingsTestLib.FlooredCaseMode.Standard;
+        AssertFlooredRefused(() => global::SwiftBindingsTestLib.FlooredModeViewSession.Create(FlooredFuture, null, new[] { standard }).Dispose(),
+            "A bridge Create argument");
+        AssertFlooredRefused(() => global::SwiftBindingsTestLib.FlooredModeViewSession.Create(standard, FlooredFuture, new[] { standard }).Dispose(),
+            "An optional bridge Create argument");
+        AssertFlooredRefused(() => global::SwiftBindingsTestLib.FlooredModeViewSession.Create(standard, null, new[] { standard, FlooredFuture }).Dispose(),
+            "A bridge Create array element");
+
+        using var session = global::SwiftBindingsTestLib.FlooredModeViewSession.Create(standard, standard, new[] { standard });
+        AssertTrue(session.GetViewController() != IntPtr.Zero, "FlooredModeView builds with met cases");
+        AssertFlooredRefused(() => session.UpdateMode(FlooredFuture), "A bridge state update");
+        AssertFlooredRefused(() => session.UpdatePreferred(FlooredFuture), "An optional bridge state update");
+        session.UpdateMode(standard);
+        session.UpdatePreferred(null);
+        AssertTrue(session.GetViewController() != IntPtr.Zero, "FlooredModeView survives the refused updates");
+    }
 }
 
 #endif

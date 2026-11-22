@@ -22,6 +22,9 @@
 //   KeywordResultClosureParamView  a `Result` closure init param labeled with a Swift
 //                          keyword (`defer`) — keyword compounds/label on the separate
 //                          Result-decomposition (onSuccess/onError) emission path
+//   FlooredModeView        an enum with a case floored above it, as a scalar, an optional
+//                          and an array: the C# side refuses the floored case before the
+//                          bridge's init(rawValue:) turns it into a null session
 
 // SwiftUI types (View, Text, etc.) are not accessible in the Mac Catalyst
 // compiler environment despite the module importing successfully.
@@ -313,6 +316,27 @@ public struct KeywordResultClosureParamView: View {
 
     public var body: some View {
         Text("KeywordResultClosure")
+    }
+}
+
+// MARK: - Enum with a floored case
+
+/// Takes `FlooredCaseMode` (EdgeCases/RuntimeAvailabilityGuard.swift), whose `.future` is floored
+/// at iOS 99: Create and Update must refuse it with PlatformNotSupportedException in managed
+/// code, as every other path into Swift does.
+public struct FlooredModeView: View {
+    public let mode: FlooredCaseMode
+    public let preferred: FlooredCaseMode?
+    public let modes: [FlooredCaseMode]
+
+    public init(mode: FlooredCaseMode, preferred: FlooredCaseMode?, modes: [FlooredCaseMode]) {
+        self.mode = mode
+        self.preferred = preferred
+        self.modes = modes
+    }
+
+    public var body: some View {
+        Text("FlooredMode: \(mode.rawValue) \(preferred?.rawValue ?? -1) \(modes.count)")
     }
 }
 

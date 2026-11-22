@@ -548,6 +548,7 @@ namespace BindingsGeneration
                         DylibPath = depResolution.DylibPath,
                         AbiJsonPath = depResolution.AbiJsonPath,
                         TbdPath = depResolution.TbdPath,
+                        SwiftInterfacePath = depResolution.SwiftInterfacePath,
                         IsAutoDetected = true
                     });
                 }

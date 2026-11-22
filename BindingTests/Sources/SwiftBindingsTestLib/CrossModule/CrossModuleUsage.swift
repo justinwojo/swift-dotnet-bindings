@@ -467,3 +467,14 @@ public struct DependencyContainerHolder {
 public func makeDependencyContainerHolder(label: String, alert: DependencyContainer.AlertType) -> DependencyContainerHolder {
     return DependencyContainerHolder(label: label, alert: alert)
 }
+
+/// Takes the dependency's enum with a floored case: the bound module refuses the case in managed
+/// code, from the dependency's own availability.
+public func dependencyFlooredModeRawValue(_ mode: DependencyFlooredMode) -> Int32 {
+    return mode.rawValue
+}
+
+/// The dependency's floored enum inside an array.
+public func dependencyFlooredModeArraySum(_ modes: [DependencyFlooredMode]) -> Int32 {
+    return modes.reduce(0) { $0 + $1.rawValue }
+}

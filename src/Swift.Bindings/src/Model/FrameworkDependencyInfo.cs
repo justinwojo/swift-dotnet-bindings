@@ -70,6 +70,14 @@ namespace BindingsGeneration
         public string? TbdPath { get; init; }
 
         /// <summary>
+        /// Path to the dependency's public <c>.swiftinterface</c> for the resolved slice, or null when
+        /// the slice ships none. The dependency's ABI JSON carries no availability, so a dependency
+        /// read from its xcframework takes its declarations' floors from here (a simple enum's
+        /// floored cases most of all: the consumer refuses them in managed code only if it knows them).
+        /// </summary>
+        public string? SwiftInterfacePath { get; init; }
+
+        /// <summary>
         /// True when this dependency was auto-detected by BinaryDependencyAnalyzer (otool -L),
         /// false when explicitly provided via --framework-dependency.
         /// Auto-detected dependencies use warn-only error handling during ABI parsing;

@@ -622,17 +622,9 @@ public static class ForeignTypeExtensionEmitter
             return null;
 
         var bareKey = $"{strippedExtendedType}.{extMethod.PrintedName}";
-        if (!extMethod.IsProperty)
-        {
-            var paramSig = TryComputeMethodParamSig(extMethod);
-            if (!string.IsNullOrEmpty(paramSig))
-            {
-                var disambKey = MemberSignatureNormalizer.ComposeKey(bareKey, paramSig);
-                if (availabilityAnnotations.TryGetValue(disambKey, out var disambAnnotations))
-                    return disambAnnotations;
-            }
-        }
-        return availabilityAnnotations.TryGetValue(bareKey, out var annotations) ? annotations : null;
+        var paramSig = extMethod.IsProperty ? null : TryComputeMethodParamSig(extMethod);
+        return MemberSignatureNormalizer.TryGetMemberAvailability(availabilityAnnotations, bareKey, paramSig, out var annotations)
+            ? annotations : null;
     }
 
     /// <summary>
@@ -642,14 +634,15 @@ public static class ForeignTypeExtensionEmitter
     /// same key the consumer composes, <c>inout</c> parameters marked). Returns the empty string for zero-param
     /// methods so the caller falls back to the bare-key lookup unchanged.
     /// </summary>
-    private static string TryComputeMethodParamSig(ProtocolExtensionMethodDecl extMethod)
+    private static string? TryComputeMethodParamSig(ProtocolExtensionMethodDecl extMethod)
     {
         var sig = extMethod.RawSignature;
-        if (SwiftParameterClause.Find(sig) is not { } clause) return string.Empty;
+        if (SwiftParameterClause.Find(sig) is not { } clause) return null;
         var inside = sig.Substring(clause.Open + 1, clause.Close - clause.Open - 1).Trim();
-        if (string.IsNullOrEmpty(inside)) return string.Empty;
+        var isAsync = ProtocolExtensionEmitter.IsAsyncSignature(sig);
         return MemberSignatureNormalizer.BuildAvailabilitySignature(
-            MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(inside));
+            string.IsNullOrEmpty(inside) ? Array.Empty<string>() : MemberSignatureNormalizer.ExtractParamTypesFromSwiftClause(inside),
+            isAsync);
     }
 
     /// <summary>
