@@ -565,27 +565,34 @@ public static class SwiftBindingPackageMerge
                 _ => false,
             };
         }
-        string EntityName(EntityHandle h) => h.Kind switch
+        string EntityName(SignatureNames names, EntityHandle h) => h.Kind switch
         {
-            HandleKind.TypeDefinition => provider.GetTypeFromDefinition(md, (TypeDefinitionHandle)h, 0),
-            HandleKind.TypeReference => provider.GetTypeFromReference(md, (TypeReferenceHandle)h, 0),
-            HandleKind.TypeSpecification => provider.GetTypeFromSpecification(md, md, (TypeSpecificationHandle)h, 0),
+            HandleKind.TypeDefinition => names.GetTypeFromDefinition(md, (TypeDefinitionHandle)h, 0),
+            HandleKind.TypeReference => names.GetTypeFromReference(md, (TypeReferenceHandle)h, 0),
+            HandleKind.TypeSpecification => names.GetTypeFromSpecification(md, md, (TypeSpecificationHandle)h, 0),
             _ => h.Kind.ToString(),
         };
-        // The definition in this assembly a base names, directly or as a generic instantiation; null
-        // for a base defined elsewhere.
-        TypeDefinitionHandle? DefinedHere(EntityHandle h)
+        // The definition in this assembly a base names, directly or as a generic instantiation, with
+        // the instantiation's type arguments written in the derived type's terms; null for a base
+        // defined elsewhere.
+        (TypeDefinitionHandle? Definition, string[]? Arguments) DefinedHere(SignatureNames names, EntityHandle h)
         {
             if (h.Kind == HandleKind.TypeDefinition)
-                return (TypeDefinitionHandle)h;
+                return ((TypeDefinitionHandle)h, null);
             if (h.Kind != HandleKind.TypeSpecification)
-                return null;
+                return (null, null);
             var blob = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)h).Signature);
             if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance)
-                return null;
+                return (null, null);
             blob.ReadSignatureTypeCode();
             var generic = blob.ReadTypeHandle();
-            return generic.Kind == HandleKind.TypeDefinition ? (TypeDefinitionHandle)generic : null;
+            if (generic.Kind != HandleKind.TypeDefinition)
+                return (null, null);
+            var decoder = new System.Reflection.Metadata.Ecma335.SignatureDecoder<string, MetadataReader>(names, md, md);
+            var arguments = new string[blob.ReadCompressedInteger()];
+            for (var i = 0; i < arguments.Length; i++)
+                arguments[i] = decoder.DecodeType(ref blob);
+            return ((TypeDefinitionHandle)generic, arguments);
         }
         foreach (var handle in md.TypeDefinitions)
         {
@@ -598,16 +605,20 @@ public static class SwiftBindingPackageMerge
             // library compiled against the older copy at its first cast, even with every member kept.
             // Read through the base chain this assembly defines, so moving a conformance onto a base
             // or inserting an intermediate base keeps every conversion the older copy had.
+            // A generic base's own type parameters are read as the arguments the derived type gives it.
             var seen = new HashSet<TypeDefinitionHandle>();
+            var level = provider;
             for (TypeDefinitionHandle? current = handle; current is { } h && seen.Add(h);)
             {
                 var t = md.GetTypeDefinition(h);
                 foreach (var ih in t.GetInterfaceImplementations())
-                    set.Add($"I {name} : {EntityName(md.GetInterfaceImplementation(ih).Interface)}");
+                    set.Add($"I {name} : {EntityName(level, md.GetInterfaceImplementation(ih).Interface)}");
                 if (t.BaseType.IsNil)
                     break;
-                set.Add($"B {name} : {EntityName(t.BaseType)}");
-                current = DefinedHere(t.BaseType);
+                set.Add($"B {name} : {EntityName(level, t.BaseType)}");
+                var (definition, arguments) = DefinedHere(level, t.BaseType);
+                current = definition;
+                level = new SignatureNames(arguments);
             }
             foreach (var mh in type.GetMethods())
             {
@@ -633,14 +644,16 @@ public static class SwiftBindingPackageMerge
         return set;
     }
 
-    private sealed class SignatureNames : ISignatureTypeProvider<string, MetadataReader>
+    /// <summary>Type names for signatures; <paramref name="typeArguments"/> stand for a generic type's own parameters when given.</summary>
+    private sealed class SignatureNames(string[]? typeArguments = null) : ISignatureTypeProvider<string, MetadataReader>
     {
         public string GetArrayType(string element, ArrayShape shape) => $"{element}[{new string(',', shape.Rank - 1)}]";
         public string GetByReferenceType(string element) => element + "&";
         public string GetFunctionPointerType(MethodSignature<string> signature) => $"fnptr({string.Join(",", signature.ParameterTypes)}):{signature.ReturnType}";
         public string GetGenericInstantiation(string generic, ImmutableArray<string> arguments) => $"{generic}<{string.Join(",", arguments)}>";
         public string GetGenericMethodParameter(MetadataReader context, int index) => $"!!{index}";
-        public string GetGenericTypeParameter(MetadataReader context, int index) => $"!{index}";
+        public string GetGenericTypeParameter(MetadataReader context, int index) =>
+            typeArguments is not null && index < typeArguments.Length ? typeArguments[index] : $"!{index}";
         public string GetModifiedType(string modifier, string unmodified, bool isRequired) => isRequired ? $"{unmodified} modreq({modifier})" : unmodified;
         public string GetPinnedType(string element) => element;
         public string GetPointerType(string element) => element + "*";

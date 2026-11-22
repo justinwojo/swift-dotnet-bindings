@@ -485,12 +485,14 @@ public sealed class PackageCopyTests : IDisposable
     [Theory]
     [InlineData("public interface IKit { } public class Kit : IKit { public int A() => 1; }", "public interface IKit { } public class Kit { public int A() => 1; }", "IKit")]
     [InlineData("public class Base { } public class Kit : Base { }", "public class Base { } public class Kit { }", "Base")]
+    [InlineData("public interface IKit<T> { } public class Base<T> { } public class Kit<T> : Base<int>, IKit<T> { }",
+        "public interface IKit<T> { } public class Base<T> : IKit<T> { } public class Kit<T> : Base<int> { }", "IKit")]
     public void Merge_ANewerTypeThatDropsABaseOrInterface_IsRefused(string olderApi, string newerApi, string key)
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
         var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
         var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
-        Assert.Contains(result.Problems, p => p.Contains("lacks", StringComparison.Ordinal) && p.Contains($"Kit : ", StringComparison.Ordinal) && p.Contains(key, StringComparison.Ordinal));
+        Assert.Contains(result.Problems, p => p.Contains("lacks", StringComparison.Ordinal) && p.Contains(" : ", StringComparison.Ordinal) && p.Contains(key, StringComparison.Ordinal));
     }
 
     [Theory]
@@ -498,6 +500,7 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public interface IKit { } public class Base { } public class Kit : Base, IKit { }", "public interface IKit { } public class Base : IKit { } public class Kit : Base { }")]
     [InlineData("public class Base { } public class Kit : Base { }", "public class Base { } public class Mid : Base { } public class Kit : Mid { }")]
     [InlineData("public interface IKit { } public class Base<T> { } public class Kit : Base<int>, IKit { }", "public interface IKit { } public class Base<T> : IKit { } public class Kit : Base<int> { }")]
+    [InlineData("public interface IKit<T> { } public class Base<T> { } public class Kit : Base<int>, IKit<int> { }", "public interface IKit<T> { } public class Base<T> : IKit<T> { } public class Kit : Base<int> { }")]
     public void Merge_ANewerTypeThatKeepsEveryConversion_IsAccepted(string olderApi, string newerApi)
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
