@@ -164,7 +164,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
         var build = Path.Combine(root, "buildTransitive");
         return Directory.Exists(build)
             && Directory.EnumerateFiles(build, "*.props", SearchOption.AllDirectories)
-                .Any(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"<SwiftBindingPackageCopy[\s/>]"));
+                .Any(f => PackageCopyDeclaration.Declares(File.ReadAllText(f)));
     }
 
     /// <summary>

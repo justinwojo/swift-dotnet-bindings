@@ -334,6 +334,11 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
         (exit, output) = Pack(Package("SharedOnly.1.0.0.nupkg", [older, .. shared]));
         Assert.True(exit == 0, output);
+        // A props file that only names the item in a comment or a property declares no copy.
+        var mention = ("buildTransitive/net10.0-ios26.0/Acme.Kit.props", Encoding.UTF8.GetBytes(
+            "<Project><!-- <SwiftBindingPackageCopy Include=\"Acme.Kit\" /> --><PropertyGroup><SwiftBindingPackageCopy>x</SwiftBindingPackageCopy></PropertyGroup></Project>"));
+        (exit, output) = Pack(Package("Mention.1.0.0.nupkg", [older, mention, .. shared]));
+        Assert.True(exit == 0, output);
     }
 
     // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------

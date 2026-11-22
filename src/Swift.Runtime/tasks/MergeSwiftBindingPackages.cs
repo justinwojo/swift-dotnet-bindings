@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.IO;
 using System.Linq;
 using Microsoft.Build.Framework;
 
@@ -48,15 +49,26 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
             Log.LogError(null, PrepareSwiftBindingPackageCopy.LayoutCode, null, null, 0, 0, 0, 0, "{0}", problem);
         if (result.Package is null)
             return false;
+        // A scratch directory of this merge's own, so merges from one project never share plans or
+        // extracted packages.
+        var scratch = Path.Combine(ScratchDirectory, Path.GetFileNameWithoutExtension(result.Package));
         var check = new SwiftTransitionPackageCheck
         {
             BuildEngine = BuildEngine,
             Packages = [new Microsoft.Build.Utilities.TaskItem(result.Package)],
             ReferenceDirectories = ReferenceDirectories,
-            ScratchDirectory = ScratchDirectory,
+            ScratchDirectory = scratch,
         };
-        if (!check.Execute())
-            return false;
+        try
+        {
+            if (!check.Execute())
+                return false;
+        }
+        finally
+        {
+            if (Directory.Exists(scratch))
+                Directory.Delete(scratch, recursive: true);
+        }
         MergedPackage = SwiftBindingPackageMerge.Publish(result);
         Log.LogMessage(MessageImportance.High, "Merged {0} contribution(s) into {1}: copies {2}.",
             Contributions.Length, MergedPackage, string.Join(", ", result.Copies));

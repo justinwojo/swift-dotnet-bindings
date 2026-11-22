@@ -163,7 +163,7 @@ partial class Build
     {
         var build = package / "buildTransitive" / folder;
         return Directory.Exists(build) && Directory.EnumerateFiles(build, "*.props")
-            .Any(f => System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(f), @"<SwiftBindingPackageCopy[\s/>]"));
+            .Any(f => PackageCopyDeclaration.Declares(File.ReadAllText(f)));
     }
 
     /// <summary>Whether a package folder names a copy: a platform-versioned TFM such as <c>net10.0-ios26.0</c>.</summary>

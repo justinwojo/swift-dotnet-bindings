@@ -572,6 +572,21 @@ public static class SwiftBindingPackageMerge
             HandleKind.TypeSpecification => provider.GetTypeFromSpecification(md, md, (TypeSpecificationHandle)h, 0),
             _ => h.Kind.ToString(),
         };
+        // The definition in this assembly a base names, directly or as a generic instantiation; null
+        // for a base defined elsewhere.
+        TypeDefinitionHandle? DefinedHere(EntityHandle h)
+        {
+            if (h.Kind == HandleKind.TypeDefinition)
+                return (TypeDefinitionHandle)h;
+            if (h.Kind != HandleKind.TypeSpecification)
+                return null;
+            var blob = md.GetBlobReader(md.GetTypeSpecification((TypeSpecificationHandle)h).Signature);
+            if (blob.ReadSignatureTypeCode() != SignatureTypeCode.GenericTypeInstance)
+                return null;
+            blob.ReadSignatureTypeCode();
+            var generic = blob.ReadTypeHandle();
+            return generic.Kind == HandleKind.TypeDefinition ? (TypeDefinitionHandle)generic : null;
+        }
         foreach (var handle in md.TypeDefinitions)
         {
             if (!Visible(handle))
@@ -583,17 +598,16 @@ public static class SwiftBindingPackageMerge
             // library compiled against the older copy at its first cast, even with every member kept.
             // Read through the base chain this assembly defines, so moving a conformance onto a base
             // or inserting an intermediate base keeps every conversion the older copy had.
-            for (var current = handle; ;)
+            var seen = new HashSet<TypeDefinitionHandle>();
+            for (TypeDefinitionHandle? current = handle; current is { } h && seen.Add(h);)
             {
-                var t = md.GetTypeDefinition(current);
+                var t = md.GetTypeDefinition(h);
                 foreach (var ih in t.GetInterfaceImplementations())
                     set.Add($"I {name} : {EntityName(md.GetInterfaceImplementation(ih).Interface)}");
                 if (t.BaseType.IsNil)
                     break;
                 set.Add($"B {name} : {EntityName(t.BaseType)}");
-                if (t.BaseType.Kind != HandleKind.TypeDefinition)
-                    break;
-                current = (TypeDefinitionHandle)t.BaseType;
+                current = DefinedHere(t.BaseType);
             }
             foreach (var mh in type.GetMethods())
             {

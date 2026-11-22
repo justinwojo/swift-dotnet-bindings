@@ -497,6 +497,7 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public interface IKit { } public class Kit { }", "public interface IKit { } public class Kit : IKit { }")]
     [InlineData("public interface IKit { } public class Base { } public class Kit : Base, IKit { }", "public interface IKit { } public class Base : IKit { } public class Kit : Base { }")]
     [InlineData("public class Base { } public class Kit : Base { }", "public class Base { } public class Mid : Base { } public class Kit : Mid { }")]
+    [InlineData("public interface IKit { } public class Base<T> { } public class Kit : Base<int>, IKit { }", "public interface IKit { } public class Base<T> : IKit { } public class Kit : Base<int> { }")]
     public void Merge_ANewerTypeThatKeepsEveryConversion_IsAccepted(string olderApi, string newerApi)
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);

@@ -34,6 +34,28 @@ public sealed record PackagedNative(string Library, string DisplayPath, byte[] I
         CopyTfm is null ? assembly.CopyTfm is null : string.Equals(CopyTfm, assembly.CopyTfm, StringComparison.OrdinalIgnoreCase);
 }
 
+/// <summary>Reads the copy declaration a package's <c>buildTransitive/&lt;tfm&gt;/</c> props file may hold.</summary>
+public static class PackageCopyDeclaration
+{
+    /// <summary>
+    /// Whether <paramref name="propsText"/> declares a package copy: a <c>SwiftBindingPackageCopy</c>
+    /// item (an element with <c>Include</c> in an <c>ItemGroup</c>), not a property or a comment of
+    /// that name. A file that does not read as XML declares nothing.
+    /// </summary>
+    public static bool Declares(string propsText)
+    {
+        try
+        {
+            return System.Xml.Linq.XDocument.Parse(propsText).Descendants()
+                .Any(e => e.Name.LocalName == "SwiftBindingPackageCopy" && e.Attribute("Include") is not null && e.Parent?.Name.LocalName == "ItemGroup");
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>The verdict of <see cref="PackageTransitionEvidence.Check"/>.</summary>
 public sealed record PackageTransitionEvidenceResult(
     ImmutableArray<string> Problems,
