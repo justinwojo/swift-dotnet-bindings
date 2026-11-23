@@ -56,4 +56,20 @@ public class EnumPayloadEdgeCaseTests : TestBase
         AssertEqual("payload:12", TestLibFunctions.PayloadNamedCaseName(built), "the renamed factory");
         AssertEqual(PayloadNamedCase.CaseTag.Payload, built.Tag, "the case tag keeps the Swift case name");
     }
+
+    public void TestPropertySharingThePayloadCaseName()
+    {
+        using var made = PayloadSharedName.PayloadValue(5);
+        AssertEqual(5, made.PayloadValueValue, "the property beside the renamed factory");
+        AssertEqual(-1, PayloadSharedName.Other.PayloadValueValue, "the property on another case");
+        AssertTrue(!made.Payload.IsInvalid, "the generated handle is still the Payload member");
+    }
+
+    public void TestPropertyReturningANestedTypeNamedPayload()
+    {
+        using var made = PayloadNestedName.Data(6);
+        using var nested = made.PayloadValue;
+        AssertEqual(6, nested.Weight, "the renamed nested type read through the renamed property");
+        AssertTrue(!made.Payload.IsInvalid, "the generated handle is still the Payload member");
+    }
 }

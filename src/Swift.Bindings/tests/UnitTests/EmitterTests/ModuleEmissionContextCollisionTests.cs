@@ -222,9 +222,11 @@ public class ModuleEmissionContextCollisionTests
         // Swift reads `Host.`Type`.self` (and `Host.`Type`(…)`, `Host.`Type`.member`) as members of
         // `Host`'s metatype, so in an expression the nested type is reached through a generic
         // argument, a type position. Type positions keep the plain escaped spelling, which an
-        // extension declaration requires; a top-level type behind its module is unaffected.
+        // extension declaration requires; a top-level type behind its module is unaffected. An
+        // unescaped `.self` is the metatype expression even beside a nested type named `self`, and
+        // a generic keyword-named type keeps its arguments inside the type position.
         var declared = new HashSet<string>(StringComparer.Ordinal)
-            { "Soup.Host", "Soup.Host.Type", "Soup.Host.Protocol", "Soup.Host.Type.Inner", "Soup.Type" };
+            { "Soup.Host", "Soup.Host.Type", "Soup.Host.Protocol", "Soup.Host.Type.Inner", "Soup.Type", "Soup.Host.Type.self", "Soup.Box", "Soup.Box.Type" };
         var ctx = new ModuleEmissionContext();
         ctx.SetDeclaredTypePredicate(declared.Contains);
 
@@ -236,19 +238,21 @@ public class ModuleEmissionContextCollisionTests
             "let n: Soup.Host.Type.Inner = Soup.Host.Type.Inner.self\n" +
             "let t: Soup.Host.Type.Type = x; let a = Swift.Array<Soup.Host.Type>.self\n" +
             "extension Soup.Host.Type: P {}\n" +
-            "let top = Soup.Type.self; let h = Soup.Host.self\n";
+            "let top = Soup.Type.self; let h = Soup.Host.self\n" +
+            "let g = Soup.Box.Type<Swift.Int32>.self; let c = Soup.Box.Type<Swift.Int32>()\n";
         var journal = new TextEditJournal();
         var output = ctx.QualifyForWrapperSource(input, journal);
 
         Assert.Equal(
-            "let m = unsafeBitCast(Swift.Array<Soup.Host.`Type`>.Element.self as Any.Type, to: UnsafeMutableRawPointer.self)\n" +
-            "p.initializeMemory(as: Swift.Array<Soup.Host.`Type`>.Element.self, repeating: v, count: 1)\n" +
-            "let v: Soup.Host.`Type` = Swift.Array<Soup.Host.`Type`>.Element(a: 1)\n" +
-            "let z = Swift.Array<Soup.Host.`Protocol`>.Element.zero; let i = Swift.Array<Soup.Host.`Type`>.Element.init(a: 2)\n" +
-            "let n: Soup.Host.`Type`.Inner = Swift.Array<Soup.Host.`Type`.Inner>.Element.self\n" +
+            "let m = unsafeBitCast(Swift.UnsafePointer<Soup.Host.`Type`>.Pointee.self as Any.Type, to: UnsafeMutableRawPointer.self)\n" +
+            "p.initializeMemory(as: Swift.UnsafePointer<Soup.Host.`Type`>.Pointee.self, repeating: v, count: 1)\n" +
+            "let v: Soup.Host.`Type` = Swift.UnsafePointer<Soup.Host.`Type`>.Pointee(a: 1)\n" +
+            "let z = Swift.UnsafePointer<Soup.Host.`Protocol`>.Pointee.zero; let i = Swift.UnsafePointer<Soup.Host.`Type`>.Pointee.init(a: 2)\n" +
+            "let n: Soup.Host.`Type`.Inner = Swift.UnsafePointer<Soup.Host.`Type`.Inner>.Pointee.self\n" +
             "let t: Soup.Host.`Type`.Type = x; let a = Swift.Array<Soup.Host.`Type`>.self\n" +
             "extension Soup.Host.`Type`: P {}\n" +
-            "let top = Soup.`Type`.self; let h = Soup.Host.self\n",
+            "let top = Soup.`Type`.self; let h = Soup.Host.self\n" +
+            "let g = Swift.UnsafePointer<Soup.Box.`Type`<Swift.Int32>>.Pointee.self; let c = Swift.UnsafePointer<Soup.Box.`Type`<Swift.Int32>>.Pointee()\n",
             output);
         Assert.Equal(output.Length, journal.MapOffset(input.Length));
     }
@@ -272,7 +276,7 @@ public class ModuleEmissionContextCollisionTests
         var journal = new TextEditJournal();
         var output = ctx.QualifyForWrapperSource(input, journal);
 
-        Assert.Equal("let k: Holder.`Type` = Swift.Array<Holder.`Type`>.Element(); let b = Other.Protocol.self\n", output);
+        Assert.Equal("let k: Holder.`Type` = Swift.UnsafePointer<Holder.`Type`>.Pointee(); let b = Other.Protocol.self\n", output);
         Assert.Equal(output.Length, journal.MapOffset(input.Length));
     }
 

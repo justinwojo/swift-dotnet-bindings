@@ -50,4 +50,12 @@ public class KeywordNestedTypeTests : TestBase
         AssertEqual("1,2,3;10,11,12", string.Join(";", points.Select(p => $"{p.X},{p.Y},{p.Z}")), "elements read from the array");
         AssertEqual("1,2,3;10,11,12", host.DescribePoints(points.ToArray()), "elements written to an array");
     }
+
+    public void TestGenericProtocolValuesRoundTrip()
+    {
+        using var value = new MetatypeKeywordVariants.Protocol<int>(9);
+        AssertEqual(9L, value.Count, "a field of the generic nested `Protocol`");
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<MetatypeKeywordVariants.Protocol<int>>();
+        AssertEqual((nuint)MetatypeKeywordVariants.GetProtocolSize(), metadata.Size, "size of the generic nested `Protocol`");
+    }
 }

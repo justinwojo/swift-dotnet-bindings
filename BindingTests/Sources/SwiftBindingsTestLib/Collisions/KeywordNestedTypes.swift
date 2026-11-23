@@ -42,3 +42,25 @@ public final class MetatypeKeywordHost {
     public static var typeStride: Int { MemoryLayout<`Type`>.stride }
     public static var protocolSize: Int { MemoryLayout<`Protocol`>.size }
 }
+
+/// The same names on a generic and a `~Copyable` nested type, where the wrapper reaches the type
+/// through a spelling that admits generic arguments and noncopyable types.
+public final class MetatypeKeywordVariants {
+    public init() {}
+
+    /// Its field getter and borrowing method read the value in place through the receiver's
+    /// metatype; no public initializer, so the fixture adds no skipped member.
+    public struct `Type`: ~Copyable {
+        let raw: Int32
+        init(raw: Int32) { self.raw = raw }
+        public var id: Int32 { raw }
+        public borrowing func inspect() -> Int32 { raw }
+    }
+
+    public struct `Protocol`<Element> {
+        public var count: Int64
+        public init(count: Int64) { self.count = count }
+    }
+
+    public static func protocolSize() -> Int { MemoryLayout<`Protocol`<Int32>>.size }
+}

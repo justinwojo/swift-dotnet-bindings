@@ -307,7 +307,7 @@ public sealed class ModuleEmissionContext
     private static readonly string ReservedMemberChain =
         @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*\.(?:"
         + string.Join("|", ReservedMemberSegments.Select(Regex.Escape))
-        + @")\b(?:\.\w+" + GenericArgumentList + @"?)*)(?!`)";
+        + @")\b" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*)(?!`)";
 
     /// <summary>
     /// Segment names a declared type can only be spelled with backticks after a dot:
@@ -361,8 +361,8 @@ public sealed class ModuleEmissionContext
     /// <c>Host.`Type`.member</c> as members of <c>Host</c>'s metatype, backticks or not. That compiles
     /// for <c>.self</c> and silently hands over the wrong type (its metadata, size and layout), and
     /// fails for the rest. A generic argument is a type position, so such a chain is written
-    /// <c>Swift.Array&lt;Host.`Type`&gt;.Element</c> there, which names the nested type in either
-    /// position. The chain is an expression when a member that is no declared type follows the
+    /// <c>Swift.UnsafePointer&lt;Host.`Type`&gt;.Pointee</c> there, which names the nested type in
+    /// either position, a generic or <c>~Copyable</c> one included. The chain is an expression when a member that is no declared type follows the
     /// type (<c>.self</c>, <c>.init</c>, a static member) or a call does
     /// (<paramref name="followedByCall"/>); a metatype suffix (<c>.Type</c>, <c>.Protocol</c>) and
     /// a bare type name keep the type position and their plain spelling, which an extension
@@ -391,7 +391,9 @@ public sealed class ModuleEmissionContext
         {
             var (name, arguments) = segments[i];
             qualified = qualified is null ? name : qualified + "." + name;
-            var isDeclaredType = _isDeclaredType?.Invoke(qualified) == true;
+            // Swift reads an unescaped `self` or `init` after a type as the metatype or initializer
+            // expression, whatever the module declares, so neither extends the type path.
+            var isDeclaredType = name is not ("self" or "init") && _isDeclaredType?.Invoke(qualified) == true;
             if (i >= first && isDeclaredType && IsReservedMemberSegment(name))
             {
                 nestedMetatypeKeyword |= parentIsDeclaredType && name is "Type" or "Protocol";
@@ -418,7 +420,7 @@ public sealed class ModuleEmissionContext
             : segments[lastDeclaredType + 1].Name is not ("Type" or "Protocol");
         if (nestedMetatypeKeyword && lastDeclaredType >= 0 && isExpression)
         {
-            var type = $"Swift.Array<{Join(segments.Take(lastDeclaredType + 1))}>.Element";
+            var type = $"Swift.UnsafePointer<{Join(segments.Take(lastDeclaredType + 1))}>.Pointee";
             return lastDeclaredType == segments.Count - 1 ? type : type + "." + Join(segments.Skip(lastDeclaredType + 1));
         }
         return Join(segments);

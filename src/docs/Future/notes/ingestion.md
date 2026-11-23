@@ -105,6 +105,15 @@ Found on VisionKit during the issue-46 wave: all four `ImageAnalyzer.analyze` ov
 
 `MethodDecl`, argument decls and parameter labels capture `OriginalSwiftName` when `ExtractUniqueNameWithOriginal` mangles a C# keyword, but the type-decl factories (`CreateStructDecl`/`CreateClassDecl` and the enum/protocol paths, `SwiftABIParser.cs` ~1870/1938/2363/2585) call the discarding `ExtractUniqueName`, so `GetSwiftName()` on a keyword-named type returns the mangled name. The async-accessor oracle (issue-46 wave, S3) works around this one lookup with a local deterministic `UnsanitizeKeywordName` inverse. The general fix — capturing `OriginalSwiftName` on type decls — also touches every emitter that builds Swift-side call text from type names, so it is a small program, not a patch. **Trigger:** a second consumer of type-level original names appears (someone is about to write a second `UnsanitizeKeywordName`), or a keyword-named Swift type mis-round-trips in wrapper text.
 
+<a id="a-member-typed-on-a-nested-type-named-type-is-withdrawn-the-parsed-spelling-drops-its-back-ticks"></a>
+
+## A member typed on a nested type named `` `Type` `` is withdrawn: the parsed spelling drops its back ticks
+
+Impact: For `` struct Host { struct `Type` {...} } ``, the nested type itself binds: its metadata, layout and field accessors, with every wrapper site that names it as a value reaching it through `ModuleEmissionContext`'s wrapper-source pass. A member whose signature names it (`` func make() -> `Type` ``) is withdrawn with SWIFTBIND025, though.
+Evidence: `TypeSpecTokenizer.AppendEscapedIdentifier` keeps the identifier and drops its back ticks, so `` Host.`Type` `` and the metatype `Host.Type` parse to the same `NamedTypeSpec`. `WrapperValidation.IsMetatypeType` then reads it as a metatype. The ABI JSON tells the two apart only by the back ticks in `printedName`; a real metatype is a `Metatype` node. `SwiftCallFactsBuilder.IsAmbiguousMetatypeSpelling` and `SwiftLayoutValueLowering` already refuse the ambiguous spelling. Fixture: `BindingTests/Sources/SwiftBindingsTestLib/Collisions/KeywordNestedTypes.swift`.
+Current decision: fail closed. Keeping the back ticks (or a nested-type marker) on the parsed spec reaches every consumer of `NamedTypeSpec.Name`, which is a parser-wide change.
+Revisit when: a consumer binds a library whose API takes or returns a nested `` `Type` ``, or the type-spec model gains identifier provenance for another reason.
+
 <a id="corevideo-has-no-apple-frameworks-json-entry-and-cvbuffer-is-a-cf-type"></a>
 
 ## CoreVideo has no `apple-frameworks.json` entry, and `CVBuffer` is a CF type

@@ -45,3 +45,25 @@ public func payloadNamedCaseName(_ value: PayloadNamedCase) -> String {
     case .none: return "none"
     }
 }
+
+// MARK: - Members sharing the generated handle's name
+
+/// A case and a property both named `payload`: the two take one rename between them, and the
+/// property then yields to the factory.
+public enum PayloadSharedName {
+    case payload(Int)
+    case other
+    public var payload: Int { if case .payload(let value) = self { return value }; return -1 }
+}
+
+/// A property returning a nested type named `Payload`: the nested type is renamed for the property,
+/// and the property still yields to the generated handle.
+public enum PayloadNestedName {
+    public struct Payload {
+        public var weight: Int
+        public init(weight: Int) { self.weight = weight }
+    }
+    case data(Int)
+    case empty
+    public var payload: Payload { if case .data(let value) = self { return Payload(weight: value) }; return Payload(weight: 0) }
+}
