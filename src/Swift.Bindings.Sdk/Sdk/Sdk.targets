@@ -168,8 +168,8 @@
            Text="SwiftPackage items are not yet supported. Use SwiftFramework items with a pre-built xcframework." />
 
     <Error Condition="'@(SwiftAppleFrameworkTarget)' != '' AND '@(SwiftFramework)' != ''"
-           Code="SWIFTBIND011"
-           Text="SwiftAppleFrameworkTarget and SwiftFramework cannot be used in the same project. Use one or the other." />
+           Code="SWIFTBIND143"
+           Text="SwiftAppleFrameworkTarget (an Apple system framework: @(SwiftAppleFrameworkTarget, ', ')) and SwiftFramework (an xcframework: @(SwiftFramework, ', ')) cannot be used in the same project. A binding project binds one or the other; move one of them to a separate binding project." />
 
     <Error Condition="@(SwiftAppleFrameworkTarget->Count()) &gt; 1"
            Code="SWIFTBIND015"

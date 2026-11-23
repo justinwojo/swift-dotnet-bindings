@@ -869,7 +869,8 @@ namespace BindingsGeneration.Tests
         private (string Output, int ExitCode) RunTargetFrameworkGate(
             string? bodyTargetFramework,
             string? bodyTargetFrameworks = null,
-            string? innerBuildTargetFramework = null)
+            string? innerBuildTargetFramework = null,
+            string items = "")
         {
             var sdkTargetsPath = Path.Combine(FindRepoRoot(),
                 "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
@@ -884,6 +885,7 @@ namespace BindingsGeneration.Tests
                   <PropertyGroup>
                     {tfmProperties}
                   </PropertyGroup>
+                  <ItemGroup>{items}</ItemGroup>
                   <Import Project="{sdkTargetsPath}" />
                 </Project>
                 """;
@@ -991,6 +993,38 @@ namespace BindingsGeneration.Tests
             Assert.True(exitCode == 0,
                 $"Expected the TFM gate to accept '{targetFramework}'.\n{output}");
             Assert.DoesNotContain("SWIFTBIND010", output);
+        }
+
+        // ── SWIFTBIND143: one binding lane per project ──
+        // An Apple-framework target and an xcframework cannot share a project. The error has its
+        // own code: SWIFTBIND011 is the consumer-side minimum-OS warning the synthesized and
+        // generator-emitted consumer targets raise.
+
+        [Fact]
+        public void AppleFrameworkTargetWithSwiftFramework_FailsWithSwiftbind143()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate("net10.0-ios", items:
+                """<SwiftAppleFrameworkTarget Include="StoreKit" /><SwiftFramework Include="Vendor.xcframework" />""");
+
+            Assert.True(exitCode != 0, $"Expected both lanes in one project to fail.\n{output}");
+            Assert.Contains("error SWIFTBIND143", output);
+            Assert.Contains("separate binding project", output);
+            Assert.DoesNotContain("SWIFTBIND011", output);
+        }
+
+        [Theory]
+        [InlineData("""<SwiftAppleFrameworkTarget Include="StoreKit" />""")]
+        [InlineData("""<SwiftFramework Include="Vendor.xcframework" />""")]
+        public void AppleFrameworkTargetOrSwiftFrameworkAlone_PassesTheLaneCheck(string items)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var (output, exitCode) = RunTargetFrameworkGate("net10.0-ios", items: items);
+
+            Assert.True(exitCode == 0, $"Expected one binding lane to pass.\n{output}");
+            Assert.DoesNotContain("SWIFTBIND143", output);
         }
 
         // The shipped Apple-framework template multi-targets all four Apple TFMs, so the
