@@ -222,8 +222,8 @@ partial class Build
     // Opens the produced SDK and Templates nupkgs (and, unless skipped, the Apple supplement) and
     // asserts that the version baked into the files that ship verbatim — Sdk/Sdk.props and the
     // template's template.json — is the real shipped version, never the 0.0.0-dev source sentinel.
-    // Entries are matched by path suffix because NuGet packs the template content into more than
-    // one folder (content/ and contentFiles/) and we assert every shipped copy.
+    // Entries are matched by path suffix so the check reads every shipped copy wherever it lands;
+    // AssertTemplatesNupkgShipsEachFileOnce, run first, pins the template package to one copy.
     void AssertProducedNupkgsCarryRealVersion(AbsolutePath outputDir, string version, string appleVersion, bool skipApple)
     {
         // Contract-gate truth: the runtime derives its load-time contract epoch from this same
@@ -264,6 +264,8 @@ partial class Build
         _ = ReadNupkgEntriesBySuffix(sdkNupkg, "Sdk/SwiftBindings.MacFrameworkAnatomy.targets");
         _ = ReadNupkgEntriesBySuffix(sdkNupkg, "Sdk/deepen-mac-framework.sh");
 
+        AssertTemplatesNupkgShipsEachFileOnce(templatesNupkg);
+
         // Templates: template.json's sdkVersion defaultValue must be the real version, while its
         // `replaces` token stays the 0.0.0-dev sentinel (it matches the verbatim ProjectName.csproj
         // token the template engine swaps at `dotnet new` time).
@@ -299,6 +301,28 @@ partial class Build
 
         Log.Information("Version truth gate passed: produced nupkgs carry v{Version} (Apple v{AppleVersion}), no dev sentinel.",
             version, appleVersion);
+    }
+
+    // The template engine scans the whole installed package for .template.config folders, so a
+    // template shipped twice (NuGet's default packs Content items under both content/ and
+    // contentFiles/any/<tfm>/) installs one identity twice and every `dotnet new install` warns that
+    // two templates share it. Fails the pack unless each template file ships once, under content/.
+    static void AssertTemplatesNupkgShipsEachFileOnce(AbsolutePath templatesNupkg)
+    {
+        if (!File.Exists(templatesNupkg))
+            throw new System.InvalidOperationException($"Expected produced nupkg not found: '{templatesNupkg}'.");
+        System.Collections.Generic.List<string> entryNames;
+        using (var archive = System.IO.Compression.ZipFile.OpenRead(templatesNupkg))
+            entryNames = archive.Entries.Select(e => e.FullName).ToList();
+        var violations = TemplatePackageLayout.Violations(entryNames);
+        if (violations.Count > 0)
+            throw new System.InvalidOperationException(
+                $"Templates nupkg '{templatesNupkg}' does not ship each template file exactly once under " +
+                $"{TemplatePackageLayout.ContentRoot} (`dotnet new install` would report the template " +
+                "identity twice):" + System.Environment.NewLine + "  " +
+                string.Join(System.Environment.NewLine + "  ", violations));
+        Log.Information("Template layout gate passed: '{Nupkg}' ships one template, each file once under {Root}.",
+            Path.GetFileName(templatesNupkg), TemplatePackageLayout.ContentRoot);
     }
 
     // The source-controlled files that carry version information — the ones the pack's version

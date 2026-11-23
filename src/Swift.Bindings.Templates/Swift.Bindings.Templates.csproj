@@ -16,6 +16,11 @@
     <NoBuild>true</NoBuild>
     <IncludeBuildOutput>false</IncludeBuildOutput>
     <IncludeContentInPack>true</IncludeContentInPack>
+    <!-- Pack Content items into content/ only. NuGet's default (content;contentFiles) also copies
+         them under contentFiles/any/<tfm>/, and the template engine scans the whole package for
+         .template.config folders, so every `dotnet new install` found the template twice and
+         warned that two templates share its identity. The pack gate asserts one copy. -->
+    <ContentTargetFolders>content</ContentTargetFolders>
 
     <!-- Suppress warning about no lib/ref assemblies -->
     <NoWarn>$(NoWarn);NU5128</NoWarn>
@@ -28,16 +33,16 @@
          token stays 0.0.0-dev) and points this property at it; the source default 0.0.0-dev is
          kept for a plain `dotnet pack`. The baked copy lives outside the project cone, where
          NuGet's content mechanism ignores Link and would flatten it to content/template.json, so
-         the two destination paths are pinned explicitly. They mirror exactly where the glob above
-         packs the in-cone original (the doubled content/ is the glob file's own content/ prefix
-         under the pack-added content/ root; netstandard2.0 is this package's sole TargetFramework),
-         so the template engine finds the baked copy at the unchanged path. -->
+         the destination path is pinned explicitly. It mirrors exactly where the glob above packs
+         the in-cone original (the doubled content/ is the glob file's own content/ prefix under the
+         pack-added content/ root), so the template engine finds the baked copy at the unchanged
+         path. -->
     <Content Remove="content/swift-binding/.template.config/template.json"
              Condition="'$(SwiftBindingsTemplateJsonToPack)' != ''" />
     <Content Include="$(SwiftBindingsTemplateJsonToPack)"
              Condition="'$(SwiftBindingsTemplateJsonToPack)' != ''"
              Pack="true"
-             PackagePath="content/content/swift-binding/.template.config/template.json;contentFiles/any/netstandard2.0/content/swift-binding/.template.config/template.json" />
+             PackagePath="content/content/swift-binding/.template.config/template.json" />
     <None Include="../../README.md" Pack="true" PackagePath="" />
     <None Include="../../LICENSE" Pack="true" PackagePath="" />
     <None Include="../legal/NOTICE.md" Pack="true" PackagePath="" />
