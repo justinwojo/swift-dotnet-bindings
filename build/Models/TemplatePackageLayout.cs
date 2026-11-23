@@ -40,36 +40,16 @@ public static class TemplatePackageLayout
         if (templateJsons.Count != 1)
             violations.Add($"expected exactly one '{TemplateJsonSuffix}', found {templateJsons.Count}" +
                            (templateJsons.Count == 0 ? "" : $": {string.Join(", ", templateJsons)}"));
+        else if (!templateJsons[0].StartsWith(ContentRoot, StringComparison.Ordinal))
+            violations.Add($"'{templateJsons[0]}' ships outside {ContentRoot}");
 
         foreach (var entry in entries.Where(e => e.StartsWith(ContentFilesRoot, StringComparison.Ordinal)))
             violations.Add($"'{entry}' ships under {ContentFilesRoot}; template files belong under {ContentRoot} only");
 
-        // A template file is anything under content/ or contentFiles/<language>/<tfm>/. Reduce each
-        // to its path below that root so the same file shipped in both folders (or twice in one)
-        // collides.
-        foreach (var group in entries
-                     .Select(e => (Entry: e, Relative: RelativeToContentRoot(e)))
-                     .Where(x => x.Relative is not null)
-                     .GroupBy(x => x.Relative!, StringComparer.Ordinal)
-                     .Where(g => g.Count() > 1))
-        {
-            violations.Add($"template file '{group.Key}' ships {group.Count()} times: " +
-                           string.Join(", ", group.Select(x => x.Entry)));
-        }
+        // A zip can hold two entries of one name; the second is a second copy all the same.
+        foreach (var group in entries.GroupBy(e => e, StringComparer.Ordinal).Where(g => g.Count() > 1))
+            violations.Add($"'{group.Key}' ships {group.Count()} times");
 
         return violations;
-    }
-
-    // content/<path> → <path>; contentFiles/<language>/<tfm>/<path> → <path>; anything else → null.
-    static string? RelativeToContentRoot(string entry)
-    {
-        if (entry.StartsWith(ContentRoot, StringComparison.Ordinal))
-            return entry.Substring(ContentRoot.Length);
-        if (entry.StartsWith(ContentFilesRoot, StringComparison.Ordinal))
-        {
-            var parts = entry.Substring(ContentFilesRoot.Length).Split('/', 3);
-            return parts.Length == 3 ? parts[2] : entry;
-        }
-        return null;
     }
 }

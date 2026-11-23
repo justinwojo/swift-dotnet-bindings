@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using Xunit;
 
 namespace BindingsGeneration.Tests;
@@ -47,8 +48,6 @@ public class TemplatePackageLayoutTests
         Assert.Contains(violations, v => v.Contains("expected exactly one '.template.config/template.json', found 2"));
         Assert.Contains(violations, v => v.Contains("contentFiles/any/netstandard2.0/content/swift-binding/ProjectName.csproj")
                                          && v.Contains("ships under contentFiles/"));
-        Assert.Contains(violations, v => v.Contains("template file 'content/swift-binding/ProjectName.csproj' ships 2 times"));
-        Assert.Contains(violations, v => v.Contains("template file 'content/swift-binding/.template.config/template.json' ships 2 times"));
     }
 
     [Fact]
@@ -60,20 +59,29 @@ public class TemplatePackageLayoutTests
             "contentFiles/any/netstandard2.0/content/swift-binding/.template.config/template.json",
         ]);
 
-        Assert.Equal(2, violations.Count);
-        Assert.All(violations, v => Assert.Contains("ships under contentFiles/", v));
+        Assert.Equal(2, violations.Count(v => v.Contains("ships under contentFiles/")));
+        Assert.Contains(violations, v => v.EndsWith("ships outside content/"));
     }
 
     [Fact]
-    public void SameTemplateFileUnderTwoContentFilesLanguages_Fails()
+    public void LoneTemplateOutsideContent_Fails()
     {
         var violations = TemplatePackageLayout.Violations(
         [
-            .. SingleCopy,
-            "contentFiles/cs/netstandard2.0/content/swift-binding/ProjectName.csproj",
+            .. PackageMetadata,
+            "tools/swift-binding/ProjectName.csproj",
+            "tools/swift-binding/.template.config/template.json",
         ]);
 
-        Assert.Contains(violations, v => v.Contains("template file 'content/swift-binding/ProjectName.csproj' ships 2 times"));
+        Assert.Equal(["'tools/swift-binding/.template.config/template.json' ships outside content/"], violations);
+    }
+
+    [Fact]
+    public void DuplicateEntry_Fails()
+    {
+        var violations = TemplatePackageLayout.Violations([.. SingleCopy, SingleCopy[0]]);
+
+        Assert.Equal(["'content/content/swift-binding/ProjectName.csproj' ships 2 times"], violations);
     }
 
     [Fact]
