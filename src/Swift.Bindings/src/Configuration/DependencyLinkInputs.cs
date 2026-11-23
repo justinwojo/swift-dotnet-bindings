@@ -54,6 +54,14 @@ namespace BindingsGeneration
             return result;
         }
 
+        /// <summary>
+        /// Whether any library-type slice among <paramref name="searchPaths"/> ships a static archive: code
+        /// the wrapper link copies in, which a second image of the same binding must reach through the
+        /// wrapper rather than link again.
+        /// </summary>
+        internal static bool HasStaticLibraryArchive(IReadOnlyList<string>? searchPaths) =>
+            CollectLibraryBinaries(searchPaths).Any(IsStaticArchive);
+
         /// <summary>A library-type slice binary on the link line, and whether it is linked in full.</summary>
         internal sealed record LibraryLinkInput(string Binary, bool ForceLoad);
 

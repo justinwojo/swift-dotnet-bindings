@@ -1176,8 +1176,9 @@ namespace BindingsGeneration
         /// primary signature can read two types as one that the projected key tells apart (two closures),
         /// so a moved member could take a primary key from a constructor outside the family and drop it.
         /// That key holds the argument labels, so a family is reordered only when no member it moves has
-        /// the labels of a constructor outside it, or of a prefix of one: the loop can emit a constructor
-        /// the validation here rejects, by dropping trailing defaulted parameters. Otherwise the declared
+        /// the labels of a constructor outside it, or of a prefix of one that ends before only defaulted
+        /// parameters: the loop can emit a constructor the validation here rejects, by dropping trailing
+        /// defaulted parameters, but never a required one. Otherwise the declared
         /// order stands. The input list is never modified; a reordered copy is returned when any family
         /// changes order.
         /// </para>
@@ -1221,9 +1222,15 @@ namespace BindingsGeneration
                 {
                     if (other is not MethodDecl { IsConstructor: true } otherInit || family.Contains(other))
                         continue;
-                    var labels = PrimarySignatureLabels(otherInit);
-                    for (int n = 0; n <= labels.Count; n++)
-                        outsideLabelPrefixes.Add(string.Join(",", labels.Take(n)));
+                    // Its full labels, and each prefix the loop could emit it as by dropping trailing
+                    // parameters: only defaulted ones can be dropped, so a prefix stops at the last
+                    // required parameter.
+                    var args = otherInit.CSSignature.Skip(1).ToList();
+                    var shortest = args.Count;
+                    while (shortest > 0 && args[shortest - 1].HasDefaultArg)
+                        shortest--;
+                    for (int n = shortest; n <= args.Count; n++)
+                        outsideLabelPrefixes.Add(string.Join(",", args.Take(n).Select(arg => arg.Name)));
                 }
                 if (members.Take(preferred + 1).Any(m =>
                         outsideLabelPrefixes.Contains(string.Join(",", PrimarySignatureLabels((MethodDecl)m)))))

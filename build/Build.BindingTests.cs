@@ -1449,12 +1449,14 @@ partial class Build
             // --static-dependency-force-load: the opt-in runtime gate for ForceLoad on a library-type
             // SwiftFrameworkDependency. Builds the same SDK-direct app without and with ForceLoad on a
             // static dependency whose components register from static initializers, runs both on the
-            // iOS Simulator and requires the registry empty without it and complete with it.
+            // iOS Simulator and/or a phone (--device; --mono-aot re-flavors it as Mono full-AOT) and
+            // requires the registry empty without it and complete with it, each component registered
+            // once. Defaults to --sim when neither is given.
             if (StaticDependencyForceLoad)
             {
-                if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
-                    Log.Warning("--static-dependency-force-load is a sim-only leg; --device/--macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored.");
-                RunStaticDependencyForceLoadLeg();
+                if (Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+                    Log.Warning("--static-dependency-force-load is an iOS-only leg; --macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored (it composes only with --sim/--device).");
+                RunStaticDependencyForceLoadLeg(sim: Sim || !Device, device: Device, monoAot: MonoAot);
                 return;
             }
 
