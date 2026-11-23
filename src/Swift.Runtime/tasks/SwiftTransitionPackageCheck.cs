@@ -165,7 +165,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             {
                 // Named as the app check names a dylib reference: lib<name>.dylib is <name>'s image.
                 var name = Path.GetFileNameWithoutExtension(shown);
-                return (Libraries: new[] { name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? name[3..] : name }, Shown: shown);
+                return (Libraries: new[] { name.StartsWith("lib", StringComparison.Ordinal) ? name[3..] : name }, Shown: shown);
             });
         return frameworks.Concat(dylibs)
             .SelectMany(n =>

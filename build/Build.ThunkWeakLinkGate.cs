@@ -105,9 +105,14 @@ partial class Build
                 if (Path.GetFileName(asm).Contains(".Bridges.", StringComparison.Ordinal))
                     bridgeTargets.UnionWith(branchTargets);
 
-                // `{ns}.{arch}.s` — assemble each for its own architecture on this lane's platform.
-                var arch = Path.GetExtension(Path.GetFileNameWithoutExtension(asm)).TrimStart('.');
-                var triple = arch + platform.SimulatorTarget.Substring(platform.SimulatorTarget.IndexOf('-'));
+                // `{ns}.{arch}.s` — assemble each for its own architecture on this lane's platform. The
+                // wrapper identity (`{ns}.WrapperIdentity.s`) is data only and names no architecture: it
+                // assembles for the lane's own target, and like every other object it must hold no
+                // strong undefined symbol.
+                var triple = asm.EndsWith(BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix, StringComparison.Ordinal)
+                    ? platform.SimulatorTarget
+                    : Path.GetExtension(Path.GetFileNameWithoutExtension(asm)).TrimStart('.')
+                      + platform.SimulatorTarget.Substring(platform.SimulatorTarget.IndexOf('-'));
                 var obj = scratch / $"{leg}.{Path.GetFileNameWithoutExtension(asm)}.o";
                 XcRunTool($"clang -c \"{asm}\" -o \"{obj}\" -target {triple}", logOutput: false);
                 references.AddRange(ThunkWeakLinkAudit.ParseUndefinedSymbols(StdOut(XcRunTool($"nm -m \"{obj}\"", logOutput: false, logInvocation: false))));
