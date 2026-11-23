@@ -145,7 +145,7 @@ public abstract class TestBase
     {
         var testName = $"{TestClassName}.{method.Name}";
         TestLogger.Test($"--- {testName} ---");
-        StallIfHarnessAsked(testName);
+        await StallIfHarnessAskedAsync(testName);
 
         var stopwatch = Stopwatch.StartNew();
         try
@@ -205,13 +205,17 @@ public abstract class TestBase
     /// <summary>
     /// The harness's deliberate stall (<see cref="TestRunFlags.HarnessStall"/>): blocks this test's
     /// thread for good, inside a started test, as a real hang would. The launcher then runs out of
-    /// budget with the app alive and must capture its stacks before the kill.
+    /// budget with the app alive and must capture its stacks before the kill. It first gives the
+    /// thread back to the run loop for a few seconds, so an iOS app has finished launching before
+    /// its main thread blocks: the system kills an app whose launch does not finish, which would
+    /// end the stall before the launcher's capture.
     /// </summary>
-    private static void StallIfHarnessAsked(string testName)
+    private static async Task StallIfHarnessAskedAsync(string testName)
     {
         if (!TestRunFlags.HarnessStall)
             return;
         TestLogger.Warning($"HARNESS STALL: --harness-stall blocks {testName} forever, by request");
+        await Task.Delay(TimeSpan.FromSeconds(3));
         HarnessStallForever();
     }
 
@@ -241,7 +245,7 @@ public abstract class TestBase
         var totalElapsed = TimeSpan.Zero;
 
         TestLogger.Test($"--- {testName} (flake detect: {runs}x) ---");
-        StallIfHarnessAsked(testName);
+        await StallIfHarnessAskedAsync(testName);
 
         for (int i = 0; i < runs; i++)
         {

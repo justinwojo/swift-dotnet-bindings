@@ -2150,6 +2150,7 @@ partial class Build
         // Every stop condition below reads that budget through CrashRecoveryBudget so the loop bound
         // and the give-up points cannot disagree about how many attempts remain.
         var launchAbortCount = 0;
+        var stallPending = HarnessStallProbe;
         var attemptDirectory = Path.Combine(Path.GetTempPath(), "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(suite.Device), Guid.NewGuid().ToString("N"));
         var attempts = new RuntimeTestAttempts(attemptDirectory);
         Log.Information("Retaining launch attempts in {Directory}", attemptDirectory);
@@ -2175,9 +2176,10 @@ partial class Build
                 if (FlakeDetect) args.Add("--flake-detect");
                 if (Lifetime) args.Add("--lifetime");
                 if (RuntimeLane.IsNet11) args.Add("--lane-identity");
-                // The deliberate stall goes to the first launch only, so the resumed launches prove
-                // the rest of the suite still runs and the stall stays the run's verdict.
-                if (HarnessStallProbe && attempt == 0) args.Add(HarnessStallArgument);
+                // The deliberate stall goes to the first launch that starts the app (a launcher abort
+                // before it does not use it up), so the resumed launches prove the rest of the suite
+                // still runs and the stall stays the run's verdict.
+                if (stallPending) args.Add(HarnessStallArgument);
                 if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
                 if (excludeClasses.Count > 0)
                     args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
@@ -2200,6 +2202,7 @@ partial class Build
                     RetryKnownLauncherAbort(result, suite.LaneLabel, ref launchAbortCount);
                     continue;
                 }
+                stallPending = false;
 
                 suite.AfterAppStarted(result);
 
@@ -2265,6 +2268,9 @@ partial class Build
 
         if (lastResult is null)
         {
+            if (HarnessStallProbe)
+                throw new InvalidOperationException(
+                    $"--harness-stall-probe: {suite.LaneLabel} ran only negative controls, which never stall; pick a --class-filter from the suite.");
             // Only negative controls were selected: their grade is the run's verdict.
             VerifyRuntimeLaneIdentity(suite, inventory, laneClasses, laneResults, interruptions,
                 controls.LastLaunch ?? throw new InvalidOperationException($"{suite.LaneLabel}: nothing was selected to run."),
@@ -2332,9 +2338,9 @@ partial class Build
                 var runToken = NewRunToken();
                 var args = new List<string>(suite.PlatformArgs) { "--run-token", runToken, "--class", control.ClassName };
                 if (RuntimeLane.IsNet11) args.Add("--lane-identity");
-                result = suite.Launch(args.ToArray());
+                var evidence = attempts.RecordLaunch(launch++, runToken, suite.Launch(args.ToArray()));
+                result = evidence.Launch;
                 last = result;
-                var evidence = attempts.RecordLaunch(launch++, runToken, result);
                 AssertLiveRuntimeLane(result, suite.Device);
                 Log.Information("=== NEGATIVE CONTROL OUTPUT ({Class}) ===", control.ClassName);
                 Log.Information(result.Output);
@@ -2354,6 +2360,8 @@ partial class Build
                 all.Merge(results);
 
             var grade = InterpreterNegativeControls.Grade(control, inventory.GetMethods(control.ClassName), results, result.Result);
+            if (grade.Count > 0 && result.HungStacks is { } hung)
+                grade = [.. grade, $"{control.ClassName}: {hung.Describe()}"];
             problems.AddRange(grade);
             grades[control.ClassName] = grade;
             lines.Add($"{control.ClassName} ({control.Defect}): {(grade.Count == 0 ? "as expected" : $"{grade.Count} problem(s)")}, process {result.Result}");
@@ -2883,6 +2891,12 @@ partial class Build
             effectiveResult = TestResult.Failure;
         }
 
+        // The probe proves the capture only through a stall. Any other ending, a pass above all
+        // (a filtered class whose tests all skip never reaches the stall), fails the run.
+        if (HarnessStallProbe && effectiveResult != TestResult.Timeout)
+            throw new Exception($"--harness-stall-probe: the {platform} run ended as {effectiveResult}, not as a stall, " +
+                "so the hung-app capture was not exercised; pick a --class-filter whose first test runs.");
+
         Log.Information("");
         Log.Information("=========================================");
         switch (effectiveResult)
@@ -2904,7 +2918,9 @@ partial class Build
             case TestResult.Crash:
                 Log.Information(" RUNTIME TESTS CRASHED ({Platform})", platform);
                 Log.Information("=========================================");
-                throw new Exception($"Runtime tests crashed ({platform})");
+                // A launch can stall, have its stacks taken, then crash before the kill.
+                throw new Exception($"Runtime tests crashed ({platform})" +
+                    (result.HungStacks is { } stacks ? $"; {stacks.Describe()}" : ""));
 
             case TestResult.LaunchFailure:
                 Log.Information(" RUNTIME TESTS LAUNCH FAILURE ({Platform})", platform);

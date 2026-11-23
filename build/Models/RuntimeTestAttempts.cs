@@ -35,13 +35,17 @@ public sealed class RuntimeTestAttempts
         if (!Guid.TryParseExact(runToken, "N", out _))
             throw new ArgumentException("Expected a harness run token.", nameof(runToken));
         var attemptDirectory = Path.Combine(directory, $"{index:D2}-{runToken}");
+        // Preserve the first product failure even if retaining/retrieving later evidence fails.
+        var isFirstFailure = FirstProductFailure == null &&
+            launch.Result is TestResult.Crash or TestResult.Timeout or TestResult.Failure;
+        if (isFirstFailure)
+            FirstProductFailure = launch;
         Directory.CreateDirectory(attemptDirectory);
         // The hung app's stacks go beside its console first, so the failure this launch becomes
         // names files that exist.
         launch = RecordHungStacks(attemptDirectory, launch);
-        // Preserve the first product failure even if retaining/retrieving later evidence fails.
-        if (launch.Result is TestResult.Crash or TestResult.Timeout or TestResult.Failure)
-            FirstProductFailure ??= launch;
+        if (isFirstFailure)
+            FirstProductFailure = launch;
         var attempt = new Attempt(index, runToken, attemptDirectory, launch);
         WriteNew(Path.Combine(attemptDirectory, "console.log"), launch.Output);
         WriteJson(Path.Combine(attemptDirectory, "launch.json"), writer =>

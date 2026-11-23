@@ -29,9 +29,6 @@ public sealed record HungProcessStacks(string Target, int? Pid, IReadOnlyList<St
 {
     public IReadOnlyList<string> Files { get; init; } = Array.Empty<string>();
 
-    /// <summary>True when at least one sample holds a thread backtrace.</summary>
-    public bool Captured => Samples.Any(s => s.Outcome == HungProcessSampler.OutcomeCaptured);
-
     /// <summary>One line for a failure message: where the stacks are, or why there are none.</summary>
     public string Describe()
     {
@@ -60,7 +57,6 @@ public static class HungProcessSampler
     public const string OutcomeProcessGone = "process-gone";
     public const string OutcomeNoPid = "no-pid";
     public const string OutcomeSkipped = "skipped";
-    public const string OutcomeToolFailed = "tool-failed";
 
     public const int SampleCount = 2;
     public static readonly TimeSpan HostDebuggerBound = TimeSpan.FromSeconds(60);
@@ -166,7 +162,7 @@ public static class HungProcessSampler
             var started = DateTimeOffset.Now;
             var clock = Stopwatch.StartNew();
             var text = new StringBuilder();
-            string tool = "-", outcome = OutcomeToolFailed;
+            string tool = "-", outcome = OutcomeNoBacktrace;
             foreach (var command in commands(id))
             {
                 tool = command.Arguments.Count > 0 && command.FileName == "xcrun" ? command.Arguments[0] : command.FileName;
@@ -211,13 +207,16 @@ public static class HungProcessSampler
 
     /// <summary>
     /// Runs <paramref name="command"/> with stdin closed, collects its output, and kills its whole
-    /// process tree if it is still running after <paramref name="bound"/>. Returns within the
-    /// bound plus a short drain.
+    /// process tree if it is still running after <paramref name="bound"/>. The output is drained
+    /// against the same deadline (plus a short grace), so a descendant that keeps the pipes open
+    /// after the command exits cannot hold the caller either.
     /// </summary>
     public static CommandRun RunBounded(Command command, TimeSpan bound)
     {
         var output = new StringBuilder();
         var gate = new object();
+        using var stdoutClosed = new ManualResetEventSlim();
+        using var stderrClosed = new ManualResetEventSlim();
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -230,27 +229,45 @@ public static class HungProcessSampler
         };
         foreach (var argument in command.Arguments)
             process.StartInfo.ArgumentList.Add(argument);
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) lock (gate) output.AppendLine(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) lock (gate) output.AppendLine(e.Data); };
+        process.OutputDataReceived += (_, e) =>
+        {
+            if (e.Data == null) stdoutClosed.Set();
+            else lock (gate) output.AppendLine(e.Data);
+        };
+        process.ErrorDataReceived += (_, e) =>
+        {
+            if (e.Data == null) stderrClosed.Set();
+            else lock (gate) output.AppendLine(e.Data);
+        };
+        var clock = Stopwatch.StartNew();
         process.Start();
         process.StandardInput.Close();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 
-        var exited = process.WaitForExit((int)bound.TotalMilliseconds);
-        if (!exited)
+        var exited = process.WaitForExit(bound);
+        if (exited)
         {
-            try { process.Kill(entireProcessTree: true); } catch { }
-            try { process.WaitForExit(5000); } catch { }
+            // EOF on both pipes by the deadline (at least a short grace after the exit): a descendant
+            // that outlives the command can keep them open, and that counts as an overrun.
+            var deadline = Max(bound, clock.Elapsed + TimeSpan.FromSeconds(2));
+            if (!stdoutClosed.Wait(Max(TimeSpan.Zero, deadline - clock.Elapsed)) ||
+                !stderrClosed.Wait(Max(TimeSpan.Zero, deadline - clock.Elapsed)))
+                exited = false;
+        }
+        int? exitCode = null;
+        if (exited)
+        {
+            try { exitCode = process.ExitCode; } catch { }
         }
         else
         {
-            // The parameterless wait returns once the redirected readers reach EOF.
-            try { process.WaitForExit(); } catch { }
+            try { process.Kill(entireProcessTree: true); } catch { }
+            try { process.WaitForExit(TimeSpan.FromSeconds(5)); } catch { }
         }
-        int? exitCode = null;
-        try { if (process.HasExited && exited) exitCode = process.ExitCode; } catch { }
         lock (gate)
             return new CommandRun(!exited, exitCode, output.ToString().TrimEnd());
     }
+
+    static TimeSpan Max(TimeSpan a, TimeSpan b) => a > b ? a : b;
 }

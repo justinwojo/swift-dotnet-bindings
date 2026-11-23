@@ -94,7 +94,6 @@ public sealed class HungProcessStacksTests : IDisposable
         Assert.All(stacks.Samples, s => Assert.Equal("/usr/bin/sample", s.Tool));
         // The refused attach stays in the sample, so the reason lldb failed is not lost.
         Assert.Contains("Not allowed to attach", stacks.Samples[0].Text);
-        Assert.True(stacks.Captured);
     }
 
     [Fact]
@@ -119,7 +118,6 @@ public sealed class HungProcessStacksTests : IDisposable
         Assert.Equal(1, runs);
         Assert.Equal(HungProcessSampler.OutcomeTimedOut, stacks.Samples[0].Outcome);
         Assert.Equal(HungProcessSampler.OutcomeSkipped, stacks.Samples[1].Outcome);
-        Assert.False(stacks.Captured);
     }
 
     [Fact]
@@ -153,6 +151,17 @@ public sealed class HungProcessStacksTests : IDisposable
 
         Assert.True(run.TimedOut);
         Assert.Null(run.ExitCode);
+        Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}");
+    }
+
+    [Fact]
+    public void RunBounded_DoesNotWaitOnADescendantThatHoldsTheOutputOpen()
+    {
+        var clock = Stopwatch.StartNew();
+        var run = HungProcessSampler.RunBounded(new HungProcessSampler.Command("/bin/sh", ["-c", "sleep 30 & echo started"]),
+            TimeSpan.FromSeconds(1));
+
+        Assert.True(run.TimedOut);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}");
     }
 
@@ -202,6 +211,23 @@ public sealed class HungProcessStacksTests : IDisposable
         Assert.Equal(4242, recorded.GetProperty("pid").GetInt32());
         Assert.Equal(new[] { "hung-stacks-1.txt", "hung-stacks-2.txt" },
             recorded.GetProperty("samples").EnumerateArray().Select(s => s.GetProperty("file").GetString()));
+    }
+
+    [Fact]
+    public void RecordLaunch_KeepsTheStallVerdictWhenTheStacksCannotBeWritten()
+    {
+        var stacks = new HungProcessStacks("app", 4242,
+            [new StackSample(1, DateTimeOffset.Now, TimeSpan.Zero, "lldb", HungProcessSampler.OutcomeCaptured, LldbBacktrace)]);
+        var attempts = new RuntimeTestAttempts(directory);
+        // A directory where the stack file goes makes its write fail.
+        Directory.CreateDirectory(Path.Combine(directory, $"00-{Token}", RuntimeTestAttempts.HungStacksFileName(1)));
+
+        Assert.ThrowsAny<IOException>(() =>
+            attempts.RecordLaunch(0, Token, new LaunchResult(TestResult.Timeout, "[TEST] --- A.B ---", 137, null, false, stacks)));
+
+        Assert.Equal(TestResult.Timeout, attempts.FirstProductFailure!.Result);
+        Assert.Equal(137, attempts.FirstProductFailure.ExitCode);
+        Assert.Same(stacks, attempts.FirstProductFailure.HungStacks);
     }
 
     [Fact]
