@@ -58,11 +58,13 @@ partial class Build
         Log.Information(" BindingTests — static library dependency ForceLoad");
         Log.Information("====================================================");
 
+        // Stages SwiftInterfaceParser, which the SDK package ships and the binding build runs; a
+        // fresh profile workspace has not built it yet.
+        EnsureGeneratorBuilt();
         var stagedBinary = SwiftInterfaceParserStagingDir / "SwiftInterfaceParser";
         if (!File.Exists(stagedBinary))
             throw new InvalidOperationException(
-                $"--static-dependency-force-load: expected SwiftInterfaceParser binary at '{stagedBinary}' but it is missing. " +
-                "Run `nuke compile` on a macOS host with the Swift toolchain installed before exercising this leg.");
+                $"--static-dependency-force-load: SwiftInterfaceParser is missing at '{stagedBinary}'.");
 
         var scratch = ForceLoadScratch;
         if (Directory.Exists(scratch)) scratch.DeleteDirectory();
@@ -419,7 +421,7 @@ partial class Build
                     {
                         {{MixedConsumerRuntimeBanner()}}
                         // The registry the wrapper links; its components register before managed code runs.
-                        Console.WriteLine("REGISTERED:[" + global::{{ForceLoadModule}}.ForceLoadProbe.RegisteredNames() + "]");
+                        Console.WriteLine("REGISTERED:[" + global::{{ForceLoadModule}}.ForceLoadProbe.GetRegisteredNames() + "]");
                         Console.WriteLine("RESULTS FLUSHED");
                         Console.WriteLine("TEST SUCCESS");
                     }
