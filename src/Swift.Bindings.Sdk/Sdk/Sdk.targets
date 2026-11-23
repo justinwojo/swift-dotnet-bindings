@@ -4294,7 +4294,7 @@ cat &gt; &quot;$(_SwiftBindingIntermediateDir)$(PackageId).targets&quot; &lt;&lt
   &lt;/ItemGroup&gt;
   &lt;Target Name=&quot;$(_CT_ValidateTarget)&quot; BeforeTargets=&quot;Build&quot;
           Condition=&quot;'\%24(SupportedOSPlatformVersion)' != '' AND \%24([System.Version]::Parse('\%24(SupportedOSPlatformVersion)').CompareTo(\%24([System.Version]::Parse('$(_SwiftBindingMinimumOSVersion)')))) &amp;lt; 0&quot;&gt;
-    &lt;Warning Text=&quot;$(PackageId) requires $(_SwiftBindingPlatform) $(_SwiftBindingMinimumOSVersion)+, but SupportedOSPlatformVersion is '\%24(SupportedOSPlatformVersion)'.&quot;
+    &lt;Warning Text=&quot;$(PackageId) requires $(_SwiftBindingPlatform) $(_SwiftBindingMinimumOSVersion)+, but SupportedOSPlatformVersion is '\%24(SupportedOSPlatformVersion)'. Update your project's SupportedOSPlatformVersion to at least $(_SwiftBindingMinimumOSVersion).&quot;
              Code=&quot;SWIFTBIND011&quot; /&gt;
   &lt;/Target&gt;
 &lt;/Project&gt;
