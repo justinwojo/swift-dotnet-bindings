@@ -3,6 +3,7 @@
 
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
+using SwiftBindingsTestLibDependency;
 
 namespace RuntimeTestsApp.Marshalling;
 
@@ -53,6 +54,48 @@ public class EnumPayloadEdgeCaseTests : TestBase
         AssertEqual(AuthErrorCodeLike.NetworkError, e, "the enum payload");
         using var built = RawTuplePayload.ObjcAlone(AuthErrorCodeLike.UserNotFound);
         AssertEqual("objcAlone:17011", TestLibFunctions.RawTuplePayloadName(built), "a payload built in C#");
+    }
+
+    public void TestDependencyObjCEnumInPayloadTuple()
+    {
+        using var value = TestLibFunctions.GetForeignRawTuplePayloadDependency();
+        AssertTrue(value.TryGetDependency(out var e, out var b), "the dependency case");
+        AssertEqual(DependencyObjCCode.High, e, "a dependency @objc enum read at its raw value's width");
+        AssertEqual((byte)45, b, "the byte after the eight-byte enum");
+        using var built = ForeignRawTuplePayload.Dependency(DependencyObjCCode.Mid, 8);
+        AssertEqual("dependency:7:8", TestLibFunctions.ForeignRawTuplePayloadName(built), "a payload built in C#");
+    }
+
+    public void TestDependencyObjCEnumAloneInPayload()
+    {
+        using var value = TestLibFunctions.GetForeignRawTuplePayloadDependencyAlone();
+        AssertTrue(value.TryGetDependencyAlone(out var e), "the dependencyAlone case");
+        AssertEqual(DependencyObjCCode.Low, e, "a lone dependency @objc enum read whole");
+        using var built = ForeignRawTuplePayload.DependencyAlone(DependencyObjCCode.High);
+        AssertEqual("dependencyAlone:300", TestLibFunctions.ForeignRawTuplePayloadName(built), "a payload built in C#");
+    }
+
+    /// <summary>
+    /// An ObjC NS_ENUM from an Apple framework in a Swift payload: Swift stores it as its raw value,
+    /// so <c>.orderedAscending</c> (-1) reads back only at the raw type's full width.
+    /// </summary>
+    public void TestAppleNSEnumInPayloadTuple()
+    {
+        using var value = TestLibFunctions.GetForeignRawTuplePayloadComparison();
+        AssertTrue(value.TryGetComparison(out var e, out var b), "the comparison case");
+        AssertEqual(Foundation.NSComparisonResult.Ascending, e, "an Apple NS_ENUM read at its raw value's width");
+        AssertEqual((byte)46, b, "the byte after the eight-byte enum");
+        using var built = ForeignRawTuplePayload.Comparison(Foundation.NSComparisonResult.Descending, 9);
+        AssertEqual("comparison:1:9", TestLibFunctions.ForeignRawTuplePayloadName(built), "a payload built in C#");
+    }
+
+    public void TestAppleNSEnumAloneInPayload()
+    {
+        using var value = TestLibFunctions.GetForeignRawTuplePayloadComparisonAlone();
+        AssertTrue(value.TryGetComparisonAlone(out var e), "the comparisonAlone case");
+        AssertEqual(Foundation.NSComparisonResult.Ascending, e, "a lone Apple NS_ENUM read whole");
+        using var built = ForeignRawTuplePayload.ComparisonAlone(Foundation.NSComparisonResult.Ascending);
+        AssertEqual("comparisonAlone:-1", TestLibFunctions.ForeignRawTuplePayloadName(built), "a payload built in C#");
     }
 
     public void TestCaseNamedPayloadKeepsTheHandle()

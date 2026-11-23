@@ -23,13 +23,13 @@
             <typedeclaration kind="struct" name="MTLResourceOptions" module="Metal" frozen="true" requiresMemoryManagement="false" />
         </entity>
         <entity managedNameSpace="Metal" managedTypeName="MTLPixelFormat">
-            <typedeclaration kind="enum" name="MTLPixelFormat" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="enum" name="MTLPixelFormat" module="Metal" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
         <entity managedNameSpace="Metal" managedTypeName="MTLPrimitiveType">
-            <typedeclaration kind="enum" name="MTLPrimitiveType" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="enum" name="MTLPrimitiveType" module="Metal" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
         <entity managedNameSpace="Metal" managedTypeName="MTLStorageMode">
-            <typedeclaration kind="enum" name="MTLStorageMode" module="Metal" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="UInt" />
+            <typedeclaration kind="enum" name="MTLStorageMode" module="Metal" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="UInt" />
         </entity>
     </entities>
 </swifttypedatabase>

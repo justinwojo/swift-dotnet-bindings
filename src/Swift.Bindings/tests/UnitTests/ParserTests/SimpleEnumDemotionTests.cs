@@ -245,6 +245,36 @@ public class SimpleEnumDemotionTests
     }
 
     [Theory]
+    [InlineData(false, "Int", SimpleEnumStorage.CaseTag)]
+    [InlineData(true, "Int", SimpleEnumStorage.RawValue)]
+    [InlineData(false, null, SimpleEnumStorage.CaseTag)]
+    public void SimpleEnum_RecordsHowSwiftStoresIt(bool isObjC, string? rawValueType, SimpleEnumStorage expected)
+    {
+        // An @objc enum is a C enum, stored as its raw value; any other Swift enum stores its case
+        // tag. The record says which for every simple enum, so a module binding against this one reads
+        // a payload slot holding it at the right width without a parse of it.
+        var enumDecl = CreateEnumDecl("Shade", "TestModule", isFrozen: true);
+        enumDecl.RawValueTypeName = rawValueType;
+        enumDecl.IsObjC = isObjC;
+        enumDecl.Cases = new List<EnumCaseDecl>
+        {
+            new EnumCaseDecl { Name = "light", RawValue = rawValueType is null ? null : "1", MangledName = "$s_light", ParentDecl = null, ModuleDecl = null },
+            new EnumCaseDecl { Name = "dark", RawValue = rawValueType is null ? null : "2", MangledName = "$s_dark", ParentDecl = null, ModuleDecl = null },
+        };
+        var typeDecls = new Dictionary<NamedTypeSpec, TypeDecl>
+        {
+            [new NamedTypeSpec("TestModule.Shade")] = enumDecl,
+        };
+
+        var processor = new ModuleProcessor("TestModule", "/tmp/dummy.dylib", "TestModule", typeDecls, new TypeDatabase(), NullLogger.Instance);
+        var result = processor.FinalizeTypeProcessingAndCreateModuleDatabase();
+
+        Assert.True(result.ModuleDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName("TestModule.Shade"), out var record));
+        Assert.True(record!.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
+        Assert.Equal(expected, record.SimpleEnumStorage);
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public void IntRawValueEnum_CrossesAsCaseTagOnlyWhileASimpleEnum(bool usedAsConstrainedGenericArg)

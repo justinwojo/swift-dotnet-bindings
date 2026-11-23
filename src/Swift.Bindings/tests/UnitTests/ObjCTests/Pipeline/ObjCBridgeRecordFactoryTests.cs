@@ -103,6 +103,8 @@ public class ObjCBridgeRecordFactoryTests
         Assert.Equal(TypeRecordKind.Enum, record.Kind);
         Assert.True(record.Flags.HasFlag(TypeRecordFlags.SimpleEnum));
         Assert.False(MarshallingHelpers.IsObjCBridged(record));
+        // A C enum: Swift stores it as its raw value, so a payload slot holding one is read whole.
+        Assert.Equal(SimpleEnumStorage.RawValue, record.SimpleEnumStorage);
     }
 
     [Fact]

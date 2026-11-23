@@ -5620,6 +5620,60 @@ public class EnumHandlerOutputTests
             Assert.Matches($@"{cast}\(?enumCopy", read);
     }
 
+    /// <summary>
+    /// A record that says how Swift stores the enum (<see cref="TypeRecord.SimpleEnumStorage"/>) is
+    /// read at that width with no parse of the enum: an <c>@objc</c> enum of a dependency or an
+    /// Apple NS_ENUM, stored as its raw value, is read whole, and a plain Swift enum of a dependency,
+    /// stored as its tag, keeps the tag read even when its raw value is integral.
+    /// </summary>
+    [Theory]
+    [InlineData("OtherModule.Code", SimpleEnumStorage.RawValue, "Int", "long", true, true)]
+    [InlineData("OtherModule.Code", SimpleEnumStorage.RawValue, "Int", "long", false, true)]
+    [InlineData("Foundation.Code", SimpleEnumStorage.RawValue, "Int", "long", true, true)]
+    [InlineData("Foundation.Code", SimpleEnumStorage.RawValue, "UInt8", "byte", false, true)]
+    [InlineData("OtherModule.Code", SimpleEnumStorage.CaseTag, "Int", "long", true, false)]
+    [InlineData("OtherModule.Code", SimpleEnumStorage.CaseTag, "Int", "long", false, false)]
+    public void Emit_SimpleEnumPayload_ReadsAtTheWidthItsRecordSaysSwiftStoresIt(
+        string recordName, SimpleEnumStorage storage, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var recordModule = recordName.Substring(0, recordName.IndexOf('.'));
+        var csNamespace = recordName.Substring(0, recordName.LastIndexOf('.'));
+        var enumModule = new ModuleTypeDatabase(recordModule, $"/tmp/{recordModule}.dylib");
+        enumModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(recordName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, "Code"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName),
+                MetadataAccessor = "$s4Code4CodeOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = rawValueType,
+                SimpleEnumStorage = storage,
+            });
+        typeDatabase.AddModuleDatabase(enumModule);
+        typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("OwnModule", "/tmp/OwnModule.dylib"));
+
+        var moduleDecl = CreateModuleDecl("OwnModule");
+        var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
+        var failed = CreateCase("failed");
+        failed.AssociatedValues.Add(inTuple
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec(recordName), new NamedTypeSpec("Swift.Int") })
+            : new NamedTypeSpec(recordName));
+        enumDecl.Cases.Add(failed);
+        enumDecl.Cases.Add(CreateCase("succeeded"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = csOutput.Replace("global::", string.Empty);
+        var cast = $@"value0? = \({Regex.Escape(csNamespace)}\.Code\)\(\*";
+        if (readsRawValue)
+            Assert.Matches($@"{cast}\({csScalar}\*\)\(enumCopy", read);
+        else
+            Assert.Matches($@"{cast}\(?enumCopy", read);
+    }
+
     [Theory]
     [InlineData("CGFloat", "double")]
     [InlineData("Double", "double")]

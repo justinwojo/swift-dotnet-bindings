@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 import Foundation
+import SwiftBindingsTestLibDependency
 
 // MARK: - Simple enums inside a payload tuple
 //
@@ -28,6 +29,34 @@ public func rawTuplePayloadName(_ value: RawTuplePayload) -> String {
     case .small(let e, let b): return "small:\(e.rawValue):\(b)"
     case .objc(let e, let b): return "objc:\(e.rawValue):\(b)"
     case .objcAlone(let e): return "objcAlone:\(e.rawValue)"
+    case .empty: return "empty"
+    }
+}
+
+// MARK: - C enums from other modules inside a payload
+
+// The same layouts with a C enum this module does not declare: an `@objc` enum of the dependency
+// module and Foundation's `ComparisonResult` (NS_ENUM). Both are stored as their raw value, eight
+// bytes, so the byte after the enum sits at offset 8, and `-1` and `300` read back only at full width.
+
+public enum ForeignRawTuplePayload {
+    case dependency(DependencyObjCCode, UInt8)
+    case dependencyAlone(DependencyObjCCode)
+    case comparison(ComparisonResult, UInt8)
+    case comparisonAlone(ComparisonResult)
+    case empty
+}
+
+public func foreignRawTuplePayloadDependency() -> ForeignRawTuplePayload { .dependency(.high, 45) }
+public func foreignRawTuplePayloadDependencyAlone() -> ForeignRawTuplePayload { .dependencyAlone(.low) }
+public func foreignRawTuplePayloadComparison() -> ForeignRawTuplePayload { .comparison(.orderedAscending, 46) }
+public func foreignRawTuplePayloadComparisonAlone() -> ForeignRawTuplePayload { .comparisonAlone(.orderedAscending) }
+public func foreignRawTuplePayloadName(_ value: ForeignRawTuplePayload) -> String {
+    switch value {
+    case .dependency(let e, let b): return "dependency:\(e.rawValue):\(b)"
+    case .dependencyAlone(let e): return "dependencyAlone:\(e.rawValue)"
+    case .comparison(let e, let b): return "comparison:\(e.rawValue):\(b)"
+    case .comparisonAlone(let e): return "comparisonAlone:\(e.rawValue)"
     case .empty: return "empty"
     }
 }

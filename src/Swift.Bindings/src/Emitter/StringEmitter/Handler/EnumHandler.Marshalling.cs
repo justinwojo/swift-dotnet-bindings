@@ -1002,19 +1002,29 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Whether Swift is known to store a simple enum as its raw value rather than as its case tag:
-        /// the parse holds an <c>@objc</c> declaration of it (<see cref="EnumDecl.IsObjC"/>), and an
-        /// <c>@objc</c> enum is a C enum stored as its raw value. A record alone does not say so:
-        /// <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/> also holds for a plain
-        /// <c>enum E: Int</c> read from a module database written before <c>rawValueCrossesAsCaseTag</c>
-        /// existed (every released one), stored as a one-byte tag, and neither the record's module
-        /// nor a parsed extension of the type tells the two apart. Every enum without such a
-        /// declaration keeps the stored-tag read it always had.
+        /// Whether Swift stores a simple enum as its raw value rather than as its case tag. The record
+        /// says so (<see cref="TypeRecord.SimpleEnumStorage"/>) for every simple enum this version
+        /// records, wherever its module: an <c>@objc</c> enum of the module being bound or of a
+        /// dependency, an ObjC NS_ENUM, an Apple enum. A record from a module database written before
+        /// that field (<see cref="SimpleEnumStorage.Unknown"/>) cannot tell an <c>@objc</c> enum from a
+        /// plain <c>enum E: Int</c> stored as a one-byte tag, since
+        /// <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/> holds for both there; such an
+        /// enum is read as its raw value only when the parse holds an <c>@objc</c> declaration of it
+        /// (<see cref="EnumDecl.IsObjC"/>), and keeps the stored-tag read it always had otherwise.
         /// </summary>
         private static bool IsStoredAsRawValue(TypeRecord typeRecord, ModuleDecl? moduleDecl)
-            => moduleDecl is not null
-               && SimpleEnumCrossing.CrossesAsRawValue(typeRecord)
-               && DeclaresObjCEnum(moduleDecl.Types, typeRecord.SwiftTypeName.ModuleQualifiedName);
+        {
+            if (!CdeclParamMapper.HasCdeclScalarRawValue(typeRecord.RawValueTypeName))
+                return false;
+            return typeRecord.SimpleEnumStorage switch
+            {
+                SimpleEnumStorage.RawValue => true,
+                SimpleEnumStorage.CaseTag => false,
+                _ => moduleDecl is not null
+                     && SimpleEnumCrossing.CrossesAsRawValue(typeRecord)
+                     && DeclaresObjCEnum(moduleDecl.Types, typeRecord.SwiftTypeName.ModuleQualifiedName),
+            };
+        }
 
         private static bool DeclaresObjCEnum(IEnumerable<TypeDecl> types, string moduleQualifiedName)
         {

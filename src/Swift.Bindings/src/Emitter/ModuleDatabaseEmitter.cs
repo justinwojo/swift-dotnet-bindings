@@ -230,6 +230,11 @@ namespace BindingsGeneration
             if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0 && record.HasCaseFloorGuard)
                 writer.WriteAttributeString("hasCaseFloorGuard", "true");
 
+            // How Swift stores a simple enum in memory (TypeRecord.SimpleEnumStorage), written for every
+            // simple enum so a consumer reads a payload slot holding one at the right width.
+            if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0 && record.SimpleEnumStorage != SimpleEnumStorage.Unknown)
+                writer.WriteAttributeString("storedAs", TypeDatabase.FormatSimpleEnumStorage(record.SimpleEnumStorage));
+
             // A simple enum whose values cross as the case tag, not .rawValue (EnumDecl.CrossesAsCaseTag).
             if ((record.Flags & TypeRecordFlags.SimpleEnum) != 0 && record.RawValueCrossesAsCaseTag)
             {

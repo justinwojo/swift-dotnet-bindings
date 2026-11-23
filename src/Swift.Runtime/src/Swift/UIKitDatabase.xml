@@ -8,7 +8,7 @@
             <typedeclaration kind="class" name="UIColor" module="UIKit" mangledName="$sSo7UIColorC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIKeyboardType">
-            <typedeclaration kind="enum" name="UIKeyboardType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIKeyboardType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIEdgeInsets">
             <typedeclaration kind="struct" name="UIEdgeInsets" module="UIKit" mangledName="$sSo12UIEdgeInsetsV" frozen="true" requiresMemoryManagement="false" />
@@ -20,31 +20,31 @@
             <typedeclaration kind="class" name="UIImageView" module="UIKit" mangledName="$sSo11UIImageViewC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIViewContentMode">
-            <typedeclaration kind="enum" name="UIView.ContentMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIView.ContentMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIBarStyle">
-            <typedeclaration kind="enum" name="UIBarStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBarStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIKeyboardAppearance">
-            <typedeclaration kind="enum" name="UIKeyboardAppearance" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIKeyboardAppearance" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextFieldViewMode">
-            <typedeclaration kind="enum" name="UITextField.ViewMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextField.ViewMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIActivityIndicatorViewStyle">
-            <typedeclaration kind="enum" name="UIActivityIndicatorView.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIActivityIndicatorView.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIBlurEffectStyle">
-            <typedeclaration kind="enum" name="UIBlurEffect.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBlurEffect.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewStyle">
-            <typedeclaration kind="enum" name="UITableView.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableView.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIModalPresentationStyle">
-            <typedeclaration kind="enum" name="UIModalPresentationStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIModalPresentationStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIUserInterfaceStyle">
-            <typedeclaration kind="enum" name="UIUserInterfaceStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIUserInterfaceStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIControlState">
             <typedeclaration kind="struct" name="UIControl.State" module="UIKit" mangledName="" frozen="true" requiresMemoryManagement="false" />
@@ -69,128 +69,128 @@
         </entity>
         <!-- NS_ENUM types (Int raw value) -->
         <entity managedNameSpace="UIKit" managedTypeName="UILineBreakMode">
-            <typedeclaration kind="enum" name="NSLineBreakMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="NSLineBreakMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextAlignment">
-            <typedeclaration kind="enum" name="NSTextAlignment" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="NSTextAlignment" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSWritingDirection">
-            <typedeclaration kind="enum" name="NSWritingDirection" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="NSWritingDirection" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIAlertActionStyle">
-            <typedeclaration kind="enum" name="UIAlertAction.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIAlertAction.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIAlertControllerStyle">
-            <typedeclaration kind="enum" name="UIAlertController.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIAlertController.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIBarButtonItemStyle">
-            <typedeclaration kind="enum" name="UIBarButtonItem.Style" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBarButtonItem.Style" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIBarPosition">
-            <typedeclaration kind="enum" name="UIBarPosition" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBarPosition" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UICollectionViewScrollDirection">
-            <typedeclaration kind="enum" name="UICollectionView.ScrollDirection" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UICollectionView.ScrollDirection" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIDatePickerMode">
-            <typedeclaration kind="enum" name="UIDatePicker.Mode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIDatePicker.Mode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIGestureRecognizerState">
-            <typedeclaration kind="enum" name="UIGestureRecognizer.State" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIGestureRecognizer.State" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIImageResizingMode">
-            <typedeclaration kind="enum" name="UIImage.ResizingMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIImage.ResizingMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIModalTransitionStyle">
-            <typedeclaration kind="enum" name="UIModalTransitionStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIModalTransitionStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UINavigationControllerOperation">
-            <typedeclaration kind="enum" name="UINavigationController.Operation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UINavigationController.Operation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UINavigationItemLargeTitleDisplayMode">
-            <typedeclaration kind="enum" name="UINavigationItem.LargeTitleDisplayMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UINavigationItem.LargeTitleDisplayMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIPageViewControllerNavigationDirection">
-            <typedeclaration kind="enum" name="UIPageViewController.NavigationDirection" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIPageViewController.NavigationDirection" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIPageViewControllerNavigationOrientation">
-            <typedeclaration kind="enum" name="UIPageViewController.NavigationOrientation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIPageViewController.NavigationOrientation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIPageViewControllerSpineLocation">
-            <typedeclaration kind="enum" name="UIPageViewController.SpineLocation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIPageViewController.SpineLocation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIPageViewControllerTransitionStyle">
-            <typedeclaration kind="enum" name="UIPageViewController.TransitionStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIPageViewController.TransitionStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIReturnKeyType">
-            <typedeclaration kind="enum" name="UIReturnKeyType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIReturnKeyType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIScrollViewIndicatorStyle">
-            <typedeclaration kind="enum" name="UIScrollView.IndicatorStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIScrollView.IndicatorStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIScrollViewKeyboardDismissMode">
-            <typedeclaration kind="enum" name="UIScrollView.KeyboardDismissMode" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIScrollView.KeyboardDismissMode" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UISemanticContentAttribute">
-            <typedeclaration kind="enum" name="UISemanticContentAttribute" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UISemanticContentAttribute" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIStatusBarAnimation">
-            <typedeclaration kind="enum" name="UIStatusBarAnimation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIStatusBarAnimation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIStatusBarStyle">
-            <typedeclaration kind="enum" name="UIStatusBarStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIStatusBarStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewRowAnimation">
-            <typedeclaration kind="enum" name="UITableView.RowAnimation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableView.RowAnimation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewCellAccessory">
-            <typedeclaration kind="enum" name="UITableViewCell.AccessoryType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableViewCell.AccessoryType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewCellStyle">
-            <typedeclaration kind="enum" name="UITableViewCell.CellStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableViewCell.CellStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewCellEditingStyle">
-            <typedeclaration kind="enum" name="UITableViewCell.EditingStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableViewCell.EditingStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITableViewCellSelectionStyle">
-            <typedeclaration kind="enum" name="UITableViewCell.SelectionStyle" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITableViewCell.SelectionStyle" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextAutocapitalizationType">
-            <typedeclaration kind="enum" name="UITextAutocapitalizationType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextAutocapitalizationType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextAutocorrectionType">
-            <typedeclaration kind="enum" name="UITextAutocorrectionType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextAutocorrectionType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextFieldDidEndEditingReason">
-            <typedeclaration kind="enum" name="UITextField.DidEndEditingReason" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextField.DidEndEditingReason" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextLayoutDirection">
-            <typedeclaration kind="enum" name="UITextLayoutDirection" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextLayoutDirection" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITextSpellCheckingType">
-            <typedeclaration kind="enum" name="UITextSpellCheckingType" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITextSpellCheckingType" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIUserInterfaceIdiom">
-            <typedeclaration kind="enum" name="UIUserInterfaceIdiom" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIUserInterfaceIdiom" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIUserInterfaceLayoutDirection">
-            <typedeclaration kind="enum" name="UIUserInterfaceLayoutDirection" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIUserInterfaceLayoutDirection" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIViewAnimationCurve">
-            <typedeclaration kind="enum" name="UIView.AnimationCurve" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIView.AnimationCurve" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIInterfaceOrientation">
-            <typedeclaration kind="enum" name="UIInterfaceOrientation" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIInterfaceOrientation" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UIBackgroundRefreshStatus">
-            <typedeclaration kind="enum" name="UIBackgroundRefreshStatus" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBackgroundRefreshStatus" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <!-- NS_ENUM types (UInt raw value) -->
         <entity managedNameSpace="UIKit" managedTypeName="UIBarButtonSystemItem">
-            <typedeclaration kind="enum" name="UIBarButtonItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UIBarButtonItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="UIKit" managedTypeName="UITabBarSystemItem">
-            <typedeclaration kind="enum" name="UITabBarItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="UITabBarItem.SystemItem" module="UIKit" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <!-- NS_OPTIONS / bitmask types (struct) -->
         <entity managedNameSpace="UIKit" managedTypeName="UIAccessibilityTraits">

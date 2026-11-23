@@ -554,3 +554,12 @@ public enum DependencyRawCode: Int {
 public func dependencyRawCodeValue(_ code: DependencyRawCode) -> Int {
     return code.rawValue
 }
+
+/// An `@objc` dependency enum: a C enum, which Swift stores as its whole raw value (eight bytes),
+/// where a plain `enum: Int` stores a one-byte case tag. A module whose payload tuple holds one
+/// reads it at the right width only if the dependency's records say how the enum is stored.
+@objc public enum DependencyObjCCode: Int {
+    case low = -2
+    case mid = 7
+    case high = 300
+}

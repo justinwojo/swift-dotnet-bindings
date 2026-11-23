@@ -56,7 +56,7 @@
         <!-- CGBlendMode — integer enum -->
         <entity managedNameSpace="CoreGraphics" managedTypeName="CGBlendMode">
             <typedeclaration kind="enum" name="CGBlendMode" module="CoreGraphics"
-                             frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int32" />
+                             frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int32" />
         </entity>
     </entities>
 </swifttypedatabase>
