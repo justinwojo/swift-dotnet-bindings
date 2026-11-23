@@ -388,6 +388,194 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("NoSuchKit", args);
         }
 
+        [Fact]
+        public void BridgeLink_LibraryTypeDependency_IsKeptResolvedAndLinked()
+        {
+            // The SwiftUI bridge links the primary as the wrapper does, so a static primary's calls into
+            // a library-type dependency need that library on the bridge link line too. The bridge's
+            // dependency filter keeps what has a module to resolve and skips the binding wrappers the SDK
+            // also passes; a library-type xcframework has no .framework at all and must still be kept.
+            using var layout = new Layout();
+            var slice = layout.LibraryXcframework(
+                "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
+            var libraryXcfw = Path.GetDirectoryName(slice)!;
+            var bindingWrapper = Path.Combine(layout.Root, "DepCoreSwiftBindings.xcframework");
+            var wrapperFramework = Path.Combine(bindingWrapper, "ios-arm64-simulator", "DepCoreSwiftBindings.framework");
+            Directory.CreateDirectory(wrapperFramework);
+            File.WriteAllBytes(Path.Combine(wrapperFramework, "DepCoreSwiftBindings"), MachOMagic);
+            File.WriteAllText(Path.Combine(bindingWrapper, "Info.plist"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>DepCoreSwiftBindings.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+
+            var selected = BindingsGenerator.SelectBridgeLinkDependencies(
+                new[] { libraryXcfw, bindingWrapper, Path.Combine(layout.Root, "Missing.xcframework") },
+                NullLogger.Instance);
+            Assert.Equal(new[] { libraryXcfw }, selected);
+
+            var primary = new XCFrameworkResolution
+            {
+                AbiJsonPath = "/abi.json",
+                DylibPath = "/dylib",
+                TbdPath = "/tbd",
+                ModuleName = "Primary",
+                XCFrameworkPath = "/path/to/Primary.xcframework",
+                FrameworkSearchPath = "/path/to/Primary.xcframework/ios-arm64-simulator",
+                LibraryIdentifier = "ios-arm64-simulator",
+                IsSimulatorSlice = true,
+                SelectedArchitecture = "arm64",
+                SupportedArchitectures = new[] { "arm64" },
+            };
+            var resolved = BindingsGenerator.ResolveFrameworkDependencies(
+                selected.ToArray(), primary, primary.XCFrameworkPath, "simulator",
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+            Assert.NotNull(resolved);
+            var bridgeSearchPaths = resolved!
+                .Select(d => d.SimulatorFrameworkSearchPath)
+                .OfType<string>()
+                .ToList();
+
+            // The bridge compile passes exactly these as its additional search paths.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
+                SimTriple, layout.Sdk, primary.FrameworkSearchPath, runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: bridgeSearchPaths, originalModuleName: "Primary");
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains($"-Xlinker \"{Path.Combine(slice, "DepCore.a")}\"", args);
+            Assert.Contains("-Xlinker -framework -Xlinker Metal ", args);
+            Assert.Contains("-lc++abi ", args);
+        }
+
+        [Fact]
+        public void ForceLoadDependency_LinksOnlyThatArchiveInFull_OnBothLinkers()
+        {
+            using var layout = new Layout();
+            var forced = layout.LibraryXcframework("DepCore", "DepCore.a", ArMagic, null);
+            var lazy = layout.LibraryXcframework("DepOther", "DepOther.a", ArMagic, null);
+            var forcedXcfw = Path.GetDirectoryName(forced)!;
+            var forcedArchive = Path.Combine(forced, "DepCore.a");
+            var lazyArchive = Path.Combine(lazy, "DepOther.a");
+
+            var inputs = DependencyLinkInputs.CollectLibraryLinkInputs(new[] { forced, lazy }, new[] { forcedXcfw + "/" });
+            Assert.Equal(
+                new[] { new DependencyLinkInputs.LibraryLinkInput(forcedArchive, true), new DependencyLinkInputs.LibraryLinkInput(lazyArchive, false) },
+                inputs);
+
+            var swiftc = new MockCommandRunner();
+            swiftc.SetResponse("swiftc", 0, "");
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                new List<string> { "/tmp/a.swift" }, "/tmp/out/Binary", "TestSwiftBindings",
+                SimTriple, layout.Sdk, "/fw/search", swiftc, NullLogger.Instance,
+                additionalFrameworkSearchPaths: new[] { forced, lazy },
+                forceLoadDependencies: new[] { forcedXcfw });
+            var swiftcArgs = swiftc.Invocations[0].Arguments;
+            Assert.Contains($"-Xlinker -force_load -Xlinker \"{forcedArchive}\" ", swiftcArgs);
+            Assert.Equal(1, Count(swiftcArgs, forcedArchive));
+            Assert.Contains($"-Xlinker \"{lazyArchive}\" ", swiftcArgs);
+            Assert.DoesNotContain($"-force_load -Xlinker \"{lazyArchive}\"", swiftcArgs);
+
+            var clang = new MockCommandRunner();
+            NativeThunkCompiler.LinkWithClang(
+                new[] { "/tmp/thunks.o" }, "/tmp/out/Binary", "TestSwiftBindings",
+                SimTriple, layout.Sdk, clang, NullLogger.Instance,
+                originalModuleName: "OrigMod",
+                transitiveFrameworkSearchPaths: new[] { forced, lazy },
+                forceLoadDependencies: new[] { forcedXcfw });
+            var clangArgs = clang.Invocations[0].Arguments;
+            // -Xlinker carries the path as one argument; clang would split a -Wl, value at its commas.
+            Assert.Contains($"-Xlinker -force_load -Xlinker \"{forcedArchive}\" ", clangArgs);
+            Assert.DoesNotContain("-Wl,-force_load", clangArgs);
+            Assert.Equal(1, Count(clangArgs, forcedArchive));
+            Assert.Contains($" \"{lazyArchive}\" ", clangArgs);
+            Assert.DoesNotContain($"-force_load -Xlinker \"{lazyArchive}\"", clangArgs);
+        }
+
+        [Fact]
+        public void ForceLoadDependency_StaticLibraryTypeDependency_IsAccepted()
+        {
+            using var layout = new Layout();
+            var xcfw = Path.GetDirectoryName(layout.LibraryXcframework("DepCore", "DepCore.a", ArMagic, null))!;
+            var logger = new CapturingLogger();
+
+            Assert.True(DependencyLinkInputs.ValidateForceLoadDependencies(new[] { xcfw }, new[] { xcfw }, logger));
+            Assert.Empty(logger.Entries);
+            Assert.True(DependencyLinkInputs.ValidateForceLoadDependencies(null, new[] { xcfw }, logger));
+        }
+
+        [Theory]
+        [InlineData("framework", "framework-type xcframework")]
+        [InlineData("dynamic", "not a static archive")]
+        [InlineData("undeclared", "not also passed as a --framework-dependency")]
+        [InlineData("not-an-xcframework", "no Info.plist")]
+        public void ForceLoadDependency_ItCannotApplyTo_IsRefusedWithSwiftbind142(string kind, string reason)
+        {
+            using var layout = new Layout();
+            string xcfw = kind switch
+            {
+                "framework" => FrameworkXcframework(layout.Root, "FwDep"),
+                "dynamic" => Path.GetDirectoryName(layout.LibraryXcframework("DepDyn", "libDepDyn.dylib", MachOMagic, null))!,
+                "undeclared" => Path.GetDirectoryName(layout.LibraryXcframework("DepCore", "DepCore.a", ArMagic, null))!,
+                _ => Directory.CreateDirectory(Path.Combine(layout.Root, "Loose.xcframework")).FullName,
+            };
+            var declared = kind == "undeclared" ? Array.Empty<string>() : new[] { xcfw };
+            var logger = new CapturingLogger();
+
+            Assert.False(DependencyLinkInputs.ValidateForceLoadDependencies(new[] { xcfw }, declared, logger));
+
+            var entry = Assert.Single(logger.Entries);
+            Assert.Equal(Microsoft.Extensions.Logging.LogLevel.Error, entry.Level);
+            Assert.StartsWith("SWIFTBIND142:", entry.Message);
+            Assert.Contains(xcfw, entry.Message);
+            Assert.Contains(reason, entry.Message);
+        }
+
+        // A framework-type xcframework: its slice ships a .framework bundle, as a Swift dependency's does.
+        private static string FrameworkXcframework(string root, string name)
+        {
+            var xcfw = Path.Combine(root, name + ".xcframework");
+            var fw = Path.Combine(xcfw, "ios-arm64-simulator", name + ".framework");
+            Directory.CreateDirectory(fw);
+            File.WriteAllBytes(Path.Combine(fw, name), ArMagic);
+            File.WriteAllText(Path.Combine(xcfw, "Info.plist"), $$"""
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>{{name}}.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+            return xcfw;
+        }
+
         private static int Count(string haystack, string needle)
         {
             int count = 0, i = 0;
@@ -506,6 +694,112 @@ namespace BindingsGeneration.Tests
             {
                 try { Directory.Delete(dir, true); } catch { /* best effort */ }
             }
+        }
+
+        /// <summary>
+        /// A library-type dependency whose component registers itself from a static initializer and is
+        /// referenced by nothing else: the linker keeps only archive members that resolve a referenced
+        /// symbol, so the lazily linked wrapper loses the component, and <c>ForceLoad</c> keeps it. The
+        /// registry member is referenced (the wrapper's primary calls it), the component member is not.
+        /// </summary>
+        [Fact]
+        public void SelfRegisteringComponent_IsInTheWrapperOnlyWhenItsDependencyIsForceLoaded()
+        {
+            if (!IsMacOS) return;
+            var runner = new SystemCommandRunner();
+            var (sdkExit, sdkOut, _) = runner.Run("xcrun", "--sdk iphonesimulator --show-sdk-path", timeoutMs: 30000);
+            var sdk = sdkOut?.Trim();
+            if (sdkExit != 0 || string.IsNullOrEmpty(sdk) || !Directory.Exists(sdk))
+                return; // no simulator SDK — environmental skip
+
+            var arch = RuntimeInformation.ProcessArchitecture == Architecture.X64 ? "x86_64" : "arm64";
+            var triple = $"{arch}-apple-ios15.0-simulator";
+            var dir = Path.Combine(Path.GetTempPath(), $"deplink_fl_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var xcfw = Path.Combine(dir, "Registry.xcframework");
+                var slice = Path.Combine(xcfw, $"ios-{arch}-simulator");
+                Directory.CreateDirectory(Path.Combine(slice, "Headers"));
+                File.WriteAllText(Path.Combine(xcfw, "Info.plist"), $$"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>AvailableLibraries</key>
+                        <array>
+                            <dict>
+                                <key>HeadersPath</key><string>Headers</string>
+                                <key>LibraryIdentifier</key><string>ios-{{arch}}-simulator</string>
+                                <key>LibraryPath</key><string>Registry.a</string>
+                                <key>SupportedArchitectures</key><array><string>{{arch}}</string></array>
+                                <key>SupportedPlatform</key><string>ios</string>
+                                <key>SupportedPlatformVariant</key><string>simulator</string>
+                            </dict>
+                        </array>
+                        <key>CFBundlePackageType</key><string>XFWK</string>
+                        <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                    </dict>
+                    </plist>
+                    """);
+                var registryC = Path.Combine(dir, "registry.c");
+                File.WriteAllText(registryC,
+                    "static int count;\nvoid sbFlRegister(void) { count++; }\nint sbFlCount(void) { return count; }\n");
+                var componentC = Path.Combine(dir, "component.c");
+                File.WriteAllText(componentC,
+                    "extern void sbFlRegister(void);\n" +
+                    "__attribute__((constructor)) static void sbFlComponentInit(void) { sbFlRegister(); }\n" +
+                    "int sbFlComponentMarker(void) { return 7; }\n");
+                BuildArchive(runner, triple, sdk, new[] { registryC, componentC }, Path.Combine(slice, "Registry.a"));
+
+                var primaryC = Path.Combine(dir, "primary.c");
+                File.WriteAllText(primaryC, "extern int sbFlCount(void);\nint sbFlPrimaryCount(void) { return sbFlCount(); }\n");
+                var primaryArchive = Path.Combine(dir, "libPrimary.a");
+                BuildArchive(runner, triple, sdk, primaryC, primaryArchive);
+                var wrapperSwift = Path.Combine(dir, "Probe.swift");
+                File.WriteAllText(wrapperSwift, "public func forceLoadProbe() -> Int { 1 }\n");
+
+                string Defined(string name, IReadOnlyCollection<string>? forceLoad)
+                {
+                    var outBin = Path.Combine(dir, name);
+                    SwiftWrapperCompiler.InvokeSwiftCompiler(
+                        new List<string> { wrapperSwift }, outBin, "ForceLoadProbeBindings",
+                        triple, sdk, dir, runner, NullLogger.Instance,
+                        additionalFrameworkSearchPaths: new[] { slice },
+                        forceLoadBinaries: new[] { primaryArchive },
+                        forceLoadDependencies: forceLoad);
+                    var (_, defined, _) = runner.Run("nm", $"-gU \"{outBin}\"", timeoutMs: 30000);
+                    return defined;
+                }
+
+                var lazy = Defined("lazy.dylib", null);
+                Assert.Contains("_sbFlCount", lazy);
+                Assert.DoesNotContain("_sbFlComponentMarker", lazy);
+
+                var full = Defined("forced.dylib", new[] { xcfw });
+                Assert.Contains("_sbFlCount", full);
+                Assert.Contains("_sbFlComponentMarker", full);
+            }
+            finally
+            {
+                try { Directory.Delete(dir, true); } catch { /* best effort */ }
+            }
+        }
+
+        // One archive, one object per source, as a real multi-component library is built.
+        private static void BuildArchive(ICommandRunner runner, string triple, string sdk, IReadOnlyList<string> sources, string archive)
+        {
+            var objects = new List<string>();
+            foreach (var source in sources)
+            {
+                var obj = Path.ChangeExtension(source, ".o");
+                var (cc, _, ccErr) = runner.Run("xcrun",
+                    $"clang -c -target {triple} -isysroot \"{sdk}\" \"{source}\" -o \"{obj}\"", timeoutMs: 60000);
+                Assert.True(cc == 0 && File.Exists(obj), $"clang failed for {source}: {ccErr}");
+                objects.Add(obj);
+            }
+            var (ar, _, arErr) = runner.Run("xcrun",
+                $"ar rcs \"{archive}\" {string.Join(" ", objects.Select(o => $"\"{o}\""))}", timeoutMs: 30000);
+            Assert.True(ar == 0 && File.Exists(archive), $"ar failed for {archive}: {arErr}");
         }
 
         // With the SDK present a fixture that fails to build is a failure, never a silent pass.

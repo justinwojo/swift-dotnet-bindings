@@ -54,6 +54,135 @@ namespace BindingsGeneration
             return result;
         }
 
+        /// <summary>A library-type slice binary on the link line, and whether it is linked in full.</summary>
+        internal sealed record LibraryLinkInput(string Binary, bool ForceLoad);
+
+        /// <summary>
+        /// <see cref="CollectLibraryBinaries"/> with each binary's force-load decision: a static archive is
+        /// linked in full (<c>-force_load</c>) when its xcframework is one of
+        /// <paramref name="forceLoadDependencies"/>, and lazily (by path) otherwise. The linker otherwise
+        /// keeps only the archive members that resolve a symbol something already references, so a
+        /// member whose only effect is a static initializer (a component registering itself) is
+        /// dropped; force-loading keeps every member.
+        /// </summary>
+        internal static IReadOnlyList<LibraryLinkInput> CollectLibraryLinkInputs(
+            IReadOnlyList<string>? searchPaths, IReadOnlyCollection<string>? forceLoadDependencies)
+        {
+            var forced = NormalizeXcframeworkPaths(forceLoadDependencies);
+            var result = new List<LibraryLinkInput>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var slice in EnumerateSlices(searchPaths))
+            {
+                if (slice.Binary is not { } binary || !seen.Add(binary))
+                    continue;
+                var xcframework = Path.GetDirectoryName(slice.SliceDir);
+                var forceLoad = xcframework != null && forced.Contains(xcframework) && IsStaticArchive(binary);
+                result.Add(new LibraryLinkInput(binary, forceLoad));
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// Checks the <c>--force-load-dependency</c> requests: each must also be a
+        /// <c>--framework-dependency</c>, and must be a library-type xcframework whose every slice is a
+        /// static archive. Force-loading means linking an archive's members in full, so it has no meaning
+        /// for a dynamic library; and a framework-type dependency is linked by <c>-framework</c> because
+        /// its code ships in its own image (a Swift dependency's own binding wrapper), which a full copy
+        /// in this wrapper would duplicate. Logs SWIFTBIND142 for each refusal and returns false when any
+        /// request is refused.
+        /// </summary>
+        internal static bool ValidateForceLoadDependencies(
+            IReadOnlyCollection<string>? forceLoadDependencies,
+            IReadOnlyCollection<string>? frameworkDependencies,
+            Microsoft.Extensions.Logging.ILogger logger)
+        {
+            if (forceLoadDependencies == null || forceLoadDependencies.Count == 0)
+                return true;
+            var declared = NormalizeXcframeworkPaths(frameworkDependencies);
+            var ok = true;
+            foreach (var request in forceLoadDependencies)
+            {
+                var reason = !declared.Contains(NormalizeXcframeworkPath(request))
+                    ? "it is not also passed as a --framework-dependency"
+                    : ForceLoadRefusal(request);
+                if (reason == null)
+                    continue;
+                ok = false;
+                Microsoft.Extensions.Logging.LoggerExtensions.LogError(logger,
+                    "SWIFTBIND142: ForceLoad cannot apply to dependency '{Path}': {Reason}. ForceLoad links a " +
+                    "library-type xcframework's static archive (each slice a bare .a) in full; remove it from " +
+                    "this dependency.",
+                    request, reason);
+            }
+            return ok;
+        }
+
+        /// <summary>
+        /// Why <paramref name="xcframeworkPath"/> cannot be force-loaded, or null when every slice its
+        /// Info.plist declares is a library-type slice whose binary is a static archive.
+        /// </summary>
+        internal static string? ForceLoadRefusal(string xcframeworkPath)
+        {
+            var plist = Path.Combine(xcframeworkPath, "Info.plist");
+            if (!File.Exists(plist))
+                return "it has no Info.plist, so it is not an xcframework";
+            List<XCFrameworkSlice> slices;
+            try { slices = XCFrameworkResolver.ParseInfoPlist(plist, null, NullLogger.Instance); }
+            catch (Exception ex) { return $"its Info.plist could not be read ({ex.Message})"; }
+            if (slices.Count == 0)
+                return "its Info.plist declares no slices";
+            foreach (var slice in slices)
+            {
+                if (string.IsNullOrEmpty(slice.LibraryPath))
+                    return $"slice '{slice.LibraryIdentifier}' declares no LibraryPath";
+                if (slice.LibraryPath.EndsWith(".framework", StringComparison.Ordinal))
+                    return $"it is a framework-type xcframework (slice '{slice.LibraryIdentifier}' ships "
+                        + $"{slice.LibraryPath}), which is linked as a framework, not as an archive";
+                var binary = Path.Combine(xcframeworkPath, slice.LibraryIdentifier, slice.LibraryPath);
+                if (!File.Exists(binary))
+                    return $"slice '{slice.LibraryIdentifier}' has no {slice.LibraryPath}";
+                if (!IsStaticArchive(binary))
+                    return $"slice '{slice.LibraryIdentifier}' ships {slice.LibraryPath}, which is not a static "
+                        + "archive (a dynamic library is always loaded whole)";
+            }
+            return null;
+        }
+
+        private static string NormalizeXcframeworkPath(string path)
+            => Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar);
+
+        private static HashSet<string> NormalizeXcframeworkPaths(IReadOnlyCollection<string>? paths)
+        {
+            var set = new HashSet<string>(StringComparer.Ordinal);
+            if (paths == null)
+                return set;
+            foreach (var path in paths)
+            {
+                if (!string.IsNullOrWhiteSpace(path))
+                    set.Add(NormalizeXcframeworkPath(path));
+            }
+            return set;
+        }
+
+        /// <summary>
+        /// Whether the xcframework at <paramref name="xcframeworkPath"/> declares a library-type slice: an
+        /// Info.plist entry whose <c>LibraryPath</c> is a bare library rather than a <c>.framework</c>.
+        /// False when the Info.plist is missing or unreadable.
+        /// </summary>
+        internal static bool DeclaresLibrarySlices(string xcframeworkPath)
+        {
+            var plist = Path.Combine(xcframeworkPath, "Info.plist");
+            if (!File.Exists(plist))
+                return false;
+            try
+            {
+                return XCFrameworkResolver.ParseInfoPlist(plist, null, NullLogger.Instance).Any(s =>
+                    !string.IsNullOrEmpty(s.LibraryPath)
+                    && !s.LibraryPath.EndsWith(".framework", StringComparison.Ordinal));
+            }
+            catch (Exception) { return false; }
+        }
+
         /// <summary>
         /// The <c>link</c> declarations of every static dependency archive the wrapper links from
         /// <paramref name="searchPaths"/>: a library-type slice's archive (module maps under its headers

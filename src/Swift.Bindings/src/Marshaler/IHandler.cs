@@ -226,6 +226,11 @@ namespace BindingsGeneration
                 typeDatabase, context.PInvokeHelperContext, emissionCtx,
                 parentType: null, moduleDecl: null, siblingPropertyNames, conductor);
 
+            // Colliding initializers that keep the first-claimant path: the one the library does not
+            // deprecate claims the constructor, wherever the interface lists it (see method doc).
+            sortedDecl = OrderConstructorCollisionFamilies(
+                sortedDecl, pipeline, validationCtx, typeDatabase, siblingPropertyNames);
+
             // Reserve disambiguating overrides' adopted ancestor names up front so the resolution in
             // the main loop is declaration-order independent (see method doc).
             PreReserveAdoptedOverrideNames(
@@ -1147,6 +1152,101 @@ namespace BindingsGeneration
                 && !method.IsAccessor && ClosureParamTombstoneEmitter.IsEligible(method, typeDatabase);
             return (vr.ShouldEmit || isTombstone, isTombstone);
         }
+
+        /// <summary>
+        /// Orders each family of colliding initializers that stays on the first-claimant path so the
+        /// member that should keep the C# constructor is the one the main loop reaches first.
+        /// <para>
+        /// A family is the type body's emitting non-failable, non-async initializers that share one
+        /// projected constructor key and that <see cref="OverloadNameDisambiguator.ForConstructor"/>
+        /// leaves without a static factory (a type that cannot host one, or labels the ladder cannot
+        /// separate). Exactly one of them emits; the rest are reported as
+        /// <see cref="SkipReason.DuplicateSignature"/>. The survivor is the first declared initializer the
+        /// library does not deprecate (<see cref="IsDeprecatedForSurvival"/>), and the first declared one
+        /// when all of them are deprecated or none is. A deprecated initializer is the one the library
+        /// tells callers to stop using, so <c>new T(…)</c> must not reach it while its replacement is
+        /// dropped merely because the interface lists the old one first.
+        /// </para>
+        /// <para>
+        /// The preferred member moves to the family's first slot and the members declared before it
+        /// shift one family slot later; nothing else moves. Validation runs as the loop runs it (with the
+        /// loop's closure-tombstone view of the key), so a member that never reaches the dedup block
+        /// neither joins a family nor displaces one that does. The loop drops a constructor at the
+        /// primary signature (<see cref="GetMethodSignatureKey"/>) before the projected key, and the
+        /// primary signature can read two types as one that the projected key tells apart (two closures),
+        /// so a moved member could take a primary key from a constructor outside the family and drop it.
+        /// That key holds the argument labels, so a family is reordered only when no member it moves has
+        /// the labels of a constructor outside it, or of a prefix of one: the loop can emit a constructor
+        /// the validation here rejects, by dropping trailing defaulted parameters. Otherwise the declared
+        /// order stands. The input list is never modified; a reordered copy is returned when any family
+        /// changes order.
+        /// </para>
+        /// </summary>
+        internal List<BaseDecl> OrderConstructorCollisionFamilies(
+            List<BaseDecl> sortedDecl, MemberValidationPipeline pipeline, ValidationContext? validationCtx,
+            ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
+        {
+            Dictionary<string, List<int>>? families = null;
+            for (int i = 0; i < sortedDecl.Count; i++)
+            {
+                if (sortedDecl[i] is not MethodDecl { IsConstructor: true, IsFailable: false, IsAsync: false } init)
+                    continue;
+                if (OverloadNameDisambiguator.ForConstructor(init, typeDatabase) != null)
+                    continue;
+                var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(init, pipeline, validationCtx, typeDatabase);
+                if (!willEmit)
+                    continue;
+                var key = GetProjectedCSharpMethodKey(init, typeDatabase, _logger, siblingPropertyNames,
+                    treatAsClosureTombstone: isTombstone);
+                families ??= new Dictionary<string, List<int>>(StringComparer.Ordinal);
+                if (!families.TryGetValue(key, out var slots))
+                    families[key] = slots = new List<int>(2);
+                slots.Add(i);
+            }
+            if (families == null)
+                return sortedDecl;
+
+            List<BaseDecl>? reordered = null;
+            foreach (var slots in families.Values)
+            {
+                if (slots.Count < 2)
+                    continue;
+                var members = slots.Select(i => sortedDecl[i]).ToList();
+                int preferred = members.FindIndex(m => !IsDeprecatedForSurvival(m));
+                if (preferred <= 0)
+                    continue; // the first declared already survives, or every member is deprecated
+                var family = new HashSet<BaseDecl>(members, ReferenceEqualityComparer.Instance);
+                var outsideLabelPrefixes = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var other in sortedDecl)
+                {
+                    if (other is not MethodDecl { IsConstructor: true } otherInit || family.Contains(other))
+                        continue;
+                    var labels = PrimarySignatureLabels(otherInit);
+                    for (int n = 0; n <= labels.Count; n++)
+                        outsideLabelPrefixes.Add(string.Join(",", labels.Take(n)));
+                }
+                if (members.Take(preferred + 1).Any(m =>
+                        outsideLabelPrefixes.Contains(string.Join(",", PrimarySignatureLabels((MethodDecl)m)))))
+                    continue;
+                reordered ??= new List<BaseDecl>(sortedDecl);
+                reordered[slots[0]] = members[preferred];
+                for (int j = 1; j <= preferred; j++)
+                    reordered[slots[j]] = members[j - 1];
+            }
+            return reordered ?? sortedDecl;
+        }
+
+        /// <summary>The argument labels <see cref="GetMethodSignatureKey"/> keys a method by, in order.</summary>
+        private static List<string> PrimarySignatureLabels(MethodDecl methodDecl)
+            => methodDecl.CSSignature.Skip(1).Select(arg => arg.Name).ToList();
+
+        /// <summary>
+        /// Whether the library deprecates or obsoletes <paramref name="decl"/>, unconditionally or on any
+        /// platform. Used only to rank colliding initializers, where any deprecation is a reason to yield.
+        /// </summary>
+        internal static bool IsDeprecatedForSurvival(BaseDecl decl)
+            => decl.AvailabilityAnnotations?.Any(a =>
+                a.IsUnconditionallyDeprecated || a.DeprecatedVersion != null || a.ObsoletedVersion != null) == true;
 
         /// <summary>
         /// Declaration-order independence: reserve the adopted ancestor-slot names of same-module

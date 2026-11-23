@@ -77,7 +77,8 @@ partial class Build
             "pack" => "p",
             "direct" => "d",
             "bridge" => "b",
-            _ => throw new ArgumentOutOfRangeException(nameof(leg), leg, "Expected pack, direct or bridge.")
+            "forceload" => "f",
+            _ => throw new ArgumentOutOfRangeException(nameof(leg), leg, "Expected pack, direct, bridge or forceload.")
         };
         int laneCode = (lane.IsNet11 ? 4 : 0)
             + (lane.Configuration == "Release" ? 2 : 0)

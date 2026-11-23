@@ -66,6 +66,7 @@ public static class BindingsGeneratorCommand
         var frameworkDependencies = parseResult.GetValueForOption(options.FrameworkDependency);
         var linkFrameworks = parseResult.GetValueForOption(options.LinkFramework);
         var linkLibraries = parseResult.GetValueForOption(options.LinkLibrary);
+        var forceLoadDependencies = parseResult.GetValueForOption(options.ForceLoadDependency);
         var moduleDatabases = parseResult.GetValueForOption(options.ModuleDatabase);
         var noAutoDetect = parseResult.GetValueForOption(options.NoAutoDetect);
         var noVerifyCSharp = parseResult.GetValueForOption(options.NoVerifyCSharp);
@@ -533,6 +534,15 @@ public static class BindingsGeneratorCommand
             }
         }
 
+        // --force-load-dependency names a --framework-dependency whose static archive is linked in
+        // full. Refuse a value it cannot apply to before any pass runs, so the author learns which
+        // dependency is wrong instead of getting a wrapper that silently linked it lazily.
+        if (!DependencyLinkInputs.ValidateForceLoadDependencies(forceLoadDependencies, frameworkDependencies, logger))
+        {
+            context.ExitCode = 1;
+            return;
+        }
+
         // Handle --compile-wrapper-only: fast path that skips all parsing/generation
         if (compileWrapperOnly)
         {
@@ -553,6 +563,7 @@ public static class BindingsGeneratorCommand
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
                 skipThunkCompilation, targetArchitectures,
                 linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
+                forceLoadDependencies: forceLoadDependencies,
                 loweringReceiptPath: string.IsNullOrWhiteSpace(collectSwiftLoweringEvidence) ? null : Path.GetFullPath(collectSwiftLoweringEvidence),
                 routeBridges: routeSwiftBridges);
             return;
@@ -570,7 +581,8 @@ public static class BindingsGeneratorCommand
             context.ExitCode = BindingsGenerator.RunCompileBridgeOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
-                targetArchitectures);
+                targetArchitectures, forceLoadDependencies,
+                linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
             return;
         }
 
@@ -1422,6 +1434,7 @@ public static class BindingsGeneratorCommand
                         depModuleNamesForCollisionDevice: req.DepModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         collector: collector);
                     return collector.ToDiagnostics(result);
                 }
@@ -1451,6 +1464,7 @@ public static class BindingsGeneratorCommand
                         : req.DepModuleCollisions.Simulator,
                     linkFrameworks: linkFrameworks,
                     linkLibraries: linkLibraries,
+                    forceLoadDependencies: forceLoadDependencies,
                     collector: collector);
                 return collector.ToDiagnostics(result);
             }
@@ -2111,6 +2125,7 @@ public static class BindingsGeneratorCommand
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else if (wrapperArchNormalized == "device")
@@ -2139,6 +2154,7 @@ public static class BindingsGeneratorCommand
                         depModuleNamesForCollision: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else
@@ -2164,6 +2180,7 @@ public static class BindingsGeneratorCommand
                         depModuleNamesForCollision: depModuleCollisions.Simulator,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
             }

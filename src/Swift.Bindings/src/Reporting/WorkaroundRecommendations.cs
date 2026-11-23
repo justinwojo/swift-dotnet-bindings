@@ -232,7 +232,7 @@ public static class WorkaroundRecommendations
         SkipReason.ConformanceNotFullyImplementable =>
             "conformance dropped — a protocol requirement has no representable C# member on the conforming type",
         SkipReason.ConformanceProtocolNotInTypeDatabase =>
-            "conformance dropped — the protocol is not in the type database this run loaded",
+            "conformance dropped — no C# interface for the protocol in the type databases this run loaded (each item says whether another module's database brings it back)",
         SkipReason.ConformanceProtocolHasAssociatedTypes =>
             "conformance dropped — the protocol's associated types are not all bound to concrete types",
         SkipReason.ProtocolWitnessNotDispatchable =>

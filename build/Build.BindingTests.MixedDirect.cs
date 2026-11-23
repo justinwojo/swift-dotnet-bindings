@@ -99,7 +99,7 @@ partial class Build
 
         using var scope = new VersionScope(MixedDirectLaneVersion, RootDirectory, MixedDirectLaneAppleVersion);
 
-        BuildMixedDirectFeed(nupkgDir, scope);
+        BuildSdkDirectFeed(nupkgDir, scope, "mixed-direct", MixedDirectLaneVersion, MixedDirectLaneAppleVersion);
 
         Log.Information("=== mixed-direct: building 2-slice (device + simulator) iOS mixed xcframework ===");
         // Reuse the shared 2-slice STATIC iOS mixed xcframework builder (Build.BindingTests.MixedPack.cs):
@@ -170,13 +170,13 @@ partial class Build
         AssertMixedDirectConsumerResult(result);
     }
 
-    // Builds the throwaway-version Runtime + SDK + Apple feed the SDK-direct app restores from.
+    // Builds the throwaway-version Runtime + SDK + Apple feed an SDK-direct app restores from.
     // Identical in shape to --mixed-pack's feed (publish generator into SDK tools → pack the three
     // core packages → clear the SwiftBindings.* NuGet cache so a stale same-version entry from a
     // prior run can't shadow these), minus the fixture (there is no fixture package in path b).
-    void BuildMixedDirectFeed(AbsolutePath nupkgDir, VersionScope scope)
+    void BuildSdkDirectFeed(AbsolutePath nupkgDir, VersionScope scope, string leg, string version, string appleVersion)
     {
-        Log.Information("=== mixed-direct: building local feed at {Version} ===", MixedDirectLaneVersion);
+        Log.Information("=== {Leg}: building local feed at {Version} ===", leg, version);
 
         Log.Information("  [1/3] Publishing generator into SDK tools");
         DotNetPublish(s => scope.Apply(s
@@ -209,9 +209,9 @@ partial class Build
             ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".nuget", "packages"));
         foreach (var (pkg, ver) in new[]
         {
-            ("swiftbindings.runtime", MixedDirectLaneVersion),
-            ("swiftbindings.sdk", MixedDirectLaneVersion),
-            ("swiftbindings.apple", MixedDirectLaneAppleVersion),
+            ("swiftbindings.runtime", version),
+            ("swiftbindings.sdk", version),
+            ("swiftbindings.apple", appleVersion),
         })
         {
             var pkgDir = nugetCacheDir / pkg / ver;

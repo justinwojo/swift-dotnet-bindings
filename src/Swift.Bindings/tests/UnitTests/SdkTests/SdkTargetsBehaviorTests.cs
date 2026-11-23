@@ -641,6 +641,153 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void ForceLoadDependency_ReachesGeneration_AndTogglingItRegenerates()
+        {
+            // ForceLoad changes what the wrapper links, so it is passed to the generator and is part of
+            // the fingerprint: turning it on or off must regenerate, with the flag only while it is on.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+            WriteFingerprintStampProbeProject(stubDir!);
+            var forced = Path.Combine(_tempDir, "Forced_library.xcframework");
+            var lazy = Path.Combine(_tempDir, "Lazy_library.xcframework");
+            Directory.CreateDirectory(forced);
+            Directory.CreateDirectory(lazy);
+            var projectPath = Path.Combine(_tempDir, "Test.csproj");
+            var baseProject = File.ReadAllText(projectPath);
+            void Declare(string forceLoad) => File.WriteAllText(projectPath, baseProject.Replace("</Project>", $"""
+                  <ItemGroup>
+                    <SwiftFrameworkDependency Include="{forced}" ForceLoad="{forceLoad}" />
+                    <SwiftFrameworkDependency Include="{lazy}" />
+                  </ItemGroup>
+                </Project>
+                """, StringComparison.Ordinal));
+            string? Generate()
+            {
+                var result = RunDotnet($"msbuild \"{projectPath}\" -t:_GenerateSwiftBindings -nologo -v:n");
+                Assert.True(result.ExitCode == 0, $"Generate failed.\nStdOut: {result.StdOut}\nStdErr: {result.StdErr}");
+                var output = result.StdOut + result.StdErr;
+                return output.Contains("STUB_RECEIVED_ARGS:", StringComparison.Ordinal) ? output : null;
+            }
+
+            Declare("False");
+            var off = Generate();
+            Assert.NotNull(off);
+            Assert.DoesNotContain("--force-load-dependency", off);
+
+            Declare("True");
+            var on = Generate();
+            Assert.True(on != null, "Turning ForceLoad on did not regenerate.");
+            Assert.Contains($"--force-load-dependency {forced}", on);
+            Assert.DoesNotContain($"--force-load-dependency {lazy}", on);
+            Assert.Null(Generate());
+
+            Declare("");
+            Assert.True(Generate() is { } cleared && !cleared.Contains("--force-load-dependency"),
+                "Turning ForceLoad off did not regenerate without the flag.");
+        }
+
+        [Theory]
+        [InlineData("full")]
+        [InlineData("1")]
+        public void ForceLoadDependency_UnrecognizedValue_FailsWithSwiftbind141BeforeGenerating(string value)
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+            WriteFingerprintStampProbeProject(stubDir!);
+            var dep = Path.Combine(_tempDir, "Dep_library.xcframework");
+            Directory.CreateDirectory(dep);
+            var projectPath = Path.Combine(_tempDir, "Test.csproj");
+            File.WriteAllText(projectPath, File.ReadAllText(projectPath).Replace("</Project>", $"""
+                  <ItemGroup>
+                    <SwiftFrameworkDependency Include="{dep}" ForceLoad="{value}" />
+                  </ItemGroup>
+                </Project>
+                """, StringComparison.Ordinal));
+
+            var result = RunDotnet($"msbuild \"{projectPath}\" -t:_GenerateSwiftBindings -nologo -v:n");
+
+            var output = result.StdOut + result.StdErr;
+            Assert.NotEqual(0, result.ExitCode);
+            Assert.Contains("SWIFTBIND141", output);
+            Assert.Contains($"ForceLoad=\"{value}\"", output);
+            Assert.Contains("Dep_library.xcframework", output);
+            Assert.DoesNotContain("STUB_RECEIVED_ARGS:", output);
+        }
+
+        [Theory]
+        [InlineData("_CompileSwiftWrapper", "--compile-wrapper-only")]
+        [InlineData("_CompileSwiftUIBridge", "--compile-bridge-only")]
+        public void ForceLoadDependencyAndSystemLinks_ReachTheWrapperAndBridgeLinks(string target, string mode)
+        {
+            // Both links copy a library-type dependency's archive members, so both take the flag, and
+            // only for the dependency that asked for it. Those members can need system frameworks and
+            // libraries the archive does not name, so both links take the declared ones too.
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            var stubDir = StubGeneratorDir.Value;
+            SkipUnless(stubDir != null, "Could not build stub generator DLL");
+
+            var bindingDir = Path.Combine(_tempDir, "Forced.Swift.iOS");
+            var intermediateDir = Path.Combine(bindingDir, "obj", "swift-binding") + "/";
+            Directory.CreateDirectory(intermediateDir);
+            var sourceXcfw = Path.Combine(bindingDir, "Forced.xcframework");
+            Directory.CreateDirectory(sourceXcfw);
+            var forced = Path.Combine(_tempDir, "Graph_library.xcframework");
+            var lazy = Path.Combine(_tempDir, "Other_library.xcframework");
+            File.WriteAllText(Path.Combine(intermediateDir, "binding-metadata.props"), """
+                <Project>
+                  <PropertyGroup>
+                    <_SwiftBindingWrapperModuleName>ForcedSwiftBindings</_SwiftBindingWrapperModuleName>
+                    <_SwiftBindingHasBridgeSwift>True</_SwiftBindingHasBridgeSwift>
+                    <_SwiftBindingBridgeModuleName>ForcedBridge</_SwiftBindingBridgeModuleName>
+                  </PropertyGroup>
+                </Project>
+                """);
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var bridgeStubs = target == "_CompileSwiftUIBridge"
+                ? """<Target Name="_ImportSwiftBindingMetadata" /><Target Name="_UpdateSwiftWrapperMetadata" />"""
+                : "";
+            File.WriteAllText(Path.Combine(bindingDir, "Test.csproj"), $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingGeneratorDir>{stubDir}</_SwiftBindingGeneratorDir>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <PropertyGroup>
+                    <_SwiftBindingIntermediateDir>{intermediateDir}</_SwiftBindingIntermediateDir>
+                    <_SwiftBindingWrapperModuleName>ForcedSwiftBindings</_SwiftBindingWrapperModuleName>
+                  </PropertyGroup>
+                  <ItemGroup>
+                    <SwiftFramework Include="{sourceXcfw}" />
+                    <SwiftFrameworkDependency Include="{forced}" ForceLoad="true" />
+                    <SwiftFrameworkDependency Include="{lazy}" ForceLoad="false" />
+                    <SwiftLinkFramework Include="Metal" />
+                    <SwiftLinkLibrary Include="sqlite3" />
+                  </ItemGroup>
+                  <Target Name="_DiscoverSwiftFrameworks" />
+                  {bridgeStubs}
+                </Project>
+                """);
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(bindingDir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(bindingDir, "Test.csproj")}\" -t:{target} -nologo -v:n");
+            Assert.True(result.ExitCode == 0, $"{target} failed.\nStdErr: {result.StdErr}\nStdOut: {result.StdOut}");
+
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.Contains("STUB_RECEIVED_ARGS:", output);
+            Assert.Contains(mode, output);
+            Assert.Contains($"--force-load-dependency {forced}", output);
+            Assert.DoesNotContain($"--force-load-dependency {lazy}", output);
+            Assert.Contains($"--framework-dependency {lazy}", output);
+            Assert.Contains("--link-framework Metal", output);
+            Assert.Contains("--link-library sqlite3", output);
+        }
+
+        [Fact]
         public void StaticDependencyArchiveOrModuleMapChange_InvalidatesFingerprint()
         {
             // The wrapper link copies a library-type dependency's archive members in and applies a

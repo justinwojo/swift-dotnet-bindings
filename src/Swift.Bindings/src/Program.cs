@@ -2069,7 +2069,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
             string? loweringReceiptPath = null,
-            bool routeBridges = false)
+            bool routeBridges = false,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2276,6 +2277,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else if (wrapperArchNormalized == "device")
@@ -2302,6 +2304,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollision: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else
@@ -2326,6 +2329,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollision: depModuleCollisions.Simulator,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
             }
@@ -2666,7 +2670,10 @@ namespace BindingsGeneration
             string? platformStr, string? platformTargetStr,
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
-            string? targetArchitectures = null)
+            string? targetArchitectures = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2764,33 +2771,7 @@ namespace BindingsGeneration
             List<FrameworkDependencyInfo>? resolvedDeps = null;
             if (frameworkDependencies != null && frameworkDependencies.Length > 0)
             {
-                // Filter to only xcframeworks that can be resolved (skip wrapper xcframeworks)
-                var resolvableDeps = new List<string>();
-                foreach (var depPath in frameworkDependencies)
-                {
-                    if (!Directory.Exists(depPath))
-                    {
-                        logger.LogDebug("Skipping non-existent dependency: {Path}", depPath);
-                        continue;
-                    }
-                    // Check if this xcframework has an Info.plist with library entries
-                    // (wrapper xcframeworks have Info.plist but no .swiftmodule)
-                    var infoPlist = Path.Combine(depPath, "Info.plist");
-                    if (!File.Exists(infoPlist))
-                    {
-                        logger.LogDebug("Skipping dependency without Info.plist: {Path}", depPath);
-                        continue;
-                    }
-                    // Try to detect if this is a source framework (has .swiftmodule) vs wrapper
-                    var hasSwiftModule = Directory.GetDirectories(depPath, "*.framework", SearchOption.AllDirectories)
-                        .Any(fw => Directory.Exists(Path.Combine(fw, "Modules")));
-                    if (!hasSwiftModule)
-                    {
-                        logger.LogDebug("Skipping wrapper/non-Swift dependency (no Modules dir): {Path}", depPath);
-                        continue;
-                    }
-                    resolvableDeps.Add(depPath);
-                }
+                var resolvableDeps = SelectBridgeLinkDependencies(frameworkDependencies, logger);
 
                 if (resolvableDeps.Count > 0)
                 {
@@ -2829,7 +2810,9 @@ namespace BindingsGeneration
                         simResolution, deviceResolution, logger,
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
-                        platformInfo: platformInfo);
+                        platformInfo: platformInfo,
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -2846,7 +2829,9 @@ namespace BindingsGeneration
                         deviceResolution.FrameworkSearchPath,
                         deviceResolution.DylibPath,
                         platformInfo.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture),
-                        logger, additionalFrameworkSearchPaths: deviceDepPaths);
+                        logger, additionalFrameworkSearchPaths: deviceDepPaths,
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else
                 {
@@ -2860,7 +2845,9 @@ namespace BindingsGeneration
                         simResolution.FrameworkSearchPath, simResolution.DylibPath, logger,
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
-                        resolvedArchitecture: simResolution.SelectedArchitecture);
+                        resolvedArchitecture: simResolution.SelectedArchitecture,
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
             }
 
@@ -3461,6 +3448,42 @@ namespace BindingsGeneration
                 // Recurse into nested types
                 CollectUnderscoreTypeNames(t.Types, underscoreTypes, structurallyRequired);
             }
+        }
+
+        /// <summary>
+        /// The <c>--framework-dependency</c> xcframeworks the SwiftUI bridge link resolves. The SDK also
+        /// passes the dependencies' compiled binding wrappers, which carry no module and would fail
+        /// resolution, so a framework-type xcframework is kept only when one of its frameworks has a
+        /// <c>Modules</c> directory. A library-type xcframework (a bare <c>.a</c> or <c>.dylib</c> slice)
+        /// has no framework to look in and is kept by its Info.plist instead: the bridge links the
+        /// primary as the wrapper does, so a static primary's calls into that library need its binary and
+        /// its module map's system links on the bridge link line too (<see cref="DependencyLinkInputs"/>).
+        /// </summary>
+        internal static List<string> SelectBridgeLinkDependencies(IEnumerable<string> frameworkDependencies, ILogger logger)
+        {
+            var resolvableDeps = new List<string>();
+            foreach (var depPath in frameworkDependencies)
+            {
+                if (!Directory.Exists(depPath))
+                {
+                    logger.LogDebug("Skipping non-existent dependency: {Path}", depPath);
+                    continue;
+                }
+                if (!File.Exists(Path.Combine(depPath, "Info.plist")))
+                {
+                    logger.LogDebug("Skipping dependency without Info.plist: {Path}", depPath);
+                    continue;
+                }
+                var hasModules = Directory.GetDirectories(depPath, "*.framework", SearchOption.AllDirectories)
+                    .Any(fw => Directory.Exists(Path.Combine(fw, "Modules")));
+                if (!hasModules && !DependencyLinkInputs.DeclaresLibrarySlices(depPath))
+                {
+                    logger.LogDebug("Skipping wrapper/non-Swift dependency (no Modules dir): {Path}", depPath);
+                    continue;
+                }
+                resolvableDeps.Add(depPath);
+            }
+            return resolvableDeps;
         }
 
         /// <summary>

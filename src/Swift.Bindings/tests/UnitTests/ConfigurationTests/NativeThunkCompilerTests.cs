@@ -268,8 +268,10 @@ namespace BindingsGeneration.Tests
         {
             // Gap 2: the thunk-only (no Swift wrapper) link path must also force-load a
             // static-archive primary so the wrapper carries its ObjC classes. clang takes
-            // the linker flag as `-Wl,-force_load,<path>`. The binary must exist on disk.
-            var archive = Path.Combine(Path.GetTempPath(), $"clang_forceload_{Guid.NewGuid():N}.a");
+            // the linker flag as `-Xlinker -force_load -Xlinker <path>`, one argument however the path
+            // is spelled: clang splits a `-Wl,` value at every comma, so a path with one would reach ld
+            // as two arguments. The binary must exist on disk.
+            var archive = Path.Combine(Path.GetTempPath(), $"clang_forceload_{Guid.NewGuid():N},release.a");
             File.WriteAllBytes(archive, new byte[] { 0x21, 0x3C, 0x61, 0x72, 0x63, 0x68, 0x3E, 0x0A });
             try
             {
@@ -287,7 +289,8 @@ namespace BindingsGeneration.Tests
                     forceLoadBinaries: new[] { archive });
 
                 var call = mockRunner.Invocations.First(i => i.Arguments.Contains("clang -shared"));
-                Assert.Contains($"-Wl,-force_load,\"{archive}\"", call.Arguments);
+                Assert.Contains($"-Xlinker -force_load -Xlinker \"{archive}\"", call.Arguments);
+                Assert.DoesNotContain("-Wl,-force_load", call.Arguments);
             }
             finally
             {

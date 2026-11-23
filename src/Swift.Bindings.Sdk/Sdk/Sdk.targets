@@ -741,7 +741,7 @@ done; true"
           if [ -n &quot;%24dep&quot; ] &amp;&amp; [ -d &quot;%24dep&quot; ]; then find &quot;%24dep&quot; -path &quot;*.framework/Modules/*&quot; -type f -exec shasum -a 256 {} \; ; fi; \
         done; \
       fi; \
-      echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|')&quot; \
+      echo &quot;$(TargetFramework) $(_SwiftBindingSdkVersion) $(_SwiftBindingPlatform) $(SwiftPlatformTarget) $(SwiftWrapperArchitectures) $(SwiftTargetArchitectures) %(SwiftFramework.NamespacePattern) $(PackageId) $(AssemblyName) $(SwiftRuntimeVersion) $(TargetPlatformVersion) %(SwiftFramework.SymbolGraph) %(SwiftFramework.BridgeHints) %(SwiftFramework.SwiftInterface) $(SwiftGenerateDocComments) $(SwiftAutoDetectDependencies) $(SwiftAppleSupplementPrototypeDir) $(SwiftFrameworkType) $(SwiftAppleSupplementVersion) $(SwiftLoweringEvidence) @(SwiftFrameworkDependency, '|') @(_AutoFrameworkDependency, '|') @(SwiftLinkFramework, '|') @(SwiftLinkLibrary, '|') @(SwiftFrameworkDependency->'%(Identity)=%(ForceLoad)', '|')&quot; \
     ) | sort | shasum -a 256 | cut -d' ' -f1"
           ConsoleToMSBuild="true" StandardOutputImportance="low">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftNewFingerprint" />
@@ -1976,11 +1976,63 @@ done; true"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Target 2c: SwiftFrameworkDependency ForceLoad                            -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    ForceLoad="true" on a SwiftFrameworkDependency links that dependency's static archive in
+    full instead of lazily. It applies to a library-type xcframework (each slice a bare .a),
+    the shape a C/C++/ObjC library ships when it is not a framework:
+
+      <SwiftFrameworkDependency Include="../Deps/Graph_library.xcframework" ForceLoad="true" />
+
+    The linker otherwise keeps only the archive members that resolve a symbol something already
+    references. A component that registers itself from a static initializer (a C++ global
+    constructor, an ObjC +load, __attribute__((constructor))) and is otherwise unreferenced is
+    dropped, and the library later reports it as not registered. Force-loading keeps every
+    member, at the cost of a larger wrapper.
+
+    It takes effect on every link that copies the archive's code: the wrapper (swiftc, or clang
+    for a thunk-only wrapper) and the SwiftUI bridge. The app's own NativeReference to the
+    dependency is unchanged: the app executable references nothing in the archive (the wrapper
+    does), so a full copy there would be an unused second copy whose static initializers
+    register into a second registry.
+
+    The wrapper and the bridge are separate images, and each links its own copy of what it takes
+    from the archive. With ForceLoad each takes all of it, so an app that loads both runs every
+    static initializer once per image, into that image's own copy of the library's state, and an
+    Objective-C class the archive defines is registered twice (the runtime logs that the class is
+    implemented in both images). Without ForceLoad the same holds for whatever both links
+    reference. A binding that emits no SwiftUI bridge has one copy.
+
+    Values: "true" or "false" (any case, and MSBuild's other boolean spellings such as "yes" and
+    "no"); absent or empty means false. Any other value is SWIFTBIND141. A dependency it cannot
+    apply to (a framework-type xcframework, whose code ships in its own image, or a dynamic
+    library, which always loads whole) is SWIFTBIND142 from the generator. The setting is part of the generation fingerprint, so toggling it relinks.
+
+    Other SwiftFrameworkDependency metadata: PackageId and PackageVersion (pack-time dependency
+    validation, SWIFTBIND081), ModuleDatabasePath (cross-module type resolution) and NativeOnly
+    (exempt from SWIFTBIND081).
+  -->
+  <Target Name="_ValidateSwiftFrameworkDependencyForceLoad"
+          Condition="'@(SwiftFrameworkDependency)' != ''">
+    <Error Condition="'%(SwiftFrameworkDependency.ForceLoad)' != ''
+                      AND '%(SwiftFrameworkDependency.ForceLoad)' != 'true'
+                      AND '%(SwiftFrameworkDependency.ForceLoad)' != 'false'"
+           Code="SWIFTBIND141"
+           Text="SwiftFrameworkDependency '%(SwiftFrameworkDependency.Identity)' has ForceLoad=&quot;%(SwiftFrameworkDependency.ForceLoad)&quot;, which is not a recognized value. Use ForceLoad=&quot;true&quot; to link this library-type dependency's static archive in full (for components that register themselves from static initializers), or ForceLoad=&quot;false&quot; (the default) to link only what the wrapper references." />
+    <ItemGroup>
+      <_SwiftForceLoadDependency Remove="@(_SwiftForceLoadDependency)" />
+      <_SwiftForceLoadDependency Include="@(SwiftFrameworkDependency)"
+                                 Condition="'%(SwiftFrameworkDependency.ForceLoad)' == 'true'" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 3: Invoke generator (gated on fingerprint)                      -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <Target Name="_GenerateSwiftBindings"
           BeforeTargets="ResolveProjectReferences"
-          DependsOnTargets="_ComputeSwiftFingerprint;_ValidateSwiftAppleSupplementPrototypeDir">
+          DependsOnTargets="_ValidateSwiftFrameworkDependencyForceLoad;_ComputeSwiftFingerprint;_ValidateSwiftAppleSupplementPrototypeDir">
     <!--
       No Target-level Condition on @(SwiftFramework): MSBuild evaluates Target
       Conditions at evaluation time, but SwiftFramework items may only exist at
@@ -2042,6 +2094,10 @@ done; true"
       <_SwiftGenCmd Condition="!$([System.String]::Equals('$(SwiftAutoDetectDependencies)', 'true', StringComparison.OrdinalIgnoreCase))">$(_SwiftGenCmd) --no-auto-detect</_SwiftGenCmd>
       <!-- Append framework dependency flags for each SwiftFrameworkDependency item -->
       <_SwiftGenCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftGenCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
+      <!-- ForceLoad="true" dependencies (_ValidateSwiftFrameworkDependencyForceLoad). The generate pass
+           skips the wrapper link but still refuses a dependency ForceLoad cannot apply to (SWIFTBIND142),
+           so the author hears it from the first build step. -->
+      <_SwiftGenCmd Condition="'@(_SwiftForceLoadDependency)' != ''">$(_SwiftGenCmd) @(_SwiftForceLoadDependency->' --force-load-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Auto-discovered dependency frameworks from ProjectReference directories -->
       <_SwiftGenCmd Condition="'@(_AutoFrameworkDependency)' != ''">$(_SwiftGenCmd) @(_AutoFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftGenCmd>
       <!-- Transitive dependency roots: a direct dependency's public headers can
@@ -3199,7 +3255,7 @@ done; true"
        which skips parsing/generation and only compiles existing .swift files. -->
   <Target Name="_CompileSwiftWrapper"
           AfterTargets="ResolveProjectReferences"
-          DependsOnTargets="_ImportSwiftBindingMetadata"
+          DependsOnTargets="_ValidateSwiftFrameworkDependencyForceLoad;_ImportSwiftBindingMetadata"
           Condition="'$(_SwiftBindingWrapperModuleName)' != '' AND '$(SwiftFrameworkType)' != 'ObjC'">
 
     <!--
@@ -3292,6 +3348,8 @@ done; true"
            Frameworks like an internal dependency may not have a binding project but are still required on the -F search path
            for wrapper compilation. Duplicates with _ResolvedDepXCFramework are harmless (just extra -F flags). -->
       <_SwiftWrapperCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftWrapperCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
+      <!-- Library-type dependencies whose static archive the wrapper links in full (ForceLoad="true"). -->
+      <_SwiftWrapperCmd Condition="'@(_SwiftForceLoadDependency)' != ''">$(_SwiftWrapperCmd) @(_SwiftForceLoadDependency->' --force-load-dependency "%(Identity)"', '')</_SwiftWrapperCmd>
       <!-- System frameworks/libraries the wrapper link must declare explicitly. A companion's static
            archive can carry zero autolink hints (LC_LINKER_OPTION count 0), so force-load drags in
            objects that reference system frameworks (Metal, CoreVideo, …) with no way to discover them.
@@ -3387,7 +3445,7 @@ done; true"
        (SwiftBridgeRequired=true) a failed bridge is a SWIFTBIND052 error, not a warning. -->
   <Target Name="_CompileSwiftUIBridge"
           AfterTargets="_UpdateSwiftWrapperMetadata"
-          DependsOnTargets="_ImportSwiftBindingMetadata">
+          DependsOnTargets="_ValidateSwiftFrameworkDependencyForceLoad;_ImportSwiftBindingMetadata">
 
     <!-- Read bridge metadata from props (set during generation) -->
     <XmlPeek XmlInputPath="$(_SwiftBindingIntermediateDir)binding-metadata.props"
@@ -3438,6 +3496,12 @@ done; true"
            Duplicates between the two lists are harmless extra -F flags. -->
       <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->Distinct()->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <!-- The bridge links its own copy of what it references from a library-type dependency, so a
+           force-loaded one is linked in full here too, as in the wrapper. -->
+      <_SwiftBridgeCmd Condition="'@(_SwiftForceLoadDependency)' != ''">$(_SwiftBridgeCmd) @(_SwiftForceLoadDependency->' --force-load-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <!-- The system frameworks and libraries the wrapper link declares, for the same objects. -->
+      <_SwiftBridgeCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftBridgeCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBridgeSkip)' != 'true'"

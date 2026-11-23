@@ -1175,9 +1175,9 @@ partial class Build
             // gate, while each opt-in leg builds + consumes/publishes a real app and returns early.
             // The --compile-only early return below would otherwise silently swallow the requested
             // leg. Fail loud rather than skip it.
-            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || InterpIdentity || BridgeConsumer || MultiToolchainPackage) && CompileOnly)
+            if ((MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || InterpIdentity || BridgeConsumer || MultiToolchainPackage || StaticDependencyForceLoad) && CompileOnly)
                 throw new Exception(
-                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer/--interp-identity/--bridge-consumer/--multi-toolchain-package and --compile-only cannot be "
+                    "--mixed-pack/--mixed-direct/--appstore-hygiene/--partial-success-kitchen/--apple-package-consumer/--interp-identity/--bridge-consumer/--multi-toolchain-package/--static-dependency-force-load and --compile-only cannot be "
                     + "combined: --compile-only is the whole-test-lib compile-check gate, while each opt-in leg builds and "
                     + "asserts its own focused fixture and returns early. Pass exactly one.");
 
@@ -1186,9 +1186,9 @@ partial class Build
             // --appstore-hygiene: a device IPA's TN2435 App Store hygiene) and each is a focused,
             // exclusive run that returns early. Combining them would silently run only the first.
             // Fail loud rather than skip one.
-            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken, InterpIdentity, BridgeConsumer, MultiToolchainPackage }.Count(x => x) > 1)
+            if (new[] { MixedPack, MixedDirect, AppstoreHygiene, PartialSuccessKitchen, ApplePackageConsumer, ActivityKitPushToken, InterpIdentity, BridgeConsumer, MultiToolchainPackage, StaticDependencyForceLoad }.Count(x => x) > 1)
                 throw new Exception(
-                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, --activitykit-push-token, --interp-identity, --bridge-consumer, and --multi-toolchain-package "
+                    "--mixed-pack, --mixed-direct, --appstore-hygiene, --partial-success-kitchen, --apple-package-consumer, --activitykit-push-token, --interp-identity, --bridge-consumer, --multi-toolchain-package, and --static-dependency-force-load "
                     + "cannot be combined: each requires its own focused execution path. Pass exactly one.");
 
             // --partial-success-kitchen: the opt-in host-only product gate. Builds the tiny
@@ -1446,6 +1446,18 @@ partial class Build
                 return;
             }
 
+            // --static-dependency-force-load: the opt-in runtime gate for ForceLoad on a library-type
+            // SwiftFrameworkDependency. Builds the same SDK-direct app without and with ForceLoad on a
+            // static dependency whose components register from static initializers, runs both on the
+            // iOS Simulator and requires the registry empty without it and complete with it.
+            if (StaticDependencyForceLoad)
+            {
+                if (Device || Macos || MacosX64 || Catalyst || CatalystX64 || Tvos)
+                    Log.Warning("--static-dependency-force-load is a sim-only leg; --device/--macos/--macos-x64/--catalyst/--catalyst-x64/--tvos are ignored.");
+                RunStaticDependencyForceLoadLeg();
+                return;
+            }
+
             // --appstore-hygiene: the opt-in App Store TN2435-hygiene gate (issue #42). Packs the
             // Runtime, publishes a device IPA through a single-PackageReference consumer, and asserts
             // the runtime embeds as a signed SwiftBindingsRuntime.framework (not a loose dylib), the
@@ -1508,7 +1520,7 @@ partial class Build
     {
         if (SkipBuild)
             return "and --skip-build contradict each other: run --build-only first, then --skip-build.";
-        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || BridgeConsumer || MultiToolchainPackage)
+        if (CompileOnly || MixedPack || MixedDirect || AppstoreHygiene || PartialSuccessKitchen || ApplePackageConsumer || BridgeConsumer || MultiToolchainPackage || StaticDependencyForceLoad)
             return "builds the iOS or tvOS Simulator RuntimeTestsApp; it cannot be combined with --compile-only or an opt-in focused leg.";
         if (Device || Macos || MacosX64 || Catalyst || CatalystX64)
             return "builds the iOS and tvOS Simulator apps only; drop the other platform flags.";
