@@ -574,11 +574,6 @@ namespace BindingsGeneration
                 decl => NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(decl, siblingPropertyNames: null)));
         }
 
-        /// <summary>
-        /// Emits a static class with [ModuleInitializer] that:
-        /// 1. Registers a NativeLibrary.SetDllImportResolver for iOS framework loading
-        /// 2. Pre-registers NewFromPayload factories for NativeAOT (avoids reflection trimming)
-        /// </summary>
         /// <summary>The nested codec class the module initializer registers for a case-identity enum.</summary>
         private static string CaseCodecClassName(string csharpTypeName)
             => StrippedSymbolCSharpReconciler.CaseCodecClassPrefix + CaseCodecSafeName(csharpTypeName);
@@ -586,6 +581,11 @@ namespace BindingsGeneration
         private static string CaseCodecSafeName(string csharpTypeName)
             => csharpTypeName.Replace("global::", "").Replace(".", "_");
 
+        /// <summary>
+        /// Emits a static class with [ModuleInitializer] that:
+        /// 1. Registers a NativeLibrary.SetDllImportResolver for iOS framework loading
+        /// 2. Pre-registers NewFromPayload factories for NativeAOT (avoids reflection trimming)
+        /// </summary>
         private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();

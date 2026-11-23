@@ -437,7 +437,9 @@ public static class SwiftMarshal
                 return true;
 
             case PayloadConstructionSemantics.Inline:
-                if (!valueEscapesSeam)
+                // A C# enum takes only the case out of the buffer, never the value, so nothing
+                // aliases what is left there: a hidden payload case's reference is released here.
+                if (!valueEscapesSeam || carrierType.IsEnum)
                     DestroyIfResolved(buffer, metadata);
                 return true;
 

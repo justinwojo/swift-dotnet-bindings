@@ -238,6 +238,20 @@ public class ReleaseIndirectResultValueTests
         Assert.True(SkippedInvalid() > before, "a consumed Inline carrier must attempt a value-witness Destroy");
     }
 
+    private enum CaseOnly { First, Second }
+
+    [Fact]
+    public void EnumCarrier_IsDestroyedEvenWhenItsValueEscapesTheSeam()
+    {
+        // A C# enum carries only the case out of the buffer, never the Swift value, so the value
+        // left there (which holds a reference when the binary hides a payload case) is destroyed.
+        long before = SkippedInvalid();
+
+        Assert.True(SwiftMarshal.ReleaseIndirectResultValue(FakeBuffer, typeof(CaseOnly), null, valueEscapesSeam: true));
+
+        Assert.True(SkippedInvalid() > before, "an enum carrier must attempt a value-witness Destroy");
+    }
+
     [Fact]
     public void NonSwiftCarrier_IsTreatedAsAConsumedInlineValue()
     {

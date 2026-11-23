@@ -1778,6 +1778,11 @@ namespace BindingsGeneration
                         unsafe { _classHandle{{i}} = *(IntPtr*){{ptrName}}; }
                         {{resultName}} = SwiftMarshal.MarshalFromSwift<{{elemType}}>(_classHandle{{i}});
                     }
+                    else if (typeof({{elemType}}).IsEnum)
+                    {
+                        // Only the case leaves the buffer, so the value is destroyed with it.
+                        unsafe { {{resultName}} = SwiftMarshal.MarshalMovedValueFromSlot<{{elemType}}>((void*){{ptrName}}, TypeMetadata.GetTypeMetadataOrThrow<{{elemType}}>()); }
+                    }
                     else
                     {
                         {{resultName}} = SwiftMarshal.MarshalFromSwift<{{elemType}}>({{ptrName}});
