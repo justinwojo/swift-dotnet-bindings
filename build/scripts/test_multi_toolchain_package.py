@@ -66,7 +66,16 @@ class ReaderTests(unittest.TestCase):
 
     def test_nuspec_groups_include_empty_groups(self):
         groups = mtp.nuspec_groups(mtp.read_entries(self.kit()))
-        self.assertEqual(groups, {"net10.0-ios26.0": [("SwiftBindings.Runtime", "[0.21.0, 0.22.0)")], "net10.0-ios27.2": []})
+        self.assertEqual(groups, {"net10.0-ios26.0": [(("exclude", "Build,Analyzers"), ("id", "SwiftBindings.Runtime"),
+                                                       ("version", "[0.21.0, 0.22.0)"))], "net10.0-ios27.2": []})
+
+    def test_nuspec_groups_see_every_dependency_attribute_and_refuse_a_duplicate_group(self):
+        dropped = NUSPEC.replace(' exclude="Build,Analyzers"', "")
+        self.assertNotEqual(mtp.nuspec_groups({"a.nuspec": dropped.encode()}), mtp.nuspec_groups({"a.nuspec": NUSPEC.encode()}))
+        doubled = NUSPEC.replace('<group targetFramework="net10.0-ios27.2" />',
+                                 '<group targetFramework="net10.0-ios27.2" /><group targetFramework="net10.0-ios27.2" />')
+        with self.assertRaises(ValueError):
+            mtp.nuspec_groups({"a.nuspec": doubled.encode()})
 
     def test_variant_drops_reversions_and_unsigns(self):
         out = mtp.variant(self.kit(), self.dir / "out", "1.0.0-negb", drops=["buildTransitive/net10.0-ios27.2/"])
@@ -122,6 +131,24 @@ class ReaderTests(unittest.TestCase):
                 "  SwiftBindings copy: Acme.Kit 1.0.0 -> net10.0-ios27.2 (built on .NET 10.0.404 + Xcode 27.2); lib=c\n")
         self.assertEqual(mtp.copy_lines(text, "Acme.Kit"), [("net10.0-ios26.0", ".NET 10.0.107 + Xcode 26.3"),
                                                             ("net10.0-ios27.2", ".NET 10.0.404 + Xcode 27.2")])
+
+    def test_minor_version_compares_sdks_as_named(self):
+        self.assertEqual([mtp.minor_version(v) for v in ("27.2.1", "27.2", "27")], ["27.2", "27.2", "27.0"])
+        self.assertNotEqual(mtp.minor_version("27.0"), mtp.minor_version("27.2"))
+
+    def test_control_needs_a_completed_failure_with_one_matching_diagnostic(self):
+        gate = object.__new__(mtp.Gate)
+        gate.record, gate.lines, gate.failures = {"steps": []}, [], []
+        expect = [r"error SWIFTBIND133", r"lib/net10\.0-ios27\.2/\S+ would be refused", r"copy net10\.0-ios26\.0"]
+        one = "x.nupkg : error SWIFTBIND133: x: lib/net10.0-ios27.2/X.dll would be refused: generated as copy net10.0-ios26.0\n"
+        split = ("x.nupkg : error SWIFTBIND133: x: lib/net10.0-ios27.2/X.dll would be refused: no manifest\n"
+                 "x.nupkg : error SWIFTBIND133: x: lib/net10.0-maccatalyst27.2/X.dll: generated as copy net10.0-ios26.0\n")
+        cases = [(1, one, True), (-1, one, False), (0, one, False), (1, split, False)]
+        for code, text, red in cases:
+            gate.failures.clear()
+            with self.subTest(code=code, red=red):
+                gate.control("c", code, text, expect)
+                self.assertEqual(not gate.failures, red)
 
     def test_failed_lines_are_the_errors(self):
         text = "noise\nfoo.csproj : error NU1202: no\nwarning SWIFTBIND140: long\nfoo.csproj : error NU1202: no\n"

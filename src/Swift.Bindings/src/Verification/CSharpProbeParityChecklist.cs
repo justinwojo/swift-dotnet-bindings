@@ -58,6 +58,8 @@ public static class CSharpProbeParityChecklist
             ["IsPackable"] = ProbeParityDisposition.NotReproducibleInProcess,
             ["PackageId"] = ProbeParityDisposition.NotReproducibleInProcess,
             ["PackageVersion"] = ProbeParityDisposition.NotReproducibleInProcess,
+            // Asks SwiftBindings.Runtime's targets to check the package `dotnet pack` writes; no compile reads it.
+            ["SwiftBindingsCheckPackedTransitions"] = ProbeParityDisposition.NotReproducibleInProcess,
             // Drives the workload's platform DefineConstants and OS-version attributes at build
             // time; the in-process probe has no workload logic to reproduce that mapping.
             ["SupportedOSPlatformVersion"] = ProbeParityDisposition.NotReproducibleInProcess,

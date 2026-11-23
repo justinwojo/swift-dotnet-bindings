@@ -100,11 +100,13 @@ def copy_digest(entries, copy):
 
 
 def nuspec_groups(entries):
-    """{targetFramework: sorted [(id, version)]} of the package's nuspec dependency groups."""
+    """{targetFramework: sorted dependencies}, each dependency its sorted (attribute, value) pairs."""
     nuspec = next(data for name, data in entries.items() if name.endswith(".nuspec") and "/" not in name).decode()
     groups = {}
     for match in re.finditer(r'<group targetFramework="([^"]+)"\s*(?:/>|>(.*?)</group>)', nuspec, re.S):
-        deps = re.findall(r'<dependency id="([^"]+)" version="([^"]+)"', match.group(2) or "")
+        if match.group(1) in groups:
+            raise ValueError(f"the nuspec has two dependency groups for {match.group(1)}")
+        deps = [tuple(sorted(re.findall(r'(\w+)="([^"]*)"', d))) for d in re.findall(r"<dependency\b([^>]*)/?>", match.group(2) or "")]
         groups[match.group(1)] = sorted(deps)
     return groups
 
@@ -178,23 +180,17 @@ def longest_entry(names):
     return max(names, key=len)
 
 
-class Failures(list):
-    def check(self, condition, message):
-        if not condition:
-            self.append(message)
-        return condition
-
-
 class Gate:
     def __init__(self, options):
         self.o = options
         self.root = Path(options.root).resolve()
-        self.work = Path(options.work).resolve()
+        # Not resolved: a link planted at the scratch path must be refused, never followed and emptied.
+        self.work = Path(os.path.abspath(options.work))
         self.receipts = Path(options.receipts).resolve()
         self.logs = self.receipts / "logs"
         self.feed = Path(options.feed).resolve()
         self.launcher = load_launcher(self.root)
-        self.failures = Failures()
+        self.failures = []
         self.lines = []
         self.record = {"sdkVersion": options.sdk_version, "appleVersion": options.apple_version, "steps": []}
         self.envs, self.receipts_by_profile, self.sdk_versions = {}, {}, {}
@@ -216,9 +212,11 @@ class Gate:
         return ok
 
     def prepare(self):
+        if self.work.is_symlink() or (self.work.exists() and self.work.stat().st_uid != os.getuid()):
+            raise RuntimeError(f"{self.work} is a link or belongs to another user; the gate deletes only a scratch root of its own")
         if self.work.exists():
             shutil.rmtree(self.work)
-        self.work.mkdir(parents=True)
+        self.work.mkdir(parents=True, mode=0o700)
         if self.receipts.exists():
             shutil.rmtree(self.receipts)
         self.logs.mkdir(parents=True)
@@ -526,12 +524,14 @@ class Gate:
         sdks = {identity_field(i, "sdk") for i in identities}
         build = subprocess.run(["vtool", "-show-build", str(image)], capture_output=True, text=True).stdout
         linked = set(re.findall(r"^\s*sdk (\S+)", build, re.M))
-        major = self.sdk_versions[profile][SDK_NAMES[platform]].split(".")[0]
+        # A Catalyst slice links the macOS SDK and records its iOS-equivalent SDK version.
+        names = ("macosx", "iphonesimulator") if platform == "maccatalyst" else (SDK_NAMES[platform],)
+        expected = {minor_version(self.sdk_versions[profile][n]) for n in names}
         self.step(f"{profile} {label} wrapper identity and SDK",
-                  bool(identities) and copies == {expected_copy} and len(sdks) == 1
-                  and all(s.split(".")[0] == major for s in sdks | linked) and bool(linked),
+                  bool(identities) and copies == {expected_copy} and len(sdks) == 1 and bool(linked)
+                  and all(s is not None and minor_version(s) in expected for s in sdks | linked),
                   f"identity copy={','.join(sorted(c or '?' for c in copies))} sdk={','.join(sorted(s or '?' for s in sdks))}; "
-                  f"linked against SDK {','.join(sorted(linked)) or '?'} (pairing SDK major {major})")
+                  f"linked against SDK {','.join(sorted(linked)) or '?'} (pairing SDK {', '.join(sorted(expected))})")
 
     def library_flow(self, profile, net, label):
         """A versionless class library restores the package; the app that references it selects its own copy."""
@@ -585,10 +585,11 @@ class Gate:
     # ---- 4. controls ---------------------------------------------------------------------------
 
     def control(self, name, code, text, expect):
-        """A control passes the gate only when its run failed with the expected diagnostic."""
-        found = [m for m in expect if not re.search(m, text)]
-        self.step(f"control {name} is red", code != 0 and not found,
-                  f"exit {code}; " + (f"missing {', '.join(found)}" if found else f"matched {', '.join(expect)}"))
+        """A control passes the gate only when its run completed and failed (not a timeout, -1) with
+        the expected diagnostic: every pattern on one line, so two diagnostics cannot make up one."""
+        line = next((l for l in text.splitlines() if all(re.search(m, l) for m in expect)), None)
+        self.step(f"control {name} is red", code > 0 and line is not None,
+                  f"exit {code}; " + (line.strip()[:400] if line else f"no line matches all of {', '.join(expect)}"))
 
     def control_app(self, profile, label, version, extra_props="", extra_items="", expected_copy=None):
         directory = self.app_dir(profile, f"control-{label}")
@@ -742,6 +743,7 @@ class Gate:
         self.record["failures"] = list(self.failures)
         verdict = "PASSED" if not self.failures else f"FAILED ({len(self.failures)})"
         self.say(f"multi-toolchain-package {verdict} in {minutes:.1f} min")
+        self.receipts.mkdir(parents=True, exist_ok=True)
         (self.receipts / "summary.txt").write_text("\n".join(self.lines) + "\n")
         (self.receipts / "summary.json").write_text(json.dumps(self.record, indent=2) + "\n")
         return not self.failures
@@ -765,8 +767,10 @@ def simulator_run(udid, bundle):
         output, code = (raw.decode(errors="replace") if isinstance(raw, bytes) else raw).replace("\r", "") + "\nTIMED OUT", -1
         subprocess.run(["xcrun", "simctl", "terminate", udid, bundle_id], capture_output=True)
     container = subprocess.run(["xcrun", "simctl", "get_app_container", udid, bundle_id, "data"], capture_output=True, text=True)
-    report = Path(container.stdout.strip()) / "Documents" / RESULT_FILE if container.returncode == 0 else None
-    output += f"\n--- {RESULT_FILE} ---\n" + (report.read_text() if report and report.is_file() else "(none)\n")
+    # MyDocuments is <container>/Documents on iOS and <container>/Library/Caches/Documents on tvOS.
+    data = Path(container.stdout.strip()) if container.returncode == 0 else None
+    report = next((r for r in (data / "Documents" / RESULT_FILE, data / "Library/Caches/Documents" / RESULT_FILE) if r.is_file()), None) if data else None
+    output += f"\n--- {RESULT_FILE} ---\n" + (report.read_text() if report else "(none)\n")
     subprocess.run(["xcrun", "simctl", "uninstall", udid, bundle_id], capture_output=True)
     return output, code
 
@@ -774,6 +778,12 @@ def simulator_run(udid, bundle):
 def copy_lines(text, package):
     """Every 'SwiftBindings copy' line of a package in a build log, in order: (copy, toolchain)."""
     return re.findall(rf"SwiftBindings copy: {re.escape(package)} \S+ -> (\S+) \(built on ([^)]*)\)", text)
+
+
+def minor_version(version):
+    """27.2.1 -> 27.2, 27 -> 27.0: SDK versions compared as the SDK names them."""
+    parts = (version.split(".") + ["0"])[:2]
+    return ".".join(parts)
 
 
 def first_errors(text, count=3):
@@ -926,24 +936,24 @@ def main(argv=None):
     parser.add_argument("--apple-version", required=True, help="their SwiftBindings.Apple version")
     parser.add_argument("--work", required=True, help="scratch root outside the checkout (deleted on a pass)")
     parser.add_argument("--receipts", required=True)
-    parser.add_argument("--phases", default="contributions,merge,consumers,controls,runs")
     options = parser.parse_args(argv)
     if sys.platform != "darwin":
         parser.error("the multi-toolchain package gate needs macOS")
     gate = Gate(options)
-    phases = options.phases.split(",")
-    gate.prepare()
     try:
-        if "contributions" in phases:
-            gate.contributions()
-        if "merge" in phases and not gate.failures:
+        gate.prepare()
+        gate.contributions()
+        if not gate.failures:
             gate.merges()
-        if "consumers" in phases and not gate.failures:
+        if not gate.failures:
             gate.consumers()
-        if "controls" in phases and all(gate.merged(f).exists() for f in FIXTURES):
+        if all(gate.merged(f).exists() for f in FIXTURES):
             gate.controls()
-        if "runs" in phases:
-            gate.run_all()
+        gate.run_all()
+    except BaseException as error:
+        # An abort is a failure of its own, so the receipt can never read PASSED for a partial run.
+        gate.step("the gate ran to the end", False, f"{type(error).__name__}: {error}")
+        raise
     finally:
         passed = gate.finish()
     if passed:
