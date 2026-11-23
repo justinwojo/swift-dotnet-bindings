@@ -69,6 +69,10 @@ public sealed class TargetFrameworkOutputTests : IDisposable
             ((string?)item.Attribute("PackagePath"))?.Contains($"buildTransitive/{target.PackTfm}/") == true);
         Assert.Contains(project.Descendants("BuildOutputInPackage"), item =>
             item.Attribute("Include")?.Value.Contains("_SwiftBindingCompanionBuildOutput") == true);
+        // The wrapper identity's attribute compiles into the binding whenever generation wrote one.
+        Assert.Contains(project.Descendants("Compile"), item =>
+            ((string?)item.Attribute("Include"))?.EndsWith(SwiftWrapperIdentityFormat.AttributeFileSuffix, StringComparison.Ordinal) == true
+            && ((string?)item.Parent!.Attribute("Condition"))?.Contains("Exists(", StringComparison.Ordinal) == true);
         Assert.Equal("[0.16.2,0.17.0)", project.Descendants("PackageReference")
             .Single(item => (string?)item.Attribute("Include") == "SwiftBindings.Runtime").Attribute("Version")!.Value);
     }

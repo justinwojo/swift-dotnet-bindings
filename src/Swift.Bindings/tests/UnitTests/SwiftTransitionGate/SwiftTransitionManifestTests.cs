@@ -410,6 +410,46 @@ public class SwiftTransitionManifestTests
     }
 
     [Fact]
+    public void PackageCheck_EachCopysAssembly_IsHeldToItsOwnCopysNatives()
+    {
+        // Two copies of one platform (native/<tfm>/ each): the newer copy's wrapper holds another
+        // manifest's hash. Only the newer copy is refused, and a copy with no natives of its own is not
+        // passed on the other copy's.
+        var image = File.ReadAllBytes(RuntimeDll);
+        var options = new SwiftTransitionScanOptions { ReferenceDirectories = [AppContext.BaseDirectory] };
+        var hash = SwiftTransitionManifestReader.Read(image, "runtime", options).Manifests.Single().Hash;
+        var other = SwiftTransitionManifestFormat.Hash("another copy's manifest");
+        List<PackagedNative> Natives(string copy, bool swapped) => RuntimeSlices.Select(p => new PackagedNative("SwiftBindingsRuntime", $"native/{copy}/{Path.GetFileName(p)}",
+            swapped ? Replace(File.ReadAllBytes(p), Encoding.ASCII.GetBytes(hash), Encoding.ASCII.GetBytes(other)) : File.ReadAllBytes(p), copy)).ToList();
+        var older = new PackagedAssembly("lib/net10.0-ios26.0/Swift.Runtime.dll", image, [AppContext.BaseDirectory], "net10.0-ios26.0");
+        var newer = new PackagedAssembly("lib/net10.0-ios27.2/Swift.Runtime.dll", image, [AppContext.BaseDirectory], "net10.0-ios27.2");
+        var scratch = Directory.CreateTempSubdirectory("swift-package-evidence-").FullName;
+        try
+        {
+            var whole = PackageTransitionEvidence.Check([older, newer], [.. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", false)], requireRoutedBridges: true, Path.Combine(scratch, "whole"));
+            Assert.True(whole.Passed, string.Join("\n", whole.Problems));
+
+            var swapped = PackageTransitionEvidence.Check([older, newer], [.. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", true)], requireRoutedBridges: true, Path.Combine(scratch, "swapped"));
+            Assert.False(swapped.Passed);
+            Assert.All(swapped.Problems, p => Assert.Contains("native/net10.0-ios27.2/", p));
+            Assert.Contains(swapped.Problems, p => p.Contains("(against lib/net10.0-ios27.2/", StringComparison.Ordinal));
+            Assert.DoesNotContain(swapped.Problems, p => p.Contains("(against lib/net10.0-ios26.0/", StringComparison.Ordinal));
+
+            var missing = PackageTransitionEvidence.Check([older, newer], Natives("net10.0-ios26.0", false), requireRoutedBridges: true, Path.Combine(scratch, "missing"));
+            Assert.Contains(missing.Problems, p => p.Contains("no image of it in native/net10.0-ios27.2/", StringComparison.Ordinal));
+
+            // A matching image outside every copy does not stand in for a copy's own.
+            var shared = RuntimeSlices.Select(p => new PackagedNative("SwiftBindingsRuntime", $"native/{Path.GetFileName(p)}", File.ReadAllBytes(p))).ToList();
+            var outside = PackageTransitionEvidence.Check([older, newer], [.. Natives("net10.0-ios26.0", false), .. shared], requireRoutedBridges: true, Path.Combine(scratch, "outside"));
+            Assert.Contains(outside.Problems, p => p.Contains("no image of it in native/net10.0-ios27.2/", StringComparison.Ordinal));
+        }
+        finally
+        {
+            Directory.Delete(scratch, recursive: true);
+        }
+    }
+
+    [Fact]
     public void Runtime_PackageCheck_PassesAndARenamedTwinBreaksR3()
     {
         var image = File.ReadAllBytes(RuntimeDll);

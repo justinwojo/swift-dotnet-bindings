@@ -385,6 +385,18 @@ namespace BindingsGeneration
                             new[] { new FragmentAssembly.SourceRange(0, preQualifySwift.Length) },
                             OutputPlane.Swift),
                         swiftOutput));
+
+                // The wrapper identity: one value, fixed now, that the assembly embeds and every slice
+                // of the wrapper exports, so a wrapper of another copy or build does not pass for this
+                // one. Its attribute is C# the binding compiles, owned by the module like the manifest's.
+                if (WrapperIdentityEmission.Write(_outputDirectory, @namespace, moduleDecl.Name, wrapperLibrary, swiftOutput) is { } identity)
+                {
+                    var fragment = new OutputFragment
+                    {
+                        Owner = moduleOwner, Plane = OutputPlane.CSharp, Text = identity, IsWholeScope = false, Depth = 0,
+                    };
+                    fragmentSet.Add(SwiftWrapperIdentityFormat.AttributeFileName(@namespace), identity, [new FragmentInterval(fragment, 0, identity.Length)]);
+                }
                 emissionContext.PublishFragmentSet(fragmentSet);
                 // Trap-anonymity lint: verify every emitted fatalError/preconditionFailure carries the
                 // [SwiftBindings] breadcrumb and report the force-cast surface. Read-only.

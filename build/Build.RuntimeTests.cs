@@ -3942,7 +3942,9 @@ partial class Build
 
         // Compile native ARM64 thunk assembly files (if any)
         var thunkObjects = new List<string>();
-        foreach (var asmFile in Directory.GetFiles(BtOutputDir, "*.arm64.s"))
+        // The wrapper identity's data-only file links into the device slice with them.
+        foreach (var asmFile in Directory.GetFiles(BtOutputDir, "*.arm64.s")
+                     .Concat(Directory.GetFiles(BtOutputDir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix)))
         {
             var objFile = Path.ChangeExtension(asmFile, ".device.o");
             XcRunTool($"clang -c {asmFile} -o {objFile} -target {deviceTarget}");
@@ -4052,7 +4054,8 @@ partial class Build
         // Thunk-assembly files preserved by RunRegenerateBindings. Each .arm64.s defines
         // `thunk_<DepModule>_<hash>` trampolines that P/Invokes target. Without them the
         // device dep framework is missing the symbols and runtime calls EntryPointNotFound.
-        var asmFiles = Directory.GetFiles(depSwiftDir, "*.arm64.s").ToList();
+        var asmFiles = Directory.GetFiles(depSwiftDir, "*.arm64.s")
+            .Concat(Directory.GetFiles(depSwiftDir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix)).ToList();
 
         Log.Information("=== Building {Module} (device) ===", depWrapperName);
 

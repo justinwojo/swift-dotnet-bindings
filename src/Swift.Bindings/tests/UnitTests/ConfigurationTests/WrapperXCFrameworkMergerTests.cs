@@ -13,7 +13,7 @@ namespace BindingsGeneration.Tests
     /// End-to-end tests for <see cref="WrapperXCFrameworkMerger"/>. These shell out to real
     /// <c>clang</c> + <c>lipo</c>, so they only run on macOS. They verify the compile-twice +
     /// lipo-merge mechanism that lets a single multi-arch wrapper xcframework serve both Apple
-    /// Silicon and Intel (Rosetta) consumers from one <c>runtimes/&lt;rid&gt;/native/</c> tree.
+    /// Silicon and Intel (Rosetta) consumers from one <c>native/&lt;tfm&gt;/</c> tree.
     /// </summary>
     public class WrapperXCFrameworkMergerTests
     {

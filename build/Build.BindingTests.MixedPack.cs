@@ -58,10 +58,6 @@ partial class Build
     const string MixedPackBundleId = "com.swiftbindings.mixedpack";
     const string MixedPackAppName = "MixedPackApp";
 
-    // The NuGet rid the SwiftBindings.Sdk lays the iOS native xcframeworks under
-    // (matches PackGate's ExpectedSourceXcframeworkLayout / ExpectedXcframeworkLayout).
-    const string MixedPackIosRid = "ios-arm64";
-
     string MixedPackLaneVersion => MixedPackageLaneVersion(MixedPackVersion, RuntimeLane);
     string MixedPackLaneAppleVersion => MixedPackageAppleVersion("pack", RuntimeLane);
     AbsolutePath MixedPackScratch => RootDirectory / "artifacts" / ("mixed-pack" + MixedPackageLaneSuffix(RuntimeLane));
@@ -288,9 +284,9 @@ partial class Build
 
     // Structural assertions on the REAL packed iOS Swift nupkg — the iOS counterpart to the
     // macOS PackGate static-leg checks, so a packaging regression that is iOS-specific (wrong
-    // rid slice, companion landing under the wrong lib/ TFM casing) is caught here even when
+    // native copy, companion landing under the wrong lib/ TFM casing) is caught here even when
     // the macOS gate stays green. Reuses the platform-neutral helpers from
-    // Build.PackGate.MixedFixture.cs; the runtimes/ rid + the lib/ TFM slice are iOS here.
+    // Build.PackGate.MixedFixture.cs; the lib/<tfm>/ slice and its native/<tfm>/ are iOS here.
     void AssertMixedPackNupkgStructure(AbsolutePath fixtureOut, string module, string probeClass)
     {
         var swiftNupkg = fixtureOut / $"MixedPackFixture.{module}.{MixedPackLaneVersion}.nupkg";
@@ -313,65 +309,74 @@ partial class Build
         ExtractNupkg(swiftNupkg, extract);
 
         var failures = new List<string>();
-        var native = extract / "runtimes" / MixedPackIosRid / "native";
-        var sourceXcfw = native / $"{module}.xcframework";
-        var wrapperXcfw = native / $"{module}SwiftBindings.xcframework";
-
-        // (a) STATIC source is dropped — the wrapper is the sole native carrier of the ObjC class.
-        if (Directory.Exists(sourceXcfw))
-            failures.Add(
-                $"static source xcframework was packed (Gap 2 double-embed hazard): " +
-                $"runtimes/{MixedPackIosRid}/native/{module}.xcframework/ — for static linkage the wrapper " +
-                $"force-loads the archive and is the sole carrier; the source must be dropped.");
-
-        // (b) the wrapper IS shipped and (c) its ios-arm64 (device) slice actually carries the
-        //     force-loaded ObjC class symbol (nm reads the arm64 archive cross-arch on the host).
-        if (!Directory.Exists(wrapperXcfw))
+        if (PackedRuntimesDirViolation(extract) is { } runtimesViolation)
+            failures.Add(runtimesViolation);
+        var iosTfms = PackedLibTfms(extract, "ios");
+        if (iosTfms.Count == 0)
+            failures.Add("no lib/<net*-ios*>/ copy in the package — the iOS fixture shipped no platform copy to check.");
+        foreach (var tfm in iosTfms)
         {
-            failures.Add($"missing wrapper xcframework: runtimes/{MixedPackIosRid}/native/{module}SwiftBindings.xcframework/");
-        }
-        else
-        {
-            // Find the iOS *device* slice dir without hardcoding its exact name: it is thin
-            // "ios-arm64" for a source binding today, but tolerate a future fat/renamed device
-            // slice (e.g. "ios-arm64_<x>") by matching the "ios-arm64" prefix and excluding the
-            // simulator slice — so a naming drift can't turn a present symbol into a false miss.
-            // A well-formed iOS xcframework has exactly ONE device slice; fail closed on an
-            // ambiguous (>1) match rather than picking one by enumeration order, mirroring the
-            // deterministic, fail-loud handling of the .app candidates in RunMixedPackConsumer.
-            var deviceSlices = Directory
-                .EnumerateDirectories(wrapperXcfw, "ios-arm64*")
-                .Where(d => !Path.GetFileName(d).Contains("simulator", StringComparison.OrdinalIgnoreCase))
-                .ToList();
-            if (deviceSlices.Count == 0)
-            {
-                failures.Add($"no iOS device slice (ios-arm64*, non-simulator) found inside the packed wrapper xcframework {module}SwiftBindings.xcframework");
-            }
-            else if (deviceSlices.Count > 1)
-            {
+            var native = PackedNativeDir(extract, tfm);
+            var nativeRel = PackedNativeRelative(tfm);
+            var sourceXcfw = native / $"{module}.xcframework";
+            var wrapperXcfw = native / $"{module}SwiftBindings.xcframework";
+
+            // (a) STATIC source is dropped — the wrapper is the sole native carrier of the ObjC class.
+            if (Directory.Exists(sourceXcfw))
                 failures.Add(
-                    $"ambiguous iOS device slices in the packed wrapper xcframework {module}SwiftBindings.xcframework " +
-                    $"({string.Join(", ", deviceSlices.Select(Path.GetFileName))}) — expected exactly one non-simulator ios-arm64* slice.");
+                    $"static source xcframework was packed (Gap 2 double-embed hazard): " +
+                    $"{nativeRel}{module}.xcframework/ — for static linkage the wrapper " +
+                    $"force-loads the archive and is the sole carrier; the source must be dropped.");
+
+            // (b) the wrapper IS shipped and (c) its ios-arm64 (device) slice actually carries the
+            //     force-loaded ObjC class symbol (nm reads the arm64 archive cross-arch on the host).
+            if (!Directory.Exists(wrapperXcfw))
+            {
+                failures.Add($"missing wrapper xcframework: {nativeRel}{module}SwiftBindings.xcframework/");
             }
             else
             {
-                var deviceSlice = deviceSlices[0];
-                var sliceName = Path.GetFileName(deviceSlice);
-                var wrapperBinary = Directory
-                    .EnumerateFiles(deviceSlice, $"{module}SwiftBindings", SearchOption.AllDirectories)
-                    .FirstOrDefault(p => !p.EndsWith(".plist", StringComparison.Ordinal));
-                if (wrapperBinary is null)
-                    failures.Add($"wrapper binary {module}SwiftBindings not found inside the packed wrapper xcframework's {sliceName} (iOS device) slice");
-                else if (!NmDefinedGlobals(wrapperBinary).Contains($"_OBJC_CLASS_$_{probeClass}", StringComparison.Ordinal))
+                // Find the iOS *device* slice dir without hardcoding its exact name: it is thin
+                // "ios-arm64" for a source binding today, but tolerate a future fat/renamed device
+                // slice (e.g. "ios-arm64_<x>") by matching the "ios-arm64" prefix and excluding the
+                // simulator slice — so a naming drift can't turn a present symbol into a false miss.
+                // A well-formed iOS xcframework has exactly ONE device slice; fail closed on an
+                // ambiguous (>1) match rather than picking one by enumeration order, mirroring the
+                // deterministic, fail-loud handling of the .app candidates in RunMixedPackConsumer.
+                var deviceSlices = Directory
+                    .EnumerateDirectories(wrapperXcfw, "ios-arm64*")
+                    .Where(d => !Path.GetFileName(d).Contains("simulator", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+                if (deviceSlices.Count == 0)
+                {
+                    failures.Add($"no iOS device slice (ios-arm64*, non-simulator) found inside the packed wrapper xcframework {module}SwiftBindings.xcframework");
+                }
+                else if (deviceSlices.Count > 1)
+                {
                     failures.Add(
-                        $"packed wrapper binary ({sliceName}) does not export _OBJC_CLASS_$_{probeClass} — force_load did not carry the " +
-                        $"static ObjC class through the pack pipeline, so the dropped source leaves the class unregistered.");
+                        $"ambiguous iOS device slices in the packed wrapper xcframework {module}SwiftBindings.xcframework " +
+                        $"({string.Join(", ", deviceSlices.Select(Path.GetFileName))}) — expected exactly one non-simulator ios-arm64* slice.");
+                }
+                else
+                {
+                    var deviceSlice = deviceSlices[0];
+                    var sliceName = Path.GetFileName(deviceSlice);
+                    var wrapperBinary = Directory
+                        .EnumerateFiles(deviceSlice, $"{module}SwiftBindings", SearchOption.AllDirectories)
+                        .FirstOrDefault(p => !p.EndsWith(".plist", StringComparison.Ordinal));
+                    if (wrapperBinary is null)
+                        failures.Add($"wrapper binary {module}SwiftBindings not found inside the packed wrapper xcframework's {sliceName} (iOS device) slice");
+                    else if (!NmDefinedGlobals(wrapperBinary).Contains($"_OBJC_CLASS_$_{probeClass}", StringComparison.Ordinal))
+                        failures.Add(
+                            $"packed wrapper binary ({sliceName}) does not export _OBJC_CLASS_$_{probeClass} — force_load did not carry the " +
+                            $"static ObjC class through the pack pipeline, so the dropped source leaves the class unregistered.");
+                }
             }
         }
 
         // (d) every consumer .targets references the wrapper behind an Exists() guard and the
         //     source ONLY as a wrapper-absent fallback (never unconditionally).
-        AssertConsumerTargetsWrapperGuard(extract, module, MixedPackIosRid, failures);
+        AssertConsumerTargetsWrapperGuard(extract, module, failures);
 
         // (e) the Swift nupkg EMBEDS the companion's managed assembly under a version-qualified
         //     iOS lib/ TFM slice (lib/net*-ios<version>/) — single-package topology.
@@ -415,7 +420,7 @@ partial class Build
 
     // Single-PackageReference iOS consumer: an app targeting the selected iOS TFM that takes ONE PackageReference
     // to the Swift binding and uses the ObjC type (the companion managed dll arrives EMBEDDED
-    // in that package's lib/ and the wrapper native through its runtimes/ — both from the one
+    // in that package's lib/ and the wrapper native through its native/<tfm>/ — both from the one
     // reference; the Runtime package's [ModuleInitializer] auto-registers the DllImportResolver,
     // so the consumer does NOT register it manually — the faithful packaged-consumer shape).
     // Builds for the iOS Simulator (Mono JIT) or NativeAOT-publishes for a device, deploys, and
@@ -652,7 +657,7 @@ partial class Build
               </ItemGroup>
 
               <!-- THE single reference: the mixed Swift binding. Its lib/ carries the ObjC
-                   companion dll and its runtimes/ carries the wrapper native; the transitive
+                   companion dll and its native/<tfm>/ carries the wrapper native; the transitive
                    SwiftBindings.Runtime + SwiftBindings.Apple deps come from the local feed. -->
               <ItemGroup>
                 <PackageReference Include="MixedPackFixture.{module}" Version="{packageVersion}" />

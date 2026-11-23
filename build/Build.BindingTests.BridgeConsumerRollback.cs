@@ -283,7 +283,7 @@ partial class Build
                     using var stream = e.Open();
                     using var memory = new MemoryStream();
                     stream.CopyTo(memory);
-                    return new PackagedNative(BcfWrapperModule, e.FullName, memory.ToArray());
+                    return new PackagedNative(BcfWrapperModule, e.FullName, memory.ToArray(), NativeCopyOfEntry(e.FullName));
                 }).ToList();
 
             // The engine, as the pack check (images required) and an app's check (not) read it.

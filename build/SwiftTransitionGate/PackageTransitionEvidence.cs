@@ -12,11 +12,49 @@ using BindingsGeneration;
 
 namespace SwiftBindings.TransitionGate;
 
-/// <summary>A managed assembly of a package: where it is shown as coming from, its bytes, and the directories its references resolve in.</summary>
-public sealed record PackagedAssembly(string DisplayPath, byte[] Image, IReadOnlyList<string> ReferenceDirectories);
+/// <summary>
+/// A managed assembly of a package: where it is shown as coming from, its bytes, and the directories its
+/// references resolve in. <paramref name="CopyTfm"/> is the package copy it belongs to (its
+/// <c>lib/&lt;tfm&gt;/</c> folder) in a package of per-toolchain copies; null otherwise.
+/// </summary>
+public sealed record PackagedAssembly(string DisplayPath, byte[] Image, IReadOnlyList<string> ReferenceDirectories, string? CopyTfm = null);
 
-/// <summary>A native image of a package: the library it is (its bare name), where it is shown as coming from, and its bytes.</summary>
-public sealed record PackagedNative(string Library, string DisplayPath, byte[] Image);
+/// <summary>
+/// A native image of a package: the library it is (its bare name), where it is shown as coming from,
+/// and its bytes. <paramref name="CopyTfm"/> is the copy whose <c>native/&lt;tfm&gt;/</c> holds it; null
+/// for an image every assembly of the package can load.
+/// </summary>
+public sealed record PackagedNative(string Library, string DisplayPath, byte[] Image, string? CopyTfm = null)
+{
+    /// <summary>
+    /// Whether an app that loads <paramref name="assembly"/> links this image: a copy's assembly links
+    /// only its copy's natives, and a shared image serves only assemblies outside every copy.
+    /// </summary>
+    public bool Serves(PackagedAssembly assembly) =>
+        CopyTfm is null ? assembly.CopyTfm is null : string.Equals(CopyTfm, assembly.CopyTfm, StringComparison.OrdinalIgnoreCase);
+}
+
+/// <summary>Reads the copy declaration a package's <c>buildTransitive/&lt;tfm&gt;/</c> props file may hold.</summary>
+public static class PackageCopyDeclaration
+{
+    /// <summary>
+    /// Whether <paramref name="propsText"/> declares a package copy: a <c>SwiftBindingPackageCopy</c>
+    /// item (an element with <c>Include</c> in an <c>ItemGroup</c>), not a property or a comment of
+    /// that name. A file that does not read as XML declares nothing.
+    /// </summary>
+    public static bool Declares(string propsText)
+    {
+        try
+        {
+            return System.Xml.Linq.XDocument.Parse(propsText).Descendants()
+                .Any(e => e.Name.LocalName == "SwiftBindingPackageCopy" && e.Attribute("Include") is not null && e.Parent?.Name.LocalName == "ItemGroup");
+        }
+        catch (System.Xml.XmlException)
+        {
+            return false;
+        }
+    }
+}
 
 /// <summary>The verdict of <see cref="PackageTransitionEvidence.Check"/>.</summary>
 public sealed record PackageTransitionEvidenceResult(
@@ -71,7 +109,8 @@ public static class PackageTransitionEvidence
         IReadOnlyList<PackagedAssembly> assemblies, IReadOnlyList<PackagedNative> natives, bool requireRoutedBridges, string scratch,
         bool acceptWithdrawals = false)
     {
-        var withdrawn = new List<string>();
+        var withdrawn = new List<(PackagedAssembly Assembly, string Library)>();
+        var checkedEvidence = new List<(PackagedAssembly Assembly, TransitionEvidence Read)>();
         var problems = new List<string>();
         var evidence = ImmutableArray.CreateBuilder<TransitionEvidence>();
         var reports = ImmutableArray.CreateBuilder<AssemblyTransitionReport>();
@@ -84,6 +123,7 @@ public static class PackageTransitionEvidence
             var where = assembly.DisplayPath;
             var read = SwiftTransitionManifestReader.Read(assembly.Image, where, new SwiftTransitionScanOptions { ReferenceDirectories = assembly.ReferenceDirectories });
             evidence.Add(read);
+            checkedEvidence.Add((assembly, read));
             if (read.State != TransitionEvidenceState.PresentValid)
             {
                 problems.Add($"{where}: transition evidence is {read.State}");
@@ -97,26 +137,29 @@ public static class PackageTransitionEvidence
             var (ruleProblems, report, withdrawals) = RuleProblems(assembly, read, directory, acceptWithdrawals);
             reports.Add(report);
             problems.AddRange(ruleProblems);
-            withdrawn.AddRange(withdrawals.Select(w => w.Library));
+            withdrawn.AddRange(withdrawals.Select(w => (assembly, w.Library)));
             var routed = read.Manifests.SelectMany(m => m.Manifest.Bridges).Distinct(StringComparer.Ordinal).Count();
             if (requireRoutedBridges && routed == 0)
                 problems.Add($"{where}: routes no transition through a bridge, but this package must (its bridges are its evidence that routing reached the package)");
         }
 
-        // Every native slice against every assembly that can load it.
+        // Every native slice against every assembly that can load it: a copy's natives against that
+        // copy's assemblies only, an unscoped image against all.
         foreach (var native in natives)
-            foreach (var read in evidence.Where(e => e.State == TransitionEvidenceState.PresentValid))
+            foreach (var (assembly, read) in checkedEvidence.Where(e => e.Read.State == TransitionEvidenceState.PresentValid && native.Serves(e.Assembly)))
                 problems.AddRange(SwiftTransitionManifestReader.CheckNative(read, native.Library, native.Image, native.DisplayPath)
                     .Select(p => $"{p} (against {read.Path})"));
         if (requireRoutedBridges && natives.Count == 0)
             problems.Add("the package holds no native image, but its assemblies route through bridges");
-        // Every library a manifest routes through must be among the images checked, or its hash and
-        // exports went unchecked.
-        foreach (var library in evidence.Where(e => e.State == TransitionEvidenceState.PresentValid)
-                     .SelectMany(e => e.Routing.Select(m => m.Manifest.NativeLibrary!)).Distinct(StringComparer.Ordinal)
-                     .Where(l => !natives.Any(n => n.Library == l)))
-            problems.Add($"the manifests route bridges through {library}, but the package holds no image of it");
-        foreach (var library in withdrawn.Distinct(StringComparer.Ordinal).Where(l => !natives.Any(n => n.Library == l)))
+        // Every library a manifest routes through must be among the images its assembly loads, or its
+        // hash and exports went unchecked.
+        foreach (var (assembly, read) in checkedEvidence.Where(e => e.Read.State == TransitionEvidenceState.PresentValid))
+            foreach (var library in read.Routing.Select(m => m.Manifest.NativeLibrary!).Distinct(StringComparer.Ordinal)
+                         .Where(l => !natives.Any(n => n.Library == l && n.Serves(assembly))))
+                problems.Add(assembly.CopyTfm is null
+                    ? $"the manifests route bridges through {library}, but the package holds no image of it"
+                    : $"the manifests route bridges through {library}, but the package holds no image of it in native/{assembly.CopyTfm}/ (against {read.Path})");
+        foreach (var (assembly, library) in withdrawn.Distinct().Where(w => !natives.Any(n => n.Library == w.Library && n.Serves(w.Assembly))))
             problems.Add($"a module's bridges through {library} were withdrawn, but the package holds no image of {library} to show they are gone");
 
         return new PackageTransitionEvidenceResult(problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), evidence.ToImmutable(), reports.ToImmutable());

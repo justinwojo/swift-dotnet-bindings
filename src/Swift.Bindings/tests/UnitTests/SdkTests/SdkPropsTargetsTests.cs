@@ -448,11 +448,37 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_PackDeclaresEachCopy_AndRefusesAMislabelledOne()
+        {
+            // Every copy is keyed by the full pack TFM: natives under native/<tfm>/, the copy
+            // declaration beside the consumer targets, the label checked against the SDK (SWIFTBIND137).
+            Assert.Contains("<Target Name=\"_ComputeSwiftBindingPackTfm\"", TargetsContent);
+            Assert.Contains("<_SwiftBindingNativePackRoot>native/$(_SwiftBindingPackTfm)/</_SwiftBindingNativePackRoot>", TargetsContent);
+            Assert.Contains("<PrepareSwiftBindingPackageCopy", TargetsContent);
+            Assert.Contains("TargetKind=\"$(_SwiftBindingTargetKind)\"", TargetsContent);
+            Assert.Contains("PlatformSdkVersion=\"$(_SwiftBindingCopySdkVersion)\"", TargetsContent);
+            Assert.Contains("--show-sdk-version", TargetsContent);
+            Assert.Contains("<TfmSpecificPackageFile Include=\"$(_SwiftBindingCopyDeclaration)\"", TargetsContent);
+            Assert.Contains("UsingTask TaskName=\"SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy\"", TargetsContent);
+        }
+
+        [Fact]
+        public void Targets_MergeTarget_ChecksTheMergedPackage()
+        {
+            Assert.Contains("<Target Name=\"SwiftBindingsMergePackages\">", TargetsContent);
+            Assert.Contains("<MergeSwiftBindingPackages Contributions=\"@(_SwiftBindingsMergeContribution)\"", TargetsContent);
+            Assert.Contains("TargetFrameworks=\"@(_SwiftBindingsMergeTfm)\"", TargetsContent);
+            Assert.Contains("UsingTask TaskName=\"SwiftBindings.Tasks.MergeSwiftBindingPackages\"", TargetsContent);
+        }
+
+        [Fact]
         public void Targets_ConfiguresPackLayout()
         {
             // Pack paths use _SwiftBindingPackTfm (version-qualified) not raw $(TargetFramework)
             Assert.Contains("buildTransitive/$(_SwiftBindingPackTfm)/", TargetsContent);
-            Assert.Contains("runtimes/$(_SwiftBindingNuGetRid)/native/", TargetsContent);
+            Assert.Contains("$(_SwiftBindingNativePackRoot)", TargetsContent);
+            Assert.Contains("native/$(_SwiftBindingPackTfm)/", TargetsContent);
+            Assert.DoesNotContain("runtimes/$(_SwiftBindingNuGetRid)", TargetsContent);
             // The layout is contributed per-TFM (see Targets_PackTargetUsesPerTfmContentMechanism),
             // so the items are TfmSpecificPackageFile — not None/Pack items the outer build's
             // _GetPackageFiles would collect.

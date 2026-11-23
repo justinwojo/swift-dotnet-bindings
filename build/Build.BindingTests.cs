@@ -636,6 +636,11 @@ partial class Build
                     File.Move(depSidecar, BtOutputDir / sidecar, overwrite: true);
             }
 
+            // So does its wrapper identity attribute: CompileCheck.dll carries it, and the compile
+            // gate holds the dependency wrapper's slices to it.
+            foreach (var depIdentity in Directory.EnumerateFiles(depOutputDir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AttributeFileSuffix).ToArray())
+                File.Move(depIdentity, BtOutputDir / Path.GetFileName(depIdentity), overwrite: true);
+
             // Preserve the dependency wrapper xcframework for runtime linking
             var depWrapperXcf = depOutputDir / $"{DepModuleName}SwiftBindings.xcframework";
             if (Directory.Exists(depWrapperXcf))
@@ -654,7 +659,8 @@ partial class Build
             // `thunk_<DepModule>_<hash>` symbols (cross-module inherited methods, etc.) fail
             // with EntryPointNotFoundException at runtime on device.
             var depSwiftFiles = Directory.GetFiles(depOutputDir, "*.swift");
-            var depAsmFiles = Directory.GetFiles(depOutputDir, "*.arm64.s");
+            var depAsmFiles = Directory.GetFiles(depOutputDir, "*.arm64.s")
+                .Concat(Directory.GetFiles(depOutputDir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix)).ToArray();
             if (depSwiftFiles.Length > 0)
             {
                 var depSwiftDir = BtOutputDir / "dep-swift";
@@ -893,7 +899,9 @@ partial class Build
         // matching SliceArchitecture so the x86_64 cells compile the SysV thunks
         // and the arm64 cells compile the AAPCS64 ones, each with its own triple.
         var thunkObjects = new List<string>();
-        foreach (var asmFile in Directory.GetFiles(outputDir, $"*.{platform.SliceArchitecture}.s"))
+        // The wrapper identity's data-only file links into every architecture's slice with them.
+        foreach (var asmFile in Directory.GetFiles(outputDir, $"*.{platform.SliceArchitecture}.s")
+                     .Concat(Directory.GetFiles(outputDir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix)))
         {
             var objFile = Path.ChangeExtension(asmFile, ".o");
             XcRunTool($"clang -c {asmFile} -o {objFile} -target {platform.SimulatorTarget}");

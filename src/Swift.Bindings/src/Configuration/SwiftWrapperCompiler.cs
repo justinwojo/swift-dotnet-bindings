@@ -341,19 +341,23 @@ namespace BindingsGeneration
                 // Compile thunk assembly for simulator slice
                 // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
                 NativeThunkCompilationResult? simThunkResult = null;
-                if (!skipThunkCompilation)
+                // The wrapper identity links in even when thunk compilation is skipped.
+                if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                 {
                     try
                     {
                         simThunkResult = NativeThunkCompiler.CompileThunkObjects(
                             outputDirectory, simTargetTriple, simSdkPath, logger, commandRunner,
-                            arch: simSlice.Architecture);
+                            arch: simSlice.Architecture, includeThunks: !skipThunkCompilation);
                     }
                     catch (Exception ex)
                     {
-                        if (hasAssemblyFiles)
+                        // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                        if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
-                            logger.LogError("Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed for simulator slice: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                             throw;
                         }
                         logger.LogWarning("Thunk compilation failed for simulator slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
@@ -425,7 +429,7 @@ namespace BindingsGeneration
                         strippedSymbols: allStrippedSymbols);
                     sliceCount++;
                 }
-                else if (simThunkResult != null && simThunkResult.ObjectFiles.Count > 0)
+                else if (simThunkResult != null && simThunkResult.ThunkObjectCount > 0)
                 {
                     logger.LogInformation("No Swift wrappers — linking thunk objects with clang (simulator).");
                     lowering?.Fail(simTargetTriple, NoWrapperSourceReason);
@@ -503,22 +507,30 @@ namespace BindingsGeneration
                         }
 
                         if (anyFiltered)
+                        {
+                            // The wrapper identity links into the device slice too.
+                            foreach (var identityFile in NativeThunkCompiler.CollectIdentityFiles(outputDirectory))
+                                File.Copy(identityFile, Path.Combine(deviceThunkBuildDir, Path.GetFileName(identityFile)), overwrite: true);
                             deviceThunkDir = deviceThunkBuildDir;
+                        }
                     }
 
-                    if (!skipThunkCompilation)
+                    if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(deviceThunkDir).Count > 0)
                     {
                         try
                         {
                             devThunkResult = NativeThunkCompiler.CompileThunkObjects(
                                 deviceThunkDir, devTargetTriple, devSdkPath, logger, commandRunner,
-                                arch: deviceSlice.Architecture);
+                                arch: deviceSlice.Architecture, includeThunks: !skipThunkCompilation);
                         }
                         catch (Exception ex)
                         {
-                            if (hasAssemblyFiles)
+                            // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                            if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(deviceThunkDir).Count > 0)
                             {
-                                logger.LogError("Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                                logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed for device slice: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                                 throw;
                             }
                             logger.LogWarning("Thunk compilation failed for device slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
@@ -585,7 +597,7 @@ namespace BindingsGeneration
                             strippedSymbols: allStrippedSymbols);
                         sliceCount++;
                     }
-                    else if (devThunkResult != null && devThunkResult.ObjectFiles.Count > 0)
+                    else if (devThunkResult != null && devThunkResult.ThunkObjectCount > 0)
                     {
                         logger.LogInformation("No Swift wrappers — linking thunk objects with clang (device).");
                         lowering?.Fail(devTargetTriple, NoWrapperSourceReason);
@@ -851,20 +863,24 @@ namespace BindingsGeneration
                 // FATAL if .arm64.s files exist — generated P/Invokes reference thunk symbols
                 // that won't exist in the binary if compilation fails.
                 NativeThunkCompilationResult? thunkResult = null;
-                if (!skipThunkCompilation)
+                // The wrapper identity links in even when thunk compilation is skipped.
+                if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                 {
                     try
                     {
                         thunkResult = NativeThunkCompiler.CompileThunkObjects(
                             outputDirectory, targetTriple, sdkPath, logger, commandRunner,
-                            arch: slice.Architecture);
+                            arch: slice.Architecture, includeThunks: !skipThunkCompilation);
                     }
                     catch (Exception ex)
                     {
-                        if (hasAssemblyFiles)
+                        // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                        if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
                             // .arm64.s files exist → P/Invokes reference thunk symbols → compilation MUST succeed
-                            logger.LogError("Thunk compilation failed and .arm64.s files exist — generated P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                             throw;
                         }
                         logger.LogWarning("Thunk compilation failed (non-fatal, no .arm64.s files): {Message}", ex.Message);
@@ -951,7 +967,7 @@ namespace BindingsGeneration
                         lowering: lowering,
                         strippedSymbols: allStrippedSymbols);
                 }
-                else if (objectFilesToLink != null && objectFilesToLink.Count > 0)
+                else if (objectFilesToLink != null && thunkResult!.ThunkObjectCount > 0)
                 {
                     // Edge case: no Swift wrappers (all functions thunked).
                     // swiftc requires at least one .swift input, so use clang -shared.
@@ -1854,7 +1870,7 @@ namespace BindingsGeneration
                 // The Swift import in the wrapper .swift file auto-links the framework for Swift symbols,
                 // but thunk .o files reference symbols via bl instructions that the linker needs to resolve.
                 // Adding -framework explicitly ensures the linker includes the framework in its search.
-                if (!string.IsNullOrEmpty(originalModuleName))
+                if (!string.IsNullOrEmpty(originalModuleName) && thunkObjectFiles.Any(f => !NativeThunkCompiler.IsIdentityObject(f)))
                 {
                     thunkLinkerFlags = $"-Xlinker -framework -Xlinker {originalModuleName} ";
                 }

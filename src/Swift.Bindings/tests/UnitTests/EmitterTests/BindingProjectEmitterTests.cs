@@ -621,7 +621,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "ImagePipeline", hasWrapper: false);
-                Assert.Contains("runtimes/ios-arm64/native/ImagePipeline.xcframework/", content);
+                Assert.Contains("native/net10.0-ios26.0/ImagePipeline.xcframework/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -746,7 +746,12 @@ namespace BindingsGeneration.Tests
 
                 // Pack item targets the sliced staging path, not the raw source.
                 Assert.Contains("pack-staging/ios-arm64/Foo.xcframework/**", csproj.Replace('\\', '/'));
-                Assert.Contains("PackagePath=\"runtimes/ios-arm64/native/Foo.xcframework/\"", csproj);
+                Assert.Contains("PackagePath=\"native/net10.0-ios26.0/Foo.xcframework/\"", csproj);
+                // The copy declaration packs beside the consumer targets, in this copy's buildTransitive/.
+                var declaration = XDocument.Parse(csproj).Descendants("None")
+                    .Single(n => n.Attribute("Include")?.Value == "Foo.Swift.iOS.props");
+                Assert.Equal("buildTransitive/net10.0-ios26.0/", declaration.Attribute("PackagePath")?.Value);
+                Assert.Equal("true", declaration.Attribute("Pack")?.Value);
 
                 // Local NativeReference still points at the raw source (relative to outputDir),
                 // so dev-loop builds see the full slice set.
@@ -981,7 +986,7 @@ namespace BindingsGeneration.Tests
                 Assert.Contains("ImagePipelineSwiftBindings.xcframework", content);
                 // Source xcframework NativeReference + pack item MUST be gone.
                 Assert.DoesNotContain("Include=\"../ImagePipeline.xcframework\"", content);
-                Assert.DoesNotContain("runtimes/ios-arm64/native/ImagePipeline.xcframework/", content);
+                Assert.DoesNotContain("native/net10.0-ios26.0/ImagePipeline.xcframework/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -999,7 +1004,7 @@ namespace BindingsGeneration.Tests
 
                 // Dynamic source is referenced as a NativeReference and packed normally.
                 Assert.Contains("Include=\"../ImagePipeline.xcframework\"", content);
-                Assert.Contains("runtimes/ios-arm64/native/ImagePipeline.xcframework/", content);
+                Assert.Contains("native/net10.0-ios26.0/ImagePipeline.xcframework/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -1117,7 +1122,7 @@ namespace BindingsGeneration.Tests
                 // The source NativeReference must NOT be emitted.
                 Assert.DoesNotContain("Include=\"StoreKit.xcframework\"", content);
                 Assert.DoesNotContain("Include=\"../StoreKit.xcframework\"", content);
-                Assert.DoesNotContain("runtimes/ios-arm64/native/StoreKit.xcframework/", content);
+                Assert.DoesNotContain("native/net10.0-ios26.0/StoreKit.xcframework/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -1698,7 +1703,7 @@ namespace BindingsGeneration.Tests
 
                 var content = EmitAndRead(dir, "ImagePipeline", bridgePath: bridgePath);
                 Assert.Contains("ImagePipelineBridge.xcframework/**", content);
-                Assert.Contains("runtimes/ios-arm64/native/ImagePipelineBridge.xcframework/", content);
+                Assert.Contains("native/net10.0-ios26.0/ImagePipelineBridge.xcframework/", content);
             }
             finally { Directory.Delete(dir, true); }
         }

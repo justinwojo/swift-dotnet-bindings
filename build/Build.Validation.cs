@@ -1559,12 +1559,16 @@ partial class Build
             var thunkSources = Directory
                 .EnumerateFiles(outdir, "*.arm64.s", SearchOption.TopDirectoryOnly)
                 .ToList();
+            // The wrapper identity (data only) links into this slice too, as the SDK links it.
+            var identitySources = Directory
+                .EnumerateFiles(outdir, "*" + BindingsGeneration.SwiftWrapperIdentityFormat.AssemblyFileSuffix, SearchOption.TopDirectoryOnly)
+                .ToList();
             var thunkObjects = new List<string>();
-            if (thunkSources.Count > 0)
+            if (thunkSources.Count + identitySources.Count > 0)
             {
                 var thunkStagingDir = mergeDir / "second" / "thunks";
                 Directory.CreateDirectory(thunkStagingDir);
-                foreach (var asm in thunkSources)
+                foreach (var asm in thunkSources.Concat(identitySources))
                 {
                     var objPath = thunkStagingDir / (Path.GetFileNameWithoutExtension(asm) + ".o");
                     // clang takes -isysroot (not -sdk, which is a swiftc/xcrun flag).
@@ -1600,7 +1604,7 @@ partial class Build
             // so `bl` targets inside the thunk assembly (Tj dispatch thunks, type
             // metadata accessors) can resolve. Mirrors the thunkLinkerFlags branch in
             // SwiftWrapperCompiler.InvokeSwiftCompiler.
-            var thunkFrameworkFlag = thunkObjects.Count > 0
+            var thunkFrameworkFlag = thunkSources.Count > 0
                 ? $"-Xlinker -framework -Xlinker {frameworkModule} "
                 : "";
 

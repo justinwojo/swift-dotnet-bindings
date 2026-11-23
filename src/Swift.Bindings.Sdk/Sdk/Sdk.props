@@ -39,7 +39,7 @@
     <SwiftWrapperArchitectures Condition="'$(SwiftWrapperArchitectures)' == ''">all</SwiftWrapperArchitectures>
     <!-- CPU architecture(s) for the generated wrapper. 'auto' makes the wrapper match the source
          xcframework's arch coverage: a fat arm64+x86_64 wrapper when the source ships an x86_64
-         slice (serving Intel/Rosetta consumers from the single runtimes/<rid>/native/ tree), and
+         slice (serving Intel/Rosetta consumers from the single native/<tfm>/ copy), and
          arm64-only otherwise — so the very common arm64-only source still builds. Override to
          'arm64' to force arm64-only, or 'arm64,x86_64' to require x86_64 (fails loud if absent). -->
     <SwiftTargetArchitectures Condition="'$(SwiftTargetArchitectures)' == ''">auto</SwiftTargetArchitectures>

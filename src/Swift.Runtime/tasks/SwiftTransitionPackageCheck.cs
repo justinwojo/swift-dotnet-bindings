@@ -22,11 +22,12 @@ namespace SwiftBindings.Tasks;
 /// The check reads the package alone, as a consumer would receive it: every <c>lib/</c> assembly
 /// that can make a Swift transition is checked against the plans its own manifests embed
 /// (<see cref="ConsumerTransitionCheck.Check"/>), and every framework slice of a routed library in
-/// the package against the manifest hash and bridges. A <c>lib/&lt;tfm&gt;/</c> assembly of an Apple
-/// platform is paired with the slices a consumer of that target framework links: those under a
-/// <c>runtimes/&lt;rid&gt;/</c> of the same platform, and any not under a platform's RID. A binding that
-/// targets several platforms ships one wrapper per platform, and their manifests differ wherever the
-/// platforms' routing does. The referenced assemblies (the runtime) come from the packing project's
+/// the package against the manifest hash and bridges. A <c>lib/&lt;tfm&gt;/</c> assembly is paired with
+/// the slices a consumer of that target framework links: its own copy's <c>native/&lt;tfm&gt;/</c> (the
+/// same full target framework: a package may carry one copy per toolchain), a legacy
+/// <c>runtimes/&lt;rid&gt;/</c> of the same platform, and natives shared by every copy. A binding that
+/// targets several platforms or toolchains ships one wrapper per copy, and their manifests differ
+/// wherever the copies' routing does. The referenced assemblies (the runtime) come from the packing project's
 /// own resolved references, for carrier types.
 /// </remarks>
 public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
@@ -72,7 +73,8 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             var assemblies = Directory.Exists(lib)
                 ? Directory.GetFiles(lib, "*.dll", SearchOption.AllDirectories).Order(StringComparer.Ordinal).ToList()
                 : new List<string>();
-            var packaged = new Lazy<List<(PackagedNative Native, string? Platform)>>(() => ReadFrameworks(root));
+            var packaged = new Lazy<List<(PackagedNative Native, NativeScope Scope)>>(() => ReadFrameworks(root));
+            var declaresCopies = DeclaresCopies(root);
             var refused = new List<string>();
             var verified = 0;
             foreach (var path in assemblies)
@@ -83,7 +85,7 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
                 var shown = Path.GetRelativePath(root, path).Replace('\\', '/');
                 var assembly = new PackagedAssembly(shown, image,
                     new[] { Path.GetDirectoryName(path)! }.Concat(references).ToArray());
-                var natives = new PlatformImages(packaged, TargetFrameworkPlatform(shown));
+                var natives = new PlatformImages(packaged, declaresCopies, TargetFrameworkPlatform(shown), TargetFrameworkFolder(shown));
                 var result = ConsumerTransitionCheck.Check(assembly, natives, requireNativeImages: true,
                     Path.Combine(ScratchDirectory, "plans", $"{refused.Count + verified}"));
                 if (result.Verdict != ConsumerTransitionVerdict.Refused)
@@ -138,18 +140,77 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             ConsumerTransitionRemedy.WithdrawalIncoherent =>
                 relink + "The binding does not hold up as the withdrawal it records, which a clean rebuild does not fix: fix the relink failure so the binding routes its bridges, "
                 + "or regenerate it with the current SwiftBindings.Sdk if the package was altered after it was built.",
+            ConsumerTransitionRemedy.WrapperMismatch =>
+                "A native wrapper in the package is not the one this assembly was generated with: each copy's lib/<tfm>/ and native/<tfm>/ must come from one build. "
+                + "Rebuild the binding clean (delete its bin/ and obj/) and pack again; for a merged package, merge the contributions exactly as each toolchain packed them.",
             _ => "Regenerate the binding with the current SwiftBindings.Sdk (a clean build of the binding project) and pack again.",
         };
     }
 
-    /// <summary>Every framework binary in the package, with the Apple platform of the <c>runtimes/&lt;rid&gt;/</c> it is under, if any.</summary>
-    private static List<(PackagedNative Native, string? Platform)> ReadFrameworks(string root) =>
-        Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
+    /// <summary>
+    /// Every native image in the package, with the consumers it serves (<see cref="Scope"/>): each
+    /// framework binary, and each bare dylib under the library name the app check gives a dylib
+    /// reference (<c>lib{library}.dylib</c> and <c>{library}.dylib</c> are <c>{library}</c>'s).
+    /// </summary>
+    private static List<(PackagedNative Native, NativeScope Scope)> ReadFrameworks(string root)
+    {
+        var frameworks = Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
             .Select(d => Path.GetFileNameWithoutExtension(d)).Distinct(StringComparer.Ordinal)
             .SelectMany(framework => ConsumerTransitionCheck.FrameworkBinaries(root, framework)
-                .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
-                .Select(shown => (new PackagedNative(framework, shown, File.ReadAllBytes(Path.Combine(root, shown))), RuntimePlatform(shown))))
+                .Select(p => (Libraries: new[] { framework }, Shown: Path.GetRelativePath(root, p).Replace('\\', '/'))));
+        var dylibs = Directory.GetFiles(root, "*.dylib", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
+            .Where(shown => !shown.Contains(".dSYM/", StringComparison.Ordinal) && !shown.Contains(".framework/", StringComparison.Ordinal))
+            .Select(shown =>
+            {
+                // Named as the app check names a dylib reference: lib<name>.dylib is <name>'s image.
+                var name = Path.GetFileNameWithoutExtension(shown);
+                return (Libraries: new[] { name.StartsWith("lib", StringComparison.Ordinal) ? name[3..] : name }, Shown: shown);
+            });
+        return frameworks.Concat(dylibs)
+            .SelectMany(n =>
+            {
+                var image = File.ReadAllBytes(Path.Combine(root, n.Shown));
+                return n.Libraries.Select(library => (new PackagedNative(library, n.Shown, image), Scope(n.Shown)));
+            })
             .ToList();
+    }
+
+    /// <summary>
+    /// Whether the package is one of per-toolchain copies: a <c>buildTransitive/&lt;tfm&gt;/</c> props
+    /// file declares a <c>SwiftBindingPackageCopy</c>. Read from the declarations, not from where the
+    /// natives landed, so a copy whose wrapper is outside its <c>native/&lt;tfm&gt;/</c> is not taken
+    /// for a package without copies.
+    /// </summary>
+    internal static bool DeclaresCopies(string root)
+    {
+        var build = Path.Combine(root, "buildTransitive");
+        return Directory.Exists(build)
+            && Directory.EnumerateFiles(build, "*.props", SearchOption.AllDirectories)
+                .Any(f => PackageCopyDeclaration.Declares(File.ReadAllText(f)));
+    }
+
+    /// <summary>
+    /// The consumers a packaged native serves: a <c>native/&lt;tfm&gt;/</c> copy serves only the
+    /// <c>lib/&lt;tfm&gt;/</c> of the same full target framework (a package can carry several copies of
+    /// one platform, one per toolchain); a legacy <c>runtimes/&lt;rid&gt;/</c> native serves its
+    /// platform's target frameworks; anything else (the runtime's root <c>native/</c>, the supplement's
+    /// <c>runtimes/native/</c>) serves every target framework.
+    /// </summary>
+    internal static NativeScope Scope(string packagePath)
+    {
+        var parts = packagePath.Split('/');
+        if (parts.Length >= 3 && parts[0].Equals("native", StringComparison.OrdinalIgnoreCase) && PackageCopyCheck.IsCopyTfm(parts[1]))
+            return new NativeScope(parts[1], null);
+        return new NativeScope(null, RuntimePlatform(packagePath));
+    }
+
+    /// <summary>The <c>lib/&lt;tfm&gt;/</c> folder of a packaged assembly; null for any other path.</summary>
+    internal static string? TargetFrameworkFolder(string packagePath)
+    {
+        var parts = packagePath.Split('/');
+        return parts.Length >= 3 && parts[0].Equals("lib", StringComparison.OrdinalIgnoreCase) ? parts[1] : null;
+    }
 
     /// <summary>The Apple platform of a <c>lib/&lt;tfm&gt;/</c> path, as the SDK reads it from the target framework; null for any other.</summary>
     internal static string? TargetFrameworkPlatform(string packagePath)
@@ -180,15 +241,21 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
     }
 
     /// <summary>
-    /// The framework slices a consumer of one platform's target framework links: those of its own
-    /// platform's RIDs and those under no Apple RID. Read when a manifest routes through a library,
-    /// once per package.
+    /// The framework slices a consumer of one copy's target framework links: its own
+    /// <c>native/&lt;tfm&gt;/</c> in a package of copies; otherwise the legacy <c>runtimes/&lt;rid&gt;/</c>
+    /// of its platform and natives shared by every target framework. Read when a manifest routes
+    /// through a library, once per package.
     /// </summary>
-    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, string? Platform)>> packaged, string? platform) : IReadOnlyList<PackagedNative>
+    private sealed class PlatformImages(Lazy<List<(PackagedNative Native, NativeScope Scope)>> packaged, bool declaresCopies, string? platform, string? folder) : IReadOnlyList<PackagedNative>
     {
-        private readonly Lazy<List<PackagedNative>> scoped = new(() => packaged.Value
-            .Where(n => platform is null || n.Platform is null || n.Platform == platform)
-            .Select(n => n.Native).ToList());
+        // In a package of copies an assembly links only its own copy's natives, never a shared or
+        // legacy image; those serve packages without copies (the runtime, the supplement, earlier layouts).
+        private readonly Lazy<List<PackagedNative>> scoped = new(() =>
+        {
+            var copies = declaresCopies || packaged.Value.Any(n => n.Scope.CopyTfm is not null);
+            return packaged.Value.Where(n => n.Scope.Serves(platform, folder) && (!copies || n.Scope.CopyTfm is not null))
+                .Select(n => n.Native).ToList();
+        });
 
         private List<PackagedNative> All => scoped.Value;
 
@@ -197,4 +264,16 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
         public IEnumerator<PackagedNative> GetEnumerator() => All.GetEnumerator();
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
     }
+}
+
+/// <summary>Which consumers a packaged native serves (<see cref="SwiftTransitionPackageCheck.Scope"/>).</summary>
+/// <param name="CopyTfm">The full target framework of the copy it belongs to; null for a native not keyed by copy.</param>
+/// <param name="Platform">The Apple platform of its legacy <c>runtimes/&lt;rid&gt;/</c>; null when shared.</param>
+internal sealed record NativeScope(string? CopyTfm, string? Platform)
+{
+    /// <summary>Whether a consumer of the <c>lib/<paramref name="folder"/>/</c> assembly of <paramref name="platform"/> links it.</summary>
+    public bool Serves(string? platform, string? folder) =>
+        CopyTfm is not null
+            ? folder is not null && string.Equals(CopyTfm, folder, StringComparison.OrdinalIgnoreCase)
+            : platform is null || Platform is null || Platform == platform;
 }

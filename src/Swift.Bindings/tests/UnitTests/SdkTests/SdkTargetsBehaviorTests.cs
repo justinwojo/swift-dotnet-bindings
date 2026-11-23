@@ -1162,7 +1162,7 @@ namespace BindingsGeneration.Tests
         }
 
         // ── SWIFTBIND074: pure-ObjC pack shape (the sidecar is the only native carrier) ──
-        // A pure-ObjC binding ($(SwiftFrameworkType) == 'ObjC') packs no runtimes/ and emits
+        // A pure-ObjC binding ($(SwiftFrameworkType) == 'ObjC') packs no native/<tfm>/ and emits
         // no buildTransitive consumer .targets — the classic Microsoft.iOS binding sidecar
         // lib/<tfm>/$(AssemblyName).resources[.zip] carries the whole native payload, and the
         // consumer's ResolveNativeReferences extracts/embeds/signs it. That makes the sidecar
@@ -1547,7 +1547,7 @@ namespace BindingsGeneration.Tests
         {
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
 
-            // Swift/mixed packs carry their native under runtimes/ and wire it through a
+            // Swift/mixed packs carry their native under native/<tfm>/ and wire it through a
             // packed consumer .targets — they have no sidecar and must not trip this guard.
             WriteObjCPackShapeProject(swiftFrameworkType: "Swift");
             StageSourceXcframework("MapLibre", "ios-arm64", "ios-arm64_x86_64-simulator");
@@ -3820,6 +3820,57 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("SWIFTBIND039", output);
         }
 
+        // The copy TFM is the lib/ folder NuGet packs the managed assembly under: lowercase, with the
+        // workload's platform version appended to a versionless TargetFramework. The Apple-framework
+        // SDK override selects the surface the generator reads and never relabels the copy, or
+        // buildTransitive/ and native/ would land beside another lib/ folder than the assembly's.
+        [Theory]
+        [InlineData("net10.0-ios", "26.0", "", "", "net10.0-ios26.0")]
+        [InlineData("NET10.0-ios", "26.0", "", "", "net10.0-ios26.0")]
+        [InlineData("NET11.0-IOS27.2", "27.2", "", "", "net11.0-ios27.2")]
+        [InlineData("net10.0-ios", "26.0", "WeatherKit", "27.2", "net10.0-ios26.0")]
+        [InlineData("net10.0-maccatalyst27.2", "27.2", "WeatherKit", "", "net10.0-maccatalyst27.2")]
+        // With the monikers a .NET SDK build computes, NuGet's own folder name: an alias whose version
+        // disagrees with the platform version, or that NuGet normalizes, still lands beside lib/.
+        [InlineData("net10.0-ios26.2", "26.0", "WeatherKit", "26.2", "net10.0-ios26.0", ".NETCoreApp,Version=v10.0", "iOS,Version=26.0")]
+        [InlineData("net10-ios", "26.0", "", "", "net10.0-ios26.0", ".NETCoreApp,Version=v10.0", "iOS,Version=26.0")]
+        public void ComputeSwiftBindingPackTfm_IsTheLibFolderNuGetPacks(string targetFramework, string platformVersion,
+            string appleFramework, string sdkOverride, string expected, string frameworkMoniker = "", string platformMoniker = "")
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+
+            var dir = Path.Combine(_tempDir, "PackTfm");
+            Directory.CreateDirectory(dir);
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            var apple = appleFramework.Length == 0 ? "" : $"<ItemGroup><SwiftAppleFrameworkTarget Include=\"{appleFramework}\" /></ItemGroup>";
+            var project = $"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>{targetFramework}</TargetFramework>
+                    <TargetPlatformVersion>{platformVersion}</TargetPlatformVersion>
+                    <SwiftAppleFrameworkPlatformVersion>{sdkOverride}</SwiftAppleFrameworkPlatformVersion>
+                    <TargetFrameworkMoniker>{frameworkMoniker}</TargetFrameworkMoniker>
+                    <TargetPlatformMoniker>{platformMoniker}</TargetPlatformMoniker>
+                  </PropertyGroup>
+                  {apple}
+                  <Import Project="$(MSBuildSDKsPath)/Microsoft.NET.Sdk/targets/Microsoft.NET.Sdk.Common.targets" />
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="DumpPackTfm" DependsOnTargets="_ComputeSwiftBindingPackTfm">
+                    <Message Importance="high" Text="PACKTFM:[$(_SwiftBindingPackTfm)] NATIVE:[$(_SwiftBindingNativePackRoot)]" />
+                  </Target>
+                </Project>
+                """;
+            File.WriteAllText(Path.Combine(dir, "Test.csproj"), project);
+            File.WriteAllText(Path.Combine(dir, "Directory.Build.props"), "<Project />");
+            File.WriteAllText(Path.Combine(dir, "Directory.Build.targets"), "<Project />");
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(dir, "Test.csproj")}\" -t:DumpPackTfm -nologo -v:n");
+            var output = result.StdOut + "\n" + result.StdErr;
+            Assert.True(result.ExitCode == 0, output);
+            Assert.Contains($"PACKTFM:[{expected}] NATIVE:[native/{expected}/]", output);
+        }
+
         [Fact]
         public void ConfigureSwiftBindingPack_SwiftOnly_DoesNotFailClosed()
         {
@@ -4850,6 +4901,8 @@ namespace BindingsGeneration.Tests
                     <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
                     <_SwiftBindingIncludeSourceXcframework>{includeSourceXcframework}</_SwiftBindingIncludeSourceXcframework>
                     <TargetPath>{dummyTargetPath}</TargetPath>
+                    <!-- The copy declaration's task (PrepareSwiftBindingPackageCopy), built beside the tests. -->
+                    <_SwiftBindingsSdkTasksAssembly>{System.IO.Path.Combine(AppContext.BaseDirectory, "SwiftBindings.Tasks.dll")}</_SwiftBindingsSdkTasksAssembly>
                   </PropertyGroup>
                   <!-- Stub everything in _ConfigureSwiftBindingPack's DependsOnTargets and BeforeTargets
                        graph EXCEPT _BuildMixedObjCCompanion, which must run to (not) capture the companion. -->

@@ -112,7 +112,12 @@ partial class Build
                     .Concat(references.Select(r => NearestLibDirectory(r, framework)).OfType<string>())
                     .Append(host)
                     .ToArray();
-                return new PackagedAssembly(path, File.ReadAllBytes(path), directories);
+                // In a package of per-toolchain copies, lib/<tfm>/ is held to native/<tfm>/ only. A copy is
+                // known by its declaration (or its natives), so one whose wrapper landed elsewhere is still
+                // held to its own native/<tfm>/.
+                var folder = Path.GetFileName(Path.GetDirectoryName(path)!);
+                var copy = IsCopyFolder(folder) && (Directory.Exists(package / "native" / folder) || DeclaresCopy(package, folder)) ? folder : null;
+                return new PackagedAssembly(path, File.ReadAllBytes(path), directories, copy);
             })
             .ToList();
     }
@@ -139,8 +144,33 @@ partial class Build
         if (!Directory.Exists(root))
             Assert.Fail($"Package transition evidence: the package holds no {subject.NativeRoot}.");
         return ConsumerTransitionCheck.FrameworkBinaries(root, subject.Library)
-            .Select(p => new PackagedNative(subject.Library, p, File.ReadAllBytes(p)))
+            .Select(p => new PackagedNative(subject.Library, p, File.ReadAllBytes(p), NativeCopy(package, p)))
             .ToList();
+    }
+
+    /// <summary>The copy whose <c>native/&lt;tfm&gt;/</c> holds <paramref name="path"/>; null for a shared native.</summary>
+    static string? NativeCopy(AbsolutePath package, string path) => NativeCopyOfEntry(Path.GetRelativePath(package, path));
+
+    /// <summary>The copy whose <c>native/&lt;tfm&gt;/</c> holds the package entry <paramref name="entry"/>; null for a shared native.</summary>
+    static string? NativeCopyOfEntry(string entry)
+    {
+        var parts = entry.Replace('\\', '/').Split('/');
+        return parts.Length >= 3 && parts[0] == "native" && IsCopyFolder(parts[1]) ? parts[1] : null;
+    }
+
+    /// <summary>Whether <c>buildTransitive/<paramref name="folder"/>/</c> declares a package copy (<c>SwiftBindingPackageCopy</c>).</summary>
+    static bool DeclaresCopy(AbsolutePath package, string folder)
+    {
+        var build = package / "buildTransitive" / folder;
+        return Directory.Exists(build) && Directory.EnumerateFiles(build, "*.props")
+            .Any(f => PackageCopyDeclaration.Declares(File.ReadAllText(f)));
+    }
+
+    /// <summary>Whether a package folder names a copy: a platform-versioned TFM such as <c>net10.0-ios26.0</c>.</summary>
+    static bool IsCopyFolder(string folder)
+    {
+        var framework = NuGetFramework.ParseFolder(folder);
+        return framework.HasPlatform && framework.PlatformVersion > new Version(0, 0, 0, 0);
     }
 
     /// <summary>
@@ -298,6 +328,39 @@ partial class Build
                     failed.Add($"{name} ({library} native evidence)");
                 else
                     Log.Information("  evidence: {Count} slice(s) of {Library} hold the manifest hash and export exactly its bridges", slices.Count, library);
+            }
+
+            // The wrapper identity: generation stamped both modules, and every slice of each one's
+            // wrapper exports the value the compile check embeds (SwiftWrapperIdentityCheck).
+            var image = File.ReadAllBytes(compileCheckOutput / name);
+            var identities = SwiftWrapperIdentityCheck.Read(image);
+            foreach (var problem in identities.Problems)
+                Log.Error("  wrapper identity: {Problem}", problem);
+            var stamped = identities.Identities.Select(i => i.Module).Order(StringComparer.Ordinal).ToArray();
+            if (identities.Problems.Length > 0 || !stamped.SequenceEqual(new[] { ModuleName, DepModuleName }.Order(StringComparer.Ordinal)))
+            {
+                Log.Error("  wrapper identity: CompileCheck.dll records the wrapper identities of [{Modules}], not of {Module} and {Dependency}", string.Join(", ", stamped), ModuleName, DepModuleName);
+                failed.Add($"{name} (wrapper identities)");
+                continue;
+            }
+            foreach (var identity in identities.Identities)
+            {
+                var natives = ConsumerTransitionCheck.FrameworkBinaries(BtOutputDir, identity.Library)
+                    .Select(p => new PackagedNative(identity.Library, p, File.ReadAllBytes(p))).ToList();
+                // Only this library's images: the other module's identity has none here and is not judged.
+                var (problems, _) = SwiftWrapperIdentityCheck.Check(new PackagedAssembly(name, image, references), natives);
+                foreach (var problem in problems)
+                    Log.Error("  wrapper identity {Problem}", problem);
+                if (natives.Count == 0)
+                {
+                    Log.Error("  wrapper identity: no framework slice of {Library} under {Output}", identity.Library, BtOutputDir);
+                    failed.Add($"{name} (no {identity.Library} slice)");
+                }
+                else if (problems.Length > 0)
+                    failed.Add($"{name} ({identity.Library} wrapper identity)");
+                else
+                    Log.Information("  wrapper identity: {Count} slice(s) of {Library} export {Module}'s ({Copy}, {Sdk} SDK)",
+                        natives.Count, identity.Library, identity.Module, identity.Copy, identity.Sdk);
             }
         }
         return failed;

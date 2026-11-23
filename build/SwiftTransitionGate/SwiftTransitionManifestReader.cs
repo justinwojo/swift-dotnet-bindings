@@ -61,7 +61,7 @@ public sealed record TransitionEvidence(
 /// </summary>
 public static class SwiftTransitionManifestReader
 {
-    private const string MetadataAttribute = "System.Reflection.AssemblyMetadataAttribute";
+    internal const string MetadataAttribute = "System.Reflection.AssemblyMetadataAttribute";
 
     /// <summary>Reads the evidence of the assembly at <paramref name="path"/>; <paramref name="census"/> resolves its carrier types.</summary>
     public static TransitionEvidence Read(string path, SwiftTransitionScanOptions? census = null) =>
@@ -287,7 +287,7 @@ public static class SwiftTransitionManifestReader
         return (locators, resources);
     }
 
-    private static string? AttributeTypeName(MetadataReader md, CustomAttribute attribute)
+    internal static string? AttributeTypeName(MetadataReader md, CustomAttribute attribute)
     {
         EntityHandle type = attribute.Constructor.Kind switch
         {

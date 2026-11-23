@@ -284,6 +284,206 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("no image of SwiftBindingsRuntime was found", output);
     }
 
+    [Fact]
+    public void Pack_EachCopy_IsCheckedAgainstItsOwnCopysNatives()
+    {
+        // A multi-toolchain package carries one copy per toolchain of one platform, keyed by the full
+        // TFM: lib/<tfm>/ is held to native/<tfm>/ only, never to another copy of the same platform.
+        var hash = SwiftTransitionManifestReader.Read(RuntimeDll, new SwiftTransitionScanOptions { ReferenceDirectories = [AppContext.BaseDirectory] }).Manifests.Single().Hash;
+        var other = SwiftTransitionManifestFormat.Hash("another copy's manifest");
+        (string, byte[])[] Natives(string tfm, bool otherManifest) => RuntimeSlices.Select((p, i) => (
+            $"native/{tfm}/SwiftBindingsRuntime.xcframework/{i}/SwiftBindingsRuntime.framework/SwiftBindingsRuntime",
+            otherManifest ? Replace(File.ReadAllBytes(p), Encoding.ASCII.GetBytes(hash), Encoding.ASCII.GetBytes(other)) : File.ReadAllBytes(p))).ToArray();
+        var older = ("lib/net10.0-ios26.0/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+        var newer = ("lib/net10.0-ios27.2/Swift.Runtime.dll", File.ReadAllBytes(RuntimeDll));
+
+        var whole = Package("Whole.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", false)]);
+        var (exit, output) = Pack(whole);
+        Assert.True(exit == 0, output);
+
+        // The newer copy's wrapper was swapped for one built from another managed binding: only that
+        // copy is refused, though the older copy's natives of the same platform would satisfy it.
+        var swapped = Package("Swapped.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. Natives("net10.0-ios27.2", true)]);
+        (exit, output) = Pack(swapped);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Swift.Runtime.dll would be refused", output);
+        Assert.Contains("native/net10.0-ios27.2/", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+
+        // A copy whose natives are missing is refused, not checked against another copy's.
+        var missing = Package("MissingCopy.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false)]);
+        (exit, output) = Pack(missing);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("no image of SwiftBindingsRuntime was found", output);
+
+        // Nor against a matching image outside every copy: the copy's targets never reference it.
+        (string, byte[])[] shared = RuntimeSlices.Select((p, i) => (
+            $"native/SwiftBindingsRuntime.xcframework/{i}/SwiftBindingsRuntime.framework/SwiftBindingsRuntime", File.ReadAllBytes(p))).ToArray();
+        var outside = Package("OutsideCopy.1.0.0.nupkg", [older, newer, .. Natives("net10.0-ios26.0", false), .. shared]);
+        (exit, output) = Pack(outside);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Swift.Runtime.dll would be refused", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+
+        // A one-copy package is known by its declaration: its only wrapper outside native/<tfm>/ does
+        // not pass it as a package without copies.
+        var declaration = ("buildTransitive/net10.0-ios26.0/Acme.Kit.props",
+            Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", "0.21.0")));
+        (exit, output) = Pack(Package("StrayCopy.1.0.0.nupkg", [older, declaration, .. shared]));
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios26.0/Swift.Runtime.dll would be refused", output);
+        (exit, output) = Pack(Package("SharedOnly.1.0.0.nupkg", [older, .. shared]));
+        Assert.True(exit == 0, output);
+        // A props file that only names the item in a comment or a property declares no copy.
+        var mention = ("buildTransitive/net10.0-ios26.0/Acme.Kit.props", Encoding.UTF8.GetBytes(
+            "<Project><!-- <SwiftBindingPackageCopy Include=\"Acme.Kit\" /> --><PropertyGroup><SwiftBindingPackageCopy>x</SwiftBindingPackageCopy></PropertyGroup></Project>"));
+        (exit, output) = Pack(Package("Mention.1.0.0.nupkg", [older, mention, .. shared]));
+        Assert.True(exit == 0, output);
+    }
+
+    [Fact]
+    public void Pack_ACopysWrapperSwappedForAnotherCopys_IsRefused()
+    {
+        // NEG-C: the newer copy's native/<tfm>/ holds the older copy's wrapper. Neither wrapper routes
+        // bridges, so no manifest hash tells them apart; the wrapper identity each was generated with does.
+        var older = WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2");
+        var newer = WrapperIdentityTests.Identity("net10.0-ios27.2", "27.2");
+        var scratch = Directory.CreateDirectory(Path.Combine(tempDir, "natives")).FullName;
+        var olderWrapper = WrapperIdentityTests.StampedDylib(scratch, "older", older);
+        var newerWrapper = WrapperIdentityTests.StampedDylib(scratch, "newer", newer);
+        (string, byte[])[] Copies(byte[] newerCopysWrapper) =>
+        [
+            ("lib/net10.0-ios26.0/Kit.dll", WrapperIdentityTests.StampedAssembly(older)),
+            ("lib/net10.0-ios27.2/Kit.dll", WrapperIdentityTests.StampedAssembly(newer)),
+            ("native/net10.0-ios26.0/Kit.xcframework/ios-arm64/Kit.framework/Kit", olderWrapper),
+            ("native/net10.0-ios27.2/Kit.xcframework/ios-arm64/Kit.framework/Kit", newerCopysWrapper),
+            ("buildTransitive/net10.0-ios26.0/Acme.Kit.props",
+                Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", "0.21.0"))),
+            ("buildTransitive/net10.0-ios27.2/Acme.Kit.props",
+                Encoding.UTF8.GetBytes(PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios27.2", ".NET 10 + Xcode 27.2", "27.2", "0.21.0"))),
+        ];
+
+        var (exit, output) = Pack(Package("Acme.Kit.1.0.0.nupkg", Copies(newerWrapper)));
+        Assert.True(exit == 0, output);
+
+        var swapped = Package("Acme.Kit.1.0.1.nupkg", Copies(olderWrapper));
+        (exit, output) = Pack(swapped);
+        Assert.NotEqual(0, exit);
+        Assert.Contains("error SWIFTBIND133", output);
+        Assert.Contains("lib/net10.0-ios27.2/Kit.dll would be refused", output);
+        Assert.Contains("generated as copy net10.0-ios26.0 from the 26.2 SDK", output);
+        Assert.Contains("is not the one this assembly was generated with", output);
+        Assert.DoesNotContain("lib/net10.0-ios26.0/Kit.dll would be refused", output);
+        Assert.False(File.Exists(swapped));
+    }
+
+    [Fact]
+    public void Pack_ACopysWrapperShippedAsABareDylib_IsHeldToItsIdentity()
+    {
+        // A consumer's native reference resolves lib<library>.dylib as the library's image, so the
+        // pack check reads it as one too: the older copy's wrapper under the newer copy's name is refused.
+        var older = WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2");
+        var newer = WrapperIdentityTests.Identity("net10.0-ios27.2", "27.2");
+        var scratch = Directory.CreateDirectory(Path.Combine(tempDir, "dylibs")).FullName;
+        (string, byte[])[] Copies(byte[] newerCopysWrapper) =>
+        [
+            ("lib/net10.0-ios26.0/Kit.dll", WrapperIdentityTests.StampedAssembly(older)),
+            ("lib/net10.0-ios27.2/Kit.dll", WrapperIdentityTests.StampedAssembly(newer)),
+            ("native/net10.0-ios26.0/libKit.dylib", WrapperIdentityTests.StampedDylib(scratch, "older", older)),
+            ("native/net10.0-ios27.2/libKit.dylib", newerCopysWrapper),
+        ];
+
+        var (exit, output) = Pack(Package("Acme.Kit.1.0.0.nupkg", Copies(WrapperIdentityTests.StampedDylib(scratch, "newer", newer))));
+        Assert.True(exit == 0, output);
+
+        (exit, output) = Pack(Package("Acme.Kit.1.0.1.nupkg", Copies(WrapperIdentityTests.StampedDylib(scratch, "older2", older))));
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Kit.dll would be refused", output);
+        Assert.Contains("native/net10.0-ios27.2/libKit.dylib", output);
+    }
+
+    // ---- the producer label (SWIFTBIND137) ------------------------------------------------------
+
+    [Theory]
+    // Generated on Xcode 26, packed after Xcode 27 was selected: labelled by the SDK it came from.
+    [InlineData("26.2", "27.2", 0, "26.2")]
+    // Generated on Xcode 27, packed after Xcode 26 was selected: a 26.0 label would be selected by
+    // Xcode 26 apps and compile against API their SDK lacks.
+    [InlineData("27.2", "26.2", 1, "error SWIFTBIND137")]
+    // An assembly that records no SDK is judged by the SDK selected now.
+    [InlineData(null, "26.2", 0, "26.2")]
+    [InlineData(null, "27.2", 1, "error SWIFTBIND137")]
+    public void Label_IsJudgedByTheSdkTheBindingWasGeneratedFrom(string? generatedSdk, string selectedSdk, int exit, string expected)
+    {
+        var assembly = Path.Combine(tempDir, "Acme.Kit.dll");
+        File.WriteAllBytes(assembly, generatedSdk is null
+            ? Compile("Acme.Kit", PrimitiveOnly)
+            : WrapperIdentityTests.StampedAssembly(WrapperIdentityTests.Identity("net10.0-ios26.0", generatedSdk), "Acme.Kit"));
+        var declaration = Path.Combine(tempDir, "pack", "Acme.Kit.props");
+        var project = Path.Combine(tempDir, "label.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="{SecurityElement.Escape(TasksDll)}" />
+              <Target Name="Label">
+                <PrepareSwiftBindingPackageCopy PackageId="Acme.Kit" PackTfm="net10.0-ios26.0" TargetKind="AppleFramework"
+                    PlatformSdkVersion="{selectedSdk}" Assembly="{SecurityElement.Escape(assembly)}"
+                    Toolchain=".NET 10 + Xcode" Generator="0.21.0" DeclarationFile="{SecurityElement.Escape(declaration)}" />
+              </Target>
+            </Project>
+            """);
+        var (code, output) = MSBuild(project, "Label", "minimal");
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        if (exit == 0)
+            Assert.Contains($"<PlatformSdkVersion>{expected}</PlatformSdkVersion>", File.ReadAllText(declaration));
+        else
+            Assert.Contains(expected, output);
+    }
+
+    // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------
+
+    [Theory]
+    [InlineData("net10.0-ios26.0", "26.2", "", 0, "SwiftBindings copy: Acme.Kit 1.0.0 -> net10.0-ios26.0 (built on .NET 10 + Xcode 26.3)")]
+    [InlineData("net10.0-ios27.2", "27.2", "", 1, "error SWIFTBIND136")]
+    [InlineData("net10.0-ios26.0", "27.2", "", 0, "SWIFTBIND139")]
+    [InlineData("net10.0-ios26.0", "27.2", "<SwiftBindingsRequireExactCopy>true</SwiftBindingsRequireExactCopy>", 1, "error SWIFTBIND139")]
+    public void CopyCheck_RunsInEveryAppBuild_OnTheDeclaredCopy(string resolvedFrom, string platformVersion, string extra, int exit, string expected)
+    {
+        // NuGet imported the 26.0 copy's declaration (buildTransitive/net10.0-ios26.0/Acme.Kit.props);
+        // the build resolved the assembly from resolvedFrom's lib/.
+        var root = Path.Combine(tempDir, "packages", "acme.kit", "1.0.0");
+        foreach (var tfm in new[] { "net10.0-ios26.0", "net10.0-ios27.2" })
+            Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
+        var dll = Path.Combine(root, "lib", resolvedFrom, "Acme.Kit.dll");
+        File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
+        Directory.CreateDirectory(Path.Combine(root, "buildTransitive", "net10.0-ios26.0"));
+        File.WriteAllText(Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.targets"), "<Project />");
+        var copy = $"""
+            <SwiftBindingPackageCopy Include="Acme.Kit">
+              <CopyTfm>net10.0-ios26.0</CopyTfm>
+              <Toolchain>.NET 10 + Xcode 26.3</Toolchain>
+              <LibDirectory>{SecurityElement.Escape(root)}/lib/net10.0-ios26.0/</LibDirectory>
+              <NativeDirectory>{SecurityElement.Escape(root)}/native/net10.0-ios26.0/</NativeDirectory>
+              <TargetsFile>{SecurityElement.Escape(root)}/buildTransitive/net10.0-ios26.0/Acme.Kit.targets</TargetsFile>
+            </SwiftBindingPackageCopy>
+            """;
+
+        var (code, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Kit"),
+            $"<TargetPlatformVersion>{platformVersion}</TargetPlatformVersion>{extra}", items: copy);
+
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        Assert.Contains(expected, output);
+    }
+
+    [Fact]
+    public void CopyCheck_WithNoDeclaredCopies_IsSilent()
+    {
+        var dll = Fixture("lib", PrimitiveOnly);
+        var (code, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Binding"));
+        Assert.True(code == 0, output);
+        Assert.DoesNotContain("SwiftBindings copy:", output);
+        Assert.DoesNotContain("SWIFTBIND136", output);
+    }
+
     // ---- fixtures -------------------------------------------------------------------------------
 
     private string CacheFile => Path.Combine(tempDir, "obj", "swiftbindings-transition-check.json");

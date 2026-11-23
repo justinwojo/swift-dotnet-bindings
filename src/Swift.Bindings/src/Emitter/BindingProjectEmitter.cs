@@ -502,7 +502,7 @@ namespace BindingsGeneration
             }
 
             var resourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
-                "$(MSBuildProjectDirectory)/", nativePackRoot: $"runtimes/{pi.NuGetRid}/native/");
+                "$(MSBuildProjectDirectory)/", nativePackRoot: pi.NativePackRoot);
 
             var content = $"""
                 <Project Sdk="Microsoft.NET.Sdk">
@@ -568,6 +568,13 @@ namespace BindingsGeneration
                     </EmbeddedResource>
                   </ItemGroup>
 
+                  <!-- The identity of the native wrapper this binding was generated with
+                       (SwiftWrapperIdentityFormat): the wrapper exports the same value, so a wrapper of
+                       another copy or build is refused where the binding is packed and consumed. -->
+                  <ItemGroup Condition="Exists('{SwiftWrapperIdentityFormat.AttributeFileName(resolvedNamespace)}')">
+                    <Compile Include="{SwiftWrapperIdentityFormat.AttributeFileName(resolvedNamespace)}" />
+                  </ItemGroup>
+
                   <!-- ILLink trimmer descriptor — only emitted when the generator produced at
                        least one open-generic ISwiftObject in this module. ILC does not auto-
                        discover descriptors embedded in referenced assemblies, so TrimmerRootDescriptor
@@ -595,6 +602,11 @@ namespace BindingsGeneration
                   <!-- NuGet pack layout -->
                   <ItemGroup>
                     <None Include="{packageId}.targets" Pack="true"
+                          PackagePath="{pi.GetBuildTransitivePath()}" />
+                    <!-- The copy declaration (SwiftBindingPackageCopy) SwiftBindings.Runtime's copy
+                         check reads: natives ship under {pi.NativePackRoot}, keyed by this copy's TFM. -->
+                    <None Include="{PackageCopyDeclarationEmitter.FileName(packageId)}" Pack="true"
+                          Condition="Exists('{PackageCopyDeclarationEmitter.FileName(packageId)}')"
                           PackagePath="{pi.GetBuildTransitivePath()}" />
                     <!-- Ship the ILLink descriptor loose, adjacent to {packageId}.targets in
                          buildTransitive/ (per-TFM), so the consumer-facing targets can root it via

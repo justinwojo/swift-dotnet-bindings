@@ -72,6 +72,53 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region A2. Copy Declaration Tests
+
+    /// <summary>
+    /// The copy declaration the generator writes beside the consumer targets: one package copy keyed
+    /// by the full pack TFM, whose lib/ and native/ directories are that copy's own.
+    /// </summary>
+    public class ConsumerTargetsCopyDeclarationTests
+    {
+        [Theory]
+        [InlineData(ApplePlatform.iOS)]
+        [InlineData(ApplePlatform.macOS)]
+        [InlineData(ApplePlatform.MacCatalyst)]
+        [InlineData(ApplePlatform.tvOS)]
+        public void Emit_WritesTheCopyDeclaration_KeyedByThePackTfm(ApplePlatform platform)
+        {
+            var pi = PlatformInfoFactory.Create(platform);
+            var dir = ConsumerTargetsTestHelper.CreateTempDir();
+            try
+            {
+                ConsumerTargetsEmitter.Emit(new ConsumerTargetsEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Kit",
+                    PackageId = "Acme.Kit",
+                    EffectiveMinimumOSVersion = "15.0",
+                    HasWrapperXCFramework = true,
+                    PlatformInfo = pi,
+                }, NullLogger.Instance);
+
+                var props = XDocument.Load(Path.Combine(dir, "Acme.Kit.props"));
+                var copy = Assert.Single(props.Descendants("SwiftBindingPackageCopy"));
+                Assert.Equal("Acme.Kit", copy.Attribute("Include")?.Value);
+                Assert.Equal(pi.PackTfm, copy.Element("CopyTfm")?.Value);
+                Assert.Equal($"$(MSBuildThisFileDirectory)../../lib/{pi.PackTfm}/", copy.Element("LibDirectory")?.Value);
+                Assert.Equal($"$(MSBuildThisFileDirectory)../../native/{pi.PackTfm}/", copy.Element("NativeDirectory")?.Value);
+                Assert.Equal("$(MSBuildThisFileDirectory)Acme.Kit.targets", copy.Element("TargetsFile")?.Value);
+
+                // Every native the targets name is under this copy's native/<tfm>/.
+                var targets = File.ReadAllText(Path.Combine(dir, "Acme.Kit.targets"));
+                Assert.Empty(SwiftBindings.Tasks.PackageCopyRules.CheckTargetsReferences(pi.PackTfm, targets));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+    }
+
+    #endregion
+
     #region B. Target Structure Tests
 
     public class ConsumerTargetsStructureTests
@@ -149,7 +196,7 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
                 Assert.Contains("$(MSBuildThisFileDirectory)", content);
-                Assert.Contains("../../runtimes/ios-arm64/native/", content);
+                Assert.Contains("../../native/net10.0-ios26.0/", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -367,7 +414,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: false);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"", content);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipeline.xcframework')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -379,7 +426,7 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipelineSwiftBindings.xcframework')\"", content);
+                Assert.Contains("Condition=\"Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipelineSwiftBindings.xcframework')\"", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -391,8 +438,8 @@ namespace BindingsGeneration.Tests
             try
             {
                 var content = EmitAndRead(dir, "TestLib", "TestLib.Swift.iOS", "15.0", hasWrapper: true);
-                Assert.Contains("../../runtimes/ios-arm64/native/TestLib.xcframework", content);
-                Assert.Contains("../../runtimes/ios-arm64/native/TestLibSwiftBindings.xcframework", content);
+                Assert.Contains("../../native/net10.0-ios26.0/TestLib.xcframework", content);
+                Assert.Contains("../../native/net10.0-ios26.0/TestLibSwiftBindings.xcframework", content);
             }
             finally { Directory.Delete(dir, true); }
         }
@@ -939,13 +986,13 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitNupkg(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", NativeLinkage.Static, hasWrapper: true);
                 // Wrapper (force-load carrier) is referenced...
-                Assert.Contains("native/ImagePipelineSwiftBindings.xcframework", content);
+                Assert.Contains("native/net10.0-ios26.0/ImagePipelineSwiftBindings.xcframework", content);
                 // ...and the source is kept, but only as a fallback gated on the wrapper's absence,
                 // so it self-heals to the sole carrier if the wrapper compile soft-failed.
-                Assert.Contains("native/ImagePipeline.xcframework", content);
+                Assert.Contains("native/net10.0-ios26.0/ImagePipeline.xcframework", content);
                 Assert.Contains(
-                    "!Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipelineSwiftBindings.xcframework') "
-                    + "AND Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')",
+                    "!Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipelineSwiftBindings.xcframework') "
+                    + "AND Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipeline.xcframework')",
                     content);
             }
             finally { Directory.Delete(dir, true); }
@@ -961,7 +1008,7 @@ namespace BindingsGeneration.Tests
                 // Dynamic source is always carried by the source xcframework — plain Exists, no
                 // wrapper-absent fallback (the wrapper and source coexist).
                 Assert.Contains(
-                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"",
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipeline.xcframework')\"",
                     content);
                 Assert.DoesNotContain("!Exists(", content);
             }
@@ -978,7 +1025,7 @@ namespace BindingsGeneration.Tests
                 // must be referenced unconditionally — dropping it would link no native at all.
                 var content = EmitNupkg(dir, "ImagePipeline", "ImagePipeline.Swift.iOS", NativeLinkage.Static, hasWrapper: false);
                 Assert.Contains(
-                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../runtimes/ios-arm64/native/ImagePipeline.xcframework')\"",
+                    "Condition=\"Exists('$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/ImagePipeline.xcframework')\"",
                     content);
                 Assert.DoesNotContain("ImagePipelineSwiftBindings.xcframework", content);
                 Assert.DoesNotContain("!Exists(", content);

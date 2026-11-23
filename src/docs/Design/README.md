@@ -23,13 +23,14 @@ These docs are useful for contributors who need to understand the internals of t
 - [unsafe-mutable-raw-buffer-pointer.md](unsafe-mutable-raw-buffer-pointer.md) — `UnsafeMutableRawBufferPointer` ↔ `Span<byte>` projection
 - [wrapper-route-selection.md](wrapper-route-selection.md) — Per-member route choice (native thunk → `@_cdecl` wrapper → direct `CallConvSwift`), the eligibility guards, and the wrapper symbol namespace (unhashed accessor scheme, first-registration-wins registry, the two integrity gates)
 - [swift-lowering-evidence.md](swift-lowering-evidence.md) — Artifact-scoped swiftc lowering receipts (schema 2): what a receipt pins, how a bridge plan is judged, and SDK qualification vs a consumer build's authorization
+- [multi-toolchain-packages.md](multi-toolchain-packages.md) — One binding package, one copy per .NET + Xcode pairing (`lib/`, `buildTransitive/`, `native/` keyed by the full TFM): the copy declaration, the guards (SWIFTBIND136–139) and the merge
 - [consumer-transition-check.md](consumer-transition-check.md) — The build-time check an app runs on its compiled Swift bindings (SWIFTBIND132), its per-package opt-out, and the SDK's pack check (SWIFTBIND133)
 - [direct-swiftself-exposure-reporting.md](direct-swiftself-exposure-reporting.md) — Final-file DirectSwiftSelfExposure contract, completeness receipt, and copy-ready Known Limitations text
 - [binding-variables.md](binding-variables.md) — Property/variable binding: accessor-method emission, wrapper strategy selection, async getters as methods; globals and `willSet`/`didSet` not emitted
 - [binding-typedatabase.md](binding-typedatabase.md) — Type database: flat XML layout, registration lifecycle, resolution cascade, ownership/supplement resolvers
 - [binding-value-witness-table.md](binding-value-witness-table.md) — Value witness table layout (incl. enum witnesses) and the as-built `Swift.Runtime.ValueWitnessTable` mirror
 - [async-non-frozen-types.md](async-non-frozen-types.md) — Async members with non-frozen types: dual-copy buffer model, `AsyncResultPlanner` ownership algebra
-- [objc-binding-consumption.md](objc-binding-consumption.md) — Pure-ObjC packages carry their native in the classic Microsoft.iOS binding sidecar (`lib/<tfm>/<Assembly>.resources[.zip]`), not `runtimes/` + a consumer `.targets`; guard-coverage boundary SWIFTBIND038 vs SWIFTBIND074
+- [objc-binding-consumption.md](objc-binding-consumption.md) — Pure-ObjC packages carry their native in the classic Microsoft.iOS binding sidecar (`lib/<tfm>/<Assembly>.resources[.zip]`), not `native/<tfm>/` + a consumer `.targets`; guard-coverage boundary SWIFTBIND038 vs SWIFTBIND074
 
 ### Runtime
 - [memory-management.md](memory-management.md) — Native memory ownership at the Swift–C# boundary

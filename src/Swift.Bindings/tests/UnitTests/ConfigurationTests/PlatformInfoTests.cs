@@ -279,10 +279,10 @@ namespace BindingsGeneration.Tests
         }
 
         [Theory]
-        [InlineData(ApplePlatform.iOS, "ImagePipeline.xcframework", "runtimes/ios-arm64/native/ImagePipeline.xcframework/")]
-        [InlineData(ApplePlatform.macOS, "ImagePipeline.xcframework", "runtimes/osx-arm64/native/ImagePipeline.xcframework/")]
-        [InlineData(ApplePlatform.tvOS, "ImagePipeline.xcframework", "runtimes/tvos-arm64/native/ImagePipeline.xcframework/")]
-        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline.xcframework", "runtimes/maccatalyst-arm64/native/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.iOS, "ImagePipeline.xcframework", "native/net10.0-ios26.0/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.macOS, "ImagePipeline.xcframework", "native/net10.0-macos26.0/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.tvOS, "ImagePipeline.xcframework", "native/net10.0-tvos26.0/ImagePipeline.xcframework/")]
+        [InlineData(ApplePlatform.MacCatalyst, "ImagePipeline.xcframework", "native/net10.0-maccatalyst26.0/ImagePipeline.xcframework/")]
         public void GetNativePackPath_PerPlatform(ApplePlatform platform, string framework, string expected)
         {
             var pi = PlatformInfoFactory.Create(platform);
@@ -680,7 +680,8 @@ namespace BindingsGeneration.Tests
                 // cascade into per-platform inline-data updates.
                 Assert.Contains($"<TargetFramework>{pi.PackTfm}</TargetFramework>", content);
                 Assert.Contains($"<PackageId>{expectedPackageId}</PackageId>", content);
-                Assert.Contains($"runtimes/{pi.NuGetRid}/native/", content);
+                Assert.Contains($"native/{pi.PackTfm}/", content);
+                Assert.DoesNotContain("runtimes/", content);
                 Assert.Contains($"buildTransitive/{pi.PackTfm}/", content);
             }
             finally
@@ -699,7 +700,7 @@ namespace BindingsGeneration.Tests
         [InlineData(ApplePlatform.macOS, "osx-arm64")]
         [InlineData(ApplePlatform.tvOS, "tvos-arm64")]
         [InlineData(ApplePlatform.MacCatalyst, "maccatalyst-arm64")]
-        public void Emit_CorrectNuGetRid_PerPlatform(ApplePlatform platform, string expectedRid)
+        public void Emit_NativePathsKeyedByCopyTfm_PerPlatform(ApplePlatform platform, string expectedRid)
         {
             var pi = PlatformInfoFactory.Create(platform);
             var tempDir = Path.Combine(Path.GetTempPath(), $"targets_test_{Guid.NewGuid():N}");
@@ -722,8 +723,9 @@ namespace BindingsGeneration.Tests
                 Assert.True(File.Exists(targetsPath));
 
                 var content = File.ReadAllText(targetsPath);
-                Assert.Contains($"runtimes/{expectedRid}/native/Test.xcframework", content);
-                Assert.Contains($"runtimes/{expectedRid}/native/TestSwiftBindings.xcframework", content);
+                Assert.Contains($"../../native/{pi.PackTfm}/Test.xcframework", content);
+                Assert.Contains($"../../native/{pi.PackTfm}/TestSwiftBindings.xcframework", content);
+                Assert.DoesNotContain($"runtimes/{expectedRid}", content);
             }
             finally
             {

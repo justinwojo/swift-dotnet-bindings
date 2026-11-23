@@ -98,7 +98,14 @@ namespace BindingsGeneration
 
         public string GetDefaultSwiftPackageId(string moduleName) => $"{moduleName}{SwiftPackageIdSuffix}";
         public string GetDefaultObjCPackageId(string moduleName) => $"{moduleName}{ObjCPackageIdSuffix}";
-        public string GetNativePackPath(string frameworkName) => $"runtimes/{NuGetRid}/native/{frameworkName}/";
+        /// <summary>
+        /// Package root of this copy's natives: <c>native/{PackTfm}/</c>. A binding package keys every
+        /// per-copy payload by the full pack TFM (the same folder name as its <c>lib/</c> and
+        /// <c>buildTransitive/</c> copy), so one package can carry a copy per toolchain and each copy's
+        /// consumer targets reference only their own natives.
+        /// </summary>
+        public string NativePackRoot => $"native/{PackTfm}/";
+        public string GetNativePackPath(string frameworkName) => $"{NativePackRoot}{frameworkName}/";
         public string GetBuildTransitivePath() => $"buildTransitive/{PackTfm}/";
     }
 }

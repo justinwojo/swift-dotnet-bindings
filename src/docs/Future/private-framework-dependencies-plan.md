@@ -41,9 +41,9 @@ Concentrated changes — fewer integration points than the original new-item-typ
 ### SDK changes (`swift-bindings`)
 
 1. **`_ValidateSwiftDependencyMetadata` in `Sdk.targets`** — skip `PackageId`/`PackageVersion` requirement when `%(BundleInPackage)' == 'true'`. SWIFTBIND040 message updates to mention the `BundleInPackage` opt-out.
-2. **`_ConfigureSwiftBindingPack` in `Sdk.targets`** — add a `TfmSpecificPackageFile` entry that packs the entire xcframework directory into `runtimes/<rid>/native/<name>.xcframework/` for each SFD with `BundleInPackage=true`. Verify per-item `%(...)/**` glob expansion actually pack-walks every entry; fall back to materializing into an intermediate item if it misbehaves. Add a pre-pack existence guard (a new SWIFTBINDxxx — next free id).
-3. **Slicer in `Sdk.targets`** — extend `_SliceSourceXcframework` (or add a parallel `_SlicePrivateXcframework`) so bundled xcframeworks ship per-RID, parity with source xcframeworks. Round-1 review flagged unsliced shipping as avoidable bloat.
-4. **`ConsumerTargetsEmitter.cs`** — emit a `NativeReference` for each bundled private xcframework so consumers auto-link when they restore the pkg. Today's emitter handles source/wrapper/bridge; add private-bundled to the same path. Per-RID path matches whatever slicer ships.
+2. **`_ConfigureSwiftBindingPack` in `Sdk.targets`** — add a `TfmSpecificPackageFile` entry that packs the entire xcframework directory into `native/<tfm>/<name>.xcframework/` (the same `<tfm>` as the copy's `lib/<tfm>/`) for each SFD with `BundleInPackage=true`. Verify per-item `%(...)/**` glob expansion actually pack-walks every entry; fall back to materializing into an intermediate item if it misbehaves. Add a pre-pack existence guard (a new SWIFTBINDxxx — next free id).
+3. **Slicer in `Sdk.targets`** — extend `_SliceSourceXcframework` (or add a parallel `_SlicePrivateXcframework`) so bundled xcframeworks ship sliced per copy, parity with source xcframeworks. Round-1 review flagged unsliced shipping as avoidable bloat.
+4. **`ConsumerTargetsEmitter.cs`** — emit a `NativeReference` for each bundled private xcframework so consumers auto-link when they restore the pkg. Today's emitter handles source/wrapper/bridge; add private-bundled to the same path. Per-copy `native/<tfm>/` path matches whatever slicer ships.
 5. **Generator metadata flow** — pass the bundle flag through to the generator so `binding-metadata.props` (via `EmitMetadataProps` in `BindingsGeneratorCommand` / `XCFrameworkMetadataExtractor`) and `ConsumerTargetsEmitter` know which deps are bundled. Single CLI flag (e.g. `--bundled-framework-dependency` or `--framework-dependency` with a key:value form), not two parallel flags.
 6. **`GetSwiftFrameworkSearchPaths` in `Sdk.targets`** — return bundled deps too so multi-hop ProjectReference graphs (C → B → A where A is bundled in B) get A on `-F` during C's wrapper compile.
 7. **Diagnostics** — sharpen SWIFTBIND040 message; tighten the duplicate-declaration check (a new diagnostic id) to compare normalized absolute paths, not filenames; update existing `SwiftFrameworkDependency`-mention strings in `Program.cs` and `SwiftWrapperCompiler.cs` to mention the new attribute.
@@ -55,7 +55,7 @@ Concentrated changes — fewer integration points than the original new-item-typ
 
 ### Tests
 
-Multi-product fixture: project A (`IsPackable=false`, builds an xcframework, no NuGet metadata), project B (`IsPackable=true`, declares `<SwiftFrameworkDependency Include="../A/A.xcframework" BundleInPackage="true" />`). Pack B; assert: pack succeeds, nupkg ships `runtimes/<rid>/native/A.xcframework/`, `B.targets` inside the nupkg references it as `NativeReference`. Negative cases: missing file → a new SWIFTBINDxxx (next free id); declared as both bundled and public → a new diagnostic id.
+Multi-product fixture: project A (`IsPackable=false`, builds an xcframework, no NuGet metadata), project B (`IsPackable=true`, declares `<SwiftFrameworkDependency Include="../A/A.xcframework" BundleInPackage="true" />`). Pack B; assert: pack succeeds, nupkg ships `native/<tfm>/A.xcframework/`, `B.targets` inside the nupkg references it as `NativeReference`. Negative cases: missing file → a new SWIFTBINDxxx (next free id); declared as both bundled and public → a new diagnostic id.
 
 ## Open questions for revisit
 
@@ -69,7 +69,7 @@ Codex's round-1 review of an earlier new-item-type version of this plan flagged 
 
 1. **Auto-detect dedup miss** — explicit private deps wouldn't suppress `_AutoFrameworkDependency` warnings unless the dedup sites learn about the new item. Resolved by the metadata-attribute shape above (existing dedup already iterates `SwiftFrameworkDependency`).
 2. **Generator-flag double-feed** — passing the same xcframework as both `--framework-dependency` and a new `--private-framework-dependency` would write it into `binding-metadata.props` twice and re-trigger auto-detection. Resolved by single-flag-with-metadata.
-3. **Consumer-target wiring** — `runtimes/<rid>/native/` placement alone doesn't auto-link in .NET iOS; the generated `$(PackageId).targets` must explicitly add `NativeReference`. Captured in step 4 above.
+3. **Consumer-target wiring** — `native/<tfm>/` placement alone doesn't auto-link in .NET iOS; the generated `$(PackageId).targets` must explicitly add `NativeReference`. Captured in step 4 above.
 4. **SDK-mode emitter coverage** — `ConsumerTargetsEmitter.Emit` is called even in SDK xcframework mode (`BindingsGeneratorCommand`), distinct from Apple-framework mode's `_SynthesizeAppleFrameworkConsumerTargets` path in `Sdk.targets`. The future implementation must cover xcframework-mode bindings — Apple-framework mode is out-of-scope (Apple frameworks have no internal-dep graph).
 
 ## Round-2 strategic call (why we deferred)

@@ -242,6 +242,36 @@
     </ItemGroup>
   </Target>
 
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Package copy check (SWIFTBIND136, SWIFTBIND139)                          -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- A binding package carries one copy per toolchain, keyed by its full pack TFM: lib/<tfm>/,
+       buildTransitive/<tfm>/ and native/<tfm>/, and each copy's buildTransitive/<tfm>/<Id>.props
+       declares it (@(SwiftBindingPackageCopy)). NuGet picks lib/ and buildTransitive/ separately by
+       the same nearest-framework rule, so the build must resolve the binding assembly from the
+       lib/ copy whose consumer targets (and natives) NuGet chose; otherwise it fails (SWIFTBIND136)
+       before compiling. Each package's selected copy is announced in the build log. A copy built
+       for an older .NET or platform SDK than the build's own toolchain is reported (SWIFTBIND139);
+       <SwiftBindingsRequireExactCopy>true</SwiftBindingsRequireExactCopy> makes that an error.
+       Runs in every build that resolves references (apps and libraries), not in design-time builds. -->
+  <UsingTask TaskName="SwiftBindings.Tasks.SwiftBindingCopyCheck" AssemblyFile="$(_SwiftBindingsTasksAssembly)" />
+
+  <Target Name="_SwiftBindingsCheckPackageCopies"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="ResolveAssemblyReferences"
+          Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Code="SWIFTBIND136"
+           Condition="'@(SwiftBindingPackageCopy)' != '' AND !Exists('$(_SwiftBindingsTasksAssembly)')"
+           Text="The SwiftBindings copy check task $(_SwiftBindingsTasksAssembly) is missing, so this build cannot show that each binding package's managed and native copies match. Restore SwiftBindings.Runtime again." />
+    <SwiftBindingCopyCheck
+        Condition="Exists('$(_SwiftBindingsTasksAssembly)')"
+        Copies="@(SwiftBindingPackageCopy)"
+        References="@(ReferencePath)"
+        TargetFramework="$(TargetFramework)"
+        TargetPlatformVersion="$(TargetPlatformVersion)"
+        RequireExactCopy="$([MSBuild]::ValueOrDefault('$(SwiftBindingsRequireExactCopy)', 'false'))" />
+  </Target>
+
   <!-- NOTE: there is deliberately no SwiftSupport-folder injection here. Apple's
        SwiftSupport/ requirement (ITMS-90426) applies to apps that embed loose
        /usr/lib/swift back-deployment dylibs. This runtime now ships as a signed dynamic
