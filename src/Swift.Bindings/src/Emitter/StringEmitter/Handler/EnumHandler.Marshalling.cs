@@ -516,7 +516,7 @@ namespace BindingsGeneration
                 offsetEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 var readExpr = GetSimpleEnumPayloadRead(offsetEnumRecord, csharpType, $"{sourcePtr} + (int){offsetVar}",
-                    GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar));
+                    GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar), moduleDecl?.Name);
                 csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
@@ -773,7 +773,7 @@ namespace BindingsGeneration
                 payloadRecord.Kind == TypeRecordKind.Enum &&
                 payloadRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var readExpr = GetSimpleEnumPayloadRead(payloadRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(payloadRecord, sourcePtr));
+                var readExpr = GetSimpleEnumPayloadRead(payloadRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(payloadRecord, sourcePtr), moduleDecl?.Name);
                 csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
@@ -986,21 +986,38 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Reads a simple enum payload out of the enum copy a TryGet owns, the way the enum's sync
-        /// return crosses it. A case-identity enum's tag is not its C# constant, so its codec names
-        /// the case, and the read is a move: the copy is never destroyed, so a hidden payload case's
-        /// reference is released here. An enum that crosses as its raw value (an <c>@objc</c> enum,
-        /// an NS_ENUM) is stored as that raw value, so it is read whole at the raw type's width.
-        /// Any other simple enum (a record from a module database that predates the case list) is
-        /// payload-less, so its discriminator is read as stored.
+        /// Reads a simple enum payload out of the enum copy a TryGet owns. A case-identity enum's tag
+        /// is not its C# constant, so its codec names the case, and the read is a move: the copy is
+        /// never destroyed, so a hidden payload case's reference is released here. An enum Swift
+        /// stores as its raw value (<see cref="IsStoredAsRawValue"/>) is read whole at the raw type's
+        /// width. Any other simple enum is payload-less, so its discriminator is read as stored.
         /// </summary>
-        internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr)
+        internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr, string? currentModuleName)
         {
             if (SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(typeRecord)))
                 return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{csharpType}>((void*)({slotExpr}), global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>())";
-            if (SimpleEnumCrossing.CrossesAsRawValue(typeRecord))
+            if (IsStoredAsRawValue(typeRecord, currentModuleName))
                 return $"({csharpType})(*({GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName)}*)({slotExpr}))";
             return $"({csharpType}){discriminatorReadExpr}";
+        }
+
+        /// <summary>
+        /// Whether Swift is known to store a simple enum as its raw value (an <c>@objc</c> enum, an
+        /// NS_ENUM) rather than as its case tag. <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/>
+        /// holds for both an <c>@objc</c> enum and a plain <c>enum E: Int</c> read from a module
+        /// database written before <c>rawValueCrossesAsCaseTag</c> existed (every released one): the
+        /// plain enum arrives with the flag clear, and the database cannot tell the two apart. So the
+        /// raw value is read only where the record is certain: an enum of the module being generated,
+        /// whose record comes from the parse, and an Apple framework enum. A third-party dependency's
+        /// enum keeps the stored-tag read it always had.
+        /// </summary>
+        private static bool IsStoredAsRawValue(TypeRecord typeRecord, string? currentModuleName)
+        {
+            if (!SimpleEnumCrossing.CrossesAsRawValue(typeRecord))
+                return false;
+            var module = typeRecord.SwiftTypeName.Module;
+            return string.Equals(module, currentModuleName, StringComparison.Ordinal)
+                   || AppleFrameworkRegistry.IsKnownModule(module);
         }
 
         /// <summary>

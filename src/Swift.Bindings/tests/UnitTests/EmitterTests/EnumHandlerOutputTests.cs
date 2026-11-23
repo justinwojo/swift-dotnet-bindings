@@ -5535,46 +5535,56 @@ public class EnumHandlerOutputTests
     }
 
     /// <summary>
-    /// An enum that crosses as its raw value (an <c>@objc</c> enum, an NS_ENUM) is stored in Swift
-    /// memory as that raw value, at the raw type's width, not as a case tag. A payload read of it,
-    /// alone or as a tuple element, must load the whole raw value: reading the one-byte default tag
-    /// width returns the low byte of the value (17009 read back as 113).
+    /// An enum Swift stores as its raw value (an <c>@objc</c> enum, an NS_ENUM) must be read whole at
+    /// the raw type's width, alone or as a tuple element: the one-byte tag width returns the low byte
+    /// (17011 read back as 115). That is certain for an enum of the module being generated and for
+    /// an Apple framework enum. A third-party dependency's flag-less record may be a plain
+    /// <c>enum E: Int</c> from a database older than <c>rawValueCrossesAsCaseTag</c>, stored as a
+    /// one-byte tag, so it keeps the stored-tag read.
     /// </summary>
     [Theory]
-    [InlineData("Int", "long", true)]
-    [InlineData("Int", "long", false)]
-    [InlineData("UInt16", "ushort", true)]
-    [InlineData("Int32", "int", false)]
-    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueAtItsWidth(string rawValueType, string csScalar, bool inTuple)
+    [InlineData("OwnModule", "Int", "long", true, true)]
+    [InlineData("OwnModule", "Int", "long", false, true)]
+    [InlineData("OwnModule", "UInt16", "ushort", true, true)]
+    [InlineData("Foundation", "Int32", "int", false, true)]
+    [InlineData("OtherModule", "Int", "long", true, false)]
+    [InlineData("OtherModule", "Int", "long", false, false)]
+    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueWhereItsStorageIsCertain(
+        string module, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
     {
         var typeDatabase = CreateTypeDatabase();
-        var otherModule = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
-        otherModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName("OtherModule.Code"),
+        var enumModule = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        enumModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName($"{module}.Code"),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "Code"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Code"),
-                MetadataAccessor = "$s11OtherModule4CodeOMa",
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, "Code"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.Code"),
+                MetadataAccessor = "$s4Code4CodeOMa",
                 Flags = TypeRecordFlags.SimpleEnum,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = rawValueType,
             });
-        typeDatabase.AddModuleDatabase(otherModule);
+        typeDatabase.AddModuleDatabase(enumModule);
 
-        var moduleDecl = CreateModuleDecl("TestModule");
+        // "OwnModule" rows declare the carrier in the enum's own module: the module being generated.
+        var moduleDecl = CreateModuleDecl(module == "OwnModule" ? module : "TestModule");
         var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
         var failed = CreateCase("failed");
         failed.AssociatedValues.Add(inTuple
-            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("OtherModule.Code"), new NamedTypeSpec("Swift.Int") })
-            : new NamedTypeSpec("OtherModule.Code"));
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec($"{module}.Code"), new NamedTypeSpec("Swift.Int") })
+            : new NamedTypeSpec($"{module}.Code"));
         enumDecl.Cases.Add(failed);
         enumDecl.Cases.Add(CreateCase("succeeded"));
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         var read = csOutput.Replace("global::", string.Empty);
-        Assert.Matches($@"value0? = \(OtherModule\.Code\)\(\*\({csScalar}\*\)\(enumCopy[^;]*;", read);
+        var cast = $@"value0? = \({module}\.Code\)\(\*";
+        if (readsRawValue)
+            Assert.Matches($@"{cast}\({csScalar}\*\)\(enumCopy", read);
+        else
+            Assert.Matches($@"{cast}\(?enumCopy", read);
     }
 
     [Theory]
