@@ -148,8 +148,50 @@ namespace BindingsGeneration.Tests
                 Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
                 Assert.Equal(crossesAsCaseTag, loaded!.RawValueCrossesAsCaseTag);
                 Assert.Equal(!crossesAsCaseTag, SimpleEnumCrossing.CrossesAsRawValue(loaded));
-                // A dependent range-checks an incoming tag against the case count, so it travels too.
-                Assert.Equal(crossesAsCaseTag ? 3 : 0, SimpleEnumCrossing.CaseTagCount(loaded));
+                // A dependent reading a record without the case list range-checks an incoming tag
+                // against the case count, so it travels too.
+                Assert.Equal(crossesAsCaseTag ? 3 : 0, loaded.CaseTagCount);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
+        public async Task Emit_SimpleEnum_PreservesItsCrossingCases()
+        {
+            // A dependent module maps a dependency's enum constant to its case by name through this
+            // list, so names, constants, floors and the slot count (hidden cases included) must survive.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Mode");
+                var record = new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Mode"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib4ModeO",
+                    Flags = TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    CrossingCases = new[]
+                    {
+                        new SimpleEnumCrossingCase("on", 1, null),
+                        new SimpleEnumCrossingCase("default", 2, "iOS 99.0, *"),
+                    },
+                    CrossingSlotCount = 3,
+                };
+                module.RegisterType(swiftName, record);
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(3, loaded!.CrossingSlotCount);
+                Assert.Equal(record.CrossingCases, loaded.CrossingCases);
+                var map = SimpleEnumCrossing.GetCaseMap(loaded);
+                Assert.NotNull(map);
+                Assert.False(map!.IsFrozen);
+                Assert.Equal(3, map.SlotCount);
             }
             finally { Directory.Delete(dir, true); }
         }

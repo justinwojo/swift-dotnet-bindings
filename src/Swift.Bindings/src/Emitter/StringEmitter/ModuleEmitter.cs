@@ -361,7 +361,9 @@ namespace BindingsGeneration
                 // X. Apply the collision-aware rewrite once at the wrapper file boundary, driven
                 // by the structurally-aware ModuleEmissionContext (knows which types are nested in
                 // the colliding class so e.g. LoggingLib.Level stays qualified).
-                var preQualifySwift = swiftStringWriter.ToString();
+                // Each simple enum crossing by case identity has its case-mapping helpers appended
+                // here, once, after every site that calls them has been written (SimpleEnumCrossing).
+                var preQualifySwift = SimpleEnumCrossing.AppendHelperDefinitions(swiftStringWriter.ToString());
                 var swiftJournal = new TextEditJournal();
                 var swiftOutput = emissionContext.QualifyForWrapperSource(preQualifySwift, swiftJournal);
 

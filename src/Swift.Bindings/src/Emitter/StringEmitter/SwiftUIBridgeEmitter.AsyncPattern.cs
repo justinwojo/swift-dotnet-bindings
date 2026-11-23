@@ -437,7 +437,7 @@ public static partial class SwiftUIBridgeEmitter
                 bp.Name, AsyncFlatParamKind.BoundEnum, bp.SwiftAbiType, bp.CSharpPInvokeType,
                 null, null, BridgeTypeName: bp.BridgeTypeName, CSharpTypeName: bp.CSharpTypeName,
                 IsSimpleEnum: bp.IsSimpleEnum, CaseFloorGuard: bp.CaseFloorGuard,
-                CrossesAsCaseTag: bp.CrossesAsCaseTag, CaseTagCount: bp.CaseTagCount),
+                CrossesAsCaseTag: bp.CrossesAsCaseTag, CaseMap: bp.CaseMap),
             _ => null, // Closures, etc. not supported in async flattening yet
         };
     }
@@ -873,7 +873,7 @@ public static partial class SwiftUIBridgeEmitter
             if (param.Kind == AsyncFlatParamKind.BoundEnum)
             {
                 // Out-of-range raw value reports via onError and returns instead of trapping.
-                sb.AppendLine($"    guard let {param.Name}Enum = {SimpleEnumCrossing.ScalarToOptionalCase(!param.CrossesAsCaseTag, param.CaseTagCount, param.BridgeTypeName!, param.SwiftName)} else {{");
+                sb.AppendLine($"    guard let {param.Name}Enum = {SimpleEnumCrossing.ScalarToOptionalCase(param.CrossesAsCaseTag ? param.CaseMap : null, param.BridgeTypeName!, param.SwiftName)} else {{");
                 sb.AppendLine($"        if let {errorName} = {errorName} {{");
                 sb.AppendLine($"            let msg = \"Invalid raw value for {param.BridgeTypeName}\"");
                 sb.AppendLine($"            let utf8 = Swift.Array(msg.utf8)");
@@ -1690,10 +1690,10 @@ public record AsyncFlatParam(
     bool IsSimpleEnum = false,
     bool? DefaultValue = null,
     string? CaseFloorGuard = null,
-    // A BoundEnum whose values cross as the case tag, not .rawValue (SimpleEnumCrossing), and its
-    // case count, which an incoming tag is checked against.
+    // A BoundEnum whose values cross by case identity, not .rawValue, and its case map
+    // (SimpleEnumCrossing).
     bool CrossesAsCaseTag = false,
-    int CaseTagCount = 0)
+    SimpleEnumCaseMap? CaseMap = null)
 {
     /// <summary><see cref="Name"/> escaped as a BARE C# identifier (`@`-prefixed for a C# keyword).
     /// Use at bare C# identifier sites; compound names like {Name}Ptr stay raw.</summary>

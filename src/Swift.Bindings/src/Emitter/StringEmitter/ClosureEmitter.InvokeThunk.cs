@@ -313,23 +313,16 @@ public static partial class ClosureEmitter
         // Simple enum: the thunk declares the underlying integer scalar (e.g. Int64), but the
         // closure yields an enum case. Numeric-raw enums convert via .rawValue, cast to the
         // scalar because the enum's Swift raw type (e.g. Int) is a distinct type from the scalar
-        // (e.g. Int64). Tag-only / String-raw enums have no integer rawValue, so copy the enum's
-        // tag bytes into a zero-initialised scalar — the inverse of the load(as:) reconstruction
-        // GetSwiftReturnConversion emits on the arg side. The enum's MemoryLayout size never
-        // exceeds the scalar's, so copyMemory's source-fits-destination precondition holds.
+        // (e.g. Int64). Every other simple enum hands back its case's C# constant, the inverse of
+        // the reconstruction GetSwiftReturnConversion emits on the arg side.
         var enumInfo = closureHandler.GetSimpleEnumInfo(returnType);
         if (enumInfo != null)
         {
             if (enumInfo.Value.hasRawValue)
                 return $"{swiftReturnType}({resultExpr}.rawValue)";
-            // Mirror the forward enum→scalar byte copy at NestedClosureBridge (tag-only path):
-            // copy MemoryLayout<Enum>.size tag bytes into a zero-initialised scalar.
+            // By case identity: the case's C# constant (SimpleEnumCrossing).
             var enumSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnType);
-            return $"{{ var __scalar: {swiftReturnType} = 0; var __e = {resultExpr}; "
-                 + $"Swift.withUnsafeMutablePointer(to: &__scalar) {{ __dst in "
-                 + $"Swift.withUnsafePointer(to: &__e) {{ __src in "
-                 + $"Swift.UnsafeMutableRawPointer(__dst).copyMemory(from: Swift.UnsafeRawPointer(__src), byteCount: Swift.MemoryLayout<{enumSwiftType}>.size) }} }}; "
-                 + $"return __scalar }}()";
+            return SimpleEnumCrossing.CaseToScalar(closureHandler.GetSimpleEnumCaseMap(returnType)!, enumSwiftType, swiftReturnType, resultExpr);
         }
 
         // Primitive (Int/Double/pointer/…): the closure result already has the scalar type.

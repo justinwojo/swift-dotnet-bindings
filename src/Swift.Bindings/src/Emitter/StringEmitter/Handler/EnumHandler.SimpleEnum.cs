@@ -144,6 +144,16 @@ namespace BindingsGeneration
 
             // Emit the C# enum declaration
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
+            // A case-identity enum that can hold a case the binding does not name (non-frozen, or with
+            // an @_spi case) says what such a case becomes here (SimpleEnumCrossing).
+            bool carriesUnknownCases = SimpleEnumCrossing.GetCaseMap(enumDecl) is not null
+                && (!enumDecl.IsFrozen || enumDecl.Cases.Any(c => c.IsSpiProtected));
+            if (carriesUnknownCases && !enumDecl.CrossesAsCaseTag)
+            {
+                csWriter.WriteLine("/// <remarks>");
+                WriteUnknownCaseRemarks(csWriter);
+                csWriter.WriteLine("/// </remarks>");
+            }
             if (enumDecl.CrossesAsCaseTag)
             {
                 // The member values are case indices, not the Swift raw values (EnumDecl.CrossesAsCaseTag):
@@ -154,10 +164,13 @@ namespace BindingsGeneration
                 csWriter.WriteLine("/// member maps to its own Swift case wherever the binding passes it.");
                 if (rawValueHelpersAskSwift)
                 {
-                    csWriter.WriteLine("/// Read a case's Swift raw value with <c>ToRawValue()</c> and find the case for a raw value");
-                    csWriter.WriteLine("/// with <c>FromRawValue</c>; both ask Swift.");
+                    var helperNames = GetRawValueHelperNames(enumDecl);
+                    csWriter.WriteLine($"/// Read a case's Swift raw value with <c>{helperNames.To}()</c> and find the case for a raw value");
+                    csWriter.WriteLine($"/// with <c>{helperNames.From}</c>; both ask Swift.");
                 }
                 csWriter.WriteLine("/// Do not cast a member to an integer to get its raw value.");
+                if (carriesUnknownCases)
+                    WriteUnknownCaseRemarks(csWriter);
                 csWriter.WriteLine("/// </remarks>");
             }
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
@@ -522,7 +535,8 @@ namespace BindingsGeneration
 
             // ToRawValue()
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static string ToRawValue(this {enumName} value)");
+            var helperNames = GetRawValueHelperNames(enumDecl);
+            csWriter.WriteLine($"public static string {helperNames.To}(this {enumName} value)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             if (casesFlooredAboveEnum)
@@ -548,7 +562,7 @@ namespace BindingsGeneration
 
             // FromRawValue()
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static {enumName}? FromRawValue(string rawValue)");
+            csWriter.WriteLine($"public static {enumName}? {helperNames.From}(string rawValue)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             if (casesFlooredAboveEnum)
@@ -602,7 +616,8 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"@_cdecl(\"{toRawSymbol}\")");
             swiftWriter.WriteLine($"public func _sbw_{identifierPath}_toRawValue(_ tag: {swiftScalarType}, _ buffer: Swift.UnsafeMutableRawPointer?, _ capacity: Swift.Int) -> Swift.Int {{");
             swiftWriter.Indent++;
-            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+            // A value that names no case reports length -1, refused on the managed side.
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType, noCaseStatement: "return -1");
             swiftWriter.WriteLine("var rawValue: Swift.String = value.rawValue");
             swiftWriter.WriteLine("return rawValue.withUTF8 { utf8 in");
             swiftWriter.Indent++;
@@ -638,14 +653,18 @@ namespace BindingsGeneration
 
             csWriter.WriteLine("/// <summary>The Swift raw value of this case, read from Swift's <c>rawValue</c>.</summary>");
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static unsafe string ToRawValue(this {enumName} value)");
+            var helperNames = GetRawValueHelperNames(enumDecl);
+            csWriter.WriteLine($"public static unsafe string {helperNames.To}(this {enumName} value)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"var tag = {SimpleEnumCaseFloors.ToNative(caseFloorGuard, csUnderlyingType, "value")};");
-            EmitRequireMemberTag(csWriter, enumDecl);
             csWriter.WriteLine("const int StackCapacity = 128;");
             csWriter.WriteLine("byte* stackBuffer = stackalloc byte[StackCapacity];");
             csWriter.WriteLine("var length = PInvoke_ToRawValue(tag, stackBuffer, StackCapacity);");
+            // Swift maps the value to its case (a published member, or a case the binding does not
+            // name that Swift handed out) and reports -1 for any other value.
+            csWriter.WriteLine("if (length < 0)");
+            csWriter.WriteLine("    throw new global::System.ArgumentOutOfRangeException(nameof(value), value, null);");
             csWriter.WriteLine("if (length <= StackCapacity)");
             csWriter.WriteLine("    return global::System.Text.Encoding.UTF8.GetString(stackBuffer, (int)length);");
             csWriter.WriteLine("var heapBuffer = new byte[length];");
@@ -661,7 +680,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// <c>init(rawValue:)</c>, or null when no case has that raw value (or it is null).");
             csWriter.WriteLine("/// </summary>");
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static unsafe {enumName}? FromRawValue(string rawValue)");
+            csWriter.WriteLine($"public static unsafe {enumName}? {helperNames.From}(string rawValue)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("if (rawValue is null)");
@@ -711,9 +730,11 @@ namespace BindingsGeneration
             swiftWriter.WriteLine($"// Raw value of a {enumQualifiedName} case, for ToRawValue.");
             WrapperEmitterHelpers.EmitSwiftAvailability(swiftWriter, availability);
             swiftWriter.WriteLine($"@_cdecl(\"{toRawSymbol}\")");
-            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_toRawValue(_ tag: {swiftScalarType}) -> {swiftRawType} {{");
+            swiftWriter.WriteLine($"public func _sbw_{identifierPath}_toRawValue(_ tag: {swiftScalarType}, _ found: Swift.UnsafeMutablePointer<Swift.UInt8>) -> {swiftRawType} {{");
             swiftWriter.Indent++;
-            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType);
+            // A value that names no case clears the found flag, refused on the managed side.
+            EmitTagToEnumSwitch(swiftWriter, enumDecl, enumQualifiedName, swiftScalarType, noCaseStatement: "found.pointee = 0; return 0");
+            swiftWriter.WriteLine("found.pointee = 1");
             swiftWriter.WriteLine("return value.rawValue");
             swiftWriter.Indent--;
             swiftWriter.WriteLine("}");
@@ -744,12 +765,18 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// value is its case index, not its raw value.");
             csWriter.WriteLine("/// </summary>");
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static {csUnderlyingType} ToRawValue(this {enumName} value)");
+            var helperNames = GetRawValueHelperNames(enumDecl);
+            csWriter.WriteLine($"public static unsafe {csUnderlyingType} {helperNames.To}(this {enumName} value)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine($"var tag = {SimpleEnumCaseFloors.ToNative(caseFloorGuard, csUnderlyingType, "value")};");
-            EmitRequireMemberTag(csWriter, enumDecl);
-            csWriter.WriteLine("return PInvoke_ToRawValue(tag);");
+            // Swift maps the value to its case (a published member, or a case the binding does not
+            // name that Swift handed out) and clears the flag for any other value.
+            csWriter.WriteLine("byte found = 0;");
+            csWriter.WriteLine("var rawValue = PInvoke_ToRawValue(tag, &found);");
+            csWriter.WriteLine("if (found == 0)");
+            csWriter.WriteLine("    throw new global::System.ArgumentOutOfRangeException(nameof(value), value, null);");
+            csWriter.WriteLine("return rawValue;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
@@ -759,7 +786,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// <c>init(rawValue:)</c>, or null when no case has that raw value.");
             csWriter.WriteLine("/// </summary>");
             EmitEnumFloorAttributes(csWriter, enumDecl);
-            csWriter.WriteLine($"public static unsafe {enumName}? FromRawValue({csUnderlyingType} rawValue)");
+            csWriter.WriteLine($"public static unsafe {enumName}? {helperNames.From}({csUnderlyingType} rawValue)");
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("byte found = 0;");
@@ -770,7 +797,7 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{toRawSymbol}\")]");
-            csWriter.WriteLine($"private static partial {csUnderlyingType} PInvoke_ToRawValue({csUnderlyingType} tag);");
+            csWriter.WriteLine($"private static unsafe partial {csUnderlyingType} PInvoke_ToRawValue({csUnderlyingType} tag, byte* found);");
             csWriter.WriteLine();
             csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{wrapperLibName}\", EntryPoint = \"{fromRawSymbol}\")]");
             csWriter.WriteLine($"private static unsafe partial {csUnderlyingType} PInvoke_FromRawValue({csUnderlyingType} rawValue, byte* found);");
@@ -786,20 +813,54 @@ namespace BindingsGeneration
         /// </summary>
         private const string FromRawValueUnnamedCase = "found.pointee = 0; return 0";
 
-        /// <summary>
-        /// Refuses, with <see cref="System.ArgumentOutOfRangeException"/>, a <c>tag</c> that is not a C#
-        /// member of <paramref name="enumDecl"/> (an undefined value cast to the enum, or an <c>@_spi</c>
-        /// case's index) before the raw-value wrapper's tag switch, which would stop the process on it.
-        /// </summary>
-        private static void EmitRequireMemberTag(CSharpWriter csWriter, EnumDecl enumDecl)
+        /// <summary>What a case the binding does not name becomes in C# (see <see cref="SimpleEnumCrossing"/>).</summary>
+        private static void WriteUnknownCaseRemarks(CSharpWriter csWriter)
         {
-            var caseCount = enumDecl.Cases.Count;
-            var spiTags = enumDecl.Cases.Where(c => c.IsSpiProtected).Select(enumDecl.GetCaseTag).ToList();
-            var condition = $"unchecked((ulong)(long)tag) >= {caseCount}UL";
-            if (spiTags.Count > 0)
-                condition += $" || tag is {string.Join(" or ", spiTags)}";
-            csWriter.WriteLine($"if ({condition})");
-            csWriter.WriteLine("    throw new global::System.ArgumentOutOfRangeException(nameof(value), value, null);");
+            csWriter.WriteLine("/// <para>A case this binding does not name (one a newer OS release adds, or one the module interface");
+            csWriter.WriteLine("/// hides) arrives as an unnamed value: it equals no member, so <c>Enum.IsDefined</c> is false for it,");
+            csWriter.WriteLine("/// and it is never reported as a case it is not. Passed back to Swift it is the same case again. The");
+            csWriter.WriteLine("/// value is meaningful only in the process that received it; Swift refuses a value that names no case.</para>");
+        }
+
+        /// <summary>
+        /// The C# names of an enum's raw-value helpers: <c>ToRawValue</c> and <c>FromRawValue</c>, unless
+        /// the enum declares a member of its own that projects to the same name into the same
+        /// extensions class (a Swift <c>toRawValue()</c> or <c>fromRawValue(_:)</c>), which would not
+        /// compile beside it. Then the helper is <c>ToSwiftRawValue</c> / <c>FromSwiftRawValue</c>, and
+        /// failing that the name with the enum's own appended (and <c>Case</c> after it until it is
+        /// free). Each name is chosen on its own.
+        /// </summary>
+        internal static (string To, string From) GetRawValueHelperNames(EnumDecl enumDecl)
+        {
+            var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p => p.Name), StringComparer.Ordinal);
+            var taken = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var method in enumDecl.Methods)
+            {
+                taken.Add(NameProvider.ToPascalCase(method.Name));
+                taken.Add(NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(method, propertyNames)));
+            }
+            foreach (var property in enumDecl.Properties)
+            {
+                var pascal = NameProvider.ToPascalCase(property.Name);
+                taken.Add(pascal);
+                taken.Add("Get" + pascal);
+                taken.Add("Set" + pascal);
+            }
+
+            string Pick(string verb)
+            {
+                foreach (var candidate in new[] { $"{verb}RawValue", $"{verb}SwiftRawValue" })
+                {
+                    if (!taken.Contains(candidate))
+                        return candidate;
+                }
+                // The enum-suffixed name, lengthened until no member of the enum's own has it.
+                var name = $"{verb}SwiftRawValueOf{NameProvider.ToPascalCase(enumDecl.Name)}";
+                while (taken.Contains(name))
+                    name += "Case";
+                return name;
+            }
+            return (Pick("To"), Pick("From"));
         }
 
         /// <summary>
@@ -1099,10 +1160,21 @@ namespace BindingsGeneration
 
         /// <summary>
         /// Emits a Swift switch statement that converts a scalar tag to an enum case.
+        /// <paramref name="noCaseStatement"/>, when given, is what an enum crossing by case identity
+        /// does with a value that names no case (a caller with a channel to report it); without one
+        /// the wrapper traps.
         /// </summary>
         private void EmitTagToEnumSwitch(SwiftWriter swiftWriter, EnumDecl enumDecl,
-            string enumQualifiedName, string swiftScalarType)
+            string enumQualifiedName, string swiftScalarType, string? noCaseStatement = null)
         {
+            // An enum crossing by case identity maps through its shared helpers, which also carry a
+            // case the binding does not know (SimpleEnumCrossing).
+            if (SimpleEnumCrossing.GetCaseMap(enumDecl) is { Cases: not null } caseMap)
+            {
+                swiftWriter.WriteLine($"guard let value = {SimpleEnumCrossing.ScalarToOptionalCase(caseMap, enumQualifiedName, "tag")} else {{ "
+                    + (noCaseStatement ?? $"Swift.preconditionFailure(\"[SwiftBindings] \\(tag) names no case of {enumQualifiedName}\")") + " }");
+                return;
+            }
             swiftWriter.WriteLine("let value: " + enumQualifiedName);
             swiftWriter.WriteLine("switch tag {");
             foreach (var caseDecl in enumDecl.Cases)
@@ -1145,6 +1217,14 @@ namespace BindingsGeneration
         private void EmitEnumToTagSwitch(SwiftWriter swiftWriter, EnumDecl enumDecl,
             string enumQualifiedName, string varName, string swiftScalarType, string? unnamedCaseStatement = null)
         {
+            // An enum crossing by case identity maps through its shared helpers, which carry a case the
+            // binding does not know as its unnamed value (FromRawValue of a hidden case's raw value
+            // finds that case, as Swift does).
+            if (SimpleEnumCrossing.GetCaseMap(enumDecl) is { Cases: not null } caseMap)
+            {
+                swiftWriter.WriteLine($"return {SimpleEnumCrossing.CaseToScalar(caseMap, enumQualifiedName, swiftScalarType, varName)}");
+                return;
+            }
             swiftWriter.WriteLine($"switch {varName} {{");
             foreach (var caseDecl in enumDecl.Cases)
             {
@@ -1178,7 +1258,7 @@ namespace BindingsGeneration
         /// a declared floor and an inferred one for the same platform, and Swift rejects an
         /// <c>#available</c> naming a platform twice.
         /// </summary>
-        private static List<AvailabilityAnnotation> GetTighterCaseAvailability(EnumCaseDecl caseDecl, EnumDecl enumDecl)
+        internal static List<AvailabilityAnnotation> GetTighterCaseAvailability(EnumCaseDecl caseDecl, EnumDecl enumDecl)
         {
             var result = new List<AvailabilityAnnotation>();
             if (caseDecl.AvailabilityAnnotations is not { Count: > 0 } caseAvail)
@@ -1213,7 +1293,7 @@ namespace BindingsGeneration
             return result;
         }
 
-        private static string BuildIfAvailableClause(List<AvailabilityAnnotation> annotations)
+        internal static string BuildIfAvailableClause(List<AvailabilityAnnotation> annotations)
         {
             var parts = annotations
                 .Where(a => a.Platform != null && a.IntroducedVersion != null)
@@ -2275,6 +2355,9 @@ namespace BindingsGeneration
             // A case floored above the enum is named only under `#available`, as in
             // EmitTagToEnumSwitch: naming it bare does not compile below its floor. The managed side
             // refuses it there first (SimpleEnumCaseFloors), so the else arm is never reached.
+            // An enum crossing by case identity maps through its shared helpers instead.
+            if (SimpleEnumCrossing.GetCaseMap(enumDecl) is { Cases: not null } caseMap)
+                return SimpleEnumCrossing.ScalarToCaseOrTrap(caseMap, enumQualifiedName, paramExpr);
             return $"{{ () -> {enumQualifiedName} in\n" +
                    $"    switch {paramExpr} {{\n" +
                    string.Join("\n", enumDecl.Cases.Select(c => EnumParamConversionArm(enumDecl, c))) +

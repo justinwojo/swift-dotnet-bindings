@@ -66,9 +66,7 @@ internal static class CdeclReturnRenderer
                         $"let result = {callExpr}",
                         $"return {RawValueConversion(typeSpec, typeDatabase, mapping, "result")}",
                     };
-                // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                return WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(callExpr, mapping.CdeclReturnType);
+                return CaseReturnLines(callExpr, typeSpec, typeDatabase, mapping);
 
             case CdeclReturnKind.ClassPointer:
                 return new List<string>
@@ -152,9 +150,7 @@ internal static class CdeclReturnRenderer
             case CdeclReturnKind.SimpleEnum:
                 if (HasRawValue(typeSpec, typeDatabase))
                     return new List<string> { $"return {RawValueConversion(typeSpec, typeDatabase, mapping, scalar)}" };
-                // Tag-only enum: zero-initialize and copyMemory to avoid reading past
-                // the enum's 1-byte allocation (load(as: Int.self) reads 8 bytes → crash).
-                return WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(valueExpr, mapping.CdeclReturnType);
+                return CaseReturnLines(valueExpr, typeSpec, typeDatabase, mapping);
 
             case CdeclReturnKind.ClassPointer:
                 // Use `as AnyObject` for safety — handles both true classes and ObjC-bridged structs.
@@ -199,6 +195,24 @@ internal static class CdeclReturnRenderer
         lines.Add("_sbwErrorStorage.deallocate()");
         lines.Add("return _sbwErrorBox");
         return lines;
+    }
+
+    /// <summary>
+    /// The return of a simple enum that crosses by case identity: the case's C# constant from the
+    /// enum's helper (<see cref="SimpleEnumCrossing"/>). A record from a module database that predates
+    /// the case list keeps the in-memory tag copy, zero-initialized so a one-byte enum is not read as
+    /// a wider scalar.
+    /// </summary>
+    private static List<string> CaseReturnLines(string valueExpr, TypeSpec typeSpec,
+        ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
+    {
+        if (typeDatabase.TryGetTypeRecord(typeSpec, out var enumRecord)
+            && SimpleEnumCrossing.GetCaseMap(enumRecord) is { Cases: not null } map)
+        {
+            var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(typeSpec);
+            return new List<string> { $"return {SimpleEnumCrossing.CaseToScalar(map, swiftType, mapping.CdeclReturnType, valueExpr)}" };
+        }
+        return WrapperEmitterHelpers.GetTagOnlyEnumReturnLines(valueExpr, mapping.CdeclReturnType);
     }
 
     /// <summary>

@@ -150,6 +150,8 @@ namespace BindingsGeneration
             // exported at the initializer's floor merged with the enum's (the initializer can ship
             // after the enum: an inferred OS floor), and FromRawValue refuses below it and advertises it.
             var rawValueFloor = AvailabilityHelpers.MergeAvailabilityFromAncestors(initRawValueMethod.AvailabilityAnnotations, enumDecl);
+            // A static fromRawValue(_:) of the enum's own projects to the same C# name; step aside for it.
+            var fromRawValueName = GetRawValueHelperNames(enumDecl).From;
             void WriteFromRawValueOpening(string signature)
             {
                 AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
@@ -204,7 +206,7 @@ namespace BindingsGeneration
                 if (isStringRawType)
                 {
                     // String raw type: use UTF-8 marshalling via wrapper
-                    WriteFromRawValueOpening($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                    WriteFromRawValueOpening($"public static unsafe {enumTypeName}? {fromRawValueName}({csharpRawType} rawValue)");
                     csWriter.WriteLine("var utf8Bytes = global::System.Text.Encoding.UTF8.GetBytes(rawValue ?? string.Empty);");
                     csWriter.WriteLine("fixed (byte* utf8Ptr = utf8Bytes)");
                     csWriter.WriteLine("{");
@@ -235,7 +237,7 @@ namespace BindingsGeneration
                 else
                 {
                     // Blittable raw type: direct P/Invoke
-                    WriteFromRawValueOpening($"public static {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                    WriteFromRawValueOpening($"public static {enumTypeName}? {fromRawValueName}({csharpRawType} rawValue)");
                     // With a wrapper, Swift returns a heap copy of the case or nil, as the String
                     // branch does. The direct init returns Optional<Self> in the enum's own lowering
                     // (a one-byte discriminator for a payload-free enum), never a pointer.
@@ -305,7 +307,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"/// Creates a {XmlDocCommentEmitter.XmlEscape(enumTypeName)} from its raw value.");
                 csWriter.WriteLine("/// Returns null if the raw value doesn't correspond to a valid case.");
                 csWriter.WriteLine("/// </summary>");
-                WriteFromRawValueOpening($"public static unsafe {enumTypeName}? FromRawValue({csharpRawType} rawValue)");
+                WriteFromRawValueOpening($"public static unsafe {enumTypeName}? {fromRawValueName}({csharpRawType} rawValue)");
 
                 // Get metadata for the enum type and SwiftOptional<EnumType>.
                 // The metadata accessor PInvoke takes PWT args for any
@@ -595,7 +597,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine($"private static readonly Lazy<{enumTypeName}> _lazy_{fieldName} = new(() =>");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
-                    csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral})");
+                    csWriter.WriteLine($"var result = {fromRawValueName}({rawValueLiteral})");
                     csWriter.WriteLine($"    ?? throw new InvalidOperationException(\"Failed to create {enumTypeName}.{capitalizedName} from raw value {rawValueLiteral}\");");
                     csWriter.WriteLine("result._isCachedSingleton = true;");
                     csWriter.WriteLine("return result;");
@@ -624,7 +626,7 @@ namespace BindingsGeneration
                     csWriter.WriteLine("{");
                     csWriter.Indent++;
                     EmitCaseAccessorGuard(csWriter, caseDecl, enumDecl, $"{enumTypeName}.{capitalizedName}");
-                    csWriter.WriteLine($"var result = FromRawValue({rawValueLiteral});");
+                    csWriter.WriteLine($"var result = {fromRawValueName}({rawValueLiteral});");
                     csWriter.WriteLine("if (result == null)");
                     csWriter.WriteLine("{");
                     csWriter.Indent++;

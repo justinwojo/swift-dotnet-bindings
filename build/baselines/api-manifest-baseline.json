@@ -5739,6 +5739,86 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.CaseShiftBox(SwiftBindingsTestLib.CaseShift)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_init_FBDC63AA"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.Mode",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_CaseShiftBox_mode|SBW_Set_SwiftBindingsTestLib_CaseShiftBox_mode"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.ModeName",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_CaseShiftBox_modeName"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.OptionalMode(bool)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_optionalMode_3B40B5D3"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.PickOptional(global::System.Func\u003CSwiftBindingsTestLib.CaseShift?\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_pickOptional_C03C1264"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.Report(global::System.Action\u003CSwiftBindingsTestLib.CaseShift\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_report_CEC4273F"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.ReportOptional(bool,global::System.Action\u003CSwiftBindingsTestLib.CaseShift?\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_reportOptional_695D26C4"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.Transform(global::System.Func\u003CSwiftBindingsTestLib.CaseShift, SwiftBindingsTestLib.CaseShift\u003E)",
+      "symbol": "SBW_SwiftBindingsTestLib_CaseShiftBox_transform_10C76B04"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.this[int]",
+      "symbol": "SBW_SubGet_SwiftBindingsTestLib_CaseShiftBox_5E46049D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftBox.this[nint]",
+      "symbol": "SBW_SubGet_SwiftBindingsTestLib_CaseShiftBox_5E46049D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftEcho(SwiftBindingsTestLib.CaseShift)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftEcho_4CF39BF0"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftLevelName(SwiftBindingsTestLib.CaseShiftLevel)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftLevelName_C2BC492B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftName(SwiftBindingsTestLib.CaseShift)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftName_9601EFE7"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftNameOrNone(SwiftBindingsTestLib.CaseShift?)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftNameOrNone_A4A7CFEE"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftOptional(bool)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftOptional_5B94CF4D"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "CaseShiftOptionalThrowing(bool)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftOptionalThrowing_39B468CB"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "CatalogHost.Catalog",
       "symbol": "SBW_Get_SwiftBindingsTestLib_CatalogHost_catalog"
     },
@@ -14219,6 +14299,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "GetCaseShiftHidden()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftHidden_4A7389A2"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetCaseShiftLevelHidden()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftLevelHidden_B1BB1E21"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetCaseShiftSecond()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_caseShiftSecond_09FA06FA"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "GetConfigTimeout(SwiftBindingsTestLib.EvolvingConfig)",
       "symbol": "thunk_SwiftBindingsTestLib_8ea6b783"
     },
@@ -14356,6 +14451,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetModernFunction()",
       "symbol": "SBW_SwiftBindingsTestLib_Free_modernFunction_E83ABB15"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetNarrowCasesHidden()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_narrowCasesHidden_7699CF6B"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -14511,6 +14611,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "GetSbwTestMlgParameterizedRefusalProbe()",
       "symbol": "thunk_SwiftBindingsTestLib_ba425959"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "GetSoloPlainMake()",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_soloPlainMake_7D178E14"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -21859,6 +21964,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "NarrowCase(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_narrowCase_DF4F04A9"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NarrowCasesIsHidden(SwiftBindingsTestLib.NarrowCases)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_narrowCasesIsHidden_D0842FEA"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "NarrowCasesRawValue(SwiftBindingsTestLib.NarrowCases)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_narrowCasesRawValue_B0AC435E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "NativeThunkReceiver.Add(int)",
       "symbol": "thunk_SwiftBindingsTestLib_2cb4c14d"
     },
@@ -27829,6 +27949,21 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "RawNamedMode.FromRawValue(string)",
+      "symbol": "SBW_SwiftBindingsTestLib_RawNamedMode_fromRawValue_7B326640"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "RawNamedMode.RawValue",
+      "symbol": "SBW_Get_SwiftBindingsTestLib_RawNamedMode_rawValue"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "RawNamedMode.ToRawValue()",
+      "symbol": "SBW_SwiftBindingsTestLib_RawNamedMode_toRawValue_2479E5FD"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "RawPointerToInt32(System.IntPtr)",
       "symbol": "thunk_SwiftBindingsTestLib_6075baf7"
     },
@@ -31471,6 +31606,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "SolidFillRenderer.SolidFillRenderer(int)",
       "symbol": "thunk_SwiftBindingsTestLib_7f219423"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "SoloPlainName(SwiftBindingsTestLib.SoloPlain)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_soloPlainName_5AE50E1B"
     },
     {
       "module": "SwiftBindingsTestLib",
@@ -36419,6 +36559,11 @@
     },
     {
       "module": "SwiftBindingsTestLib",
+      "signature": "WideCase(nint)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_wideCase_F7B2554B"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
       "signature": "WideFloatDouble.Scale",
       "symbol": "SBW_Get_SwiftBindingsTestLib_WideFloatDouble_scale|SBW_Set_SwiftBindingsTestLib_WideFloatDouble_scale"
     },
@@ -36436,6 +36581,11 @@
       "module": "SwiftBindingsTestLib",
       "signature": "WideFloatDouble.WideFloatDouble(float,double)",
       "symbol": "SBW_SwiftBindingsTestLib_WideFloatDouble_init_4B19282E"
+    },
+    {
+      "module": "SwiftBindingsTestLib",
+      "signature": "WideIndex(SwiftBindingsTestLib.WideCases)",
+      "symbol": "SBW_SwiftBindingsTestLib_Free_wideIndex_A1180953"
     },
     {
       "module": "SwiftBindingsTestLib",

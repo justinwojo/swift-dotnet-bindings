@@ -266,7 +266,7 @@ public static partial class ClosureEmitter
         // separately from `heapAllocArgs` so no Swift-side defer is emitted for this
         // path — the wrapper is allowed to escape, and C# owns destroy/free.
         var nonFrozenHeapArgs = new List<(int index, string swiftType)>();
-        var nilForNoneArgs = new List<(int index, string innerSwiftType)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
+        var nilForNoneArgs = new List<(int index, string innerSwiftType, SimpleEnumCaseMap? caseMap)>(); // Optional<Bool/SimpleEnum>: nil-for-none pointer ABI
         var existentialArgs = new List<(int index, string swiftType)>(); // `any Protocol`: heap-allocated ExistentialContainer pointer
         // Collection callback inputs use the address of a typed, initialized Swift value. The
         // managed borrowed reader takes an independent metadata-driven copy before Swift destroys
@@ -413,7 +413,10 @@ public static partial class ClosureEmitter
                            !closureHandler.IsClassType(optInner2) && !closureHandler.IsObjCBridgedClass(optInner2))))
                 {
                     var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(optInner2);
-                    nilForNoneArgs.Add((argIndex, innerType));
+                    // A simple enum crossing by case identity is stored as its C# constant, at the
+                    // width of its C# underlying type, which is what the managed side reads.
+                    var caseMap = closureHandler.IsSimpleEnum(optInner2) ? closureHandler.GetSimpleEnumCaseMap(optInner2) : null;
+                    nilForNoneArgs.Add((argIndex, innerType, caseMap));
                 }
                 // `any Protocol` existential: heap-allocate the container and pass a pointer.
                 // IsCdeclCompatibleType already excluded `any Error` (MCB) and unsupported shapes.
@@ -586,8 +589,19 @@ public static partial class ClosureEmitter
             heapAllocLines.Add($"{indent}    defer {{ __heap_{idx}.assumingMemoryBound(to: {swiftType}.self).deinitialize(count: 1); __heap_{idx}.deallocate() }}");
         }
         // Nil-for-none allocation: unwrap Optional, pass inner value pointer or nil
-        foreach (var (idx, innerType) in nilForNoneArgs)
+        foreach (var (idx, innerType, caseMap) in nilForNoneArgs)
         {
+            if (caseMap is { Cases: not null })
+            {
+                var scalarType = $"Swift.UInt{caseMap.WidthBits}";
+                heapAllocLines.Add($"{indent}    var __heap_{idx}: Swift.UnsafeMutableRawPointer? = nil");
+                heapAllocLines.Add($"{indent}    if let __unwrapped_{idx} = p{idx} {{");
+                heapAllocLines.Add($"{indent}        __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{scalarType}>.size, alignment: Swift.MemoryLayout<{scalarType}>.alignment)");
+                heapAllocLines.Add($"{indent}        __heap_{idx}!.initializeMemory(as: {scalarType}.self, repeating: {SimpleEnumCrossing.CaseToScalar(caseMap, innerType, scalarType, $"__unwrapped_{idx}")}, count: 1)");
+                heapAllocLines.Add($"{indent}    }}");
+                heapAllocLines.Add($"{indent}    defer {{ if let ptr = __heap_{idx} {{ ptr.deallocate() }} }}");
+                continue;
+            }
             heapAllocLines.Add($"{indent}    var __heap_{idx}: Swift.UnsafeMutableRawPointer? = nil");
             heapAllocLines.Add($"{indent}    if let __unwrapped_{idx} = p{idx} {{");
             heapAllocLines.Add($"{indent}        __heap_{idx} = Swift.UnsafeMutableRawPointer.allocate(byteCount: Swift.MemoryLayout<{innerType}>.size, alignment: Swift.MemoryLayout<{innerType}>.alignment)");
@@ -702,6 +716,26 @@ public static partial class ClosureEmitter
             lines.Add($"{indent}    let __resultObject = resultBuf.load(as: Swift.UnsafeMutableRawPointer?.self)");
             lines.Add($"{indent}    resultBuf.deallocate()");
             lines.Add($"{indent}    return {GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__resultObject", closureHandler)}");
+            lines.Add($"{indent}}}");
+        }
+        else if (isIndirectReturn &&
+                 SimpleEnumCrossing.GetOptionalCarrierMap(closureTypeSpec.ReturnType, closureHandler!.TypeDatabase) is { } carrierMap)
+        {
+            // Optional of a simple enum crossing by identity: the managed callback writes its
+            // SwiftOptional's one-byte carrier, which names the case by its C# constant.
+            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
+            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(
+                ((NamedTypeSpec)closureTypeSpec.ReturnType!).GenericParameters[0]);
+            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) -> {returnSwiftType} in");
+            if (!string.IsNullOrEmpty(observability))
+                lines.Add(observability.TrimEnd('\n'));
+            lines.AddRange(heapAllocLines);
+            lines.Add($"{indent}    let resultBuf = Swift.UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)");
+            lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
+            lines.AddRange(inOutWriteBackLines);
+            lines.Add($"{indent}    let __carrier = resultBuf.load(as: Swift.UInt8.self)");
+            lines.Add($"{indent}    resultBuf.deallocate()");
+            lines.Add($"{indent}    return {SimpleEnumCrossing.OptionalCarrierToCase(carrierMap, innerType, "__carrier")}");
             lines.Add($"{indent}}}");
         }
         else if (isIndirectReturn)
@@ -865,8 +899,9 @@ public static partial class ClosureEmitter
                         // different Swift type (e.g., Int) than the callback's scalar
                         // type (e.g., Int64). Swift treats Int and Int64 as distinct types.
                         return $"{enumInfo.Value.swiftScalar}({argExpr}.rawValue)";
-                    // Tag-only enum: extract tag via safe memory load
-                    return $"{{ var __s: {enumInfo.Value.swiftScalar} = 0; var __e = {argExpr}; Swift.withUnsafeMutablePointer(to: &__s) {{ dst in Swift.withUnsafePointer(to: &__e) {{ src in Swift.UnsafeMutableRawPointer(dst).copyMemory(from: Swift.UnsafeRawPointer(src), byteCount: Swift.MemoryLayout<{ExistentialBypassEmitter.RenderSwiftTypeSpec(named)}>.size) }} }}; return __s }}()";
+                    // By case identity: the case's C# constant (SimpleEnumCrossing).
+                    return SimpleEnumCrossing.CaseToScalar(closureHandler.GetSimpleEnumCaseMap(named)!,
+                        ExistentialBypassEmitter.RenderSwiftTypeSpec(named), enumInfo.Value.swiftScalar, argExpr);
                 }
 
                 // Optional<Class/ObjC>: map to Optional raw pointer, nil maps to nil
@@ -953,8 +988,9 @@ public static partial class ClosureEmitter
                             : expr;
                         return $"{swiftType}(rawValue: {rawCast})!";
                     }
-                    // Tag-only enum: load from low bytes via safe memory load
-                    return $"{{ var __raw = {expr}; return Swift.withUnsafeMutablePointer(to: &__raw) {{ Swift.UnsafeMutableRawPointer($0).load(as: {swiftType}.self) }} }}()";
+                    // By case identity: the case the C# constant names (SimpleEnumCrossing). A
+                    // callback has no channel to refuse a value, so one naming no case traps.
+                    return SimpleEnumCrossing.ScalarToCaseOrTrap(closureHandler.GetSimpleEnumCaseMap(named)!, swiftType, expr);
                 }
 
                 // Optional<Class/ObjC>: map raw pointer back to typed optional

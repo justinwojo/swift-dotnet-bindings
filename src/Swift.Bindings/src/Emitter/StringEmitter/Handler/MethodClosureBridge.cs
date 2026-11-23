@@ -812,9 +812,10 @@ public static class MethodClosureBridge
                         // A simple enum's callback slot is its underlying scalar
                         // (SwiftBuilder.GetSwiftCdeclParamType): the raw value where it crosses as
                         // one, converted because Swift's raw type (e.g., `Int`) and the cdecl scalar
-                        // (e.g., `Int64`) are nominally distinct, and the case tag otherwise.
+                        // (e.g., `Int64`) are nominally distinct, and the case's C# constant otherwise.
                         directArgs.Add((i, SimpleEnumCrossing.CaseToScalar(
-                            enumInfo.hasRawValue, ExistentialBypassEmitter.RenderSwiftTypeSpec(argType), enumInfo.swiftScalar, paramName)));
+                            enumInfo.hasRawValue ? null : env.ClosureHandler.GetSimpleEnumCaseMap(argType),
+                            ExistentialBypassEmitter.RenderSwiftTypeSpec(argType), enumInfo.swiftScalar, paramName)));
                     }
                     else
                     {

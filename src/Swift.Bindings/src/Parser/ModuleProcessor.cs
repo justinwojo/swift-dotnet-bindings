@@ -1199,6 +1199,13 @@ namespace BindingsGeneration
                 // A non-@objc enum's raw values are in no input, so its values cross as the case tag.
                 RawValueCrossesAsCaseTag = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag,
                 CaseTagCount = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag ? enumDecl.Cases.Count : 0,
+                // A simple enum that does not cross as its raw value maps its constants to its cases by name.
+                CrossingCases = (flags & TypeRecordFlags.SimpleEnum) != 0 && (flags & TypeRecordFlags.OptionSet) == 0 && !SimpleEnumCrossing.CrossesAsRawValue(enumDecl)
+                    ? SimpleEnumCrossing.BuildCases(enumDecl)
+                    : null,
+                CrossingSlotCount = (flags & TypeRecordFlags.SimpleEnum) != 0 && (flags & TypeRecordFlags.OptionSet) == 0 && !SimpleEnumCrossing.CrossesAsRawValue(enumDecl)
+                    ? SimpleEnumCrossing.SlotCount(enumDecl)
+                    : 0,
                 SwiftTypeInfo = swiftTypeInfo,
                 MetadataAccessor = enumDecl.MetadataAccessor,
                 Flags = flags,
@@ -1397,6 +1404,8 @@ namespace BindingsGeneration
                     Flags = record.Flags & ~TypeRecordFlags.SimpleEnum,
                     RawValueCrossesAsCaseTag = false,
                     CaseTagCount = 0,
+                    CrossingCases = null,
+                    CrossingSlotCount = 0,
                 };
                 _moduleDatabase.Register(swiftTypeName, demotedRecord, ConflictPolicy.Overwrite);
                 _logger.LogInformation($"Demoted simple enum '{swiftTypeName}' to class-based: used as generic type argument with ISwiftObject constraint.");

@@ -781,8 +781,7 @@ public static class MethodWrapperEmitter
             else
             {
                 swiftWriter.WriteLine($"let result = {callExpr}");
-                swiftWriter.WriteLine(
-                    $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
+                swiftWriter.WriteLine(RenderIndirectResultStore(returnTypeSpec, env.TypeDatabase, "result"));
             }
         }
         else
@@ -1274,8 +1273,7 @@ public static class MethodWrapperEmitter
             // position rendering adds — an attribute that is not legal in metatype position, which
             // fails the wrapper's Swift compile and withdraws the member.
             extensionBodyLines.Add($"let result = {tryPrefix}{selfRef}.{swiftMethodName}({methodCallArgString})");
-            extensionBodyLines.Add(
-                $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
+            extensionBodyLines.Add(RenderIndirectResultStore(returnTypeSpec, env.TypeDatabase, "result"));
         }
         else
         {
@@ -1490,8 +1488,7 @@ public static class MethodWrapperEmitter
             else
             {
                 swiftWriter.WriteLine($"let result = try {callExpr}");
-                swiftWriter.WriteLine(
-                    $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: result, count: 1)");
+                swiftWriter.WriteLine(RenderIndirectResultStore(returnTypeSpec, typeDatabase, "result"));
             }
         }
         else
@@ -1537,6 +1534,22 @@ public static class MethodWrapperEmitter
     /// that are not valid in metatype position. Shared by every wrapper route that writes an
     /// indirect result so the routes cannot drift on which shapes they handle.
     /// </summary>
+    /// <summary>
+    /// The statement that writes a copyable indirect result into <c>resultPtr</c>. An Optional of
+    /// a simple enum crossing by identity writes the managed <c>SwiftOptional</c>'s one-byte
+    /// carrier (see <see cref="SimpleEnumCrossing.GetOptionalCarrierMap"/>), not Swift's layout,
+    /// whose bytes are the binary's case tags. Every other type is copied in Swift's layout.
+    /// </summary>
+    internal static string RenderIndirectResultStore(TypeSpec returnTypeSpec, ITypeDatabase typeDatabase, string valueExpr)
+    {
+        if (SimpleEnumCrossing.GetOptionalCarrierMap(returnTypeSpec, typeDatabase) is { } carrierMap)
+        {
+            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(((NamedTypeSpec)returnTypeSpec).GenericParameters[0]);
+            return $"resultPtr.storeBytes(of: {SimpleEnumCrossing.CaseToOptionalCarrier(carrierMap, innerType, valueExpr)}, as: Swift.UInt8.self)";
+        }
+        return $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: {valueExpr}, count: 1)";
+    }
+
     internal static string RenderIndirectResultMetatype(TypeSpec returnTypeSpec)
     {
         var swiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(returnTypeSpec);

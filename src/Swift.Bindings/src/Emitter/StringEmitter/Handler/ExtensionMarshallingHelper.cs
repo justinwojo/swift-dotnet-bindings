@@ -288,12 +288,12 @@ public static class ExtensionMarshallingHelper
         => TryGetSimpleEnumRecord(typeSpec, typeDatabase, out var record) && SimpleEnumCrossing.CrossesAsRawValue(record);
 
     /// <summary>
-    /// A simple enum's case count when its value crosses as the case tag
-    /// (<see cref="SimpleEnumCrossing.CaseTagCount"/>); 0 when it crosses as the raw value or
-    /// <paramref name="typeSpec"/> does not resolve to a simple enum record.
+    /// A simple enum's case map when its value crosses by case identity
+    /// (<see cref="SimpleEnumCrossing.GetCaseMap(TypeRecord)"/>); null when it crosses as the raw value
+    /// or <paramref name="typeSpec"/> does not resolve to a simple enum record.
     /// </summary>
-    public static int SimpleEnumCaseTagCount(TypeSpec typeSpec, ITypeDatabase typeDatabase)
-        => TryGetSimpleEnumRecord(typeSpec, typeDatabase, out var record) ? SimpleEnumCrossing.CaseTagCount(record) : 0;
+    public static SimpleEnumCaseMap? SimpleEnumCaseMap(TypeSpec typeSpec, ITypeDatabase typeDatabase)
+        => TryGetSimpleEnumRecord(typeSpec, typeDatabase, out var record) ? SimpleEnumCrossing.GetCaseMap(record) : null;
 
     private static bool TryGetSimpleEnumRecord(TypeSpec typeSpec, ITypeDatabase typeDatabase, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out TypeRecord? record)
     {

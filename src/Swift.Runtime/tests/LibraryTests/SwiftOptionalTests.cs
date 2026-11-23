@@ -30,7 +30,10 @@ public class SwiftOptionalTests : IClassFixture<SwiftOptionalTests.TestFixture>
             // to a @_cdecl Swift wrapper. In unit tests, we use Int32's metadata
             // since tests don't cross the Swift boundary.
             if (TypeMetadata.TryGetTypeMetadata<int>(out var intMd))
+            {
                 TypeMetadata.RegisterMetadata(typeof(TestColor), intMd.Value);
+                TypeMetadata.RegisterMetadata(typeof(TestSparse), intMd.Value);
+            }
         }
     }
 
@@ -197,6 +200,41 @@ public class SwiftOptionalTests : IClassFixture<SwiftOptionalTests.TestFixture>
 
         var none = SwiftOptional<TestColor>.NewNone();
         Assert.False(none.HasValue);
+    }
+
+    [Fact]
+    public static void TestEnumOptional_AnUnnamedValueFromTheTopOfTheRangeRoundTrips()
+    {
+        // Generated Swift hands a case the binding does not name back as a value counted down from
+        // the top of the underlying type's range; its carrier byte sign-extends back to it.
+        var optional = SwiftOptional<TestColor>.NewSome((TestColor)(-2));
+        Assert.True(optional.HasValue);
+        Assert.Equal((TestColor)(-2), optional.Some);
+    }
+
+    [Theory]
+    [InlineData(3)]    // the carrier's nil byte
+    [InlineData(254)]  // low byte 0xFE, which reads back as -2
+    [InlineData(257)]  // low byte 0x01, which reads back as Green
+    [InlineData(100)]  // a byte between the case count and 0x80, which reads back as nil
+    public static void TestEnumOptional_AValueTheCarrierCannotHoldIsRefused(int value)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() => SwiftOptional<TestColor>.NewSome((TestColor)value));
+    }
+
+    private enum TestSparse : int
+    {
+        Off = 0,
+        On = 42,
+    }
+
+    [Fact]
+    public static unsafe void TestEnumOptional_ADeclaredRawValueConstantIsNotRefused()
+    {
+        // A raw-value enum's constant is its raw value, which the carrier rule does not describe;
+        // its wrapper reads Swift's own Optional layout, whose first byte this still writes.
+        using var optional = SwiftOptional<TestSparse>.NewSome(TestSparse.On);
+        Assert.Equal(42, *(byte*)optional.Payload.DangerousGetHandle());
     }
 
     // Class type optional fast-path guard tests.

@@ -2284,6 +2284,13 @@ public partial class ClosureHandler
         => ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(typeSpec, _typeDatabase);
 
     /// <summary>
+    /// The case map of a simple enum that crosses by case identity (<see cref="SimpleEnumCrossing"/>);
+    /// null when it crosses as its raw value or is not a simple enum.
+    /// </summary>
+    public SimpleEnumCaseMap? GetSimpleEnumCaseMap(TypeSpec typeSpec)
+        => ExtensionMarshallingHelper.SimpleEnumCaseMap(typeSpec, _typeDatabase);
+
+    /// <summary>
     /// Gets the C# underlying type and Swift scalar type for a simple enum.
     /// Returns null if the type is not a simple enum.
     /// </summary>
