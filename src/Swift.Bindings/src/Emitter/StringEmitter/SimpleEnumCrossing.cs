@@ -250,6 +250,13 @@ internal static class SimpleEnumCrossing
     }
 
     /// <summary>
+    /// The local alias an emitted helper names its enum by in an expression. There a type spelled
+    /// <c>Host.`Type`</c> is read as <c>Host</c>'s metatype, backticks or not, so <c>.self</c> on it
+    /// would hand Swift the wrong type; type positions (annotations, <c>as</c>) read it correctly.
+    /// </summary>
+    private const string LocalEnumAlias = "__sbE";
+
+    /// <summary>
     /// Writes the enum's case codec: four <c>@_cdecl</c> functions that read and write the enum, and
     /// its <c>Optional</c>, in Swift memory by case identity, for the runtime's
     /// <c>ISimpleEnumCaseCodec</c> the module initializer registers. Every site that moves the enum
@@ -269,24 +276,25 @@ internal static class SimpleEnumCrossing
         var toCase = ScalarToOptionalCase(map, typeName, "value");
         string ToScalar(string valueExpr) => CaseToScalar(map, typeName, "Swift.Int64", valueExpr);
         string Func(string symbol, string parameters, string body) =>
-            $"{availability}@_cdecl(\"{symbol}\")\npublic func _sbec_{symbol}({parameters}) -> {(symbol == symbols.Load ? "Swift.Int64" : "Swift.UInt8")} {{\n{body}}}\n";
+            $"{availability}@_cdecl(\"{symbol}\")\npublic func _sbec_{symbol}({parameters}) -> {(symbol == symbols.Load ? "Swift.Int64" : "Swift.UInt8")} {{\n"
+          + $"    typealias {LocalEnumAlias} = {typeName}\n{body}}}\n";
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Case codec of {typeName} (SimpleEnumCrossing.EmitCaseCodec).");
         swiftWriter.WriteLines(Func(symbols.Load, "_ source: Swift.UnsafeRawPointer",
-            $"    return {ToScalar($"source.assumingMemoryBound(to: {typeName}.self).pointee")}\n"));
+            $"    return {ToScalar($"source.assumingMemoryBound(to: {LocalEnumAlias}.self).pointee")}\n"));
         swiftWriter.WriteLines(Func(symbols.Store, "_ value: Swift.Int64, _ destination: Swift.UnsafeMutableRawPointer",
             $"    guard let __sbCase = {toCase} else {{ return 0 }}\n"
-          + $"    destination.initializeMemory(as: {typeName}.self, repeating: __sbCase, count: 1)\n"
+          + $"    destination.initializeMemory(as: {LocalEnumAlias}.self, repeating: __sbCase, count: 1)\n"
           + "    return 1\n"));
         swiftWriter.WriteLines(Func(symbols.LoadOptional, "_ source: Swift.UnsafeRawPointer, _ value: Swift.UnsafeMutablePointer<Swift.Int64>",
-            $"    guard let __sbCase = source.assumingMemoryBound(to: Swift.Optional<{typeName}>.self).pointee else {{ return 0 }}\n"
+            $"    guard let __sbCase = source.assumingMemoryBound(to: Swift.Optional<{LocalEnumAlias}>.self).pointee else {{ return 0 }}\n"
           + $"    value.pointee = {ToScalar("__sbCase")}\n"
           + "    return 1\n"));
         swiftWriter.WriteLines(Func(symbols.StoreOptional, "_ hasValue: Swift.UInt8, _ value: Swift.Int64, _ destination: Swift.UnsafeMutableRawPointer",
-            $"    if hasValue == 0 {{ destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: nil, count: 1); return 1 }}\n"
+            $"    if hasValue == 0 {{ destination.initializeMemory(as: Swift.Optional<{LocalEnumAlias}>.self, repeating: nil, count: 1); return 1 }}\n"
           + $"    guard let __sbCase = {toCase} else {{ return 0 }}\n"
-          + $"    destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: __sbCase, count: 1)\n"
+          + $"    destination.initializeMemory(as: Swift.Optional<{LocalEnumAlias}>.self, repeating: __sbCase, count: 1)\n"
           + "    return 1\n"));
     }
 
@@ -361,6 +369,7 @@ internal static class SimpleEnumCrossing
         // Index -> case.
         sb.Append(availability);
         sb.Append($"fileprivate func {CaseOfPrefix}{id}(_ value: Swift.Int64) -> {swiftEnumType}? {{\n");
+        sb.Append($"    typealias {LocalEnumAlias} = {swiftEnumType}\n");
         sb.Append("    switch value {\n");
         foreach (var c in cases)
         {
@@ -374,7 +383,7 @@ internal static class SimpleEnumCrossing
                 ? $"    case {c.Value}: return {caseRef}\n"
                 : $"    case {c.Value}: if #available({c.AvailableClause}) {{ return {caseRef} }} else {{ return nil }}\n");
         }
-        sb.Append($"    default: return {SharedHelpersToken}(value, slots: {map.SlotCount}, mask: {maskLiteral}, as: {swiftEnumType}.self, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
+        sb.Append($"    default: return {SharedHelpersToken}(value, slots: {map.SlotCount}, mask: {maskLiteral}, as: {LocalEnumAlias}.self, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
         sb.Append("    }\n");
         sb.Append("}\n\n");
 

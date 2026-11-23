@@ -61,7 +61,7 @@ public class SimpleEnumCrossingTests
         Assert.Contains("case .green: return 1", definition);
         Assert.Contains("case .blue: return 2", definition);
         // Unknown values decode through the shared helper, which validates them against the metadata.
-        Assert.Contains("default: return __sbUnknownCase(value, slots: 3, mask: 0xFFFFFFFF, as: M.Shade.self", definition);
+        Assert.Contains("default: return __sbUnknownCase(value, slots: 3, mask: 0xFFFFFFFF, as: __sbE.self", definition);
         Assert.Contains("fileprivate func __sbCaseOf_", definition);
         Assert.Contains("fileprivate func __sbIndexOf_", definition);
     }
@@ -115,14 +115,28 @@ public class SimpleEnumCrossingTests
         // codec holds whatever the binary's layout (tag order, payload cases, size) is.
         Assert.Contains("__sbIndexOf_", code);
         Assert.Contains("__sbCaseOf_", code);
-        Assert.Contains("destination.initializeMemory(as: M.Shade.self, repeating: __sbCase, count: 1)", code);
-        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: nil, count: 1)", code);
-        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: __sbCase, count: 1)", code);
-        Assert.Contains("source.assumingMemoryBound(to: Swift.Optional<M.Shade>.self).pointee", code);
+        Assert.Contains("destination.initializeMemory(as: __sbE.self, repeating: __sbCase, count: 1)", code);
+        Assert.Contains("destination.initializeMemory(as: Swift.Optional<__sbE>.self, repeating: nil, count: 1)", code);
+        Assert.Contains("destination.initializeMemory(as: Swift.Optional<__sbE>.self, repeating: __sbCase, count: 1)", code);
+        Assert.Contains("source.assumingMemoryBound(to: Swift.Optional<__sbE>.self).pointee", code);
         // A constant that names no case is refused with nothing written.
         Assert.Contains("else { return 0 }", code);
         Assert.DoesNotContain("storeBytes", code);
         Assert.DoesNotContain("load(as:", code);
+    }
+
+    [Fact]
+    public void CaseHelpers_NameAnEnumCalledTypeOnlyWhereSwiftReadsATypeName()
+    {
+        // In an expression `Host.`Type`.self` is Host's metatype, backticks or not, so an enum
+        // nested as `Type` is named through a local alias wherever an expression needs its type.
+        const string enumType = "M.Host.`Type`";
+        var output = new StringWriter();
+        SimpleEnumCrossing.EmitCaseCodec(new SwiftWriter(output), Map(), enumType, "sbmd_M_Host_Type");
+        var code = output.ToString() + SimpleEnumCrossing.GetDefinition(Map(), enumType);
+        Assert.DoesNotContain("`Type`.self", code);
+        Assert.DoesNotContain("`Type`>.self", code);
+        Assert.Contains($"typealias __sbE = {enumType}", code);
     }
 
     [Fact]

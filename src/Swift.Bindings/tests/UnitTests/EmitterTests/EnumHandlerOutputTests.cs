@@ -2386,7 +2386,8 @@ public class EnumHandlerOutputTests
         var symbols = SimpleEnumCrossing.CaseCodecSymbols(registration.MetadataSymbol);
         foreach (var symbol in new[] { symbols.Load, symbols.Store, symbols.LoadOptional, symbols.StoreOptional })
             Assert.Contains($"@_cdecl(\"{symbol}\")", swift);
-        Assert.Contains("initializeMemory(as: Swift.Optional<TestModule.Mode>.self", swift);
+        Assert.Contains("initializeMemory(as: Swift.Optional<__sbE>.self", swift);
+        Assert.Contains("typealias __sbE = TestModule.Mode", swift);
     }
 
     [Fact]
