@@ -827,17 +827,18 @@ public static partial class ClosureEmitter
                 """;
         }
 
-        // Optional of a simple enum crossing by identity: the adapter sized the buffer for the managed
-        // one-byte carrier (SimpleEnumCrossing.GetOptionalCarrierMap) and reads the case from it, so
-        // the callback writes its SwiftOptional's carrier, which refuses a value that names no case.
+        // Optional of a simple enum crossing by identity: write the whole Optional in Swift's layout,
+        // which the SwiftOptional builds through the enum's case codec (refusing a value that names
+        // no case). The C# value's own bytes are not its Swift case.
         if (csharpTypeOverride is null &&
-            SimpleEnumCrossing.GetOptionalCarrierMap(returnType, closureHandler.TypeDatabase) is not null)
+            SimpleEnumCrossing.GetOptionalCodecMap(returnType, closureHandler.TypeDatabase) is not null)
         {
             var enumType = closureHandler.TranslateTypeSpecToCSharp(((NamedTypeSpec)returnType).GenericParameters[0]);
             return $$"""
                     var {{local}} = {{resultExpr}};
                             using var {{local}}Opt = {{local}} is { } {{local}}Value ? SwiftOptional<{{enumType}}>.NewSome({{local}}Value) : SwiftOptional<{{enumType}}>.NewNone();
-                            *(byte*)(void*){{bufferExpr}} = *(byte*){{local}}Opt.Payload.DangerousGetHandle();
+                            var {{spanLocal}} = new Span<byte>((void*){{bufferExpr}}, (int)TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{enumType}}>>().Size);
+                            SwiftMarshal.MarshalToSwift({{local}}Opt, ref {{spanLocal}});
                 """;
         }
 

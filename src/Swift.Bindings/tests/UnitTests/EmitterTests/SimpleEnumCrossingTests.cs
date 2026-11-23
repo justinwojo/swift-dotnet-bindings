@@ -100,42 +100,64 @@ public class SimpleEnumCrossingTests
         Assert.DoesNotContain("mask - 1 - tag", code);
     }
 
-    [Theory]
-    // The managed carrier's nil byte is the published count, so it needs every slot published and one
-    // byte value left over.
-    [InlineData(3, 3, true)]
-    [InlineData(254, 254, true)]
-    [InlineData(255, 255, false)]
-    // An @_spi case the interface lists holds a slot with no constant: the managed count is short of it.
-    [InlineData(2, 3, false)]
-    public void Optional_CrossesByCarrierOnlyWhenTheNilByteIsTheManagedCount(int published, int slots, bool expected)
+    [Fact]
+    public void CaseCodec_SwitchesOnTheCaseAndWritesSwiftsOwnLayout()
     {
-        var cases = Enumerable.Range(0, published).Select(i => new SimpleEnumCrossingCase($"c{i}", i, null)).ToArray();
-        Assert.Equal(expected, SimpleEnumCrossing.CrossesOptionalByCarrier(Map(slots: slots, cases: cases)));
-        Assert.False(SimpleEnumCrossing.CrossesOptionalByCarrier(null));
-        Assert.False(SimpleEnumCrossing.CrossesOptionalByCarrier(new SimpleEnumCaseMap(null, 0, false, null, 32, 3)));
+        var output = new StringWriter();
+        SimpleEnumCrossing.EmitCaseCodec(new SwiftWriter(output), Map(), "M.Shade", "sbmd_M_Shade");
+        var code = output.ToString();
+        var (load, store, loadOptional, storeOptional) = SimpleEnumCrossing.CaseCodecSymbols("sbmd_M_Shade");
+        foreach (var symbol in new[] { load, store, loadOptional, storeOptional })
+            Assert.Contains($"@_cdecl(\"{symbol}\")", code);
+        // Reads and writes go through the case helpers and Swift's typed initializers, so the
+        // codec holds whatever the binary's layout (tag order, payload cases, size) is.
+        Assert.Contains("__sbIndexOf_", code);
+        Assert.Contains("__sbCaseOf_", code);
+        Assert.Contains("destination.initializeMemory(as: M.Shade.self, repeating: __sbCase, count: 1)", code);
+        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: nil, count: 1)", code);
+        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: .some(__sbCase), count: 1)", code);
+        Assert.Contains("source.assumingMemoryBound(to: Swift.Optional<M.Shade>.self).pointee", code);
+        // A constant that names no case is refused with nothing written.
+        Assert.Contains("else { return 0 }", code);
+        Assert.DoesNotContain("storeBytes", code);
+        Assert.DoesNotContain("load(as:", code);
     }
 
     [Fact]
-    public void OptionalCarrier_NilIsTheCountAndAnUnnamedValueKeepsItsHighByte()
+    public void CaseCodec_CarriesTheEnumsAvailability()
     {
-        var map = Map();
-        var toCase = SimpleEnumCrossing.OptionalCarrierToCase(map, "M.Shade", "p.load(as: Swift.UInt8.self)");
-        Assert.Contains("if __sbByte == 3 { return nil }", toCase);
-        Assert.Contains("Swift.Int64(Swift.Int8(bitPattern: __sbByte))", toCase);
-        var toCarrier = SimpleEnumCrossing.CaseToOptionalCarrier(map, "M.Shade", "result");
-        Assert.Contains("guard let __sbCase = result else { return 3 }", toCarrier);
-        // A case whose unnamed value does not survive the byte is refused, never read back as another.
-        Assert.Contains("__sbByte > 3 && __sbByte >= 0x80", toCarrier);
-        Assert.DoesNotContain("load(as: M.Shade", toCase + toCarrier);
+        var output = new StringWriter();
+        var availability = new[] { new AvailabilityAnnotation("iOS", "17.0", null, null, false, false, null, null) };
+        SimpleEnumCrossing.EmitCaseCodec(new SwiftWriter(output), Map(availability: availability), "M.Shade", "sbmd_M_Shade");
+        var code = output.ToString();
+        Assert.Equal(4, CountOf(code, "@available(iOS 17.0, *)\n"));
+        Assert.Equal(4, CountOf(code, "@_cdecl("));
     }
 
     [Fact]
-    public void IndirectResultStore_WritesTheManagedCarrierForAnOptionalOfACaseIdentityEnum()
+    public void CaseCodecSymbols_DeriveFromTheMetadataSymbolAndAreDistinct()
+    {
+        var a = SimpleEnumCrossing.CaseCodecSymbols("sbmd_M_Shade");
+        Assert.Equal(a, SimpleEnumCrossing.CaseCodecSymbols("sbmd_M_Shade"));
+        Assert.Equal(4, new HashSet<string> { a.Load, a.Store, a.LoadOptional, a.StoreOptional }.Count);
+        Assert.NotEqual(a.Load, SimpleEnumCrossing.CaseCodecSymbols("sbmd_M_Tint").Load);
+    }
+
+    [Fact]
+    public void CaseCodec_OnlyForAnEnumWhoseRecordListsItsCases()
+    {
+        Assert.True(SimpleEnumCrossing.HasCaseCodec(Map()));
+        Assert.False(SimpleEnumCrossing.HasCaseCodec(null));
+        // A record from a module database that predates the case list crosses as its tag, codec-less.
+        Assert.False(SimpleEnumCrossing.HasCaseCodec(new SimpleEnumCaseMap(null, 0, false, null, 32, 3)));
+    }
+
+    [Fact]
+    public void IndirectResultStore_WritesSwiftsOwnOptionalForACaseIdentityEnum()
     {
         // Every indirect method result (plain, throwing, protocol extension) is written by this one
-        // statement; an Optional of a simple enum must not be copied in Swift's layout, whose byte
-        // is the binary's case tag.
+        // statement. An Optional of a simple enum is written in Swift's own layout, which the
+        // managed SwiftOptional reads through the enum's case codec.
         var module = new ModuleTypeDatabase("M", "/fake/M.dylib");
         var swiftName = SwiftTypeName.FromModuleQualifiedName("M.Shade");
         module.RegisterType(swiftName, new TypeRecord
@@ -153,12 +175,22 @@ public class SimpleEnumCrossingTests
 
         var optionalShade = new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec("M.Shade") });
         var store = MethodWrapperEmitter.RenderIndirectResultStore(optionalShade, typeDatabase, "result");
-        Assert.Contains("resultPtr.storeBytes(of:", store);
-        Assert.Contains("guard let __sbCase = result else { return 2 }", store);
-        Assert.DoesNotContain("initializeMemory", store);
+        Assert.Contains("resultPtr.initializeMemory(as:", store);
+        Assert.DoesNotContain("storeBytes", store);
+        Assert.NotNull(SimpleEnumCrossing.GetOptionalCodecMap(optionalShade, typeDatabase));
 
         var optionalInt = new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec("Swift.Int") });
         Assert.Contains("resultPtr.initializeMemory(as:", MethodWrapperEmitter.RenderIndirectResultStore(optionalInt, typeDatabase, "result"));
+        Assert.Null(SimpleEnumCrossing.GetOptionalCodecMap(optionalInt, typeDatabase));
+        Assert.Null(SimpleEnumCrossing.GetOptionalCodecMap(new NamedTypeSpec("M.Shade"), typeDatabase));
+    }
+
+    private static int CountOf(string text, string value)
+    {
+        var count = 0;
+        for (var i = text.IndexOf(value, StringComparison.Ordinal); i >= 0; i = text.IndexOf(value, i + value.Length, StringComparison.Ordinal))
+            count++;
+        return count;
     }
 
     [Theory]

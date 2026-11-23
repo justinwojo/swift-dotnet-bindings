@@ -70,6 +70,13 @@ public sealed record SimpleEnumCaseMap(
 /// unknown case that cannot be encoded that way (the enum gained a payload case, or no pattern is
 /// left) and is refused on the way back.
 /// </para>
+/// <para>
+/// <b>In Swift memory.</b> Where the value is handed over as Swift memory rather than as a scalar
+/// (container elements, tuple elements, <c>Optional</c> payloads, async results, reverse-dispatch
+/// slots), the wrapper writes and reads Swift's own layout, and the runtime moves the value through
+/// the enum's case codec (<see cref="EmitCaseCodec"/>), four <c>@_cdecl</c> functions built on the
+/// same helpers that the binding's module initializer registers with the runtime.
+/// </para>
 /// </summary>
 internal static class SimpleEnumCrossing
 {
@@ -224,71 +231,73 @@ internal static class SimpleEnumCrossing
     }
 
     /// <summary>
-    /// Whether an <c>Optional</c> of the enum crosses through the managed one-byte carrier that
-    /// <c>SwiftOptional&lt;T&gt;</c> keeps for a C# enum: the low byte of the C# constant for a case,
-    /// the published case count for <c>nil</c>. A case the binding does not name rides as the low
-    /// byte of its unnamed value (at least <c>0x80</c> and above the count), which the managed side
-    /// sign-extends back to that value. The carrier needs a byte value for <c>nil</c> no constant
-    /// uses, so an enum with more than 254 published cases keeps Swift's own layout, as does one whose
-    /// interface lists an <c>@_spi</c> case: its published constants skip that case's slot, so the
-    /// managed count (the <c>nil</c> byte) is not the slot count. With <c>N</c> published cases the
-    /// byte holds the first <c>min(127, 254 - N)</c> unnamed values (bytes <c>0xFE</c> down to
-    /// <c>0x80</c>, all above <c>N</c>); a case past them traps rather than crossing as another value.
+    /// Whether the enum gets a case codec (<see cref="EmitCaseCodec"/>): every simple enum crossing by
+    /// identity whose case list is known.
     /// </summary>
-    public static bool CrossesOptionalByCarrier(SimpleEnumCaseMap? map) =>
-        map?.Cases is not null && map.SlotCount <= MaxCarrierSlots && map.Cases.Count == map.SlotCount;
+    public static bool HasCaseCodec(SimpleEnumCaseMap? map) => map?.Cases is not null;
 
-    internal const int MaxCarrierSlots = 254;
+    /// <summary>The <c>@_cdecl</c> symbols of an enum's case codec, from its metadata accessor's symbol.</summary>
+    public static (string Load, string Store, string LoadOptional, string StoreOptional) CaseCodecSymbols(string metadataSymbol)
+    {
+        var stem = $"SBEC_{EmitterUtility.DeterministicHash8(metadataSymbol)}";
+        return ($"{stem}_load", $"{stem}_store", $"{stem}_loadOptional", $"{stem}_storeOptional");
+    }
 
     /// <summary>
-    /// The case map of <paramref name="typeSpec"/>'s wrapped enum when it is an
-    /// <c>Optional</c> of a simple enum that crosses through the managed carrier
-    /// (<see cref="CrossesOptionalByCarrier"/>); null otherwise.
+    /// Writes the enum's case codec: four <c>@_cdecl</c> functions that read and write the enum, and
+    /// its <c>Optional</c>, in Swift memory by case identity, for the runtime's
+    /// <c>ISimpleEnumCaseCodec</c> the module initializer registers. Every site that moves the enum
+    /// through Swift memory rather than through a wrapper's parameters and returns (container and
+    /// tuple elements, slots, <c>SwiftOptional</c> payloads, async results, reverse-dispatch slots)
+    /// goes through them, so each sees the case Swift holds, never its in-memory tag, and an
+    /// <c>Optional</c> keeps Swift's own layout whatever cases the binary adds. A value that names no
+    /// case is refused (the store functions return 0 and write nothing).
     /// </summary>
-    public static SimpleEnumCaseMap? GetOptionalCarrierMap(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
+    public static void EmitCaseCodec(SwiftWriter swiftWriter, SimpleEnumCaseMap map, string swiftEnumType, string metadataSymbol)
+    {
+        var typeName = map.SwiftTypeName ?? swiftEnumType;
+        var symbols = CaseCodecSymbols(metadataSymbol);
+        var availability = new StringBuilder();
+        foreach (var key in WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(map.Availability))
+            availability.Append($"@available({key}, *)\n");
+        var toCase = ScalarToOptionalCase(map, typeName, "value");
+        string ToScalar(string valueExpr) => CaseToScalar(map, typeName, "Swift.Int64", valueExpr);
+        string Func(string symbol, string parameters, string body) =>
+            $"{availability}@_cdecl(\"{symbol}\")\npublic func _sbec_{symbol}({parameters}) -> {(symbol == symbols.Load ? "Swift.Int64" : "Swift.UInt8")} {{\n{body}}}\n";
+
+        swiftWriter.WriteLine();
+        swiftWriter.WriteLine($"// Case codec of {typeName} (SimpleEnumCrossing.EmitCaseCodec).");
+        swiftWriter.WriteLines(Func(symbols.Load, "_ source: Swift.UnsafeRawPointer",
+            $"    return {ToScalar($"source.assumingMemoryBound(to: {typeName}.self).pointee")}\n"));
+        swiftWriter.WriteLines(Func(symbols.Store, "_ value: Swift.Int64, _ destination: Swift.UnsafeMutableRawPointer",
+            $"    guard let __sbCase = {toCase} else {{ return 0 }}\n"
+          + $"    destination.initializeMemory(as: {typeName}.self, repeating: __sbCase, count: 1)\n"
+          + "    return 1\n"));
+        swiftWriter.WriteLines(Func(symbols.LoadOptional, "_ source: Swift.UnsafeRawPointer, _ value: Swift.UnsafeMutablePointer<Swift.Int64>",
+            $"    guard let __sbCase = source.assumingMemoryBound(to: Swift.Optional<{typeName}>.self).pointee else {{ return 0 }}\n"
+          + $"    value.pointee = {ToScalar("__sbCase")}\n"
+          + "    return 1\n"));
+        swiftWriter.WriteLines(Func(symbols.StoreOptional, "_ hasValue: Swift.UInt8, _ value: Swift.Int64, _ destination: Swift.UnsafeMutableRawPointer",
+            $"    if hasValue == 0 {{ destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: nil, count: 1); return 1 }}\n"
+          + $"    guard let __sbCase = {toCase} else {{ return 0 }}\n"
+          + $"    destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: .some(__sbCase), count: 1)\n"
+          + "    return 1\n"));
+    }
+
+    /// <summary>
+    /// The case map of <paramref name="typeSpec"/>'s wrapped enum when it is an <c>Optional</c> of a
+    /// simple enum with a case codec (<see cref="HasCaseCodec"/>); null otherwise. Such an Optional
+    /// crosses in Swift's own layout, which the managed <c>SwiftOptional</c> reads and writes through
+    /// the codec, so a site that hands one over writes the whole Optional, never a C# value's bytes.
+    /// </summary>
+    public static SimpleEnumCaseMap? GetOptionalCodecMap(TypeSpec? typeSpec, ITypeDatabase typeDatabase)
     {
         if (typeSpec is not NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
             || optional.GenericParameters[0] is not NamedTypeSpec inner
             || !typeDatabase.TryGetTypeRecord(inner, out var record) || record is null)
             return null;
         var map = GetCaseMap(record);
-        return CrossesOptionalByCarrier(map) ? map : null;
-    }
-
-    /// <summary>
-    /// A Swift expression of type <c>Optional&lt;<paramref name="swiftEnumType"/>&gt;</c> read from the
-    /// managed carrier byte <paramref name="byteExpr"/> (a <c>Swift.UInt8</c>); traps on a byte that
-    /// names no case. Only for a map where <see cref="CrossesOptionalByCarrier"/> holds.
-    /// </summary>
-    public static string OptionalCarrierToCase(SimpleEnumCaseMap map, string swiftEnumType, string byteExpr)
-    {
-        var typeName = map.SwiftTypeName ?? swiftEnumType;
-        var slots = map.SlotCount;
-        return $"{{ () -> {typeName}? in let __sbByte: Swift.UInt8 = {byteExpr}; if __sbByte == {slots} {{ return nil }}; "
-             + $"let __sbValue = __sbByte < {slots} ? Swift.Int64(__sbByte) : Swift.Int64(Swift.Int8(bitPattern: __sbByte)); "
-             + $"guard let __sbCase = {ScalarToOptionalCase(map, typeName, "__sbValue")} "
-             + $"else {{ Swift.preconditionFailure(\"[SwiftBindings] \\(__sbValue) names no case of {EscapeForSwiftString(typeName)}\") }}; "
-             + "return __sbCase }()";
-    }
-
-    /// <summary>
-    /// A Swift expression of type <c>Swift.UInt8</c>: the managed carrier byte of the optional case
-    /// <paramref name="valueExpr"/>. Traps on a case whose unnamed value does not survive the byte (its
-    /// sign-extended low byte would read back as another value). Only for a map where
-    /// <see cref="CrossesOptionalByCarrier"/> holds.
-    /// </summary>
-    public static string CaseToOptionalCarrier(SimpleEnumCaseMap map, string swiftEnumType, string valueExpr)
-    {
-        var typeName = map.SwiftTypeName ?? swiftEnumType;
-        var id = Register(map, typeName);
-        var slots = map.SlotCount;
-        var maskLiteral = $"0x{(map.WidthBits >= 64 ? ulong.MaxValue : (1UL << map.WidthBits) - 1):X}";
-        return $"{{ () -> Swift.UInt8 in guard let __sbCase = {valueExpr} else {{ return {slots} }}; "
-             + $"let __sbIndex = {IndexOfPrefix}{id}(__sbCase); let __sbByte = Swift.UInt8(truncatingIfNeeded: __sbIndex); "
-             + $"guard (__sbIndex >= 0 && __sbIndex < {slots}) || (__sbByte > {slots} && __sbByte >= 0x80 && "
-             + $"Swift.UInt64(bitPattern: Swift.Int64(Swift.Int8(bitPattern: __sbByte))) & {maskLiteral} == Swift.UInt64(bitPattern: __sbIndex) & {maskLiteral}) "
-             + $"else {{ Swift.preconditionFailure(\"[SwiftBindings] a case of {EscapeForSwiftString(typeName)} has no optional encoding (\\(__sbIndex))\") }}; "
-             + "return __sbByte }()";
+        return HasCaseCodec(map) ? map : null;
     }
 
     /// <summary>

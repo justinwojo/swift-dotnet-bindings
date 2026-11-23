@@ -231,6 +231,16 @@ namespace BindingsGeneration
                 metadataEmissionCtx.RecordSimpleEnumMetadata(enumName, metadataSymbol, wrapperLibName,
                     AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl));
 
+                // An enum crossing by case identity also gets its case codec, through which the runtime
+                // moves it in Swift memory (container elements, slots, Optional payloads, async results).
+                var codecMap = SimpleEnumCrossing.GetCaseMap(enumDecl);
+                if (SimpleEnumCrossing.HasCaseCodec(codecMap)
+                    && metadataEmissionCtx.TryAddMetadataWrapperSymbol(SimpleEnumCrossing.CaseCodecSymbols(metadataSymbol).Load, DeclIdFactory.ForType(enumDecl)))
+                {
+                    SimpleEnumCrossing.EmitCaseCodec(swiftWriter, codecMap!, moduleQualified, metadataSymbol);
+                    metadataEmissionCtx.RecordSimpleEnumCaseCodec(enumName, metadataSymbol, wrapperLibName);
+                }
+
                 // Declare the enum's protocol-conformance descriptors alongside its metadata. Both
                 // halves are needed to resolve a witness table, and a C# enum can supply neither
                 // through the ISwiftObject lane the other type shapes use — so a Set<Enum> or an
@@ -933,6 +943,7 @@ namespace BindingsGeneration
             // The string-return body's scratch locals share a scope with those parameters, so they
             // are minted against them: a parameter spelled like one keeps its name, the local moves.
             var bodyScope = new SyntheticNameScope(csParamNames);
+            var memberArgs = PlanMemberArguments(paramDecls, enumDecl, typeDatabase, csUnderlyingType, bodyScope);
 
             // All parameters validated — now emit Swift wrapper
             var wrapperSymbol = $"SBW_{moduleName}_{enumName}_{methodDecl.Name}_{DeterministicHash8(methodDecl.MangledName)}";
@@ -960,15 +971,12 @@ namespace BindingsGeneration
                 TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
                 EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
                 var callArgs = new List<string> { SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self") };
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
-                }
+                callArgs.AddRange(memberArgs.CallArgs);
                 var resultPtrName = bodyScope.Mint("resultPtr");
                 var sliceName = bodyScope.Mint("slice");
-                csWriter.WriteLine($"IntPtr {resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                csWriter.WriteLine($"IntPtr {resultPtrName};");
+                WritePinnedNativeCall(csWriter, memberArgs,
+                    () => csWriter.WriteLine($"{resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});"));
                 csWriter.WriteLine("try");
                 csWriter.WriteLine("{");
                 csWriter.Indent++;
@@ -987,15 +995,9 @@ namespace BindingsGeneration
 
                 // P/Invoke for method
                 var pinvokeParams = new List<string> { $"{csUnderlyingType} tag" };
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
-                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
-                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
-                }
+                pinvokeParams.AddRange(memberArgs.PInvokeParams);
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
-                csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
+                csWriter.WriteLine($"private static {UnsafeIfPinned(memberArgs)}partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
 
                 EmitFreePInvokeIfNeeded(csWriter, moduleName);
@@ -1013,25 +1015,9 @@ namespace BindingsGeneration
 
                 // Build P/Invoke call arguments: cast enum to underlying type
                 var callArgs = new List<string> { SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, "self") };
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
-                }
-
-                if (returnsVoid)
-                {
-                    csWriter.WriteLine($"PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-                }
-                else if (returnsEnum)
-                {
-                    csWriter.WriteLine($"return ({enumName})PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-                }
-                else
-                {
-                    csWriter.WriteLine($"return PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-                }
+                callArgs.AddRange(memberArgs.CallArgs);
+                WritePinnedNativeCall(csWriter, memberArgs, () => WriteNativeCallReturn(
+                    csWriter, returnsVoid, returnsEnum, enumName, $"PInvoke_{methodPascalName}({string.Join(", ", callArgs)})"));
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
@@ -1039,19 +1025,13 @@ namespace BindingsGeneration
 
                 // Emit P/Invoke declaration
                 var pinvokeParams = new List<string> { $"{csUnderlyingType} tag" };
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
-                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
-                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
-                }
+                pinvokeParams.AddRange(memberArgs.PInvokeParams);
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
-                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
+                csWriter.WriteLine($"private static {UnsafeIfPinned(memberArgs)}partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
             }
 
@@ -1094,7 +1074,9 @@ namespace BindingsGeneration
                     var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                     var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
                         rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
-                    swiftParams.Add($"{label} {binding}: {swiftType}");
+                    swiftParams.Add(IsStringParam(param.SwiftTypeSpec)
+                        ? Utf8StringCdeclParams(StripSwiftBackticks(binding))
+                        : $"{label} {binding}: {swiftType}");
                 }
             }
 
@@ -1129,6 +1111,8 @@ namespace BindingsGeneration
                     rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
                 if (isEnumParam)
                     argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
+                else if (IsStringParam(param.SwiftTypeSpec))
+                    argExpr = Utf8StringCdeclArgument(StripSwiftBackticks(argExpr));
                 callArgs.Add($"{label}{argExpr}");
             }
 
@@ -1513,40 +1497,23 @@ namespace BindingsGeneration
                 EmitMemberAvailabilityGuard(csWriter, methodDecl, enumDecl, $"{enumName}.{methodPascalName}");
 
                 // Build P/Invoke call arguments
-                var callArgs = new List<string>();
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var argName = NameProvider.GetCSharpParameterName(param);
-                    callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
-                }
-
-                if (returnsVoid)
-                    csWriter.WriteLine($"PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-                else if (returnsEnum)
-                    csWriter.WriteLine($"return ({enumName})PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
-                else
-                    csWriter.WriteLine($"return PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+                var memberArgs = PlanMemberArguments(paramDecls, enumDecl, typeDatabase, csUnderlyingType,
+                    new SyntheticNameScope(paramDecls.Select(NameProvider.GetCSharpParameterName)));
+                WritePinnedNativeCall(csWriter, memberArgs, () => WriteNativeCallReturn(
+                    csWriter, returnsVoid, returnsEnum, enumName, $"PInvoke_{methodPascalName}({string.Join(", ", memberArgs.CallArgs)})"));
 
                 csWriter.Indent--;
                 csWriter.WriteLine("}");
                 csWriter.WriteLine();
 
                 // Emit P/Invoke
-                var pinvokeParams = new List<string>();
-                foreach (var param in paramDecls)
-                {
-                    bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                    var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
-                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
-                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
-                }
+                var pinvokeParams = memberArgs.PInvokeParams;
 
                 var pinvokeReturnType = returnsVoid ? "void" : (returnsEnum ? csUnderlyingType : csReturnType);
                 csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
                 if (MarshallingHelpers.IsBoolType(pinvokeReturnType))
                     csWriter.WriteLine(MarshallingHelpers.BoolPInvokeReturnAttribute);
-                csWriter.WriteLine($"private static partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
+                csWriter.WriteLine($"private static {UnsafeIfPinned(memberArgs)}partial {pinvokeReturnType} PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
                 csWriter.WriteLine();
             }
 
@@ -1748,6 +1715,109 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether a parameter of a simple enum's own member is a Swift <c>String</c>. A <c>@_cdecl</c>
+        /// function cannot take one, so such a parameter crosses as its UTF-8 bytes and their count
+        /// (<see cref="PlanMemberArguments"/> on the C# side, <see cref="Utf8StringCdeclParams"/> and
+        /// <see cref="Utf8StringCdeclArgument"/> on the Swift side).
+        /// </summary>
+        private static bool IsStringParam(TypeSpec? typeSpec) => typeSpec is NamedTypeSpec { Name: "Swift.String" };
+
+        // A backticked binding (a Swift keyword) loses its backticks once suffixed: `in` + Utf8Ptr is inUtf8Ptr.
+        private static string StripSwiftBackticks(string binding) => binding.Trim('`');
+
+        /// <summary>The two <c>@_cdecl</c> parameters a <c>String</c> parameter crosses as.</summary>
+        private static string Utf8StringCdeclParams(string binding)
+            => $"_ {binding}Utf8Ptr: Swift.UnsafePointer<Swift.UInt8>?, _ {binding}Utf8Len: Swift.Int";
+
+        /// <summary>The Swift <c>String</c> those two <c>@_cdecl</c> parameters carry.</summary>
+        private static string Utf8StringCdeclArgument(string binding)
+            => $"Swift.String(decoding: Swift.UnsafeBufferPointer(start: {binding}Utf8Ptr, count: {binding}Utf8Len), as: Swift.UTF8.self)";
+
+        /// <summary>
+        /// The C# side of a simple enum member's native call: the P/Invoke parameters (after the
+        /// receiver), the call's arguments, and the UTF-8 buffers a <c>String</c> argument is pinned
+        /// from (<see cref="WritePinnedNativeCall"/>).
+        /// </summary>
+        private sealed record SimpleEnumMemberArguments(
+            List<string> PInvokeParams, List<string> CallArgs, List<(string Bytes, string Pointer, string Source)> Utf8Pins);
+
+        private SimpleEnumMemberArguments PlanMemberArguments(IReadOnlyList<ArgumentDecl> paramDecls, EnumDecl enumDecl,
+            ITypeDatabase typeDatabase, string csUnderlyingType, SyntheticNameScope scope)
+        {
+            var pinvokeParams = new List<string>();
+            var callArgs = new List<string>();
+            var pins = new List<(string, string, string)>();
+            foreach (var param in paramDecls)
+            {
+                var argName = NameProvider.GetCSharpParameterName(param);
+                if (IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl))
+                {
+                    pinvokeParams.Add($"{csUnderlyingType} {argName}");
+                    callArgs.Add(SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName));
+                }
+                else if (IsStringParam(param.SwiftTypeSpec))
+                {
+                    var bare = NameProvider.StripVerbatimPrefix(argName);
+                    var bytes = scope.Mint($"__{bare}Utf8");
+                    var pointer = scope.Mint($"__{bare}Utf8Ptr");
+                    pins.Add((bytes, pointer, argName));
+                    pinvokeParams.Add($"byte* {bare}Utf8Ptr");
+                    pinvokeParams.Add($"nint {bare}Utf8Len");
+                    callArgs.Add(pointer);
+                    callArgs.Add($"(nint){bytes}.Length");
+                }
+                else
+                {
+                    var pinvokeType = GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
+                    var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
+                    pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {argName}");
+                    callArgs.Add(argName);
+                }
+            }
+            return new SimpleEnumMemberArguments(pinvokeParams, callArgs, pins);
+        }
+
+        private static string UnsafeIfPinned(SimpleEnumMemberArguments args) => args.Utf8Pins.Count > 0 ? "unsafe " : "";
+
+        /// <summary>Writes the call of a member whose result is void, the enum itself, or a plain scalar.</summary>
+        private static void WriteNativeCallReturn(CSharpWriter csWriter, bool returnsVoid, bool returnsEnum, string enumName, string call)
+        {
+            if (returnsVoid)
+                csWriter.WriteLine($"{call};");
+            else if (returnsEnum)
+                csWriter.WriteLine($"return ({enumName}){call};");
+            else
+                csWriter.WriteLine($"return {call};");
+        }
+
+        /// <summary>
+        /// Writes <paramref name="writeCall"/> (the statements that call the P/Invoke), inside an
+        /// <c>unsafe</c> block that pins each <c>String</c> argument's UTF-8 bytes when there is one.
+        /// </summary>
+        private static void WritePinnedNativeCall(CSharpWriter csWriter, SimpleEnumMemberArguments args, Action writeCall)
+        {
+            if (args.Utf8Pins.Count == 0)
+            {
+                writeCall();
+                return;
+            }
+            csWriter.WriteLine("unsafe");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            foreach (var (bytes, _, source) in args.Utf8Pins)
+                csWriter.WriteLine($"var {bytes} = global::System.Text.Encoding.UTF8.GetBytes({source});");
+            foreach (var (bytes, pointer, _) in args.Utf8Pins)
+                csWriter.WriteLine($"fixed (byte* {pointer} = {bytes})");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            writeCall();
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
+
+        /// <summary>
         /// Emits the Swift wrapper for an instance property getter.
         /// </summary>
         private void EmitSimpleEnumPropertySwiftWrapper(SwiftWriter swiftWriter, EnumDecl enumDecl,
@@ -1881,7 +1951,9 @@ namespace BindingsGeneration
                     var rawLabel = !string.IsNullOrEmpty(param.PrivateName) ? param.PrivateName : param.Name;
                     var binding = NameProvider.EscapeReservedSwiftWrapperLabel(
                         rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
-                    swiftParams.Add($"{label} {binding}: {swiftType}");
+                    swiftParams.Add(IsStringParam(param.SwiftTypeSpec)
+                        ? Utf8StringCdeclParams(StripSwiftBackticks(binding))
+                        : $"{label} {binding}: {swiftType}");
                 }
             }
 
@@ -1909,6 +1981,8 @@ namespace BindingsGeneration
                     rawLabel, CdeclParamMapper.ExcludeSelf(siblings, rawLabel));
                 if (isEnumParam)
                     argExpr = EmitEnumParamConversion(enumDecl, enumQualifiedName, swiftScalarType, argExpr);
+                else if (IsStringParam(param.SwiftTypeSpec))
+                    argExpr = Utf8StringCdeclArgument(StripSwiftBackticks(argExpr));
                 callArgs.Add($"{label}{argExpr}");
             }
 
@@ -2060,6 +2134,7 @@ namespace BindingsGeneration
             var bodyScope = new SyntheticNameScope(csParamNames);
             var resultPtrName = bodyScope.Mint("resultPtr");
             var sliceName = bodyScope.Mint("slice");
+            var memberArgs = PlanMemberArguments(paramDecls, enumDecl, typeDatabase, csUnderlyingType, bodyScope);
 
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             EmitMemberAvailabilityAttributes(csWriter, availabilityMember, enumDecl);
@@ -2070,15 +2145,9 @@ namespace BindingsGeneration
             EmitMemberAvailabilityGuard(csWriter, availabilityMember, enumDecl, $"{enumName}.{methodPascalName}");
 
             // Build call args
-            var callArgs = new List<string>();
-            foreach (var param in paramDecls)
-            {
-                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                var argName = NameProvider.GetCSharpParameterName(param);
-                callArgs.Add(isEnumParam ? SimpleEnumCaseFloors.ToNative(CaseFloorGuardOf(enumDecl, typeDatabase), csUnderlyingType, argName) : argName);
-            }
-
-            csWriter.WriteLine($"IntPtr {resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", callArgs)});");
+            csWriter.WriteLine($"IntPtr {resultPtrName};");
+            WritePinnedNativeCall(csWriter, memberArgs,
+                () => csWriter.WriteLine($"{resultPtrName} = PInvoke_{methodPascalName}({string.Join(", ", memberArgs.CallArgs)});"));
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -2096,18 +2165,9 @@ namespace BindingsGeneration
             csWriter.WriteLine();
 
             // P/Invoke for method
-            var pinvokeParams = new List<string>();
-            foreach (var param in paramDecls)
-            {
-                bool isEnumParam = IsSimpleEnumParam(param.SwiftTypeSpec, enumDecl);
-                var pinvokeType = isEnumParam ? csUnderlyingType : GetSimpleParamType(param.SwiftTypeSpec, typeDatabase)!;
-                var marshalPrefix = MarshallingHelpers.IsBoolType(pinvokeType) ? MarshallingHelpers.BoolPInvokeParamAttribute + " " : "";
-                pinvokeParams.Add($"{marshalPrefix}{pinvokeType} {NameProvider.GetCSharpParameterName(param)}");
-            }
-            var hasStringParam = pinvokeParams.Any(p => p.Contains("string ") || p.Contains("string?"));
-            var stringMarshal = hasStringParam ? ", StringMarshalling = global::System.Runtime.InteropServices.StringMarshalling.Utf8" : "";
-            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\"{stringMarshal})]");
-            csWriter.WriteLine($"private static partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
+            var pinvokeParams = memberArgs.PInvokeParams;
+            csWriter.WriteLine($"[global::System.Runtime.InteropServices.LibraryImport(\"{_wrapperLibName}\", EntryPoint = \"{wrapperSymbol}\")]");
+            csWriter.WriteLine($"private static {UnsafeIfPinned(memberArgs)}partial IntPtr PInvoke_{methodPascalName}({PInvokeEmitHelper.DeduplicateCSharpParamNames(string.Join(", ", pinvokeParams))});");
             csWriter.WriteLine();
 
             EmitFreePInvokeIfNeeded(csWriter, moduleName);

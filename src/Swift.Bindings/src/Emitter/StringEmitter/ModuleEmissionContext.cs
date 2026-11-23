@@ -1587,6 +1587,23 @@ public sealed class ModuleEmissionContext
         RecordTypeAvailability(qualifiedName, effectiveAvailability);
     }
 
+    private readonly List<(string CSharpTypeName, string MetadataSymbol, string WrapperLibName)> _simpleEnumCaseCodecRegistrations = new();
+
+    /// <summary>
+    /// Simple enums crossing by case identity whose case codec (<see cref="SimpleEnumCrossing.EmitCaseCodec"/>)
+    /// the module initializer registers with the runtime, keyed by the same metadata symbol as their
+    /// metadata registration (the codec's symbols derive from it).
+    /// </summary>
+    public IReadOnlyList<(string CSharpTypeName, string MetadataSymbol, string WrapperLibName)> SimpleEnumCaseCodecRegistrations => _simpleEnumCaseCodecRegistrations;
+
+    /// <summary>Records a simple enum's case codec for registration in the module initializer.</summary>
+    public void RecordSimpleEnumCaseCodec(string csharpTypeName, string metadataSymbol, string wrapperLibName)
+    {
+        if (HasOpenGenericAncestor())
+            return;
+        _simpleEnumCaseCodecRegistrations.Add((GetQualifiedTypeName(csharpTypeName), metadataSymbol, wrapperLibName));
+    }
+
     private readonly List<(string TypeofExpr, string AccessorName, string MetadataSymbol, string WrapperLibName)> _importedValueTypeMetadataRegistrations = new();
     private readonly HashSet<string> _importedValueTypeMetadataKeys = new(StringComparer.Ordinal);
 

@@ -1285,7 +1285,14 @@ namespace BindingsGeneration
                 var pinvokeType = GetPInvokeTypeForTupleElement(element);
                 var offsetExpr = $"(nint)_tupleMetaPtr->GetElementOffset({i})";
 
-                if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
+                if (IsCaseCodecEnum(element))
+                {
+                    // A simple enum crossing by case identity: its slot holds the binary's tag,
+                    // not the C# constant, so read the case through the enum's case codec.
+                    var enumType = GetCSharpTypeForTupleElement(element);
+                    csWriter.WriteLine($"var {rawName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{enumType}>((IntPtr)((byte*){resultExpr} + {offsetExpr}));");
+                }
+                else if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
                 {
                     inlineSlots[i] = true;
                     // Inline value type: compute address within buffer (data may be > 8 bytes).
@@ -1337,6 +1344,16 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
+
+        /// <summary>
+        /// Whether a tuple element is a simple enum crossing by case identity, which the runtime
+        /// reads from Swift memory through the enum's case codec rather than as its tag.
+        /// </summary>
+        private bool IsCaseCodecEnum(TypeSpec element)
+            => element is NamedTypeSpec named
+               && _env.TypeDatabase.TryGetTypeRecord(named, out var record) && record is not null
+               && record.Kind == TypeRecordKind.Enum && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
+               && SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(record));
 
         /// <summary>
         /// Gets the P/Invoke type for a tuple element.

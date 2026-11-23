@@ -1535,20 +1535,12 @@ public static class MethodWrapperEmitter
     /// indirect result so the routes cannot drift on which shapes they handle.
     /// </summary>
     /// <summary>
-    /// The statement that writes a copyable indirect result into <c>resultPtr</c>. An Optional of
-    /// a simple enum crossing by identity writes the managed <c>SwiftOptional</c>'s one-byte
-    /// carrier (see <see cref="SimpleEnumCrossing.GetOptionalCarrierMap"/>), not Swift's layout,
-    /// whose bytes are the binary's case tags. Every other type is copied in Swift's layout.
+    /// The statement that writes a copyable indirect result into <c>resultPtr</c>, in Swift's layout.
+    /// (An Optional of a simple enum crossing by identity is no exception: the managed
+    /// <c>SwiftOptional</c> reads Swift's layout through the enum's case codec.)
     /// </summary>
     internal static string RenderIndirectResultStore(TypeSpec returnTypeSpec, ITypeDatabase typeDatabase, string valueExpr)
-    {
-        if (SimpleEnumCrossing.GetOptionalCarrierMap(returnTypeSpec, typeDatabase) is { } carrierMap)
-        {
-            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(((NamedTypeSpec)returnTypeSpec).GenericParameters[0]);
-            return $"resultPtr.storeBytes(of: {SimpleEnumCrossing.CaseToOptionalCarrier(carrierMap, innerType, valueExpr)}, as: Swift.UInt8.self)";
-        }
-        return $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: {valueExpr}, count: 1)";
-    }
+        => $"resultPtr.initializeMemory(as: {RenderIndirectResultMetatype(returnTypeSpec)}, repeating: {valueExpr}, count: 1)";
 
     internal static string RenderIndirectResultMetatype(TypeSpec returnTypeSpec)
     {

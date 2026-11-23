@@ -2310,6 +2310,30 @@ public class EnumHandlerOutputTests
         // No simple-enum metadata recorded → the module initializer emits no dangling
         // SBW_GetMetadata_ DllImport for a symbol the discarded Swift wrapper never defines.
         Assert.Empty(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Empty(emissionCtx.SimpleEnumCaseCodecRegistrations);
+    }
+
+    [Fact]
+    public void Emit_CaseIdentityEnum_EmitsAndRecordsItsCaseCodec()
+    {
+        // A simple enum crossing by case identity gets the four codec functions in its wrapper and
+        // a registration the module initializer turns into SimpleEnumCaseCodecs.Register, so the
+        // runtime moves the enum through Swift memory by case, not by tag.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+
+        var (_, swift, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        var registration = Assert.Single(emissionCtx.SimpleEnumCaseCodecRegistrations);
+        var metadata = Assert.Single(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Equal(metadata.MetadataSymbol, registration.MetadataSymbol);
+        var symbols = SimpleEnumCrossing.CaseCodecSymbols(registration.MetadataSymbol);
+        foreach (var symbol in new[] { symbols.Load, symbols.Store, symbols.LoadOptional, symbols.StoreOptional })
+            Assert.Contains($"@_cdecl(\"{symbol}\")", swift);
+        Assert.Contains("initializeMemory(as: Swift.Optional<TestModule.Mode>.self", swift);
     }
 
     [Fact]
@@ -6420,6 +6444,63 @@ public class EnumHandlerOutputTests
             IsAsync = false,
             IsSynthesizedAccessor = false
         };
+    }
+
+    /// <summary>
+    /// A simple enum's own members (instance and static, each with a String and a non-String
+    /// result) take a String parameter. A <c>@_cdecl</c> function cannot take a Swift
+    /// <c>String</c>, so the parameter crosses as its UTF-8 bytes and their count: a byte pointer and
+    /// an <c>nint</c> on the P/Invoke, an optional byte pointer and an <c>Int</c> on the wrapper,
+    /// which decodes them back into the String the member is called with.
+    /// </summary>
+    [Theory]
+    [InlineData(MethodType.Instance, "Swift.String", "Label(this Mode self, string text)")]
+    [InlineData(MethodType.Instance, "Swift.Bool", "Matches(this Mode self, string text)")]
+    [InlineData(MethodType.Static, "Swift.String", "string Label(string text)")]
+    [InlineData(MethodType.Static, "TestModule.Mode", "Mode Matches(string text)")]
+    public void Emit_SimpleEnumMember_StringParameter_CrossesAsUtf8Bytes(MethodType methodType, string returnType, string signature)
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("on"));
+        enumDecl.Cases.Add(CreateCase("off"));
+        var name = returnType == "Swift.String" ? "label" : "matches";
+        enumDecl.Methods.Add(new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule4ModeO{name.Length}{name}ySSF" + (methodType == MethodType.Static ? "Z" : ""),
+            MethodType = methodType,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = new NamedTypeSpec(returnType), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec("Swift.String"), Name = "text", PrivateName = "text", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+        });
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains(signature, csOutput);
+        var cdecl = Regex.Match(swiftOutput, @"@_cdecl\(""SBW_TestModule_Mode_" + name + @"_[^""]+""\)\s*\n\s*public func [^(]+\((?<params>[^)]*)\)");
+        Assert.True(cdecl.Success, swiftOutput);
+        Assert.DoesNotContain("Swift.String", cdecl.Groups["params"].Value);
+        Assert.Contains("_ textUtf8Ptr: Swift.UnsafePointer<Swift.UInt8>?, _ textUtf8Len: Swift.Int", cdecl.Groups["params"].Value);
+        Assert.Contains("text: Swift.String(decoding: Swift.UnsafeBufferPointer(start: textUtf8Ptr, count: textUtf8Len), as: Swift.UTF8.self)", swiftOutput);
+
+        var pinvoke = Regex.Match(csOutput, @"partial \S+ PInvoke_\w+\((?<params>[^)]*)\);");
+        Assert.True(pinvoke.Success, csOutput);
+        Assert.DoesNotContain("string", pinvoke.Groups["params"].Value);
+        Assert.Contains("byte* textUtf8Ptr, nint textUtf8Len", pinvoke.Groups["params"].Value);
+        Assert.DoesNotContain("StringMarshalling", csOutput);
+        Assert.Contains("Encoding.UTF8.GetBytes(text)", csOutput);
+        Assert.Contains("fixed (byte* __textUtf8Ptr = __textUtf8)", csOutput);
+        Assert.Empty(CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics());
     }
 
     #region @_cdecl Enum Case Factory ABI Tests

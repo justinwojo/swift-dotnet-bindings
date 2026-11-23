@@ -801,6 +801,27 @@ public static class SwiftMarshal
             return;
         }
 
+        if (type.IsEnum && SimpleEnumCaseCodecs.TryGet(type, out var slotCodec))
+        {
+            // A case-identity enum: Swift builds the case in a temporary, which then replaces the
+            // slot's value (destroying it, should the binary give the enum a payload case).
+            if (!TypeMetadata.TryGetTypeMetadata<T>(out var codecMd) || !codecMd.Value.IsValid)
+                throw new SwiftRuntimeException(
+                    $"Cannot write an inout value of type {type} back to Swift: its Swift type metadata did not resolve.");
+            var codecMetadata = codecMd.Value;
+            var codecTemp = (byte*)NativeMemory.Alloc((nuint)Math.Max(checked((int)codecMetadata.Size), 1));
+            try
+            {
+                SimpleEnumCaseCodecs.StoreOrThrow(slotCodec, value, (IntPtr)codecTemp);
+                codecMetadata.ValueWitnessTable->AssignWithTake((void*)slot, codecTemp, codecMetadata);
+            }
+            finally
+            {
+                NativeMemory.Free(codecTemp);
+            }
+            return;
+        }
+
         if (type.IsEnum)
         {
             ulong caseValue = Enum.GetUnderlyingType(type) == typeof(ulong)
@@ -1591,6 +1612,25 @@ public static class SwiftMarshal
         // double-count the boxable conformer's existing +1 and leak it. See that helper and
         // ClassExistentialContainer1.FromExistentialContainer1 for the ownership contract.
 
+        // A case-identity enum: its constant is not its Swift bytes, so the binding's codec builds
+        // the case in place, at the width Swift stores it.
+        if (type.IsEnum && SimpleEnumCaseCodecs.TryGet(type, out var enumCodec))
+        {
+            int swiftSize = TypeMetadata.TryGetTypeMetadata<T>(out var codecMd) && codecMd.Value.IsValid
+                ? (int)codecMd.Value.Size
+                : swiftDestSpan.Length;
+            if (swiftSize > swiftDestSpan.Length)
+                throw new ArgumentException($"Span size does not match type size, Expected: {swiftSize}, Actual: {swiftDestSpan.Length}");
+            unsafe
+            {
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    SimpleEnumCaseCodecs.StoreOrThrow(enumCodec, value!, (IntPtr)swiftDest);
+                    return swiftSize;
+                }
+            }
+        }
+
         // Handle blittable value types: C# enums (simple enums) and frozen structs
         // (CGPoint, CGRect, CGSize, etc.). These have no managed references and can be
         // written directly as raw bytes. Primitives are already handled above.
@@ -1979,6 +2019,10 @@ public static class SwiftMarshal
         // always 4 bytes. Read only the Swift-sized bytes to avoid overreading.
         // With metadata: use exact Size. Without metadata: default to 1 byte (covers
         // enums with ≤256 cases; enums with 256+ cases require metadata registration).
+        // A case-identity enum: the binding's codec names the case Swift holds.
+        if (type.IsEnum && SimpleEnumCaseCodecs.TryGet(type, out var enumCodec))
+            return (T)SimpleEnumCaseCodecs.ToEnum(type, enumCodec.Load(swiftSource));
+
         if (type.IsEnum && !typeof(ISwiftObject).IsAssignableFrom(type) &&
             !RuntimeHelpers.IsReferenceOrContainsReferences<T>())
         {
@@ -2386,6 +2430,11 @@ public static class SwiftMarshal
             var span = new Span<byte>(dest, (int)metadata.Size);
             swiftObject.MarshalToSwift(ref span);
         }
+        else if (elementType.IsEnum && SimpleEnumCaseCodecs.TryGet(elementType, out var elementCodec))
+        {
+            // A case-identity enum: the binding's codec builds the case in place.
+            SimpleEnumCaseCodecs.StoreOrThrow(elementCodec, value!, (IntPtr)dest);
+        }
         else if (elementType.IsEnum)
         {
             // The write-direction counterpart of the read arm: a payload-less Swift enum is a plain
@@ -2493,6 +2542,11 @@ public static class SwiftMarshal
             // +1 per element so disposing the element wrapper never over-releases storage the carrier
             // still owns. COPY context — we never destroy the source slot.
             return ExtractCopiedElement(source, elementType, elementMetadata);
+        }
+        else if (elementType.IsEnum && SimpleEnumCaseCodecs.TryGet(elementType, out var elementCodec))
+        {
+            // A case-identity enum: the binding's codec names the case Swift holds.
+            return SimpleEnumCaseCodecs.ToEnum(elementType, elementCodec.Load(source));
         }
         else if (elementType.IsEnum)
         {

@@ -355,18 +355,6 @@ public static class CdeclParamMapper
                     $"{argLabel}{label}Val");
         }
 
-        // Optional<simple enum crossing by identity>: the managed SwiftOptional<T> holds its one-byte
-        // carrier (the C# constant, or the case count for nil), not Swift's layout, whose tags need not
-        // follow the interface's order. Read the carrier and map it to the case.
-        if (SimpleEnumCrossing.GetOptionalCarrierMap(swiftTypeSpec, env.TypeDatabase) is { } carrierMap)
-        {
-            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(((NamedTypeSpec)swiftTypeSpec).GenericParameters[0]);
-            return Simple(CdeclParamCategory.GenericContainer,
-                    $"_ {label}: Swift.UnsafeRawPointer",
-                    $"let {label}Val = {SimpleEnumCrossing.OptionalCarrierToCase(carrierMap, innerType, $"{label}.load(as: Swift.UInt8.self)")}",
-                    $"{argLabel}{label}Val");
-        }
-
         // Generic container types (Optional<T>, Array<T>, Dictionary<K,V>, etc.)
         // are not C-representable in @_cdecl functions. Marshal as UnsafeRawPointer.
         if (IsGenericContainerType(swiftTypeSpec))

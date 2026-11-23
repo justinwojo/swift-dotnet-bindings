@@ -62,8 +62,9 @@ public class CaseIdentityEnumTests : TestBase
 
     public void TestAnOptionalArgumentThatNamesNoCaseIsRefused()
     {
-        // The managed carrier holds one byte. A value that does not survive it (the nil byte, a
-        // value whose low byte aliases a case or the hidden case's code) is refused before Swift.
+        // The Optional is built in Swift's own layout through the enum's case codec, which names
+        // the case a value means; a value that names none (past the published cases, or one whose
+        // low byte would alias a case) is refused before Swift.
         AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)2), "the nil byte");
         AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)254), "the hidden code's low byte");
         AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)257), "Second's low byte");
@@ -178,7 +179,20 @@ public class CaseIdentityEnumTests : TestBase
         AssertEqual("own:B", RawNamedFrozen.Beta.ToRawValue(), "the enum's own toRawValue()");
         AssertEqual<RawNamedFrozen?>(RawNamedFrozen.Beta, RawNamedFrozenExtensions.FromSwiftRawValue("B"), "the binding's helper runs init(rawValue:)");
         AssertEqual<RawNamedFrozen?>(null, RawNamedFrozenExtensions.FromSwiftRawValue("own"), "no case has raw value \"own\"");
-        AssertEqual(RawNamedFrozen.Beta, RawNamedFrozenExtensions.FromRawValue(1), "the enum's own fromRawValue(_:)");
+        AssertEqual(RawNamedFrozen.Beta, RawNamedFrozenExtensions.FromRawValue("own"), "the enum's own fromRawValue(_:)");
+        AssertEqual(RawNamedFrozen.Alpha, RawNamedFrozenExtensions.FromRawValue("other"), "the enum's own fromRawValue(_:) on another text");
+    }
+
+    public void TestTheEnumsOwnMembersTakeStringParameters()
+    {
+        // Each String crosses the member's wrapper as its UTF-8 bytes; non-ASCII text and an empty
+        // String (a null byte pointer) must arrive intact, and two String arguments stay in order.
+        AssertEqual("«B»", RawNamedFrozen.Beta.Labeled("«", "»"), "instance member, two String arguments, String result");
+        AssertEqual("A", RawNamedFrozen.Alpha.Labeled("", ""), "empty String arguments");
+        AssertTrue(RawNamedFrozen.Beta.Matches("B"), "instance member, String argument, Bool result");
+        AssertFalse(RawNamedFrozen.Beta.Matches("b"), "a different String");
+        AssertEqual("4x3:été!", RawNamedFrozenExtensions.Describe("été!", 3), "static member, String and Int arguments, String result");
+        AssertEqual("0x0:", RawNamedFrozenExtensions.Describe("", 0), "an empty String argument");
     }
 
     public void TestRawValueHelpersStepAsideOnAnIntegralEnum()
