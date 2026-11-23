@@ -24,9 +24,10 @@ namespace SwiftBindings.Tasks;
 /// <param name="Copies">Its copies, in order.</param>
 /// <param name="Problems">Why the contributions were refused; empty when merged.</param>
 /// <param name="Notes">What the merge did, for the log.</param>
-/// <param name="Warnings">What the merged package risks without being refused (SWIFTBIND140, the Windows path budget).</param>
+/// <param name="PathBudget">Entries past the Windows restore path budget (SWIFTBIND140): warnings, or with
+/// <c>requireWindowsPathBudget</c> the reason the merge was refused.</param>
 public sealed record PackageMergeResult(string? Package, string? Destination, ImmutableArray<string> Copies, ImmutableArray<string> Problems, ImmutableArray<string> Notes,
-    ImmutableArray<string> Warnings);
+    ImmutableArray<string> PathBudget);
 
 /// <summary>The merge of per-toolchain binding package contributions, free of MSBuild.</summary>
 public static class SwiftBindingPackageMerge
@@ -54,7 +55,7 @@ public static class SwiftBindingPackageMerge
     {
         var problems = new List<string>();
         var notes = new List<string>();
-        var warnings = new List<string>();
+        var pathBudget = new List<string>();
         var read = new List<Contribution>();
         if (contributions.Count == 0)
             problems.Add("No contribution packages were given.");
@@ -167,15 +168,12 @@ public static class SwiftBindingPackageMerge
                               ? $"A Visual Studio restore on Windows fails for a user profile (C:\\Users\\<name>) longer than {fits} characters; "
                               : "A Visual Studio restore on Windows fails for every user profile; ")
                           + "the dotnet CLI restores it on any profile.";
-            if (requireWindowsPathBudget)
-                problems.Add(finding);
-            else
-                warnings.Add(finding + " Set SwiftBindingsMergeRequireWindowsPathBudget=true to refuse such a merge.");
+            pathBudget.Add(requireWindowsPathBudget ? finding : finding + " Set SwiftBindingsMergeRequireWindowsPathBudget=true to refuse such a merge.");
         }
         else
             notes.Add($"  Windows path budget: longest entry {longest.Length}/{budget} ({longest}).");
-        if (problems.Count > 0)
-            return Refused(problems, notes);
+        if (problems.Count > 0 || (requireWindowsPathBudget && pathBudget.Count > 0))
+            return Refused(problems, notes) with { PathBudget = pathBudget.ToImmutableArray() };
 
         var nuspec = MergedNuspec(first, copies, problems);
         var destination = Path.GetFullPath(Path.Combine(outputDirectory, $"{stem}.nupkg"));
@@ -201,7 +199,7 @@ public static class SwiftBindingPackageMerge
             foreach (var (name, data) in output)
                 Write(zip, name, data);
         }
-        return new PackageMergeResult(target, destination, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray(), warnings.ToImmutableArray());
+        return new PackageMergeResult(target, destination, copies.Select(c => c.Tfm).ToImmutableArray(), [], notes.ToImmutableArray(), pathBudget.ToImmutableArray());
     }
 
     /// <summary>Moves a merged package that passed its checks from its staging name to its destination.</summary>

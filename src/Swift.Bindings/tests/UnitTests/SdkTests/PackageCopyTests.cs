@@ -101,6 +101,9 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("$(MSBuildThisFileDirectory)$(KitNatives)Kit.xcframework", "goes through a property or an item")]
     [InlineData("/opt/acme/native/net10.0-ios26.0/Kit.xcframework", "not a path from the targets' own directory")]
     [InlineData("$(MSBuildThisFileDirectory)Kit.xcframework", "resolves to buildTransitive/net10.0-ios26.0/Kit.xcframework")]
+    // MSBuild decodes %XX escapes in an item's path, so the rules read the path decoded too.
+    [InlineData("$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/%2E%2E/net10.0-ios27.2/Kit.xcframework", "leaves the copy's native/net10.0-ios26.0/")]
+    [InlineData("$(MSBuildThisFileDirectory)../..%2Fnative%2Fnet10.0-ios27.2/Kit.xcframework", "resolves to native/net10.0-ios27.2/Kit.xcframework")]
     public void TargetsReferences_AnotherLayoutOrCopy_IsRefused(string reference, string named)
     {
         var problems = PackageCopyRules.CheckTargetsReferences("net10.0-ios26.0", $"<Project><ItemGroup><NativeReference Include=\"{reference}\" /></ItemGroup></Project>").ToList();
@@ -547,7 +550,7 @@ public sealed class PackageCopyTests : IDisposable
         var result = Merge([Contribution("x26", ["net10.0-ios26.0"], extra: [(deep, [1])])], "net10.0-ios26.0");
         Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
         Assert.NotNull(result.Package);
-        var warning = Assert.Single(result.Warnings);
+        var warning = Assert.Single(result.PathBudget);
         Assert.Contains("Windows restore budget", warning);
         Assert.Contains("fails for every user profile", warning);
         Assert.Contains("SwiftBindingsMergeRequireWindowsPathBudget=true", warning);
@@ -555,8 +558,8 @@ public sealed class PackageCopyTests : IDisposable
         var required = SwiftBindingPackageMerge.Merge([Contribution("x26r", ["net10.0-ios26.0"], extra: [(deep, [1])])], ["net10.0-ios26.0"],
             Path.Combine(tempDir, "out-required"), requireWindowsPathBudget: true);
         Assert.Null(required.Package);
-        Assert.Contains(required.Problems, p => p.Contains("Windows restore budget", StringComparison.Ordinal));
-        Assert.Empty(required.Warnings);
+        Assert.Empty(required.Problems);
+        Assert.Contains("Windows restore budget", Assert.Single(required.PathBudget));
     }
 
     [Fact]
@@ -574,7 +577,7 @@ public sealed class PackageCopyTests : IDisposable
         Assert.NotNull(result.Package);
         var budget = SwiftBindingPackageMerge.WindowsRestoreEntryBudget($"{id}.27.2.0".Length, 40);
         Assert.Equal(145, budget);
-        var warning = Assert.Single(result.Warnings);
+        var warning = Assert.Single(result.PathBudget);
         Assert.Contains($"{binary} is {binary.Length} characters, past the Windows restore budget of 145", warning);
         Assert.Contains($"longer than {40 - (binary.Length - budget)} characters", warning);
     }

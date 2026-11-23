@@ -64,7 +64,7 @@ public static class PackageCopyRules
         {
             index += "../native/".Length;
             var end = text.IndexOfAny(['"', '\'', '<', ';', ' ', '\n', '\r', '\t'], index);
-            var segments = (end < 0 ? text[index..] : text[index..end]).Split('/');
+            var segments = Unescape(end < 0 ? text[index..] : text[index..end]).Replace('\\', '/').Split('/');
             if (!string.Equals(segments[0], packTfm, StringComparison.OrdinalIgnoreCase))
             {
                 yield return $"reference native/{segments[0]}/, another copy's natives";
@@ -110,12 +110,33 @@ public static class PackageCopyRules
                     problems.Add($"reference {include}, which goes through a property or an item the pack cannot resolve into the copy's {own}");
                     continue;
                 }
-                var resolved = Resolve($"buildTransitive/{packTfm}/{rest}");
+                var resolved = Resolve($"buildTransitive/{packTfm}/{Unescape(rest).Replace('\\', '/')}");
                 if (resolved is null || !resolved.StartsWith(own, StringComparison.OrdinalIgnoreCase) || resolved.Length == own.Length)
                     problems.Add($"reference {include}, which resolves to {resolved ?? "a path outside the package"}, outside the copy's {own}");
             }
         }
         return problems;
+    }
+
+    /// <summary><paramref name="value"/> with MSBuild's <c>%XX</c> escapes decoded, as MSBuild reads an item's path.</summary>
+    private static string Unescape(string value)
+    {
+        if (!value.Contains('%'))
+            return value;
+        var decoded = new System.Text.StringBuilder(value.Length);
+        for (var i = 0; i < value.Length; i++)
+        {
+            if (value[i] == '%' && i + 2 < value.Length && Uri.IsHexDigit(value[i + 1]) && Uri.IsHexDigit(value[i + 2]))
+            {
+                decoded.Append((char)Convert.ToInt32(value.Substring(i + 1, 2), 16));
+                i += 2;
+            }
+            else
+            {
+                decoded.Append(value[i]);
+            }
+        }
+        return decoded.ToString();
     }
 
     /// <summary><paramref name="path"/> with its <c>.</c> and <c>..</c> segments applied; null when it leaves the package root.</summary>

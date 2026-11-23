@@ -147,14 +147,31 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
         };
     }
 
-    /// <summary>Every framework binary in the package, with the consumers it serves (<see cref="Scope"/>).</summary>
-    private static List<(PackagedNative Native, NativeScope Scope)> ReadFrameworks(string root) =>
-        Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
+    /// <summary>
+    /// Every native image in the package, with the consumers it serves (<see cref="Scope"/>): each
+    /// framework binary, and each bare dylib under the library names a consumer's native reference
+    /// resolves it by (<c>{library}.dylib</c>, <c>lib{library}.dylib</c>;
+    /// <see cref="ConsumerTransitionCheck.NativeReferenceImages"/>).
+    /// </summary>
+    private static List<(PackagedNative Native, NativeScope Scope)> ReadFrameworks(string root)
+    {
+        var frameworks = Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
             .Select(d => Path.GetFileNameWithoutExtension(d)).Distinct(StringComparer.Ordinal)
             .SelectMany(framework => ConsumerTransitionCheck.FrameworkBinaries(root, framework)
-                .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
-                .Select(shown => (new PackagedNative(framework, shown, File.ReadAllBytes(Path.Combine(root, shown))), Scope(shown))))
+                .Select(p => (Library: framework, Shown: Path.GetRelativePath(root, p).Replace('\\', '/'))));
+        var dylibs = Directory.GetFiles(root, "*.dylib", SearchOption.AllDirectories)
+            .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
+            .Where(shown => !shown.Contains(".dSYM/", StringComparison.Ordinal) && !shown.Contains(".framework/", StringComparison.Ordinal))
+            .SelectMany(shown =>
+            {
+                var name = Path.GetFileNameWithoutExtension(shown);
+                return (name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? new[] { name, name[3..] } : new[] { name })
+                    .Select(library => (Library: library, Shown: shown));
+            });
+        return frameworks.Concat(dylibs)
+            .Select(n => (new PackagedNative(n.Library, n.Shown, File.ReadAllBytes(Path.Combine(root, n.Shown))), Scope(n.Shown)))
             .ToList();
+    }
 
     /// <summary>
     /// Whether the package is one of per-toolchain copies: a <c>buildTransitive/&lt;tfm&gt;/</c> props

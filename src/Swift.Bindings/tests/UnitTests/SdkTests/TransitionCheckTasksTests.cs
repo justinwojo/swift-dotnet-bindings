@@ -377,6 +377,31 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.False(File.Exists(swapped));
     }
 
+    [Fact]
+    public void Pack_ACopysWrapperShippedAsABareDylib_IsHeldToItsIdentity()
+    {
+        // A consumer's native reference resolves lib<library>.dylib as the library's image, so the
+        // pack check reads it as one too: the older copy's wrapper under the newer copy's name is refused.
+        var older = WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2");
+        var newer = WrapperIdentityTests.Identity("net10.0-ios27.2", "27.2");
+        var scratch = Directory.CreateDirectory(Path.Combine(tempDir, "dylibs")).FullName;
+        (string, byte[])[] Copies(byte[] newerCopysWrapper) =>
+        [
+            ("lib/net10.0-ios26.0/Kit.dll", WrapperIdentityTests.StampedAssembly(older)),
+            ("lib/net10.0-ios27.2/Kit.dll", WrapperIdentityTests.StampedAssembly(newer)),
+            ("native/net10.0-ios26.0/libKit.dylib", WrapperIdentityTests.StampedDylib(scratch, "older", older)),
+            ("native/net10.0-ios27.2/libKit.dylib", newerCopysWrapper),
+        ];
+
+        var (exit, output) = Pack(Package("Acme.Kit.1.0.0.nupkg", Copies(WrapperIdentityTests.StampedDylib(scratch, "newer", newer))));
+        Assert.True(exit == 0, output);
+
+        (exit, output) = Pack(Package("Acme.Kit.1.0.1.nupkg", Copies(WrapperIdentityTests.StampedDylib(scratch, "older2", older))));
+        Assert.NotEqual(0, exit);
+        Assert.Contains("lib/net10.0-ios27.2/Kit.dll would be refused", output);
+        Assert.Contains("native/net10.0-ios27.2/libKit.dylib", output);
+    }
+
     // ---- the producer label (SWIFTBIND137) ------------------------------------------------------
 
     [Theory]

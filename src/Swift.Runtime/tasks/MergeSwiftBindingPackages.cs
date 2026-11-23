@@ -57,8 +57,13 @@ public sealed class MergeSwiftBindingPackages : Microsoft.Build.Utilities.Task
             RequireWindowsPathBudget);
         foreach (var line in result.Notes)
             Log.LogMessage(MessageImportance.High, "{0}", line);
-        foreach (var warning in result.Warnings)
-            Log.LogWarning(null, PathBudgetCode, null, null, 0, 0, 0, 0, "{0}", warning);
+        foreach (var finding in result.PathBudget)
+        {
+            if (RequireWindowsPathBudget)
+                Log.LogError(null, PathBudgetCode, null, null, 0, 0, 0, 0, "{0}", finding);
+            else
+                Log.LogWarning(null, PathBudgetCode, null, null, 0, 0, 0, 0, "{0}", finding);
+        }
         foreach (var problem in result.Problems)
             Log.LogError(null, PrepareSwiftBindingPackageCopy.LayoutCode, null, null, 0, 0, 0, 0, "{0}", problem);
         if (result.Package is null)

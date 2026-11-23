@@ -341,13 +341,14 @@ namespace BindingsGeneration
                 // Compile thunk assembly for simulator slice
                 // FATAL if .arm64.s files exist — P/Invokes reference thunk symbols
                 NativeThunkCompilationResult? simThunkResult = null;
-                if (!skipThunkCompilation)
+                // The wrapper identity links in even when thunk compilation is skipped.
+                if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                 {
                     try
                     {
                         simThunkResult = NativeThunkCompiler.CompileThunkObjects(
                             outputDirectory, simTargetTriple, simSdkPath, logger, commandRunner,
-                            arch: simSlice.Architecture);
+                            arch: simSlice.Architecture, includeThunks: !skipThunkCompilation);
                     }
                     catch (Exception ex)
                     {
@@ -511,13 +512,13 @@ namespace BindingsGeneration
                         }
                     }
 
-                    if (!skipThunkCompilation)
+                    if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(deviceThunkDir).Count > 0)
                     {
                         try
                         {
                             devThunkResult = NativeThunkCompiler.CompileThunkObjects(
                                 deviceThunkDir, devTargetTriple, devSdkPath, logger, commandRunner,
-                                arch: deviceSlice.Architecture);
+                                arch: deviceSlice.Architecture, includeThunks: !skipThunkCompilation);
                         }
                         catch (Exception ex)
                         {
@@ -856,13 +857,14 @@ namespace BindingsGeneration
                 // FATAL if .arm64.s files exist — generated P/Invokes reference thunk symbols
                 // that won't exist in the binary if compilation fails.
                 NativeThunkCompilationResult? thunkResult = null;
-                if (!skipThunkCompilation)
+                // The wrapper identity links in even when thunk compilation is skipped.
+                if (!skipThunkCompilation || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                 {
                     try
                     {
                         thunkResult = NativeThunkCompiler.CompileThunkObjects(
                             outputDirectory, targetTriple, sdkPath, logger, commandRunner,
-                            arch: slice.Architecture);
+                            arch: slice.Architecture, includeThunks: !skipThunkCompilation);
                     }
                     catch (Exception ex)
                     {

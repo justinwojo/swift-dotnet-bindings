@@ -1271,6 +1271,25 @@ done; true"
       <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceX64ThunkObjects" />
     </Exec>
 
+    <!-- The wrapper identity (SBWI_<module>, data only, the generator's *.WrapperIdentity.s) links into
+         every architecture of this slice, as the generator links it into the first. It compiles apart
+         from the thunks so it never counts as one below. -->
+    <PropertyGroup Condition="'$(_AFW_NeedsSecondSlice)' == 'true'">
+      <_AFW_SecondSliceIdentityDir>$(_SwiftBindingIntermediateDir)_merge_slices/second/identity</_AFW_SecondSliceIdentityDir>
+    </PropertyGroup>
+    <RemoveDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'" Directories="$(_AFW_SecondSliceIdentityDir)" />
+    <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true'" Directories="$(_AFW_SecondSliceIdentityDir)/arm64;$(_AFW_SecondSliceIdentityDir)/x86_64" />
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true'"
+          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.WrapperIdentity.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceIdentityDir)/arm64/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceIdentityDir)/arm64&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceArm64IdentityObjects" />
+    </Exec>
+    <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
+          Command="set -e; for f in `find &quot;$(_SwiftBindingIntermediateDir)&quot; -maxdepth 1 -name '*.WrapperIdentity.s'`; do xcrun --sdk $(_AFW_OtherSdk) clang -c &quot;$f&quot; -target $(_AFW_OtherSecondTarget) -isysroot &quot;$(_AFW_OtherSdkPath)&quot; -o &quot;$(_AFW_SecondSliceIdentityDir)/x86_64/`basename &quot;$f&quot; .s`.o&quot;; done; find &quot;$(_AFW_SecondSliceIdentityDir)/x86_64&quot; -maxdepth 1 -name '*.o' | tr '\n' ' '"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" StandardErrorImportance="high">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_AFW_SecondSliceX64IdentityObjects" />
+    </Exec>
+
     <!-- When thunk .o files exist the linker needs -framework <OriginalModule>
          so that `bl` targets inside the thunk assembly (Tj dispatch thunks,
          type metadata accessors) resolve. Mirrors the thunkLinkerFlags branch
@@ -1299,7 +1318,7 @@ done; true"
          flow where the second slice is the device-arm64-only slice, or device-first
          flow when the user pinned SwiftTargetArchitectures). -->
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' != 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects) $(_AFW_SecondSliceArm64IdentityObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
 
     <!-- Fat-sim compile: swiftc per-arch into per-arch staging dylibs, then lipo
@@ -1317,10 +1336,10 @@ done; true"
     <MakeDir Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
              Directories="$(_AFW_SecondSliceStagingDir)" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceArm64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceArm64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceArm64ThunkObjects) $(_AFW_SecondSliceArm64IdentityObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
-          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceX64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceX64ThunkObjects)"
+          Command="xcrun --sdk $(_AFW_OtherSdk) swiftc -emit-library -target $(_AFW_OtherSecondTarget) -sdk &quot;$(_AFW_OtherSdkPath)&quot; -strict-concurrency=minimal -module-name $(_AFW_WrapperModule) $(_AFW_SecondSliceThunkFrameworkFlag)$(_AFW_OsWeakLinkFlags)-Xlinker -install_name -Xlinker @rpath/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule) -o &quot;$(_AFW_SecondSliceX64Lib)&quot; $(_AFW_WrapperSwiftFiles) $(_AFW_SecondSliceX64ThunkObjects) $(_AFW_SecondSliceX64IdentityObjects)"
           StandardOutputImportance="low" StandardErrorImportance="high" />
     <Exec Condition="'$(_AFW_NeedsSecondSlice)' == 'true' AND '$(_AFW_OtherIsFatSim)' == 'true'"
           Command="lipo -create &quot;$(_AFW_SecondSliceArm64Lib)&quot; &quot;$(_AFW_SecondSliceX64Lib)&quot; -output &quot;$(_SwiftBindingIntermediateDir)_merge_slices/second/$(_AFW_WrapperModule).framework/$(_AFW_WrapperModule)&quot;"

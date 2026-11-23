@@ -44,15 +44,17 @@ namespace BindingsGeneration
         /// <param name="logger">Logger instance.</param>
         /// <param name="commandRunner">Optional command runner for testing.</param>
         /// <param name="arch">Architecture tag selecting the assembly files to compile ("arm64" or "x86_64").</param>
+        /// <param name="includeThunks">False to compile only the wrapper identity (<c>--skip-thunk-compilation</c>).</param>
         public static NativeThunkCompilationResult? CompileThunkObjects(
             string outputDirectory,
             string targetTriple,
             string sdkPath,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            string arch = "arm64")
+            string arch = "arm64",
+            bool includeThunks = true)
         {
-            var thunkFiles = CollectAssemblyFiles(outputDirectory, arch);
+            var thunkFiles = includeThunks ? CollectAssemblyFiles(outputDirectory, arch) : new List<string>();
             // The wrapper identity holds only data, so its one file links into every architecture's slice.
             var identityFiles = CollectIdentityFiles(outputDirectory);
             var assemblyFiles = thunkFiles.Concat(identityFiles).ToList();

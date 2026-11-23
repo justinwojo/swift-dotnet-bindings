@@ -47,6 +47,10 @@ public sealed class WrapperIdentityTests : IDisposable
     [InlineData("schema=1;module=Kit;library=Kit;copy=c;sdk=1;generator=g")]
     [InlineData("schema=1;module=Kit;library=Kit;copy=c;sdk=;generator=g;source=s")]
     [InlineData("schema=1;module=Kit;library=Kit;copy=c;sdk=1;generator=g;source=s;extra=x")]
+    // A field Compose would refuse, which the value could then not be spelled back from.
+    [InlineData("schema=1;module=Kit;library=Kit;copy=c;sdk=1;generator=a=b;source=s")]
+    [InlineData("schema=1;module=Kit;library=Kit;copy=c;sdk=1;generator=g;source=a\"b")]
+    [InlineData("schema=1;module=Kit;library=Kit;copy= ;sdk=1;generator=g;source=s")]
     public void Spelling_RefusesAnythingElse(string? value)
     {
         Assert.Null(SwiftWrapperIdentityFormat.Parse(value, out var error));
@@ -144,6 +148,23 @@ public sealed class WrapperIdentityTests : IDisposable
         Assert.DoesNotContain(NativeThunkCompiler.CollectAssemblyFiles(tempDir, "x86_64"), f => f.EndsWith(".WrapperIdentity.s", StringComparison.Ordinal));
         Assert.True(NativeThunkCompiler.IsIdentityObject(Path.Combine(tempDir, "arm64", "Acme.Kit.WrapperIdentity.o")));
         Assert.False(NativeThunkCompiler.IsIdentityObject(Path.Combine(tempDir, "arm64", "Acme.Kit.Thunks.arm64.o")));
+    }
+
+    [Fact]
+    public void ThunkCompiler_CompilesTheIdentity_WhenThunkCompilationIsSkipped()
+    {
+        var identity = Identity("net10.0-ios27.2");
+        File.WriteAllText(Path.Combine(tempDir, "Kit.WrapperIdentity.s"), SwiftWrapperIdentityFormat.NativeAssembly(identity.Module, identity.Value));
+        // Not assembly: compiling it would fail, so a pass shows the thunks were skipped.
+        File.WriteAllText(Path.Combine(tempDir, "Kit.Thunks.arm64.s"), "not assembly\n");
+        var sdk = Run("xcrun", "--sdk", "macosx", "--show-sdk-path").Trim();
+
+        var result = NativeThunkCompiler.CompileThunkObjects(tempDir, "arm64-apple-macos13.0", sdk,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance, includeThunks: false);
+
+        Assert.NotNull(result);
+        Assert.Equal(0, result.ThunkObjectCount);
+        Assert.True(NativeThunkCompiler.IsIdentityObject(Assert.Single(result.ObjectFiles)));
     }
 
     [Theory]

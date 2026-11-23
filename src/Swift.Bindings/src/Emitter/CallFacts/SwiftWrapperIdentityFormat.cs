@@ -115,6 +115,11 @@ public static class SwiftWrapperIdentityFormat
                 return null;
             }
             values[i] = parts[i][(separator + 1)..];
+            if (string.IsNullOrWhiteSpace(values[i]) || values[i].IndexOfAny(Reserved) >= 0 || values[i].Any(char.IsControl))
+            {
+                error = $"the wrapper identity '{value}' holds a {names[i]} that is empty or holds a reserved character";
+                return null;
+            }
         }
         if (values[0] != Schema.ToString(System.Globalization.CultureInfo.InvariantCulture))
         {
@@ -149,10 +154,6 @@ public static class SwiftWrapperIdentityFormat
                $"  .asciz \"{value}\"\n" +
                ".subsections_via_symbols\n";
     }
-
-    /// <summary>The identity values an assembly's attribute arguments hold, keyed by the attribute key.</summary>
-    public static IEnumerable<string> Values(IEnumerable<(string Key, string? Value)> metadata) =>
-        metadata.Where(m => m.Key == AttributeKey).Select(m => m.Value ?? "");
 }
 
 /// <summary>A read wrapper identity (<see cref="SwiftWrapperIdentityFormat.Parse"/>).</summary>

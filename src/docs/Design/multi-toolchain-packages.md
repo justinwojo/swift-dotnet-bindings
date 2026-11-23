@@ -49,7 +49,7 @@ pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitt
 | SWIFTBIND138 | pack and merge | consumer targets that reference `runtimes/` or another copy's `native/`, found in the text, or a `NativeReference` that does not resolve, from `buildTransitive/<T>/` as NuGet lays the file out, into `native/<T>/` (one through a property, relative to the consuming project, absolute, or out of the package); at merge, every refusal below. |
 | SWIFTBIND139 | every app build | a copy older than the build's toolchain (another .NET version, or a lower platform SDK major): an informational message by default, an error with `SwiftBindingsRequireExactCopy=true`. |
 | SWIFTBIND133 | pack and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. It includes the wrapper identity check below. |
-| SWIFTBIND132 | every app build | reads the natives the app actually references, which are the selected copy's (SWIFTBIND136 guarantees the assembly is that copy's too), including the wrapper identity check below. |
+| SWIFTBIND132 | every app build the consumer transition check runs in (Mono and the .NET 11 CoreCLR engines on iOS, tvOS and Mac Catalyst; not NativeAOT or macOS) | reads the natives the app actually references, which are the selected copy's (SWIFTBIND136 guarantees the assembly is that copy's too), including the wrapper identity check below. |
 | SWIFTBIND140 | merge | a warning: an entry past the Windows restore path budget (below). An error with `SwiftBindingsMergeRequireWindowsPathBudget=true`. |
 
 The build's own transition-evidence and packed residual-guard checks pair assemblies and natives the
@@ -79,8 +79,11 @@ named wrapper to export `SBWI_<M>` holding exactly the assembly's value, so the 
 under the newer copy's assembly, a wrapper of another build, or an unstamped wrapper is refused
 (remedy `WrapperMismatch`). An assembly that records no identity (a hand-written table, a binding
 from an earlier SDK, a module without a wrapper) is not held to one, and a wrapper no image
-provides is left to the app's load. The identity's `sdk` field is also the binding's record of the
-SDK it was generated on, which SWIFTBIND137 judges.
+provides is left to the app's load. The pack check reads framework binaries and bare dylibs
+(`<library>.dylib`, `lib<library>.dylib`), as a consumer's native reference resolves them. The app side
+runs where SWIFTBIND132 runs; a NativeAOT or macOS app relies on the pack and merge check, since a
+wrapper can only change copies after it by editing a published package. The identity's `sdk` field is
+also the binding's record of the SDK it was generated on, which SWIFTBIND137 judges.
 
 ## Merge
 

@@ -78,6 +78,8 @@ public static class SwiftWrapperIdentityCheck
         var read = Read(assembly.Image);
         var problems = new List<string>(read.Problems);
         var unverified = new List<string>();
+        if (read.Identities.IsEmpty)
+            return (problems.ToImmutableArray(), []);
         var offered = natives.ToList();
         foreach (var identity in read.Identities)
         {
