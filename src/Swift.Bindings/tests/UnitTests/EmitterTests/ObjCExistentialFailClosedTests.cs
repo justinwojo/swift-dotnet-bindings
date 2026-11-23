@@ -333,6 +333,51 @@ public class ObjCExistentialFailClosedTests
 
     #endregion
 
+    #region ValidateSubscriptEmission — concrete subscript drop
+
+    private static SubscriptDecl ConcreteSubscript(TypeSpec returnSpec, TypeSpec indexSpec) => new SubscriptDecl
+    {
+        Name = "subscript",
+        ReturnTypeSpec = returnSpec,
+        IndexParameters = new List<ArgumentDecl> { Arg("index", indexSpec) },
+        IsStatic = false,
+        Accessors = new List<AccessorDecl>(),
+        MangledName = "$sSubscript",
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    public static TheoryData<string, TypeSpec, TypeSpec> NestedObjCSubscriptShapes => new()
+    {
+        { "array element", Array(Any(ObjCProto)), Int() },
+        { "dictionary value", Dictionary(String(), Any(ObjCProto)), Int() },
+        { "array index parameter", Int(), Array(Any(ObjCProto)) },
+    };
+
+    // The accessor carries each element as a 40-byte ExistentialContainer1 over Swift's 8-byte
+    // object-pointer stride, and the owned-element getter conversion compiles against it, so the
+    // validator — not a compile failure — must refuse the shape, as it does for properties.
+    [Theory]
+    [MemberData(nameof(NestedObjCSubscriptShapes))]
+    public void ValidateSubscriptEmission_NestedObjC_DropsUnsupportedExistential(string label, TypeSpec returnSpec, TypeSpec indexSpec)
+    {
+        var result = new MemberValidationPipeline(BuildDatabase()).ValidateSubscriptEmission(ConcreteSubscript(returnSpec, indexSpec), null);
+
+        Assert.False(result.ShouldEmit, label);
+        Assert.Equal(SkipReason.UnsupportedExistential, result.Reason);
+        Assert.Contains("@objc", result.Details!);
+    }
+
+    [Fact]
+    public void ValidateSubscriptEmission_BareAnyObjCElement_NotDroppedForObjCReason()
+    {
+        var result = new MemberValidationPipeline(BuildDatabase()).ValidateSubscriptEmission(ConcreteSubscript(Any(ObjCProto), Int()), null);
+
+        Assert.NotEqual(SkipReason.UnsupportedExistential, result.Reason);
+    }
+
+    #endregion
+
     #region Reverse-path lockstep — MemberGateEvaluator (interface) + VtableLayoutBuilder (vtable slot)
 
     // The concrete-witness path (MemberEmissionValidator, above) was the ONLY enforcer of the @objc

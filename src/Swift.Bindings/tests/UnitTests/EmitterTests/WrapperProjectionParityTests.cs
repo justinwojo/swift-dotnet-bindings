@@ -143,6 +143,72 @@ public class WrapperProjectionParityTests
 
     #endregion
 
+    #region Getter Visitor — collection getters adopt every element they read
+
+    // A property or subscript getter returns an owned Swift collection, and every element read
+    // through its projection (the SwiftArray indexer, the SwiftDictionary indexer and enumerator)
+    // moves the element out at +1. An existential element's proxy must adopt that +1, exactly as an
+    // owned function return's does, or each read of the accessor leaks the element's Swift object.
+
+    public static TheoryData<ITypeProjection> ProxyExistentialElements => new()
+    {
+        new ExistentialProjection("Swift.Runtime.ClassExistentialContainer1", "IMarker", "MarkerProxy", isClassBoundArity1: true),
+        new ExistentialProjection("Swift.Runtime.ExistentialContainer1", "IDescribable", "DescribableProxy"),
+        new ExistentialProjection("Swift.Runtime.ExistentialContainer2", "IComposed", "ComposedProxy"),
+    };
+
+    [Theory]
+    [MemberData(nameof(ProxyExistentialElements))]
+    public void GetterVisitor_ArrayOfExistentials_ProjectsLikeAnOwnedReturn(ITypeProjection element)
+    {
+        var proj = new ArrayProjection(element, isParameter: false);
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("ownsContainer: true", conversion);
+        Assert.Equal(proj.GetReturnContainerConversion("result"), conversion);
+    }
+
+    [Theory]
+    [MemberData(nameof(ProxyExistentialElements))]
+    public void GetterVisitor_NestedArrayOfExistentials_AdoptsTheInnerElements(ITypeProjection element)
+    {
+        var proj = new ArrayProjection(new ArrayProjection(element, isParameter: false), isParameter: false);
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("ownsContainer: true", conversion);
+        Assert.Equal(proj.GetReturnContainerConversion("result"), conversion);
+    }
+
+    [Theory]
+    [MemberData(nameof(ProxyExistentialElements))]
+    public void GetterVisitor_DictionaryOfExistentialValues_AdoptsEachValue(ITypeProjection value)
+    {
+        var proj = new DictionaryProjection(new StringProjection(), value, isParameter: false);
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("ownsContainer: true", conversion);
+        Assert.Equal(proj.GetReturnContainerConversion("result"), conversion);
+        // The subscript handler's direct dictionary entry point routes through the same helper.
+        Assert.Equal(conversion, SubscriptHandler.GetDictAccessorGetterConversion(proj, "result").conversion);
+    }
+
+    [Theory]
+    [MemberData(nameof(ProxyExistentialElements))]
+    public void GetterVisitor_SetOfExistentials_AdoptsEachElement(ITypeProjection element)
+    {
+        var proj = new SetProjection(element, isParameter: false);
+        var (conversion, _) = proj.Accept(new AccessorGetterConversionVisitor("result"));
+
+        Assert.NotNull(conversion);
+        Assert.Contains("ownsContainer: true", conversion);
+        Assert.Equal(conversion, SubscriptHandler.GetSetAccessorGetterConversion(proj, "result").conversion);
+    }
+
+    #endregion
+
     #region Getter Visitor — Passthrough Cases
 
     [Theory]

@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.CompilerServices;
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
 
@@ -194,13 +195,23 @@ public class ClassBoundExistentialArrayWriteParamTests : TestBase
     /// </summary>
     public void TestConsumeMarkerProviderWriteProxyElements()
     {
-        using var vendor = new MarkerVendor();
-        var provider = new CSharpMarkerProvider(new List<IMarker> { vendor.Make(4), vendor.Make(5), vendor.Make(6) });
+        LifetimeTracker.Reset();
 
-        var sum = (int)TestLibFunctions.ConsumeMarkerProvider(provider);
+        var sum = LifetimeTracker.RunIsolated(ConsumeProxyElements);
 
         AssertEqual(15, sum, "ConsumeMarkerProvider over C#-returned proxy elements (4+5+6)");
+        // The receiver getter mints the array's own +1 per element and Swift releases the array, so
+        // once the C# proxies are collected every vended marker is gone.
+        LifetimeTracker.AssertNoLeaks("[any Marker] receiver getter must leave each element's retains balanced");
         TestLogger.Info($"WRITE proxy elements: ConsumeMarkerProvider = {sum}");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static int ConsumeProxyElements()
+    {
+        using var vendor = new MarkerVendor();
+        var provider = new CSharpMarkerProvider(new List<IMarker> { vendor.Make(4), vendor.Make(5), vendor.Make(6) });
+        return (int)TestLibFunctions.ConsumeMarkerProvider(provider);
     }
 
     /// <summary>
@@ -237,21 +248,33 @@ public class ClassBoundExistentialArrayWriteParamTests : TestBase
     /// </summary>
     public void TestMarkerBoxSettablePropertyRoundTrip()
     {
+        LifetimeTracker.Reset();
+
+        var (swiftSum, csSum) = LifetimeTracker.RunIsolated(MarkerBoxSetThenRead);
+
+        // Swift reads the property it just received: proves the setter wrote valid 16-byte cells.
+        AssertEqual(60, swiftSum, "MarkerBox.SumIds (Swift-side read after C# setter, 10+20+30)");
+        // C# getter round-trips the same array back: proves getter/setter carrier symmetry end to end.
+        AssertEqual(60, csSum, "MarkerBox.Markers C# getter round-trip after setter (10+20+30)");
+        // Each element the getter reads arrives at +1; the proxy it builds must adopt and release it,
+        // or every read of the property leaks the element's Swift object.
+        LifetimeTracker.AssertNoLeaks("MarkerBox.Markers getter must release every element it reads");
+        TestLogger.Info($"SETTER concrete property: swiftSum={swiftSum}, csSum={csSum}");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (int swiftSum, int csSum) MarkerBoxSetThenRead()
+    {
         using var vendor = new MarkerVendor();
         using var box = new MarkerBox(new List<IMarker> { vendor.Make(1) });
 
         // C# → Swift through the concrete-type property SETTER (mixed proxy/boxable element layouts).
         box.Markers = new List<IMarker> { vendor.Make(10), new MarkerImpl((nint)20), vendor.Make(30) };
-
-        // Swift reads the property it just received: proves the setter wrote valid 16-byte cells.
         var swiftSum = (int)box.SumIds();
-        AssertEqual(60, swiftSum, "MarkerBox.SumIds (Swift-side read after C# setter, 10+20+30)");
 
-        // C# getter round-trips the same array back: proves getter/setter carrier symmetry end to end.
         int csSum = 0;
         foreach (var m in box.Markers) csSum += (int)m.GetMarkerId();
-        AssertEqual(60, csSum, "MarkerBox.Markers C# getter round-trip after setter (10+20+30)");
-        TestLogger.Info($"SETTER concrete property: swiftSum={swiftSum}, csSum={csSum}");
+        return (swiftSum, csSum);
     }
 
     #endregion
@@ -314,27 +337,40 @@ public class ClassBoundExistentialArrayWriteParamTests : TestBase
     /// </summary>
     public void TestMarkerGroupsSubscriptRoundTrip()
     {
+        LifetimeTracker.Reset();
+
+        var (initialSum, swiftSum, csSum) = LifetimeTracker.RunIsolated(MarkerGroupsSetThenRead);
+
+        // Swift-side read of the initial group 0 (proxy-layout elements, 1+2).
+        AssertEqual(3, initialSum, "MarkerGroups.SumGroup(0) initial (1+2)");
+        // Swift re-reads the group it just received: proves the setter wrote valid 16-byte cells.
+        AssertEqual(60, swiftSum, "MarkerGroups.SumGroup(1) after C# subscript set (10+20+30)");
+        // C# subscript getter round-trips the same array back: getter/setter carrier symmetry end to end.
+        AssertEqual(60, csSum, "MarkerGroups[1] C# subscript getter round-trip after set (10+20+30)");
+        // Each element the subscript getter reads arrives at +1; the proxy it builds must adopt and
+        // release it, or every read through the subscript leaks the element's Swift object.
+        LifetimeTracker.AssertNoLeaks("MarkerGroups subscript getter must release every element it reads");
+        TestLogger.Info($"SUBSCRIPT concrete: SumGroup(1)={swiftSum}, csSum={csSum}");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static (int initialSum, int swiftSum, int csSum) MarkerGroupsSetThenRead()
+    {
         using var vendor = new MarkerVendor();
         using var groups = new MarkerGroups(new List<List<IMarker>>
         {
             new List<IMarker> { vendor.Make(1), vendor.Make(2) },
             new List<IMarker> { new MarkerImpl((nint)3) },
         });
-
-        // Swift-side read of the initial group 0 (proxy-layout elements, 1+2).
-        AssertEqual(3, (int)groups.SumGroup(0), "MarkerGroups.SumGroup(0) initial (1+2)");
+        var initialSum = (int)groups.SumGroup(0);
 
         // C# → Swift through the subscript SETTER (mixed proxy/boxable element layouts).
         groups[1] = new List<IMarker> { vendor.Make(10), new MarkerImpl((nint)20), vendor.Make(30) };
+        var swiftSum = (int)groups.SumGroup(1);
 
-        // Swift re-reads the group it just received: proves the setter wrote valid 16-byte cells.
-        AssertEqual(60, (int)groups.SumGroup(1), "MarkerGroups.SumGroup(1) after C# subscript set (10+20+30)");
-
-        // C# subscript getter round-trips the same array back: getter/setter carrier symmetry end to end.
         int csSum = 0;
         foreach (var m in groups[1]) csSum += (int)m.GetMarkerId();
-        AssertEqual(60, csSum, "MarkerGroups[1] C# subscript getter round-trip after set (10+20+30)");
-        TestLogger.Info($"SUBSCRIPT concrete: SumGroup(1)={(int)groups.SumGroup(1)}, csSum={csSum}");
+        return (initialSum, swiftSum, csSum);
     }
 
     #endregion

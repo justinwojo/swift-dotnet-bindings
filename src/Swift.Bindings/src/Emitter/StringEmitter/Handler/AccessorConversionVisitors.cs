@@ -39,6 +39,14 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
     public (string?, bool) Visit(KeyPathProjection p) => (null, false);
 
     // --- Shared getter helpers ---
+    //
+    // A property or subscript getter hands back an OWNED Swift collection, and every element read
+    // through its projection (the SwiftArray/SwiftDictionary indexers, Keys/Values, the entry and set
+    // enumerators) moves the element out of its slot at +1. These helpers therefore take the
+    // owned-return element conversions — the same ones a function returning the collection uses — so
+    // an existential element's proxy adopts that +1 and releases it on Dispose. The shared non-owning
+    // GetReturnElementConversion is for borrowed receiver-callback reads only; projecting a getter's
+    // elements through it leaked every element's Swift object on every read.
 
     internal static (string?, bool) ArrayGetterConversion(ArrayProjection arr, string resultExpr)
     {
@@ -48,7 +56,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
             var conv = arr.GetReturnContainerConversion(resultExpr);
             return (conv, false);
         }
-        var elemConv = arr.ElementProjection.GetReturnElementConversion("e");
+        var elemConv = arr.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
             return ($"{resultExpr}.AsProjected(e => {elemConv})", false);
         return (null, false);
@@ -63,8 +71,8 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
             return (conv, false);
         }
 
-        var keyConv = dict.KeyProjection.GetReturnElementConversion("k");
-        var valConv = dict.ValueProjection.GetReturnElementConversion("v");
+        var keyConv = dict.KeyProjection.GetOwnedReturnElementConversion("k");
+        var valConv = dict.ValueProjection.GetOwnedReturnElementConversion("v");
         if (keyConv == null && valConv == null)
             return (null, false);
 
@@ -84,7 +92,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
             var conv = set.GetReturnContainerConversion(resultExpr);
             return (conv, false);
         }
-        var elemConv = set.ElementProjection.GetReturnElementConversion("e");
+        var elemConv = set.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
             return ($"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({resultExpr}, e => {elemConv}))", true);
         return (null, false);
