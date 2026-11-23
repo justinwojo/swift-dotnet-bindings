@@ -111,6 +111,11 @@ def nuspec_groups(entries):
     return groups
 
 
+def describe_groups(groups, tfms):
+    """One receipt line of nuspec_groups(): each copy's dependencies as 'id version'."""
+    return "; ".join(f"{t}: " + ", ".join(f"{dict(d).get('id')} {dict(d).get('version')}" for d in groups.get(t, [])) for t in tfms)
+
+
 def variant(source, out_dir, version, drops=(), copies=()):
     """A doctored copy of a package under a new version (controls only).
 
@@ -384,7 +389,7 @@ class Gate:
                 source_groups.update(nuspec_groups(read_entries(contribution)))
             self.step(f"merge {framework} nuspec groups", set(groups) == set(expected)
                       and all(groups[t] == source_groups.get(t) for t in expected),
-                      "; ".join(f"{t}: {', '.join(f'{i} {v}' for i, v in groups.get(t, []))}" for t in expected))
+                      describe_groups(groups, expected))
             names = list(entries)
             longest = longest_entry(names)
             budget = windows_budget(package_id(framework), VERSION)

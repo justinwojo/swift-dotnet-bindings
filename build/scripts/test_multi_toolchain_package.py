@@ -69,6 +69,11 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(groups, {"net10.0-ios26.0": [(("exclude", "Build,Analyzers"), ("id", "SwiftBindings.Runtime"),
                                                        ("version", "[0.21.0, 0.22.0)"))], "net10.0-ios27.2": []})
 
+    def test_describe_groups_names_each_copys_dependencies(self):
+        groups = mtp.nuspec_groups(mtp.read_entries(self.kit()))
+        self.assertEqual(mtp.describe_groups(groups, ["net10.0-ios26.0", "net10.0-ios27.2"]),
+                         "net10.0-ios26.0: SwiftBindings.Runtime [0.21.0, 0.22.0); net10.0-ios27.2: ")
+
     def test_nuspec_groups_see_every_dependency_attribute_and_refuse_a_duplicate_group(self):
         dropped = NUSPEC.replace(' exclude="Build,Analyzers"', "")
         self.assertNotEqual(mtp.nuspec_groups({"a.nuspec": dropped.encode()}), mtp.nuspec_groups({"a.nuspec": NUSPEC.encode()}))
