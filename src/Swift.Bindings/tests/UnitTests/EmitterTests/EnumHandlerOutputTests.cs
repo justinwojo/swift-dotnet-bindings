@@ -5535,52 +5535,74 @@ public class EnumHandlerOutputTests
     }
 
     /// <summary>
-    /// An enum Swift stores as its raw value (an <c>@objc</c> enum, an NS_ENUM) must be read whole at
-    /// the raw type's width, alone or as a tuple element: the one-byte tag width returns the low byte
-    /// (17011 read back as 115). That is certain for an enum of the module being generated and for
-    /// an Apple framework enum. A third-party dependency's flag-less record may be a plain
-    /// <c>enum E: Int</c> from a database older than <c>rawValueCrossesAsCaseTag</c>, stored as a
-    /// one-byte tag, so it keeps the stored-tag read.
+    /// An enum Swift stores as its raw value (an <c>@objc</c> enum) must be read whole at the raw
+    /// type's width, alone or as a tuple element: the one-byte tag width returns the low byte (17011
+    /// read back as 115). That is certain only for an enum the module being generated declares,
+    /// including one nested in an extension of another module's type. A database record of any
+    /// other module, Apple's included, may be a plain <c>enum E: Int</c> from a database older than
+    /// <c>rawValueCrossesAsCaseTag</c>, stored as a one-byte tag, so it keeps the stored-tag read.
     /// </summary>
     [Theory]
-    [InlineData("OwnModule", "Int", "long", true, true)]
-    [InlineData("OwnModule", "Int", "long", false, true)]
-    [InlineData("OwnModule", "UInt16", "ushort", true, true)]
-    [InlineData("Foundation", "Int32", "int", false, true)]
-    [InlineData("OtherModule", "Int", "long", true, false)]
-    [InlineData("OtherModule", "Int", "long", false, false)]
-    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueWhereItsStorageIsCertain(
-        string module, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
+    [InlineData("OwnModule.Code", true, "Int", "long", true, true)]
+    [InlineData("OwnModule.Code", true, "Int", "long", false, true)]
+    [InlineData("OwnModule.Code", true, "UInt16", "ushort", true, true)]
+    [InlineData("Ext.Host.Code", true, "Int", "long", false, true)]
+    [InlineData("Foundation.Code", false, "Int32", "int", false, false)]
+    [InlineData("OtherModule.Code", false, "Int", "long", true, false)]
+    [InlineData("OtherModule.Code", false, "Int", "long", false, false)]
+    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueOnlyForTheModulesOwnEnums(
+        string recordName, bool declaredHere, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
     {
         var typeDatabase = CreateTypeDatabase();
-        var enumModule = new ModuleTypeDatabase(module, $"/tmp/{module}.dylib");
+        var recordModule = recordName.Substring(0, recordName.IndexOf('.'));
+        var csNamespace = recordName.Substring(0, recordName.LastIndexOf('.'));
+        var enumModule = new ModuleTypeDatabase(recordModule, $"/tmp/{recordModule}.dylib");
         enumModule.RegisterType(
-            SwiftTypeName.FromModuleQualifiedName($"{module}.Code"),
+            SwiftTypeName.FromModuleQualifiedName(recordName),
             new TypeRecord
             {
-                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(module, "Code"),
-                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{module}.Code"),
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, "Code"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName),
                 MetadataAccessor = "$s4Code4CodeOMa",
                 Flags = TypeRecordFlags.SimpleEnum,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = rawValueType,
             });
         typeDatabase.AddModuleDatabase(enumModule);
+        if (recordModule != "OwnModule")
+            typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("OwnModule", "/tmp/OwnModule.dylib"));
 
-        // "OwnModule" rows declare the carrier in the enum's own module: the module being generated.
-        var moduleDecl = CreateModuleDecl(module == "OwnModule" ? module : "TestModule");
+        var moduleDecl = CreateModuleDecl("OwnModule");
+        if (declaredHere)
+        {
+            // The parse's own declaration; an extension of a foreign type stands as its nesting decl.
+            var code = CreateEnumDecl("Code", moduleDecl, isFrozen: false);
+            code.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName);
+            code.RawValueTypeName = rawValueType;
+            if (recordName.StartsWith("Ext.", StringComparison.Ordinal))
+            {
+                var host = CreateEnumDecl("Host", moduleDecl, isFrozen: false);
+                host.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Ext.Host");
+                host.Types.Add(code);
+                moduleDecl.Types.Add(host);
+            }
+            else
+            {
+                moduleDecl.Types.Add(code);
+            }
+        }
         var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
         var failed = CreateCase("failed");
         failed.AssociatedValues.Add(inTuple
-            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec($"{module}.Code"), new NamedTypeSpec("Swift.Int") })
-            : new NamedTypeSpec($"{module}.Code"));
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec(recordName), new NamedTypeSpec("Swift.Int") })
+            : new NamedTypeSpec(recordName));
         enumDecl.Cases.Add(failed);
         enumDecl.Cases.Add(CreateCase("succeeded"));
 
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         var read = csOutput.Replace("global::", string.Empty);
-        var cast = $@"value0? = \({module}\.Code\)\(\*";
+        var cast = $@"value0? = \({Regex.Escape(csNamespace)}\.Code\)\(\*";
         if (readsRawValue)
             Assert.Matches($@"{cast}\({csScalar}\*\)\(enumCopy", read);
         else

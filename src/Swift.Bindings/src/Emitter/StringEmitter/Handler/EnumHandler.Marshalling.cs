@@ -516,7 +516,7 @@ namespace BindingsGeneration
                 offsetEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
                 var readExpr = GetSimpleEnumPayloadRead(offsetEnumRecord, csharpType, $"{sourcePtr} + (int){offsetVar}",
-                    GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar), moduleDecl?.Name);
+                    GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar), moduleDecl);
                 csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
@@ -773,7 +773,7 @@ namespace BindingsGeneration
                 payloadRecord.Kind == TypeRecordKind.Enum &&
                 payloadRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var readExpr = GetSimpleEnumPayloadRead(payloadRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(payloadRecord, sourcePtr), moduleDecl?.Name);
+                var readExpr = GetSimpleEnumPayloadRead(payloadRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(payloadRecord, sourcePtr), moduleDecl);
                 csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
@@ -992,11 +992,11 @@ namespace BindingsGeneration
         /// stores as its raw value (<see cref="IsStoredAsRawValue"/>) is read whole at the raw type's
         /// width. Any other simple enum is payload-less, so its discriminator is read as stored.
         /// </summary>
-        internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr, string? currentModuleName)
+        internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr, ModuleDecl? moduleDecl)
         {
             if (SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(typeRecord)))
                 return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{csharpType}>((void*)({slotExpr}), global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>())";
-            if (IsStoredAsRawValue(typeRecord, currentModuleName))
+            if (IsStoredAsRawValue(typeRecord, moduleDecl))
                 return $"({csharpType})(*({GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName)}*)({slotExpr}))";
             return $"({csharpType}){discriminatorReadExpr}";
         }
@@ -1006,18 +1006,27 @@ namespace BindingsGeneration
         /// NS_ENUM) rather than as its case tag. <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/>
         /// holds for both an <c>@objc</c> enum and a plain <c>enum E: Int</c> read from a module
         /// database written before <c>rawValueCrossesAsCaseTag</c> existed (every released one): the
-        /// plain enum arrives with the flag clear, and the database cannot tell the two apart. So the
-        /// raw value is read only where the record is certain: an enum of the module being generated,
-        /// whose record comes from the parse, and an Apple framework enum. A third-party dependency's
-        /// enum keeps the stored-tag read it always had.
+        /// plain enum arrives with the flag clear, and a database record cannot tell the two apart,
+        /// whatever module it names. So the raw value is read only for an enum the module being
+        /// generated declares (anywhere in its declarations, including an extension of another
+        /// module's type), whose record comes from the parse. Every other enum keeps the stored-tag
+        /// read it always had.
         /// </summary>
-        private static bool IsStoredAsRawValue(TypeRecord typeRecord, string? currentModuleName)
+        private static bool IsStoredAsRawValue(TypeRecord typeRecord, ModuleDecl? moduleDecl)
+            => moduleDecl is not null
+               && SimpleEnumCrossing.CrossesAsRawValue(typeRecord)
+               && DeclaresEnum(moduleDecl.Types, typeRecord.SwiftTypeName.ModuleQualifiedName);
+
+        private static bool DeclaresEnum(IEnumerable<TypeDecl> types, string moduleQualifiedName)
         {
-            if (!SimpleEnumCrossing.CrossesAsRawValue(typeRecord))
-                return false;
-            var module = typeRecord.SwiftTypeName.Module;
-            return string.Equals(module, currentModuleName, StringComparison.Ordinal)
-                   || AppleFrameworkRegistry.IsKnownModule(module);
+            foreach (var type in types)
+            {
+                if (type is EnumDecl && string.Equals(type.SwiftTypeName.ModuleQualifiedName, moduleQualifiedName, StringComparison.Ordinal))
+                    return true;
+                if (DeclaresEnum(type.Types, moduleQualifiedName))
+                    return true;
+            }
+            return false;
         }
 
         /// <summary>
