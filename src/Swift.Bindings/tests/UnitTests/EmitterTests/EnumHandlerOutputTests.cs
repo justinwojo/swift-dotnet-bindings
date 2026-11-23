@@ -5535,22 +5535,24 @@ public class EnumHandlerOutputTests
     }
 
     /// <summary>
-    /// An enum Swift stores as its raw value (an <c>@objc</c> enum) must be read whole at the raw
-    /// type's width, alone or as a tuple element: the one-byte tag width returns the low byte (17011
-    /// read back as 115). That is certain only for an enum the module being generated declares,
-    /// including one nested in an extension of another module's type. A database record of any
-    /// other module, Apple's included, may be a plain <c>enum E: Int</c> from a database older than
-    /// <c>rawValueCrossesAsCaseTag</c>, stored as a one-byte tag, so it keeps the stored-tag read.
+    /// An <c>@objc</c> enum is stored as its raw value and must be read whole at the raw type's
+    /// width, alone or as a tuple element: the one-byte tag width returns the low byte (17011 read
+    /// back as 115). Only the parse's <c>@objc</c> declaration makes that certain, including one
+    /// nested in an extension of another module's type. A bare record of any module, Apple's
+    /// included, or a parsed extension of a non-<c>@objc</c> foreign enum, may be a plain
+    /// <c>enum E: Int</c> from a database older than <c>rawValueCrossesAsCaseTag</c>, stored as a
+    /// one-byte tag, so it keeps the stored-tag read.
     /// </summary>
     [Theory]
     [InlineData("OwnModule.Code", true, "Int", "long", true, true)]
     [InlineData("OwnModule.Code", true, "Int", "long", false, true)]
     [InlineData("OwnModule.Code", true, "UInt16", "ushort", true, true)]
     [InlineData("Ext.Host.Code", true, "Int", "long", false, true)]
+    [InlineData("Ext.Code", false, "Int", "long", true, false)]
     [InlineData("Foundation.Code", false, "Int32", "int", false, false)]
     [InlineData("OtherModule.Code", false, "Int", "long", true, false)]
     [InlineData("OtherModule.Code", false, "Int", "long", false, false)]
-    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueOnlyForTheModulesOwnEnums(
+    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueOnlyForAnObjCEnumTheParseDeclares(
         string recordName, bool declaredHere, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
     {
         var typeDatabase = CreateTypeDatabase();
@@ -5573,12 +5575,21 @@ public class EnumHandlerOutputTests
             typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("OwnModule", "/tmp/OwnModule.dylib"));
 
         var moduleDecl = CreateModuleDecl("OwnModule");
+        if (recordName == "Ext.Code")
+        {
+            // The parse keeps an extension of a foreign enum under the foreign name, not @objc.
+            var extended = CreateEnumDecl("Code", moduleDecl, isFrozen: false);
+            extended.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName);
+            extended.RawValueTypeName = rawValueType;
+            moduleDecl.Types.Add(extended);
+        }
         if (declaredHere)
         {
             // The parse's own declaration; an extension of a foreign type stands as its nesting decl.
             var code = CreateEnumDecl("Code", moduleDecl, isFrozen: false);
             code.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName);
             code.RawValueTypeName = rawValueType;
+            code.IsObjC = true;
             if (recordName.StartsWith("Ext.", StringComparison.Ordinal))
             {
                 var host = CreateEnumDecl("Host", moduleDecl, isFrozen: false);

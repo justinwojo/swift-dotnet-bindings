@@ -1002,28 +1002,27 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Whether Swift is known to store a simple enum as its raw value (an <c>@objc</c> enum, an
-        /// NS_ENUM) rather than as its case tag. <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/>
-        /// holds for both an <c>@objc</c> enum and a plain <c>enum E: Int</c> read from a module
-        /// database written before <c>rawValueCrossesAsCaseTag</c> existed (every released one): the
-        /// plain enum arrives with the flag clear, and a database record cannot tell the two apart,
-        /// whatever module it names. So the raw value is read only for an enum the module being
-        /// generated declares (anywhere in its declarations, including an extension of another
-        /// module's type), whose record comes from the parse. Every other enum keeps the stored-tag
-        /// read it always had.
+        /// Whether Swift is known to store a simple enum as its raw value rather than as its case tag:
+        /// the parse holds an <c>@objc</c> declaration of it (<see cref="EnumDecl.IsObjC"/>), and an
+        /// <c>@objc</c> enum is a C enum stored as its raw value. A record alone does not say so:
+        /// <see cref="SimpleEnumCrossing.CrossesAsRawValue(TypeRecord)"/> also holds for a plain
+        /// <c>enum E: Int</c> read from a module database written before <c>rawValueCrossesAsCaseTag</c>
+        /// existed (every released one), stored as a one-byte tag, and neither the record's module
+        /// nor a parsed extension of the type tells the two apart. Every enum without such a
+        /// declaration keeps the stored-tag read it always had.
         /// </summary>
         private static bool IsStoredAsRawValue(TypeRecord typeRecord, ModuleDecl? moduleDecl)
             => moduleDecl is not null
                && SimpleEnumCrossing.CrossesAsRawValue(typeRecord)
-               && DeclaresEnum(moduleDecl.Types, typeRecord.SwiftTypeName.ModuleQualifiedName);
+               && DeclaresObjCEnum(moduleDecl.Types, typeRecord.SwiftTypeName.ModuleQualifiedName);
 
-        private static bool DeclaresEnum(IEnumerable<TypeDecl> types, string moduleQualifiedName)
+        private static bool DeclaresObjCEnum(IEnumerable<TypeDecl> types, string moduleQualifiedName)
         {
             foreach (var type in types)
             {
-                if (type is EnumDecl && string.Equals(type.SwiftTypeName.ModuleQualifiedName, moduleQualifiedName, StringComparison.Ordinal))
+                if (type is EnumDecl { IsObjC: true } && string.Equals(type.SwiftTypeName.ModuleQualifiedName, moduleQualifiedName, StringComparison.Ordinal))
                     return true;
-                if (DeclaresEnum(type.Types, moduleQualifiedName))
+                if (DeclaresObjCEnum(type.Types, moduleQualifiedName))
                     return true;
             }
             return false;
