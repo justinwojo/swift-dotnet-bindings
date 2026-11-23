@@ -1613,24 +1613,33 @@ public static class NameProvider
     /// <param name="nestedTypeNames">Nested type names.</param>
     /// <param name="typeRenameNames">Member names where the nested type should be renamed instead of the property.</param>
     /// <param name="reservedNames">Names of other members that a rename must not take.</param>
+    /// <param name="synthesizedMemberNames">Members the generator adds to the type itself, which a
+    /// member of the same name always yields to: unlike a nested type, they are never renamed.</param>
     /// <returns>A dictionary mapping original member name → renamed name.</returns>
     public static Dictionary<string, string> ComputePropertyRenamesForNestedTypeCollisions(
         IEnumerable<string> memberNames, IEnumerable<string> nestedTypeNames,
-        ISet<string>? typeRenameNames = null, IEnumerable<string>? reservedNames = null)
+        ISet<string>? typeRenameNames = null, IEnumerable<string>? reservedNames = null,
+        IEnumerable<string>? synthesizedMemberNames = null)
     {
+        var synthesizedNameSet = new HashSet<string>(synthesizedMemberNames ?? Array.Empty<string>());
         var typeNameSet = new HashSet<string>(nestedTypeNames);
+        typeNameSet.UnionWith(synthesizedNameSet);
         var memberNameSet = new HashSet<string>(memberNames);
         if (reservedNames != null)
             memberNameSet.UnionWith(reservedNames);
         var renames = new Dictionary<string, string>();
         foreach (var memberName in memberNames)
         {
+            // A case and a property can share a name (`case payload` beside `var payload`); the
+            // rename is per name, and a second visit would only push it past its own first result.
+            if (renames.ContainsKey(memberName))
+                continue;
             if (typeNameSet.Contains(memberName))
             {
                 // When the property's return type IS the colliding nested type, the nested type
                 // is renamed instead (handled by the caller via TypeDatabase update), so skip
-                // the property rename here.
-                if (typeRenameNames?.Contains(memberName) == true)
+                // the property rename here — unless a synthesized member holds the name too.
+                if (typeRenameNames?.Contains(memberName) == true && !synthesizedNameSet.Contains(memberName))
                     continue;
 
                 renames[memberName] = NameCollisionPolicy.ResolveMemberValueName(memberName,
@@ -1759,12 +1768,29 @@ public static class NameProvider
                 reservedNames = new[] { CaseDiscriminatorFallbackName };
         }
 
+        // The same class also carries members the generator synthesizes, whatever the Swift enum
+        // declares: the payload handle, Dispose, the nested CaseTag enum and the case discriminator.
+        // They never yield, so a case or property projecting onto one of them (`case payload(Int)`
+        // → factory `Payload`) takes the member-side Value rename, as a case named like the enum
+        // does, even when a nested type of that name was renamed instead (`var payload: Payload`).
+        var synthesizedMemberNames = typeDecl is EnumDecl { IsNamespaceEnum: false } && !IsSimpleEnumRecord(typeDecl, typeDatabase)
+            ? ClassEnumInfrastructureMemberNames
+            : null;
+
         return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
-            typeRenameNames.Count > 0 ? typeRenameNames : null, reservedNames);
+            typeRenameNames.Count > 0 ? typeRenameNames : null, reservedNames, synthesizedMemberNames);
     }
 
     /// <summary>The case-discriminator property of an enum projected as a class.</summary>
     internal const string CaseDiscriminatorName = "Tag";
+
+    /// <summary>
+    /// Public members every enum projected as a class carries regardless of its Swift declaration
+    /// (EnumHandler's class path): the <c>Payload</c> handle, <c>Dispose()</c>, the nested
+    /// <c>CaseTag</c> enum and the <see cref="CaseDiscriminatorName"/> property.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> ClassEnumInfrastructureMemberNames =
+        new[] { "Payload", "Dispose", "CaseTag", CaseDiscriminatorName };
 
     /// <summary>The discriminator's name in a class that is itself named <c>Tag</c> (CS0542).</summary>
     internal const string CaseDiscriminatorFallbackName = "TagValue";

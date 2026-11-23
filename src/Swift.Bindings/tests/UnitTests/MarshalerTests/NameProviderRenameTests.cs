@@ -109,6 +109,33 @@ public class NameProviderRenameTests
         Assert.False(renames.ContainsKey("Configuration"));
     }
 
+    [Fact]
+    public void ComputePropertyRenamesForNestedTypeCollisions_CaseAndPropertySharingAName_TakeOneRename()
+    {
+        // `case payload` beside `var payload`: the name appears twice, and both members read the
+        // one rename, so the second visit must not push it to a numeric suffix.
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
+            new[] { "Payload", "Data", "Payload" }, Array.Empty<string>(),
+            synthesizedMemberNames: new[] { "Payload", "Tag" });
+
+        Assert.Single(renames);
+        Assert.Equal("PayloadValue", renames["Payload"]);
+    }
+
+    [Fact]
+    public void ComputePropertyRenamesForNestedTypeCollisions_SynthesizedMember_RenamesEvenWhenTheNestedTypeWasRenamed()
+    {
+        // `struct Payload` renamed to PayloadInfo for `var payload: Payload` clears the nested
+        // type, but the synthesized `Payload` handle still holds the name and never yields.
+        var renames = NameProvider.ComputePropertyRenamesForNestedTypeCollisions(
+            new[] { "Payload", "Configuration" }, new[] { "Payload", "Configuration" },
+            typeRenameNames: new HashSet<string> { "Payload", "Configuration" },
+            synthesizedMemberNames: new[] { "Payload" });
+
+        Assert.Single(renames);
+        Assert.Equal("PayloadValue", renames["Payload"]);
+    }
+
     #endregion
 
     #region GetTypeSpecLeafName Tests

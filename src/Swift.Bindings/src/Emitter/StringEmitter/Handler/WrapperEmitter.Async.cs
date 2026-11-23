@@ -511,6 +511,22 @@ namespace BindingsGeneration
                         }
                     }
 
+                    // A simple enum crosses as the scalar its synchronous return crosses as (the C#
+                    // constant of its case, or its raw value), which the C# callback parameter is
+                    // typed as (GetPInvokeTypeForTupleElement). A heap copy's pointer would reach C#
+                    // as the enum's value.
+                    if (!isGenericTypeParam && element is NamedTypeSpec)
+                    {
+                        var (elementMapping, _) = CdeclReturnMapping.Classify(element, _env.TypeDatabase);
+                        if (elementMapping.Kind == CdeclReturnKind.SimpleEnum)
+                        {
+                            elementTypes.Add(elementMapping.CdeclReturnType);
+                            callbackArgParts.Add(CdeclReturnRenderer.SimpleEnumScalarExpression(
+                                $"{resultVar}.{i}", element, _env.TypeDatabase, elementMapping));
+                            continue;
+                        }
+                    }
+
                     if (isGenericTypeParam)
                     {
                         // Generic type params are unknown size — always heap-allocate via OpaquePointer

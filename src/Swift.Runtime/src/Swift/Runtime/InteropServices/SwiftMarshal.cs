@@ -451,14 +451,13 @@ public static class SwiftMarshal
         // The tuple reader copies a primitive, takes only an enum's case and gives a reference
         // element its own retain. A struct element is read bitwise, which aliases the buffer
         // unless Swift's metadata says the element is trivial. A tuple of eight or more elements
-        // nests its tail, so its C# elements no longer line up with Swift's; it keeps the old path.
+        // nests its tail, so its C# elements no longer line up with Swift's; IsValueTupleType
+        // matches only arities one to seven, which keeps that shape on the old path.
         static unsafe bool IsTupleOfCopiedElements(Type type, TypeMetadata? metadata)
         {
             if (!TypeMetadata.IsValueTupleType(type))
                 return false;
             var elements = type.GetGenericArguments();
-            if (elements.Length > 7)
-                return false;
             for (int i = 0; i < elements.Length; i++)
             {
                 var element = elements[i];

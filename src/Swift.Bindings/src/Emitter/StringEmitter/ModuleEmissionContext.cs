@@ -261,7 +261,9 @@ public sealed class ModuleEmissionContext
 
         return pattern.Replace(moduleQualifiedName, match =>
         {
-            var replacement = RewriteReference(match, pattern);
+            var end = match.Index + match.Length;
+            var replacement = RewriteReference(match, pattern,
+                followedByCall: end < moduleQualifiedName.Length && moduleQualifiedName[end] == '(');
             if (replacement.Length != match.Length || !string.Equals(replacement, match.Value, StringComparison.Ordinal))
                 journal?.Record(match.Index, match.Length, replacement.Length);
             return replacement;
@@ -269,21 +271,23 @@ public sealed class ModuleEmissionContext
     }
 
     // One match of the wrapper-source pattern. A generic argument list inside the match holds type
-    // references of its own, rewritten by the same pattern.
-    private string RewriteReference(Match match, Regex pattern)
+    // references of its own, rewritten by the same pattern; those sit in type position, so they are
+    // never followed by a call. `followedByCall` says whether a `(` follows the match: a type chain
+    // directly followed by `(` is an initializer call, an expression.
+    private string RewriteReference(Match match, Regex pattern, bool followedByCall)
     {
-        string RewriteArguments(string arguments) => pattern.Replace(arguments, m => RewriteReference(m, pattern));
+        string RewriteArguments(string arguments) => pattern.Replace(arguments, m => RewriteReference(m, pattern, followedByCall: false));
 
         if (match.Groups["reserved"].Success)
-            return EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments);
+            return EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments, followedByCall);
 
         // First captured group is the type path after the module prefix. Preserve qualification
         // when the head segment names a type nested inside the colliding class (e.g. LoggingLib.Level).
         var path = match.Groups[1].Value;
         var topLevelName = SplitTopLevelSegments(path)[0].Name;
         return _nestedTypesInCollidingClass?.Contains(topLevelName) == true
-            ? EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments)
-            : EscapeReservedMemberSegments(path, rootQualifier: ModuleNameForCollision, RewriteArguments);
+            ? EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments, followedByCall)
+            : EscapeReservedMemberSegments(path, rootQualifier: ModuleNameForCollision, RewriteArguments, followedByCall);
     }
 
     // A dotted chain containing a segment Swift's type grammar does not read as a member name.
@@ -303,7 +307,7 @@ public sealed class ModuleEmissionContext
     private static readonly string ReservedMemberChain =
         @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*\.(?:"
         + string.Join("|", ReservedMemberSegments.Select(Regex.Escape))
-        + @")\b(?:\.\w+" + GenericArgumentList + @"?)*)(?!`)";
+        + @")\b" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*)(?!`)";
 
     /// <summary>
     /// Segment names a declared type can only be spelled with backticks after a dot:
@@ -351,8 +355,21 @@ public sealed class ModuleEmissionContext
     /// chain; it takes part in the lookup but is not written back. Without one the leading segment is
     /// never escaped: it names a module or a type already in scope. Each segment's generic argument
     /// list goes through <paramref name="rewriteArguments"/>.
+    /// <para>
+    /// Escaping is not enough for a type named <c>Type</c> or <c>Protocol</c> nested in another type
+    /// when the chain is an expression: Swift reads <c>Host.`Type`.self</c>, <c>Host.`Type`(…)</c> and
+    /// <c>Host.`Type`.member</c> as members of <c>Host</c>'s metatype, backticks or not. That compiles
+    /// for <c>.self</c> and silently hands over the wrong type (its metadata, size and layout), and
+    /// fails for the rest. A generic argument is a type position, so such a chain is written
+    /// <c>Swift.UnsafePointer&lt;Host.`Type`&gt;.Pointee</c> there, which names the nested type in
+    /// either position, a generic or <c>~Copyable</c> one included. The chain is an expression when a member that is no declared type follows the
+    /// type (<c>.self</c>, <c>.init</c>, a static member) or a call does
+    /// (<paramref name="followedByCall"/>); a metatype suffix (<c>.Type</c>, <c>.Protocol</c>) and
+    /// a bare type name keep the type position and their plain spelling, which an extension
+    /// declaration needs.
+    /// </para>
     /// </summary>
-    private string EscapeReservedMemberSegments(string chain, string? rootQualifier, Func<string, string> rewriteArguments)
+    private string EscapeReservedMemberSegments(string chain, string? rootQualifier, Func<string, string> rewriteArguments, bool followedByCall)
     {
         if (_isDeclaredType == null && chain.IndexOf('<') < 0)
             return chain;
@@ -367,15 +384,25 @@ public sealed class ModuleEmissionContext
         var first = rootQualifier != null ? 0 : 1;
         var changed = false;
         var qualified = rootQualifier;
+        var parentIsDeclaredType = false;
+        var lastDeclaredType = -1;
+        var nestedMetatypeKeyword = false;
         for (var i = 0; i < segments.Count; i++)
         {
             var (name, arguments) = segments[i];
             qualified = qualified is null ? name : qualified + "." + name;
-            if (i >= first && _isDeclaredType != null && IsReservedMemberSegment(name) && _isDeclaredType(qualified))
+            // Swift reads an unescaped `self` or `init` after a type as the metatype or initializer
+            // expression, whatever the module declares, so neither extends the type path.
+            var isDeclaredType = name is not ("self" or "init") && _isDeclaredType?.Invoke(qualified) == true;
+            if (i >= first && isDeclaredType && IsReservedMemberSegment(name))
             {
+                nestedMetatypeKeyword |= parentIsDeclaredType && name is "Type" or "Protocol";
                 name = "`" + name + "`";
                 changed = true;
             }
+            if (isDeclaredType)
+                lastDeclaredType = i;
+            parentIsDeclaredType = isDeclaredType;
             if (arguments.Length > 0)
             {
                 var escapedArguments = rewriteArguments(arguments);
@@ -384,7 +411,19 @@ public sealed class ModuleEmissionContext
             }
             segments[i] = (name, arguments);
         }
-        return changed ? string.Join('.', segments.Select(s => s.Name + s.Arguments)) : chain;
+        if (!changed)
+            return chain;
+
+        string Join(IEnumerable<(string Name, string Arguments)> part) => string.Join('.', part.Select(s => s.Name + s.Arguments));
+        var isExpression = lastDeclaredType == segments.Count - 1
+            ? followedByCall
+            : segments[lastDeclaredType + 1].Name is not ("Type" or "Protocol");
+        if (nestedMetatypeKeyword && lastDeclaredType >= 0 && isExpression)
+        {
+            var type = $"Swift.UnsafePointer<{Join(segments.Take(lastDeclaredType + 1))}>.Pointee";
+            return lastDeclaredType == segments.Count - 1 ? type : type + "." + Join(segments.Skip(lastDeclaredType + 1));
+        }
+        return Join(segments);
     }
 
     /// <summary>

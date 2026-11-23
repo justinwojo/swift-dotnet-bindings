@@ -643,6 +643,40 @@ public class EnumHandlerOutputTests
         Assert.Contains("TagValueValue", csOutput);
     }
 
+    /// <summary>
+    /// A case spelled like a member the class projection synthesizes (`case payload(Int)` against
+    /// the <c>Payload</c> handle) was a CS0102 duplicate that withdrew the whole factory. The case
+    /// takes the member-side Value rename; the synthesized member keeps its name.
+    /// </summary>
+    [Theory]
+    [InlineData("payload", true, "SwiftSafeHandle<Holder> Payload =>", "PayloadValue(")]
+    [InlineData("caseTag", true, "public enum CaseTag", "CaseTagValue(")]
+    [InlineData("tag", true, "public CaseTag Tag", "TagValue(")]
+    [InlineData("dispose", false, "public void Dispose()", "Holder DisposeValue =>")]
+    [InlineData("payload", false, "SwiftSafeHandle<Holder> Payload =>", "Holder PayloadValue =>")]
+    public void Emit_CaseNamedLikeASynthesizedMember_TakesTheValueRename(
+        string caseName, bool hasPayload, string synthesizedMember, string renamedCase)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: false);
+        var colliding = CreateCase(caseName);
+        if (hasPayload)
+            colliding.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(colliding);
+        var other = CreateCase("other");
+        other.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(other);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains(synthesizedMember, csOutput);
+        Assert.Contains(renamedCase, csOutput);
+        var pascal = NameProvider.ToPascalCase(caseName);
+        Assert.DoesNotMatch($@"public static (unsafe )?Holder {pascal}(\(| =>)", csOutput);
+    }
+
     [Fact]
     public void Emit_EnumNamedTag_DynamicDependencyRootsRenamedDiscriminator()
     {
@@ -5498,6 +5532,92 @@ public class EnumHandlerOutputTests
         // UInt8-backed simple enum should use byte metadata, not nint
         Assert.Contains("TypeMetadata.GetTypeMetadataOrThrow<byte>()", csOutput);
         Assert.DoesNotContain("SwiftObjectHelper<OtherModule.SmallEnum>", csOutput);
+    }
+
+    /// <summary>
+    /// An <c>@objc</c> enum is stored as its raw value and must be read whole at the raw type's
+    /// width, alone or as a tuple element: the one-byte tag width returns the low byte (17011 read
+    /// back as 115). Only the parse's <c>@objc</c> declaration makes that certain, including one
+    /// nested in an extension of another module's type. A bare record of any module, Apple's
+    /// included, or a parsed extension of a non-<c>@objc</c> foreign enum, may be a plain
+    /// <c>enum E: Int</c> from a database older than <c>rawValueCrossesAsCaseTag</c>, stored as a
+    /// one-byte tag, so it keeps the stored-tag read.
+    /// </summary>
+    [Theory]
+    [InlineData("OwnModule.Code", true, "Int", "long", true, true)]
+    [InlineData("OwnModule.Code", true, "Int", "long", false, true)]
+    [InlineData("OwnModule.Code", true, "UInt16", "ushort", true, true)]
+    [InlineData("Ext.Host.Code", true, "Int", "long", false, true)]
+    [InlineData("Ext.Code", false, "Int", "long", true, false)]
+    [InlineData("Foundation.Code", false, "Int32", "int", false, false)]
+    [InlineData("OtherModule.Code", false, "Int", "long", true, false)]
+    [InlineData("OtherModule.Code", false, "Int", "long", false, false)]
+    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueOnlyForAnObjCEnumTheParseDeclares(
+        string recordName, bool declaredHere, string rawValueType, string csScalar, bool inTuple, bool readsRawValue)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var recordModule = recordName.Substring(0, recordName.IndexOf('.'));
+        var csNamespace = recordName.Substring(0, recordName.LastIndexOf('.'));
+        var enumModule = new ModuleTypeDatabase(recordModule, $"/tmp/{recordModule}.dylib");
+        enumModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName(recordName),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(csNamespace, "Code"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName),
+                MetadataAccessor = "$s4Code4CodeOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = rawValueType,
+            });
+        typeDatabase.AddModuleDatabase(enumModule);
+        if (recordModule != "OwnModule")
+            typeDatabase.AddModuleDatabase(new ModuleTypeDatabase("OwnModule", "/tmp/OwnModule.dylib"));
+
+        var moduleDecl = CreateModuleDecl("OwnModule");
+        if (recordName == "Ext.Code")
+        {
+            // The parse keeps an extension of a foreign enum under the foreign name, not @objc.
+            var extended = CreateEnumDecl("Code", moduleDecl, isFrozen: false);
+            extended.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName);
+            extended.RawValueTypeName = rawValueType;
+            moduleDecl.Types.Add(extended);
+        }
+        if (declaredHere)
+        {
+            // The parse's own declaration; an extension of a foreign type stands as its nesting decl.
+            var code = CreateEnumDecl("Code", moduleDecl, isFrozen: false);
+            code.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(recordName);
+            code.RawValueTypeName = rawValueType;
+            code.IsObjC = true;
+            if (recordName.StartsWith("Ext.", StringComparison.Ordinal))
+            {
+                var host = CreateEnumDecl("Host", moduleDecl, isFrozen: false);
+                host.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Ext.Host");
+                host.Types.Add(code);
+                moduleDecl.Types.Add(host);
+            }
+            else
+            {
+                moduleDecl.Types.Add(code);
+            }
+        }
+        var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
+        var failed = CreateCase("failed");
+        failed.AssociatedValues.Add(inTuple
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec(recordName), new NamedTypeSpec("Swift.Int") })
+            : new NamedTypeSpec(recordName));
+        enumDecl.Cases.Add(failed);
+        enumDecl.Cases.Add(CreateCase("succeeded"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = csOutput.Replace("global::", string.Empty);
+        var cast = $@"value0? = \({Regex.Escape(csNamespace)}\.Code\)\(\*";
+        if (readsRawValue)
+            Assert.Matches($@"{cast}\({csScalar}\*\)\(enumCopy", read);
+        else
+            Assert.Matches($@"{cast}\(?enumCopy", read);
     }
 
     [Theory]

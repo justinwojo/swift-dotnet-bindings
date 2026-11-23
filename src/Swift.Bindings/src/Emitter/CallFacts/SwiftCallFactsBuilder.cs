@@ -1186,7 +1186,19 @@ public sealed class SwiftCallFactsBuilder
     /// tells the two apart.
     /// </summary>
     private bool IsAmbiguousMetatypeSpelling(string name) =>
-        IsMetatypeSpelling(name) && IsDeclaredTypeName(name) && IsDeclaredTypeName(name[..name.LastIndexOf('.')]);
+        IsMetatypeSpelling(name) && IsDeclaredTypeName(name) && IsDeclaredTypeName(name[..name.LastIndexOf('.')])
+        && !IsDeclaredNonProtocol(name.EndsWith(".Protocol", StringComparison.Ordinal) ? name[..name.LastIndexOf('.')] : null);
+
+    /// <summary>
+    /// True when <paramref name="name"/> is a declared type other than a protocol. Swift spells only a
+    /// protocol's metatype <c>P.Protocol</c> and rejects the spelling on any other type, so
+    /// <c>T.Protocol</c> under such a <c>T</c> can only be the type nested in it.
+    /// </summary>
+    private bool IsDeclaredNonProtocol(string? name) =>
+        name is not null
+        && (_typesByName.TryGetValue(name, out var entry)
+            ? entry.Decl is not ProtocolDecl
+            : TryPeekRecord(name, out var record) && record.Kind != TypeRecordKind.Protocol);
 
     private static bool IsMetatypeSpelling(string name) =>
         name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal);
