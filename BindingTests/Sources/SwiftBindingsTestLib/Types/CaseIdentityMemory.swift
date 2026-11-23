@@ -90,6 +90,27 @@ public func payloadShiftTokenRetains() -> Int { Int(_getRetainCount(payloadShift
 public func payloadShiftTrackedList() -> [PayloadShift] { [.plain, .tracked(payloadShiftToken), .other] }
 public func payloadShiftTrackedPair(_ count: Int) -> (PayloadShift, Int) { (.tracked(payloadShiftToken), count) }
 public func payloadShiftTrackedAsync(_ tracked: Bool) async -> PayloadShift { tracked ? .tracked(payloadShiftToken) : .plain }
+/// A payload enum holding case-identity enums, alone and as a tuple element: reading a payload
+/// back must name the case Swift holds, not the case whose C# constant equals the stored tag.
+public enum CaseShiftCarrier {
+    case shift(CaseShift)
+    case pair(Int, CaseShift)
+    case payload(PayloadShift)
+    case empty
+}
+
+public func caseShiftCarrierHidden() -> CaseShiftCarrier { .shift(.hidden) }
+public func caseShiftCarrierPair() -> CaseShiftCarrier { .pair(7, .second) }
+public func caseShiftCarrierTracked() -> CaseShiftCarrier { .payload(.tracked(payloadShiftToken)) }
+public func caseShiftCarrierName(_ carrier: CaseShiftCarrier) -> String {
+    switch carrier {
+    case .shift(let value): return "shift:" + caseShiftName(value)
+    case .pair(let count, let value): return "pair:\(count):" + caseShiftName(value)
+    case .payload(let value): return "payload:" + payloadShiftName(value)
+    case .empty: return "empty"
+    }
+}
+
 /// A generic result whose `T` is the enum itself, or a tuple holding it.
 public func payloadShiftTrackedAs<T>(_ fallback: T) -> T {
     if let value = PayloadShift.tracked(payloadShiftToken) as? T { return value }

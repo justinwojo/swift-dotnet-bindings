@@ -1658,6 +1658,55 @@ public class EnumHandlerOutputTests
         Assert.DoesNotMatch(@"MarshalFromSwift<[\w.:]*SwiftArray<", body);
     }
 
+    // A case-identity enum's in-memory tag is not its C# constant (a hidden case can sit before
+    // the published ones), so a payload of one is read through its case codec, as a move: the
+    // enum copy is never destroyed, and a hidden payload case holds a reference.
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void Emit_SimpleEnumPayload_ReadsACaseIdentityEnumThroughItsCodec(bool asTupleElement, bool caseIdentity)
+    {
+        var typeDatabase = CreateTypeDatabaseWithArray();
+        var testModule = new ModuleTypeDatabase("Shapes", "/tmp/Shapes.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Shapes.Shift"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Shapes", "Shift"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Shapes.Shift"),
+                MetadataAccessor = "$s6Shapes5ShiftOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = caseIdentity ? null : "Int",
+                CrossingCases = caseIdentity ? new[] { new SimpleEnumCrossingCase("first", 0, null), new SimpleEnumCrossingCase("second", 1, null) } : null,
+                CrossingSlotCount = 2,
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: true);
+        var shiftCase = CreateCase("shift");
+        var shift = new NamedTypeSpec("Shapes.Shift");
+        shiftCase.AssociatedValues.Add(asTupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), shift })
+            : shift);
+        enumDecl.Cases.Add(shiftCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetShift");
+        if (caseIdentity)
+        {
+            Assert.Matches(@"MarshalMovedValueFromSlot<[\w.:]*Shift>\(\(void\*\)\(enumCopy", body);
+            Assert.DoesNotMatch(@"\([\w.:]*Shift\)\(\*", body);
+        }
+        else
+        {
+            Assert.DoesNotContain("MarshalMovedValueFromSlot", body);
+        }
+    }
+
     [Fact]
     public void Emit_ObjCClassPayload_AdoptsTheEnumCopysReference()
     {

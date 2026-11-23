@@ -236,6 +236,36 @@ public class CaseIdentityMemoryTests : TestBase
         GC.KeepAlive(list);
     }
 
+    public void TestAPayloadEnumReadsACaseIdentityPayloadByCase()
+    {
+        using var first = CaseShiftCarrier.Shift(CaseShift.First);
+        AssertEqual("shift:first", TestLibFunctions.CaseShiftCarrierName(first), "Swift holds First");
+        AssertTrue(first.TryGetShift(out var shift), "first is the shift case");
+        AssertEqual(CaseShift.First, shift, "the payload reads back as First");
+
+        using var hidden = TestLibFunctions.GetCaseShiftCarrierHidden();
+        AssertTrue(hidden.TryGetShift(out var hiddenShift), "hidden is the shift case");
+        AssertFalse(Enum.IsDefined(hiddenShift), $"the hidden case is no published case (got {(long)hiddenShift})");
+
+        using var pair = TestLibFunctions.GetCaseShiftCarrierPair();
+        AssertTrue(pair.TryGetPair(out var count, out var pairShift), "pair is the pair case");
+        AssertEqual((nint)7, count, "pair count");
+        AssertEqual(CaseShift.Second, pairShift, "the tuple payload reads back as Second");
+
+        var baseline = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
+        using (var tracked = TestLibFunctions.GetCaseShiftCarrierTracked())
+        {
+            var withCarrier = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
+            for (var i = 0; i < 10; i++)
+            {
+                AssertTrue(tracked.TryGetPayload(out var payload), "tracked is the payload case");
+                AssertFalse(Enum.IsDefined(payload), "the hidden payload case is no published case");
+            }
+            AssertEqual(withCarrier, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "payload reads release the enum copy");
+        }
+        AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "the carrier releases its payload");
+    }
+
     public void TestAHiddenPayloadCaseInAGenericResultIsReleased()
     {
         // A generic result buffer C# reads only the case out of, as T or as a tuple element of T,

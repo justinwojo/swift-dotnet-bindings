@@ -508,8 +508,9 @@ namespace BindingsGeneration
                 offsetEnumRecord.Kind == TypeRecordKind.Enum &&
                 offsetEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var readExpr = GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar);
-                csWriter.WriteLine($"{varName} = ({csharpType}){readExpr};");
+                var readExpr = GetSimpleEnumPayloadRead(offsetEnumRecord, csharpType, $"{sourcePtr} + (int){offsetVar}",
+                    GetSimpleEnumReadExpressionWithOffset(offsetEnumRecord, sourcePtr, offsetVar));
+                csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
 
@@ -758,17 +759,15 @@ namespace BindingsGeneration
             // Use GetCSharpTypeNameForEnumCase to properly handle bound generics
             var csharpType = GetCSharpTypeNameForEnumCase(typeSpec, typeDatabase, boundGenericsHandler, genericParams, moduleDecl);
 
-            // Simple enum associated values: SwiftMarshal.MarshalFromSwift<T> can't handle
-            // simple C# enums (enum Foo : int) because they don't have TypeMetadata registered.
-            // Read the discriminator directly using the correct width from InlineSize.
-            // Swift stores simple enums as the minimum bytes needed for the discriminator
-            // (1 byte for ≤256 cases, 2 for ≤65536, etc.), regardless of raw value type.
+            // Simple enum associated values (see GetSimpleEnumPayloadRead): a case-identity enum
+            // goes through its codec; any other is read as its discriminator, at the width Swift
+            // stores it in (1 byte for ≤256 cases, 2 for ≤65536, etc.), regardless of raw value type.
             if (typeDatabase.TryGetTypeRecord(typeSpec, out var payloadRecord) &&
                 payloadRecord.Kind == TypeRecordKind.Enum &&
                 payloadRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var readExpr = GetSimpleEnumReadExpression(payloadRecord, sourcePtr);
-                csWriter.WriteLine($"{varName} = ({csharpType}){readExpr};");
+                var readExpr = GetSimpleEnumPayloadRead(payloadRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(payloadRecord, sourcePtr));
+                csWriter.WriteLine($"{varName} = {readExpr};");
                 return;
             }
 
@@ -948,8 +947,8 @@ namespace BindingsGeneration
                 simpleEnumRecord.Kind == TypeRecordKind.Enum &&
                 simpleEnumRecord.Flags.HasFlag(TypeRecordFlags.SimpleEnum))
             {
-                var readExpr = GetSimpleEnumReadExpression(simpleEnumRecord, sourcePtr);
-                csWriter.WriteLine($"var {varName} = ({csharpType}){readExpr};");
+                var readExpr = GetSimpleEnumPayloadRead(simpleEnumRecord, csharpType, sourcePtr, GetSimpleEnumReadExpression(simpleEnumRecord, sourcePtr));
+                csWriter.WriteLine($"var {varName} = {readExpr};");
                 return;
             }
 
@@ -985,6 +984,19 @@ namespace BindingsGeneration
         /// Swift stores simple enums in the minimum bytes needed for the discriminator (1 byte for ≤256
         /// cases, 2 for ≤65536, etc.), regardless of raw value type.
         /// </summary>
+        /// <summary>
+        /// Reads a simple enum payload out of the enum copy a TryGet owns. A case-identity enum's tag
+        /// is not its C# constant, so its codec names the case, and the read is a move: the copy is
+        /// never destroyed, so a hidden payload case's reference is released here. Any other simple
+        /// enum is payload-less, so its discriminator is read as stored.
+        /// </summary>
+        internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr)
+        {
+            if (!SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(typeRecord)))
+                return $"({csharpType}){discriminatorReadExpr}";
+            return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{csharpType}>((void*)({slotExpr}), global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>())";
+        }
+
         internal static string GetSimpleEnumReadExpression(TypeRecord typeRecord, string sourcePtr)
         {
             var size = SwiftValueLayout.GetSimpleEnumStoredInlineSize(typeRecord);
