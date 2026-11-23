@@ -1264,18 +1264,6 @@ namespace BindingsGeneration
             return AccessorGetterConversionVisitor.OptionalAccessorGetterConversion(opt, resultExpr);
         }
 
-        internal static (string? conversion, bool requiresDisposal) GetDictAccessorGetterConversion(
-            DictionaryProjection dict, string resultExpr)
-        {
-            return AccessorGetterConversionVisitor.DictGetterConversion(dict, resultExpr);
-        }
-
-        internal static (string? conversion, bool requiresDisposal) GetSetAccessorGetterConversion(
-            SetProjection set, string resultExpr)
-        {
-            return AccessorGetterConversionVisitor.SetGetterConversion(set, resultExpr);
-        }
-
         internal static (string? conversion, bool requiresDisposal) GetAccessorSetterConversion(
             ITypeProjection projection, string valueExpr)
         {

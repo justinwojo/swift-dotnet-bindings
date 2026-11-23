@@ -191,8 +191,8 @@ public class WrapperProjectionParityTests
         Assert.NotNull(conversion);
         Assert.Contains("ownsContainer: true", conversion);
         Assert.Equal(proj.GetReturnContainerConversion("result"), conversion);
-        // The subscript handler's direct dictionary entry point routes through the same helper.
-        Assert.Equal(conversion, SubscriptHandler.GetDictAccessorGetterConversion(proj, "result").conversion);
+        // The subscript handler's getter entry point routes through the same helper.
+        Assert.Equal(conversion, SubscriptHandler.GetAccessorGetterConversion(proj, "result").conversion);
     }
 
     [Theory]
@@ -204,7 +204,7 @@ public class WrapperProjectionParityTests
 
         Assert.NotNull(conversion);
         Assert.Contains("ownsContainer: true", conversion);
-        Assert.Equal(conversion, SubscriptHandler.GetSetAccessorGetterConversion(proj, "result").conversion);
+        Assert.Equal(conversion, SubscriptHandler.GetAccessorGetterConversion(proj, "result").conversion);
     }
 
     #endregion
