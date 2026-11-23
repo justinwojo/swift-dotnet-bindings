@@ -134,7 +134,13 @@ namespace BindingsGeneration
             var candidatePInvokes = new Dictionary<string, (int preambleStart, int declEnd)>();
             FindStrippedPInvokeCandidates(lines, strippedSymbols, candidatePInvokes);
 
-            if (candidatePInvokes.Count == 0)
+            // Step A1: A simple enum's case codec is one private class behind one module-initializer
+            // registration. A stripped codec function takes the whole class and its registration,
+            // and its imports leave the generic walk below: the runtime then moves that enum by its
+            // tag, as for an enum with no codec, rather than call into a symbol that is not there.
+            StripOrphanedCaseCodecs(lines, candidatePInvokes, removals);
+
+            if (candidatePInvokes.Count == 0 && removals.Count == 0)
                 return CoGatingResult.Empty(content);
 
             // Build line → qualified type path map. Must be computed before
@@ -177,7 +183,7 @@ namespace BindingsGeneration
                     removals.Add(j);
             }
 
-            if (strippedPInvokeNames.Count == 0)
+            if (strippedPInvokeNames.Count == 0 && removals.Count == 0)
                 return CoGatingResult.Empty(content);
 
             // Step A3b: Rewrite the interface-protected members whose P/Invoke just went away.
@@ -494,6 +500,64 @@ namespace BindingsGeneration
                 candidates.TryAdd(methodName, (preambleStart, declLine));
             }
         }
+
+        /// <summary>The class-name prefix of a simple enum's case codec (<c>ModuleHandler.CaseCodecClassName</c>).</summary>
+        internal const string CaseCodecClassPrefix = "__CaseCodec_";
+
+        /// <summary>
+        /// Removes each case-codec class (<see cref="CaseCodecClassPrefix"/>) that declares a
+        /// stripped import, together with the module-initializer statement that registers it, and
+        /// drops the class's imports from <paramref name="candidates"/>. The class is private and
+        /// reached only through that one registration, so nothing else refers to it.
+        /// </summary>
+        private static void StripOrphanedCaseCodecs(
+            List<string> lines, Dictionary<string, (int preambleStart, int declEnd)> candidates, HashSet<int> removals)
+        {
+            var codecClasses = new List<(string Name, int Start, int End)>();
+            for (int i = 0; i < lines.Count; i++)
+            {
+                var match = CaseCodecClassRegex.Match(lines[i]);
+                if (!match.Success)
+                    continue;
+                int brace = FindOpeningBrace(lines, i);
+                if (brace < 0)
+                    continue;
+                codecClasses.Add((match.Groups[1].Value, i, FindBlockEnd(lines, brace)));
+            }
+            if (codecClasses.Count == 0)
+                return;
+
+            var stripped = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (name, (_, declEnd)) in candidates.ToList())
+            {
+                foreach (var codec in codecClasses)
+                {
+                    if (declEnd <= codec.Start || declEnd >= codec.End)
+                        continue;
+                    candidates.Remove(name);
+                    if (stripped.Add(codec.Name))
+                    {
+                        for (int j = codec.Start; j <= codec.End; j++)
+                            removals.Add(j);
+                    }
+                }
+            }
+
+            foreach (var codecName in stripped)
+            {
+                var construction = $"new {codecName}()";
+                for (int i = 0; i < lines.Count; i++)
+                {
+                    if (!removals.Contains(i) && lines[i].Contains(construction, StringComparison.Ordinal)
+                        && IsSelfContainedStatementLine(lines[i]))
+                        removals.Add(i);
+                }
+            }
+        }
+
+        private static readonly Regex CaseCodecClassRegex = new(
+            @"\bclass\s+(" + CaseCodecClassPrefix + @"\w+)\s*:",
+            RegexOptions.Compiled);
 
         private static readonly HashSet<string> StandardInterfaces = new()
         {

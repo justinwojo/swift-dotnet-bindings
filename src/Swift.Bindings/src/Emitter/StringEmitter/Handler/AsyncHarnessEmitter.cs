@@ -1082,6 +1082,10 @@ namespace BindingsGeneration
                       $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
                       $"                                }}";
             }
+            else if (SimpleEnumCrossing.HasCaseCodec(asyncReturnSpec, _env.TypeDatabase))
+                // A case-identity enum reads only its case; the move destroys the carrier's value,
+                // which holds a reference when the binary hides a payload case.
+                marshalResultCode = $"var result = SwiftMarshal.MarshalMovedValueFromSlot<{_wrapperSignature.ReturnType}>((void*)resultPtr, global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{_wrapperSignature.ReturnType}>());";
             else
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(resultPtr);";
 

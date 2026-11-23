@@ -339,8 +339,27 @@ public partial class ProtocolProxyEmitter
                     swiftObj.MarshalToSwift(ref nativeSpan);
                     return nativePtr;
                 }
-                // Blittable types (primitives, frozen structs, simple enums): the C# layout
-                // matches the native Swift layout, so a direct byte copy is correct.
+                // A simple enum crossing by case identity: its C# constant is not its in-memory
+                // tag, so write the case through the binding's case codec at the enum's Swift size.
+                if (typeof(T).IsEnum && global::Swift.Runtime.SimpleEnumCaseCodecs.TryGet(typeof(T), out _))
+                {
+                    var enumSize = (int)Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<T>().Size;
+                    var enumAlloc = enumSize == 0 ? 1 : enumSize;
+                    var enumPtr = (IntPtr)NativeMemory.AllocZeroed((nuint)enumAlloc);
+                    var enumSpan = new Span<byte>((void*)enumPtr, enumAlloc);
+                    try
+                    {
+                        global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalToSwift(value, ref enumSpan);
+                    }
+                    catch
+                    {
+                        NativeMemory.Free((void*)enumPtr);
+                        throw;
+                    }
+                    return enumPtr;
+                }
+                // Blittable types (primitives, frozen structs, codec-less simple enums): the C#
+                // layout matches the native Swift layout, so a direct byte copy is correct.
                 var size = Unsafe.SizeOf<T>();
                 var ptr = (IntPtr)NativeMemory.Alloc((nuint)size);
                 Unsafe.Write((void*)ptr, value);
@@ -349,7 +368,10 @@ public partial class ProtocolProxyEmitter
 
             private static T MarshalFromSwift<T>(IntPtr ptr)
             {
-                // Use direct memory operations for all types
+                // A simple enum crossing by case identity reads its case through the case codec;
+                // every other type here is blittable and read directly.
+                if (typeof(T).IsEnum && global::Swift.Runtime.SimpleEnumCaseCodecs.TryGet(typeof(T), out _))
+                    return global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<T>(ptr);
                 return Unsafe.Read<T>((void*)ptr);
             }
 

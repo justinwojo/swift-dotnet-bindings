@@ -1208,8 +1208,8 @@ public class EnumHandlerOutputTests
 
         // Swift wrapper should have tag-to-case conversion
         Assert.Contains("guard let value = __sbCaseOf_TestModule_Direction_", swiftOutput);
-        Assert.Contains("case 0: return .some(.north)", swiftOutput);
-        Assert.Contains("case 1: return .some(.south)", swiftOutput);
+        Assert.Contains("case 0: return .north as ", swiftOutput);
+        Assert.Contains("case 1: return .south as ", swiftOutput);
         Assert.Contains("value.opposite()", swiftOutput);
     }
 
@@ -1656,6 +1656,59 @@ public class EnumHandlerOutputTests
         var body = TryGetBody(csOutput, "TryGetList");
         Assert.Matches(@"MarshalFromSwiftObjectConsuming<[\w.:]*SwiftArray<", body);
         Assert.DoesNotMatch(@"MarshalFromSwift<[\w.:]*SwiftArray<", body);
+    }
+
+    // A case-identity enum's in-memory tag is not its C# constant (a hidden case can sit before
+    // the published ones), so a payload of one is read through its case codec, as a move: the
+    // enum copy is never destroyed, and a hidden payload case holds a reference. In a tuple payload
+    // its offset comes from its own metadata, not from an integer's.
+    [Theory]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    [InlineData(false, false)]
+    public void Emit_SimpleEnumPayload_ReadsACaseIdentityEnumThroughItsCodec(bool asTupleElement, bool caseIdentity)
+    {
+        var typeDatabase = CreateTypeDatabaseWithArray();
+        var testModule = new ModuleTypeDatabase("Shapes", "/tmp/Shapes.dylib");
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Shapes.Shift"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Shapes", "Shift"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Shapes.Shift"),
+                MetadataAccessor = "$s6Shapes5ShiftOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = caseIdentity ? null : "Int",
+                CrossingCases = caseIdentity ? new[] { new SimpleEnumCrossingCase("first", 0, null), new SimpleEnumCrossingCase("second", 1, null) } : null,
+                CrossingSlotCount = 2,
+            });
+        typeDatabase.AddModuleDatabase(testModule);
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: true);
+        var shiftCase = CreateCase("shift");
+        var shift = new NamedTypeSpec("Shapes.Shift");
+        shiftCase.AssociatedValues.Add(asTupleElement
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("Swift.Int"), shift })
+            : shift);
+        enumDecl.Cases.Add(shiftCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var body = TryGetBody(csOutput, "TryGetShift");
+        if (caseIdentity)
+        {
+            Assert.Matches(@"MarshalMovedValueFromSlot<[\w.:]*Shift>\(\(void\*\)\(enumCopy", body);
+            Assert.DoesNotMatch(@"\([\w.:]*Shift\)\(\*", body);
+            // Swift stores the enum as its own tag, so the tuple's offsets come from its metadata.
+            if (asTupleElement)
+                Assert.Matches(@"elementMetadataArray\[1\] = [\w.:]*TypeMetadata\.GetTypeMetadataOrThrow<[\w.:]*Shift>\(\)", csOutput);
+        }
+        else
+        {
+            Assert.DoesNotContain("MarshalMovedValueFromSlot", body);
+        }
     }
 
     [Fact]
@@ -2310,6 +2363,31 @@ public class EnumHandlerOutputTests
         // No simple-enum metadata recorded → the module initializer emits no dangling
         // SBW_GetMetadata_ DllImport for a symbol the discarded Swift wrapper never defines.
         Assert.Empty(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Empty(emissionCtx.SimpleEnumCaseCodecRegistrations);
+    }
+
+    [Fact]
+    public void Emit_CaseIdentityEnum_EmitsAndRecordsItsCaseCodec()
+    {
+        // A simple enum crossing by case identity gets the four codec functions in its wrapper and
+        // a registration the module initializer turns into SimpleEnumCaseCodecs.Register, so the
+        // runtime moves the enum through Swift memory by case, not by tag.
+        var typeDatabase = CreateXCFrameworkTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("fast"));
+        enumDecl.Cases.Add(CreateCase("slow"));
+
+        var (_, swift, emissionCtx) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        var registration = Assert.Single(emissionCtx.SimpleEnumCaseCodecRegistrations);
+        var metadata = Assert.Single(emissionCtx.SimpleEnumMetadataRegistrations);
+        Assert.Equal(metadata.MetadataSymbol, registration.MetadataSymbol);
+        var symbols = SimpleEnumCrossing.CaseCodecSymbols(registration.MetadataSymbol);
+        foreach (var symbol in new[] { symbols.Load, symbols.Store, symbols.LoadOptional, symbols.StoreOptional })
+            Assert.Contains($"@_cdecl(\"{symbol}\")", swift);
+        Assert.Contains("initializeMemory(as: Swift.Optional<__sbE>.self", swift);
+        Assert.Contains("typealias __sbE = TestModule.Mode", swift);
     }
 
     [Fact]
@@ -5657,9 +5735,9 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("rawValue: Int32(tag))!", swiftOutput);
         // Must use switch-based reconstruction
         Assert.Contains("guard let value = __sbCaseOf_TestModule_", swiftOutput);
-        Assert.Contains("case 0: return .some(.success)", swiftOutput);
-        Assert.Contains("case 1: return .some(.authFailed)", swiftOutput);
-        Assert.Contains("case 2: return .some(.itemNotFound)", swiftOutput);
+        Assert.Contains("case 0: return .success as ", swiftOutput);
+        Assert.Contains("case 1: return .authFailed as ", swiftOutput);
+        Assert.Contains("case 2: return .itemNotFound as ", swiftOutput);
     }
 
     [Fact]
@@ -5995,7 +6073,7 @@ public class EnumHandlerOutputTests
         // only under #available.
         var toRawWrapper = swift[swift.IndexOf("SBW_TestModule_Level_ToRawValue", StringComparison.Ordinal)..];
         Assert.Contains("guard let value = __sbCaseOf_TestModule_Level_", toRawWrapper[..toRawWrapper.IndexOf("value.rawValue", StringComparison.Ordinal)]);
-        Assert.Contains("if #available(iOS 28.0, *) { return .some(.high) } else { return nil }", swift);
+        Assert.Contains("if #available(iOS 28.0, *) { return .high as ", swift);
     }
 
     [Fact]
@@ -6220,8 +6298,8 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("rawValue:", swiftOutput);
         // Should use switch-based conversion
         Assert.Contains("switch value", swiftOutput);
-        Assert.Contains("case 0: return .some(.active)", swiftOutput);
-        Assert.Contains("case 1: return .some(.inactive)", swiftOutput);
+        Assert.Contains("case 0: return .active as ", swiftOutput);
+        Assert.Contains("case 1: return .inactive as ", swiftOutput);
     }
 
     [Fact]
@@ -6420,6 +6498,63 @@ public class EnumHandlerOutputTests
             IsAsync = false,
             IsSynthesizedAccessor = false
         };
+    }
+
+    /// <summary>
+    /// A simple enum's own members (instance and static, each with a String and a non-String
+    /// result) take a String parameter. A <c>@_cdecl</c> function cannot take a Swift
+    /// <c>String</c>, so the parameter crosses as its UTF-8 bytes and their count: a byte pointer and
+    /// an <c>nint</c> on the P/Invoke, an optional byte pointer and an <c>Int</c> on the wrapper,
+    /// which decodes them back into the String the member is called with.
+    /// </summary>
+    [Theory]
+    [InlineData(MethodType.Instance, "Swift.String", "Label(this Mode self, string text)")]
+    [InlineData(MethodType.Instance, "Swift.Bool", "Matches(this Mode self, string text)")]
+    [InlineData(MethodType.Static, "Swift.String", "string Label(string text)")]
+    [InlineData(MethodType.Static, "TestModule.Mode", "Mode Matches(string text)")]
+    public void Emit_SimpleEnumMember_StringParameter_CrossesAsUtf8Bytes(MethodType methodType, string returnType, string signature)
+    {
+        var typeDatabase = CreateTypeDatabaseWithString();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Mode", moduleDecl, isFrozen: true);
+        enumDecl.Cases.Add(CreateCase("on"));
+        enumDecl.Cases.Add(CreateCase("off"));
+        var name = returnType == "Swift.String" ? "label" : "matches";
+        enumDecl.Methods.Add(new MethodDecl
+        {
+            Name = name,
+            MangledName = $"$s10TestModule4ModeO{name.Length}{name}ySSF" + (methodType == MethodType.Static ? "Z" : ""),
+            MethodType = methodType,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new() { SwiftTypeSpec = new NamedTypeSpec(returnType), Name = "", PrivateName = "", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+                new() { SwiftTypeSpec = new NamedTypeSpec("Swift.String"), Name = "text", PrivateName = "text", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl },
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = enumDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+        });
+
+        var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains(signature, csOutput);
+        var cdecl = Regex.Match(swiftOutput, @"@_cdecl\(""SBW_TestModule_Mode_" + name + @"_[^""]+""\)\s*\n\s*public func [^(]+\((?<params>[^)]*)\)");
+        Assert.True(cdecl.Success, swiftOutput);
+        Assert.DoesNotContain("Swift.String", cdecl.Groups["params"].Value);
+        Assert.Contains("_ textUtf8Ptr: Swift.UnsafePointer<Swift.UInt8>?, _ textUtf8Len: Swift.Int", cdecl.Groups["params"].Value);
+        Assert.Contains("text: Swift.String(decoding: Swift.UnsafeBufferPointer(start: textUtf8Ptr, count: textUtf8Len), as: Swift.UTF8.self)", swiftOutput);
+
+        var pinvoke = Regex.Match(csOutput, @"partial \S+ PInvoke_\w+\((?<params>[^)]*)\);");
+        Assert.True(pinvoke.Success, csOutput);
+        Assert.DoesNotContain("string", pinvoke.Groups["params"].Value);
+        Assert.Contains("byte* textUtf8Ptr, nint textUtf8Len", pinvoke.Groups["params"].Value);
+        Assert.DoesNotContain("StringMarshalling", csOutput);
+        Assert.Contains("Encoding.UTF8.GetBytes(text)", csOutput);
+        Assert.Contains("fixed (byte* __textUtf8Ptr = __textUtf8)", csOutput);
+        Assert.Empty(CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics());
     }
 
     #region @_cdecl Enum Case Factory ABI Tests
@@ -7053,8 +7188,8 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("Dark = 2,", csOutput);
         Assert.Contains("case .light: return 0", swiftOutput);
         Assert.Contains("case .dark: return 1", swiftOutput);
-        Assert.Contains("case 0: return .some(.light)", swiftOutput);
-        Assert.Contains("case 1: return .some(.dark)", swiftOutput);
+        Assert.Contains("case 0: return .light as ", swiftOutput);
+        Assert.Contains("case 1: return .dark as ", swiftOutput);
         Assert.DoesNotContain("case .dark: return 2", swiftOutput);
         // The doc comment tells a consumer the members are indices, not raw values.
         Assert.Contains("declaration-order indices, not their Swift raw values", csOutput);

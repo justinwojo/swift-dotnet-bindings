@@ -718,26 +718,6 @@ public static partial class ClosureEmitter
             lines.Add($"{indent}    return {GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__resultObject", closureHandler)}");
             lines.Add($"{indent}}}");
         }
-        else if (isIndirectReturn &&
-                 SimpleEnumCrossing.GetOptionalCarrierMap(closureTypeSpec.ReturnType, closureHandler!.TypeDatabase) is { } carrierMap)
-        {
-            // Optional of a simple enum crossing by identity: the managed callback writes its
-            // SwiftOptional's one-byte carrier, which names the case by its C# constant.
-            var returnSwiftType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(closureTypeSpec.ReturnType);
-            var innerType = ExistentialBypassEmitter.RenderModuleQualifiedSwiftTypeSpec(
-                ((NamedTypeSpec)closureTypeSpec.ReturnType!).GenericParameters[0]);
-            lines.Add($"{indent}{letPrefix}{adapterName} = {{ {captureList}({closureParamsStr}) -> {returnSwiftType} in");
-            if (!string.IsNullOrEmpty(observability))
-                lines.Add(observability.TrimEnd('\n'));
-            lines.AddRange(heapAllocLines);
-            lines.Add($"{indent}    let resultBuf = Swift.UnsafeMutableRawPointer.allocate(byteCount: 1, alignment: 1)");
-            lines.Add($"{indent}    {cdeclVarName}({cdeclArgsStr})");
-            lines.AddRange(inOutWriteBackLines);
-            lines.Add($"{indent}    let __carrier = resultBuf.load(as: Swift.UInt8.self)");
-            lines.Add($"{indent}    resultBuf.deallocate()");
-            lines.Add($"{indent}    return {SimpleEnumCrossing.OptionalCarrierToCase(carrierMap, innerType, "__carrier")}");
-            lines.Add($"{indent}}}");
-        }
         else if (isIndirectReturn)
         {
             // Indirect return: closure writes result to buffer, returns void. An existential is

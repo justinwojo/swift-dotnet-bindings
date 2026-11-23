@@ -223,18 +223,20 @@ public static partial class ClosureEmitter
                 *(IntPtr*)indirectResult = result.Handle;
                 """;
         }
-        else if (useCdecl && SimpleEnumCrossing.GetOptionalCarrierMap(closureTypeSpec.ReturnType, closureHandler.TypeDatabase) is not null)
+        else if (SimpleEnumCrossing.GetOptionalCodecMap(closureTypeSpec.ReturnType, closureHandler.TypeDatabase) is not null)
         {
-            // Optional of a simple enum crossing by identity: the @_cdecl adapter reads the case from
-            // the managed one-byte carrier, so write the SwiftOptional's carrier (which refuses a value
-            // that names no case), not a metadata-sized copy of the Swift layout.
+            // Optional of a simple enum crossing by identity: write the whole Optional in Swift's
+            // layout, which the SwiftOptional builds through the enum's case codec (refusing a value
+            // that names no case). The C# value's own bytes are not its Swift case.
             var enumType = closureHandler.TranslateTypeSpecToCSharp(((NamedTypeSpec)closureTypeSpec.ReturnType!).GenericParameters[0]);
             marshalBlock = $$"""
-                // Optional simple enum: write the managed carrier byte.
+                // Optional simple enum: write Optional<{{enumType}}> in Swift's layout.
                 using var _swiftOpt = result is { } _resultValue
                     ? SwiftOptional<{{enumType}}>.NewSome(_resultValue)
                     : SwiftOptional<{{enumType}}>.NewNone();
-                *(byte*)indirectResult = *(byte*)_swiftOpt.Payload.DangerousGetHandle();
+                var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftOptional<{{enumType}}>>();
+                var resultSpan = new Span<byte>(indirectResult, (int)metadata.Size);
+                SwiftMarshal.MarshalToSwift(_swiftOpt, ref resultSpan);
                 """;
         }
         else if (isOptionalValueWrapper)

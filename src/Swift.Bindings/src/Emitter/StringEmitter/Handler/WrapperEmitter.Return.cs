@@ -1285,7 +1285,15 @@ namespace BindingsGeneration
                 var pinvokeType = GetPInvokeTypeForTupleElement(element);
                 var offsetExpr = $"(nint)_tupleMetaPtr->GetElementOffset({i})";
 
-                if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
+                if (SimpleEnumCrossing.HasCaseCodec(element, _env.TypeDatabase))
+                {
+                    // A simple enum crossing by case identity: its slot holds the binary's tag,
+                    // not the C# constant, so read the case through the enum's case codec, as a
+                    // move: the slot is ours, and a hidden payload case in it holds a reference.
+                    var enumType = GetCSharpTypeForTupleElement(element);
+                    csWriter.WriteLine($"var {rawName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{enumType}>((byte*){resultExpr} + {offsetExpr}, global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{enumType}>());");
+                }
+                else if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
                 {
                     inlineSlots[i] = true;
                     // Inline value type: compute address within buffer (data may be > 8 bytes).
@@ -1769,6 +1777,11 @@ namespace BindingsGeneration
                         IntPtr _classHandle{{i}};
                         unsafe { _classHandle{{i}} = *(IntPtr*){{ptrName}}; }
                         {{resultName}} = SwiftMarshal.MarshalFromSwift<{{elemType}}>(_classHandle{{i}});
+                    }
+                    else if (typeof({{elemType}}).IsEnum)
+                    {
+                        // Only the case leaves the buffer, so the value is destroyed with it.
+                        unsafe { {{resultName}} = SwiftMarshal.MarshalMovedValueFromSlot<{{elemType}}>((void*){{ptrName}}, TypeMetadata.GetTypeMetadataOrThrow<{{elemType}}>()); }
                     }
                     else
                     {

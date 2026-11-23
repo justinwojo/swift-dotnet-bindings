@@ -574,6 +574,13 @@ namespace BindingsGeneration
                 decl => NameProvider.GetPublicMethodName(PublicMethodNameContext.ForMethod(decl, siblingPropertyNames: null)));
         }
 
+        /// <summary>The nested codec class the module initializer registers for a case-identity enum.</summary>
+        private static string CaseCodecClassName(string csharpTypeName)
+            => StrippedSymbolCSharpReconciler.CaseCodecClassPrefix + CaseCodecSafeName(csharpTypeName);
+
+        private static string CaseCodecSafeName(string csharpTypeName)
+            => csharpTypeName.Replace("global::", "").Replace(".", "_");
+
         /// <summary>
         /// Emits a static class with [ModuleInitializer] that:
         /// 1. Registers a NativeLibrary.SetDllImportResolver for iOS framework loading
@@ -593,6 +600,8 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string)>();
             var importedValueTypeRegistrations = emissionCtx?.ImportedValueTypeMetadataRegistrations
                 ?? Array.Empty<(string, string, string, string)>();
+            var caseCodecRegistrations = emissionCtx?.SimpleEnumCaseCodecRegistrations
+                ?? Array.Empty<(string, string, string)>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
@@ -735,6 +744,13 @@ namespace BindingsGeneration
                 EmitGuardedRegistration(typeName,
                     $"try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeName}), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_{safeName}())); }} catch {{ }}");
             }
+            // Register each case-identity enum's case codec, gated like its metadata: the runtime
+            // moves the enum through Swift memory by case identity through it (SimpleEnumCaseCodecs).
+            foreach (var (typeName, _, _) in caseCodecRegistrations)
+            {
+                EmitGuardedRegistration(typeName,
+                    $"try {{ global::Swift.Runtime.SimpleEnumCaseCodecs.Register(typeof({typeName}), new {CaseCodecClassName(typeName)}()); }} catch {{ }}");
+            }
             // Imported C structs projected as an existing .NET value type (CoreMedia.CMTime): same
             // lane as the simple enums above, for the same reason — the managed type can't supply
             // its own Swift metadata, and a generic over it needs that metadata for its layout.
@@ -791,6 +807,39 @@ namespace BindingsGeneration
                 var safeName = typeName.Replace(".", "_");
                 csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{metadataSymbol}\")]");
                 csWriter.WriteLines($"    private static extern IntPtr __GetEnumMetadata_{safeName}();");
+            }
+            // Each case codec: the runtime interface over the wrapper's four @_cdecl codec functions
+            // (blittable C imports, so the resolver class need not be partial).
+            foreach (var (typeName, metadataSymbol, wrapperLibName) in caseCodecRegistrations)
+            {
+                var (load, store, loadOptional, storeOptional) = SimpleEnumCrossing.CaseCodecSymbols(metadataSymbol);
+                var safe = CaseCodecSafeName(typeName);
+                var lib = $"[global::System.Runtime.InteropServices.DllImport(\"{wrapperLibName}\", EntryPoint = ";
+                csWriter.WriteLines($$"""
+                        private sealed unsafe class {{CaseCodecClassName(typeName)}} : global::Swift.Runtime.ISimpleEnumCaseCodec
+                        {
+                            public long Load(IntPtr source) => __sbec_{{safe}}_Load(source);
+                            public bool Store(long value, IntPtr destination) => __sbec_{{safe}}_Store(value, destination) != 0;
+                            public bool LoadOptional(IntPtr source, out long value)
+                            {
+                                long scalar = 0;
+                                var hasValue = __sbec_{{safe}}_LoadOptional(source, &scalar) != 0;
+                                value = scalar;
+                                return hasValue;
+                            }
+                            public bool StoreOptional(bool hasValue, long value, IntPtr destination)
+                                => __sbec_{{safe}}_StoreOptional(hasValue ? (byte)1 : (byte)0, value, destination) != 0;
+
+                            {{lib}}"{{load}}")]
+                            private static extern long __sbec_{{safe}}_Load(IntPtr source);
+                            {{lib}}"{{store}}")]
+                            private static extern byte __sbec_{{safe}}_Store(long value, IntPtr destination);
+                            {{lib}}"{{loadOptional}}")]
+                            private static extern byte __sbec_{{safe}}_LoadOptional(IntPtr source, long* value);
+                            {{lib}}"{{storeOptional}}")]
+                            private static extern byte __sbec_{{safe}}_StoreOptional(byte hasValue, long value, IntPtr destination);
+                        }
+                    """);
             }
             foreach (var (_, accessorName, metadataSymbol, wrapperLibName) in importedValueTypeRegistrations)
             {

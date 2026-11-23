@@ -166,6 +166,13 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
     }
 
+    /// <summary>Adopts <paramref name="buffer"/>, a buffer of <c>_bufferAllocSize</c> bytes holding an initialized Optional.</summary>
+    unsafe SwiftOptional(IntPtr buffer, bool adopt)
+    {
+        Debug.Assert(adopt);
+        _payload = new SwiftSafeHandle<SwiftOptional<T>>(buffer);
+    }
+
     /// <summary>
     /// Constructs a new SwiftOptional from the given handle
     /// </summary>
@@ -175,6 +182,15 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         // zeroed tail up to `_bufferAllocSize` keeps the word-sized PayloadBuffer<IntPtr> read
         // both in-bounds and value-correct for sub-word payloads.
         IntPtr bufferPtr = (IntPtr)NativeMemory.AllocZeroed(_bufferAllocSize);
+
+        // A case-identity enum holds Swift's own Optional layout: copied as Swift copies it, since
+        // the binary may give the enum a payload case the binding cannot see.
+        if (HasCaseCodec(out _))
+        {
+            CopyCaseCodecPayload((void*)handle, (void*)bufferPtr);
+            _payload = new SwiftSafeHandle<SwiftOptional<T>>(bufferPtr);
+            return;
+        }
 
         // Extra-inhabitant fast path for Bool and simple C# enums.
         // VWT InitializeWithCopy may produce incorrect results on Mono iOS Simulator
@@ -270,6 +286,30 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
         var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
         int size = (int)metadata.Size;
 
+        if (HasCaseCodec(out _))
+        {
+            if (size > swiftDestSpan.Length)
+                throw new ArgumentException($"Span size does not match type size, Expected: {size}, Actual: {swiftDestSpan.Length}");
+            unsafe
+            {
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    bool success = false;
+                    _payload.DangerousAddRef(ref success);
+                    try
+                    {
+                        CopyCaseCodecPayload((void*)_payload.DangerousGetHandle(), swiftDest);
+                        return size;
+                    }
+                    finally
+                    {
+                        if (success)
+                            _payload.DangerousRelease();
+                    }
+                }
+            }
+        }
+
         // Simple enum and Bool fast path: these use extra-inhabitant encoding and
         // are POD types. Direct memcpy is both correct and avoids VWT issues on Mono.
         if (IsSimpleEnumType() || typeof(T) == typeof(bool))
@@ -349,6 +389,9 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public static unsafe SwiftOptional<T> NewSome(T value)
     {
+        if (HasCaseCodec(out var someCodec))
+            return NewFromCaseCodec(someCodec, hasValue: true, value);
+
         // One byte cannot hold every value of a simple enum's underlying type. A value no member
         // declares, whose carrier reads back as nil or as another value, would reach Swift as a
         // case the caller did not pass, so it is refused before anything is allocated. A declared
@@ -442,6 +485,9 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     /// </summary>
     public static unsafe SwiftOptional<T> NewNone()
     {
+        if (HasCaseCodec(out var noneCodec))
+            return NewFromCaseCodec(noneCodec, hasValue: false, default!);
+
         var instance = new SwiftOptional<T>();
         bool success = false;
         instance._payload.DangerousAddRef(ref success);
@@ -531,6 +577,9 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             {
                 byte* payload = (byte*)_payload.DangerousGetHandle();
 
+                if (HasCaseCodec(out var caseCodec))
+                    return caseCodec.LoadOptional((IntPtr)payload, out _) ? SwiftOptionalCases.Some : SwiftOptionalCases.None;
+
                 // Simple enum fast path: Swift simple enums use extra-inhabitant encoding.
                 // Values 0..N-1 are Some(case), N+ is None. Read the single byte and compare
                 // against the case count.
@@ -607,6 +656,12 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
             try
             {
                 byte* sourcePayload = (byte*)_payload.DangerousGetHandle();
+
+                if (HasCaseCodec(out var someCodec))
+                {
+                    someCodec.LoadOptional((IntPtr)sourcePayload, out var someValue);
+                    return (T)SimpleEnumCaseCodecs.ToEnum(typeof(T), someValue);
+                }
 
                 // Simple enum fast path: read the single byte and convert to C# enum.
                 // Swift stores enum cases as a single UInt8 (0..N-1), but C# enum : int is 4 bytes.
@@ -737,6 +792,48 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     private void ThrowIfDisposed() => ObjectDisposedException.ThrowIf(_disposed, this);
+
+    /// <summary>
+    /// The case codec of a C# enum <c>T</c> that crosses by case identity
+    /// (<see cref="SimpleEnumCaseCodecs"/>). Such an Optional holds Swift's own layout, which the
+    /// codec reads and writes; it is not the one-byte encoding below, which assumes the C# constant
+    /// is the in-memory tag.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool HasCaseCodec([System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out ISimpleEnumCaseCodec? codec)
+    {
+        codec = null;
+        return IsSimpleEnumTypeUncached() && SimpleEnumCaseCodecs.TryGet(typeof(T), out codec);
+    }
+
+    /// <summary>A new Optional the codec initializes: <c>nil</c>, or the case <paramref name="value"/> names.</summary>
+    private static unsafe SwiftOptional<T> NewFromCaseCodec(ISimpleEnumCaseCodec codec, bool hasValue, T value)
+    {
+        long scalar = hasValue ? SimpleEnumCaseCodecs.ToInt64(value!) : 0;
+        var bufferPtr = (IntPtr)NativeMemory.AllocZeroed(_bufferAllocSize);
+        if (!codec.StoreOptional(hasValue, scalar, bufferPtr))
+        {
+            // Nothing was written, so there is nothing to destroy.
+            NativeMemory.Free((void*)bufferPtr);
+            throw new ArgumentOutOfRangeException(nameof(value), value,
+                $"{typeof(T).Name} value {value} names no case of the Swift enum.");
+        }
+        var instance = new SwiftOptional<T>(bufferPtr, adopt: true);
+        return instance;
+    }
+
+    /// <summary>
+    /// Copies a case-identity enum's Optional as Swift copies it: bitwise when the enum is POD, and
+    /// through its value witness when the binary gives it a payload case that holds a reference.
+    /// </summary>
+    private static unsafe void CopyCaseCodecPayload(void* source, void* destination)
+    {
+        var metadata = SwiftObjectHelper<SwiftOptional<T>>.GetTypeMetadata();
+        if (metadata.ValueWitnessTable->IsNonPOD)
+            metadata.ValueWitnessTable->InitializeWithCopy(destination, source, metadata);
+        else
+            Buffer.MemoryCopy(source, destination, (long)_payloadSize, (long)_payloadSize);
+    }
 
     /// <summary>
     /// Cached case count for simple enums. Swift extra-inhabitant encoding uses a single byte,

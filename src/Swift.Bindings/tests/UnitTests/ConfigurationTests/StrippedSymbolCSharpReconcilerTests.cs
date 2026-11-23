@@ -3027,6 +3027,96 @@ namespace BindingsGeneration.Tests
 
     #endregion
 
+    #region N2. Simple-Enum Case Codecs
+
+    // A case-identity enum's case codec is a private class over four wrapper imports, registered by
+    // one module-initializer statement. A stripped codec function must take the whole class and its
+    // registration (and nothing else): a surviving registration would hand the runtime a codec whose
+    // calls fail with EntryPointNotFoundException, and stripping only the import would leave the
+    // class failing to implement its interface.
+    public class ReconcilerCaseCodecTests
+    {
+        private static string Codec(string name, string stem) =>
+            "        private sealed unsafe class __CaseCodec_" + name + " : global::Swift.Runtime.ISimpleEnumCaseCodec\n" +
+            "        {\n" +
+            "            public long Load(global::System.IntPtr source) => __sbec_" + name + "_Load(source);\n" +
+            "            public bool Store(long value, global::System.IntPtr destination) => __sbec_" + name + "_Store(value, destination) != 0;\n" +
+            "            public bool LoadOptional(global::System.IntPtr source, out long value)\n" +
+            "            {\n" +
+            "                long scalar = 0;\n" +
+            "                var hasValue = __sbec_" + name + "_LoadOptional(source, &scalar) != 0;\n" +
+            "                value = scalar;\n" +
+            "                return hasValue;\n" +
+            "            }\n" +
+            "            public bool StoreOptional(bool hasValue, long value, global::System.IntPtr destination)\n" +
+            "                => __sbec_" + name + "_StoreOptional(hasValue ? (byte)1 : (byte)0, value, destination) != 0;\n" +
+            "            [global::System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", EntryPoint = \"" + stem + "_load\")]\n" +
+            "            private static extern long __sbec_" + name + "_Load(global::System.IntPtr source);\n" +
+            "            [global::System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", EntryPoint = \"" + stem + "_store\")]\n" +
+            "            private static extern byte __sbec_" + name + "_Store(long value, global::System.IntPtr destination);\n" +
+            "            [global::System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", EntryPoint = \"" + stem + "_loadOptional\")]\n" +
+            "            private static extern byte __sbec_" + name + "_LoadOptional(global::System.IntPtr source, long* value);\n" +
+            "            [global::System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", EntryPoint = \"" + stem + "_storeOptional\")]\n" +
+            "            private static extern byte __sbec_" + name + "_StoreOptional(byte hasValue, long value, global::System.IntPtr destination);\n" +
+            "        }\n";
+
+        private static readonly string Source =
+            "namespace MyLib {\n" +
+            "    internal static class __SwiftFrameworkResolver_MyLib\n" +
+            "    {\n" +
+            "        [global::System.Runtime.CompilerServices.ModuleInitializer]\n" +
+            "        internal static void Initialize()\n" +
+            "        {\n" +
+            "            global::Swift.Runtime.SwiftFrameworkResolver.RegisterForAssembly(typeof(__SwiftFrameworkResolver_MyLib).Assembly);\n" +
+            "            try { global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof(Shade), global::Swift.Runtime.TypeMetadata.FromHandle(__GetEnumMetadata_Shade())); } catch { }\n" +
+            "            try { global::Swift.Runtime.SimpleEnumCaseCodecs.Register(typeof(Shade), new __CaseCodec_Shade()); } catch { }\n" +
+            "            try { global::Swift.Runtime.SimpleEnumCaseCodecs.Register(typeof(Tint), new __CaseCodec_Tint()); } catch { }\n" +
+            "        }\n" +
+            "        [global::System.Runtime.InteropServices.DllImport(\"MyLibSwiftBindings\", EntryPoint = \"SBW_GetMetadata_MyLib_Shade\")]\n" +
+            "        private static extern global::System.IntPtr __GetEnumMetadata_Shade();\n" +
+            Codec("Shade", "SBEC_AAAA0001") +
+            Codec("Tint", "SBEC_BBBB0002") +
+            "    }\n" +
+            "}\n";
+
+        [Theory]
+        [InlineData("SBEC_BBBB0002_load")]
+        [InlineData("SBEC_BBBB0002_storeOptional")]
+        public void Process_StrippedCodecFunction_RemovesItsClassAndRegistrationOnly(string strippedSymbol)
+        {
+            var result = StrippedSymbolCSharpReconciler.Process(Source, new HashSet<string> { strippedSymbol });
+
+            Assert.DoesNotContain("__CaseCodec_Tint", result.Content);
+            Assert.DoesNotContain("__sbec_Tint_", result.Content);
+            Assert.DoesNotContain("typeof(Tint)", result.Content);
+            // The other codec, the enum metadata and the initializer itself survive.
+            Assert.Contains("class __CaseCodec_Shade", result.Content);
+            Assert.Contains("SimpleEnumCaseCodecs.Register(typeof(Shade), new __CaseCodec_Shade())", result.Content);
+            Assert.Contains("__GetEnumMetadata_Shade()", result.Content);
+            Assert.Contains("RegisterForAssembly", result.Content);
+            Assert.Contains("internal static void Initialize()", result.Content);
+            Assert.Equal(CountOf(Source, "{") - CountOf(Codec("Tint", "SBEC_BBBB0002"), "{") - 2, CountOf(result.Content, "{"));
+            Assert.Equal(CountOf(result.Content, "{"), CountOf(result.Content, "}"));
+        }
+
+        [Fact]
+        public void Process_NoCodecSymbolStripped_LeavesTheCodecsAlone()
+        {
+            var result = StrippedSymbolCSharpReconciler.Process(Source, new HashSet<string> { "SBW_Unrelated" });
+            Assert.Equal(Source, result.Content);
+        }
+
+        private static int CountOf(string text, string value)
+        {
+            var count = 0;
+            for (var i = text.IndexOf(value, StringComparison.Ordinal); i >= 0; i = text.IndexOf(value, i + value.Length, StringComparison.Ordinal))
+                count++;
+            return count;
+        }
+    }
+
+    #endregion
+
     #region O. Module-Initializer Aggregator Protection
 
     // The generated [ModuleInitializer] is a flat aggregator of independent best-effort

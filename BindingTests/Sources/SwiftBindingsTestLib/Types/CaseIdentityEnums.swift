@@ -106,15 +106,20 @@ public enum RawNamedMode: String {
 
 /// The same pair on a frozen String enum, which projects to a C# enum whose raw-value helpers are
 /// extension methods beside the enum's own. (The static members return the enum itself: the C#
-/// enum's extensions skip a static method returning an Optional of it. The static one takes a code,
-/// not a String: a simple enum's own static methods bind primitive parameters only.)
+/// enum's extensions skip a static method returning an Optional of it.) The enum's own members
+/// also take String parameters, which cross its wrappers as UTF-8 bytes: one of each shape, an
+/// instance or static member with a String or a non-String result.
 @frozen
 public enum RawNamedFrozen: String {
     case alpha = "A"
     case beta = "B"
 
     public func toRawValue() -> String { "own:" + rawValue }
-    public static func fromRawValue(_ code: Int) -> RawNamedFrozen { code == 1 ? .beta : .alpha }
+    public static func fromRawValue(_ text: String) -> RawNamedFrozen { text == "own" ? .beta : .alpha }
+
+    public func labeled(_ prefix: String, _ suffix: String) -> String { prefix + rawValue + suffix }
+    public func matches(_ text: String) -> Bool { text == rawValue }
+    public static func describe(_ text: String, count: Int) -> String { "\(text.count)x\(count):\(text)" }
 }
 
 /// And on an integral raw-value enum.
@@ -162,3 +167,4 @@ public func narrowCasesHidden() -> NarrowCases { .hidden }
 public func narrowCase(at index: Int) -> NarrowCases { NarrowCases(rawValue: UInt8(index))! }
 public func narrowCasesIsHidden(_ value: NarrowCases) -> Bool { value == .hidden }
 public func narrowCasesRawValue(_ value: NarrowCases) -> Int { Int(value.rawValue) }
+
