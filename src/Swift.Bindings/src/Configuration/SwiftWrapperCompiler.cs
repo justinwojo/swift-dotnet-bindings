@@ -355,7 +355,9 @@ namespace BindingsGeneration
                         // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
                         if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
-                            logger.LogError("Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed for simulator slice: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                             throw;
                         }
                         logger.LogWarning("Thunk compilation failed for simulator slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
@@ -526,7 +528,9 @@ namespace BindingsGeneration
                             // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
                             if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(deviceThunkDir).Count > 0)
                             {
-                                logger.LogError("Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
+                                logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed for device slice: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                                 throw;
                             }
                             logger.LogWarning("Thunk compilation failed for device slice (non-fatal, no .arm64.s files): {Message}", ex.Message);
@@ -874,7 +878,9 @@ namespace BindingsGeneration
                         if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
                             // .arm64.s files exist → P/Invokes reference thunk symbols → compilation MUST succeed
-                            logger.LogError("Thunk compilation failed and .arm64.s files exist — generated P/Invokes will reference missing symbols: {Message}", ex.Message);
+                            logger.LogError(hasAssemblyFiles
+                                ? "Thunk compilation failed and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}"
+                                : "Wrapper identity compilation failed: the wrapper would ship unstamped, and the binding's checks refuse an unstamped wrapper: {Message}", ex.Message);
                             throw;
                         }
                         logger.LogWarning("Thunk compilation failed (non-fatal, no .arm64.s files): {Message}", ex.Message);

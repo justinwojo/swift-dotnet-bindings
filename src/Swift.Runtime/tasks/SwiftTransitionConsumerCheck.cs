@@ -389,14 +389,11 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
             var images = new List<PackagedNative>();
             foreach (var reference in references)
             {
-                // lib<name>.dylib is the image of a library named either way, as the pack check reads it.
-                var name = Path.GetFileNameWithoutExtension(reference.TrimEnd('/', '\\'));
-                var libraries = name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 && reference.EndsWith(".dylib", StringComparison.Ordinal)
-                    ? new[] { name, name[3..] }
-                    : new[] { name };
-                foreach (var library in libraries)
-                    foreach (var path in ConsumerTransitionCheck.NativeReferenceImages(reference, library))
-                        images.Add(new PackagedNative(library, path, File.ReadAllBytes(path)));
+                var library = Path.GetFileNameWithoutExtension(reference.TrimEnd('/', '\\'));
+                if (library.StartsWith("lib", StringComparison.Ordinal) && reference.EndsWith(".dylib", StringComparison.Ordinal))
+                    library = library[3..];
+                foreach (var path in ConsumerTransitionCheck.NativeReferenceImages(reference, library))
+                    images.Add(new PackagedNative(library, path, File.ReadAllBytes(path)));
             }
             return images;
         }

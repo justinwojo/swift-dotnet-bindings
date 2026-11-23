@@ -149,9 +149,8 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
 
     /// <summary>
     /// Every native image in the package, with the consumers it serves (<see cref="Scope"/>): each
-    /// framework binary, and each bare dylib under the library names a consumer's native reference
-    /// resolves it by (<c>{library}.dylib</c>, <c>lib{library}.dylib</c>;
-    /// <see cref="ConsumerTransitionCheck.NativeReferenceImages"/>).
+    /// framework binary, and each bare dylib under the library name the app check gives a dylib
+    /// reference (<c>lib{library}.dylib</c> and <c>{library}.dylib</c> are <c>{library}</c>'s).
     /// </summary>
     private static List<(PackagedNative Native, NativeScope Scope)> ReadFrameworks(string root)
     {
@@ -164,8 +163,9 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
             .Where(shown => !shown.Contains(".dSYM/", StringComparison.Ordinal) && !shown.Contains(".framework/", StringComparison.Ordinal))
             .Select(shown =>
             {
+                // Named as the app check names a dylib reference: lib<name>.dylib is <name>'s image.
                 var name = Path.GetFileNameWithoutExtension(shown);
-                return (Libraries: name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? new[] { name, name[3..] } : new[] { name }, Shown: shown);
+                return (Libraries: new[] { name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? name[3..] : name }, Shown: shown);
             });
         return frameworks.Concat(dylibs)
             .SelectMany(n =>
