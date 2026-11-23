@@ -156,6 +156,10 @@
        ProjectReference, which NuGet pack lifts into a package dependency on the
        referenced project's PackageId. -->
 
+  <!-- NOTE: SwiftFrameworkDependency metadata (PackageId, PackageVersion, ModuleDatabasePath,
+       NativeOnly, ForceLoad) is read in Sdk.targets. ForceLoad="true" links a library-type
+       dependency's static archive in full; see _ValidateSwiftFrameworkDependencyForceLoad. -->
+
   <!-- NOTE: Auto-discovery is in Sdk.targets (after project body evaluation) -->
   <!-- so explicit <SwiftFramework> items in the project are seen first        -->
 </Project>

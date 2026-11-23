@@ -125,7 +125,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
             WrapperSliceCollector? collector = null,
-            SwiftWrapperLoweringEvidence.Pass? lowering = null)
+            SwiftWrapperLoweringEvidence.Pass? lowering = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -140,6 +141,7 @@ namespace BindingsGeneration
                 depModuleNamesForCollision: depModuleNamesForCollision,
                 linkFrameworks: linkFrameworks,
                 linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                 collector: collector,
                 lowering: lowering);
         }
@@ -169,7 +171,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
             WrapperSliceCollector? collector = null,
-            SwiftWrapperLoweringEvidence.Pass? lowering = null)
+            SwiftWrapperLoweringEvidence.Pass? lowering = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -424,6 +427,7 @@ namespace BindingsGeneration
                         forceLoadBinaries: simForceLoad,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         transitiveScanSearchPaths: primaryAdditionalSearchPaths,
                         lowering: lowering,
                         strippedSymbols: allStrippedSymbols);
@@ -440,6 +444,7 @@ namespace BindingsGeneration
                         forceLoadBinaries: simForceLoad,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         transitiveFrameworks: CollectTransitiveFrameworkNames(primaryAdditionalSearchPaths, new[] { moduleName }),
                         buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
                             stderr, linkFrameworks, linkLibraries, simForceLoad, commandRunner, logger),
@@ -592,6 +597,7 @@ namespace BindingsGeneration
                             forceLoadBinaries: devForceLoad,
                             linkFrameworks: linkFrameworks,
                             linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                             transitiveScanSearchPaths: deviceAdditionalSearchPaths,
                             lowering: lowering,
                             strippedSymbols: allStrippedSymbols);
@@ -608,6 +614,7 @@ namespace BindingsGeneration
                             forceLoadBinaries: devForceLoad,
                             linkFrameworks: linkFrameworks,
                             linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                             transitiveFrameworks: CollectTransitiveFrameworkNames(deviceAdditionalSearchPaths, new[] { moduleName }),
                             buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
                                 stderr, linkFrameworks, linkLibraries, devForceLoad, commandRunner, logger),
@@ -737,7 +744,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
             WrapperSliceCollector? collector = null,
-            SwiftWrapperLoweringEvidence.Pass? lowering = null)
+            SwiftWrapperLoweringEvidence.Pass? lowering = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var wrapperModuleName = $"{moduleName}SwiftBindings";
@@ -963,6 +971,7 @@ namespace BindingsGeneration
                         forceLoadBinaries: forceLoadBinaries,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         transitiveScanSearchPaths: additionalFrameworkSearchPaths,
                         lowering: lowering,
                         strippedSymbols: allStrippedSymbols);
@@ -980,6 +989,7 @@ namespace BindingsGeneration
                         forceLoadBinaries: forceLoadBinaries,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         transitiveFrameworks: CollectTransitiveFrameworkNames(additionalFrameworkSearchPaths, new[] { moduleName }),
                         buildLinkFailureHint: stderr => BuildSystemLinkDependencyHint(
                             stderr, linkFrameworks, linkLibraries, forceLoadBinaries, commandRunner, logger),
@@ -1152,7 +1162,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? depModuleNamesForCollision = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
-            SwiftWrapperLoweringEvidence.Pass? lowering = null)
+            SwiftWrapperLoweringEvidence.Pass? lowering = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var isSimulator = platformVariant == "simulator";
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
@@ -1170,6 +1181,7 @@ namespace BindingsGeneration
                 depModuleNamesForCollision: depModuleNamesForCollision,
                 linkFrameworks: linkFrameworks,
                 linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                 lowering: lowering);
         }
 
@@ -1214,7 +1226,8 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            string? resolvedArchitecture = null)
+            string? resolvedArchitecture = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -1223,7 +1236,7 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(resolvedArchitecture))
                 simSlice = simSlice.WithArchitecture(resolvedArchitecture);
             return CompileBridgeSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                simSlice, logger, commandRunner, additionalFrameworkSearchPaths);
+                simSlice, logger, commandRunner, additionalFrameworkSearchPaths, forceLoadDependencies);
         }
 
         /// <summary>
@@ -1239,7 +1252,8 @@ namespace BindingsGeneration
             ICommandRunner? commandRunner = null,
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
-            PlatformInfo? platformInfo = null)
+            PlatformInfo? platformInfo = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var bridgeModuleName = $"{moduleName}Bridge";
@@ -1292,7 +1306,8 @@ namespace BindingsGeneration
                     bridgeFiles, simBinaryPath, bridgeModuleName,
                     simTargetTriple, simSdkPath,
                     simulatorResolution.FrameworkSearchPath, commandRunner, logger,
-                    primaryAdditionalSearchPaths, originalModuleName: moduleName);
+                    primaryAdditionalSearchPaths, originalModuleName: moduleName,
+                        forceLoadDependencies: forceLoadDependencies);
                 ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                 sliceCount++;
 
@@ -1313,7 +1328,8 @@ namespace BindingsGeneration
                         bridgeFiles, devBinaryPath, bridgeModuleName,
                         devTargetTriple, devSdkPath,
                         deviceResolution.FrameworkSearchPath, commandRunner, logger,
-                        deviceAdditionalSearchPaths, originalModuleName: moduleName);
+                        deviceAdditionalSearchPaths, originalModuleName: moduleName,
+                        forceLoadDependencies: forceLoadDependencies);
                     ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
                     sliceCount++;
 
@@ -1358,7 +1374,8 @@ namespace BindingsGeneration
             SliceVariant slice,
             ILogger logger,
             ICommandRunner? commandRunner = null,
-            IReadOnlyList<string>? additionalFrameworkSearchPaths = null)
+            IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var bridgeModuleName = $"{moduleName}Bridge";
@@ -1397,7 +1414,8 @@ namespace BindingsGeneration
                 InvokeSwiftCompiler(
                     bridgeFiles, outputBinaryPath, bridgeModuleName,
                     targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
-                    additionalFrameworkSearchPaths, originalModuleName: moduleName);
+                    additionalFrameworkSearchPaths, originalModuleName: moduleName,
+                    forceLoadDependencies: forceLoadDependencies);
 
                 ValidateCompiledSliceBinary(outputBinaryPath, slice.Architecture, commandRunner, logger);
                 PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
@@ -1836,6 +1854,11 @@ namespace BindingsGeneration
         /// resolution) but must NOT contribute <c>-framework</c> flags for test-host frameworks.
         /// Falls back to <paramref name="additionalFrameworkSearchPaths"/> when null.
         /// </param>
+        /// <param name="forceLoadDependencies">
+        /// Library-type dependency xcframeworks (<c>--force-load-dependency</c>, the SDK's
+        /// <c>ForceLoad</c> metadata) whose static archives are linked in full with <c>-force_load</c>
+        /// instead of lazily, so members that only register themselves from a static initializer are kept.
+        /// </param>
         internal static void InvokeSwiftCompiler(
             List<string> swiftFiles,
             string outputBinaryPath,
@@ -1854,7 +1877,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkLibraries = null,
             IReadOnlyList<string>? transitiveScanSearchPaths = null,
             SwiftWrapperLoweringEvidence.Pass? lowering = null,
-            IReadOnlySet<string>? strippedSymbols = null)
+            IReadOnlySet<string>? strippedSymbols = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -1928,10 +1952,13 @@ namespace BindingsGeneration
                 transitiveFrameworkLinkerFlags.Append($"-Xlinker -framework -Xlinker {frameworkName} ");
             }
             // A library-type dependency slice (a bare .a or .dylib, not a .framework) has nothing a -F can
-            // find, so its binary goes on the link line by path (DependencyLinkInputs).
-            foreach (var libraryBinary in DependencyLinkInputs.CollectLibraryBinaries(dependencyScanPaths))
+            // find, so its binary goes on the link line by path (DependencyLinkInputs), or in full with
+            // -force_load when the dependency asks for it (ForceLoad).
+            foreach (var library in DependencyLinkInputs.CollectLibraryLinkInputs(dependencyScanPaths, forceLoadDependencies))
             {
-                transitiveFrameworkLinkerFlags.Append($"-Xlinker \"{libraryBinary}\" ");
+                transitiveFrameworkLinkerFlags.Append(library.ForceLoad
+                    ? $"-Xlinker -force_load -Xlinker \"{library.Binary}\" "
+                    : $"-Xlinker \"{library.Binary}\" ");
             }
 
             // Pre-compiled shadow module paths for collision resolution: each is a shadow

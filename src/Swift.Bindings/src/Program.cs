@@ -2069,7 +2069,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null,
             string? loweringReceiptPath = null,
-            bool routeBridges = false)
+            bool routeBridges = false,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2276,6 +2277,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollisionDevice: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else if (wrapperArchNormalized == "device")
@@ -2302,6 +2304,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollision: depModuleCollisions.Device,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
                 else
@@ -2326,6 +2329,7 @@ namespace BindingsGeneration
                         depModuleNamesForCollision: depModuleCollisions.Simulator,
                         linkFrameworks: linkFrameworks,
                         linkLibraries: linkLibraries,
+                        forceLoadDependencies: forceLoadDependencies,
                         lowering: loweringPass);
                 }
             }
@@ -2666,7 +2670,8 @@ namespace BindingsGeneration
             string? platformStr, string? platformTargetStr,
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
-            string? targetArchitectures = null)
+            string? targetArchitectures = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2803,7 +2808,8 @@ namespace BindingsGeneration
                         simResolution, deviceResolution, logger,
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
-                        platformInfo: platformInfo);
+                        platformInfo: platformInfo,
+                        forceLoadDependencies: forceLoadDependencies);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -2820,7 +2826,8 @@ namespace BindingsGeneration
                         deviceResolution.FrameworkSearchPath,
                         deviceResolution.DylibPath,
                         platformInfo.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture),
-                        logger, additionalFrameworkSearchPaths: deviceDepPaths);
+                        logger, additionalFrameworkSearchPaths: deviceDepPaths,
+                        forceLoadDependencies: forceLoadDependencies);
                 }
                 else
                 {
@@ -2834,7 +2841,8 @@ namespace BindingsGeneration
                         simResolution.FrameworkSearchPath, simResolution.DylibPath, logger,
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
-                        resolvedArchitecture: simResolution.SelectedArchitecture);
+                        resolvedArchitecture: simResolution.SelectedArchitecture,
+                        forceLoadDependencies: forceLoadDependencies);
                 }
             }
 

@@ -117,6 +117,10 @@ namespace BindingsGeneration
         /// emitted <c>-framework Dep</c> would fail with ld "framework not found". Mirrors the
         /// swiftc path, which emits a <c>-F</c> for every effective dependency search path.
         /// </param>
+        /// <param name="forceLoadDependencies">
+        /// Library-type dependency xcframeworks (<c>--force-load-dependency</c>) whose static archives are
+        /// linked in full rather than lazily, as on the swiftc path.
+        /// </param>
         /// <param name="buildLinkFailureHint">
         /// Maps the linker stderr to actionable system-link guidance appended to the failure
         /// message (single source of truth: <c>SwiftWrapperCompiler.BuildSystemLinkDependencyHint</c>),
@@ -139,7 +143,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? linkLibraries = null,
             IReadOnlyList<string>? transitiveFrameworks = null,
             Func<string, string>? buildLinkFailureHint = null,
-            IReadOnlyList<string>? transitiveFrameworkSearchPaths = null)
+            IReadOnlyList<string>? transitiveFrameworkSearchPaths = null,
+            IReadOnlyCollection<string>? forceLoadDependencies = null)
         {
             var objectArgs = string.Join(" ", objectFiles.Select(f => $"\"{f}\""));
 
@@ -203,8 +208,8 @@ namespace BindingsGeneration
             }
             // Library-type dependency slices (a bare .a or .dylib) from the same scanned dirs, by path,
             // exactly as the swiftc path links them (DependencyLinkInputs).
-            foreach (var libraryBinary in DependencyLinkInputs.CollectLibraryBinaries(transitiveFrameworkSearchPaths))
-                frameworkFlags += $"\"{libraryBinary}\" ";
+            foreach (var library in DependencyLinkInputs.CollectLibraryLinkInputs(transitiveFrameworkSearchPaths, forceLoadDependencies))
+                frameworkFlags += library.ForceLoad ? $"-Wl,-force_load,\"{library.Binary}\" " : $"\"{library.Binary}\" ";
 
             // Gap 2: force-load a static-archive primary so this thunk-only wrapper carries
             // the framework's ObjC classes (a bare `-framework` against a static archive
