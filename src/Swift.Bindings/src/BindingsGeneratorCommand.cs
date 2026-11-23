@@ -581,7 +581,8 @@ public static class BindingsGeneratorCommand
             context.ExitCode = BindingsGenerator.RunCompileBridgeOnly(
                 xcframeworkPath!, outputDirectory, platformStr, platformTargetStr,
                 wrapperArchitectures, frameworkDependencies, logger, platformInfo,
-                targetArchitectures, forceLoadDependencies);
+                targetArchitectures, forceLoadDependencies,
+                linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
             return;
         }
 

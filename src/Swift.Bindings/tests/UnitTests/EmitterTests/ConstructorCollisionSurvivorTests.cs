@@ -61,7 +61,42 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         Assert.DoesNotContain(Symbol("beta"), csharp);
     }
 
-    private static MethodDecl Init(string secondLabel, bool deprecated)
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void InitializersWhoseParameterTypesProjectAlike_TheNonDeprecatedOneKeepsTheConstructor(bool deprecatedDeclaredFirst)
+    {
+        // Same labels, different Swift types that resolve to one C# type (as a remapped value type
+        // resolves to its primitive): the primary signature already collides, before the projected one.
+        const string currentSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_SdtcfC";
+        const string legacySymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_5Remap6WeightVtcfC";
+        var current = Init("value", deprecated: false, new NamedTypeSpec("Swift.Double"), currentSymbol);
+        var legacy = Init("value", deprecated: true, new NamedTypeSpec("Remap.Weight"), legacySymbol);
+
+        var (report, csharp) = Emit(
+            deprecatedDeclaredFirst ? new[] { legacy, current } : new[] { current, legacy },
+            typeDatabase =>
+            {
+                var remap = new ModuleTypeDatabase("Remap", "/fake/Remap.dylib");
+                var weight = SwiftTypeName.FromModuleQualifiedName("Remap.Weight");
+                remap.RegisterType(weight, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Double"),
+                    SwiftTypeName = weight,
+                    MetadataAccessor = "$s5Remap6WeightVMa",
+                    Flags = TypeRecordFlags.Frozen,
+                    Kind = TypeRecordKind.Struct,
+                });
+                typeDatabase.AddModuleDatabase(remap);
+            });
+
+        var dropped = Assert.Single(report.SkippedItems, i => i.Reason == SkipReason.DuplicateSignature);
+        Assert.Contains("Remap.Weight", dropped.DeclId);
+        Assert.Contains($"EntryPoint = \"{currentSymbol}\"", csharp);
+        Assert.DoesNotContain(legacySymbol, csharp);
+    }
+
+    private static MethodDecl Init(string secondLabel, bool deprecated, NamedTypeSpec? secondType = null, string? symbol = null)
     {
         var init = TestDecls.Method(
             "init",
@@ -70,12 +105,12 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
             parameters: new[]
             {
                 TestDecls.Param("selectedKey", new NamedTypeSpec("Swift.String")),
-                TestDecls.Param(secondLabel, new NamedTypeSpec("Swift.Int")),
+                TestDecls.Param(secondLabel, secondType ?? new NamedTypeSpec("Swift.Int")),
             },
             returnType: new NamedTypeSpec($"{ModuleName}.Score"),
             module: ModuleName) with
         {
-            MangledName = Symbol(secondLabel),
+            MangledName = symbol ?? Symbol(secondLabel),
         };
         if (deprecated)
         {
@@ -96,7 +131,7 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
     // The constructor's P/Invoke binds the initializer's own symbol, so the entry point names the survivor.
     private static string EntryPoint(string secondLabel) => $"EntryPoint = \"{Symbol(secondLabel)}\"";
 
-    private (BindingReport Report, string CSharp) Emit(IEnumerable<MethodDecl> inits)
+    private (BindingReport Report, string CSharp) Emit(IEnumerable<MethodDecl> inits, Action<TypeDatabase>? extendTypeDatabase = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -134,6 +169,7 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         }
         moduleDecl.Types.Add(score);
         var typeDatabase = FixtureModuleFactory.BuildTypeDatabase(moduleDecl);
+        extendTypeDatabase?.Invoke(typeDatabase);
 
         var scratch = Path.Combine(Path.GetTempPath(), "swiftbind-ctor-survivor-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(scratch);

@@ -1997,10 +1997,17 @@ done; true"
     does), so a full copy there would be an unused second copy whose static initializers
     register into a second registry.
 
+    The wrapper and the bridge are separate images, and each links its own copy of what it takes
+    from the archive. With ForceLoad each takes all of it, so an app that loads both runs every
+    static initializer once per image, into that image's own copy of the library's state, and an
+    Objective-C class the archive defines is registered twice (the runtime logs that the class is
+    implemented in both images). Without ForceLoad the same holds for whatever both links
+    reference. A binding that emits no SwiftUI bridge has one copy.
+
     Values: "true" or "false" (any case, and MSBuild's other boolean spellings such as "yes" and
-    "no"); absent or empty means false. Any other value is SWIFTBIND141. A dependency it cannot apply to (a framework-type xcframework, whose code ships
-    in its own image, or a dynamic library, which always loads whole) is SWIFTBIND142 from the
-    generator. The setting is part of the generation fingerprint, so toggling it relinks.
+    "no"); absent or empty means false. Any other value is SWIFTBIND141. A dependency it cannot
+    apply to (a framework-type xcframework, whose code ships in its own image, or a dynamic
+    library, which always loads whole) is SWIFTBIND142 from the generator. The setting is part of the generation fingerprint, so toggling it relinks.
 
     Other SwiftFrameworkDependency metadata: PackageId and PackageVersion (pack-time dependency
     validation, SWIFTBIND081), ModuleDatabasePath (cross-module type resolution) and NativeOnly
@@ -3492,6 +3499,9 @@ done; true"
       <!-- The bridge links its own copy of what it references from a library-type dependency, so a
            force-loaded one is linked in full here too, as in the wrapper. -->
       <_SwiftBridgeCmd Condition="'@(_SwiftForceLoadDependency)' != ''">$(_SwiftBridgeCmd) @(_SwiftForceLoadDependency->' --force-load-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
+      <!-- The system frameworks and libraries the wrapper link declares, for the same objects. -->
+      <_SwiftBridgeCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftBridgeCmd>
+      <_SwiftBridgeCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftBridgeCmd>
     </PropertyGroup>
 
     <Exec Condition="'@(SwiftFramework)' != '' AND '$(_SwiftBridgeSkip)' != 'true'"

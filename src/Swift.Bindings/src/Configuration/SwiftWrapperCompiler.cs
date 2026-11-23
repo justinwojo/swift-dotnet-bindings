@@ -1227,7 +1227,9 @@ namespace BindingsGeneration
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             PlatformInfo? platformInfo = null,
             string? resolvedArchitecture = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null)
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var pi = platformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var simSlice = pi.GetSlice(true);
@@ -1236,7 +1238,8 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(resolvedArchitecture))
                 simSlice = simSlice.WithArchitecture(resolvedArchitecture);
             return CompileBridgeSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                simSlice, logger, commandRunner, additionalFrameworkSearchPaths, forceLoadDependencies);
+                simSlice, logger, commandRunner, additionalFrameworkSearchPaths, forceLoadDependencies,
+                linkFrameworks, linkLibraries);
         }
 
         /// <summary>
@@ -1253,7 +1256,9 @@ namespace BindingsGeneration
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null)
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var bridgeModuleName = $"{moduleName}Bridge";
@@ -1307,7 +1312,8 @@ namespace BindingsGeneration
                     simTargetTriple, simSdkPath,
                     simulatorResolution.FrameworkSearchPath, commandRunner, logger,
                     primaryAdditionalSearchPaths, originalModuleName: moduleName,
-                        forceLoadDependencies: forceLoadDependencies);
+                        forceLoadDependencies: forceLoadDependencies,
+                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                 sliceCount++;
 
@@ -1329,7 +1335,8 @@ namespace BindingsGeneration
                         devTargetTriple, devSdkPath,
                         deviceResolution.FrameworkSearchPath, commandRunner, logger,
                         deviceAdditionalSearchPaths, originalModuleName: moduleName,
-                        forceLoadDependencies: forceLoadDependencies);
+                        forceLoadDependencies: forceLoadDependencies,
+                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                     ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
                     sliceCount++;
 
@@ -1375,7 +1382,9 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null)
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             commandRunner ??= new SystemCommandRunner();
             var bridgeModuleName = $"{moduleName}Bridge";
@@ -1415,7 +1424,8 @@ namespace BindingsGeneration
                     bridgeFiles, outputBinaryPath, bridgeModuleName,
                     targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
                     additionalFrameworkSearchPaths, originalModuleName: moduleName,
-                    forceLoadDependencies: forceLoadDependencies);
+                    forceLoadDependencies: forceLoadDependencies,
+                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
 
                 ValidateCompiledSliceBinary(outputBinaryPath, slice.Architecture, commandRunner, logger);
                 PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);

@@ -207,9 +207,10 @@ namespace BindingsGeneration
                 }
             }
             // Library-type dependency slices (a bare .a or .dylib) from the same scanned dirs, by path,
-            // exactly as the swiftc path links them (DependencyLinkInputs).
+            // exactly as the swiftc path links them (DependencyLinkInputs). -Xlinker, not -Wl, because clang splits a
+            // -Wl, value at every comma, path included.
             foreach (var library in DependencyLinkInputs.CollectLibraryLinkInputs(transitiveFrameworkSearchPaths, forceLoadDependencies))
-                frameworkFlags += library.ForceLoad ? $"-Wl,-force_load,\"{library.Binary}\" " : $"\"{library.Binary}\" ";
+                frameworkFlags += library.ForceLoad ? $"-Xlinker -force_load -Xlinker \"{library.Binary}\" " : $"\"{library.Binary}\" ";
 
             // Gap 2: force-load a static-archive primary so this thunk-only wrapper carries
             // the framework's ObjC classes (a bare `-framework` against a static archive
@@ -219,7 +220,7 @@ namespace BindingsGeneration
                 foreach (var binary in forceLoadBinaries)
                 {
                     if (!string.IsNullOrEmpty(binary) && File.Exists(binary))
-                        frameworkFlags += $"-Wl,-force_load,\"{binary}\" ";
+                        frameworkFlags += $"-Xlinker -force_load -Xlinker \"{binary}\" ";
                 }
             }
 

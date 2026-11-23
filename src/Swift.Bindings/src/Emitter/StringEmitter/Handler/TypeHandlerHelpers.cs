@@ -1875,25 +1875,20 @@ internal static class ProtocolConformanceHelper
     internal readonly record struct ConformanceDrop(SkipReason Reason, string Details, string? Workaround = null);
 
     /// <summary>
-    /// The Foundation error-bridging protocols, each with its requirements and the C# members a Swift
-    /// error type's own declarations of them bind as. No C# interface projects these protocols, so a
-    /// conformance to one never reaches the C# base list, but a type that declares a requirement (an
-    /// <c>errorDescription</c>, a static <c>errorDomain</c>) gets it bound like any other property.
-    /// The report row for such a drop says exactly that instead of the not-in-the-database wording,
-    /// whose remedy (another module's database) does not exist for a Foundation protocol.
+    /// The Foundation error-bridging protocols and their requirements. No C# interface projects these
+    /// protocols, so a conformance to one never reaches the C# base list, but a type that declares a
+    /// requirement (an <c>errorDescription</c>, a static <c>errorDomain</c>) gets it bound like any other
+    /// property. The report row for such a drop says exactly that instead of the not-in-the-database
+    /// wording, whose remedy (another module's database) does not exist for a Foundation protocol. It
+    /// names the Swift requirements, not C# members: a member's C# name can move off the plain
+    /// PascalCase form (a nested type of the same name, for one), and the row is written before it is
+    /// emitted.
     /// </summary>
-    private static readonly IReadOnlyDictionary<string, (string Requirement, string Member)[]> s_foundationErrorProtocols =
-        new Dictionary<string, (string, string)[]>(StringComparer.Ordinal)
+    private static readonly IReadOnlyDictionary<string, string[]> s_foundationErrorProtocols =
+        new Dictionary<string, string[]>(StringComparer.Ordinal)
         {
-            ["LocalizedError"] = new[]
-            {
-                ("errorDescription", "ErrorDescription"), ("failureReason", "FailureReason"),
-                ("recoverySuggestion", "RecoverySuggestion"), ("helpAnchor", "HelpAnchor"),
-            },
-            ["CustomNSError"] = new[]
-            {
-                ("errorDomain", "ErrorDomain"), ("errorCode", "ErrorCode"), ("errorUserInfo", "ErrorUserInfo"),
-            },
+            ["LocalizedError"] = new[] { "errorDescription", "failureReason", "recoverySuggestion", "helpAnchor" },
+            ["CustomNSError"] = new[] { "errorDomain", "errorCode", "errorUserInfo" },
         };
 
     /// <summary>
@@ -1906,12 +1901,11 @@ internal static class ProtocolConformanceHelper
             return null;
         if (!s_foundationErrorProtocols.TryGetValue(protocol.Name, out var requirements))
             return null;
-        var mapping = string.Join(", ", requirements.Select(r => $"{r.Requirement} → {r.Member}"));
         return new ConformanceDrop(
             SkipReason.ConformanceProtocolNotInTypeDatabase,
             $"no C# interface projects the Foundation protocol {protocol.ModuleQualifiedName}, so the C# type "
             + "does not declare it in its base list; the requirements the Swift type itself declares for it "
-            + $"({mapping}) are bound as ordinary members, and Swift still sees the conformance",
+            + $"({string.Join(", ", requirements)}) are bound as ordinary members, and Swift still sees the conformance",
             $"No action needed: the members the type declares for {protocol.Name} are on the C# type. "
             + "What is absent is only an interface to pass the value as, and none exists for this Foundation "
             + "protocol. A requirement the Swift type leaves to its default implementation is not declared on "

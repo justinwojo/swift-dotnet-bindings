@@ -500,7 +500,9 @@ namespace BindingsGeneration.Tests
                 transitiveFrameworkSearchPaths: new[] { forced, lazy },
                 forceLoadDependencies: new[] { forcedXcfw });
             var clangArgs = clang.Invocations[0].Arguments;
-            Assert.Contains($"-Wl,-force_load,\"{forcedArchive}\" ", clangArgs);
+            // -Xlinker carries the path as one argument; clang would split a -Wl, value at its commas.
+            Assert.Contains($"-Xlinker -force_load -Xlinker \"{forcedArchive}\" ", clangArgs);
+            Assert.DoesNotContain("-Wl,-force_load", clangArgs);
             Assert.Equal(1, Count(clangArgs, forcedArchive));
             Assert.DoesNotContain($"-force_load,\"{lazyArchive}\"", clangArgs);
         }

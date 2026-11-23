@@ -625,11 +625,11 @@ public class TypeHandlerHelpersTests
     }
 
     [Theory]
-    [InlineData("Foundation.LocalizedError", "errorDescription", "ErrorDescription")]
-    [InlineData("Foundation.CustomNSError", "errorDomain", "ErrorDomain")]
-    [InlineData("Foundation.LocalizedError", "failureReason", "FailureReason")]
+    [InlineData("Foundation.LocalizedError", "errorDescription")]
+    [InlineData("Foundation.CustomNSError", "errorDomain")]
+    [InlineData("Foundation.LocalizedError", "failureReason")]
     public void GetImplementedInterfaces_FoundationErrorProtocol_ReportSaysTheMembersAreBound(
-        string protocol, string requirement, string member)
+        string protocol, string requirement)
     {
         // An error type conforming to a Foundation error protocol keeps every requirement it declares
         // as an ordinary member; only the C# interface entry is absent, because no C# interface
@@ -650,7 +650,7 @@ public class TypeHandlerHelpersTests
         var row = Assert.Single(report.SkippedItems, i => i.Name == protocol);
         Assert.Equal(SkipReason.ConformanceProtocolNotInTypeDatabase, row.Reason);
         Assert.Contains("does not declare", row.Details);
-        Assert.Contains($"{requirement} → {member}", row.Details);
+        Assert.Contains(requirement, row.Details);
         Assert.Contains("bound as ordinary members", row.Details);
         Assert.DoesNotContain("type databases this run loaded", row.Details);
         Assert.NotNull(row.RecommendedWorkaround);

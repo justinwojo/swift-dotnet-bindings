@@ -719,10 +719,11 @@ namespace BindingsGeneration.Tests
         [Theory]
         [InlineData("_CompileSwiftWrapper", "--compile-wrapper-only")]
         [InlineData("_CompileSwiftUIBridge", "--compile-bridge-only")]
-        public void ForceLoadDependency_ReachesTheWrapperAndBridgeLinks(string target, string mode)
+        public void ForceLoadDependencyAndSystemLinks_ReachTheWrapperAndBridgeLinks(string target, string mode)
         {
             // Both links copy a library-type dependency's archive members, so both take the flag, and
-            // only for the dependency that asked for it.
+            // only for the dependency that asked for it. Those members can need system frameworks and
+            // libraries the archive does not name, so both links take the declared ones too.
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             var stubDir = StubGeneratorDir.Value;
             SkipUnless(stubDir != null, "Could not build stub generator DLL");
@@ -763,6 +764,8 @@ namespace BindingsGeneration.Tests
                     <SwiftFramework Include="{sourceXcfw}" />
                     <SwiftFrameworkDependency Include="{forced}" ForceLoad="true" />
                     <SwiftFrameworkDependency Include="{lazy}" ForceLoad="false" />
+                    <SwiftLinkFramework Include="Metal" />
+                    <SwiftLinkLibrary Include="sqlite3" />
                   </ItemGroup>
                   <Target Name="_DiscoverSwiftFrameworks" />
                   {bridgeStubs}
@@ -780,6 +783,8 @@ namespace BindingsGeneration.Tests
             Assert.Contains($"--force-load-dependency {forced}", output);
             Assert.DoesNotContain($"--force-load-dependency {lazy}", output);
             Assert.Contains($"--framework-dependency {lazy}", output);
+            Assert.Contains("--link-framework Metal", output);
+            Assert.Contains("--link-library sqlite3", output);
         }
 
         [Fact]

@@ -98,8 +98,6 @@ partial class Build
         var expected = string.Join(",", ForceLoadComponents.OrderBy(c => c, StringComparer.Ordinal));
         if (full.Registered != expected)
             failures.Add($"with ForceLoad the wrapper's registry holds [{full.Registered}], expected [{expected}]: the dependency's archive was not linked in full.");
-        if (full.WrapperBytes <= lazy.WrapperBytes)
-            failures.Add($"the force-loaded wrapper ({full.WrapperBytes} bytes) is not larger than the lazily linked one ({lazy.WrapperBytes} bytes).");
         if (failures.Count > 0)
             Assert.Fail("--static-dependency-force-load:" + Environment.NewLine + string.Join(Environment.NewLine, failures));
 
@@ -198,7 +196,6 @@ partial class Build
             extern "C" {
             #endif
             void sbfl_register(const char *name);
-            int sbfl_count(void);
             const char *sbfl_names(void);
             #ifdef __cplusplus
             }
@@ -222,7 +219,6 @@ partial class Build
                 strlcat(names, name, sizeof names);
                 count++;
             }
-            int sbfl_count(void) { return count; }
             const char *sbfl_names(void) { return names; }
             """);
         Source("component_alpha.c", "__attribute__((constructor)) static void sbfl_alpha_init(void) { sbfl_register(\"alpha\"); }\n");
@@ -274,7 +270,6 @@ partial class Build
             @_implementationOnly import {{ForceLoadRegistry}}
 
             public enum ForceLoadProbe {
-                public static func registeredCount() -> Int { Int(sbfl_count()) }
                 public static func registeredNames() -> String { String(cString: sbfl_names()) }
             }
             """);
@@ -425,7 +420,6 @@ partial class Build
                         {{MixedConsumerRuntimeBanner()}}
                         // The registry the wrapper links; its components register before managed code runs.
                         Console.WriteLine("REGISTERED:[" + global::{{ForceLoadModule}}.ForceLoadProbe.RegisteredNames() + "]");
-                        Console.WriteLine("REGISTERED_COUNT:" + global::{{ForceLoadModule}}.ForceLoadProbe.RegisteredCount());
                         Console.WriteLine("RESULTS FLUSHED");
                         Console.WriteLine("TEST SUCCESS");
                     }

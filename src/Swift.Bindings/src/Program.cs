@@ -2671,7 +2671,9 @@ namespace BindingsGeneration
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
             string? targetArchitectures = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null)
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            IReadOnlyList<string>? linkFrameworks = null,
+            IReadOnlyList<string>? linkLibraries = null)
         {
             var wrapperArchNormalized = wrapperArchitectures?.ToLowerInvariant() ?? "simulator";
             if (wrapperArchNormalized != "simulator" && wrapperArchNormalized != "device" && wrapperArchNormalized != "all")
@@ -2809,7 +2811,8 @@ namespace BindingsGeneration
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
                         platformInfo: platformInfo,
-                        forceLoadDependencies: forceLoadDependencies);
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else if (wrapperArchNormalized == "device")
                 {
@@ -2827,7 +2830,8 @@ namespace BindingsGeneration
                         deviceResolution.DylibPath,
                         platformInfo.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture),
                         logger, additionalFrameworkSearchPaths: deviceDepPaths,
-                        forceLoadDependencies: forceLoadDependencies);
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else
                 {
@@ -2842,7 +2846,8 @@ namespace BindingsGeneration
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
                         resolvedArchitecture: simResolution.SelectedArchitecture,
-                        forceLoadDependencies: forceLoadDependencies);
+                        forceLoadDependencies: forceLoadDependencies,
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
             }
 

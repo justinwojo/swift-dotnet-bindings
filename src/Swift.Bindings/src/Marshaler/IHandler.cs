@@ -1171,8 +1171,10 @@ namespace BindingsGeneration
         /// Only the family's members trade places, among the slots the family already occupies, so no
         /// other member moves. Validation runs as the loop runs it (with the loop's closure-tombstone
         /// view of the key), so a member that never reaches the dedup block neither joins a family nor
-        /// displaces one that does. A primary-signature duplicate is left out as the loop drops it before
-        /// the projected key. The input list is never modified; a reordered copy is returned when any
+        /// displaces one that does. A primary-signature duplicate (same labels, parameter types that
+        /// resolve to one C# type) joins the family too: the loop drops it at the primary signature
+        /// instead of the projected one, but it is dropped for the same collision, so the same member
+        /// should survive it. The input list is never modified; a reordered copy is returned when any
         /// family changes order.
         /// </para>
         /// </summary>
@@ -1181,7 +1183,6 @@ namespace BindingsGeneration
             ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
         {
             Dictionary<string, List<int>>? families = null;
-            var primarySeen = new HashSet<string>(StringComparer.Ordinal);
             for (int i = 0; i < sortedDecl.Count; i++)
             {
                 if (sortedDecl[i] is not MethodDecl { IsConstructor: true, IsFailable: false, IsAsync: false } init)
@@ -1190,8 +1191,6 @@ namespace BindingsGeneration
                     continue;
                 var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(init, pipeline, validationCtx, typeDatabase);
                 if (!willEmit)
-                    continue;
-                if (!primarySeen.Add(GetMethodSignatureKey(init, typeDatabase, _logger)))
                     continue;
                 var key = GetProjectedCSharpMethodKey(init, typeDatabase, _logger, siblingPropertyNames,
                     treatAsClosureTombstone: isTombstone);
