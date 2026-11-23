@@ -110,7 +110,7 @@ public sealed record CdeclAbiParityVerdict(
 public static class CdeclAbiParity
 {
     static readonly Regex CdeclAttribute = new(@"@_cdecl\(\s*""([^""]+)""\s*\)", RegexOptions.CultureInvariant);
-    static readonly Regex SwiftFunc = new(@"\bfunc\s+(`?[\p{L}_][\p{L}\p{Nd}_]*`?)", RegexOptions.CultureInvariant);
+    static readonly Regex SwiftFunc = new(@"\bfunc\s+(`[^`]+`|[^\s(<`]+)", RegexOptions.CultureInvariant);
     static readonly Regex ImportAttribute = new(
         @"\[\s*(?:global::)?(?:System\.Runtime\.InteropServices\.)?(LibraryImport|DllImport)(?:Attribute)?\s*\(",
         RegexOptions.CultureInvariant);
@@ -123,6 +123,7 @@ public static class CdeclAbiParity
     static readonly Regex SwiftTypealias = new(
         @"^[ \t]*(?:(?:public|internal|fileprivate|private)[ \t]+)?typealias[ \t]+([A-Za-z_][A-Za-z0-9_]*)[ \t]*=[ \t]*(.+?)[ \t]*$",
         RegexOptions.CultureInvariant | RegexOptions.Multiline);
+    static readonly Regex EmptyTuple = new(@"^\(\s*\)$", RegexOptions.CultureInvariant);
     static readonly Regex SwiftTypedPointer = new(
         @"^(?:Swift\.)?(?:UnsafePointer|UnsafeMutablePointer|AutoreleasingUnsafeMutablePointer)<.*>$",
         RegexOptions.CultureInvariant | RegexOptions.Singleline);
@@ -300,6 +301,8 @@ public static class CdeclAbiParity
             optional = true;
             t = t.Substring(t.IndexOf('<') + 1, t.Length - t.IndexOf('<') - 2).Trim();
         }
+        if (EmptyTuple.IsMatch(t))
+            return CdeclCarrier.Void;
         while (t.Length > 2 && t[0] == '(' && SkipBalanced(t, 0, '(', ')') == t.Length && IndexOfTopLevel(t.Substring(1, t.Length - 2), ',') < 0)
             t = t.Substring(1, t.Length - 2).Trim();
 
@@ -355,11 +358,7 @@ public static class CdeclAbiParity
             int i = SkipWhitespace(text, argsEnd);
             if (i < text.Length && text[i] == ']')
                 i++;
-            // Attribute sections may also precede the import attribute: take those since the end of
-            // the previous member.
-            var declarationAttributes = new StringBuilder();
-            int previousMember = text.LastIndexOfAny(new[] { ';', '{', '}' }, Math.Max(0, attribute.Index - 1));
-            declarationAttributes.Append(text, previousMember + 1, attribute.Index - previousMember - 1);
+            var declarationAttributes = new StringBuilder(PrecedingAttributeSections(text, attribute.Index));
             while (true)
             {
                 i = SkipTrivia(text, i);
@@ -396,6 +395,33 @@ public static class CdeclAbiParity
                 library, parameters, new CdeclSlot(returnText, returnCarrier), source));
         }
         return result;
+    }
+
+    /// <summary>
+    /// Attribute sections written before the import attribute: the run of whole lines directly above
+    /// it that are each one attribute section (comment and blank lines skipped, never read), plus any
+    /// sections earlier on the attribute's own line.
+    /// </summary>
+    static string PrecedingAttributeSections(string text, int attributeIndex)
+    {
+        var sections = new List<string>();
+        int lineStart = text.LastIndexOf('\n', Math.Max(0, attributeIndex - 1)) + 1;
+        var sameLine = text.Substring(lineStart, attributeIndex - lineStart).Trim();
+        if (sameLine.StartsWith('[') && sameLine.EndsWith(']'))
+            sections.Add(sameLine);
+        int end = lineStart - 1;   // the '\n' ending the previous line
+        while (end > 0)
+        {
+            int start = text.LastIndexOf('\n', end - 1) + 1;
+            var line = text.Substring(start, end - start).Trim();
+            end = start - 1;
+            if (line.Length == 0 || line.StartsWith("//", StringComparison.Ordinal))
+                continue;
+            if (!(line.StartsWith('[') && line.EndsWith(']')))
+                break;
+            sections.Add(line);
+        }
+        return string.Concat(sections);
     }
 
     static CdeclSlot CSharpParameter(string parameter, bool isDllImport)
@@ -447,20 +473,21 @@ public static class CdeclAbiParity
 
         if (t is "bool" or "Boolean")
         {
+            // A bool's width can depend on the assembly, not the declaration. With runtime
+            // marshalling disabled (generated bindings set it) a DllImport bool is one byte whatever
+            // its MarshalAs says; with it enabled the annotation decides, and an unannotated one is a
+            // 4-byte Win32 BOOL. LibraryImport marshals in generated managed code, so its MarshalAs
+            // holds under either setting. Only the readings both settings agree on are decided.
             var marshal = MarshalAsKind.Match(attributes);
-            if (marshal.Success)
-                return marshal.Groups[1].Value switch
-                {
-                    "U1" or "I1" => CdeclCarrier.Int(8),
-                    "Bool" or "I4" or "U4" => CdeclCarrier.Int(32),
-                    "VariantBool" or "I2" or "U2" => CdeclCarrier.Int(16),
-                    _ => CdeclCarrier.Unknown,
-                };
-            // An unannotated bool depends on the assembly, not the declaration: with runtime
-            // marshalling (the default) DllImport passes a 4-byte Win32 BOOL and LibraryImport refuses
-            // to compile it; with runtime marshalling disabled, which generated bindings set, both
-            // pass one byte. The text alone cannot tell, so the shape is left undecided.
-            return CdeclCarrier.Unknown;
+            if (!marshal.Success)
+                return CdeclCarrier.Unknown;
+            return marshal.Groups[1].Value switch
+            {
+                "U1" or "I1" => CdeclCarrier.Int(8),
+                "Bool" or "I4" or "U4" when !isDllImport => CdeclCarrier.Int(32),
+                "VariantBool" or "I2" or "U2" when !isDllImport => CdeclCarrier.Int(16),
+                _ => CdeclCarrier.Unknown,
+            };
         }
         return CSharpScalars.TryGetValue(t, out var c) ? c : CdeclCarrier.Unknown;
     }

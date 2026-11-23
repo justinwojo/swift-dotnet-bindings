@@ -43,7 +43,6 @@ partial class Build
         // Each generated Swift file and the framework it compiles into — the library name the C#
         // imports carry. The main wrapper is every top-level Swift file except the SwiftUI bridge
         // (the set RunBuildAsyncWrapper compiles); the dependency wrapper is the generator's own
-        // wrapper compile of dep-swift/.
         // wrapper compile of dep-swift/. Each leg's own wrapper file is named outright, so a leg whose
         // sources went missing fails as "not found" instead of dropping out of the check.
         var sources = WrapperSources(BtOutputDir, BtOutputDir / $"{ModuleName}.Wrapper.swift", WrapperModule)

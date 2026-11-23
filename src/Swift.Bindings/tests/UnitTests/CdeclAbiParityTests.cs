@@ -45,7 +45,7 @@ public class CdeclAbiParityTests
         }
 
         @_cdecl("SBW_Unit")
-        public func _sbw_café(_ n: Swift.Int) -> () {
+        public func _sbw_café_🚫(_ n: Swift.Int) -> ( ) {
         }
         """;
 
@@ -91,7 +91,7 @@ public class CdeclAbiParityTests
         Assert.Equal(CdeclCarrier.Void, defs[1].Return.Carrier);
         Assert.Equal(CdeclCarrier.Unknown, defs[2].Parameters[0].Carrier);   // struct by value
         Assert.Equal(CdeclCarrier.Fp(32), defs[2].Return.Carrier);
-        // A non-ASCII function name, and an explicit `()` return.
+        // A function name outside ASCII, and an explicit empty-tuple return.
         Assert.Equal(CdeclCarrier.Int(64), Assert.Single(defs[3].Parameters).Carrier);
         Assert.Equal(CdeclCarrier.Void, defs[3].Return.Carrier);
     }
@@ -128,12 +128,14 @@ public class CdeclAbiParityTests
                 global::System.Runtime.InteropServices.SafeHandle café);
 
             [System.Runtime.InteropServices.DllImport("Other")]
-            private static extern bool SBW_Free(global::System.IntPtr handle, bool legacy);
+            [return: MarshalAs(UnmanagedType.U1)]
+            private static extern bool SBW_Free(global::System.IntPtr handle, bool legacy, [MarshalAs(UnmanagedType.I4)] bool annotated);
 
             [LibraryImport("Wrapper", EntryPoint = "SBW_Bare")]
             private static partial bool Bare(bool unannotated);
 
             [return: MarshalAs(UnmanagedType.I4)]
+            // [return: MarshalAs(UnmanagedType.U1)] }
             [LibraryImport("Wrapper", EntryPoint = "SBW_Before")]
             private static partial bool Before();
             """;
@@ -152,16 +154,17 @@ public class CdeclAbiParityTests
             },
             create.Parameters.Select(p => p.Carrier));
 
-        // No EntryPoint: the method name is the symbol. An unannotated bool's width depends on
-        // whether the assembly disables runtime marshalling, so it is left undecided.
+        // No EntryPoint: the method name is the symbol. A DllImport bool is decided only where the
+        // assembly's runtime-marshalling setting cannot change it: one byte by U1, else undecided.
         var free = imports[1];
         Assert.Equal(("SBW_Free", "Other"), (free.EntryPoint, free.Library));
-        Assert.Equal(CdeclCarrier.Unknown, free.Return.Carrier);
-        Assert.Equal(new[] { CdeclCarrier.Pointer, CdeclCarrier.Unknown }, free.Parameters.Select(p => p.Carrier));
+        Assert.Equal(CdeclCarrier.Int(8), free.Return.Carrier);
+        Assert.Equal(new[] { CdeclCarrier.Pointer, CdeclCarrier.Unknown, CdeclCarrier.Unknown }, free.Parameters.Select(p => p.Carrier));
         Assert.Equal(CdeclCarrier.Unknown, imports[2].Parameters[0].Carrier);
         Assert.Equal(CdeclCarrier.Unknown, imports[2].Return.Carrier);
 
-        // A return attribute written before the import attribute still marshals the return.
+        // A return attribute written before the import attribute still marshals the return, and a
+        // commented-out one is not read.
         Assert.Equal(CdeclCarrier.Int(32), imports[3].Return.Carrier);
     }
 
