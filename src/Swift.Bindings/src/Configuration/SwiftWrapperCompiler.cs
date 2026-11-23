@@ -2096,6 +2096,9 @@ namespace BindingsGeneration
                 }
             }
             var seenLinkedLibraries = new HashSet<string>(StringComparer.Ordinal);
+            // The driver hoists a plain -l ahead of every -Xlinker input, so a link that must reach static code
+            // through the wrapper names its libraries through -Xlinker: the wrapper then stays ahead of them.
+            string LibraryFlag(string name) => staticCodeThroughWrapper != null ? $"-Xlinker -l{name} " : $"-l{name} ";
             if (linkLibraries != null)
             {
                 foreach (var lib in linkLibraries)
@@ -2107,7 +2110,7 @@ namespace BindingsGeneration
                     if (name.StartsWith("-l", StringComparison.Ordinal))
                         name = name.Substring(2);
                     if (name.Length > 0 && seenLinkedLibraries.Add(name))
-                        explicitLinkFlags.Append($"-l{name} ");
+                        explicitLinkFlags.Append(LibraryFlag(name));
                 }
             }
             // The system frameworks and libraries a static dependency archive's module map declares: the
@@ -2121,14 +2124,16 @@ namespace BindingsGeneration
             foreach (var lib in dependencyAutolinks.Libraries)
             {
                 if (seenLinkedLibraries.Add(lib))
-                    explicitLinkFlags.Append($"-l{lib} ");
+                    explicitLinkFlags.Append(LibraryFlag(lib));
             }
 
             // The static code this link reaches through the wrapper image (ResolveBridgeStaticCodeLink). The
             // wrapper goes on the link line ahead of every dependency input: the linker resolves a symbol from
             // the first input that defines it and reads autolinked libraries after the command line, so every
             // symbol the wrapper carries binds to the wrapper, and an archive supplies only members the wrapper
-            // lacks, which then have no other copy. A static bound framework, which the wrapper force-loads in
+            // lacks. (A member the wrapper carries but reaches only through a hidden symbol is not exported, so
+            // a bridge-only member that needs it pulls a second copy; Sdk.targets documents ForceLoad for that.)
+            // A static bound framework, which the wrapper force-loads in
             // full, is also kept off the line: importing the bound module autolinks its framework, so a bridge
             // reference the wrapper cannot satisfy would otherwise copy that member into this image.
             var wrapperLinkFlags = "";

@@ -499,7 +499,9 @@ namespace BindingsGeneration.Tests
             var (_, args) = runner.Invocations[0];
             AssertWrapperPrecedes(args, wrapper, Path.Combine(slice, "DepCore.a"));
             Assert.Contains("-framework -Xlinker Metal ", args);
-            Assert.Contains("-lc++abi ", args);
+            // Through -Xlinker: the driver would hoist a plain -l ahead of the wrapper.
+            Assert.Contains("-Xlinker -lc++abi ", args);
+            Assert.DoesNotContain(" -lc++abi ", args.Replace("-Xlinker -lc++abi ", ""));
             // The bound framework is dynamic here: the bridge still links it, as before.
             Assert.DoesNotContain("-disable-autolink-framework", args);
         }
@@ -533,10 +535,11 @@ namespace BindingsGeneration.Tests
                 new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
                 SimTriple, layout.Sdk, Path.GetDirectoryName(Path.GetDirectoryName(primaryBinary))!, runner, NullLogger.Instance,
                 additionalFrameworkSearchPaths: searchPaths, originalModuleName: "Primary",
-                staticCodeThroughWrapper: link);
+                linkLibraries: new[] { "c++" }, staticCodeThroughWrapper: link);
 
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-Xfrontend -disable-autolink-framework -Xfrontend Primary ", args);
+            Assert.Contains("-Xlinker -lc++ ", args);
             AssertWrapperPrecedes(args, wrapper, Path.Combine(archiveSlice, "DepCore.a"));
             Assert.DoesNotContain("-force_load", args);
             Assert.DoesNotContain(primaryBinary, args);
