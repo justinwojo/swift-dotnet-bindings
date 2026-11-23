@@ -96,18 +96,18 @@ public func payloadShiftTrackedAsync(_ tracked: Bool) async -> PayloadShift { tr
 public enum CaseShiftCarrier {
     case shift(CaseShift)
     case pair(UInt8, CaseShift)
-    case payload(PayloadShift)
+    case held(PayloadShift)
     case empty
 }
 
 public func caseShiftCarrierHidden() -> CaseShiftCarrier { .shift(.hidden) }
 public func caseShiftCarrierPair() -> CaseShiftCarrier { .pair(7, .second) }
-public func caseShiftCarrierTracked() -> CaseShiftCarrier { .payload(.tracked(payloadShiftToken)) }
+public func caseShiftCarrierTracked() -> CaseShiftCarrier { .held(.tracked(payloadShiftToken)) }
 public func caseShiftCarrierName(_ carrier: CaseShiftCarrier) -> String {
     switch carrier {
     case .shift(let value): return "shift:" + caseShiftName(value)
     case .pair(let count, let value): return "pair:\(count):" + caseShiftName(value)
-    case .payload(let value): return "payload:" + payloadShiftName(value)
+    case .held(let value): return "held:" + payloadShiftName(value)
     case .empty: return "empty"
     }
 }

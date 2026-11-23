@@ -258,7 +258,7 @@ public class CaseIdentityMemoryTests : TestBase
             var withCarrier = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
             for (var i = 0; i < 10; i++)
             {
-                AssertTrue(tracked.TryGetPayload(out var payload), "tracked is the payload case");
+                AssertTrue(tracked.TryGetHeld(out var payload), "tracked is the held case");
                 AssertFalse(Enum.IsDefined(payload), "the hidden payload case is no published case");
             }
             AssertEqual(withCarrier, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "payload reads release the enum copy");
