@@ -24,10 +24,7 @@
     <SupportedOSPlatformVersion Condition="'$(IifRuntimeIdentifier)' == 'maccatalyst-x64'">17.0</SupportedOSPlatformVersion>
     <!-- SB0001 is the binding's own notice on the direct CallConvSwift members; calling those
          members is the point of the negative controls. -->
-    <!-- IL2121 (unused UnconditionalSuppressMessage), which the Mac Catalyst Release build's ILLink
-         can raise: kept for the same reason as in RuntimeTestsApp, until a run shows the generated
-         binding raises none now that Swift.Runtime's unused suppressions are gone. -->
-    <NoWarn>$(NoWarn);SB0001;CA1416;CA1418;CA1422;IL2121</NoWarn>
+    <NoWarn>$(NoWarn);SB0001;CA1416;CA1418;CA1422</NoWarn>
     <!-- The receipts: crossgen2's map of exactly which methods received precompiled bodies. -->
     <PublishReadyToRunCrossgen2ExtraArgs>--map;--mapcsv</PublishReadyToRunCrossgen2ExtraArgs>
     <IncludeSwiftBindingsRuntimeNative>false</IncludeSwiftBindingsRuntimeNative>
