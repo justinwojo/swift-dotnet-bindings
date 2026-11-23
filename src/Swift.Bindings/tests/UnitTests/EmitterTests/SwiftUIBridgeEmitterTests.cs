@@ -10097,6 +10097,41 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         Assert.Contains("GCHandle.Alloc(items, GCHandleType.Pinned)", csContent);
     }
 
+    /// <summary>
+    /// An array crosses the bridge as (pointer, count). The Swift <c>@_cdecl</c> and the C# P/Invoke
+    /// are emitted separately, so each declares its own count; if one says 64 bits and the other 32,
+    /// the upper half of the register is whatever the caller left there and Swift can read a huge
+    /// count. Every bridge function's parameters must occupy the same registers on both sides.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Int", false)]
+    [InlineData("TestModule.AlertStyle", true)]
+    public void ArrayParameter_CdeclAndPInvoke_AgreeOnEveryRegisterWidth(string elementType, bool needsEnumDatabase)
+    {
+        var view = CreateViewStructWithNoConstructor("ListView");
+        view.Methods.Add(CreateConstructorWithArray("items", elementType));
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule",
+            new List<TypeDecl> { view }, NullLogger.Instance, needsEnumDatabase ? CreateEnumTypeDatabase() : null);
+
+        var swift = CdeclAbiParity.ParseSwiftCdecls(
+            File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.swift")), "TestModuleBridge", "bridge.swift");
+        var pinvokes = CdeclAbiParity.ParsePInvokes(
+            File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")), "bridge.cs");
+
+        const string create = "SBW_TestModule_ListView_Create";
+        var swiftCreate = Assert.Single(swift, s => s.EntryPoint == create);
+        var csCreate = Assert.Single(pinvokes, p => p.EntryPoint == create);
+        Assert.Equal(swiftCreate.Parameters.Count, csCreate.Parameters.Count);
+        Assert.Equal(swiftCreate.Parameters.Select(p => p.Carrier), csCreate.Parameters.Select(p => p.Carrier));
+        // The count is the natural Swift `Int` on both sides.
+        Assert.Equal(CdeclCarrier.Int(64), swiftCreate.Parameters[^1].Carrier);
+
+        var verdict = CdeclAbiParity.Evaluate(swift, pinvokes, minimumPairs: 1,
+            new[] { new CdeclPositiveControl("TestModuleBridge", create, "array-parameter view") });
+        Assert.True(verdict.Passed, string.Join("\n", verdict.Failures));
+    }
+
     [Fact]
     public void ArrayOfBoundEnum_CSharp_EmitsRawValueExtraction()
     {

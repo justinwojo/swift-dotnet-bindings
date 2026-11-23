@@ -1342,6 +1342,13 @@ partial class Build
                 // older OS, before any managed guard can run. Fail-closed and unconditional.
                 RunThunkWeakLinkGate();
 
+                // Cdecl ABI parity gate: pair every generated P/Invoke with the generated @_cdecl it
+                // names and fail on any argument or return in a different register class or width.
+                // The two halves are emitted separately, and a C# `int` against a Swift `Int`
+                // compiles and usually runs; an engine that leaves the upper half of the register
+                // dirty hands Swift garbage. Fail-closed and unconditional: policy, not baseline.
+                RunCdeclAbiParityGate();
+
                 // OS load-safety gate: read every slice of both wrappers and require every /System/
                 // dylib load to be weak (LC_LOAD_WEAK_DYLIB). A strong load of an OS framework makes dyld
                 // refuse the whole wrapper on an OS that lacks one symbol it imports — an SDK member
