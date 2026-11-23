@@ -1660,7 +1660,8 @@ public class EnumHandlerOutputTests
 
     // A case-identity enum's in-memory tag is not its C# constant (a hidden case can sit before
     // the published ones), so a payload of one is read through its case codec, as a move: the
-    // enum copy is never destroyed, and a hidden payload case holds a reference.
+    // enum copy is never destroyed, and a hidden payload case holds a reference. In a tuple payload
+    // its offset comes from its own metadata, not from an integer's.
     [Theory]
     [InlineData(false, true)]
     [InlineData(true, true)]
@@ -1700,6 +1701,9 @@ public class EnumHandlerOutputTests
         {
             Assert.Matches(@"MarshalMovedValueFromSlot<[\w.:]*Shift>\(\(void\*\)\(enumCopy", body);
             Assert.DoesNotMatch(@"\([\w.:]*Shift\)\(\*", body);
+            // Swift stores the enum as its own tag, so the tuple's offsets come from its metadata.
+            if (asTupleElement)
+                Assert.Matches(@"elementMetadataArray\[1\] = [\w.:]*TypeMetadata\.GetTypeMetadataOrThrow<[\w.:]*Shift>\(\)", csOutput);
         }
         else
         {

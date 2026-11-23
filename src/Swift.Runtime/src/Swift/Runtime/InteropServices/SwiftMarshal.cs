@@ -439,8 +439,8 @@ public static class SwiftMarshal
             case PayloadConstructionSemantics.Inline:
                 // A C# enum takes only the case out of the buffer, never the value, and a tuple of
                 // copied elements takes copies, so nothing aliases what is left there: a hidden
-                // payload case's reference (or an element's own reference) is released here.
-                if (!valueEscapesSeam || carrierType.IsEnum || IsTupleOfCopiedElements(carrierType))
+                // payload case's reference (or a reference element's own) is released here.
+                if (!valueEscapesSeam || carrierType.IsEnum || IsTupleOfCopiedElements(carrierType, metadata))
                     DestroyIfResolved(buffer, metadata);
                 return true;
 
@@ -449,14 +449,26 @@ public static class SwiftMarshal
         }
 
         // The tuple reader copies a primitive, takes only an enum's case and gives a reference
-        // element its own retain; a struct element is read bitwise and may alias the buffer.
-        static bool IsTupleOfCopiedElements(Type type)
+        // element its own retain. A struct element is read bitwise, which aliases the buffer
+        // unless Swift's metadata says the element is trivial. A tuple of eight or more elements
+        // nests its tail, so its C# elements no longer line up with Swift's; it keeps the old path.
+        static unsafe bool IsTupleOfCopiedElements(Type type, TypeMetadata? metadata)
         {
             if (!TypeMetadata.IsValueTupleType(type))
                 return false;
-            foreach (var element in type.GetGenericArguments())
+            var elements = type.GetGenericArguments();
+            if (elements.Length > 7)
+                return false;
+            for (int i = 0; i < elements.Length; i++)
             {
-                if (element.IsPrimitive || element.IsEnum || !element.IsValueType || IsTupleOfCopiedElements(element))
+                var element = elements[i];
+                if (element.IsPrimitive || element.IsEnum || !element.IsValueType)
+                    continue;
+                if (metadata is { IsValid: true } tuple
+                    && tuple.Kind == TypeMetadataKind.Tuple
+                    && (nuint)i < tuple.AsTupleMetadata()->NumElements
+                    && TypeMetadata.FromHandle(tuple.AsTupleMetadata()->GetElementTypeHandle(i)) is { IsValid: true } elementMetadata
+                    && !elementMetadata.ValueWitnessTable->IsNonPOD)
                     continue;
                 return false;
             }

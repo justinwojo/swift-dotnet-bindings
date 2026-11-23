@@ -92,9 +92,10 @@ public func payloadShiftTrackedPair(_ count: Int) -> (PayloadShift, Int) { (.tra
 public func payloadShiftTrackedAsync(_ tracked: Bool) async -> PayloadShift { tracked ? .tracked(payloadShiftToken) : .plain }
 /// A payload enum holding case-identity enums, alone and as a tuple element: reading a payload
 /// back must name the case Swift holds, not the case whose C# constant equals the stored tag.
+/// The tuple puts a byte first, so the enum sits at offset 1, as its own one-byte tag.
 public enum CaseShiftCarrier {
     case shift(CaseShift)
-    case pair(Int, CaseShift)
+    case pair(UInt8, CaseShift)
     case payload(PayloadShift)
     case empty
 }

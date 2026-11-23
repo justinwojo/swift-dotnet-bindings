@@ -249,7 +249,7 @@ public class CaseIdentityMemoryTests : TestBase
 
         using var pair = TestLibFunctions.GetCaseShiftCarrierPair();
         AssertTrue(pair.TryGetPair(out var count, out var pairShift), "pair is the pair case");
-        AssertEqual((nint)7, count, "pair count");
+        AssertEqual((byte)7, count, "pair count");
         AssertEqual(CaseShift.Second, pairShift, "the tuple payload reads back as Second");
 
         var baseline = (long)TestLibFunctions.GetPayloadShiftTokenRetains();

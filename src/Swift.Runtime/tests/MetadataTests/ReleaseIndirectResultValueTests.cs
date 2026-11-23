@@ -140,7 +140,11 @@ public class ReleaseIndirectResultValueTests
         return TypeMetadata.FromHandle(record);
     }
 
-    private static long SkippedInvalid()
+    private static long SkippedInvalid() => WireDestroyCounter("skippedInvalid=");
+
+    private static long WireDestroyEntered() => WireDestroyCounter("entered=");
+
+    private static long WireDestroyCounter(string field)
     {
         string snapshot = ReleasePathDiagnostics.Snapshot();
         const string group = "wireDestroy(";
@@ -149,9 +153,8 @@ public class ReleaseIndirectResultValueTests
         int inner = gi + group.Length;
         string body = snapshot.Substring(inner, snapshot.IndexOf(')', inner) - inner);
 
-        const string field = "skippedInvalid=";
         int fi = body.IndexOf(field, StringComparison.Ordinal);
-        Assert.True(fi >= 0, $"skippedInvalid missing from wireDestroy group: {body}");
+        Assert.True(fi >= 0, $"{field} missing from wireDestroy group: {body}");
         int vs = fi + field.Length;
         int ve = vs;
         while (ve < body.Length && char.IsDigit(body[ve]))
@@ -267,9 +270,30 @@ public class ReleaseIndirectResultValueTests
     }
 
     [Fact]
+    public unsafe void TupleCarrierWithATrivialStructElement_IsDestroyedWhenItsValueEscapesTheSeam()
+    {
+        // A struct element Swift's metadata calls trivial holds no reference, so its bitwise read
+        // aliases nothing, and the other elements' references are released with the buffer.
+        Assert.True(TypeMetadata.TryGetTypeMetadata<(long, long)>(out var tuple));
+        void* buffer = NativeMemory.AllocZeroed(16);
+        try
+        {
+            long before = WireDestroyEntered();
+
+            Assert.True(SwiftMarshal.ReleaseIndirectResultValue((IntPtr)buffer, typeof((Opaque, long)), tuple, valueEscapesSeam: true));
+
+            Assert.True(WireDestroyEntered() > before, "a tuple whose struct element is trivial must be destroyed");
+        }
+        finally
+        {
+            NativeMemory.Free(buffer);
+        }
+    }
+
+    [Fact]
     public void TupleCarrierWithABitwiseReadElement_IsLeftAloneWhenItsValueEscapesTheSeam()
     {
-        // A struct element is read bitwise, so it may alias the buffer's references.
+        // A struct element with no metadata to call it trivial may alias the buffer's references.
         long before = SkippedInvalid();
 
         Assert.True(SwiftMarshal.ReleaseIndirectResultValue(FakeBuffer, typeof((CaseOnly, Opaque)), null, valueEscapesSeam: true));
