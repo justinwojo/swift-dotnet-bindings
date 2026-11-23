@@ -7,23 +7,27 @@ import Foundation
 //
 // A payload case whose tuple holds a simple enum is laid out by Swift with the enum's own layout:
 // a Swift raw-value enum is stored as its case tag (one byte here), an @objc enum as its raw value.
-// The byte after the enum sits at an offset only the enum's real layout gives.
+// The byte after the enum sits at an offset only the enum's real layout gives. A lone @objc enum
+// payload is read the same way: as its whole raw value, not a one-byte tag.
 
 public enum RawTuplePayload {
     case raw(AsyncTupleRaw, UInt8)
     case small(AsyncTupleSmall, UInt8)
     case objc(AuthErrorCodeLike, UInt8)
+    case objcAlone(AuthErrorCodeLike)
     case empty
 }
 
 public func rawTuplePayloadRaw() -> RawTuplePayload { .raw(.high, 42) }
 public func rawTuplePayloadSmall() -> RawTuplePayload { .small(.big, 43) }
 public func rawTuplePayloadObjC() -> RawTuplePayload { .objc(.userNotFound, 44) }
+public func rawTuplePayloadObjCAlone() -> RawTuplePayload { .objcAlone(.networkError) }
 public func rawTuplePayloadName(_ value: RawTuplePayload) -> String {
     switch value {
     case .raw(let e, let b): return "raw:\(e.rawValue):\(b)"
     case .small(let e, let b): return "small:\(e.rawValue):\(b)"
     case .objc(let e, let b): return "objc:\(e.rawValue):\(b)"
+    case .objcAlone(let e): return "objcAlone:\(e.rawValue)"
     case .empty: return "empty"
     }
 }

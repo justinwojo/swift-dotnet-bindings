@@ -986,16 +986,21 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Reads a simple enum payload out of the enum copy a TryGet owns. A case-identity enum's tag
-        /// is not its C# constant, so its codec names the case, and the read is a move: the copy is
-        /// never destroyed, so a hidden payload case's reference is released here. Any other simple
-        /// enum is payload-less, so its discriminator is read as stored.
+        /// Reads a simple enum payload out of the enum copy a TryGet owns, the way the enum's sync
+        /// return crosses it. A case-identity enum's tag is not its C# constant, so its codec names
+        /// the case, and the read is a move: the copy is never destroyed, so a hidden payload case's
+        /// reference is released here. An enum that crosses as its raw value (an <c>@objc</c> enum,
+        /// an NS_ENUM) is stored as that raw value, so it is read whole at the raw type's width.
+        /// Any other simple enum (a record from a module database that predates the case list) is
+        /// payload-less, so its discriminator is read as stored.
         /// </summary>
         internal static string GetSimpleEnumPayloadRead(TypeRecord typeRecord, string csharpType, string slotExpr, string discriminatorReadExpr)
         {
-            if (!SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(typeRecord)))
-                return $"({csharpType}){discriminatorReadExpr}";
-            return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{csharpType}>((void*)({slotExpr}), global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>())";
+            if (SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(typeRecord)))
+                return $"global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{csharpType}>((void*)({slotExpr}), global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{csharpType}>())";
+            if (SimpleEnumCrossing.CrossesAsRawValue(typeRecord))
+                return $"({csharpType})(*({GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName)}*)({slotExpr}))";
+            return $"({csharpType}){discriminatorReadExpr}";
         }
 
         /// <summary>

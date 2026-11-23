@@ -5534,6 +5534,49 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("SwiftObjectHelper<OtherModule.SmallEnum>", csOutput);
     }
 
+    /// <summary>
+    /// An enum that crosses as its raw value (an <c>@objc</c> enum, an NS_ENUM) is stored in Swift
+    /// memory as that raw value, at the raw type's width, not as a case tag. A payload read of it,
+    /// alone or as a tuple element, must load the whole raw value: reading the one-byte default tag
+    /// width returns the low byte of the value (17009 read back as 113).
+    /// </summary>
+    [Theory]
+    [InlineData("Int", "long", true)]
+    [InlineData("Int", "long", false)]
+    [InlineData("UInt16", "ushort", true)]
+    [InlineData("Int32", "int", false)]
+    public void Emit_RawValueCrossingEnumPayload_ReadsTheRawValueAtItsWidth(string rawValueType, string csScalar, bool inTuple)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var otherModule = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
+        otherModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OtherModule.Code"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "Code"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.Code"),
+                MetadataAccessor = "$s11OtherModule4CodeOMa",
+                Flags = TypeRecordFlags.SimpleEnum,
+                Kind = TypeRecordKind.Enum,
+                RawValueTypeName = rawValueType,
+            });
+        typeDatabase.AddModuleDatabase(otherModule);
+
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Outcome", moduleDecl, isFrozen: false);
+        var failed = CreateCase("failed");
+        failed.AssociatedValues.Add(inTuple
+            ? new TupleTypeSpec(new List<TypeSpec> { new NamedTypeSpec("OtherModule.Code"), new NamedTypeSpec("Swift.Int") })
+            : new NamedTypeSpec("OtherModule.Code"));
+        enumDecl.Cases.Add(failed);
+        enumDecl.Cases.Add(CreateCase("succeeded"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = csOutput.Replace("global::", string.Empty);
+        Assert.Matches($@"value0? = \(OtherModule\.Code\)\(\*\({csScalar}\*\)\(enumCopy[^;]*;", read);
+    }
+
     [Theory]
     [InlineData("CGFloat", "double")]
     [InlineData("Double", "double")]

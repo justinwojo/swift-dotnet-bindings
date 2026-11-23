@@ -46,6 +46,15 @@ public class EnumPayloadEdgeCaseTests : TestBase
         AssertEqual("objc:17009:7", TestLibFunctions.RawTuplePayloadName(built), "a payload built in C#");
     }
 
+    public void TestObjCEnumAloneInPayload()
+    {
+        using var value = TestLibFunctions.GetRawTuplePayloadObjCAlone();
+        AssertTrue(value.TryGetObjcAlone(out var e), "the objcAlone case");
+        AssertEqual(AuthErrorCodeLike.NetworkError, e, "the enum payload");
+        using var built = RawTuplePayload.ObjcAlone(AuthErrorCodeLike.UserNotFound);
+        AssertEqual("objcAlone:17011", TestLibFunctions.RawTuplePayloadName(built), "a payload built in C#");
+    }
+
     public void TestCaseNamedPayloadKeepsTheHandle()
     {
         using var made = TestLibFunctions.PayloadNamedCaseMake(11);
