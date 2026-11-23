@@ -164,7 +164,7 @@ internal static class CollectionProjectionEmitter
         var prop = backing.ArrayProperty!;
         var elementCsName = backing.ElementCsName;
         var backingCsName = NameProvider.GetFinalMemberName(
-            NameProvider.GetPropertyName(prop, structDecl.Name), propertyRenames);
+            NameProvider.GetPropertyName(prop, structDecl), propertyRenames);
 
         // Skip Count when the property handler already emitted it (e.g., Swift `count: Int`
         // surfaces as a regular C# property before this projection runs — RealityFoundation

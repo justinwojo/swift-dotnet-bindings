@@ -54,7 +54,7 @@ namespace BindingsGeneration
         /// nested <c>CaseTag</c> enum and every case-derived member name so the fallback can
         /// never itself collide.
         /// </summary>
-        internal static string GetTagPropertyName(EnumDecl enumDecl, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap, ITypeDatabase? typeDatabase = null)
+        internal static string GetTagPropertyName(EnumDecl enumDecl, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap, ITypeDatabase? typeDatabase = null, Dictionary<string, string>? propertyRenames = null)
         {
             const string preferred = "Tag";
 
@@ -80,6 +80,11 @@ namespace BindingsGeneration
             {
                 var caseName = NameProvider.GetCaseName(c.Name, caseNameMap);
                 reserved.Add(caseName);
+                // A case named like the enum emits under its member-side rename (`case tag` in
+                // class `Tag` → `TagValue`), the very name this fallback would otherwise take.
+                reserved.Add(NameProvider.GetFinalMemberName(caseName, propertyRenames));
+                // A case named like the enum emits under its member-side rename (`case tag` in
+                // class `Tag` → `TagValue`), the very name this fallback would otherwise take.
                 if (c.HasAssociatedValues)
                     reserved.Add($"TryGet{caseName}");
             }

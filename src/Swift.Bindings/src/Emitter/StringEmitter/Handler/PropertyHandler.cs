@@ -424,8 +424,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         // Get the C# property name, handling reserved keywords, special cases, and type collisions.
         // Property/nested-type collisions are resolved by renaming the property (not the type),
         // computed by ComputePropertyRenames in the parent type handler.
-        string? containingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
-        var baseName = NameProvider.GetPropertyName(propertyDecl, containingTypeName);
+        var baseName = NameProvider.GetPropertyName(propertyDecl, propertyDecl.ParentDecl as TypeDecl);
         var propertyName = NameProvider.GetFinalMemberName(baseName, context.PropertyRenames);
         // Apply the enum property-only rename channel (Image -> ImageValue) for an enum computed
         // property that collides with a same-named case constructor. Keyed on the post-PropertyRenames
@@ -1872,8 +1871,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         var libraryPath = propertyEnv.TypeDatabase.AsyncLibraryName
             ?? propertyEnv.TypeDatabase.GetLibraryPath(moduleName);
 
-        // Get containing type name for CS0542 collision detection
-        string? asyncContainingTypeName = (propertyDecl.ParentDecl as TypeDecl)?.Name;
+        // The containing type, for CS0542 collision detection
+        var asyncContainingType = propertyDecl.ParentDecl as TypeDecl;
 
         // Producer-cancel registry: every stream registers its producer Task so a C# Cancel()/Dispose()
         // can task-cancel a suspended producer (see AsyncStreamEmitter.EmitSwiftWrapper + SwiftAsyncStream).
@@ -1919,7 +1918,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
         csWriter.WriteLine();
 
         // Emit property with collision detection for containing type (CS0542) and nested-type renames
-        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, isThrowing, asyncContainingTypeName, propertyRenames);
+        AsyncStreamEmitter.EmitPropertyGetter(csWriter, propertyDecl, asyncStreamHandler, swiftWrapperName, callbackName, isThrowing, asyncContainingType, propertyRenames);
         csWriter.WriteLine();
 
         // Emit Swift wrapper

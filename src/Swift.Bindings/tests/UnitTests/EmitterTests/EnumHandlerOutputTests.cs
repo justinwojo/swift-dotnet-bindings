@@ -586,6 +586,21 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void GetTagPropertyName_EnumNamedTag_WithACaseNamedLikeTheEnum_DodgesTheCaseRename()
+    {
+        // `enum tag { case tag(Int32); case none }` projects as class `Tag`, whose `tag` case is
+        // renamed on the member side to `TagValue` (CS0542). The discriminator must not take the
+        // name the case moved to (CS0102).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("tag"));
+        enumDecl.Cases.Add(CreateCase("none"));
+        var renames = new Dictionary<string, string> { ["Tag"] = "TagValue" };
+
+        Assert.Equal("Tag2", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null, propertyRenames: renames));
+    }
+
+    [Fact]
     public void GetTagPropertyName_EnumNamedTag_WithNestedTagValueType_DodgesToTag2()
     {
         // Collision arm (M1): a nested type whose emitted C# leaf is `TagValue` (the default

@@ -385,7 +385,7 @@ namespace BindingsGeneration
 
             // Emit nested types using base handler
             var emissionCtx = context.GetEmissionContext();
-            emissionCtx?.PushTypeNesting(enumDecl.Name);
+            emissionCtx?.PushTypeNesting(enumName);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Types, conductor, typeDatabase, context);
             emissionCtx?.PopTypeNesting();
         }
@@ -1744,7 +1744,7 @@ namespace BindingsGeneration
         /// </summary>
         private static bool IsSimpleEnumParam(TypeSpec typeSpec, EnumDecl enumDecl)
         {
-            return typeSpec is NamedTypeSpec named && named.NameWithoutModule == enumDecl.Name;
+            return typeSpec is NamedTypeSpec named && named.NameWithoutModule == SwiftDeclSpelling.SwiftSpelledName(enumDecl);
         }
 
         /// <summary>
@@ -2220,7 +2220,7 @@ namespace BindingsGeneration
             if (typeSpec is NamedTypeSpec namedType)
             {
                 var typeName = namedType.NameWithoutModule;
-                return typeName == enumDecl.Name;
+                return typeName == SwiftDeclSpelling.SwiftSpelledName(enumDecl);
             }
             return false;
         }
@@ -2457,7 +2457,7 @@ namespace BindingsGeneration
                 if (returnTypeSpec != null && !IsVoidReturn(returnTypeSpec))
                 {
                     bool returnsEnum = returnTypeSpec is NamedTypeSpec namedReturn &&
-                        namedReturn.NameWithoutModule == enumDecl.Name;
+                        namedReturn.NameWithoutModule == SwiftDeclSpelling.SwiftSpelledName(enumDecl);
                     if (!returnsEnum && GetSimpleReturnType(returnTypeSpec, null!) == null)
                         return false;
                 }

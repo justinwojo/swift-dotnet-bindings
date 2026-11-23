@@ -69,9 +69,9 @@ namespace BindingsGeneration
 
             if (_enumDecl.IsGeneric)
             {
-                _emissionCtx.RecordOpenGenericISwiftObjectType(_enumDecl.Name, _enumDecl.GenericParameters.Count);
+                _emissionCtx.RecordOpenGenericISwiftObjectType(GenericTypeEmitter.GetSimpleTypeName(_typeNameWithGenerics), _enumDecl.GenericParameters.Count);
                 _emissionCtx.RecordOpenGenericPayloadSemantics(
-                    _enumDecl.Name, _enumDecl.GenericParameters.Count, Swift.Runtime.PayloadConstructionSemantics.Adopt);
+                    GenericTypeEmitter.GetSimpleTypeName(_typeNameWithGenerics), _enumDecl.GenericParameters.Count, Swift.Runtime.PayloadConstructionSemantics.Adopt);
                 return;
             }
 

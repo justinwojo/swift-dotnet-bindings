@@ -43,7 +43,9 @@ namespace BindingsGeneration
             var name = decl.Name;
             return string.IsNullOrEmpty(name)
                 ? "Type"
-                : NameProvider.ToPascalCaseForTypeName(name);
+                : decl is TypeDecl unrecordedType
+                    ? NameProvider.GetNaturalTypeLeafName(unrecordedType)
+                    : NameProvider.ToPascalCaseForTypeName(name);
         }
 
         /// <summary>

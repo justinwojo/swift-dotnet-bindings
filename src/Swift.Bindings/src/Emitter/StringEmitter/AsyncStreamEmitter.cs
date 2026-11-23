@@ -299,7 +299,7 @@ public static class AsyncStreamEmitter
     /// <param name="swiftWrapperName">The Swift wrapper function name.</param>
     /// <param name="callbackName">The callback function name prefix.</param>
     /// <param name="isThrowing">Whether this is an AsyncThrowingStream (passes the producer-error callback).</param>
-    /// <param name="containingTypeName">Optional containing type name for collision detection (CS0542).</param>
+    /// <param name="containingType">Optional containing type, for collision detection (CS0542).</param>
     /// <param name="propertyRenames">Optional property renames for nested-type collision resolution.</param>
     public static void EmitPropertyGetter(
         CSharpWriter csWriter,
@@ -308,7 +308,7 @@ public static class AsyncStreamEmitter
         string swiftWrapperName,
         string callbackName,
         bool isThrowing,
-        string? containingTypeName = null,
+        TypeDecl? containingType = null,
         Dictionary<string, string>? propertyRenames = null)
     {
         // Public element type — substitutes Swift collection containers
@@ -326,7 +326,7 @@ public static class AsyncStreamEmitter
         var asyncEnumerableType = $"IAsyncEnumerable<{publicElementType}>";
         var isStatic = propertyDecl.IsStatic;
         var staticModifier = isStatic ? "static " : "";
-        var baseName = NameProvider.GetPropertyName(propertyDecl, containingTypeName);
+        var baseName = NameProvider.GetPropertyName(propertyDecl, containingType);
         var propertyName = NameProvider.GetFinalMemberName(baseName, propertyRenames);
         // An AsyncStream property stays a property on the C# surface, so its settled name belongs
         // in the rename ledger like any other. Stamped here rather than at the caller because this

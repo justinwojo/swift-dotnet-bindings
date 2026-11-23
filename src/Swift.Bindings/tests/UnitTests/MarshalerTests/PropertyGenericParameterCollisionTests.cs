@@ -51,7 +51,7 @@ public class PropertyGenericParameterCollisionTests
     {
         var parent = GenericStruct("WideGeneric", typeParameter);
 
-        Assert.Equal(expected, NameProvider.GetPropertyName(PropertyOn(parent, swiftName), parent.Name));
+        Assert.Equal(expected, NameProvider.GetPropertyName(PropertyOn(parent, swiftName), parent));
     }
 
     // A sibling already spelled like the suffixed name keeps it; the renamed property moves past
@@ -66,8 +66,8 @@ public class PropertyGenericParameterCollisionTests
         var sibling = PropertyOn(parent, "tValue");
         parent.Properties.AddRange(collidingFirst ? new[] { colliding, sibling } : new[] { sibling, colliding });
 
-        Assert.Equal("TValue2", NameProvider.GetPropertyName(colliding, parent.Name));
-        Assert.Equal("TValue", NameProvider.GetPropertyName(sibling, parent.Name));
+        Assert.Equal("TValue2", NameProvider.GetPropertyName(colliding, parent));
+        Assert.Equal("TValue", NameProvider.GetPropertyName(sibling, parent));
     }
 
     [Fact]
@@ -75,7 +75,7 @@ public class PropertyGenericParameterCollisionTests
     {
         var parent = GenericStruct("WideGeneric", "T", "U");
 
-        Assert.Equal("Item", NameProvider.GetPropertyName(PropertyOn(parent, "item"), parent.Name));
+        Assert.Equal("Item", NameProvider.GetPropertyName(PropertyOn(parent, "item"), parent));
     }
 
     [Fact]
@@ -83,6 +83,6 @@ public class PropertyGenericParameterCollisionTests
     {
         var parent = GenericStruct("Plain");
 
-        Assert.Equal("T", NameProvider.GetPropertyName(PropertyOn(parent, "t"), parent.Name));
+        Assert.Equal("T", NameProvider.GetPropertyName(PropertyOn(parent, "t"), parent));
     }
 }

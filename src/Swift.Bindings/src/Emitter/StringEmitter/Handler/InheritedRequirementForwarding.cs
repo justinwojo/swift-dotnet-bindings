@@ -66,7 +66,7 @@ internal static class InheritedRequirementForwarding
                     continue;
 
                 var inheritedName = NameProvider.GetFinalMemberName(
-                    NameProvider.GetPropertyName(witness, ancestor.Name),
+                    NameProvider.GetPropertyName(witness, ancestor),
                     NameProvider.ComputePropertyRenames(ancestor, typeDatabase));
                 var interfaceMember = NameProvider.GetPropertyName(requirement);
                 if (inheritedName == interfaceMember)

@@ -59,7 +59,7 @@ public readonly record struct PublicMethodNameContext(
         HasReturnValue: !decl.IsAccessor && decl.CSSignature.Count > 0 && !decl.CSSignature.First().SwiftTypeSpec.IsEmptyTuple,
         PropertyNames: siblingPropertyNames,
         IsSelfReturning: MethodEnvironment.IsSelfReturningMethod(decl),
-        ParentTypeName: (decl.ParentDecl as TypeDecl)?.Name,
+        ParentTypeName: NameProvider.GetEnclosingTypeCollisionName(decl.ParentDecl as TypeDecl),
         ParameterCount: decl.CSSignature.Skip(1).Count(a => !DefaultParameterOverloadEmitter.IsDebugParameter(a) && !a.SwiftTypeSpec.IsEmptyTuple),
         IsMutating: decl.IsMutating,
         ParentGenericParameterNames: GetParentGenericParameterNames(decl.ParentDecl as TypeDecl));
@@ -342,6 +342,31 @@ public static class NameProvider
     }
 
     /// <summary>
+    /// The leaf C# declares a type under before any collision rename: the type-name PascalCase of
+    /// its Swift spelling. A type whose Swift name is a C# keyword is held as <c>_event</c>
+    /// (<see cref="SwiftDeclSpelling"/>) but registered and declared as <c>Event</c>, and a
+    /// lowercase Swift type (<c>struct vec</c>) is declared <c>Vec</c>; every check of a member
+    /// name against its type's name has to read this, not the stored <see cref="BaseDecl.Name"/>.
+    /// For an ordinary PascalCase Swift type it is the stored name unchanged. A rename applied by
+    /// the nested-type or case-only pre-passes lives on the type record, not here.
+    /// </summary>
+    public static string GetNaturalTypeLeafName(TypeDecl typeDecl)
+        => ToPascalCaseForTypeName(SwiftDeclSpelling.SwiftSpelledName(typeDecl));
+
+    /// <summary>
+    /// The name a member of <paramref name="containingType"/> must not take (CS0542, a member named
+    /// like its enclosing type): the type's natural C# leaf (<see cref="GetNaturalTypeLeafName"/>).
+    /// A protocol keeps its stored name: it projects as <c>I{Name}</c>, so its members cannot
+    /// collide with it, and the rule only ever applied to it as written.
+    /// </summary>
+    public static string? GetEnclosingTypeCollisionName(TypeDecl? containingType) => containingType switch
+    {
+        null => null,
+        ProtocolDecl protocolDecl => protocolDecl.Name,
+        _ => GetNaturalTypeLeafName(containingType),
+    };
+
+    /// <summary>
     /// Returns the emitted C# leaf name of a nested type for member-collision detection — the
     /// renamed name when the nested-type-rename pre-pass disambiguated it (e.g. a sibling `entry`
     /// property forced <c>Entry</c> → <c>EntryInfo</c>, or <c>Format</c> → <c>FormatKind</c>),
@@ -361,10 +386,10 @@ public static class NameProvider
             var csName = record.CSharpTypeName.Name;
             var lastDot = csName.LastIndexOf('.');
             var leaf = lastDot >= 0 ? csName.Substring(lastDot + 1) : csName;
-            if (leaf != ToPascalCaseForTypeName(nestedType.Name))
+            if (leaf != GetNaturalTypeLeafName(nestedType))
                 return leaf;
         }
-        return ToPascalCase(nestedType.Name);
+        return ToPascalCase(SwiftDeclSpelling.SwiftSpelledName(nestedType));
     }
 
     /// <summary>
@@ -1403,7 +1428,7 @@ public static class NameProvider
             var lastDot = name.LastIndexOf('.');
             return lastDot >= 0 ? name.Substring(lastDot + 1) : name;
         }
-        return parentDecl.Name;
+        return parentDecl is TypeDecl unregistered ? GetNaturalTypeLeafName(unregistered) : parentDecl.Name;
     }
 
     /// <summary>
@@ -1431,8 +1456,9 @@ public static class NameProvider
     /// pre-disambiguation name and disagrees with what the property was actually emitted as.
     /// Reserve the string overload for SYNTHESIZED property names with no declaration behind them.
     /// </summary>
-    public static string GetPropertyName(PropertyDecl propertyDecl, string? containingTypeName = null)
+    public static string GetPropertyName(PropertyDecl propertyDecl, TypeDecl? containingType = null)
     {
+        var containingTypeName = GetEnclosingTypeCollisionName(containingType);
         var name = ApplyEnclosingTypeCollisionRule(GetPropertyBaseName(propertyDecl), containingTypeName);
         // An Objective-C-rooted class inherits NSObject's C# properties. A Swift property that is
         // not an override of one but projects onto its name (a stored `handle` → `Handle`) would
@@ -1449,7 +1475,7 @@ public static class NameProvider
             if (propertyDecl.IsOverride)
             {
                 if (FindOverriddenAncestorProperty(objCRootedParent, propertyDecl) is { } overridden)
-                    return GetPropertyName(overridden, containingTypeName is null ? null : (overridden.ParentDecl as TypeDecl)?.Name);
+                    return GetPropertyName(overridden, containingType is null ? null : overridden.ParentDecl as TypeDecl);
                 if (ObjCInheritedMemberSurface.Properties.Any(p => p.Name == name && p.IsVirtual))
                     return name;
             }
@@ -1626,7 +1652,7 @@ public static class NameProvider
         var propertyRenames = ComputePropertyRenames(typeDecl, typeDatabase);
         var set = new HashSet<string>(StringComparer.Ordinal);
         foreach (var property in typeDecl.Properties)
-            set.Add(GetFinalMemberName(GetPropertyName(property, typeDecl.Name), propertyRenames));
+            set.Add(GetFinalMemberName(GetPropertyName(property, typeDecl), propertyRenames));
         foreach (var nestedType in typeDecl.Types)
             set.Add(GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
         AddNativeWidthCompanionNames(typeDecl, set);
@@ -1675,7 +1701,7 @@ public static class NameProvider
             .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
             .ToList();
         var memberNames = emittableProperties
-            .Select(p => GetPropertyName(p, typeDecl.Name));
+            .Select(p => GetPropertyName(p, typeDecl));
 
         // Also include AsyncStream properties that will be emitted as IAsyncEnumerable<T>.
         // HasUnsupportedPropertyType excludes these (AsyncStream is from _Concurrency module),
@@ -1683,7 +1709,7 @@ public static class NameProvider
         var asyncStreamHandler = new AsyncStreamHandler(typeDatabase);
         var asyncStreamPropertyNames = typeDecl.Properties
             .Where(p => asyncStreamHandler.IsAsyncStream(p.SwiftTypeSpec) && asyncStreamHandler.IsSupportedAsyncStream(p.SwiftTypeSpec))
-            .Select(p => GetPropertyName(p, typeDecl.Name));
+            .Select(p => GetPropertyName(p, typeDecl));
         memberNames = memberNames.Concat(asyncStreamPropertyNames);
 
         // For enums, include collision-safe case names in the collision set.
@@ -1696,7 +1722,7 @@ public static class NameProvider
             memberNames = memberNames.Concat(caseNames);
         }
 
-        var nestedTypeNames = typeDecl.Types.Select(t => t.Name);
+        var nestedTypeNames = typeDecl.Types.Select(GetNaturalTypeLeafName);
 
         // Check which nested types were already renamed by the PrecomputeNestedTypeRenames pre-pass.
         // These don't need property renames — the type rename resolves the collision.
@@ -1708,14 +1734,28 @@ public static class NameProvider
                 var csLeaf = nestedRecord.CSharpTypeName.Name;
                 var lastDot = csLeaf.LastIndexOf('.');
                 var leafName = lastDot >= 0 ? csLeaf.Substring(lastDot + 1) : csLeaf;
-                if (leafName != ToPascalCaseForTypeName(nestedType.Name))
-                    typeRenameNames.Add(nestedType.Name);
+                if (leafName != GetNaturalTypeLeafName(nestedType))
+                    typeRenameNames.Add(GetNaturalTypeLeafName(nestedType));
             }
         }
+
+        // An enum that projects as a C# class carries each case as a member (a factory method, or
+        // a static property for a payload-free case), so a case named like the enum itself
+        // (`enum implicit { case implicit(Int) }` → class `Implicit`) is a CS0542 duplicate of the
+        // enclosing type, renamed on the member side like a property is. Properties already had the
+        // enclosing-type rule applied by GetPropertyName. A simple enum projects as a C# `enum`,
+        // whose members may share its name, and never reaches this rename map for its cases.
+        if (typeDecl is EnumDecl && !IsSimpleEnumRecord(typeDecl, typeDatabase)
+            && GetEnclosingTypeCollisionName(typeDecl) is { } enclosingName)
+            nestedTypeNames = nestedTypeNames.Append(enclosingName);
 
         return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
             typeRenameNames.Count > 0 ? typeRenameNames : null);
     }
+
+    private static bool IsSimpleEnumRecord(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+        => typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record)
+           && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum);
 
     /// <summary>
     /// Pre-pass that walks all types in a module and applies CSharpTypeName renames for
@@ -1755,6 +1795,10 @@ public static class NameProvider
             .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
             .ToList();
 
+        // Deliberately the stored Swift names: this pass renames a TYPE, and a nested type whose
+        // Swift name is not already its PascalCase C# leaf (`struct entry`, or the keyword-named
+        // `struct object` held as `_object`) has always shipped under its natural leaf. Its
+        // same-named property is renamed on the member side instead (ComputePropertyRenames).
         var nestedTypeNameSet = new HashSet<string>(typeDecl.Types.Select(t => t.Name));
         var parentFullName = typeDecl.SwiftTypeName.ToString();
 
@@ -1767,13 +1811,13 @@ public static class NameProvider
         //   - Pascal-cased property/member names
         // Updated as we apply renames so a later rename can detect collisions with an
         // earlier rename's chosen name.
-        var takenNames = new HashSet<string>(typeDecl.Types.Select(t => ToPascalCaseForTypeName(t.Name)));
+        var takenNames = new HashSet<string>(typeDecl.Types.Select(GetNaturalTypeLeafName));
         foreach (var prop in emittableProperties)
-            takenNames.Add(GetPropertyName(prop, typeDecl.Name));
+            takenNames.Add(GetPropertyName(prop, typeDecl));
 
         foreach (var p in emittableProperties)
         {
-            var csPropertyName = GetPropertyName(p, typeDecl.Name);
+            var csPropertyName = GetPropertyName(p, typeDecl);
             if (!nestedTypeNameSet.Contains(csPropertyName))
                 continue;
 
@@ -1802,7 +1846,7 @@ public static class NameProvider
                     // `WalletInfo` while it already contains a nested type `WalletInfo` (or a
                     // lowercase `walletInfo`, which emits as `WalletInfo`). PascalCase the child
                     // names so the guard compares against the emitted C# leaf, not the raw Swift name.
-                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(t => ToPascalCaseForTypeName(t.Name)));
+                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(GetNaturalTypeLeafName));
                     // Disambiguate the nested type from the colliding property with a kind-aware
                     // semantic suffix: an enum is a closed case-set → "Kind" (idiomatic .NET:
                     // SyntaxKind, DateTimeKind); a struct/class is a data aggregate → "Info"
