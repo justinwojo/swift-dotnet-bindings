@@ -504,7 +504,8 @@ namespace BindingsGeneration.Tests
             Assert.Contains($"-Xlinker -force_load -Xlinker \"{forcedArchive}\" ", clangArgs);
             Assert.DoesNotContain("-Wl,-force_load", clangArgs);
             Assert.Equal(1, Count(clangArgs, forcedArchive));
-            Assert.DoesNotContain($"-force_load,\"{lazyArchive}\"", clangArgs);
+            Assert.Contains($" \"{lazyArchive}\" ", clangArgs);
+            Assert.DoesNotContain($"-force_load -Xlinker \"{lazyArchive}\"", clangArgs);
         }
 
         [Fact]

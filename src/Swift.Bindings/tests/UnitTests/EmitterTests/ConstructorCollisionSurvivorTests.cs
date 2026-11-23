@@ -96,7 +96,33 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         Assert.DoesNotContain(legacySymbol, csharp);
     }
 
-    private static MethodDecl Init(string secondLabel, bool deprecated, NamedTypeSpec? secondType = null, string? symbol = null)
+    [Fact]
+    public void ASurvivorReorder_NeverDropsAConstructorOutsideTheFamily()
+    {
+        // init(old:) and the second init(value:) project alike (an Action<nint> parameter), so they
+        // form a family whose preferred member is the second init(value:). The primary signature reads
+        // both closures as one type, though, so moving that member ahead of init(value: () -> ()) would
+        // drop the latter, a constructor with a C# signature of its own. The reorder is refused and
+        // the declared order decides, as it did before any sort.
+        const string oldSymbol = "$s8Survivor5ScoreV11selectedKey3oldACSS_ySictcfC";
+        const string plainSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_yyctcfC";
+        const string intSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_ySictcfC";
+        var legacy = Init("old", deprecated: true, Closure("(Swift.Int)->()"), oldSymbol);
+        var plain = Init("value", deprecated: false, Closure("()->()"), plainSymbol);
+        var withInt = Init("value", deprecated: false, Closure("(Swift.Int)->()"), intSymbol);
+
+        var (report, csharp) = Emit(new[] { legacy, plain, withInt });
+
+        Assert.Contains($"EntryPoint = \"{plainSymbol}\"", csharp);
+        Assert.Contains($"EntryPoint = \"{oldSymbol}\"", csharp);
+        Assert.DoesNotContain(intSymbol, csharp);
+        var dropped = Assert.Single(report.SkippedItems, i => i.Reason == SkipReason.DuplicateSignature);
+        Assert.Contains("value:", dropped.DeclId);
+    }
+
+    private static TypeSpec Closure(string signature) => TypeSpecParser.Parse("@escaping[] " + signature)!;
+
+    private static MethodDecl Init(string secondLabel, bool deprecated, TypeSpec? secondType = null, string? symbol = null)
     {
         var init = TestDecls.Method(
             "init",

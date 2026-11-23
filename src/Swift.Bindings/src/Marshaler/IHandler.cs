@@ -1168,59 +1168,101 @@ namespace BindingsGeneration
         /// dropped merely because the interface lists the old one first.
         /// </para>
         /// <para>
-        /// Only the family's members trade places, among the slots the family already occupies, so no
-        /// other member moves. Validation runs as the loop runs it (with the loop's closure-tombstone
-        /// view of the key), so a member that never reaches the dedup block neither joins a family nor
-        /// displaces one that does. A primary-signature duplicate (same labels, parameter types that
-        /// resolve to one C# type) joins the family too: the loop drops it at the primary signature
-        /// instead of the projected one, but it is dropped for the same collision, so the same member
-        /// should survive it. The input list is never modified; a reordered copy is returned when any
-        /// family changes order.
+        /// Only the family's members trade places, among the slots the family already occupies.
+        /// Validation runs as the loop runs it (with the loop's closure-tombstone view of the key), so a
+        /// member that never reaches the dedup block neither joins a family nor displaces one that does.
+        /// The loop drops a constructor at either of two keys: the primary signature
+        /// (<see cref="GetMethodSignatureKey"/>, labels and resolved types, which can collapse two types
+        /// the projected key tells apart, such as two closures) and then the projected one. A reorder that
+        /// moves a member ahead of a primary-signature twin outside its family would drop that twin
+        /// instead, so each family's reorder is replayed through both keys and kept only when the family's
+        /// preferred member is then its one survivor and every other constructor's outcome is unchanged.
+        /// The input list is never modified; a reordered copy is returned when any family changes order.
         /// </para>
         /// </summary>
         internal List<BaseDecl> OrderConstructorCollisionFamilies(
             List<BaseDecl> sortedDecl, MemberValidationPipeline pipeline, ValidationContext? validationCtx,
             ITypeDatabase typeDatabase, IReadOnlySet<string>? siblingPropertyNames)
         {
+            // Every constructor that reaches the dedup block, with the keys the loop drops it at. Only a
+            // family candidate is checked at the projected key here; the loop recovers the others as
+            // factories or failable/async shapes under keys of their own.
+            Dictionary<BaseDecl, (string Primary, string? Projected)>? keys = null;
             Dictionary<string, List<int>>? families = null;
             for (int i = 0; i < sortedDecl.Count; i++)
             {
-                if (sortedDecl[i] is not MethodDecl { IsConstructor: true, IsFailable: false, IsAsync: false } init)
-                    continue;
-                if (OverloadNameDisambiguator.ForConstructor(init, typeDatabase) != null)
+                if (sortedDecl[i] is not MethodDecl { IsConstructor: true } init)
                     continue;
                 var (willEmit, isTombstone) = ClassifyOverridePrePassEmission(init, pipeline, validationCtx, typeDatabase);
                 if (!willEmit)
                     continue;
-                var key = GetProjectedCSharpMethodKey(init, typeDatabase, _logger, siblingPropertyNames,
-                    treatAsClosureTombstone: isTombstone);
-                families ??= new Dictionary<string, List<int>>(StringComparer.Ordinal);
-                if (!families.TryGetValue(key, out var slots))
-                    families[key] = slots = new List<int>(2);
-                slots.Add(i);
+                string? projected = null;
+                if (init is { IsFailable: false, IsAsync: false } && OverloadNameDisambiguator.ForConstructor(init, typeDatabase) == null)
+                {
+                    projected = GetProjectedCSharpMethodKey(init, typeDatabase, _logger, siblingPropertyNames,
+                        treatAsClosureTombstone: isTombstone);
+                    families ??= new Dictionary<string, List<int>>(StringComparer.Ordinal);
+                    if (!families.TryGetValue(projected, out var slots))
+                        families[projected] = slots = new List<int>(2);
+                    slots.Add(i);
+                }
+                keys ??= new Dictionary<BaseDecl, (string, string?)>(ReferenceEqualityComparer.Instance);
+                keys[init] = (GetMethodSignatureKey(init, typeDatabase, _logger), projected);
             }
-            if (families == null)
+            if (families == null || keys == null)
                 return sortedDecl;
 
             List<BaseDecl>? reordered = null;
+            HashSet<BaseDecl>? survivors = null;
             foreach (var slots in families.Values)
             {
                 if (slots.Count < 2)
                     continue;
+                var current = reordered ?? sortedDecl;
                 // OrderBy is stable, so declaration order breaks every tie.
                 var preferred = slots
-                    .Select(i => sortedDecl[i])
+                    .Select(i => current[i])
                     .OrderBy(m => IsDeprecatedForSurvival(m) ? 1 : 0)
                     .ToList();
+                if (Enumerable.Range(0, slots.Count).All(j => ReferenceEquals(preferred[j], current[slots[j]])))
+                    continue;
+                var candidate = new List<BaseDecl>(current);
                 for (int j = 0; j < slots.Count; j++)
-                {
-                    if (ReferenceEquals(preferred[j], sortedDecl[slots[j]]))
-                        continue;
-                    reordered ??= new List<BaseDecl>(sortedDecl);
-                    reordered[slots[j]] = preferred[j];
-                }
+                    candidate[slots[j]] = preferred[j];
+
+                survivors ??= ConstructorSurvivors(current, keys);
+                var candidateSurvivors = ConstructorSurvivors(candidate, keys);
+                var family = new HashSet<BaseDecl>(preferred, ReferenceEqualityComparer.Instance);
+                bool othersUnchanged = keys.Keys
+                    .Where(m => !family.Contains(m))
+                    .All(m => survivors.Contains(m) == candidateSurvivors.Contains(m));
+                if (!othersUnchanged || !candidateSurvivors.Contains(preferred[0]))
+                    continue;
+                reordered = candidate;
+                survivors = candidateSurvivors;
             }
             return reordered ?? sortedDecl;
+        }
+
+        /// <summary>
+        /// The constructors the main loop's two dedup keys let through in <paramref name="order"/>: the
+        /// first to claim a primary signature, then the first to claim a projected key.
+        /// </summary>
+        private static HashSet<BaseDecl> ConstructorSurvivors(
+            List<BaseDecl> order, Dictionary<BaseDecl, (string Primary, string? Projected)> keys)
+        {
+            var primarySeen = new HashSet<string>(StringComparer.Ordinal);
+            var projectedSeen = new HashSet<string>(StringComparer.Ordinal);
+            var survivors = new HashSet<BaseDecl>(ReferenceEqualityComparer.Instance);
+            foreach (var decl in order)
+            {
+                if (!keys.TryGetValue(decl, out var key) || !primarySeen.Add(key.Primary))
+                    continue;
+                if (key.Projected != null && !projectedSeen.Add(key.Projected))
+                    continue;
+                survivors.Add(decl);
+            }
+            return survivors;
         }
 
         /// <summary>
