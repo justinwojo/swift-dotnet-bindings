@@ -163,6 +163,8 @@
     <!-- The same BCL-only attempt retention and recovery decision used by the sim/device loops. -->
     <Compile Include="../../../../build/Models/RuntimeTestAttempts.cs" Link="Models/RuntimeTestAttempts.cs" />
     <Compile Include="../../../../build/Models/TestResult.cs" Link="Models/TestResult.cs" />
+    <!-- The launchers' hung-app stack capture: bounded debugger runs, PID parsing, fallbacks. -->
+    <Compile Include="../../../../build/Models/HungProcessStacks.cs" Link="Models/HungProcessStacks.cs" />
     <!-- The interpreter lane's negative-control registry and grading, beside the loop that runs them. -->
     <Compile Include="../../../../build/Models/InterpreterNegativeControls.cs" Link="Models/InterpreterNegativeControls.cs" />
     <!-- When a Debug .NET 11 lane may seed its runtime-identity floor from what its run proved. -->

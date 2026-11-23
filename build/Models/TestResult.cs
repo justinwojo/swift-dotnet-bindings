@@ -25,9 +25,12 @@ public enum TestResult
 /// <param name="ExitCode">Process exit code, null if timed out or killed.</param>
 /// <param name="CrashLogPath">Path to crash report (.ips file) if a crash was detected.</param>
 /// <param name="ResultsFlushed">Whether the RESULTS FLUSHED marker was seen (JSONL is fully written).</param>
+/// <param name="HungStacks">The app's thread backtraces, taken when the launch budget ran out with the
+/// app still running and before the launcher killed it; null for every other launch.</param>
 public record LaunchResult(
     TestResult Result,
     string Output,
     int? ExitCode,
     string? CrashLogPath,
-    bool ResultsFlushed = false);
+    bool ResultsFlushed = false,
+    HungProcessStacks? HungStacks = null);

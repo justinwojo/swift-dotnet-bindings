@@ -35,10 +35,13 @@ public sealed class RuntimeTestAttempts
         if (!Guid.TryParseExact(runToken, "N", out _))
             throw new ArgumentException("Expected a harness run token.", nameof(runToken));
         var attemptDirectory = Path.Combine(directory, $"{index:D2}-{runToken}");
+        Directory.CreateDirectory(attemptDirectory);
+        // The hung app's stacks go beside its console first, so the failure this launch becomes
+        // names files that exist.
+        launch = RecordHungStacks(attemptDirectory, launch);
         // Preserve the first product failure even if retaining/retrieving later evidence fails.
         if (launch.Result is TestResult.Crash or TestResult.Timeout or TestResult.Failure)
             FirstProductFailure ??= launch;
-        Directory.CreateDirectory(attemptDirectory);
         var attempt = new Attempt(index, runToken, attemptDirectory, launch);
         WriteNew(Path.Combine(attemptDirectory, "console.log"), launch.Output);
         WriteJson(Path.Combine(attemptDirectory, "launch.json"), writer =>
@@ -52,8 +55,54 @@ public sealed class RuntimeTestAttempts
             writer.WriteBoolean("results_flushed", launch.ResultsFlushed);
             writer.WriteString("console_sha256", Hash(launch.Output));
             writer.WriteBoolean("known_prestart_abort", LaunchDiagnostics.LauncherNeverStartedApp(launch));
+            if (launch.HungStacks is { } stacks)
+            {
+                writer.WriteStartObject("hung_process_stacks");
+                writer.WriteString("target", stacks.Target);
+                if (stacks.Pid is int pid) writer.WriteNumber("pid", pid);
+                else writer.WriteNull("pid");
+                writer.WriteStartArray("samples");
+                for (var i = 0; i < stacks.Samples.Count; i++)
+                {
+                    var sample = stacks.Samples[i];
+                    writer.WriteStartObject();
+                    writer.WriteNumber("index", sample.Index);
+                    writer.WriteString("started_at", sample.StartedAt);
+                    writer.WriteNumber("duration_ms", (long)sample.Duration.TotalMilliseconds);
+                    writer.WriteString("tool", sample.Tool);
+                    writer.WriteString("outcome", sample.Outcome);
+                    writer.WriteString("file", Path.GetFileName(stacks.Files[i]));
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteEndObject();
+            }
         });
         return attempt;
+    }
+
+    /// <summary>The file name of hung-app sample <paramref name="index"/> in an attempt directory.</summary>
+    public static string HungStacksFileName(int index) => $"hung-stacks-{index}.txt";
+
+    /// <summary>
+    /// Writes each hung-app sample to <see cref="HungStacksFileName"/> and returns the launch with the
+    /// stacks pointing at those files. The launch's result and exit code are untouched.
+    /// </summary>
+    static LaunchResult RecordHungStacks(string attemptDirectory, LaunchResult launch)
+    {
+        if (launch.HungStacks is not { } stacks)
+            return launch;
+        var files = new List<string>();
+        foreach (var sample in stacks.Samples)
+        {
+            var path = Path.Combine(attemptDirectory, HungStacksFileName(sample.Index));
+            WriteNew(path,
+                $"# {stacks.Target}, pid {stacks.Pid?.ToString() ?? "?"}: sample {sample.Index} of {stacks.Samples.Count}, " +
+                $"{sample.Tool}, {sample.Outcome}, started {sample.StartedAt:O}, {sample.Duration.TotalSeconds:0.0} s\n" +
+                sample.Text);
+            files.Add(path);
+        }
+        return launch with { HungStacks = stacks with { Files = files } };
     }
 
     /// <summary>Retains the original token-validated text, including a token-only/truncated file.</summary>

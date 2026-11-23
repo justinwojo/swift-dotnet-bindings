@@ -63,4 +63,12 @@ public static class TestRunFlags
     /// which the Nuke harness passes on every .NET 11 runtime lane.
     /// </summary>
     public static bool LaneIdentity { get; set; }
+
+    /// <summary>
+    /// When true, the first test blocks its thread forever, so the launcher's budget runs out with
+    /// the app still running and the launcher's hung-app capture runs. Wired via the
+    /// <c>--harness-stall</c> CLI arg, which only <c>nuke binding-tests --harness-stall-probe</c>
+    /// passes, and only to a lane's first launch.
+    /// </summary>
+    public static bool HarnessStall { get; set; }
 }

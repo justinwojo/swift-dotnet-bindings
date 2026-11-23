@@ -132,6 +132,20 @@ public static class DeviceCtl
             Thread.Sleep(1000); // 1s polling for device (slower than simulator)
         }
 
+        // Out of budget with the launcher still attached: the app stopped making progress. Take
+        // its stacks on the phone before anything kills it; bounded, and the result is unchanged.
+        HungProcessStacks? hungStacks = null;
+        if (result == TestResult.Timeout && !process.HasExited)
+        {
+            var pids = FindRunningPids(udid, bundleId);
+            Log.Warning("Launch budget ran out with {Bundle} (pid {Pid}) still running on the device; taking its stacks before the kill...",
+                bundleId, pids.Count > 0 ? string.Join(",", pids) : "?");
+            hungStacks = HungProcessSampler.CaptureDevice($"{bundleId} on device {udid}", udid,
+                pids.Count > 0 ? pids[0] : null);
+            Log.Warning("Hung-app stacks: {Outcomes}",
+                string.Join(", ", hungStacks.Samples.Select(s => $"#{s.Index} {s.Outcome}")));
+        }
+
         if (!process.HasExited)
         {
             try { process.Kill(entireProcessTree: true); }
@@ -160,7 +174,7 @@ public static class DeviceCtl
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
-        return new LaunchResult(result, finalOutput, exitCode, null, resultsFlushed);
+        return new LaunchResult(result, finalOutput, exitCode, null, resultsFlushed, hungStacks);
     }
 
     /// <summary>
@@ -234,30 +248,46 @@ public static class DeviceCtl
     {
         try
         {
+            foreach (var pid in FindRunningPids(udid, bundleId))
+            {
+                ProcessTasks.StartProcess(
+                        "xcrun", $"devicectl device process terminate --device {udid} --pid {pid} -q",
+                        logOutput: false, timeout: 5000)
+                    .WaitForExit();
+            }
+        }
+        catch { /* Best-effort termination */ }
+    }
+
+    /// <summary>
+    /// The PIDs of every running process whose executable lives inside <paramref name="bundleId"/>'s
+    /// installed bundle; empty when the app is not installed, not running, or devicectl failed.
+    /// </summary>
+    static IReadOnlyList<int> FindRunningPids(string udid, string bundleId)
+    {
+        var pids = new List<int>();
+        try
+        {
             using var apps = RunDeviceCtlJson($"device info apps --device {udid} --bundle-id {bundleId}");
             var bundleUrl = apps?.RootElement.GetProperty("result").GetProperty("apps")
                 .EnumerateArray().Select(a => a.GetProperty("url").GetString()).FirstOrDefault(u => u != null);
             if (bundleUrl == null)
-                return;
+                return pids;
 
             using var processes = RunDeviceCtlJson($"device info processes --device {udid}");
             if (processes == null)
-                return;
+                return pids;
 
             foreach (var p in processes.RootElement.GetProperty("result").GetProperty("runningProcesses").EnumerateArray())
             {
                 if (p.TryGetProperty("executable", out var exe)
                     && exe.GetString()?.StartsWith(bundleUrl, StringComparison.Ordinal) == true
                     && p.TryGetProperty("processIdentifier", out var pid))
-                {
-                    ProcessTasks.StartProcess(
-                            "xcrun", $"devicectl device process terminate --device {udid} --pid {pid.GetInt32()} -q",
-                            logOutput: false, timeout: 5000)
-                        .WaitForExit();
-                }
+                    pids.Add(pid.GetInt32());
             }
         }
-        catch { /* Best-effort termination */ }
+        catch { /* No PID: the caller treats the app as not running. */ }
+        return pids;
     }
 
     /// <summary>

@@ -48,6 +48,10 @@ public class Application
             {
                 TestRunFlags.Lifetime = true;
             }
+            else if (effectiveArgs[i] == "--harness-stall")
+            {
+                TestRunFlags.HarnessStall = true;
+            }
             else if (effectiveArgs[i] == "--class" && i + 1 < effectiveArgs.Length)
             {
                 ClassFilter = effectiveArgs[i + 1];

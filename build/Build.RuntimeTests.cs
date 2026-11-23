@@ -215,6 +215,12 @@ partial class Build
     // Composes with --device; opt-in because it is a second full device build + install + run.
     [Parameter("With --device: build the device app under Mono full-AOT (the .NET-for-iOS default) instead of NativeAOT")]
     readonly bool MonoAot;
+    // Proves the launchers' hung-app capture: the app blocks forever in its first test, the launch
+    // budget runs out, and the lane must fail as a timeout naming the stacks it took. Only this flag
+    // passes the app argument, and only to a lane's first launch; nothing else can stall the app.
+    [Parameter("Test the harness: make the app stall in its first test so the launch times out and its hung-process stacks are captured (the run fails by design; pair with --timeout and --class-filter)")]
+    readonly bool HarnessStallProbe;
+    const string HarnessStallArgument = "--harness-stall";
     [Parameter("Run on macOS")]
     readonly bool Macos;
     [Parameter("Run on macOS for x86_64 under Rosetta (Mono-x64 proof on Apple Silicon)")]
@@ -2169,13 +2175,16 @@ partial class Build
                 if (FlakeDetect) args.Add("--flake-detect");
                 if (Lifetime) args.Add("--lifetime");
                 if (RuntimeLane.IsNet11) args.Add("--lane-identity");
+                // The deliberate stall goes to the first launch only, so the resumed launches prove
+                // the rest of the suite still runs and the stall stays the run's verdict.
+                if (HarnessStallProbe && attempt == 0) args.Add(HarnessStallArgument);
                 if (!string.IsNullOrEmpty(ClassFilter)) args.AddRange(["--class", ClassFilter]);
                 if (excludeClasses.Count > 0)
                     args.AddRange(["--exclude-classes", string.Join(",", excludeClasses)]);
 
-                var result = suite.Launch(args.ToArray());
+                var attemptEvidence = attempts.RecordLaunch(attempt, runToken, suite.Launch(args.ToArray()));
+                var result = attemptEvidence.Launch;
                 lastResult = result;
-                var attemptEvidence = attempts.RecordLaunch(attempt, runToken, result);
                 AssertLiveRuntimeLane(result, suite.Device);
 
                 // Show output
@@ -2508,74 +2517,22 @@ partial class Build
             { "--platform", "simulator", "--results-path", macResultsDir.ToString(), "--run-token", runToken };
         if (FlakeDetect) argList.Add("--flake-detect");
         if (Lifetime) argList.Add("--lifetime");
+        if (HarnessStallProbe) argList.Add(HarnessStallArgument);
         if (!string.IsNullOrEmpty(ClassFilter)) { argList.Add("--class"); argList.Add(ClassFilter); }
 
         Log.Information("Launching RuntimeTestsApp.Mac{Mode} (timeout: {Timeout}s)...",
             platform.RunUnderRosetta ? " under Rosetta (arch -x86_64)" : "", Timeout);
 
-        var output = new ConcurrentQueue<string>();
-        using var process = new Process();
         // net10.0-macos produces a .app bundle — launch the native executable
         // directly instead of `dotnet run`.
         var macExe = BindingTestsDir / "RuntimeTestsApp.Mac" / RuntimeLane.AppBinDirectory(false) / BtConfiguration /
             $"{BtFramework}-macos" / platform.Rid! / "RuntimeTestsApp.Mac.app" /
             "Contents" / "MacOS" / "RuntimeTestsApp.Mac";
         StampOrCheckRuntimeApp(Path.GetFullPath(Path.Combine(Path.GetDirectoryName(macExe)!, "../..")));
-        process.StartInfo = BuildHostLaunchStartInfo(macExe, argList, platform.RunUnderRosetta);
-
-        process.OutputDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
-        process.ErrorDataReceived += (_, e) => { if (e.Data != null) output.Enqueue(e.Data); };
-
-        process.Start();
-        process.BeginOutputReadLine();
-        process.BeginErrorReadLine();
-
-        var sw = Stopwatch.StartNew();
-        var testResult = TestResult.Timeout;
-        bool resultsFlushed = false;
-
-        while (sw.Elapsed < TimeSpan.FromSeconds(Timeout))
-        {
-            if (process.HasExited)
-            {
-                Thread.Sleep(100);
-                var text = string.Join("\n", output);
-                resultsFlushed = text.Contains("RESULTS FLUSHED");
-                // Final classification runs after redirected readers have drained.
-                testResult = TestResult.LaunchFailure;
-                break;
-            }
-
-            var currentText = string.Join("\n", output);
-            if (currentText.Contains("RESULTS FLUSHED"))
-            {
-                resultsFlushed = true;
-                if (currentText.Contains("TEST SUCCESS")) { testResult = TestResult.Success; break; }
-                if (currentText.Contains("TEST FAILURE")) { testResult = TestResult.Failure; break; }
-            }
-
-            Thread.Sleep(250);
-        }
-
-        if (!process.HasExited)
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { }
-        }
-
-        // Match simulator/device: bound process exit, then drain redirected async callbacks.
-        try
-        {
-            if (process.WaitForExit(5000)) process.WaitForExit();
-        }
-        catch { /* Best-effort drain; preserve the observed stop reason. */ }
-        var finalOutput = string.Join("\n", output);
-        resultsFlushed |= finalOutput.Contains("RESULTS FLUSHED", StringComparison.Ordinal);
-        testResult = LaunchDiagnostics.ClassifyFinalOutput(testResult, finalOutput);
-        int? exitCode = null;
-        try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
-
-        var result = new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
+        var macAttempts = new RuntimeTestAttempts(Path.Combine(Path.GetTempPath(),
+            "swift-bindings-runtime-attempts" + RuntimeEvidenceSuffix(), Guid.NewGuid().ToString("N")));
+        var result = macAttempts.RecordLaunch(0, runToken,
+            LaunchHostApp(macExe, argList, platform.RunUnderRosetta, TimeSpan.FromSeconds(Timeout))).Launch;
 
         Log.Information("");
         Log.Information("=== APP OUTPUT ===");
@@ -2716,6 +2673,18 @@ partial class Build
             Thread.Sleep(250);
         }
 
+        // Out of budget with the app still running: take its stacks before the kill. Under
+        // Rosetta `arch` execs the app in place, so the PID is the app's either way.
+        HungProcessStacks? hungStacks = null;
+        if (testResult == TestResult.Timeout && !process.HasExited)
+        {
+            Log.Warning("Launch budget ran out with {App} (pid {Pid}) still running; taking its stacks before the kill...",
+                exe.Name, process.Id);
+            hungStacks = HungProcessSampler.CaptureHost($"{exe.Name}{(underRosetta ? " under Rosetta" : "")}", process.Id);
+            Log.Warning("Hung-app stacks: {Outcomes}",
+                string.Join(", ", hungStacks.Samples.Select(s => $"#{s.Index} {s.Outcome}")));
+        }
+
         if (!process.HasExited)
         {
             try { process.Kill(entireProcessTree: true); }
@@ -2734,7 +2703,7 @@ partial class Build
         int? exitCode = null;
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
-        return new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed);
+        return new LaunchResult(testResult, finalOutput, exitCode, null, resultsFlushed, hungStacks);
     }
 
     // ============================================================
@@ -2945,7 +2914,8 @@ partial class Build
             case TestResult.Timeout:
                 Log.Information(" RUNTIME TESTS TIMEOUT ({Platform})", platform);
                 Log.Information("=========================================");
-                throw new Exception($"Runtime tests timed out ({platform})");
+                throw new Exception($"Runtime tests timed out ({platform}); " +
+                    (result.HungStacks?.Describe() ?? "no hung-process stacks were taken"));
         }
 
         // The ABI grid gate is enforced once after the full platform loop (FinalizeAbiGridGate in

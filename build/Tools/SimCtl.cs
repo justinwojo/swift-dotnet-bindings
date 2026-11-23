@@ -209,6 +209,12 @@ public static class SimCtl
             Thread.Sleep(250); // 0.25s polling interval matching shell script
         }
 
+        // A launch that ran out of budget with the app still running is a stall: take the app's
+        // stacks before anything kills it. The capture is bounded and never changes the result.
+        HungProcessStacks? hungStacks = null;
+        if (result == TestResult.Timeout && !process.HasExited)
+            hungStacks = CaptureHungApp(udid, bundleId, appName, string.Join("\n", output));
+
         // Kill process if still running
         if (!process.HasExited)
         {
@@ -248,7 +254,38 @@ public static class SimCtl
         if (LaunchDiagnostics.ShouldInspectTermination(result, finalOutput))
             crashLog = FindLatestCrashLog(appName);
 
-        return new LaunchResult(result, finalOutput, exitCode, crashLog, resultsFlushed);
+        return new LaunchResult(result, finalOutput, exitCode, crashLog, resultsFlushed, hungStacks);
+    }
+
+    /// <summary>
+    /// Every thread's backtrace of a simulator app that stopped making progress. A simulator app
+    /// is a process on this Mac, so the host debugger attaches to it directly; its PID is the one
+    /// <c>simctl launch</c> printed, or the one the simulator's launchd lists for the bundle.
+    /// </summary>
+    static HungProcessStacks CaptureHungApp(string udid, string bundleId, string appName, string output)
+    {
+        var pid = HungProcessSampler.ParseSimctlLaunchPid(output, bundleId) ?? FindRunningPid(udid, bundleId);
+        Log.Warning("Launch budget ran out with {App} (pid {Pid}) still running; taking its stacks before the kill...",
+            appName, pid?.ToString() ?? "?");
+        var stacks = HungProcessSampler.CaptureHost($"{appName} on simulator {udid}", pid);
+        Log.Warning("Hung-app stacks: {Outcomes}", string.Join(", ", stacks.Samples.Select(s => $"#{s.Index} {s.Outcome}")));
+        return stacks;
+    }
+
+    /// <summary>The PID the simulator's launchd lists for <paramref name="bundleId"/>'s app job, or null.</summary>
+    static int? FindRunningPid(string udid, string bundleId)
+    {
+        var run = HungProcessSampler.RunBounded(
+            new HungProcessSampler.Command("xcrun", ["simctl", "spawn", udid, "launchctl", "list"]), TimeSpan.FromSeconds(15));
+        if (run.TimedOut) return null;
+        foreach (var line in run.Output.Split('\n'))
+        {
+            var columns = line.Split('\t');
+            if (columns.Length == 3 && columns[2].StartsWith($"UIKitApplication:{bundleId}[", StringComparison.Ordinal)
+                && int.TryParse(columns[0], out var pid) && pid > 0)
+                return pid;
+        }
+        return null;
     }
 
     /// <summary>

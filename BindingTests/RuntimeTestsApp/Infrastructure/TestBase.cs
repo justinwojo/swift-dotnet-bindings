@@ -145,6 +145,7 @@ public abstract class TestBase
     {
         var testName = $"{TestClassName}.{method.Name}";
         TestLogger.Test($"--- {testName} ---");
+        StallIfHarnessAsked(testName);
 
         var stopwatch = Stopwatch.StartNew();
         try
@@ -201,6 +202,26 @@ public abstract class TestBase
         return null;
     }
 
+    /// <summary>
+    /// The harness's deliberate stall (<see cref="TestRunFlags.HarnessStall"/>): blocks this test's
+    /// thread for good, inside a started test, as a real hang would. The launcher then runs out of
+    /// budget with the app alive and must capture its stacks before the kill.
+    /// </summary>
+    private static void StallIfHarnessAsked(string testName)
+    {
+        if (!TestRunFlags.HarnessStall)
+            return;
+        TestLogger.Warning($"HARNESS STALL: --harness-stall blocks {testName} forever, by request");
+        HarnessStallForever();
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private static void HarnessStallForever()
+    {
+        while (true)
+            System.Threading.Thread.Sleep(1000);
+    }
+
     private static string RefusalReason(Swift.Runtime.SwiftTransitionUnsupportedException refusal) =>
         $"refused on {refusal.Runtime}: {refusal.Member} ({refusal.RefusedFacts})";
 
@@ -220,6 +241,7 @@ public abstract class TestBase
         var totalElapsed = TimeSpan.Zero;
 
         TestLogger.Test($"--- {testName} (flake detect: {runs}x) ---");
+        StallIfHarnessAsked(testName);
 
         for (int i = 0; i < runs; i++)
         {
