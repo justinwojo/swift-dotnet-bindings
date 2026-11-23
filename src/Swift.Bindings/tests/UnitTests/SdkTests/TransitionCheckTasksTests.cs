@@ -373,7 +373,7 @@ public sealed class TransitionCheckTasksTests : IDisposable
         if (runtime == RuntimeTargets.WithoutTheCheck)
         {
             Assert.Contains("SwiftBindings.Runtime 0.20.2 predates", output);
-            Assert.Contains("--swift-runtime-version", output);
+            Assert.Contains("Raise this project's SwiftBindings.Runtime PackageReference to", output);
             Assert.DoesNotContain("would be refused", output);
         }
         else

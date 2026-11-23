@@ -675,7 +675,7 @@ namespace BindingsGeneration
                       <_SwiftBindingsResolvedRuntimeVersion Condition="'$(_SwiftBindingsResolvedRuntimeVersion)' == ''">(version unknown)</_SwiftBindingsResolvedRuntimeVersion>
                     </PropertyGroup>
                     <Error Code="SWIFTBIND133"
-                           Text="This package cannot be checked before it ships: the restored SwiftBindings.Runtime $(_SwiftBindingsResolvedRuntimeVersion) predates the pack-time Swift transition check this binding project runs after pack, so a package its consumers would refuse (SWIFTBIND132) could ship unnoticed. No package was written. Reference SwiftBindings.Runtime {required}: regenerate the binding with that --swift-runtime-version, or raise this project's SwiftBindings.Runtime PackageReference to it, then pack again." />
+                           Text="This package cannot be checked before it ships: the restored SwiftBindings.Runtime $(_SwiftBindingsResolvedRuntimeVersion) predates the pack-time Swift transition check this binding project runs after pack, so a package its consumers would refuse (SWIFTBIND132) could ship unnoticed. No package was written. Raise this project's SwiftBindings.Runtime PackageReference to {required}, then pack again." />
                   </Target>
                 """;
         }

@@ -2361,7 +2361,7 @@ partial class Build
 
             var grade = InterpreterNegativeControls.Grade(control, inventory.GetMethods(control.ClassName), results, result.Result);
             if (grade.Count > 0 && result.HungStacks is { } hung)
-                grade = [.. grade, $"{control.ClassName}: {hung.Describe()}"];
+                grade = [.. grade.Take(grade.Count - 1), $"{grade[^1]}; {hung.Describe()}"];
             problems.AddRange(grade);
             grades[control.ClassName] = grade;
             lines.Add($"{control.ClassName} ({control.Defect}): {(grade.Count == 0 ? "as expected" : $"{grade.Count} problem(s)")}, process {result.Result}");
@@ -2895,7 +2895,8 @@ partial class Build
         // (a filtered class whose tests all skip never reaches the stall), fails the run.
         if (HarnessStallProbe && effectiveResult != TestResult.Timeout)
             throw new Exception($"--harness-stall-probe: the {platform} run ended as {effectiveResult}, not as a stall, " +
-                "so the hung-app capture was not exercised; pick a --class-filter whose first test runs.");
+                "so the hung-app capture was not exercised; pick a --class-filter whose first test runs." +
+                (result.HungStacks is { } probeStacks ? $" {probeStacks.Describe()}" : ""));
 
         Log.Information("");
         Log.Information("=========================================");

@@ -158,8 +158,11 @@ public sealed class HungProcessStacksTests : IDisposable
     public void RunBounded_DoesNotWaitOnADescendantThatHoldsTheOutputOpen()
     {
         var clock = Stopwatch.StartNew();
-        var run = HungProcessSampler.RunBounded(new HungProcessSampler.Command("/bin/sh", ["-c", "sleep 30 & echo started"]),
+        var run = HungProcessSampler.RunBounded(new HungProcessSampler.Command("/bin/sh", ["-c", "sleep 30 & echo $!"]),
             TimeSpan.FromSeconds(1));
+        // The orphaned sleep outlives its exited parent's process tree; the test stops it itself.
+        if (int.TryParse(run.Output.Trim(), out var orphan))
+            try { Process.GetProcessById(orphan).Kill(); } catch (ArgumentException) { } catch (InvalidOperationException) { }
 
         Assert.True(run.TimedOut);
         Assert.True(clock.Elapsed < TimeSpan.FromSeconds(15), $"took {clock.Elapsed}");

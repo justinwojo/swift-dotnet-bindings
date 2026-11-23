@@ -205,6 +205,16 @@ public class RuntimeResultReportingTests
             });
     }
 
+    // A probe app that crashes while it is being sampled still fails as an unexercised probe,
+    // and the failure names the stacks taken before the crash.
+    [Fact]
+    public void HarnessStallProbe_CrashDuringCaptureNamesTheStacks()
+        => InScratch(directory => Assert.EndsWith(
+            "not as a stall, so the hung-app capture was not exercised; pick a --class-filter whose first test runs. " +
+            "hung-process stacks (App, pid 42; #1 captured): /s.txt",
+            Report.Value(directory, (int)TestResult.Crash, new[] { Prefix }, false, false,
+                harnessStallProbe: true, stacksFile: "/s.txt")));
+
     [Fact]
     public void HarnessStallProbe_StallKeepsTheTimeoutFailure()
         => InScratch(directory => Assert.Equal(
