@@ -56,7 +56,7 @@ namespace BindingsGeneration
         /// </summary>
         internal static string GetTagPropertyName(EnumDecl enumDecl, string typeNameWithGenerics, Dictionary<string, string>? caseNameMap, ITypeDatabase? typeDatabase = null, Dictionary<string, string>? propertyRenames = null)
         {
-            const string preferred = "Tag";
+            const string preferred = NameProvider.CaseDiscriminatorName;
 
             // The enclosing C# type's simple name is typeNameWithGenerics minus any generic list.
             var simpleName = typeNameWithGenerics;
@@ -80,18 +80,16 @@ namespace BindingsGeneration
             {
                 var caseName = NameProvider.GetCaseName(c.Name, caseNameMap);
                 reserved.Add(caseName);
-                // A case named like the enum emits under its member-side rename (`case tag` in
-                // class `Tag` → `TagValue`), the very name this fallback would otherwise take.
+                // A case named like the enum emits under its member-side rename, which
+                // ComputePropertyRenames keeps off this fallback's first choice.
                 reserved.Add(NameProvider.GetFinalMemberName(caseName, propertyRenames));
-                // A case named like the enum emits under its member-side rename (`case tag` in
-                // class `Tag` → `TagValue`), the very name this fallback would otherwise take.
                 if (c.HasAssociatedValues)
                     reserved.Add($"TryGet{caseName}");
             }
             foreach (var nestedType in enumDecl.Types)
                 reserved.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
 
-            var candidate = "TagValue";
+            var candidate = NameProvider.CaseDiscriminatorFallbackName;
             var n = 2;
             while (reserved.Contains(candidate))
                 candidate = $"Tag{n++}";

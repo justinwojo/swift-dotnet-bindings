@@ -1458,7 +1458,9 @@ public static class DefaultParameterOverloadEmitter
     /// <para>Constructor arity is Swift's by default. <paramref name="costByProjectedArity"/> counts
     /// it as C# does instead, after the projection drops caller-location and empty-tuple
     /// parameters. A candidate that existing bindings never had passes it, so it yields to any
-    /// sibling it would tie rather than pushing an already-shipped factory to another name.</para>
+    /// sibling it would tie rather than pushing an already-shipped factory to another name. A
+    /// candidate that only a sibling's different factory name lets through is new in the same
+    /// way, and is checked again under that reading.</para>
     /// </summary>
     internal static bool TryFindSignatureCollision(
         MethodDecl sourceDecl,
@@ -1481,6 +1483,7 @@ public static class DefaultParameterOverloadEmitter
         var origin = sourceDecl.SpecializedFrom ?? sourceDecl;
         int overloadParamCount = overloadDecl.CSSignature.Count - 1;
         var candidateShape = OverloadAmbiguityGuard.ParseKey(candidateKey, candidateRequiredCount);
+        bool admittedByFactoryName = false;
         foreach (var sibling in siblingMethods)
         {
             if (sibling.Name != overloadDecl.Name ||
@@ -1504,14 +1507,14 @@ public static class DefaultParameterOverloadEmitter
                 // share a C# signature, so only a sibling of the same shape can cost the candidate.
                 if (InitializerMemberKind(sibling) != InitializerMemberKind(overloadDecl))
                     continue;
+                if (!costByProjectedArity && sibling.CSSignature.Count - 1 != overloadParamCount)
+                    continue;
                 var ctorSiblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
                 var siblingShape = OverloadAmbiguityGuard.ParseKey(
                     ctorSiblingKey, OverloadAmbiguityGuard.RequiredCountFor(sibling, env.TypeDatabase, ctorSiblingKey));
                 // `init?(late: Int32, file: … = #fileID)` is the one-argument `TryCreate(int, out T)`
                 // in C#, though Swift counts two parameters.
-                if (costByProjectedArity
-                        ? siblingShape.ParameterTypes.Count != candidateShape.ParameterTypes.Count
-                        : sibling.CSSignature.Count - 1 != overloadParamCount)
+                if (costByProjectedArity && siblingShape.ParameterTypes.Count != candidateShape.ParameterTypes.Count)
                     continue;
                 // Two failable factories of different names never collide (CS0111) or tie a call
                 // (CS0121). A sibling that already emitted in this walk of the type has a fixed factory
@@ -1521,7 +1524,10 @@ public static class DefaultParameterOverloadEmitter
                 if (TryGetFailableFactoryName(candidateKey) is { } candidateFactoryName
                     && EmittedFactoryNameInThisWalk(sibling, ctorSiblingKey, env) is { } siblingFactoryName
                     && !string.Equals(siblingFactoryName, candidateFactoryName, StringComparison.Ordinal))
+                {
+                    admittedByFactoryName = true;
                     continue;
+                }
                 // The C# name of either side cannot be rebuilt here (an initializer may emit as a
                 // constructor or under a factory name), so compare the parameter types as though
                 // both took the same name. A sibling of equal arity costs the candidate unless a
@@ -1552,6 +1558,9 @@ public static class DefaultParameterOverloadEmitter
                 return true;
             }
         }
+        if (admittedByFactoryName && !costByProjectedArity)
+            return TryFindSignatureCollision(sourceDecl, overloadDecl, candidateKey, candidateRequiredCount, env,
+                out collidingKey, costByProjectedArity: true);
         return false;
     }
 

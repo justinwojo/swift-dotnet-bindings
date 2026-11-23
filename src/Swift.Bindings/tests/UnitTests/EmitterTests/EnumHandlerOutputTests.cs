@@ -586,18 +586,19 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
-    public void GetTagPropertyName_EnumNamedTag_WithACaseNamedLikeTheEnum_DodgesTheCaseRename()
+    public void EnumNamedTag_WithACaseNamedLikeTheEnum_KeepsTheShippedDiscriminatorName()
     {
-        // `enum tag { case tag(Int32); case none }` projects as class `Tag`, whose `tag` case is
-        // renamed on the member side to `TagValue` (CS0542). The discriminator must not take the
-        // name the case moved to (CS0102).
+        // `enum tag { case tag(Int32); case none }` projects as class `Tag`. Its `tag` case, newly
+        // bound under a member-side rename (CS0542), must not take `TagValue`: the discriminator
+        // has shipped under that name, and the two would be a CS0102 duplicate.
         var moduleDecl = CreateModuleDecl("TestModule");
         var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
         enumDecl.Cases.Add(CreateCase("tag"));
         enumDecl.Cases.Add(CreateCase("none"));
-        var renames = new Dictionary<string, string> { ["Tag"] = "TagValue" };
+        var renames = NameProvider.ComputePropertyRenames(enumDecl, new TypeDatabase());
 
-        Assert.Equal("Tag2", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null, propertyRenames: renames));
+        Assert.Equal("TagValue", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null, propertyRenames: renames));
+        Assert.NotEqual("TagValue", renames["Tag"]);
     }
 
     [Fact]

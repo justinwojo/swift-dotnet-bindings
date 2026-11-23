@@ -1612,13 +1612,16 @@ public static class NameProvider
     /// <param name="memberNames">PascalCase member names (properties, enum cases).</param>
     /// <param name="nestedTypeNames">Nested type names.</param>
     /// <param name="typeRenameNames">Member names where the nested type should be renamed instead of the property.</param>
+    /// <param name="reservedNames">Names of other members that a rename must not take.</param>
     /// <returns>A dictionary mapping original member name → renamed name.</returns>
     public static Dictionary<string, string> ComputePropertyRenamesForNestedTypeCollisions(
         IEnumerable<string> memberNames, IEnumerable<string> nestedTypeNames,
-        ISet<string>? typeRenameNames = null)
+        ISet<string>? typeRenameNames = null, IEnumerable<string>? reservedNames = null)
     {
         var typeNameSet = new HashSet<string>(nestedTypeNames);
         var memberNameSet = new HashSet<string>(memberNames);
+        if (reservedNames != null)
+            memberNameSet.UnionWith(reservedNames);
         var renames = new Dictionary<string, string>();
         foreach (var memberName in memberNames)
         {
@@ -1745,13 +1748,26 @@ public static class NameProvider
         // enclosing type, renamed on the member side like a property is. Properties already had the
         // enclosing-type rule applied by GetPropertyName. A simple enum projects as a C# `enum`,
         // whose members may share its name, and never reaches this rename map for its cases.
+        // Such a case was a CS0542 error, withdrawn, until this rename bound it, so it yields to
+        // the case discriminator of a class named `Tag`, which has always shipped as `TagValue`.
+        string[]? reservedNames = null;
         if (typeDecl is EnumDecl && !IsSimpleEnumRecord(typeDecl, typeDatabase)
             && GetEnclosingTypeCollisionName(typeDecl) is { } enclosingName)
+        {
             nestedTypeNames = nestedTypeNames.Append(enclosingName);
+            if (enclosingName == CaseDiscriminatorName)
+                reservedNames = new[] { CaseDiscriminatorFallbackName };
+        }
 
         return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
-            typeRenameNames.Count > 0 ? typeRenameNames : null);
+            typeRenameNames.Count > 0 ? typeRenameNames : null, reservedNames);
     }
+
+    /// <summary>The case-discriminator property of an enum projected as a class.</summary>
+    internal const string CaseDiscriminatorName = "Tag";
+
+    /// <summary>The discriminator's name in a class that is itself named <c>Tag</c> (CS0542).</summary>
+    internal const string CaseDiscriminatorFallbackName = "TagValue";
 
     private static bool IsSimpleEnumRecord(TypeDecl typeDecl, ITypeDatabase typeDatabase)
         => typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record)

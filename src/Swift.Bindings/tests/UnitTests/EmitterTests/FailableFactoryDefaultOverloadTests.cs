@@ -174,14 +174,10 @@ public class FailableFactoryDefaultOverloadTests
         Assert.True(Collides(f));
     }
 
-    [Fact]
-    public void Trim_IsCostedBy_ASiblingWhoseCallerLocationParameterTheProjectionDrops()
+    // `init?(late: Int32, file: StaticString = #fileID)`, which projects as the one-argument
+    // `TryCreate(int, out S)` though Swift counts two parameters.
+    private static MethodDecl AddCallerLocationSibling(Fixture f)
     {
-        // `init?(late: Int32, file: StaticString = #fileID)` projects as the one-argument
-        // `TryCreate(int, out S)` the trim would claim. Its two Swift parameters hid it from the
-        // arity filter, and the trim then pushed the existing factory to a label-suffixed name.
-        var f = CreateFixture();
-        f.Type.Methods.Remove(f.FailableSibling);
         var module = f.Type.ModuleDecl!;
         var late = Init("$s1M1SV4late4fileACSgs5Int32V_s12StaticStringVtcfC", f.Type, module, failable: true, ("late", false));
         late.CSSignature.Add(new ArgumentDecl
@@ -197,8 +193,33 @@ public class FailableFactoryDefaultOverloadTests
             ModuleDecl = module,
         });
         f.Type.Methods.Add(late);
+        return late;
+    }
+
+    [Fact]
+    public void Trim_IsCostedBy_ASiblingWhoseCallerLocationParameterTheProjectionDrops()
+    {
+        // Its two Swift parameters hid `init?(late:file:)` from the arity filter, and the trim then
+        // pushed the existing factory to a label-suffixed name.
+        var f = CreateFixture();
+        f.Type.Methods.Remove(f.FailableSibling);
+        AddCallerLocationSibling(f);
 
         Assert.True(Collides(f));
+    }
+
+    [Fact]
+    public void Trim_AdmittedByAnotherFactoryName_IsCostedAsCSharpCountsItsArity()
+    {
+        // A trim of a default C# cannot spell. `init?(second:)` costed it until the factory-name
+        // exemption, so it is new, and must not push the later `init?(late:file:)` off `TryCreate`.
+        var f = CreateFixture();
+        f.FailableSibling.EmittedFailableFactoryName = "TryCreateWithSecond";
+        f.Env.EmittedProjectedSignatures!.Add(FactoryKey("TryCreateWithSecond", f.FailableSibling, f.Db));
+        AddCallerLocationSibling(f);
+
+        Assert.True(DefaultParameterOverloadEmitter.TryFindSignatureCollision(
+            f.Source, f.Trim, FactoryKey("TryCreate", f.Trim, f.Db), 1, f.Env, out _));
     }
 
     [Fact]
