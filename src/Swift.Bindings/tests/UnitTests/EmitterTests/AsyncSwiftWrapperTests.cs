@@ -588,6 +588,44 @@ public class AsyncSwiftWrapperTests
 
     #region Async Tuple ObjC Retain Tests
 
+    /// <summary>
+    /// A simple enum in an async tuple result crosses as the scalar its synchronous return uses,
+    /// never as a pointer to a heap copy: the C# callback reads the element as the enum's value,
+    /// so a pointer there reached the consumer as a nonsense case.
+    /// </summary>
+    [Theory]
+    [InlineData("Swift.Int", true, "Swift.Int", "long")]       // Swift-native Int raw value: crosses as the case tag
+    [InlineData(null, true, "Swift.Int32", "int")]             // no raw value: the case tag
+    [InlineData("Swift.UInt8", true, "Swift.UInt8", "byte")]
+    [InlineData("Swift.Int", false, "Swift.Int", "long")]      // @objc: the raw value itself
+    public void AsyncWrapper_TupleWithSimpleEnum_CrossesTheEnumAsItsScalar(
+        string rawValueType, bool crossesAsCaseTag, string scalar, string csScalar)
+    {
+        var (csOutput, swiftOutput) = GenerateAsyncMethodWithTupleReturn(
+            elements: new[]
+            {
+                ("TestModule.Heading", TypeRecordKind.Enum, false),
+                ("Swift.Int", TypeRecordKind.Struct, false),
+            },
+            shapeRecord: r => r.Kind == TypeRecordKind.Enum
+                ? r with
+                {
+                    Flags = TypeRecordFlags.SimpleEnum | TypeRecordFlags.Frozen,
+                    RawValueTypeName = rawValueType,
+                    RawValueCrossesAsCaseTag = crossesAsCaseTag,
+                }
+                : r);
+
+        Assert.Contains($"@convention(c) ({scalar}, Swift.Int, Swift.Int64) -> Swift.Void", swiftOutput);
+        Assert.DoesNotContain("initializeMemory(as: TestModule.Heading.self", swiftOutput);
+        if (!crossesAsCaseTag)
+            Assert.Contains($"{scalar}((", swiftOutput);
+        Assert.Contains("(TestModule.Heading)", csOutput.Replace("global::", string.Empty));
+        // The C# callback reads the element at the width the Swift side passes.
+        Assert.Matches($@"unmanaged\[Cdecl\]<{csScalar}, (System\.)?nint, ", csOutput);
+        Assert.Matches($@"OnComplete_\w+\({csScalar} rawItem0, (System\.)?nint rawItem1, ", csOutput);
+    }
+
     [Fact]
     public void AsyncWrapper_TupleWithObjCClass_RetainsClassElement()
     {
@@ -1372,7 +1410,8 @@ public class AsyncSwiftWrapperTests
         (string typeName, TypeRecordKind kind, bool isObjCBridged)[] elements,
         (string typeName, TypeRecordKind kind, bool isObjCBridged)? optionalObjCElement = null,
         Dictionary<string, string> nativeRemappedTypes = null,
-        HashSet<string> objCBridgeableTypes = null)
+        HashSet<string> objCBridgeableTypes = null,
+        Func<TypeRecord, TypeRecord> shapeRecord = null)
     {
         var moduleDecl = new ModuleDecl
         {
@@ -1507,6 +1546,8 @@ public class AsyncSwiftWrapperTests
                 Kind = kind,
                 NativeTypeName = nativeType
             };
+            if (shapeRecord != null)
+                record = shapeRecord(record);
             var elemModule = swiftName.Module;
             if (elemModule == "TestModule")
             {

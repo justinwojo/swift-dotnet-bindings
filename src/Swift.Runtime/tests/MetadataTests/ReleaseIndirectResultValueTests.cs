@@ -302,6 +302,30 @@ public class ReleaseIndirectResultValueTests
     }
 
     [Fact]
+    public unsafe void TupleCarrierWithANonTrivialStructElement_IsLeftAloneWhenItsValueEscapesTheSeam()
+    {
+        // The struct element's own metadata (Swift.String here) says it holds references, so its
+        // bitwise read aliases them: the escaping value still owns what the buffer holds, and only
+        // the storage is handed back.
+        Assert.True(TypeMetadata.TryGetTypeMetadata<(string, long)>(out var tuple));
+        void* buffer = NativeMemory.AllocZeroed(24);
+        try
+        {
+            long entered = WireDestroyEntered();
+            long skipped = SkippedInvalid();
+
+            Assert.True(SwiftMarshal.ReleaseIndirectResultValue((IntPtr)buffer, typeof((Opaque, long)), tuple, valueEscapesSeam: true));
+
+            Assert.Equal(entered, WireDestroyEntered());
+            Assert.Equal(skipped, SkippedInvalid());
+        }
+        finally
+        {
+            NativeMemory.Free(buffer);
+        }
+    }
+
+    [Fact]
     public void NonSwiftCarrier_IsTreatedAsAConsumedInlineValue()
     {
         // A carrier with no Swift declaration resolves to Inline, so the seam still frees the

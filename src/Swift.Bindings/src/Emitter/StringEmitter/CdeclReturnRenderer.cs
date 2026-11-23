@@ -135,6 +135,26 @@ internal static class CdeclReturnRenderer
         }
     }
 
+    /// <summary>
+    /// A single Swift expression of type <see cref="CdeclReturnMapping.CdeclReturnType"/>: the scalar a
+    /// simple enum (<see cref="CdeclReturnKind.SimpleEnum"/>) <paramref name="valueExpr"/> crosses as,
+    /// the same one <see cref="Write"/> returns for it. For sites that hand the value on as an argument
+    /// rather than returning it (an async completion callback's tuple elements). The value expression
+    /// is evaluated once.
+    /// </summary>
+    internal static string SimpleEnumScalarExpression(string valueExpr, TypeSpec typeSpec,
+        ITypeDatabase typeDatabase, CdeclReturnMapping mapping)
+    {
+        if (mapping.Kind != CdeclReturnKind.SimpleEnum)
+            throw new System.ArgumentException($"Expected a simple-enum mapping, got {mapping.Kind}.", nameof(mapping));
+        var lines = HasRawValue(typeSpec, typeDatabase)
+            ? new List<string> { $"return {RawValueConversion(typeSpec, typeDatabase, mapping, $"({valueExpr})")}" }
+            : CaseReturnLines(valueExpr, typeSpec, typeDatabase, mapping);
+        if (lines.Count == 1 && lines[0].StartsWith("return ", System.StringComparison.Ordinal))
+            return lines[0].Substring("return ".Length);
+        return $"{{ () -> {mapping.CdeclReturnType} in {string.Join("; ", lines)} }}()";
+    }
+
     private static List<string> BuildInlineLines(string valueExpr, TypeSpec typeSpec,
         ITypeDatabase typeDatabase, CdeclReturnMapping mapping, bool scalarParens)
     {

@@ -1759,12 +1759,27 @@ public static class NameProvider
                 reservedNames = new[] { CaseDiscriminatorFallbackName };
         }
 
+        // The same class also carries members the generator synthesizes, whatever the Swift enum
+        // declares: the payload handle, Dispose, the nested CaseTag enum and the case discriminator.
+        // They never yield, so a case or property projecting onto one of them (`case payload(Int)`
+        // → factory `Payload`) takes the member-side Value rename, as a case named like the enum does.
+        if (typeDecl is EnumDecl { IsNamespaceEnum: false } && !IsSimpleEnumRecord(typeDecl, typeDatabase))
+            nestedTypeNames = nestedTypeNames.Concat(ClassEnumInfrastructureMemberNames);
+
         return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
             typeRenameNames.Count > 0 ? typeRenameNames : null, reservedNames);
     }
 
     /// <summary>The case-discriminator property of an enum projected as a class.</summary>
     internal const string CaseDiscriminatorName = "Tag";
+
+    /// <summary>
+    /// Public members every enum projected as a class carries regardless of its Swift declaration
+    /// (EnumHandler's class path): the <c>Payload</c> handle, <c>Dispose()</c>, the nested
+    /// <c>CaseTag</c> enum and the <see cref="CaseDiscriminatorName"/> property.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> ClassEnumInfrastructureMemberNames =
+        new[] { "Payload", "Dispose", "CaseTag", CaseDiscriminatorName };
 
     /// <summary>The discriminator's name in a class that is itself named <c>Tag</c> (CS0542).</summary>
     internal const string CaseDiscriminatorFallbackName = "TagValue";

@@ -643,6 +643,40 @@ public class EnumHandlerOutputTests
         Assert.Contains("TagValueValue", csOutput);
     }
 
+    /// <summary>
+    /// A case spelled like a member the class projection synthesizes (`case payload(Int)` against
+    /// the <c>Payload</c> handle) was a CS0102 duplicate that withdrew the whole factory. The case
+    /// takes the member-side Value rename; the synthesized member keeps its name.
+    /// </summary>
+    [Theory]
+    [InlineData("payload", true, "SwiftSafeHandle<Holder> Payload =>", "PayloadValue(")]
+    [InlineData("caseTag", true, "public enum CaseTag", "CaseTagValue(")]
+    [InlineData("tag", true, "public CaseTag Tag", "TagValue(")]
+    [InlineData("dispose", false, "public void Dispose()", "Holder DisposeValue =>")]
+    [InlineData("payload", false, "SwiftSafeHandle<Holder> Payload =>", "Holder PayloadValue =>")]
+    public void Emit_CaseNamedLikeASynthesizedMember_TakesTheValueRename(
+        string caseName, bool hasPayload, string synthesizedMember, string renamedCase)
+    {
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Holder", moduleDecl, isFrozen: false);
+        var colliding = CreateCase(caseName);
+        if (hasPayload)
+            colliding.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(colliding);
+        var other = CreateCase("other");
+        other.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(other);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        Assert.Contains(synthesizedMember, csOutput);
+        Assert.Contains(renamedCase, csOutput);
+        var pascal = NameProvider.ToPascalCase(caseName);
+        Assert.DoesNotMatch($@"public static (unsafe )?Holder {pascal}(\(| =>)", csOutput);
+    }
+
     [Fact]
     public void Emit_EnumNamedTag_DynamicDependencyRootsRenamedDiscriminator()
     {

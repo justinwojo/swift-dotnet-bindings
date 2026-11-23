@@ -217,6 +217,43 @@ public class ModuleEmissionContextCollisionTests
     }
 
     [Fact]
+    public void NestedMetatypeKeywordTypes_InExpressionPosition_NameTheNestedType()
+    {
+        // Swift reads `Host.`Type`.self` (and `Host.`Type`(…)`, `Host.`Type`.member`) as members of
+        // `Host`'s metatype, so in an expression the nested type is reached through a generic
+        // argument, a type position. Type positions keep the plain escaped spelling, which an
+        // extension declaration requires; a top-level type behind its module is unaffected.
+        var declared = new HashSet<string>(StringComparer.Ordinal)
+            { "Soup.Host", "Soup.Host.Type", "Soup.Host.Protocol", "Soup.Host.Type.Inner", "Soup.Type" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input =
+            "let m = unsafeBitCast(Soup.Host.Type.self as Any.Type, to: UnsafeMutableRawPointer.self)\n" +
+            "p.initializeMemory(as: Soup.Host.Type.self, repeating: v, count: 1)\n" +
+            "let v: Soup.Host.Type = Soup.Host.Type(a: 1)\n" +
+            "let z = Soup.Host.Protocol.zero; let i = Soup.Host.Type.init(a: 2)\n" +
+            "let n: Soup.Host.Type.Inner = Soup.Host.Type.Inner.self\n" +
+            "let t: Soup.Host.Type.Type = x; let a = Swift.Array<Soup.Host.Type>.self\n" +
+            "extension Soup.Host.Type: P {}\n" +
+            "let top = Soup.Type.self; let h = Soup.Host.self\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Equal(
+            "let m = unsafeBitCast(Swift.Array<Soup.Host.`Type`>.Element.self as Any.Type, to: UnsafeMutableRawPointer.self)\n" +
+            "p.initializeMemory(as: Swift.Array<Soup.Host.`Type`>.Element.self, repeating: v, count: 1)\n" +
+            "let v: Soup.Host.`Type` = Swift.Array<Soup.Host.`Type`>.Element(a: 1)\n" +
+            "let z = Swift.Array<Soup.Host.`Protocol`>.Element.zero; let i = Swift.Array<Soup.Host.`Type`>.Element.init(a: 2)\n" +
+            "let n: Soup.Host.`Type`.Inner = Swift.Array<Soup.Host.`Type`.Inner>.Element.self\n" +
+            "let t: Soup.Host.`Type`.Type = x; let a = Swift.Array<Soup.Host.`Type`>.self\n" +
+            "extension Soup.Host.`Type`: P {}\n" +
+            "let top = Soup.`Type`.self; let h = Soup.Host.self\n",
+            output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
+
+    [Fact]
     public void ReservedMemberTypeNames_WithoutPredicate_AreUnchanged()
     {
         var ctx = new ModuleEmissionContext();
@@ -235,7 +272,7 @@ public class ModuleEmissionContextCollisionTests
         var journal = new TextEditJournal();
         var output = ctx.QualifyForWrapperSource(input, journal);
 
-        Assert.Equal("let k: Holder.`Type` = Holder.`Type`(); let b = Other.Protocol.self\n", output);
+        Assert.Equal("let k: Holder.`Type` = Swift.Array<Holder.`Type`>.Element(); let b = Other.Protocol.self\n", output);
         Assert.Equal(output.Length, journal.MapOffset(input.Length));
     }
 
