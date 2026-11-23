@@ -621,6 +621,41 @@ public class TypeHandlerHelpersTests
         Assert.Equal("TestModule.Point", row.ContainingType);
         Assert.Contains("OtherModule.SomeProtocol", row.Details);
         Assert.NotNull(row.RecommendedWorkaround);
+        Assert.Contains("--module-database", row.RecommendedWorkaround);
+    }
+
+    [Theory]
+    [InlineData("Foundation.LocalizedError", "errorDescription", "ErrorDescription")]
+    [InlineData("Foundation.CustomNSError", "errorDomain", "ErrorDomain")]
+    [InlineData("Foundation.LocalizedError", "failureReason", "FailureReason")]
+    public void GetImplementedInterfaces_FoundationErrorProtocol_ReportSaysTheMembersAreBound(
+        string protocol, string requirement, string member)
+    {
+        // An error type conforming to a Foundation error protocol keeps every requirement it declares
+        // as an ordinary member; only the C# interface entry is absent, because no C# interface
+        // projects the Foundation protocol. The row must say that, not that something is missing or
+        // that another module's database would bring the conformance back: none exists to pass.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var structDecl = CreateStructDeclWithConformances("ProbeError", moduleDecl,
+            new TypeConformance(
+                SwiftTypeName.FromModuleQualifiedName("TestModule.ProbeError"),
+                SwiftTypeName.FromModuleQualifiedName(protocol),
+                "$s10TestModule10ProbeErrorV10Foundation0D0Mc"));
+
+        var report = RunWithReport(moduleDecl, () =>
+            ProtocolConformanceHelper.GetImplementedInterfaces(
+                structDecl, "ProbeError", "TestModule", typeDatabase));
+
+        var row = Assert.Single(report.SkippedItems, i => i.Name == protocol);
+        Assert.Equal(SkipReason.ConformanceProtocolNotInTypeDatabase, row.Reason);
+        Assert.Contains("does not declare", row.Details);
+        Assert.Contains($"{requirement} → {member}", row.Details);
+        Assert.Contains("bound as ordinary members", row.Details);
+        Assert.DoesNotContain("type databases this run loaded", row.Details);
+        Assert.NotNull(row.RecommendedWorkaround);
+        Assert.StartsWith("No action needed", row.RecommendedWorkaround);
+        Assert.DoesNotContain("--module-database", row.RecommendedWorkaround);
     }
 
     [Theory]

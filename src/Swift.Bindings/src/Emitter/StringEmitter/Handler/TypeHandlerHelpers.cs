@@ -1859,7 +1859,8 @@ internal static class ProtocolConformanceHelper
             return;
         }
 
-        ReportCollector.RecordConformanceDropped(typeDecl, protocolName, verdict.Details, verdict.Reason);
+        ReportCollector.RecordConformanceDropped(
+            typeDecl, protocolName, verdict.Details, verdict.Reason, verdict.Workaround);
     }
 
     /// <summary>
@@ -1869,7 +1870,53 @@ internal static class ProtocolConformanceHelper
     /// configuration input, an unbound associated type is a projection limit, an unimplementable
     /// requirement is a capability gap — and each earns a different recommended action.
     /// </summary>
-    internal readonly record struct ConformanceDrop(SkipReason Reason, string Details);
+    /// <param name="Workaround">The row's recommended action when the reason's general one would
+    /// mislead for this protocol; null takes <see cref="WorkaroundRecommendations"/>'s.</param>
+    internal readonly record struct ConformanceDrop(SkipReason Reason, string Details, string? Workaround = null);
+
+    /// <summary>
+    /// The Foundation error-bridging protocols, each with its requirements and the C# members a Swift
+    /// error type's own declarations of them bind as. No C# interface projects these protocols, so a
+    /// conformance to one never reaches the C# base list, but a type that declares a requirement (an
+    /// <c>errorDescription</c>, a static <c>errorDomain</c>) gets it bound like any other property.
+    /// The report row for such a drop says exactly that instead of the not-in-the-database wording,
+    /// whose remedy (another module's database) does not exist for a Foundation protocol.
+    /// </summary>
+    private static readonly IReadOnlyDictionary<string, (string Requirement, string Member)[]> s_foundationErrorProtocols =
+        new Dictionary<string, (string, string)[]>(StringComparer.Ordinal)
+        {
+            ["LocalizedError"] = new[]
+            {
+                ("errorDescription", "ErrorDescription"), ("failureReason", "FailureReason"),
+                ("recoverySuggestion", "RecoverySuggestion"), ("helpAnchor", "HelpAnchor"),
+            },
+            ["CustomNSError"] = new[]
+            {
+                ("errorDomain", "ErrorDomain"), ("errorCode", "ErrorCode"), ("errorUserInfo", "ErrorUserInfo"),
+            },
+        };
+
+    /// <summary>
+    /// The report row for a conformance to a Foundation error protocol, which has no C# interface, or
+    /// null when <paramref name="protocol"/> is not one.
+    /// </summary>
+    internal static ConformanceDrop? FoundationErrorProtocolDrop(SwiftTypeName protocol)
+    {
+        if (protocol.Module != "Foundation")
+            return null;
+        if (!s_foundationErrorProtocols.TryGetValue(protocol.Name, out var requirements))
+            return null;
+        var mapping = string.Join(", ", requirements.Select(r => $"{r.Requirement} → {r.Member}"));
+        return new ConformanceDrop(
+            SkipReason.ConformanceProtocolNotInTypeDatabase,
+            $"no C# interface projects the Foundation protocol {protocol.ModuleQualifiedName}, so the C# type "
+            + "does not declare it in its base list; the requirements the Swift type itself declares for it "
+            + $"({mapping}) are bound as ordinary members, and Swift still sees the conformance",
+            $"No action needed: the members the type declares for {protocol.Name} are on the C# type. "
+            + "What is absent is only an interface to pass the value as, and none exists for this Foundation "
+            + "protocol. A requirement the Swift type leaves to its default implementation is not declared on "
+            + "the type, so it is not bound; read it from a Swift wrapper if you need it.");
+    }
 
     /// <summary>
     /// Shared baseline gate for both the conformance-descriptor dictionary path and the
@@ -1913,7 +1960,7 @@ internal static class ProtocolConformanceHelper
         // with a configuration fix, so it reports rather than vanishing.
         if (!typeDatabase.TryGetTypeRecord(conformance.Protocol, out var record))
         {
-            drop = new ConformanceDrop(
+            drop = FoundationErrorProtocolDrop(conformance.Protocol) ?? new ConformanceDrop(
                 SkipReason.ConformanceProtocolNotInTypeDatabase,
                 $"the protocol {conformance.Protocol.ModuleQualifiedName} has no entry in the type "
                 + "databases this run loaded, so no C# interface could be named for it");

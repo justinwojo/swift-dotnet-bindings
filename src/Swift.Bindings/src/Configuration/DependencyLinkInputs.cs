@@ -55,6 +55,25 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether the xcframework at <paramref name="xcframeworkPath"/> declares a library-type slice: an
+        /// Info.plist entry whose <c>LibraryPath</c> is a bare library rather than a <c>.framework</c>.
+        /// False when the Info.plist is missing or unreadable.
+        /// </summary>
+        internal static bool DeclaresLibrarySlices(string xcframeworkPath)
+        {
+            var plist = Path.Combine(xcframeworkPath, "Info.plist");
+            if (!File.Exists(plist))
+                return false;
+            try
+            {
+                return XCFrameworkResolver.ParseInfoPlist(plist, null, NullLogger.Instance).Any(s =>
+                    !string.IsNullOrEmpty(s.LibraryPath)
+                    && !s.LibraryPath.EndsWith(".framework", StringComparison.Ordinal));
+            }
+            catch (Exception) { return false; }
+        }
+
+        /// <summary>
         /// The <c>link</c> declarations of every static dependency archive the wrapper links from
         /// <paramref name="searchPaths"/>: a library-type slice's archive (module maps under its headers
         /// directory) and a framework-type slice's static framework binary (its <c>Modules/module.modulemap</c>).

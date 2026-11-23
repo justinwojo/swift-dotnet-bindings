@@ -388,6 +388,82 @@ namespace BindingsGeneration.Tests
             Assert.DoesNotContain("NoSuchKit", args);
         }
 
+        [Fact]
+        public void BridgeLink_LibraryTypeDependency_IsKeptResolvedAndLinked()
+        {
+            // The SwiftUI bridge links the primary as the wrapper does, so a static primary's calls into
+            // a library-type dependency need that library on the bridge link line too. The bridge's
+            // dependency filter keeps what has a module to resolve and skips the binding wrappers the SDK
+            // also passes; a library-type xcframework has no .framework at all and must still be kept.
+            using var layout = new Layout();
+            var slice = layout.LibraryXcframework(
+                "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
+            var libraryXcfw = Path.GetDirectoryName(slice)!;
+            var bindingWrapper = Path.Combine(layout.Root, "DepCoreSwiftBindings.xcframework");
+            var wrapperFramework = Path.Combine(bindingWrapper, "ios-arm64-simulator", "DepCoreSwiftBindings.framework");
+            Directory.CreateDirectory(wrapperFramework);
+            File.WriteAllBytes(Path.Combine(wrapperFramework, "DepCoreSwiftBindings"), MachOMagic);
+            File.WriteAllText(Path.Combine(bindingWrapper, "Info.plist"), """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <plist version="1.0">
+                <dict>
+                    <key>AvailableLibraries</key>
+                    <array>
+                        <dict>
+                            <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                            <key>LibraryPath</key><string>DepCoreSwiftBindings.framework</string>
+                            <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                            <key>SupportedPlatform</key><string>ios</string>
+                            <key>SupportedPlatformVariant</key><string>simulator</string>
+                        </dict>
+                    </array>
+                    <key>CFBundlePackageType</key><string>XFWK</string>
+                    <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                </dict>
+                </plist>
+                """);
+
+            var selected = BindingsGenerator.SelectBridgeLinkDependencies(
+                new[] { libraryXcfw, bindingWrapper, Path.Combine(layout.Root, "Missing.xcframework") },
+                NullLogger.Instance);
+            Assert.Equal(new[] { libraryXcfw }, selected);
+
+            var primary = new XCFrameworkResolution
+            {
+                AbiJsonPath = "/abi.json",
+                DylibPath = "/dylib",
+                TbdPath = "/tbd",
+                ModuleName = "Primary",
+                XCFrameworkPath = "/path/to/Primary.xcframework",
+                FrameworkSearchPath = "/path/to/Primary.xcframework/ios-arm64-simulator",
+                LibraryIdentifier = "ios-arm64-simulator",
+                IsSimulatorSlice = true,
+                SelectedArchitecture = "arm64",
+                SupportedArchitectures = new[] { "arm64" },
+            };
+            var resolved = BindingsGenerator.ResolveFrameworkDependencies(
+                selected.ToArray(), primary, primary.XCFrameworkPath, "simulator",
+                XCFrameworkPlatformTarget.Simulator, NullLogger.Instance);
+            Assert.NotNull(resolved);
+            var bridgeSearchPaths = resolved!
+                .Select(d => d.SimulatorFrameworkSearchPath)
+                .OfType<string>()
+                .ToList();
+
+            // The bridge compile passes exactly these as its additional search paths.
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
+                SimTriple, layout.Sdk, primary.FrameworkSearchPath, runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: bridgeSearchPaths, originalModuleName: "Primary");
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains($"-Xlinker \"{Path.Combine(slice, "DepCore.a")}\"", args);
+            Assert.Contains("-Xlinker -framework -Xlinker Metal ", args);
+            Assert.Contains("-lc++abi ", args);
+        }
+
         private static int Count(string haystack, string needle)
         {
             int count = 0, i = 0;

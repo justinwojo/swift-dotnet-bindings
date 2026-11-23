@@ -768,6 +768,10 @@ public static class ReportCollector
     /// action, so they must not collapse onto one reason. Defaults to the validator's cause, which is
     /// what the majority of call sites report.
     /// </param>
+    /// <param name="workaround">
+    /// The row's recommended action when the reason's general one would mislead for this protocol
+    /// (a Foundation error protocol has no database to pass); null takes the reason's.
+    /// </param>
     /// <remarks>
     /// Deduplicated per <c>(conforming type, protocol)</c>, first write wins. A site that may be
     /// superseded by a more specific later verdict on the same pair must therefore defer its record
@@ -778,7 +782,8 @@ public static class ReportCollector
         TypeDecl conformingType,
         string protocolName,
         string details,
-        SkipReason reason = SkipReason.ConformanceNotFullyImplementable)
+        SkipReason reason = SkipReason.ConformanceNotFullyImplementable,
+        string? workaround = null)
     {
         ArgumentNullException.ThrowIfNull(conformingType);
         ArgumentException.ThrowIfNullOrWhiteSpace(protocolName);
@@ -799,7 +804,7 @@ public static class ReportCollector
                 ContainingType = conformingType.SwiftTypeName.ModuleQualifiedName,
                 Reason = reason,
                 Details = details,
-                RecommendedWorkaround = WorkaroundRecommendations.GetRecommendation(reason),
+                RecommendedWorkaround = workaround ?? WorkaroundRecommendations.GetRecommendation(reason),
                 Position = conformingType.Position,
                 // Intentionally id-less. A dropped conformance is a relationship, not a declaration:
                 // stamping the conforming type's id would enter this row into the attribution linker's
