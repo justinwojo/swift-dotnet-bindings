@@ -96,28 +96,57 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         Assert.DoesNotContain(legacySymbol, csharp);
     }
 
-    [Fact]
-    public void ASurvivorReorder_NeverDropsAConstructorOutsideTheFamily()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ASurvivorReorder_NeverDropsAConstructorOutsideTheFamily(bool outsiderHasTrailingParameter)
     {
         // init(old:) and the second init(value:) project alike (an Action<nint> parameter), so they
         // form a family whose preferred member is the second init(value:). The primary signature reads
         // both closures as one type, though, so moving that member ahead of init(value: () -> ()) would
         // drop the latter, a constructor with a C# signature of its own. The reorder is refused and
-        // the declared order decides, as it did before any sort.
+        // the declared order decides, as it did before any sort. The outsider can also carry a trailing
+        // parameter this validation rejects, which the loop can drop when it has a default, so a label
+        // prefix of a constructor outside the family blocks the move as well.
         const string oldSymbol = "$s8Survivor5ScoreV11selectedKey3oldACSS_ySictcfC";
         const string plainSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_yyctcfC";
         const string intSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_ySictcfC";
         var legacy = Init("old", deprecated: true, Closure("(Swift.Int)->()"), oldSymbol);
         var plain = Init("value", deprecated: false, Closure("()->()"), plainSymbol);
+        if (outsiderHasTrailingParameter)
+            plain.CSSignature.Add(TestDecls.Param("edges", new NamedTypeSpec("Remap.Unbound")));
         var withInt = Init("value", deprecated: false, Closure("(Swift.Int)->()"), intSymbol);
 
-        var (report, csharp) = Emit(new[] { legacy, plain, withInt });
+        var (_, csharp) = Emit(new[] { legacy, plain, withInt });
 
-        Assert.Contains($"EntryPoint = \"{plainSymbol}\"", csharp);
         Assert.Contains($"EntryPoint = \"{oldSymbol}\"", csharp);
         Assert.DoesNotContain(intSymbol, csharp);
-        var dropped = Assert.Single(report.SkippedItems, i => i.Reason == SkipReason.DuplicateSignature);
-        Assert.Contains("value:", dropped.DeclId);
+        if (!outsiderHasTrailingParameter)
+            Assert.Contains($"EntryPoint = \"{plainSymbol}\"", csharp);
+    }
+
+    [Fact]
+    public void OnlyThePreferredInitializerAndThoseBeforeItMove()
+    {
+        // The preferred init(modern:) moves ahead of the deprecated init(old:) and init(stale:). The
+        // losing init(value:) of the same family stays behind init(value: () -> ()), whose primary
+        // signature it shares, so that constructor still emits.
+        const string valueIntSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_ySictcfC";
+        const string valuePlainSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_yyctcfC";
+        const string modernSymbol = "$s8Survivor5ScoreV11selectedKey6modernACSS_ySictcfC";
+        var old = Init("old", deprecated: true, Closure("(Swift.Int)->()"), "$s8Survivor5ScoreV11selectedKey3oldACSS_ySictcfC");
+        var stale = Init("stale", deprecated: true, Closure("(Swift.Int)->()"), "$s8Survivor5ScoreV11selectedKey5staleACSS_ySictcfC");
+        var valuePlain = Init("value", deprecated: false, Closure("()->()"), valuePlainSymbol);
+        var modern = Init("modern", deprecated: false, Closure("(Swift.Int)->()"), modernSymbol);
+        var valueInt = Init("value", deprecated: false, Closure("(Swift.Int)->()"), valueIntSymbol);
+
+        var (_, csharp) = Emit(new[] { old, stale, valuePlain, modern, valueInt });
+
+        Assert.Contains($"EntryPoint = \"{modernSymbol}\"", csharp);
+        Assert.Contains($"EntryPoint = \"{valuePlainSymbol}\"", csharp);
+        Assert.DoesNotContain(valueIntSymbol, csharp);
+        Assert.DoesNotContain("selectedKey3old", csharp);
+        Assert.DoesNotContain("selectedKey5stale", csharp);
     }
 
     private static TypeSpec Closure(string signature) => TypeSpecParser.Parse("@escaping[] " + signature)!;
