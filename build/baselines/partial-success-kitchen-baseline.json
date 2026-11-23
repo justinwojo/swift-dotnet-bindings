@@ -70,7 +70,11 @@
     },
     {
       "key": "KnownLimitation",
-      "count": 33
+      "count": 32
+    },
+    {
+      "key": "Recovered",
+      "count": 1
     }
   ]
 }

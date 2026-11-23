@@ -729,20 +729,31 @@ partial class Build
         if (!doc.RootElement.TryGetProperty("SkippedItems", out var skipped) || skipped.ValueKind != JsonValueKind.Array)
             throw new Exception("binding-report.json has no SkippedItems array — cannot verify the gate-reduced recovery annotation.");
 
+        // The favored overload is the one whose first parameter is the existential `any PopoverTip`;
+        // the twin takes `some PopoverTip`, a generic parameter. Which row carries the link is
+        // checked by the row's own DeclId, so a link on the wrong overload fails even when the
+        // counts match.
+        var favoredDeclId = new System.Text.RegularExpressions.Regex(@"\bany\b[^,)]*PopoverTip");
         int recovered = 0, unannotated = 0;
         foreach (var row in skipped.EnumerateArray())
         {
             if (!row.TryGetProperty("Name", out var n) || n.GetString() != "init" ||
                 !row.TryGetProperty("ContainingType", out var ct) || ct.GetString() != "SwiftBindingsTestLib.TipEdgeHost")
                 continue;
+            var declId = row.TryGetProperty("DeclId", out var id) ? id.GetString() ?? "" : "";
             if (row.TryGetProperty("RecoveredBy", out var by) && by.ValueKind == JsonValueKind.Array && by.GetArrayLength() > 0)
             {
                 if (!by.EnumerateArray().Any(e => e.GetString() == projection))
                     throw new Exception($"A `TipEdgeHost.init` skip row is recovered by something other than `{projection}`: {by}.");
+                if (!favoredDeclId.IsMatch(declId))
+                    throw new Exception($"The `TipEdgeHost.init` row recovered by `{projection}` is not the favored " +
+                        $"`any PopoverTip` overload: DeclId `{declId}`.");
                 recovered++;
             }
             else
             {
+                if (favoredDeclId.IsMatch(declId))
+                    throw new Exception($"The favored `any PopoverTip` `TipEdgeHost.init` row carries no RecoveredBy: DeclId `{declId}`.");
                 unannotated++;
             }
         }

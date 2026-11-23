@@ -76,6 +76,34 @@ public sealed class TrailingDefaultRescueReportingTests : IDisposable
     }
 
     [Fact]
+    public void RecoveringForm_IsSpelledWithTheSwiftNameTheParserEscapedForCSharp()
+    {
+        // A Swift method named with a C# keyword reaches the model as `_params`; the wrapper calls
+        // `params(value:)`, and the recovery names that call.
+        var method = TestDecls.Method("_params", parameters: new[] { TestDecls.Param("value", new NamedTypeSpec("Swift.Int")) },
+            module: ModuleName) with { OriginalSwiftName = "params" };
+        method.ParentDecl = new StructDecl
+        {
+            Name = "Host",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"{ModuleName}.Host"),
+            MangledName = "$s6Rescue4HostVN",
+            MetadataAccessor = "$s6Rescue4HostVMa",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            IsFrozen = false,
+            ParentDecl = null,
+            ModuleDecl = null,
+        };
+
+        Assert.Equal("Rescue.Host.params(value:)", BaseHandler.GateReducedRecoveryProjection(method));
+    }
+
+    [Fact]
     public void RefusedInitializerTheRescueCannotTrim_StaysLost()
     {
         // The control: with no rescued sibling at all, the refused initializer is a plain loss.

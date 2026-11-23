@@ -2893,10 +2893,14 @@ partial class Build
 
         // The probe proves the capture only through a stall. Any other ending, a pass above all
         // (a filtered class whose tests all skip never reaches the stall), fails the run.
+        // An app that crashed while it was being sampled did stall; its stacks are named, and the
+        // run still fails, since the stall exit was never observed.
         if (HarnessStallProbe && effectiveResult != TestResult.Timeout)
-            throw new Exception($"--harness-stall-probe: the {platform} run ended as {effectiveResult}, not as a stall, " +
-                "so the hung-app capture was not exercised; pick a --class-filter whose first test runs." +
-                (result.HungStacks is { } probeStacks ? $" {probeStacks.Describe()}" : ""));
+            throw new Exception(result.HungStacks is { } probeStacks
+                ? $"--harness-stall-probe: the {platform} run ended as {effectiveResult} after its stacks were taken, " +
+                  $"not as a stall; {probeStacks.Describe()}"
+                : $"--harness-stall-probe: the {platform} run ended as {effectiveResult}, not as a stall, " +
+                  "so the hung-app capture was not exercised; pick a --class-filter whose first test runs.");
 
         Log.Information("");
         Log.Information("=========================================");

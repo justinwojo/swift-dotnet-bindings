@@ -1066,6 +1066,15 @@ namespace BindingsGeneration
         /// the Swift call the consumer now reaches (<c>Module.Type.init(tip:)</c>).
         /// </summary>
         private static void RecordGateReducedRecovery(MethodDecl emittedReduction, MethodDecl refused)
+            => ReportCollector.RecordMemberRecovered(DeclIdFactory.ForMethod(refused),
+                GateReducedRecoveryProjection(emittedReduction));
+
+        /// <summary>
+        /// The Swift selector of <paramref name="emittedReduction"/>: its Swift name (a keyword the
+        /// parser escaped for C#, <c>_params</c>, is spelled <c>params</c>, as the wrapper calls it)
+        /// and its external labels.
+        /// </summary>
+        internal static string GateReducedRecoveryProjection(MethodDecl emittedReduction)
         {
             var container = emittedReduction.ParentDecl switch
             {
@@ -1075,10 +1084,8 @@ namespace BindingsGeneration
             };
             var labels = string.Concat(emittedReduction.CSSignature.Skip(1)
                 .Select(arg => SwiftCallLabel(arg) + ":"));
-            var call = $"{emittedReduction.Name}({labels})";
-            ReportCollector.RecordMemberRecovered(
-                DeclIdFactory.ForMethod(refused),
-                container is null ? call : $"{container}.{call}");
+            var call = $"{emittedReduction.GetSwiftName()}({labels})";
+            return container is null ? call : $"{container}.{call}";
         }
 
         // The external label as a Swift selector spells it: `_` for a parameter the parser gave a
