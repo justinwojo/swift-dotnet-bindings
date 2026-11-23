@@ -290,19 +290,22 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         TypeMetadata optionalValueMetadata,
         IntPtr handle)
     {
+        // `updateValue(_:forKey:)` consumes the value (`__owned`) but borrows the key, so the owned
+        // key copy marshalling makes is this frame's to destroy once the call returns.
         Span<byte> keySpan = stackalloc byte[(int)KeySize];
         SwiftMarshal.MarshalToSwift(key, ref keySpan);
         IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
 
-        Span<byte> valueSpan = stackalloc byte[(int)ValueSize];
-        SwiftMarshal.MarshalToSwift(value, ref valueSpan);
-        IntPtr valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valueSpan));
-
         // Allocate space for the optional old-value return.
-        void* resultPayload = NativeMemory.Alloc(optionalValueMetadata.Size);
+        void* resultPayload = null;
         bool slotLive = false;
         try
         {
+            Span<byte> valueSpan = stackalloc byte[(int)ValueSize];
+            SwiftMarshal.MarshalToSwift(value, ref valueSpan);
+            IntPtr valuePayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(valueSpan));
+
+            resultPayload = NativeMemory.Alloc(optionalValueMetadata.Size);
             // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
             // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
             SwiftCollectionCdeclWrappers.DictUpdateValue(
@@ -320,7 +323,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         {
             if (slotLive)
                 optionalValueMetadata.ValueWitnessTable->Destroy(resultPayload, optionalValueMetadata);
-            NativeMemory.Free(resultPayload);
+            if (resultPayload != null)
+                NativeMemory.Free(resultPayload);
+            if (SwiftMarshal.MarshalsOwnedCopy(key))
+                KeyTypeMetadata.ValueWitnessTable->Destroy((void*)keyPayload, KeyTypeMetadata);
         }
     }
 
@@ -334,31 +340,12 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     public unsafe bool TryGetValue(TKey key, out TValue value)
     {
         ThrowIfDisposed();
-        using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
-        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
-
-        // Marshal the key to Swift
-        Span<byte> keySpan = stackalloc byte[(int)KeySize];
-        SwiftMarshal.MarshalToSwift(key, ref keySpan);
-        IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
-
-        // Use the Optional<TValue> metadata to get the proper size
         var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
         void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
         bool slotLive = false; // resultPayload holds an initialized .some whose slot is unconsumed
         try
         {
-            SwiftDictionaryPInvokes.Get(
-                new SwiftIndirectResult(resultPayload),
-                keyPayload,
-                disposable.Buffer,
-                KeyTypeMetadata,
-                ValueTypeMetadata,
-                witnessTable);
-
-            // Use Optional metadata to read the enum tag
-            var tag = (SwiftOptionalCases)optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultPayload, optionalMetadata);
-            if (tag == SwiftOptionalCases.None)
+            if (!LookUp(key, resultPayload, optionalMetadata))
             {
                 value = default!;
                 return false;
@@ -382,14 +369,70 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     }
 
     /// <summary>
+    /// Runs Swift's subscript getter for <paramref name="key"/>, writing the owned
+    /// <c>Optional&lt;TValue&gt;</c> it returns into <paramref name="resultPayload"/>, and returns
+    /// whether that Optional holds a value. On <c>.none</c> the buffer holds nothing to release; on
+    /// <c>.some</c> the caller owns the value's +1 and must move it out or destroy the buffer.
+    /// </summary>
+    private unsafe bool LookUp(TKey key, void* resultPayload, TypeMetadata optionalMetadata)
+    {
+        using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
+        var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
+
+        // Marshalling initializes the key buffer with an owned copy (see
+        // SwiftMarshal.MarshalsOwnedCopy), and the subscript getter borrows its key, so the copy is
+        // this frame's to destroy once the call returns.
+        Span<byte> keySpan = stackalloc byte[(int)KeySize];
+        IntPtr keyPayload = IntPtr.Zero;
+        try
+        {
+            SwiftMarshal.MarshalToSwift(key, ref keySpan);
+            keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
+
+            SwiftDictionaryPInvokes.Get(
+                new SwiftIndirectResult(resultPayload),
+                keyPayload,
+                disposable.Buffer,
+                KeyTypeMetadata,
+                ValueTypeMetadata,
+                witnessTable);
+        }
+        finally
+        {
+            if (keyPayload != IntPtr.Zero && SwiftMarshal.MarshalsOwnedCopy(key))
+                KeyTypeMetadata.ValueWitnessTable->Destroy((void*)keyPayload, KeyTypeMetadata);
+        }
+
+        // Use Optional metadata to read the enum tag
+        return (SwiftOptionalCases)optionalMetadata.ValueWitnessTable->GetEnumTag((byte*)resultPayload, optionalMetadata)
+            != SwiftOptionalCases.None;
+    }
+
+    /// <summary>
     /// Determines whether the dictionary contains the specified key.
     /// </summary>
     /// <param name="key">The key to check.</param>
     /// <returns><c>true</c> if the dictionary contains the key; otherwise, <c>false</c>.</returns>
-    public bool ContainsKey(TKey key)
+    public unsafe bool ContainsKey(TKey key)
     {
         ThrowIfDisposed();
-        return TryGetValue(key, out _);
+        // The lookup returns the value at +1 and nothing here hands it out, so it is destroyed
+        // in place rather than materialized and dropped.
+        var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
+        void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
+        bool written = false;
+        try
+        {
+            bool found = LookUp(key, resultPayload, optionalMetadata);
+            written = true;
+            return found;
+        }
+        finally
+        {
+            if (written)
+                optionalMetadata.ValueWitnessTable->Destroy(resultPayload, optionalMetadata);
+            NativeMemory.Free(resultPayload);
+        }
     }
 
     /// <summary>
@@ -406,7 +449,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
     private IEnumerable<TKey> GetKeys()
     {
-        foreach (var kvp in this)
+        foreach (var kvp in CollectEntries(EntryParts.Key))
             yield return kvp.Key;
     }
 
@@ -418,14 +461,21 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         get
         {
             ThrowIfDisposed();
-            return GetValues();
+            return new ValueSnapshot<TValue>(this, static value => value);
         }
     }
 
-    private IEnumerable<TValue> GetValues()
+    /// <summary>
+    /// <see cref="Values"/> passed through <paramref name="selector"/>, which runs when an entry's
+    /// value is first read. A projection's <c>Values</c> must not be a LINQ <c>Select</c> over
+    /// <see cref="Values"/>: <c>Last()</c> reads every raw value and converts only the final one,
+    /// so a raw existential container it drops is never released. Converted on read, a dropped
+    /// value is an owning wrapper that releases its +1 when it is finalized.
+    /// </summary>
+    internal IEnumerable<TResult> ProjectValues<TResult>(Func<TValue, TResult> selector)
     {
-        foreach (var kvp in this)
-            yield return kvp.Value;
+        ThrowIfDisposed();
+        return new ValueSnapshot<TResult>(this, selector);
     }
 
     /// <summary>
@@ -435,16 +485,149 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
     {
         ThrowIfDisposed();
-        // Snapshot all entries into a list (unsafe code can't coexist with yield return)
-        var entries = CollectEntries();
-        return entries.GetEnumerator();
+        return new SnapshotEnumerator<KeyValuePair<TKey, TValue>>(
+            CollectEntries(EntryParts.Key | EntryParts.Value), static kvp => kvp);
+    }
+
+    /// <summary>
+    /// <see cref="Values"/>: each enumeration takes its own value snapshot when it starts.
+    /// </summary>
+    private sealed class ValueSnapshot<TOut> : IEnumerable<TOut>
+    {
+        private readonly SwiftDictionary<TKey, TValue> _dictionary;
+        private readonly Func<TValue, TOut> _selector;
+
+        public ValueSnapshot(SwiftDictionary<TKey, TValue> dictionary, Func<TValue, TOut> selector)
+        {
+            _dictionary = dictionary;
+            _selector = selector;
+        }
+
+        public IEnumerator<TOut> GetEnumerator()
+        {
+            _dictionary.ThrowIfDisposed();
+            var selector = _selector;
+            return new SnapshotEnumerator<TOut>(_dictionary.CollectEntries(EntryParts.Value), kvp => selector(kvp.Value));
+        }
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>
+    /// Hands out a snapshot's entries. Every value of the snapshot already holds the +1 the Swift
+    /// iterator returned, and an entry counts as handed out once its <see cref="Current"/> is read:
+    /// the first read converts it, once, and later reads return the same result.
+    /// An entry the enumeration steps over unread (LINQ's <c>ElementAt</c>) is released when
+    /// <see cref="MoveNext"/> leaves it, and the entries still ahead
+    /// when the enumerator is disposed (a <c>break</c>, a <c>First()</c>, a consumer's conversion
+    /// that throws, or no enumeration at all) are released then: a raw existential container has no
+    /// finalizer and nothing else would. Keys need no such pass, since a key is a concrete
+    /// <c>Hashable</c> value, never a raw container.
+    /// </summary>
+    private sealed class SnapshotEnumerator<TOut> : IEnumerator<TOut>
+    {
+        private readonly List<KeyValuePair<TKey, TValue>> _entries;
+        private readonly Func<KeyValuePair<TKey, TValue>, TOut> _part;
+        private int _index = -1;
+        private bool _currentRead;
+        private TOut _current = default!;
+
+        public SnapshotEnumerator(List<KeyValuePair<TKey, TValue>> entries, Func<KeyValuePair<TKey, TValue>, TOut> part)
+        {
+            _entries = entries;
+            _part = part;
+        }
+
+        public TOut Current
+        {
+            get
+            {
+                if ((uint)_index >= (uint)_entries.Count)
+                    return default!;
+                if (!_currentRead)
+                {
+                    // Handed out before the conversion runs: a conversion that throws has taken
+                    // the value (an owned unbox destroys it either way), so it is not released again.
+                    _currentRead = true;
+                    _current = default!;
+                    _current = _part(_entries[_index]);
+                }
+                return _current;
+            }
+        }
+
+        object? IEnumerator.Current => Current;
+
+        public bool MoveNext()
+        {
+            if (_index >= _entries.Count)
+                return false;
+            // Leave the entry before releasing it, so a release that reenters (a deinit that
+            // disposes this enumerator) cannot release the same entry again.
+            int leaving = _index;
+            bool releaseLeaving = leaving >= 0 && !_currentRead;
+            _index++;
+            _currentRead = false;
+            _current = default!;
+            if (releaseLeaving)
+                ReleaseUnreadCarrier(_entries[leaving].Value, ValueTypeMetadata);
+            return _index < _entries.Count;
+        }
+
+        public void Reset() => throw new NotSupportedException("A dictionary snapshot is enumerated once.");
+
+        public void Dispose()
+        {
+            if (_index >= _entries.Count)
+                return;
+            int first = _index < 0 ? 0 : _currentRead ? _index + 1 : _index;
+            _index = _entries.Count;
+            for (int i = first; i < _entries.Count; i++)
+                ReleaseUnreadCarrier(_entries[i].Value, ValueTypeMetadata);
+        }
+    }
+
+    /// <summary>
+    /// Releases the +1 a snapshot moved into a raw existential container that was never handed out.
+    /// The container carries the existential's bytes as Swift wrote them, so writing it back
+    /// (bitwise, at +0) and destroying it releases exactly that +1. A Swift wrapper is left alone: it
+    /// releases its own reference when it is finalized, and a class wrapper may be an instance the
+    /// caller already holds.
+    /// </summary>
+    private static unsafe void ReleaseUnreadCarrier<T>(T value, TypeMetadata metadata)
+    {
+        if (value is not (IExistentialContainer or ClassExistentialContainer1))
+            return;
+        int size = (int)metadata.Size;
+        void* buffer = NativeMemory.AllocZeroed((nuint)size);
+        try
+        {
+            var span = new Span<byte>(buffer, size);
+            SwiftMarshal.MarshalToSwift(value, ref span);
+            metadata.ValueWitnessTable->Destroy(buffer, metadata);
+        }
+        finally
+        {
+            NativeMemory.Free(buffer);
+        }
+    }
+
+    /// <summary>The halves of each entry a snapshot hands out.</summary>
+    [Flags]
+    private enum EntryParts
+    {
+        Key = 1,
+        Value = 2,
     }
 
     /// <summary>
     /// Collects all key-value pairs from the Swift dictionary using the iterator P/Invokes.
     /// Separated from GetEnumerator because yield return cannot be used in unsafe methods.
+    /// The iterator returns each key and value at +1. A half named in <paramref name="parts"/> is
+    /// moved into the entry; the other half is destroyed in its slot and left <c>default</c> in the
+    /// entry, so a <see cref="Keys"/> or <see cref="Values"/> read releases what it does not return.
     /// </summary>
-    private unsafe List<KeyValuePair<TKey, TValue>> CollectEntries()
+    private unsafe List<KeyValuePair<TKey, TValue>> CollectEntries(EntryParts parts)
     {
         var result = new List<KeyValuePair<TKey, TValue>>();
         var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
@@ -528,10 +711,20 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
                     // Move key from offset 0, value from the tuple metadata offset. Each helper
                     // consumes its own slot's +1 (class deref-transfer, or ADOPT/COPY copy-then-
-                    // Destroy); the buffer is freed raw afterward with no whole-tuple Destroy.
-                    TKey key = SwiftMarshal.MarshalMovedValueFromSlot<TKey>(nextResultBuffer, KeyTypeMetadata);
+                    // Destroy); the buffer is freed raw afterward with no whole-tuple Destroy. A
+                    // half the caller does not want is destroyed in its slot instead, which
+                    // consumes that slot just as completely.
+                    TKey key = default!;
+                    if ((parts & EntryParts.Key) != 0)
+                        key = SwiftMarshal.MarshalMovedValueFromSlot<TKey>(nextResultBuffer, KeyTypeMetadata);
+                    else
+                        KeyTypeMetadata.ValueWitnessTable->Destroy(nextResultBuffer, KeyTypeMetadata);
                     keyMoved = true;
-                    TValue val = SwiftMarshal.MarshalMovedValueFromSlot<TValue>((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
+                    TValue val = default!;
+                    if ((parts & EntryParts.Value) != 0)
+                        val = SwiftMarshal.MarshalMovedValueFromSlot<TValue>((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
+                    else
+                        ValueTypeMetadata.ValueWitnessTable->Destroy((byte*)nextResultBuffer + valueOffset, ValueTypeMetadata);
                     valueMoved = true;
 
                     result.Add(new KeyValuePair<TKey, TValue>(key, val));
@@ -610,24 +803,32 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         _payload.DangerousAddRef(ref success);
         try
         {
-            // Marshal the key
-            Span<byte> keySpan = stackalloc byte[(int)KeySize];
-            SwiftMarshal.MarshalToSwift(key, ref keySpan);
-            IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
-
             // Allocate space for optional return value and check .none via VWT GetEnumTag
             var optionalMetadata = SwiftObjectHelper<SwiftOptional<TValue>>.GetTypeMetadata();
             void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
             bool slotLive = false; // resultPayload holds an initialized .some whose slot is unconsumed
             try
             {
-                // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
-                // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
-                SwiftCollectionCdeclWrappers.DictRemoveValue(
-                    (IntPtr)resultPayload,
-                    keyPayload,
-                    metadata,
-                    _payload.DangerousGetHandle());
+                // Marshal the key. `removeValue(forKey:)` borrows it, so the owned copy marshalling
+                // makes is destroyed right after the call.
+                Span<byte> keySpan = stackalloc byte[(int)KeySize];
+                SwiftMarshal.MarshalToSwift(key, ref keySpan);
+                IntPtr keyPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(keySpan));
+                try
+                {
+                    // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
+                    // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
+                    SwiftCollectionCdeclWrappers.DictRemoveValue(
+                        (IntPtr)resultPayload,
+                        keyPayload,
+                        metadata,
+                        _payload.DangerousGetHandle());
+                }
+                finally
+                {
+                    if (SwiftMarshal.MarshalsOwnedCopy(key))
+                        KeyTypeMetadata.ValueWitnessTable->Destroy((void*)keyPayload, KeyTypeMetadata);
+                }
 
                 // Check Optional.none before marshalling — raw MarshalFromSwift<TValue>
                 // on a .none buffer can produce undefined results depending on TValue.
