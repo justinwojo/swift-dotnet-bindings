@@ -2606,7 +2606,10 @@ public static partial class SwiftUIBridgeEmitter
             else if (param.Kind == BridgeParameterKind.BridgeArray)
             {
                 createPInvokeParams.Add($"IntPtr {param.Name}Ptr");
-                createPInvokeParams.Add($"int {param.Name}Count");
+                // The count is the Swift `Int` the @_cdecl declares (the buffer pointer's own count
+                // type), so it must be the full register here too: a 32-bit int leaves the upper half
+                // of the register to whatever the caller had in it.
+                createPInvokeParams.Add($"nint {param.Name}Count");
             }
             else
             {
