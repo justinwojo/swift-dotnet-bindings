@@ -158,18 +158,21 @@ public sealed class SwiftTransitionPackageCheck : Microsoft.Build.Utilities.Task
         var frameworks = Directory.GetDirectories(root, "*.framework", SearchOption.AllDirectories)
             .Select(d => Path.GetFileNameWithoutExtension(d)).Distinct(StringComparer.Ordinal)
             .SelectMany(framework => ConsumerTransitionCheck.FrameworkBinaries(root, framework)
-                .Select(p => (Library: framework, Shown: Path.GetRelativePath(root, p).Replace('\\', '/'))));
+                .Select(p => (Libraries: new[] { framework }, Shown: Path.GetRelativePath(root, p).Replace('\\', '/'))));
         var dylibs = Directory.GetFiles(root, "*.dylib", SearchOption.AllDirectories)
             .Select(p => Path.GetRelativePath(root, p).Replace('\\', '/'))
             .Where(shown => !shown.Contains(".dSYM/", StringComparison.Ordinal) && !shown.Contains(".framework/", StringComparison.Ordinal))
-            .SelectMany(shown =>
+            .Select(shown =>
             {
                 var name = Path.GetFileNameWithoutExtension(shown);
-                return (name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? new[] { name, name[3..] } : new[] { name })
-                    .Select(library => (Library: library, Shown: shown));
+                return (Libraries: name.StartsWith("lib", StringComparison.Ordinal) && name.Length > 3 ? new[] { name, name[3..] } : new[] { name }, Shown: shown);
             });
         return frameworks.Concat(dylibs)
-            .Select(n => (new PackagedNative(n.Library, n.Shown, File.ReadAllBytes(Path.Combine(root, n.Shown))), Scope(n.Shown)))
+            .SelectMany(n =>
+            {
+                var image = File.ReadAllBytes(Path.Combine(root, n.Shown));
+                return n.Libraries.Select(library => (new PackagedNative(library, n.Shown, image), Scope(n.Shown)));
+            })
             .ToList();
     }
 

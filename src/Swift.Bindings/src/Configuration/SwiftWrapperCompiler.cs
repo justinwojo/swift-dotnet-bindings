@@ -352,7 +352,8 @@ namespace BindingsGeneration
                     }
                     catch (Exception ex)
                     {
-                        if (hasAssemblyFiles)
+                        // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                        if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
                             logger.LogError("Thunk compilation failed for simulator slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
                             throw;
@@ -522,7 +523,8 @@ namespace BindingsGeneration
                         }
                         catch (Exception ex)
                         {
-                            if (hasAssemblyFiles)
+                            // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                            if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(deviceThunkDir).Count > 0)
                             {
                                 logger.LogError("Thunk compilation failed for device slice and .arm64.s files exist — P/Invokes will reference missing symbols: {Message}", ex.Message);
                                 throw;
@@ -868,7 +870,8 @@ namespace BindingsGeneration
                     }
                     catch (Exception ex)
                     {
-                        if (hasAssemblyFiles)
+                        // An unstamped wrapper would be refused wherever its binding is checked, so a failed identity is fatal too.
+                        if (hasAssemblyFiles || NativeThunkCompiler.CollectIdentityFiles(outputDirectory).Count > 0)
                         {
                             // .arm64.s files exist → P/Invokes reference thunk symbols → compilation MUST succeed
                             logger.LogError("Thunk compilation failed and .arm64.s files exist — generated P/Invokes will reference missing symbols: {Message}", ex.Message);
