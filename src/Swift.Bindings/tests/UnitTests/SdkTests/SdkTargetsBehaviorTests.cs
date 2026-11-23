@@ -721,9 +721,11 @@ namespace BindingsGeneration.Tests
         [InlineData("_CompileSwiftUIBridge", "--compile-bridge-only")]
         public void ForceLoadDependencyAndSystemLinks_ReachTheWrapperAndBridgeLinks(string target, string mode)
         {
-            // Both links copy a library-type dependency's archive members, so both take the flag, and
-            // only for the dependency that asked for it. Those members can need system frameworks and
-            // libraries the archive does not name, so both links take the declared ones too.
+            // The wrapper link copies a library-type dependency's archive members, so it takes the flag,
+            // and only for the dependency that asked for it. The bridge resolves the archive through the
+            // wrapper and copies none of it, so ForceLoad never reaches its link: a full copy there would
+            // run every static initializer a second time. Both links take the declared system frameworks
+            // and libraries, for their own code.
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
             var stubDir = StubGeneratorDir.Value;
             SkipUnless(stubDir != null, "Could not build stub generator DLL");
@@ -780,8 +782,12 @@ namespace BindingsGeneration.Tests
             var output = result.StdOut + "\n" + result.StdErr;
             Assert.Contains("STUB_RECEIVED_ARGS:", output);
             Assert.Contains(mode, output);
-            Assert.Contains($"--force-load-dependency {forced}", output);
+            if (target == "_CompileSwiftUIBridge")
+                Assert.DoesNotContain("--force-load-dependency", output);
+            else
+                Assert.Contains($"--force-load-dependency {forced}", output);
             Assert.DoesNotContain($"--force-load-dependency {lazy}", output);
+            Assert.Contains($"--framework-dependency {forced}", output);
             Assert.Contains($"--framework-dependency {lazy}", output);
             Assert.Contains("--link-framework Metal", output);
             Assert.Contains("--link-library sqlite3", output);

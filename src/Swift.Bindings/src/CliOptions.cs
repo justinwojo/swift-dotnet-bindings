@@ -164,7 +164,8 @@ public class CliOptions
         description: "Path of a --framework-dependency whose static archive is linked in full ('-force_load') " +
                      "instead of only the members the wrapper references. Repeatable. Use it for a library-type " +
                      "xcframework (each slice a bare .a) whose components register themselves from static " +
-                     "initializers. Refused (SWIFTBIND142) for a framework-type or dynamic dependency.")
+                     "initializers. Refused (SWIFTBIND142) for a framework-type or dynamic dependency. Applies to the " +
+                     "wrapper link only: a SwiftUI bridge resolves the archive through the wrapper.")
     { AllowMultipleArgumentsPerToken = false };
 
     public Option<string[]> ModuleDatabase { get; } = new(

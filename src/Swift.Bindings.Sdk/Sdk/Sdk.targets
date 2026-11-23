@@ -1991,18 +1991,13 @@ done; true"
     dropped, and the library later reports it as not registered. Force-loading keeps every
     member, at the cost of a larger wrapper.
 
-    It takes effect on every link that copies the archive's code: the wrapper (swiftc, or clang
-    for a thunk-only wrapper) and the SwiftUI bridge. The app's own NativeReference to the
-    dependency is unchanged: the app executable references nothing in the archive (the wrapper
-    does), so a full copy there would be an unused second copy whose static initializers
+    It takes effect on the wrapper link (swiftc, or clang for a thunk-only wrapper), the one image
+    that carries the archive's code. The SwiftUI bridge is a second image of the same binding: it
+    links against the wrapper and resolves the archive (and a static bound framework) through it,
+    so it never copies any of the archive, with or without ForceLoad. The app's own NativeReference
+    to the dependency is unchanged: the app executable references nothing in the archive (the
+    wrapper does), so a full copy there would be an unused second copy whose static initializers
     register into a second registry.
-
-    The wrapper and the bridge are separate images, and each links its own copy of what it takes
-    from the archive. With ForceLoad each takes all of it, so an app that loads both runs every
-    static initializer once per image, into that image's own copy of the library's state, and an
-    Objective-C class the archive defines is registered twice (the runtime logs that the class is
-    implemented in both images). Without ForceLoad the same holds for whatever both links
-    reference. A binding that emits no SwiftUI bridge has one copy.
 
     Values: "true" or "false" (any case, and MSBuild's other boolean spellings such as "yes" and
     "no"); absent or empty means false. Any other value is SWIFTBIND141. A dependency it cannot
@@ -3496,10 +3491,9 @@ done; true"
            Duplicates between the two lists are harmless extra -F flags. -->
       <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->Distinct()->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
-      <!-- The bridge links its own copy of what it references from a library-type dependency, so a
-           force-loaded one is linked in full here too, as in the wrapper. -->
-      <_SwiftBridgeCmd Condition="'@(_SwiftForceLoadDependency)' != ''">$(_SwiftBridgeCmd) @(_SwiftForceLoadDependency->' --force-load-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
-      <!-- The system frameworks and libraries the wrapper link declares, for the same objects. -->
+      <!-- No ForceLoad here: the bridge resolves a static library dependency's archive (and a static
+           bound framework) through the wrapper, which carries it, instead of linking a second copy.
+           The system frameworks and libraries the wrapper link declares, for the bridge's own code. -->
       <_SwiftBridgeCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftBridgeCmd>
     </PropertyGroup>

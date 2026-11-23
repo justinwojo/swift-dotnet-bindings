@@ -1213,6 +1213,65 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// How a SwiftUI bridge link reaches static code its binding's wrapper already carries:
+        /// <paramref name="WrapperBinary"/> is the wrapper slice the bridge links against, and
+        /// <paramref name="StaticPrimaryModule"/> names a static bound framework the bridge must not
+        /// autolink (null when the bound framework is dynamic).
+        /// </summary>
+        internal sealed record BridgeStaticCodeLink(string WrapperBinary, string? StaticPrimaryModule);
+
+        /// <summary>
+        /// Decides whether a bridge slice must resolve static code through the wrapper, and finds the
+        /// wrapper slice it links. A static bound framework is force-loaded into the wrapper, its sole
+        /// carrier, and a library-type dependency's static archive is linked into the wrapper; the bridge
+        /// is a second image in the same app, so linking either again there would put a second copy of
+        /// the code in the process: static initializers that run twice into separate state, and every
+        /// Objective-C class registered twice. Returns null when neither is static (a dynamic bound
+        /// framework is its own image, and the bridge links it as it always has). Throws when static code
+        /// is involved but no wrapper slice for <paramref name="slice"/> exists in
+        /// <paramref name="outputDirectory"/>: the bridge cannot link without it, and linking the static
+        /// code itself is the duplicate this prevents.
+        /// </summary>
+        internal static BridgeStaticCodeLink? ResolveBridgeStaticCodeLink(
+            string outputDirectory, string moduleName, string primaryBinaryPath, SliceVariant slice,
+            IReadOnlyList<string>? dependencySearchPaths, ICommandRunner commandRunner, ILogger logger)
+        {
+            var staticPrimary = NativeLinkageProbe.Detect(primaryBinaryPath, commandRunner, logger) == NativeLinkage.Static;
+            var staticDependency = DependencyLinkInputs.HasStaticLibraryArchive(dependencySearchPaths);
+            if (!staticPrimary && !staticDependency)
+                return null;
+
+            var what = staticPrimary && staticDependency
+                ? $"the static framework {moduleName} and a static library dependency"
+                : staticPrimary ? $"the static framework {moduleName}" : "a static library dependency";
+            var wrapperName = $"{moduleName}SwiftBindings";
+            var wrapperXcframework = Path.Combine(outputDirectory, $"{wrapperName}.xcframework");
+            var plist = Path.Combine(wrapperXcframework, "Info.plist");
+            if (File.Exists(plist))
+            {
+                foreach (var candidate in XCFrameworkResolver.ParseInfoPlist(plist))
+                {
+                    if (!string.Equals(candidate.SupportedPlatform, slice.XCFrameworkPlatformString, StringComparison.Ordinal)
+                        || !string.Equals(candidate.SupportedPlatformVariant ?? "", slice.XCFrameworkPlatformVariant ?? "", StringComparison.Ordinal)
+                        || !candidate.SupportedArchitectures.Contains(slice.Architecture, StringComparer.Ordinal))
+                        continue;
+                    var binary = Path.Combine(wrapperXcframework, candidate.LibraryIdentifier, candidate.LibraryPath, wrapperName);
+                    if (IsMachOImageFile(binary))
+                    {
+                        logger.LogInformation(
+                            "Bridge resolves {What} through the wrapper, which carries it: {Wrapper}", what, binary);
+                        return new BridgeStaticCodeLink(binary, staticPrimary ? moduleName : null);
+                    }
+                }
+            }
+            throw new InvalidOperationException(
+                $"The SwiftUI bridge of {moduleName} uses {what}, whose code the binding's wrapper carries, so the bridge " +
+                $"links against the wrapper instead of copying that code into a second image. No {slice.DisplayName} " +
+                $"{slice.Architecture} slice of {wrapperName} was found in {wrapperXcframework}. Compile the wrapper " +
+                "(--compile-wrapper-only) into the same output directory before the bridge.");
+        }
+
+        /// <summary>
         /// Compiles SwiftUI bridge Swift files into a single-slice {Module}Bridge.xcframework.
         /// Bridge compilation is simpler than wrapper: no post-processing, no thunks, no pre-compiled module.
         /// Returns null if no bridge Swift files exist.
@@ -1227,7 +1286,6 @@ namespace BindingsGeneration
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
             PlatformInfo? platformInfo = null,
             string? resolvedArchitecture = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null)
         {
@@ -1238,7 +1296,7 @@ namespace BindingsGeneration
             if (!string.IsNullOrEmpty(resolvedArchitecture))
                 simSlice = simSlice.WithArchitecture(resolvedArchitecture);
             return CompileBridgeSlice(outputDirectory, moduleName, frameworkSearchPath, dylibPath,
-                simSlice, logger, commandRunner, additionalFrameworkSearchPaths, forceLoadDependencies,
+                simSlice, logger, commandRunner, additionalFrameworkSearchPaths,
                 linkFrameworks, linkLibraries);
         }
 
@@ -1256,7 +1314,6 @@ namespace BindingsGeneration
             IReadOnlyList<string>? simAdditionalSearchPaths = null,
             IReadOnlyList<string>? deviceAdditionalSearchPaths = null,
             PlatformInfo? platformInfo = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null)
         {
@@ -1312,8 +1369,10 @@ namespace BindingsGeneration
                     simTargetTriple, simSdkPath,
                     simulatorResolution.FrameworkSearchPath, commandRunner, logger,
                     primaryAdditionalSearchPaths, originalModuleName: moduleName,
-                        forceLoadDependencies: forceLoadDependencies,
-                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
+                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
+                    staticCodeThroughWrapper: ResolveBridgeStaticCodeLink(
+                        outputDirectory, moduleName, simulatorResolution.DylibPath, simSlice,
+                        primaryAdditionalSearchPaths, commandRunner, logger));
                 ValidateCompiledSliceBinary(simBinaryPath, simSlice.Architecture, commandRunner, logger);
                 sliceCount++;
 
@@ -1335,8 +1394,10 @@ namespace BindingsGeneration
                         devTargetTriple, devSdkPath,
                         deviceResolution.FrameworkSearchPath, commandRunner, logger,
                         deviceAdditionalSearchPaths, originalModuleName: moduleName,
-                        forceLoadDependencies: forceLoadDependencies,
-                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
+                        linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
+                        staticCodeThroughWrapper: ResolveBridgeStaticCodeLink(
+                            outputDirectory, moduleName, deviceResolution.DylibPath, deviceSlice,
+                            deviceAdditionalSearchPaths, commandRunner, logger));
                     ValidateCompiledSliceBinary(devBinaryPath, deviceSlice.Architecture, commandRunner, logger);
                     sliceCount++;
 
@@ -1382,7 +1443,6 @@ namespace BindingsGeneration
             ILogger logger,
             ICommandRunner? commandRunner = null,
             IReadOnlyList<string>? additionalFrameworkSearchPaths = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null)
         {
@@ -1424,8 +1484,10 @@ namespace BindingsGeneration
                     bridgeFiles, outputBinaryPath, bridgeModuleName,
                     targetTriple, sdkPath, frameworkSearchPath, commandRunner, logger,
                     additionalFrameworkSearchPaths, originalModuleName: moduleName,
-                    forceLoadDependencies: forceLoadDependencies,
-                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
+                    linkFrameworks: linkFrameworks, linkLibraries: linkLibraries,
+                    staticCodeThroughWrapper: ResolveBridgeStaticCodeLink(
+                        outputDirectory, moduleName, dylibPath, slice,
+                        additionalFrameworkSearchPaths, commandRunner, logger));
 
                 ValidateCompiledSliceBinary(outputBinaryPath, slice.Architecture, commandRunner, logger);
                 PromoteStagedXcframework(stagingXcfwPath, xcframeworkPath, logger);
@@ -1888,7 +1950,8 @@ namespace BindingsGeneration
             IReadOnlyList<string>? transitiveScanSearchPaths = null,
             SwiftWrapperLoweringEvidence.Pass? lowering = null,
             IReadOnlySet<string>? strippedSymbols = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null)
+            IReadOnlyCollection<string>? forceLoadDependencies = null,
+            BridgeStaticCodeLink? staticCodeThroughWrapper = null)
         {
             var fileArgs = string.Join(" ", swiftFiles.Select(f => $"\"{f}\""));
 
@@ -1964,8 +2027,12 @@ namespace BindingsGeneration
             // A library-type dependency slice (a bare .a or .dylib, not a .framework) has nothing a -F can
             // find, so its binary goes on the link line by path (DependencyLinkInputs), or in full with
             // -force_load when the dependency asks for it (ForceLoad).
+            // A link that reaches static code through the wrapper (a SwiftUI bridge, staticCodeThroughWrapper)
+            // takes no static archive: the wrapper carries it, and a copy here would be a second one.
             foreach (var library in DependencyLinkInputs.CollectLibraryLinkInputs(dependencyScanPaths, forceLoadDependencies))
             {
+                if (staticCodeThroughWrapper != null && DependencyLinkInputs.IsStaticArchive(library.Binary))
+                    continue;
                 transitiveFrameworkLinkerFlags.Append(library.ForceLoad
                     ? $"-Xlinker -force_load -Xlinker \"{library.Binary}\" "
                     : $"-Xlinker \"{library.Binary}\" ");
@@ -2049,7 +2116,10 @@ namespace BindingsGeneration
             }
             // The system frameworks and libraries a static dependency archive's module map declares: the
             // autolinking clang would have done had the wrapper imported that module (DependencyLinkInputs).
-            var dependencyAutolinks = DependencyLinkInputs.CollectStaticArchiveAutolinks(dependencyScanPaths, sdkPath, targetTriple);
+            // A link that takes no static archive needs none of their system links either.
+            var dependencyAutolinks = staticCodeThroughWrapper != null
+                ? DependencyLinkInputs.Autolinks.None
+                : DependencyLinkInputs.CollectStaticArchiveAutolinks(dependencyScanPaths, sdkPath, targetTriple);
             foreach (var fw in dependencyAutolinks.Frameworks)
             {
                 if (seenLinkedFrameworks.Add(fw))
@@ -2059,6 +2129,18 @@ namespace BindingsGeneration
             {
                 if (seenLinkedLibraries.Add(lib))
                     explicitLinkFlags.Append($"-l{lib} ");
+            }
+
+            // The static code this link reaches through the wrapper image (ResolveBridgeStaticCodeLink): the
+            // wrapper goes on the link line, and a static bound framework is kept off it. Importing the bound
+            // module autolinks its framework, which for a static one would copy every member the bridge
+            // references (and, through them, the dependency archives they call) into this image.
+            var wrapperLinkFlags = "";
+            if (staticCodeThroughWrapper != null)
+            {
+                if (!string.IsNullOrEmpty(staticCodeThroughWrapper.StaticPrimaryModule))
+                    wrapperLinkFlags += $"-Xfrontend -disable-autolink-framework -Xfrontend {staticCodeThroughWrapper.StaticPrimaryModule} ";
+                wrapperLinkFlags += $"-Xlinker \"{staticCodeThroughWrapper.WrapperBinary}\" ";
             }
 
             // The frontend flags: everything that decides how swiftc reads and lowers the wrapper. The
@@ -2076,6 +2158,7 @@ namespace BindingsGeneration
                 $"{thunkLinkerFlags}" +
                 $"{transitiveFrameworkLinkerFlags}" +
                 $"{forceLoadFlags}" +
+                $"{wrapperLinkFlags}" +
                 $"{explicitLinkFlags}" +
                 $"{extraLinkerFlags}" +
                 $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +

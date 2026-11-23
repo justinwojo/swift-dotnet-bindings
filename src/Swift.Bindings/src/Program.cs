@@ -2671,7 +2671,6 @@ namespace BindingsGeneration
             string? wrapperArchitectures, string[]? frameworkDependencies,
             ILogger logger, PlatformInfo platformInfo,
             string? targetArchitectures = null,
-            IReadOnlyCollection<string>? forceLoadDependencies = null,
             IReadOnlyList<string>? linkFrameworks = null,
             IReadOnlyList<string>? linkLibraries = null)
         {
@@ -2811,7 +2810,6 @@ namespace BindingsGeneration
                         simAdditionalSearchPaths: simDepPaths,
                         deviceAdditionalSearchPaths: deviceDepPaths,
                         platformInfo: platformInfo,
-                        forceLoadDependencies: forceLoadDependencies,
                         linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else if (wrapperArchNormalized == "device")
@@ -2830,7 +2828,6 @@ namespace BindingsGeneration
                         deviceResolution.DylibPath,
                         platformInfo.DeviceSlice.WithArchitecture(deviceResolution.SelectedArchitecture),
                         logger, additionalFrameworkSearchPaths: deviceDepPaths,
-                        forceLoadDependencies: forceLoadDependencies,
                         linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
                 else
@@ -2846,7 +2843,6 @@ namespace BindingsGeneration
                         additionalFrameworkSearchPaths: simDepPaths,
                         platformInfo: platformInfo,
                         resolvedArchitecture: simResolution.SelectedArchitecture,
-                        forceLoadDependencies: forceLoadDependencies,
                         linkFrameworks: linkFrameworks, linkLibraries: linkLibraries);
                 }
             }
@@ -3455,9 +3451,9 @@ namespace BindingsGeneration
         /// passes the dependencies' compiled binding wrappers, which carry no module and would fail
         /// resolution, so a framework-type xcframework is kept only when one of its frameworks has a
         /// <c>Modules</c> directory. A library-type xcframework (a bare <c>.a</c> or <c>.dylib</c> slice)
-        /// has no framework to look in and is kept by its Info.plist instead: the bridge links the
-        /// primary as the wrapper does, so a static primary's calls into that library need its binary and
-        /// its module map's system links on the bridge link line too (<see cref="DependencyLinkInputs"/>).
+        /// has no framework to look in and is kept by its Info.plist instead. A dynamic library there is
+        /// linked by path; a static archive is what makes the bridge resolve static code through the
+        /// wrapper, which carries it (<see cref="SwiftWrapperCompiler.ResolveBridgeStaticCodeLink"/>).
         /// </summary>
         internal static List<string> SelectBridgeLinkDependencies(IEnumerable<string> frameworkDependencies, ILogger logger)
         {

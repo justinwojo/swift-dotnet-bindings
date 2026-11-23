@@ -48,6 +48,36 @@ namespace BindingsGeneration.Tests
                     File.WriteAllText(Path.Combine(framework, name + ".tbd"), "--- !tapi-tbd\n" + stubBody);
             }
 
+            /// <summary>A compiled binding wrapper xcframework with an arm64 simulator slice; returns its binary.</summary>
+            public string WrapperXcframework(string outputDirectory, string moduleName)
+            {
+                var name = moduleName + "SwiftBindings";
+                var xcfw = Path.Combine(outputDirectory, name + ".xcframework");
+                var framework = Path.Combine(xcfw, "ios-arm64-simulator", name + ".framework");
+                Directory.CreateDirectory(framework);
+                File.WriteAllBytes(Path.Combine(framework, name), MachOMagic);
+                File.WriteAllText(Path.Combine(xcfw, "Info.plist"), $$"""
+                    <?xml version="1.0" encoding="UTF-8"?>
+                    <plist version="1.0">
+                    <dict>
+                        <key>AvailableLibraries</key>
+                        <array>
+                            <dict>
+                                <key>LibraryIdentifier</key><string>ios-arm64-simulator</string>
+                                <key>LibraryPath</key><string>{{name}}.framework</string>
+                                <key>SupportedArchitectures</key><array><string>arm64</string></array>
+                                <key>SupportedPlatform</key><string>ios</string>
+                                <key>SupportedPlatformVariant</key><string>simulator</string>
+                            </dict>
+                        </array>
+                        <key>CFBundlePackageType</key><string>XFWK</string>
+                        <key>XCFrameworkFormatVersion</key><string>1.0</string>
+                    </dict>
+                    </plist>
+                    """);
+                return Path.Combine(framework, name);
+            }
+
             /// <summary>A library-type xcframework; returns the simulator slice dir.</summary>
             public string LibraryXcframework(
                 string name, string libraryPath, byte[] binary, string? modulemap,
@@ -389,12 +419,12 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
-        public void BridgeLink_LibraryTypeDependency_IsKeptResolvedAndLinked()
+        public void BridgeLink_LibraryTypeDependency_IsKeptAndResolvedThroughTheWrapper()
         {
-            // The SwiftUI bridge links the primary as the wrapper does, so a static primary's calls into
-            // a library-type dependency need that library on the bridge link line too. The bridge's
-            // dependency filter keeps what has a module to resolve and skips the binding wrappers the SDK
-            // also passes; a library-type xcframework has no .framework at all and must still be kept.
+            // The bridge's dependency filter keeps what has a module to resolve and skips the binding
+            // wrappers the SDK also passes; a library-type xcframework has no .framework at all and must
+            // still be kept. Its static archive is what the wrapper carries, so the bridge links the
+            // wrapper and takes none of the archive.
             using var layout = new Layout();
             var slice = layout.LibraryXcframework(
                 "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
@@ -451,17 +481,114 @@ namespace BindingsGeneration.Tests
                 .ToList();
 
             // The bridge compile passes exactly these as its additional search paths.
+            var output = Path.Combine(layout.Root, "out");
+            var wrapper = layout.WrapperXcframework(output, "Primary");
+            var link = SwiftWrapperCompiler.ResolveBridgeStaticCodeLink(
+                output, "Primary", primary.DylibPath, SimSlice, bridgeSearchPaths, NoFileTool(), NullLogger.Instance);
+            Assert.Equal(new SwiftWrapperCompiler.BridgeStaticCodeLink(wrapper, null), link);
+
             var runner = new MockCommandRunner();
             runner.SetResponse("swiftc", 0, "");
             SwiftWrapperCompiler.InvokeSwiftCompiler(
                 new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
                 SimTriple, layout.Sdk, primary.FrameworkSearchPath, runner, NullLogger.Instance,
-                additionalFrameworkSearchPaths: bridgeSearchPaths, originalModuleName: "Primary");
+                additionalFrameworkSearchPaths: bridgeSearchPaths, originalModuleName: "Primary",
+                staticCodeThroughWrapper: link);
 
             var (_, args) = runner.Invocations[0];
-            Assert.Contains($"-Xlinker \"{Path.Combine(slice, "DepCore.a")}\"", args);
-            Assert.Contains("-Xlinker -framework -Xlinker Metal ", args);
-            Assert.Contains("-lc++abi ", args);
+            Assert.Contains($"-Xlinker \"{wrapper}\" ", args);
+            Assert.DoesNotContain("DepCore.a", args);
+            Assert.DoesNotContain("-framework -Xlinker Metal ", args);
+            Assert.DoesNotContain("-lc++abi ", args);
+            // The bound framework is dynamic here: the bridge still links it, as before.
+            Assert.DoesNotContain("-disable-autolink-framework", args);
+        }
+
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void BridgeLink_StaticPrimary_ResolvesThroughTheWrapperAndCopiesNoStaticCode(bool forceLoad)
+        {
+            // A static bound framework is force-loaded into the wrapper, and its calls into a library-type
+            // dependency pull that archive into the wrapper too. The bridge is a second image: linking
+            // either again there runs every static initializer twice and registers every ObjC class twice,
+            // with or without ForceLoad. A dynamic library dependency is its own image and is still linked.
+            using var layout = new Layout();
+            var archiveSlice = layout.LibraryXcframework(
+                "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
+            var dylibSlice = layout.LibraryXcframework("DepDyn", "libDepDyn.dylib", MachOMagic, null);
+            var primaryBinary = Path.Combine(layout.Root, "Primary.xcframework", "ios-arm64-simulator", "Primary.framework", "Primary");
+            Directory.CreateDirectory(Path.GetDirectoryName(primaryBinary)!);
+            File.WriteAllBytes(primaryBinary, ArMagic);
+            var output = Path.Combine(layout.Root, "out");
+            var wrapper = layout.WrapperXcframework(output, "Primary");
+            var searchPaths = new[] { archiveSlice, dylibSlice };
+
+            var link = SwiftWrapperCompiler.ResolveBridgeStaticCodeLink(
+                output, "Primary", primaryBinary, SimSlice, searchPaths, NoFileTool(), NullLogger.Instance);
+            Assert.Equal(new SwiftWrapperCompiler.BridgeStaticCodeLink(wrapper, "Primary"), link);
+
+            var runner = new MockCommandRunner();
+            runner.SetResponse("swiftc", 0, "");
+            SwiftWrapperCompiler.InvokeSwiftCompiler(
+                new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
+                SimTriple, layout.Sdk, Path.GetDirectoryName(Path.GetDirectoryName(primaryBinary))!, runner, NullLogger.Instance,
+                additionalFrameworkSearchPaths: searchPaths, originalModuleName: "Primary",
+                forceLoadDependencies: forceLoad ? new[] { Path.GetDirectoryName(archiveSlice)! } : null,
+                staticCodeThroughWrapper: link);
+
+            var (_, args) = runner.Invocations[0];
+            Assert.Contains("-Xfrontend -disable-autolink-framework -Xfrontend Primary ", args);
+            Assert.Contains($"-Xlinker \"{wrapper}\" ", args);
+            Assert.DoesNotContain("DepCore.a", args);
+            Assert.DoesNotContain("-force_load", args);
+            Assert.DoesNotContain(primaryBinary, args);
+            Assert.Contains($"-Xlinker \"{Path.Combine(dylibSlice, "libDepDyn.dylib")}\" ", args);
+        }
+
+        [Fact]
+        public void BridgeLink_NoStaticCode_LinksAsBefore()
+        {
+            // A dynamic bound framework and no static archive: nothing for the wrapper to carry, so the
+            // bridge needs no wrapper (and none has to exist yet).
+            using var layout = new Layout();
+            var dylibSlice = layout.LibraryXcframework("DepDyn", "libDepDyn.dylib", MachOMagic, null);
+            var primaryBinary = Path.Combine(layout.Root, "Primary");
+            File.WriteAllBytes(primaryBinary, MachOMagic);
+
+            Assert.Null(SwiftWrapperCompiler.ResolveBridgeStaticCodeLink(
+                Path.Combine(layout.Root, "out"), "Primary", primaryBinary, SimSlice, new[] { dylibSlice },
+                NoFileTool(), NullLogger.Instance));
+        }
+
+        [Theory]
+        [InlineData(false, "arm64")]
+        [InlineData(true, "x86_64")]
+        public void BridgeLink_StaticCodeWithoutAMatchingWrapperSlice_IsRefused(bool wrapperExists, string bridgeArch)
+        {
+            // Linking the static code into the bridge instead is the duplicate, so a missing wrapper slice
+            // (none at all, or none for the bridge's architecture) fails the bridge link.
+            using var layout = new Layout();
+            var primaryBinary = Path.Combine(layout.Root, "Primary");
+            File.WriteAllBytes(primaryBinary, ArMagic);
+            var output = Path.Combine(layout.Root, "out");
+            if (wrapperExists)
+                layout.WrapperXcframework(output, "Primary");
+
+            var ex = Assert.Throws<InvalidOperationException>(() => SwiftWrapperCompiler.ResolveBridgeStaticCodeLink(
+                output, "Primary", primaryBinary, SimSlice.WithArchitecture(bridgeArch), null, NoFileTool(), NullLogger.Instance));
+            Assert.Contains("PrimarySwiftBindings", ex.Message);
+            Assert.Contains(bridgeArch, ex.Message);
+        }
+
+        private static SliceVariant SimSlice => PlatformInfoFactory.Create(ApplePlatform.iOS).GetSlice(true);
+
+        // `file` unavailable, so NativeLinkageProbe classifies by magic bytes.
+        private static MockCommandRunner NoFileTool()
+        {
+            var runner = new MockCommandRunner();
+            runner.SetResponse("file", 1, "");
+            return runner;
         }
 
         [Fact]
