@@ -100,6 +100,12 @@ public static class ReportCollector
         // a RecoveredBy annotation genuinely is unreachable.
         internal readonly Dictionary<(string? ContainingType, string Name), List<string>> RecoveredMembers = new();
 
+        // Recovered facts keyed by the canonical DeclId of the skipped declaration itself, for a recovery
+        // that names exactly one declaration (a gate-reduced overload recovers the one member it was
+        // trimmed from, never a same-named sibling). Joined onto the skip row whose own DeclId matches,
+        // so two overloads that share (ContainingType, Name) are told apart.
+        internal readonly Dictionary<string, List<string>> RecoveredMembersByDeclId = new(StringComparer.Ordinal);
+
         /// <summary>
         /// Dedup key set for degradation rows — members that WERE emitted but whose surface is
         /// limited in a way worth counting (see <see cref="RecordMemberDegraded"/>). Deliberately
@@ -247,26 +253,37 @@ public static class ReportCollector
             report.ObjCPrefixBridges.AddRange(
                 session.ObjCPrefixBridgeEntries.OrderBy(x => x, StringComparer.Ordinal));
 
-            // Join the accumulated CSM-recovery facts onto their skip rows: a member skipped on the open
-            // shell whose typed surface a closed projection actually emitted is annotated (and reclassified
-            // to SkipDisposition.Recovered by the item-aware classifier) instead of reading as a plain,
-            // unreachable skip. Match on (ContainingType, Name) — the same identity the skip row carries —
-            // so the linkage is exact, not a name-pattern guess.
-            if (session.RecoveredMembers.Count > 0)
+            // Join the accumulated recovery facts onto their skip rows: a skipped member whose consumer
+            // surface another emission actually produced is annotated (and reclassified to
+            // SkipDisposition.Recovered by the item-aware classifier) instead of reading as a plain,
+            // unreachable skip. Two keys feed the join. A CSM projection records the open member's
+            // (ContainingType, Name), which cannot separate overloads, so it is withheld from rows a
+            // same-named sibling's projection cannot speak for. A recovery that names one declaration
+            // records that declaration's DeclId and matches only the row carrying the same DeclId, with
+            // no such exclusions: the identity already separates overloads, accessors and pairings.
+            if (session.RecoveredMembers.Count > 0 || session.RecoveredMembersByDeclId.Count > 0)
             {
                 foreach (var item in report.SkippedItems)
                 {
+                    List<string>? byName = null;
                     // A member recovery withdrew is a loss whatever its same-named siblings emitted: the
                     // name key cannot tell overloads apart, and the withdrawn member's own projection was
-                    // denied with it.
-                    if (item.Reason == SkipReason.EmitterFault)
+                    // denied with it. A row keyed to one specialization names one closed pairing, and the
+                    // name key cannot tell it from the sibling pairings that did emit.
+                    if (item.Reason != SkipReason.EmitterFault && !DeclIdFactory.IsSpecialization(item.DeclId))
+                        session.RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out byName);
+
+                    List<string>? byDeclId = null;
+                    if (item.DeclId is { Length: > 0 } declId)
+                        session.RecoveredMembersByDeclId.TryGetValue(declId, out byDeclId);
+
+                    if (byName is null && byDeclId is null)
                         continue;
-                    // A row keyed to one specialization names one closed pairing, and the name key
-                    // cannot tell it from the sibling pairings that did emit.
-                    if (DeclIdFactory.IsSpecialization(item.DeclId))
-                        continue;
-                    if (session.RecoveredMembers.TryGetValue((item.ContainingType, item.Name), out var recoverers))
-                        item.RecoveredBy = recoverers.OrderBy(x => x, StringComparer.Ordinal).ToList();
+                    item.RecoveredBy = (byName ?? Enumerable.Empty<string>())
+                        .Concat(byDeclId ?? Enumerable.Empty<string>())
+                        .Distinct(StringComparer.Ordinal)
+                        .OrderBy(x => x, StringComparer.Ordinal)
+                        .ToList();
                 }
             }
 
@@ -1112,7 +1129,9 @@ public static class ReportCollector
     /// through the same closed receiver and belong on the same row.
     /// Called once per emitted projection; the annotations accumulate and are joined onto the skip row in
     /// <see cref="Complete"/>. No-op outside an active session. Never call this from a name heuristic — only
-    /// from the emission site that actually produced the projection.
+    /// from the emission site that actually produced the projection. The key reaches every same-named
+    /// overload of the type; a recovery that speaks for one declaration only records through
+    /// <see cref="RecordMemberRecovered(DeclId, string)"/> instead.
     /// </summary>
     public static void RecordMemberRecovered(BaseDecl baseMember, string projection)
     {
@@ -1130,6 +1149,37 @@ public static class ReportCollector
             {
                 list = new List<string>();
                 session.RecoveredMembers[key] = list;
+            }
+            if (!list.Contains(projection, StringComparer.Ordinal))
+                list.Add(projection);
+        }
+    }
+
+    /// <summary>
+    /// Records that the skipped declaration whose identity is <paramref name="skippedMember"/> had its
+    /// consumer surface recovered by <paramref name="projection"/>. Unlike
+    /// <see cref="RecordMemberRecovered(BaseDecl, string)"/>, whose (containing type, name) key reaches
+    /// every same-named overload, this joins only the skip row whose <see cref="SkippedItem.DeclId"/> is
+    /// <paramref name="skippedMember"/>'s canonical form, so a refused same-named sibling stays a loss.
+    /// Pass the identity the skip row was recorded under (for a method, <see cref="DeclIdFactory.ForMethod"/>
+    /// of the declaration the gate refused). Call only from the emission site that actually produced the
+    /// recovering surface; no-op outside an active session.
+    /// </summary>
+    public static void RecordMemberRecovered(DeclId skippedMember, string projection)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(projection);
+
+        var session = Current;
+        if (session == null)
+            return;
+
+        var key = skippedMember.Canonical;
+        lock (session.Sync)
+        {
+            if (!session.RecoveredMembersByDeclId.TryGetValue(key, out var list))
+            {
+                list = new List<string>();
+                session.RecoveredMembersByDeclId[key] = list;
             }
             if (!list.Contains(projection, StringComparer.Ordinal))
                 list.Add(projection);

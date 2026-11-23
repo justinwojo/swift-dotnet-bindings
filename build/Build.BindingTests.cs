@@ -707,6 +707,54 @@ partial class Build
         // Report-artifact gate for the CSM "recovered" disposition: the skipped open-shell property
         // must carry the RecoveredBy linkage its closed projections produced (see method).
         AssertTypedCollectionRecoveryAnnotated(BtOutputDir);
+        AssertGateReducedRecoveryAnnotated(BtOutputDir);
+    }
+
+    /// <summary>
+    /// End-to-end gate for a recovery keyed by declaration identity. The emission gate refuses both
+    /// <c>TipEdgeHost</c> initializers (GateReducedInit.swift) for their trailing SwiftUI default; the
+    /// trailing-default rescue emits the favored <c>init(_: any PopoverTip, …)</c> as <c>init(_:)</c> and
+    /// declines the <c>@_disfavoredOverload</c> twin. Both skip rows read <c>(TipEdgeHost, init)</c>, so
+    /// exactly one of them may carry <c>RecoveredBy</c>: a missing annotation reports a callable member
+    /// as lost, and an annotation on both hides the twin's real loss.
+    /// </summary>
+    void AssertGateReducedRecoveryAnnotated(AbsolutePath outputDir)
+    {
+        const string projection = "SwiftBindingsTestLib.TipEdgeHost.init(_:)";
+        var reportPath = outputDir / "binding-report.json";
+        if (!File.Exists(reportPath))
+            throw new Exception($"binding-report.json missing at {reportPath} — cannot verify the gate-reduced recovery annotation.");
+
+        using var doc = JsonDocument.Parse(File.ReadAllText(reportPath));
+        if (!doc.RootElement.TryGetProperty("SkippedItems", out var skipped) || skipped.ValueKind != JsonValueKind.Array)
+            throw new Exception("binding-report.json has no SkippedItems array — cannot verify the gate-reduced recovery annotation.");
+
+        int recovered = 0, unannotated = 0;
+        foreach (var row in skipped.EnumerateArray())
+        {
+            if (!row.TryGetProperty("Name", out var n) || n.GetString() != "init" ||
+                !row.TryGetProperty("ContainingType", out var ct) || ct.GetString() != "SwiftBindingsTestLib.TipEdgeHost")
+                continue;
+            if (row.TryGetProperty("RecoveredBy", out var by) && by.ValueKind == JsonValueKind.Array && by.GetArrayLength() > 0)
+            {
+                if (!by.EnumerateArray().Any(e => e.GetString() == projection))
+                    throw new Exception($"A `TipEdgeHost.init` skip row is recovered by something other than `{projection}`: {by}.");
+                recovered++;
+            }
+            else
+            {
+                unannotated++;
+            }
+        }
+
+        if (recovered != 1 || unannotated == 0)
+            throw new Exception(
+                $"Expected exactly one `TipEdgeHost.init` skip row recovered by `{projection}` and at least one refused " +
+                $"twin without RecoveredBy; found {recovered} recovered and {unannotated} unannotated. The recovery link " +
+                "must match the refused declaration's DeclId, not its (type, name).");
+
+        Log.Information("Gate-reduced recovery gate: TipEdgeHost.init favored row recovered, {Count} refused twin row(s) still lost.",
+            unannotated);
     }
 
     /// <summary>

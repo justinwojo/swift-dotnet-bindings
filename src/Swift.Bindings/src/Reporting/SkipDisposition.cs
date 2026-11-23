@@ -18,8 +18,9 @@ public enum SkipDisposition
     /// <summary>
     /// The skipped member is not actually lost: closed CSM projections recover its consumer surface
     /// (e.g. an open-generic <c>items : MusicItemCollection&lt;AnyType&gt;</c> property whose typed
-    /// <c>Items()</c> getters are projected per conformer). Least actionable of all — the row exists
-    /// only so the base open-generic member is accounted for, and its
+    /// <c>Items()</c> getters are projected per conformer), or the trailing-default rescue emitted a
+    /// trimmed form of a member the gate refused for a trailing defaulted parameter. Least actionable
+    /// of all — the row exists only so the refused member is accounted for, and its
     /// <see cref="SkippedItem.RecoveredBy"/> annotation names the recovering projections. Determined
     /// from emission facts, never a name guess.
     /// </summary>
@@ -261,8 +262,9 @@ public static class SkipDispositionClassifier
     public static SkipDisposition Classify(SkippedItem item)
     {
         ArgumentNullException.ThrowIfNull(item);
-        // A row the CSM projected a closed typed surface for is not a loss, regardless of the raw skip
-        // reason — the annotation is an emission fact, so it overrides the reason-only tier.
+        // A row whose surface another emission produced (a closed CSM projection, a rescued trimmed
+        // form) is not a loss, regardless of the raw skip reason — the annotation is an emission fact,
+        // so it overrides the reason-only tier.
         if (item.RecoveredBy is { Count: > 0 })
             return SkipDisposition.Recovered;
         return item.Reason switch

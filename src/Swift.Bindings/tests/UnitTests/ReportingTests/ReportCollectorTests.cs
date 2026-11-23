@@ -1121,6 +1121,114 @@ public class ReportCollectorTests
         ReportCollector.Reset();
     }
 
+    [Fact]
+    public void Complete_DeclIdRecovery_MarksOnlyTheOverloadItNames()
+    {
+        // Two same-named initializers are both refused: one is recovered by a trimmed form of
+        // itself, its twin is really lost. Both rows key as (type, init), so only the declaration
+        // identity can tell them apart; the twin must stay a loss.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var favored = TestModelFactory.CreateMethod(
+            "init", parent: classDecl, isConstructor: true,
+            args: new[] { ("", "Swift.Void"), ("tip", "TestModule.AnyTip"), ("edge", "SwiftUI.Edge") },
+            mangledName: "$s10TestModule4HostC3tip4edgeAcA6AnyTipV_7SwiftUI4EdgeOtcfc");
+        var twin = TestModelFactory.CreateMethod(
+            "init", parent: classDecl, isConstructor: true,
+            args: new[] { ("", "Swift.Void"), ("tip", "τ_0_0"), ("edge", "SwiftUI.Edge") },
+            mangledName: "$s10TestModule4HostC3tip4edgeACx_7SwiftUI4EdgeOtcAA3TipRzlufc");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(favored, SkipReason.UnsupportedType, "trailing SwiftUI.Edge");
+        ReportCollector.RecordMemberSkipped(twin, SkipReason.UnsupportedType, "trailing SwiftUI.Edge");
+        ReportCollector.RecordMemberRecovered(DeclIdFactory.ForMethod(favored), "TestModule.Host.init(tip:)");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Equal(2, report!.SkippedItems.Count);
+        var favoredRow = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(favored).Canonical);
+        var twinRow = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(twin).Canonical);
+
+        Assert.Equal(new[] { "TestModule.Host.init(tip:)" }, favoredRow.RecoveredBy);
+        Assert.Equal(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(favoredRow));
+        Assert.False(SkipAttributionLinker.IsLoss(favoredRow));
+
+        Assert.Null(twinRow.RecoveredBy);
+        Assert.NotEqual(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(twinRow));
+        Assert.True(SkipAttributionLinker.IsLoss(twinRow));
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void Complete_DeclIdRecovery_JoinsWithANameKeyedProjectionOnTheSameRow()
+    {
+        // A member recovered both by an exact-identity emission and by a closed projection keyed by
+        // name carries both annotations, sorted and deduplicated, on one row.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var load = TestModelFactory.CreateMethod(
+            "load", parent: classDecl, args: new[] { ("", "Swift.Void"), ("count", "Swift.Int") });
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(load, SkipReason.AnyTypeFallback, "open generic");
+        ReportCollector.RecordMemberRecovered(load, "Loader<Song>.load");
+        ReportCollector.RecordMemberRecovered(DeclIdFactory.ForMethod(load), "TestModule.Host.load()");
+        ReportCollector.RecordMemberRecovered(DeclIdFactory.ForMethod(load), "TestModule.Host.load()"); // dedup
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(new[] { "Loader<Song>.load", "TestModule.Host.load()" }, row.RecoveredBy);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void Complete_DeclIdRecovery_IsNotNarrowedByTheNameKeyExclusions()
+    {
+        // The name key declines a withdrawn row and a specialization row because it cannot tell them
+        // from the siblings that emitted. An exact identity can, so a recovery recorded for exactly that
+        // row still applies.
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var init = TestModelFactory.CreateMethod("init", parent: classDecl, isConstructor: true);
+        var specialization = DeclIdFactory.ForSpecialization(DeclIdFactory.ForMethod(init), "Value=M.Transform");
+
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(specialization, classDecl, SkipReason.AmbiguousSwiftOverloadCall, "refused");
+        ReportCollector.RecordMemberRecovered(specialization, "Box<Transform>.init()");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        var row = Assert.Single(report!.SkippedItems);
+        Assert.Equal(new[] { "Box<Transform>.init()" }, row.RecoveredBy);
+
+        ReportCollector.Reset();
+    }
+
+    [Fact]
+    public void RecordMemberRecovered_ByDeclId_OutsideSession_IsNoOp()
+    {
+        ReportCollector.Reset();
+        var strayModule = TestModelFactory.CreateModuleDecl();
+        var strayClass = (ClassDecl)strayModule.Types[0];
+        var strayInit = TestModelFactory.CreateMethod("init", parent: strayClass, isConstructor: true);
+        ReportCollector.RecordMemberRecovered(DeclIdFactory.ForMethod(strayInit), "Host.init()");
+
+        var moduleDecl = TestModelFactory.CreateModuleDecl();
+        var classDecl = (ClassDecl)moduleDecl.Types[0];
+        var init = TestModelFactory.CreateMethod("init", parent: classDecl, isConstructor: true);
+        ReportCollector.Start(moduleDecl);
+        ReportCollector.RecordMemberSkipped(init, SkipReason.UnsupportedType, "unbound");
+
+        var report = ReportCollector.Complete();
+        Assert.NotNull(report);
+        Assert.Null(Assert.Single(report!.SkippedItems).RecoveredBy);
+
+        ReportCollector.Reset();
+    }
+
     // ==================== Degraded surface ====================
 
     [Fact]

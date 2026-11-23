@@ -795,10 +795,13 @@ public sealed class SkippedItem
     /// <c>MusicItemCollection&lt;Swift.AnyType&gt;</c> on the open shell and is skipped
     /// <see cref="SkipReason.AnyTypeFallback"/> — but the concrete-specialization emitter projects a
     /// typed closed getter per conformer (<c>MusicLibraryResponse&lt;Album&gt;.Items()</c>, …), so the
-    /// surface IS callable. Each entry names one such projection. Populated purely from emission facts
-    /// (a CSM projection actually emitted for this base member — never a name-pattern guess), so a
-    /// skip row with no <see cref="RecoveredBy"/> annotation really is unreachable. Null/empty when the
-    /// skip is a genuine, unrecovered loss.
+    /// surface IS callable. Each entry names one such projection. A member the emission gate refused
+    /// for a trailing defaulted parameter, and whose trimmed form the trailing-default rescue emitted
+    /// instead, names that form (<c>Module.Type.init(tip:)</c>); that link is keyed by this row's
+    /// <see cref="DeclId"/>, so a same-named overload the rescue declined is not annotated with it.
+    /// Populated purely from emission facts (a projection or trimmed form actually emitted for this
+    /// member — never a name-pattern guess), so a skip row with no <see cref="RecoveredBy"/> annotation
+    /// really is unreachable. Null/empty when the skip is a genuine, unrecovered loss.
     /// </summary>
     public List<string>? RecoveredBy { get; set; }
 
