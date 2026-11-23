@@ -152,14 +152,14 @@ public class CaseIdentityMemoryTests : TestBase
         var hidden = TestLibFunctions.GetCaseShiftHidden();
         var responder = new Responder { CaseShiftCurrent = CaseShift.First };
         // Swift reads `caseShiftCurrent`, `respond`'s result and `adjust`'s inout value from the conformer.
-        var seen = TestLibFunctions.CaseShiftDriveResponder(new CaseShiftResponderProxy(responder), CaseShift.First);
+        var seen = TestLibFunctions.CaseShiftDriveResponder(responder, CaseShift.First);
         AssertEqual("first,first,saw:0,second", seen, "Swift saw First, First, the described First and the adjusted Second");
         AssertEqual(3, responder.Received.Count, "three requirements received a value");
         AssertTrue(responder.Received.All(v => v == CaseShift.First),
             $"every requirement received First (got {string.Join(",", responder.Received.Select(v => (int)v))})");
 
         var hiddenResponder = new Responder { CaseShiftCurrent = hidden };
-        var seenHidden = TestLibFunctions.CaseShiftDriveResponderHidden(new CaseShiftResponderProxy(hiddenResponder));
+        var seenHidden = TestLibFunctions.CaseShiftDriveResponderHidden(hiddenResponder);
         AssertEqual($"hidden,hidden,saw:{(int)hidden},second", seenHidden, "Swift saw the hidden case come back");
         AssertTrue(hiddenResponder.Received.All(v => v == hidden),
             $"every requirement received the hidden case (got {string.Join(",", hiddenResponder.Received.Select(v => (int)v))})");
@@ -221,6 +221,10 @@ public class CaseIdentityMemoryTests : TestBase
 
         for (var i = 0; i < 10; i++)
             AssertFalse(Enum.IsDefined(await TestLibFunctions.PayloadShiftTrackedAsync(true)), "async result is no published case");
+        // The Swift task releases its own copy of the result only after the completion callback
+        // returns, which can be after this continuation runs; a retain the binding leaked never goes.
+        for (var wait = 0; wait < 100 && TestLibFunctions.GetPayloadShiftTokenRetains() != baseline; wait++)
+            await Task.Delay(10);
         AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "async results release the payload");
 
         var list = TestLibFunctions.GetPayloadShiftTrackedList();

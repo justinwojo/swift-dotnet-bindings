@@ -1347,10 +1347,6 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Whether a tuple element is a simple enum crossing by case identity, which the runtime
-        /// reads from Swift memory through the enum's case codec rather than as its tag.
-        /// </summary>
-        /// <summary>
         /// Gets the P/Invoke type for a tuple element.
         /// </summary>
         internal string GetPInvokeTypeForTupleElement(TypeSpec element)
