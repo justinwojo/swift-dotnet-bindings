@@ -251,7 +251,15 @@
        <SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions> and gets the
        same check of the package `dotnet pack` just wrote: a package its consumers would refuse
        (SWIFTBIND132), a wrapper identity included, is deleted. Other projects that reference the
-       runtime are not checked. -->
+       runtime are not checked.
+
+       The marker property tells such a project that this file runs the check. A project the
+       generator emits refuses to pack (SWIFTBIND133) under a Runtime whose targets do not set it,
+       since its opt-in would otherwise pack unchecked. Keep the name: published binding projects
+       read it. -->
+  <PropertyGroup>
+    <_SwiftBindingsStandalonePackCheckAvailable>true</_SwiftBindingsStandalonePackCheckAvailable>
+  </PropertyGroup>
   <UsingTask TaskName="SwiftBindings.Tasks.SwiftTransitionPackageCheck" AssemblyFile="$(_SwiftBindingsTasksAssembly)" />
 
   <Target Name="_SwiftBindingsCheckStandalonePackedTransitions"

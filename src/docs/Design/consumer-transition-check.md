@@ -107,7 +107,12 @@ A project the generator emits for the standalone path builds on `Microsoft.NET.S
 `SwiftBindings.Runtime`'s targets, which it imports through its runtime reference, then run the same
 task after `Pack` (`_SwiftBindingsCheckStandalonePackedTransitions`) with the same deletion and error.
 No other project that references the runtime is checked, and an SDK project never sets the property,
-so no package is checked twice.
+so no package is checked twice. The project's runtime reference floats across patch releases, so
+restore can pick a runtime whose targets predate the check, and the opt-in would then pack unchecked.
+The runtime's targets therefore set a marker (`_SwiftBindingsStandalonePackCheckAvailable`), and the
+generated project refuses to pack without it (`_SwiftBindingsRequireStandalonePackCheck`, before
+`GenerateNuspec`, so no package is written): `error SWIFTBIND133` names the restored runtime version
+and asks for a runtime that ships the check.
 
 The error names the remedy by cause. A wrapper that kept an earlier routing (the wrapper-compile
 finalizer does not relink without a lowering receipt, so the wrapper keeps the earlier hash and

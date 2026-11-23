@@ -501,6 +501,13 @@ namespace BindingsGeneration
                 """;
             }
 
+            // The pack check the project opts into below is implemented by SwiftBindings.Runtime's
+            // buildTransitive targets, and restore may pick a Runtime older than this generator
+            // (the published floor floats across patches). A Runtime whose targets do not define
+            // the check never runs it, so the project itself refuses to write a package before
+            // GenerateNuspec rather than let it ship unchecked.
+            var packCheckGuard = isPackable ? EmitPackCheckGuard() : "";
+
             var resourceBundleTarget = ResourceBundleTargetsEmitter.Emit(options.ModuleName,
                 "$(MSBuildProjectDirectory)/", nativePackRoot: pi.NativePackRoot);
 
@@ -624,12 +631,53 @@ namespace BindingsGeneration
                     <None Include="{packSourceXcfwRelative}/**" Pack="true"
                           PackagePath="{pi.GetNativePackPath($"{options.ModuleName}.xcframework")}" />
                 """ : "")}{wrapperPackItem}{bridgePackItem}
-                  </ItemGroup>{objcProjectRef}
+                  </ItemGroup>{objcProjectRef}{packCheckGuard}
                 </Project>
                 """;
 
             File.WriteAllText(csprojPath, content);
             logger.LogInformation("Wrote binding project to {Path}", csprojPath);
+        }
+
+        /// <summary>
+        /// The marker property SwiftBindings.Runtime's buildTransitive targets define beside the
+        /// standalone pack check (<c>_SwiftBindingsCheckStandalonePackedTransitions</c>). A Runtime
+        /// whose targets predate the check leaves it unset.
+        /// </summary>
+        internal const string StandalonePackCheckMarker = "_SwiftBindingsStandalonePackCheckAvailable";
+
+        /// <summary>
+        /// Emits the target that refuses to pack (SWIFTBIND133) when the restored
+        /// SwiftBindings.Runtime's targets do not run the pack check the project opts into. It runs
+        /// before <c>GenerateNuspec</c>, so no unchecked package is written.
+        /// </summary>
+        private static string EmitPackCheckGuard()
+        {
+            var required = DefaultSwiftRuntimeVersion == "0.0.0-dev"
+                ? "the version of the generator that emitted this project or later"
+                : $"{DefaultSwiftRuntimeVersion} or later (the version of the generator that emitted this project)";
+            return $"""
+
+
+                  <!-- SwiftBindings.Runtime's targets run the pack check this project opts into
+                       (SwiftBindingsCheckPackedTransitions). Under a Runtime whose targets predate the
+                       check ({StandalonePackCheckMarker} unset), refuse to write the package rather
+                       than ship it unchecked. -->
+                  <Target Name="_SwiftBindingsRequireStandalonePackCheck"
+                          BeforeTargets="GenerateNuspec"
+                          DependsOnTargets="ResolveAssemblyReferences"
+                          Condition="'$(SwiftBindingsCheckPackedTransitions)' == 'true' AND '$(IsPackable)' != 'false' AND '$({StandalonePackCheckMarker})' != 'true'">
+                    <ItemGroup>
+                      <_SwiftBindingsResolvedRuntime Include="@(ReferencePath)" Condition="'%(ReferencePath.NuGetPackageId)' == 'SwiftBindings.Runtime'" />
+                    </ItemGroup>
+                    <PropertyGroup>
+                      <_SwiftBindingsResolvedRuntimeVersion>@(_SwiftBindingsResolvedRuntime->'%(NuGetPackageVersion)'->Distinct())</_SwiftBindingsResolvedRuntimeVersion>
+                      <_SwiftBindingsResolvedRuntimeVersion Condition="'$(_SwiftBindingsResolvedRuntimeVersion)' == ''">(version unknown)</_SwiftBindingsResolvedRuntimeVersion>
+                    </PropertyGroup>
+                    <Error Code="SWIFTBIND133"
+                           Text="This package cannot be checked before it ships: the restored SwiftBindings.Runtime $(_SwiftBindingsResolvedRuntimeVersion) predates the pack-time Swift transition check this binding project runs after pack, so a package its consumers would refuse (SWIFTBIND132) could ship unnoticed. No package was written. Reference SwiftBindings.Runtime {required}: regenerate the binding with that --swift-runtime-version, or raise this project's SwiftBindings.Runtime PackageReference to it, then pack again." />
+                  </Target>
+                """;
         }
 
         /// <summary>

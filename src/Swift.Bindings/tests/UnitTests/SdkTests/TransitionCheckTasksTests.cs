@@ -11,6 +11,7 @@ using System.Linq;
 using System.Security;
 using System.Text;
 using System.Text.Json;
+using System.Xml.Linq;
 using SwiftBindings.TransitionGate;
 using Xunit;
 using static BindingsGeneration.Tests.SwiftTransitionManifestTests;
@@ -276,6 +277,107 @@ public sealed class TransitionCheckTasksTests : IDisposable
             Assert.DoesNotContain("SWIFTBIND133", output);
             Assert.True(File.Exists(package));
         }
+    }
+
+    public enum RuntimeTargets { WithoutTheCheck, Current }
+
+    [Theory]
+    // Restore picked a SwiftBindings.Runtime whose targets predate the pack check: the generated
+    // project refuses before a package is written, naming the fix. (The package would be refused
+    // by its consumers, and without the guard it ships.)
+    [InlineData(RuntimeTargets.WithoutTheCheck, "UntypedSelf", false, "predates the pack-time Swift transition check")]
+    // A Runtime that ships the check: the guard stays quiet and the real check decides.
+    [InlineData(RuntimeTargets.Current, "PrimitiveOnly", true, null)]
+    [InlineData(RuntimeTargets.Current, "UntypedSelf", false, "lib/net10.0/Fixture.dll would be refused")]
+    public void StandalonePack_GeneratedProject_RefusesToPackWhenTheRuntimeLacksTheCheck(
+        RuntimeTargets runtime, string fixture, bool written, string? error)
+    {
+        // The project the generator emits for a published --swift-runtime-version, restored
+        // against an older Runtime: the Runtime's PackageReference floats, so restore can pick
+        // one whose buildTransitive targets have no pack check.
+        var generated = Path.Combine(tempDir, "generated");
+        var source = Path.Combine(tempDir, "Lib.xcframework");
+        Directory.CreateDirectory(generated);
+        Directory.CreateDirectory(source);
+        BindingsGeneration.BindingProjectEmitter.Emit(new BindingsGeneration.BindingProjectEmitterOptions
+        {
+            OutputDirectory = generated,
+            ModuleName = "Lib",
+            Metadata = new BindingsGeneration.XCFrameworkMetadata
+            {
+                LibraryVersion = "1.0.0", PackageVersion = "1.0.0", IsVersionPlaceholder = false,
+                MinimumOSVersion = "15.0", EffectiveMinimumOSVersion = "15.0", ModuleName = "Lib", Platforms = [],
+            },
+            SourceXCFrameworkPath = source,
+            SwiftRuntimeVersion = "0.20.2",
+        }, Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+        var csproj = XDocument.Load(Directory.GetFiles(generated, "*.csproj").Single()).Root!;
+        var optIn = csproj.Descendants("SwiftBindingsCheckPackedTransitions").Single();
+        var isPackable = csproj.Descendants("IsPackable").Single();
+        // Every target the generated project declares, its pack-check guard among them.
+        var projectTargets = string.Concat(csproj.Elements("Target").Select(t => t.ToString()));
+
+        var targets = Path.Combine(SwiftCallPlanTests.RepoRoot, "src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets");
+        if (runtime == RuntimeTargets.WithoutTheCheck)
+        {
+            // Today's targets with the standalone pack check (target and marker) taken out, as a
+            // Runtime from before the check ships them.
+            var old = XDocument.Load(targets);
+            old.Root!.Elements("Target").Single(t => (string?)t.Attribute("Name") == "_SwiftBindingsCheckStandalonePackedTransitions").Remove();
+            old.Root.Elements("PropertyGroup").Elements(BindingsGeneration.BindingProjectEmitter.StandalonePackCheckMarker).Single().Parent!.Remove();
+            targets = Path.Combine(tempDir, "old-runtime", "SwiftBindings.Runtime.targets");
+            Directory.CreateDirectory(Path.GetDirectoryName(targets)!);
+            old.Save(targets);
+            File.Copy(Path.Combine(SwiftCallPlanTests.RepoRoot, "src/Swift.Runtime/src/build/SwiftBindings.MacFrameworkAnatomy.targets"),
+                Path.Combine(tempDir, "old-runtime", "SwiftBindings.MacFrameworkAnatomy.targets"));
+        }
+
+        var body = fixture == "UntypedSelf" ? UntypedSelf : PrimitiveOnly;
+        var staged = Package("Lib.Swift.iOS.1.0.0.nupkg", ("lib/net10.0/Fixture.dll", File.ReadAllBytes(Fixture("lib", body))));
+        var package = Path.Combine(tempDir, "bin", "Lib.Swift.iOS.1.0.0.nupkg");
+        var project = Path.Combine(tempDir, "Lib.Swift.iOS.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <PropertyGroup>
+                <TargetFramework>net10.0-ios</TargetFramework>
+                <OutputType>Library</OutputType>
+                <BaseIntermediateOutputPath>{SecurityElement.Escape(Path.Combine(tempDir, "obj"))}/</BaseIntermediateOutputPath>
+                <_SwiftBindingsTasksAssembly>{SecurityElement.Escape(TasksDll)}</_SwiftBindingsTasksAssembly>
+                {optIn}
+                {isPackable}
+              </PropertyGroup>
+              {projectTargets}
+              <Import Project="{SecurityElement.Escape(targets)}" />
+              <Target Name="ResolveAssemblyReferences">
+                <ItemGroup><ReferencePath Include="{SecurityElement.Escape(RuntimeDll)}" NuGetPackageId="SwiftBindings.Runtime" NuGetPackageVersion="0.20.2" /></ItemGroup>
+              </Target>
+              <Target Name="GenerateNuspec">
+                <Copy SourceFiles="{SecurityElement.Escape(staged)}" DestinationFiles="{SecurityElement.Escape(package)}" />
+                <ItemGroup><NuGetPackOutput Include="{SecurityElement.Escape(package)}" /></ItemGroup>
+              </Target>
+              <Target Name="Pack" DependsOnTargets="GenerateNuspec" />
+            </Project>
+            """);
+
+        var (exit, output) = MSBuild(project, "Pack", "minimal");
+        Assert.Equal(written, File.Exists(package));
+        if (error is null)
+        {
+            Assert.True(exit == 0, output);
+            Assert.DoesNotContain("SWIFTBIND133", output);
+            return;
+        }
+        Assert.NotEqual(0, exit);
+        Assert.Contains("error SWIFTBIND133", output);
+        Assert.Contains(error, output);
+        if (runtime == RuntimeTargets.WithoutTheCheck)
+        {
+            Assert.Contains("SwiftBindings.Runtime 0.20.2 predates", output);
+            Assert.Contains("--swift-runtime-version", output);
+            Assert.DoesNotContain("would be refused", output);
+        }
+        else
+            Assert.DoesNotContain("predates", output);
     }
 
     [Fact]
