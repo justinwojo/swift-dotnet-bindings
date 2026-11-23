@@ -43,6 +43,10 @@ public class CdeclAbiParityTests
         public func _sbw_point(_ p: CGPoint) -> Swift.Float {
             return 0
         }
+
+        @_cdecl("SBW_Unit")
+        public func _sbw_café(_ n: Swift.Int) -> () {
+        }
         """;
 
     private static CdeclSignature Sig(string entry, string library, string ret, params string[] parameters) =>
@@ -66,7 +70,7 @@ public class CdeclAbiParityTests
     {
         var defs = CdeclAbiParity.ParseSwiftCdecls(Swift, Lib, "w.swift");
 
-        Assert.Equal(new[] { "SBW_Create", "SBW_Free", "SBW_Point" }, defs.Select(d => d.EntryPoint));
+        Assert.Equal(new[] { "SBW_Create", "SBW_Free", "SBW_Point", "SBW_Unit" }, defs.Select(d => d.EntryPoint));
         Assert.All(defs, d => Assert.Equal(Lib, d.Library));
 
         var create = defs[0];
@@ -87,6 +91,9 @@ public class CdeclAbiParityTests
         Assert.Equal(CdeclCarrier.Void, defs[1].Return.Carrier);
         Assert.Equal(CdeclCarrier.Unknown, defs[2].Parameters[0].Carrier);   // struct by value
         Assert.Equal(CdeclCarrier.Fp(32), defs[2].Return.Carrier);
+        // A non-ASCII function name, and an explicit `()` return.
+        Assert.Equal(CdeclCarrier.Int(64), Assert.Single(defs[3].Parameters).Carrier);
+        Assert.Equal(CdeclCarrier.Void, defs[3].Return.Carrier);
     }
 
     [Theory]
@@ -125,11 +132,15 @@ public class CdeclAbiParityTests
 
             [LibraryImport("Wrapper", EntryPoint = "SBW_Bare")]
             private static partial bool Bare(bool unannotated);
+
+            [return: MarshalAs(UnmanagedType.I4)]
+            [LibraryImport("Wrapper", EntryPoint = "SBW_Before")]
+            private static partial bool Before();
             """;
 
         var imports = CdeclAbiParity.ParsePInvokes(cs, "t.cs");
 
-        Assert.Equal(3, imports.Count);
+        Assert.Equal(4, imports.Count);
         var create = imports[0];
         Assert.Equal(("SBW_Create", "Wrapper"), (create.EntryPoint, create.Library));
         Assert.Equal(CdeclCarrier.Int(8), create.Return.Carrier);
@@ -141,15 +152,17 @@ public class CdeclAbiParityTests
             },
             create.Parameters.Select(p => p.Carrier));
 
-        // No EntryPoint: the method name is the symbol. DllImport's default bool is a 4-byte BOOL.
+        // No EntryPoint: the method name is the symbol. An unannotated bool's width depends on
+        // whether the assembly disables runtime marshalling, so it is left undecided.
         var free = imports[1];
         Assert.Equal(("SBW_Free", "Other"), (free.EntryPoint, free.Library));
-        Assert.Equal(CdeclCarrier.Int(32), free.Return.Carrier);
-        Assert.Equal(new[] { CdeclCarrier.Pointer, CdeclCarrier.Int(32) }, free.Parameters.Select(p => p.Carrier));
-
-        // LibraryImport cannot compile an unannotated bool, so the shape is left undecided.
+        Assert.Equal(CdeclCarrier.Unknown, free.Return.Carrier);
+        Assert.Equal(new[] { CdeclCarrier.Pointer, CdeclCarrier.Unknown }, free.Parameters.Select(p => p.Carrier));
         Assert.Equal(CdeclCarrier.Unknown, imports[2].Parameters[0].Carrier);
         Assert.Equal(CdeclCarrier.Unknown, imports[2].Return.Carrier);
+
+        // A return attribute written before the import attribute still marshals the return.
+        Assert.Equal(CdeclCarrier.Int(32), imports[3].Return.Carrier);
     }
 
     // ---------------------------------------------------------------- Verdict
@@ -192,6 +205,15 @@ public class CdeclAbiParityTests
         Assert.True(undecided.Passed, string.Join("\n", undecided.Failures));
         Assert.Equal(1, undecided.ArityUncheckedPairCount);
         Assert.Equal(0, undecided.FullyCheckedPairCount);
+
+        // The arguments before and after the undecided run still line up, and are checked.
+        var edges = CdeclAbiParity.Evaluate(
+            new[] { Sig("SBW_F", Lib, "void", "i64", "i64", "i64", "i64") },
+            new[] { Sig("SBW_F", Lib, "void", "i32", "?", "i32") }, 1, NoControls);
+        Assert.Equal(2, edges.Failures.Count);
+        Assert.Contains(edges.Failures, f => f.StartsWith("WIDTH") && f.Contains("argument 0:"));
+        Assert.Contains(edges.Failures, f => f.StartsWith("WIDTH") && f.Contains("argument 2 (Swift argument 3)"));
+        Assert.Equal(2, edges.CheckedArgumentCount);
     }
 
     [Fact]

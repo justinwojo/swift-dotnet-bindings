@@ -16,6 +16,7 @@
 // emitted artifact, not a baseline, so there is nothing to reseed.
 
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Serilog;
@@ -43,14 +44,11 @@ partial class Build
         // imports carry. The main wrapper is every top-level Swift file except the SwiftUI bridge
         // (the set RunBuildAsyncWrapper compiles); the dependency wrapper is the generator's own
         // wrapper compile of dep-swift/.
-        var sources = Directory.GetFiles(BtOutputDir, "*.swift")
-            .Where(f => !f.EndsWith(".SwiftUIBridge.swift", StringComparison.Ordinal))
-            .OrderBy(f => f, StringComparer.Ordinal)
-            .Select(f => new CdeclSwiftSource(f, WrapperModule))
-            .Concat((Directory.Exists(BtOutputDir / "dep-swift")
-                    ? Directory.GetFiles(BtOutputDir / "dep-swift", "*.swift").OrderBy(f => f, StringComparer.Ordinal)
-                    : Enumerable.Empty<string>())
-                .Select(f => new CdeclSwiftSource(f, $"{DepModuleName}SwiftBindings")))
+        // wrapper compile of dep-swift/. Each leg's own wrapper file is named outright, so a leg whose
+        // sources went missing fails as "not found" instead of dropping out of the check.
+        var sources = WrapperSources(BtOutputDir, BtOutputDir / $"{ModuleName}.Wrapper.swift", WrapperModule)
+            .Concat(WrapperSources(BtOutputDir / "dep-swift", BtOutputDir / "dep-swift" / $"{DepModuleName}.Wrapper.swift",
+                $"{DepModuleName}SwiftBindings"))
             .Append(new CdeclSwiftSource(BtOutputDir / $"{ModuleName}.SwiftUIBridge.swift", BridgeModule))
             .ToList();
 
@@ -82,5 +80,13 @@ partial class Build
         }
 
         Log.Information("Cdecl ABI parity gate: PASSED");
+
+        static IEnumerable<CdeclSwiftSource> WrapperSources(string dir, string requiredWrapper, string library) =>
+            (Directory.Exists(dir) ? Directory.GetFiles(dir, "*.swift") : Array.Empty<string>())
+                .Where(f => !f.EndsWith(".SwiftUIBridge.swift", StringComparison.Ordinal))
+                .Append(requiredWrapper)
+                .Distinct(StringComparer.Ordinal)
+                .OrderBy(f => f, StringComparer.Ordinal)
+                .Select(f => new CdeclSwiftSource(f, library));
     }
 }

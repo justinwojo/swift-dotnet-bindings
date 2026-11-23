@@ -110,7 +110,7 @@ public sealed record CdeclAbiParityVerdict(
 public static class CdeclAbiParity
 {
     static readonly Regex CdeclAttribute = new(@"@_cdecl\(\s*""([^""]+)""\s*\)", RegexOptions.CultureInvariant);
-    static readonly Regex SwiftFunc = new(@"\bfunc\s+(`?[A-Za-z_][A-Za-z0-9_]*`?)", RegexOptions.CultureInvariant);
+    static readonly Regex SwiftFunc = new(@"\bfunc\s+(`?[\p{L}_][\p{L}\p{Nd}_]*`?)", RegexOptions.CultureInvariant);
     static readonly Regex ImportAttribute = new(
         @"\[\s*(?:global::)?(?:System\.Runtime\.InteropServices\.)?(LibraryImport|DllImport)(?:Attribute)?\s*\(",
         RegexOptions.CultureInvariant);
@@ -300,7 +300,7 @@ public static class CdeclAbiParity
             optional = true;
             t = t.Substring(t.IndexOf('<') + 1, t.Length - t.IndexOf('<') - 2).Trim();
         }
-        while (t.Length > 1 && t[0] == '(' && SkipBalanced(t, 0, '(', ')') == t.Length && IndexOfTopLevel(t.Substring(1, t.Length - 2), ',') < 0)
+        while (t.Length > 2 && t[0] == '(' && SkipBalanced(t, 0, '(', ')') == t.Length && IndexOfTopLevel(t.Substring(1, t.Length - 2), ',') < 0)
             t = t.Substring(1, t.Length - 2).Trim();
 
         CdeclCarrier carrier;
@@ -355,7 +355,11 @@ public static class CdeclAbiParity
             int i = SkipWhitespace(text, argsEnd);
             if (i < text.Length && text[i] == ']')
                 i++;
+            // Attribute sections may also precede the import attribute: take those since the end of
+            // the previous member.
             var declarationAttributes = new StringBuilder();
+            int previousMember = text.LastIndexOfAny(new[] { ';', '{', '}' }, Math.Max(0, attribute.Index - 1));
+            declarationAttributes.Append(text, previousMember + 1, attribute.Index - previousMember - 1);
             while (true)
             {
                 i = SkipTrivia(text, i);
@@ -452,9 +456,11 @@ public static class CdeclAbiParity
                     "VariantBool" or "I2" or "U2" => CdeclCarrier.Int(16),
                     _ => CdeclCarrier.Unknown,
                 };
-            // DllImport's default bool marshalling is the 4-byte Win32 BOOL; LibraryImport refuses
-            // an unannotated bool, so a compiled one cannot carry this shape.
-            return isDllImport ? CdeclCarrier.Int(32) : CdeclCarrier.Unknown;
+            // An unannotated bool depends on the assembly, not the declaration: with runtime
+            // marshalling (the default) DllImport passes a 4-byte Win32 BOOL and LibraryImport refuses
+            // to compile it; with runtime marshalling disabled, which generated bindings set, both
+            // pass one byte. The text alone cannot tell, so the shape is left undecided.
+            return CdeclCarrier.Unknown;
         }
         return CSharpScalars.TryGetValue(t, out var c) ? c : CdeclCarrier.Unknown;
     }
@@ -503,8 +509,29 @@ public static class CdeclAbiParity
                             $"[{Describe(pinvoke.Parameters)}], Swift reads {swift.Parameters.Count} [{Describe(swift.Parameters)}].");
                     else
                     {
+                        // An undecided argument (a struct by value) may occupy a different number of
+                        // words on each side, so the positions after it shift. The arguments before
+                        // the first undecided one and after the last one still line up: check those
+                        // from each end and skip the run in between.
                         arityUnchecked++;
-                        skippedArgs += pinvoke.Parameters.Count(p => !p.Carrier.IsDecided) + swift.Parameters.Count(p => !p.Carrier.IsDecided);
+                        int csCount = pinvoke.Parameters.Count, swCount = swift.Parameters.Count;
+                        int prefix = 0;
+                        while (prefix < Math.Min(csCount, swCount)
+                               && pinvoke.Parameters[prefix].Carrier.IsDecided && swift.Parameters[prefix].Carrier.IsDecided)
+                            prefix++;
+                        int suffix = 0;
+                        while (suffix < Math.Min(csCount, swCount) - prefix
+                               && pinvoke.Parameters[csCount - 1 - suffix].Carrier.IsDecided
+                               && swift.Parameters[swCount - 1 - suffix].Carrier.IsDecided)
+                            suffix++;
+                        var aligned = Enumerable.Range(0, prefix).Select(k => (Cs: k, Sw: k))
+                            .Concat(Enumerable.Range(0, suffix).Select(k => (Cs: csCount - 1 - k, Sw: swCount - 1 - k)));
+                        foreach (var (csIndex, swIndex) in aligned)
+                        {
+                            checkedArgs++;
+                            CompareArgument(csIndex, swIndex);
+                        }
+                        skippedArgs += csCount + swCount - 2 * (prefix + suffix);
                     }
                 }
                 else
@@ -519,11 +546,20 @@ public static class CdeclAbiParity
                             continue;
                         }
                         checkedArgs++;
-                        if (cs.Carrier != sw.Carrier)
-                            failures.Add($"{Kind(cs.Carrier, sw.Carrier)} {where} argument {i}: C# `{cs.Text}` is {cs.Carrier}, Swift `{sw.Text}` is {sw.Carrier}.");
+                        CompareArgument(i, i);
                     }
                     if (allDecided)
                         fullyChecked++;
+                }
+
+                void CompareArgument(int csIndex, int swIndex)
+                {
+                    var cs = pinvoke.Parameters[csIndex];
+                    var sw = swift.Parameters[swIndex];
+                    if (cs.Carrier != sw.Carrier)
+                        failures.Add($"{Kind(cs.Carrier, sw.Carrier)} {where} argument {csIndex}" +
+                            (csIndex == swIndex ? "" : $" (Swift argument {swIndex})") +
+                            $": C# `{cs.Text}` is {cs.Carrier}, Swift `{sw.Text}` is {sw.Carrier}.");
                 }
 
                 if (pinvoke.Return.Carrier.IsDecided && swift.Return.Carrier.IsDecided && pinvoke.Return.Carrier != swift.Return.Carrier)

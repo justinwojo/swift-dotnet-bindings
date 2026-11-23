@@ -10122,7 +10122,6 @@ public class SwiftUIBridgeEmitterTests : IDisposable
         const string create = "SBW_TestModule_ListView_Create";
         var swiftCreate = Assert.Single(swift, s => s.EntryPoint == create);
         var csCreate = Assert.Single(pinvokes, p => p.EntryPoint == create);
-        Assert.Equal(swiftCreate.Parameters.Count, csCreate.Parameters.Count);
         Assert.Equal(swiftCreate.Parameters.Select(p => p.Carrier), csCreate.Parameters.Select(p => p.Carrier));
         // The count is the natural Swift `Int` on both sides.
         Assert.Equal(CdeclCarrier.Int(64), swiftCreate.Parameters[^1].Carrier);
