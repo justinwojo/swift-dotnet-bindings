@@ -252,6 +252,31 @@ public class ReleaseIndirectResultValueTests
         Assert.True(SkippedInvalid() > before, "an enum carrier must attempt a value-witness Destroy");
     }
 
+    private struct Opaque { public long Word = 1; public Opaque() { } }
+
+    [Fact]
+    public void TupleCarrierOfCopiedElements_IsDestroyedEvenWhenItsValueEscapesTheSeam()
+    {
+        // A tuple is read element by element into copies (an enum gives only its case), so nothing
+        // in the managed tuple aliases the buffer, and what the buffer still holds is released.
+        long before = SkippedInvalid();
+
+        Assert.True(SwiftMarshal.ReleaseIndirectResultValue(FakeBuffer, typeof((CaseOnly, long)), null, valueEscapesSeam: true));
+
+        Assert.True(SkippedInvalid() > before, "a tuple of copied elements must attempt a value-witness Destroy");
+    }
+
+    [Fact]
+    public void TupleCarrierWithABitwiseReadElement_IsLeftAloneWhenItsValueEscapesTheSeam()
+    {
+        // A struct element is read bitwise, so it may alias the buffer's references.
+        long before = SkippedInvalid();
+
+        Assert.True(SwiftMarshal.ReleaseIndirectResultValue(FakeBuffer, typeof((CaseOnly, Opaque)), null, valueEscapesSeam: true));
+
+        Assert.Equal(before, SkippedInvalid());
+    }
+
     [Fact]
     public void NonSwiftCarrier_IsTreatedAsAConsumedInlineValue()
     {

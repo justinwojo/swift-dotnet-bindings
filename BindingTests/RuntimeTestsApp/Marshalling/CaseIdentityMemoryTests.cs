@@ -236,6 +236,24 @@ public class CaseIdentityMemoryTests : TestBase
         GC.KeepAlive(list);
     }
 
+    public void TestAHiddenPayloadCaseInAGenericResultIsReleased()
+    {
+        // A generic result buffer C# reads only the case out of, as T or as a tuple element of T,
+        // is destroyed with the value still in it.
+        var baseline = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
+        for (var i = 0; i < 10; i++)
+            AssertFalse(Enum.IsDefined(TestLibFunctions.PayloadShiftTrackedAs(PayloadShift.Plain)), "T result is no published case");
+        AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "T results release the payload");
+
+        for (var i = 0; i < 10; i++)
+        {
+            var (tracked, count) = TestLibFunctions.PayloadShiftTrackedAs((PayloadShift.Plain, (nint)7));
+            AssertFalse(Enum.IsDefined(tracked), $"tuple element is no published case (got {(long)tracked})");
+            AssertEqual((nint)0, count, "Swift built the tuple");
+        }
+        AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "tuple T results release the payload");
+    }
+
     public void TestHiddenPayloadEnumOptionalStorageCrosses()
     {
         using var box = new PayloadShiftBox(PayloadShift.Plain);

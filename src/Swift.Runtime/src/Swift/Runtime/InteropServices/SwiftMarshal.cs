@@ -437,14 +437,30 @@ public static class SwiftMarshal
                 return true;
 
             case PayloadConstructionSemantics.Inline:
-                // A C# enum takes only the case out of the buffer, never the value, so nothing
-                // aliases what is left there: a hidden payload case's reference is released here.
-                if (!valueEscapesSeam || carrierType.IsEnum)
+                // A C# enum takes only the case out of the buffer, never the value, and a tuple of
+                // copied elements takes copies, so nothing aliases what is left there: a hidden
+                // payload case's reference (or an element's own reference) is released here.
+                if (!valueEscapesSeam || carrierType.IsEnum || IsTupleOfCopiedElements(carrierType))
                     DestroyIfResolved(buffer, metadata);
                 return true;
 
             default:
                 return false;
+        }
+
+        // The tuple reader copies a primitive, takes only an enum's case and gives a reference
+        // element its own retain; a struct element is read bitwise and may alias the buffer.
+        static bool IsTupleOfCopiedElements(Type type)
+        {
+            if (!TypeMetadata.IsValueTupleType(type))
+                return false;
+            foreach (var element in type.GetGenericArguments())
+            {
+                if (element.IsPrimitive || element.IsEnum || !element.IsValueType || IsTupleOfCopiedElements(element))
+                    continue;
+                return false;
+            }
+            return true;
         }
 
         static void DestroyIfResolved(IntPtr buffer, TypeMetadata? metadata)

@@ -90,6 +90,12 @@ public func payloadShiftTokenRetains() -> Int { Int(_getRetainCount(payloadShift
 public func payloadShiftTrackedList() -> [PayloadShift] { [.plain, .tracked(payloadShiftToken), .other] }
 public func payloadShiftTrackedPair(_ count: Int) -> (PayloadShift, Int) { (.tracked(payloadShiftToken), count) }
 public func payloadShiftTrackedAsync(_ tracked: Bool) async -> PayloadShift { tracked ? .tracked(payloadShiftToken) : .plain }
+/// A generic result whose `T` is the enum itself, or a tuple holding it.
+public func payloadShiftTrackedAs<T>(_ fallback: T) -> T {
+    if let value = PayloadShift.tracked(payloadShiftToken) as? T { return value }
+    if let value = (PayloadShift.tracked(payloadShiftToken), 0) as? T { return value }
+    return fallback
+}
 
 public func payloadShiftName(_ value: PayloadShift) -> String {
     switch value {
