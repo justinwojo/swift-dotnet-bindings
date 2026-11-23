@@ -1516,10 +1516,20 @@ public static class DefaultParameterOverloadEmitter
                 // in C#, though Swift counts two parameters.
                 if (costByProjectedArity && siblingShape.ParameterTypes.Count != candidateShape.ParameterTypes.Count)
                     continue;
+                // The C# name of either side cannot be rebuilt here (an initializer may emit as a
+                // constructor or under a factory name), so compare the parameter types as though
+                // both took the same name. A sibling of equal arity costs the candidate unless a
+                // parameter position provably separates the two (no argument converts to both);
+                // implicit conversions can tie any other pair (`(int, long)` against `(long, int)`).
+                var candidateUnnamed = candidateShape with { Name = string.Empty };
+                var siblingUnnamed = siblingShape with { Name = string.Empty };
+                if (OverloadAmbiguityGuard.AreSeparated(candidateUnnamed.ParameterTypes, siblingUnnamed.ParameterTypes)
+                    && !OverloadAmbiguityGuard.AreAmbiguous(candidateUnnamed, siblingUnnamed))
+                    continue;
                 // Two failable factories of different names never collide (CS0111) or tie a call
                 // (CS0121). A sibling that already emitted in this walk of the type has a fixed factory
                 // name, proven by the factory key it reserved; the candidate's name is the one its key
-                // was re-keyed under. A sibling still to come keeps the conservative reading below: its
+                // was re-keyed under. A sibling still to come keeps the conservative reading: its
                 // name depends on what is reserved when it emits.
                 if (TryGetFailableFactoryName(candidateKey) is { } candidateFactoryName
                     && EmittedFactoryNameInThisWalk(sibling, ctorSiblingKey, env) is { } siblingFactoryName
@@ -1528,20 +1538,8 @@ public static class DefaultParameterOverloadEmitter
                     admittedByFactoryName = true;
                     continue;
                 }
-                // The C# name of either side cannot be rebuilt here (an initializer may emit as a
-                // constructor or under a factory name), so compare the parameter types as though
-                // both took the same name. A sibling of equal arity costs the candidate unless a
-                // parameter position provably separates the two (no argument converts to both);
-                // implicit conversions can tie any other pair (`(int, long)` against `(long, int)`).
-                var candidateUnnamed = candidateShape with { Name = string.Empty };
-                var siblingUnnamed = siblingShape with { Name = string.Empty };
-                if (!OverloadAmbiguityGuard.AreSeparated(candidateUnnamed.ParameterTypes, siblingUnnamed.ParameterTypes)
-                    || OverloadAmbiguityGuard.AreAmbiguous(candidateUnnamed, siblingUnnamed))
-                {
-                    collidingKey = ctorSiblingKey;
-                    return true;
-                }
-                continue;
+                collidingKey = ctorSiblingKey;
+                return true;
             }
 
             var siblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);

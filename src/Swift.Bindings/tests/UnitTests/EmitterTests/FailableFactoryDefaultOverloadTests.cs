@@ -79,6 +79,14 @@ public class FailableFactoryDefaultOverloadTests
             Flags = TypeRecordFlags.Frozen,
             Kind = TypeRecordKind.Struct,
         });
+        swift.RegisterType(SwiftTypeName.FromModuleQualifiedName("Swift.Bool"), new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("System", "Boolean"),
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Bool"),
+            MetadataAccessor = "$sSbMa",
+            Flags = TypeRecordFlags.Frozen,
+            Kind = TypeRecordKind.Struct,
+        });
         db.AddModuleDatabase(swift);
         var m = new ModuleTypeDatabase("M", "/tmp/M.dylib");
         var sName = SwiftTypeName.FromModuleQualifiedName("M.S");
@@ -176,7 +184,7 @@ public class FailableFactoryDefaultOverloadTests
 
     // `init?(late: Int32, file: StaticString = #fileID)`, which projects as the one-argument
     // `TryCreate(int, out S)` though Swift counts two parameters.
-    private static MethodDecl AddCallerLocationSibling(Fixture f)
+    private static void AddCallerLocationSibling(Fixture f)
     {
         var module = f.Type.ModuleDecl!;
         var late = Init("$s1M1SV4late4fileACSgs5Int32V_s12StaticStringVtcfC", f.Type, module, failable: true, ("late", false));
@@ -193,7 +201,6 @@ public class FailableFactoryDefaultOverloadTests
             ModuleDecl = module,
         });
         f.Type.Methods.Add(late);
-        return late;
     }
 
     [Fact]
@@ -219,6 +226,22 @@ public class FailableFactoryDefaultOverloadTests
         AddCallerLocationSibling(f);
 
         Assert.True(DefaultParameterOverloadEmitter.TryFindSignatureCollision(
+            f.Source, f.Trim, FactoryKey("TryCreate", f.Trim, f.Db), 1, f.Env, out _));
+    }
+
+    [Fact]
+    public void Trim_ThatASiblingsTypesSeparate_IsNotRecheckedForItsFactoryName()
+    {
+        // `init?(second: Bool)` never tied the trim's `(int)`, so its other factory name admits
+        // nothing: the trim is as old as before and keeps the Swift-arity reading, under which
+        // `init?(late:file:)` does not cost it.
+        var f = CreateFixture();
+        f.FailableSibling.CSSignature[1].SwiftTypeSpec = new NamedTypeSpec("Swift.Bool");
+        f.FailableSibling.EmittedFailableFactoryName = "TryCreateWithSecond";
+        f.Env.EmittedProjectedSignatures!.Add(FactoryKey("TryCreateWithSecond", f.FailableSibling, f.Db));
+        AddCallerLocationSibling(f);
+
+        Assert.False(DefaultParameterOverloadEmitter.TryFindSignatureCollision(
             f.Source, f.Trim, FactoryKey("TryCreate", f.Trim, f.Db), 1, f.Env, out _));
     }
 
