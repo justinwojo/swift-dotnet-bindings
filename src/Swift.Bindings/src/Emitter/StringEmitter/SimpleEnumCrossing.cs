@@ -236,6 +236,12 @@ internal static class SimpleEnumCrossing
     /// </summary>
     public static bool HasCaseCodec(SimpleEnumCaseMap? map) => map?.Cases is not null;
 
+    /// <summary>Whether <paramref name="spec"/> names a simple enum that gets a case codec.</summary>
+    public static bool HasCaseCodec(TypeSpec spec, ITypeDatabase typeDatabase)
+        => spec is NamedTypeSpec named
+           && typeDatabase.TryGetTypeRecord(named, out var record) && record is not null
+           && HasCaseCodec(GetCaseMap(record));
+
     /// <summary>The <c>@_cdecl</c> symbols of an enum's case codec, from its metadata accessor's symbol.</summary>
     public static (string Load, string Store, string LoadOptional, string StoreOptional) CaseCodecSymbols(string metadataSymbol)
     {
@@ -280,7 +286,7 @@ internal static class SimpleEnumCrossing
         swiftWriter.WriteLines(Func(symbols.StoreOptional, "_ hasValue: Swift.UInt8, _ value: Swift.Int64, _ destination: Swift.UnsafeMutableRawPointer",
             $"    if hasValue == 0 {{ destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: nil, count: 1); return 1 }}\n"
           + $"    guard let __sbCase = {toCase} else {{ return 0 }}\n"
-          + $"    destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: .some(__sbCase), count: 1)\n"
+          + $"    destination.initializeMemory(as: Swift.Optional<{typeName}>.self, repeating: __sbCase, count: 1)\n"
           + "    return 1\n"));
     }
 
@@ -358,10 +364,12 @@ internal static class SimpleEnumCrossing
         sb.Append("    switch value {\n");
         foreach (var c in cases)
         {
-            // Wrapped explicitly: in this Optional-returning helper a bare `.none` names Optional's own
-            // case, so a case called `none` would cross back as nil. `.some(.x)` resolves `x` against
-            // the enum whatever it is called (`none`, `some`, `Type`), which `E.x` cannot for `Type`.
-            var caseRef = $".some(.{NameProvider.EscapeSwiftKeyword(c.SwiftName)})";
+            // Typed as the enum before it becomes the Optional: in this Optional-returning helper a
+            // bare `.none` names Optional's own case, so a case called `none` would cross back as nil.
+            // `.x as E` resolves `x` against the enum whatever it is called (`none`, `some`, `Type`,
+            // which `E.x` cannot name), and unlike `.some(.x)` it cannot meet a library's own
+            // `Optional.some(_:)` overload constrained to the enum.
+            var caseRef = $".{NameProvider.EscapeSwiftKeyword(c.SwiftName)} as {swiftEnumType}";
             sb.Append(c.AvailableClause is null
                 ? $"    case {c.Value}: return {caseRef}\n"
                 : $"    case {c.Value}: if #available({c.AvailableClause}) {{ return {caseRef} }} else {{ return nil }}\n");

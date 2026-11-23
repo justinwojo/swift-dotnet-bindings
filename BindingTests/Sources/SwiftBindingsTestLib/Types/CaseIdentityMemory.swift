@@ -37,18 +37,18 @@ public final class CaseShiftOptionalBox {
 /// A requirement set a C# conformer implements: Swift passes CaseShift in, takes it back as a
 /// result, reads it from a property, and hands it over `inout`.
 public protocol CaseShiftResponder {
-    var current: CaseShift { get }
+    var caseShiftCurrent: CaseShift { get }
     func respond(_ value: CaseShift) -> CaseShift
     func describe(_ value: CaseShift) -> String
     func adjust(_ value: inout CaseShift)
 }
 
-/// Drives a conformer and names every case Swift saw: `current`, the result of `respond`, and
+/// Drives a conformer and names every case Swift saw: `caseShiftCurrent`, the result of `respond`, and
 /// `value` after `adjust`, each as Swift reads it.
 public func caseShiftDriveResponder(_ responder: any CaseShiftResponder, _ value: CaseShift) -> String {
     var adjusted = value
     responder.adjust(&adjusted)
-    return [caseShiftName(responder.current), caseShiftName(responder.respond(value)),
+    return [caseShiftName(responder.caseShiftCurrent), caseShiftName(responder.respond(value)),
             responder.describe(value), caseShiftName(adjusted)].joined(separator: ",")
 }
 public func caseShiftDriveResponderHidden(_ responder: any CaseShiftResponder) -> String {
@@ -74,13 +74,27 @@ public func caseShiftHolderName(_ holder: CaseShiftHolder) -> String { "\(caseSh
 /// reads the wrong bytes.
 public enum PayloadShift {
     @_spi(CaseIdentity) case named(String)
+    @_spi(CaseIdentity) case tracked(PayloadShiftToken)
     case plain
     case other
 }
 
+/// The payload of the hidden `tracked` case: one shared instance whose retain count a test reads,
+/// so a crossing that copies the hidden case out of a slot it owns, and never destroys the slot,
+/// shows as a retain left behind.
+@_spi(CaseIdentity) public final class PayloadShiftToken {
+    public init() {}
+}
+private let payloadShiftToken = PayloadShiftToken()
+public func payloadShiftTokenRetains() -> Int { Int(_getRetainCount(payloadShiftToken)) }
+public func payloadShiftTrackedList() -> [PayloadShift] { [.plain, .tracked(payloadShiftToken), .other] }
+public func payloadShiftTrackedPair(_ count: Int) -> (PayloadShift, Int) { (.tracked(payloadShiftToken), count) }
+public func payloadShiftTrackedAsync(_ tracked: Bool) async -> PayloadShift { tracked ? .tracked(payloadShiftToken) : .plain }
+
 public func payloadShiftName(_ value: PayloadShift) -> String {
     switch value {
     case .named(let text): return "named:\(text)"
+    case .tracked: return "tracked"
     case .plain: return "plain"
     case .other: return "other"
     }

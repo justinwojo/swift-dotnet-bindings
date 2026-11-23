@@ -1208,8 +1208,8 @@ public class EnumHandlerOutputTests
 
         // Swift wrapper should have tag-to-case conversion
         Assert.Contains("guard let value = __sbCaseOf_TestModule_Direction_", swiftOutput);
-        Assert.Contains("case 0: return .some(.north)", swiftOutput);
-        Assert.Contains("case 1: return .some(.south)", swiftOutput);
+        Assert.Contains("case 0: return .north as ", swiftOutput);
+        Assert.Contains("case 1: return .south as ", swiftOutput);
         Assert.Contains("value.opposite()", swiftOutput);
     }
 
@@ -5681,9 +5681,9 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("rawValue: Int32(tag))!", swiftOutput);
         // Must use switch-based reconstruction
         Assert.Contains("guard let value = __sbCaseOf_TestModule_", swiftOutput);
-        Assert.Contains("case 0: return .some(.success)", swiftOutput);
-        Assert.Contains("case 1: return .some(.authFailed)", swiftOutput);
-        Assert.Contains("case 2: return .some(.itemNotFound)", swiftOutput);
+        Assert.Contains("case 0: return .success as ", swiftOutput);
+        Assert.Contains("case 1: return .authFailed as ", swiftOutput);
+        Assert.Contains("case 2: return .itemNotFound as ", swiftOutput);
     }
 
     [Fact]
@@ -6019,7 +6019,7 @@ public class EnumHandlerOutputTests
         // only under #available.
         var toRawWrapper = swift[swift.IndexOf("SBW_TestModule_Level_ToRawValue", StringComparison.Ordinal)..];
         Assert.Contains("guard let value = __sbCaseOf_TestModule_Level_", toRawWrapper[..toRawWrapper.IndexOf("value.rawValue", StringComparison.Ordinal)]);
-        Assert.Contains("if #available(iOS 28.0, *) { return .some(.high) } else { return nil }", swift);
+        Assert.Contains("if #available(iOS 28.0, *) { return .high as ", swift);
     }
 
     [Fact]
@@ -6244,8 +6244,8 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("rawValue:", swiftOutput);
         // Should use switch-based conversion
         Assert.Contains("switch value", swiftOutput);
-        Assert.Contains("case 0: return .some(.active)", swiftOutput);
-        Assert.Contains("case 1: return .some(.inactive)", swiftOutput);
+        Assert.Contains("case 0: return .active as ", swiftOutput);
+        Assert.Contains("case 1: return .inactive as ", swiftOutput);
     }
 
     [Fact]
@@ -7134,8 +7134,8 @@ public class EnumHandlerOutputTests
         Assert.DoesNotContain("Dark = 2,", csOutput);
         Assert.Contains("case .light: return 0", swiftOutput);
         Assert.Contains("case .dark: return 1", swiftOutput);
-        Assert.Contains("case 0: return .some(.light)", swiftOutput);
-        Assert.Contains("case 1: return .some(.dark)", swiftOutput);
+        Assert.Contains("case 0: return .light as ", swiftOutput);
+        Assert.Contains("case 1: return .dark as ", swiftOutput);
         Assert.DoesNotContain("case .dark: return 2", swiftOutput);
         // The doc comment tells a consumer the members are indices, not raw values.
         Assert.Contains("declaration-order indices, not their Swift raw values", csOutput);

@@ -52,9 +52,11 @@ public class SimpleEnumCrossingTests
     {
         var definition = SimpleEnumCrossing.GetDefinition(Map(), "M.Shade");
 
-        Assert.Contains("case 0: return .some(.red)", definition);
-        Assert.Contains("case 1: return .some(.green)", definition);
-        Assert.Contains("case 2: return .some(.blue)", definition);
+        Assert.Contains("case 0: return .red as M.Shade", definition);
+        Assert.Contains("case 1: return .green as M.Shade", definition);
+        Assert.Contains("case 2: return .blue as M.Shade", definition);
+        // Never through `.some(_:)`, which a library may overload on Optional for its own enum.
+        Assert.DoesNotContain(".some(", definition);
         Assert.Contains("case .red: return 0", definition);
         Assert.Contains("case .green: return 1", definition);
         Assert.Contains("case .blue: return 2", definition);
@@ -115,7 +117,7 @@ public class SimpleEnumCrossingTests
         Assert.Contains("__sbCaseOf_", code);
         Assert.Contains("destination.initializeMemory(as: M.Shade.self, repeating: __sbCase, count: 1)", code);
         Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: nil, count: 1)", code);
-        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: .some(__sbCase), count: 1)", code);
+        Assert.Contains("destination.initializeMemory(as: Swift.Optional<M.Shade>.self, repeating: __sbCase, count: 1)", code);
         Assert.Contains("source.assumingMemoryBound(to: Swift.Optional<M.Shade>.self).pointee", code);
         // A constant that names no case is refused with nothing written.
         Assert.Contains("else { return 0 }", code);
@@ -174,13 +176,13 @@ public class SimpleEnumCrossingTests
         typeDatabase.AddModuleDatabase(module);
 
         var optionalShade = new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec("M.Shade") });
-        var store = MethodWrapperEmitter.RenderIndirectResultStore(optionalShade, typeDatabase, "result");
+        var store = MethodWrapperEmitter.RenderIndirectResultStore(optionalShade, "result");
         Assert.Contains("resultPtr.initializeMemory(as:", store);
         Assert.DoesNotContain("storeBytes", store);
         Assert.NotNull(SimpleEnumCrossing.GetOptionalCodecMap(optionalShade, typeDatabase));
 
         var optionalInt = new NamedTypeSpec("Swift.Optional", new TypeSpec[] { new NamedTypeSpec("Swift.Int") });
-        Assert.Contains("resultPtr.initializeMemory(as:", MethodWrapperEmitter.RenderIndirectResultStore(optionalInt, typeDatabase, "result"));
+        Assert.Contains("resultPtr.initializeMemory(as:", MethodWrapperEmitter.RenderIndirectResultStore(optionalInt, "result"));
         Assert.Null(SimpleEnumCrossing.GetOptionalCodecMap(optionalInt, typeDatabase));
         Assert.Null(SimpleEnumCrossing.GetOptionalCodecMap(new NamedTypeSpec("M.Shade"), typeDatabase));
     }
@@ -215,7 +217,7 @@ public class SimpleEnumCrossingTests
         }, slots: 2);
         var definition = SimpleEnumCrossing.GetDefinition(map, "M.Staged");
 
-        Assert.Contains("case 1: if #available(iOS 99, *) { return .some(.new) } else { return nil }", definition);
+        Assert.Contains("case 1: if #available(iOS 99, *) { return .new as M.Staged } else { return nil }", definition);
         // Matching the case needs no availability check.
         Assert.Contains("case .new: return 1", definition);
     }
@@ -233,7 +235,7 @@ public class SimpleEnumCrossingTests
     {
         var map = Map(cases: new[] { new SimpleEnumCrossingCase("default", 0, null), new SimpleEnumCrossingCase("in", 1, null) }, slots: 2);
         var definition = SimpleEnumCrossing.GetDefinition(map, "M.Word");
-        Assert.Contains("return .some(.`default`)", definition);
+        Assert.Contains("return .`default` as M.Word", definition);
         Assert.Contains("case .`in`: return 1", definition);
     }
 
@@ -249,10 +251,10 @@ public class SimpleEnumCrossingTests
             new SimpleEnumCrossingCase("Type", 2, null),
         }, slots: 3);
         var definition = SimpleEnumCrossing.GetDefinition(map, "M.Access");
-        Assert.Contains("case 0: return .some(.none)", definition);
-        Assert.Contains("case 1: return .some(.some)", definition);
-        Assert.Contains("case 2: return .some(.Type)", definition);
-        Assert.DoesNotContain("return .none", definition);
+        Assert.Contains("case 0: return .none as M.Access", definition);
+        Assert.Contains("case 1: return .some as M.Access", definition);
+        Assert.Contains("case 2: return .Type as M.Access", definition);
+        Assert.DoesNotContain("return .none\n", definition);
     }
 
     [Fact]

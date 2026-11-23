@@ -1285,12 +1285,13 @@ namespace BindingsGeneration
                 var pinvokeType = GetPInvokeTypeForTupleElement(element);
                 var offsetExpr = $"(nint)_tupleMetaPtr->GetElementOffset({i})";
 
-                if (IsCaseCodecEnum(element))
+                if (SimpleEnumCrossing.HasCaseCodec(element, _env.TypeDatabase))
                 {
                     // A simple enum crossing by case identity: its slot holds the binary's tag,
-                    // not the C# constant, so read the case through the enum's case codec.
+                    // not the C# constant, so read the case through the enum's case codec, as a
+                    // move: the slot is ours, and a hidden payload case in it holds a reference.
                     var enumType = GetCSharpTypeForTupleElement(element);
-                    csWriter.WriteLine($"var {rawName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{enumType}>((IntPtr)((byte*){resultExpr} + {offsetExpr}));");
+                    csWriter.WriteLine($"var {rawName} = global::Swift.Runtime.InteropServices.SwiftMarshal.MarshalMovedValueFromSlot<{enumType}>((byte*){resultExpr} + {offsetExpr}, global::Swift.Runtime.TypeMetadata.GetTypeMetadataOrThrow<{enumType}>());");
                 }
                 else if (pinvokeType == "IntPtr" && IsTupleElementInlineValue(element))
                 {
@@ -1349,12 +1350,6 @@ namespace BindingsGeneration
         /// Whether a tuple element is a simple enum crossing by case identity, which the runtime
         /// reads from Swift memory through the enum's case codec rather than as its tag.
         /// </summary>
-        private bool IsCaseCodecEnum(TypeSpec element)
-            => element is NamedTypeSpec named
-               && _env.TypeDatabase.TryGetTypeRecord(named, out var record) && record is not null
-               && record.Kind == TypeRecordKind.Enum && record.Flags.HasFlag(TypeRecordFlags.SimpleEnum)
-               && SimpleEnumCrossing.HasCaseCodec(SimpleEnumCrossing.GetCaseMap(record));
-
         /// <summary>
         /// Gets the P/Invoke type for a tuple element.
         /// </summary>

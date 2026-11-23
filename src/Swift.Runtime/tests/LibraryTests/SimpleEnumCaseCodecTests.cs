@@ -26,6 +26,11 @@ public class SimpleEnumCaseCodecTests
         Second = 1,
     }
 
+    private enum Unsized : int
+    {
+        Only = 0,
+    }
+
     private sealed unsafe class ShiftedCodec : ISimpleEnumCaseCodec
     {
         public long Load(IntPtr source) => *(int*)source - TagShift;
@@ -67,6 +72,7 @@ public class SimpleEnumCaseCodecTests
         if (TypeMetadata.TryGetTypeMetadata<int>(out var intMd))
             TypeMetadata.RegisterMetadata(typeof(Coded), intMd.Value);
         SimpleEnumCaseCodecs.Register(typeof(Coded), new ShiftedCodec());
+        SimpleEnumCaseCodecs.Register(typeof(Unsized), new ShiftedCodec());
     }
 
     [Fact]
@@ -140,6 +146,25 @@ public class SimpleEnumCaseCodecTests
                 var again = new Span<byte>(memory, 8);
                 SwiftMarshal.MarshalToSwift((Coded)7, ref again);
             });
+        }
+        finally
+        {
+            NativeMemory.Free(memory);
+        }
+    }
+
+    [Fact]
+    public unsafe void EnumValueWithACodecButNoMetadata_IsRefusedBeforeAnyWrite()
+    {
+        var memory = (byte*)NativeMemory.AllocZeroed(1);
+        try
+        {
+            Assert.Throws<InvalidOperationException>(() =>
+            {
+                var span = new Span<byte>(memory, 1);
+                SwiftMarshal.MarshalToSwift(Unsized.Only, ref span);
+            });
+            Assert.Equal(0, memory[0]);
         }
         finally
         {

@@ -140,9 +140,9 @@ public class CaseIdentityMemoryTests : TestBase
 
     private sealed class Responder : ICaseShiftResponder
     {
-        public CaseShift Current { get; init; }
+        public CaseShift CaseShiftCurrent { get; init; }
         public List<CaseShift> Received { get; } = new();
-        public CaseShift Respond(CaseShift value) { Received.Add(value); return Current; }
+        public CaseShift Respond(CaseShift value) { Received.Add(value); return CaseShiftCurrent; }
         public string Describe(CaseShift value) { Received.Add(value); return $"saw:{(int)value}"; }
         public void Adjust(ref CaseShift value) { Received.Add(value); value = CaseShift.Second; }
     }
@@ -150,15 +150,15 @@ public class CaseIdentityMemoryTests : TestBase
     public void TestAConformerReceivesAndReturnsCases()
     {
         var hidden = TestLibFunctions.GetCaseShiftHidden();
-        var responder = new Responder { Current = CaseShift.First };
-        // Swift reads `current`, `respond`'s result and `adjust`'s inout value from the conformer.
+        var responder = new Responder { CaseShiftCurrent = CaseShift.First };
+        // Swift reads `caseShiftCurrent`, `respond`'s result and `adjust`'s inout value from the conformer.
         var seen = TestLibFunctions.CaseShiftDriveResponder(new CaseShiftResponderProxy(responder), CaseShift.First);
         AssertEqual("first,first,saw:0,second", seen, "Swift saw First, First, the described First and the adjusted Second");
         AssertEqual(3, responder.Received.Count, "three requirements received a value");
         AssertTrue(responder.Received.All(v => v == CaseShift.First),
             $"every requirement received First (got {string.Join(",", responder.Received.Select(v => (int)v))})");
 
-        var hiddenResponder = new Responder { Current = hidden };
+        var hiddenResponder = new Responder { CaseShiftCurrent = hidden };
         var seenHidden = TestLibFunctions.CaseShiftDriveResponderHidden(new CaseShiftResponderProxy(hiddenResponder));
         AssertEqual($"hidden,hidden,saw:{(int)hidden},second", seenHidden, "Swift saw the hidden case come back");
         AssertTrue(hiddenResponder.Received.All(v => v == hidden),
@@ -204,6 +204,32 @@ public class CaseIdentityMemoryTests : TestBase
             var named = TestLibFunctions.GetPayloadShiftOptionalNamed();
             AssertTrue(named.HasValue && !Enum.IsDefined(named.Value), "the optional hidden case is a value but no published case");
         }
+    }
+
+    public async Task TestAHiddenPayloadCaseMovedOutOfSwiftMemoryIsReleased()
+    {
+        // Each of these results is a slot C# owns: it reads the case, and must then destroy the
+        // slot, or the hidden case's class payload keeps one retain per read.
+        var baseline = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
+        for (var i = 0; i < 10; i++)
+        {
+            var (tracked, count) = TestLibFunctions.PayloadShiftTrackedPair(i);
+            AssertFalse(Enum.IsDefined(tracked), $"tuple element is no published case (got {(long)tracked})");
+            AssertEqual((nint)i, count, "tuple count");
+        }
+        AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "tuple reads release the payload");
+
+        for (var i = 0; i < 10; i++)
+            AssertFalse(Enum.IsDefined(await TestLibFunctions.PayloadShiftTrackedAsync(true)), "async result is no published case");
+        AssertEqual(baseline, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "async results release the payload");
+
+        var list = TestLibFunctions.GetPayloadShiftTrackedList();
+        var withList = (long)TestLibFunctions.GetPayloadShiftTokenRetains();
+        for (var i = 0; i < 10; i++)
+            AssertFalse(Enum.IsDefined(list[1]), "element 1 is no published case");
+        AssertEqual(PayloadShift.Other, list[2], "element 2 is Other");
+        AssertEqual(withList, (long)TestLibFunctions.GetPayloadShiftTokenRetains(), "element reads release the payload");
+        GC.KeepAlive(list);
     }
 
     public void TestHiddenPayloadEnumOptionalStorageCrosses()

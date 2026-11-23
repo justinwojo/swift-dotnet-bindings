@@ -601,6 +601,15 @@ public static class SwiftMarshal
             return moved;
         }
 
+        // A C# enum reads only the case, so a slot whose value holds a reference (a case-identity
+        // enum whose binary hides a payload case) still owns it after the read and is destroyed here.
+        if (typeof(T).IsEnum && metadata.IsValid && metadata.ValueWitnessTable->IsNonPOD)
+        {
+            T value = MarshalFromSwift<T>((IntPtr)slot);
+            metadata.ValueWitnessTable->Destroy(slot, metadata);
+            return value;
+        }
+
         return MarshalFromSwift<T>((IntPtr)slot);
     }
 
@@ -1616,9 +1625,11 @@ public static class SwiftMarshal
         // the case in place, at the width Swift stores it.
         if (type.IsEnum && SimpleEnumCaseCodecs.TryGet(type, out var enumCodec))
         {
-            int swiftSize = TypeMetadata.TryGetTypeMetadata<T>(out var codecMd) && codecMd.Value.IsValid
-                ? (int)codecMd.Value.Size
-                : swiftDestSpan.Length;
+            // The codec writes Swift's full layout, so the span is checked against the metadata's
+            // size; with no metadata there is no size to check, and nothing is written.
+            if (!TypeMetadata.TryGetTypeMetadata<T>(out var codecMd) || !codecMd.Value.IsValid)
+                throw new InvalidOperationException($"{type.Name} has a case codec but no Swift type metadata, so its size in Swift memory is unknown.");
+            int swiftSize = (int)codecMd.Value.Size;
             if (swiftSize > swiftDestSpan.Length)
                 throw new ArgumentException($"Span size does not match type size, Expected: {swiftSize}, Actual: {swiftDestSpan.Length}");
             unsafe
