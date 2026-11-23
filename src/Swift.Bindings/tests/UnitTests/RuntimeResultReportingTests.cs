@@ -19,7 +19,7 @@ public class RuntimeResultReportingTests
 {
     private delegate string Reporter(string directory, int verdict, string[] attempts, bool throwAtBoundary,
         bool permissive, string framework = "net10.0", bool coreClr = false, string output = "",
-        string platform = "Simulator");
+        string platform = "Simulator", bool harnessStallProbe = false, string stacksFile = null);
     private static readonly Lazy<Reporter> Report = new(CompileReporter);
     private const string CoreClrBanner = "Runtime flavor: IsMonoRuntime=False, IsNativeAotRuntime=False, " +
         "Framework=.NETCoreApp,Version=v11.0, Runtime=.NET 11";
@@ -32,8 +32,8 @@ public class RuntimeResultReportingTests
     [InlineData(TestResult.Failure, true, "Runtime tests failed (Simulator)")]
     [InlineData(TestResult.Crash, false, "Runtime tests crashed (Simulator)")]
     [InlineData(TestResult.Crash, true, "Runtime tests crashed (Simulator)")]
-    [InlineData(TestResult.Timeout, false, "Runtime tests timed out (Simulator)")]
-    [InlineData(TestResult.Timeout, true, "Runtime tests timed out (Simulator)")]
+    [InlineData(TestResult.Timeout, false, "Runtime tests timed out (Simulator); no hung-process stacks were taken")]
+    [InlineData(TestResult.Timeout, true, "Runtime tests timed out (Simulator); no hung-process stacks were taken")]
     [InlineData(TestResult.LaunchFailure, false, "Runtime tests launch failure (Simulator)")]
     public void NonSuccess_NeverComparesOrWritesBaselines(TestResult verdict, bool complete, string message)
     {
@@ -166,6 +166,52 @@ public class RuntimeResultReportingTests
         });
     }
 
+    [Theory]
+    [InlineData(TestResult.Timeout, "/attempts/00/hung-stacks-1.txt",
+        "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured): /attempts/00/hung-stacks-1.txt")]
+    [InlineData(TestResult.Crash, "/attempts/00/hung-stacks-1.txt",
+        "Runtime tests crashed (Simulator); hung-process stacks (App, pid 42; #1 captured): /attempts/00/hung-stacks-1.txt")]
+    [InlineData(TestResult.Crash, null, "Runtime tests crashed (Simulator)")]
+    public void StalledLaunch_NamesItsStacksInTheFailure(TestResult verdict, string stacksFile, string message)
+    {
+        foreach (var throwAtBoundary in new[] { false, true })
+            InScratch(directory =>
+            {
+                Assert.Equal(message, Report.Value(directory, (int)verdict, new[] { Prefix }, throwAtBoundary, false,
+                    stacksFile: stacksFile));
+                foreach (var name in BaselineNames)
+                    Assert.Equal("original", File.ReadAllText(Path.Combine(directory, name)));
+            });
+    }
+
+    // The stall probe proves the capture only through a stall: a run that passed (every test of
+    // the filtered class skipped), failed or crashed instead fails as an unexercised probe.
+    [Theory]
+    [InlineData(TestResult.Success, true)]
+    [InlineData(TestResult.Failure, false)]
+    [InlineData(TestResult.Crash, false)]
+    [InlineData(TestResult.LaunchFailure, false)]
+    public void HarnessStallProbe_FailsUnlessTheRunStalled(TestResult verdict, bool complete)
+    {
+        foreach (var throwAtBoundary in new[] { false, true })
+            InScratch(directory =>
+            {
+                var message = Report.Value(directory, (int)verdict, new[] { complete ? Complete : Prefix },
+                    throwAtBoundary, false, harnessStallProbe: true);
+                Assert.StartsWith("--harness-stall-probe: the Simulator run ended as ", message);
+                Assert.Contains("not as a stall", message);
+                foreach (var name in BaselineNames)
+                    Assert.Equal("original", File.ReadAllText(Path.Combine(directory, name)));
+            });
+    }
+
+    [Fact]
+    public void HarnessStallProbe_StallKeepsTheTimeoutFailure()
+        => InScratch(directory => Assert.Equal(
+            "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured): /s.txt",
+            Report.Value(directory, (int)TestResult.Timeout, new[] { Prefix }, false, false,
+                harnessStallProbe: true, stacksFile: "/s.txt")));
+
     private static readonly string[] BaselineNames = { "validation-baseline.json", "runtime-identity-baseline.json" };
 
     private static void AssertNoComparison(TestResult result, string[] jsonl, string expectedMessage)
@@ -211,6 +257,7 @@ public class RuntimeResultReportingTests
             public class ReporterFixture {
                 bool AbiGrid => false;
                 bool Permissive;
+                bool HarnessStallProbe;
                 bool MonoAot => false;
                 RuntimeTestLane RuntimeLane = RuntimeTestLane.Create(null, null, null, false, false, false);
                 string BtFramework => RuntimeLane.Framework;
@@ -230,8 +277,10 @@ public class RuntimeResultReportingTests
                 {{assertLiveLane}}
                 {{production}}
                 public static string Run(string directory, int verdict, string[]? attempts, bool throwAtBoundary,
-                    bool permissive, string framework, bool coreClr, string output, string platform) {
+                    bool permissive, string framework, bool coreClr, string output, string platform,
+                    bool harnessStallProbe, string? stacksFile) {
                     var fixture = new ReporterFixture {
+                        HarnessStallProbe = harnessStallProbe,
                         directory = directory, throwAtBoundary = throwAtBoundary, Permissive = permissive,
                         RuntimeLane = RuntimeTestLane.Create(framework, null, null, coreClr,
                             platform.StartsWith("Device/", StringComparison.Ordinal), false)
@@ -242,14 +291,18 @@ public class RuntimeResultReportingTests
                         foreach (var jsonl in attempts) merged.Merge(JsonlTestResults.Parse(jsonl));
                     }
                     try {
-                        fixture.ReportRuntimeTestResult(new LaunchResult((TestResult)verdict, output, null, null), platform, merged);
+                        var stacks = stacksFile == null ? null
+                            : new HungProcessStacks("App", 42, new[] { new StackSample(1, DateTimeOffset.Now, TimeSpan.Zero,
+                                "lldb", HungProcessSampler.OutcomeCaptured, "thread #1") }) { Files = new[] { stacksFile } };
+                        fixture.ReportRuntimeTestResult(new LaunchResult((TestResult)verdict, output, null, null,
+                            HungStacks: stacks), platform, merged);
                         return "";
                     } catch (Exception error) { return error.Message; }
                 }
             }
             """;
         var trees = new[] { "TestResult.cs", "JsonlTestResults.cs", "TestClassInventory.cs",
-            "RuntimeTestLane.cs", "DeviceRuntimeFlavorGate.cs", "LaunchDiagnostics.cs" }
+            "RuntimeTestLane.cs", "DeviceRuntimeFlavorGate.cs", "LaunchDiagnostics.cs", "HungProcessStacks.cs" }
             .Select(name => CSharpSyntaxTree.ParseText(File.ReadAllText(Path.Combine(root, "build", "Models", name))))
             .Append(CSharpSyntaxTree.ParseText(fixture));
         var references = ((string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES"))
