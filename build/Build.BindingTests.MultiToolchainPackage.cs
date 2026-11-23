@@ -89,6 +89,9 @@ partial class Build
 
     Target MultiToolchainPackageTests => _ => _
         .Description("Test the multi-toolchain package gate's package doctoring and evidence readers without a toolchain.")
+        // Ordering only: Nuke --strict rejects every plan while two standalone sinks are co-equal
+        // ("Incomplete target definition order"), and this one and SwiftTransitionGate were.
+        .After(SwiftTransitionGate)
         .Executes(() => ProcessTasks.StartProcess("python3",
             $"-B \"{RootDirectory / "build/scripts/test_multi_toolchain_package.py"}\" -v",
             workingDirectory: RootDirectory).AssertZeroExitCode());

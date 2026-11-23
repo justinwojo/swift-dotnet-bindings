@@ -1998,10 +1998,12 @@ done; true"
     only members the wrapper lacks. Without ForceLoad, one case still copies a member into both
     images: the bridge calls an archive function nothing in the wrapper calls, and that member
     reaches a hidden (non-exported) symbol of a member the wrapper carries. Set ForceLoad when a
-    SwiftUI view calls into the archive directly. The app's own NativeReference
-    to the dependency is unchanged: the app executable references nothing in the archive (the
-    wrapper does), so a full copy there would be an unused second copy whose static initializers
-    register into a second registry.
+    SwiftUI view calls an exported archive function directly; a hidden one it calls is not
+    reachable through the wrapper, so its member is copied into the bridge either way.
+
+    The app's own NativeReference to the dependency is unchanged: the app executable references
+    nothing in the archive (the wrapper does), so a full copy there would be an unused second copy
+    whose static initializers register into a second registry.
 
     Values: "true" or "false" (any case, and MSBuild's other boolean spellings such as "yes" and
     "no"); absent or empty means false. Any other value is SWIFTBIND141. A dependency it cannot
