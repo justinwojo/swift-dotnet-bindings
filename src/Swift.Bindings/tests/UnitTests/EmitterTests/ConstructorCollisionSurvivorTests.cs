@@ -106,15 +106,16 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         // both closures as one type, though, so moving that member ahead of init(value: () -> ()) would
         // drop the latter, a constructor with a C# signature of its own. The reorder is refused and
         // the declared order decides, as it did before any sort. The outsider can also carry a trailing
-        // parameter this validation rejects, which the loop can drop when it has a default, so a label
-        // prefix of a constructor outside the family blocks the move as well.
+        // defaulted parameter this validation rejects, which the loop can drop to emit the constructor
+        // without it, so a label prefix of a constructor outside the family blocks the move as well. (A
+        // required trailing parameter cannot be dropped and blocks nothing; see the next test.)
         const string oldSymbol = "$s8Survivor5ScoreV11selectedKey3oldACSS_ySictcfC";
         const string plainSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_yyctcfC";
         const string intSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_ySictcfC";
         var legacy = Init("old", deprecated: true, Closure("(Swift.Int)->()"), oldSymbol);
         var plain = Init("value", deprecated: false, Closure("()->()"), plainSymbol);
         if (outsiderHasTrailingParameter)
-            plain.CSSignature.Add(TestDecls.Param("edges", new NamedTypeSpec("Remap.Unbound")));
+            plain.CSSignature.Add(TestDecls.Param("edges", new NamedTypeSpec("Remap.Unbound"), hasDefault: true));
         var withInt = Init("value", deprecated: false, Closure("(Swift.Int)->()"), intSymbol);
 
         var (_, csharp) = Emit(new[] { legacy, plain, withInt });
@@ -123,6 +124,30 @@ public sealed class ConstructorCollisionSurvivorTests : IDisposable
         Assert.DoesNotContain(intSymbol, csharp);
         if (!outsiderHasTrailingParameter)
             Assert.Contains($"EntryPoint = \"{plainSymbol}\"", csharp);
+    }
+
+    [Fact]
+    public void ARequiredTrailingParameterOutsideTheFamilyDoesNotBlockTheReorder()
+    {
+        // init(selectedKey:value:required:) shares the preferred member's labels only as a prefix, and
+        // its trailing parameter has no default, so the loop can never emit it as init(selectedKey:value:)
+        // and it cannot take that member's primary key. The family still reorders: the current
+        // init(value:) keeps the constructor and the deprecated init(old:) is dropped.
+        const string oldSymbol = "$s8Survivor5ScoreV11selectedKey3oldACSS_ySictcfC";
+        const string intSymbol = "$s8Survivor5ScoreV11selectedKey5valueACSS_ySictcfC";
+        const string requiredSymbol = "$s8Survivor5ScoreV11selectedKey5value8requiredACSS_SiSbtcfC";
+        var legacy = Init("old", deprecated: true, Closure("(Swift.Int)->()"), oldSymbol);
+        var withRequired = Init("value", deprecated: false, symbol: requiredSymbol);
+        withRequired.CSSignature.Add(TestDecls.Param("required", new NamedTypeSpec("Swift.Bool")));
+        var withInt = Init("value", deprecated: false, Closure("(Swift.Int)->()"), intSymbol);
+
+        var (report, csharp) = Emit(new[] { legacy, withRequired, withInt });
+
+        Assert.Contains($"EntryPoint = \"{intSymbol}\"", csharp);
+        Assert.Contains($"EntryPoint = \"{requiredSymbol}\"", csharp);
+        Assert.DoesNotContain(oldSymbol, csharp);
+        var dropped = Assert.Single(report.SkippedItems, i => i.Reason == SkipReason.DuplicateSignature);
+        Assert.Contains("old", dropped.DeclId);
     }
 
     [Fact]
