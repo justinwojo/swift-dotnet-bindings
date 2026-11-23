@@ -165,7 +165,7 @@ public class CliOptions
                      "instead of only the members the wrapper references. Repeatable. Use it for a library-type " +
                      "xcframework (each slice a bare .a) whose components register themselves from static " +
                      "initializers. Refused (SWIFTBIND142) for a framework-type or dynamic dependency. Applies to the " +
-                     "wrapper link only: a SwiftUI bridge resolves the archive through the wrapper.")
+                     "wrapper link only: a SwiftUI bridge links against the wrapper ahead of the archive and binds to its copy.")
     { AllowMultipleArgumentsPerToken = false };
 
     public Option<string[]> ModuleDatabase { get; } = new(

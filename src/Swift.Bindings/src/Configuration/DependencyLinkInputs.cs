@@ -412,7 +412,7 @@ namespace BindingsGeneration
             }
         }
 
-        internal static bool IsStaticArchive(string path)
+        private static bool IsStaticArchive(string path)
         {
             try
             {

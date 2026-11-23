@@ -722,8 +722,8 @@ namespace BindingsGeneration.Tests
         public void ForceLoadDependencyAndSystemLinks_ReachTheWrapperAndBridgeLinks(string target, string mode)
         {
             // The wrapper link copies a library-type dependency's archive members, so it takes the flag,
-            // and only for the dependency that asked for it. The bridge resolves the archive through the
-            // wrapper and copies none of it, so ForceLoad never reaches its link: a full copy there would
+            // and only for the dependency that asked for it. The bridge links the wrapper ahead of the
+            // archive and binds to its copy, so ForceLoad never reaches its link: a full copy there would
             // run every static initializer a second time. Both links take the declared system frameworks
             // and libraries, for their own code.
             SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");

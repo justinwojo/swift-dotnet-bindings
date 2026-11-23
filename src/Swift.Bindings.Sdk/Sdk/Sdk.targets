@@ -1993,8 +1993,9 @@ done; true"
 
     It takes effect on the wrapper link (swiftc, or clang for a thunk-only wrapper), the one image
     that carries the archive's code. The SwiftUI bridge is a second image of the same binding: it
-    links against the wrapper and resolves the archive (and a static bound framework) through it,
-    so it never copies any of the archive, with or without ForceLoad. The app's own NativeReference
+    links against the wrapper ahead of the archive, so everything the wrapper carries (all of the
+    archive with ForceLoad, and a static bound framework) binds to the wrapper, and the bridge takes
+    only members the wrapper lacks, which have no other copy. The app's own NativeReference
     to the dependency is unchanged: the app executable references nothing in the archive (the
     wrapper does), so a full copy there would be an unused second copy whose static initializers
     register into a second registry.
@@ -3491,8 +3492,8 @@ done; true"
            Duplicates between the two lists are harmless extra -F flags. -->
       <_SwiftBridgeCmd Condition="'@(_ResolvedDepXCFramework)' != ''">$(_SwiftBridgeCmd) @(_ResolvedDepXCFramework->Distinct()->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftFrameworkDependency)' != ''">$(_SwiftBridgeCmd) @(SwiftFrameworkDependency->' --framework-dependency "%(Identity)"', '')</_SwiftBridgeCmd>
-      <!-- No ForceLoad here: the bridge resolves a static library dependency's archive (and a static
-           bound framework) through the wrapper, which carries it, instead of linking a second copy.
+      <!-- No ForceLoad here: the bridge links against the wrapper ahead of a static library dependency's
+           archive, so it binds to the wrapper's copy instead of linking a second one.
            The system frameworks and libraries the wrapper link declares, for the bridge's own code. -->
       <_SwiftBridgeCmd Condition="'@(SwiftLinkFramework)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkFramework->' --link-framework "%(Identity)"', '')</_SwiftBridgeCmd>
       <_SwiftBridgeCmd Condition="'@(SwiftLinkLibrary)' != ''">$(_SwiftBridgeCmd) @(SwiftLinkLibrary->' --link-library "%(Identity)"', '')</_SwiftBridgeCmd>

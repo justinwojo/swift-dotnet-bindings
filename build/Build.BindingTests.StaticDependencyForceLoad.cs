@@ -256,10 +256,10 @@ partial class Build
             : $"the app reported '{banner}', expected {(nativeAotLane ? "NativeAOT" : "Mono")}.";
     }
 
-    // Reads the app's REGISTERED, REGISTRATIONS and BRIDGE_IMAGE lines and checks the runtime half of
-    // the one-copy rule: the bridge image was loaded when the counts were read, no Objective-C class
-    // was reported implemented in two images, and each component registered once with ForceLoad and
-    // never without it.
+    // Reads the app's REGISTERED and REGISTRATIONS lines and checks the runtime half of the one-copy
+    // rule (the app loads the bridge before it counts, and a failed load fails the app): no Objective-C
+    // class was reported implemented in two images, and each component registered once with ForceLoad
+    // and never without it.
     static (string Registered, string Registrations) ParseForceLoadOutput(
         string output, string label, bool forceLoad, List<string> failures)
     {
@@ -276,9 +276,6 @@ partial class Build
 
         var registered = Sorted(Bracketed("REGISTERED:["));
         var registrations = Sorted(Bracketed("REGISTRATIONS:["));
-        var bridgeImage = Bracketed("BRIDGE_IMAGE:[");
-        if (bridgeImage.Length == 0)
-            failures.Add("the SwiftUI bridge image was not loaded when the registrations were counted, so a second copy could not have shown.");
         if (output.Contains("implemented in both", StringComparison.OrdinalIgnoreCase))
             failures.Add($"the Objective-C runtime reported a class implemented in two images: the archive's {ForceLoadObjCClass} was linked into more than one image.");
         var counts = registrations.Split(',', StringSplitOptions.RemoveEmptyEntries)
@@ -592,10 +589,6 @@ partial class Build
             {
                 [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.dylib")]
                 public static extern IntPtr getenv(IntPtr name);
-                [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.dylib")]
-                public static extern uint _dyld_image_count();
-                [System.Runtime.InteropServices.DllImport("/usr/lib/libSystem.dylib")]
-                public static extern IntPtr _dyld_get_image_name(uint index);
 
                 public static string? GetEnvironment(string name)
                 {
@@ -645,14 +638,6 @@ partial class Build
                                 counts.Add(component + "=" + value);
                         }
                         Console.WriteLine("REGISTRATIONS:[" + string.Join(",", counts) + "]");
-                        var bridgeImage = "";
-                        for (uint i = 0, n = Native._dyld_image_count(); i < n; i++)
-                        {
-                            var name = System.Runtime.InteropServices.Marshal.PtrToStringUTF8(Native._dyld_get_image_name(i)) ?? "";
-                            if (name.EndsWith("/{{ForceLoadModule}}Bridge.framework/{{ForceLoadModule}}Bridge", StringComparison.Ordinal))
-                                bridgeImage = name;
-                        }
-                        Console.WriteLine("BRIDGE_IMAGE:[" + bridgeImage + "]");
                         Console.WriteLine("RESULTS FLUSHED");
                         Console.WriteLine("TEST SUCCESS");
                     }

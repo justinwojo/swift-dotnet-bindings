@@ -1224,9 +1224,9 @@ namespace BindingsGeneration
         /// Decides whether a bridge slice must resolve static code through the wrapper, and finds the
         /// wrapper slice it links. A static bound framework is force-loaded into the wrapper, its sole
         /// carrier, and a library-type dependency's static archive is linked into the wrapper; the bridge
-        /// is a second image in the same app, so linking either again there would put a second copy of
-        /// the code in the process: static initializers that run twice into separate state, and every
-        /// Objective-C class registered twice. Returns null when neither is static (a dynamic bound
+        /// is a second image in the same app, so linking either again ahead of the wrapper would put a
+        /// second copy of the code in the process: static initializers that run twice into separate
+        /// state, and every Objective-C class registered twice. Returns null when neither is static (a dynamic bound
         /// framework is its own image, and the bridge links it as it always has). Throws when static code
         /// is involved but no wrapper slice for <paramref name="slice"/> exists in
         /// <paramref name="outputDirectory"/>: the bridge cannot link without it, and linking the static
@@ -2027,12 +2027,8 @@ namespace BindingsGeneration
             // A library-type dependency slice (a bare .a or .dylib, not a .framework) has nothing a -F can
             // find, so its binary goes on the link line by path (DependencyLinkInputs), or in full with
             // -force_load when the dependency asks for it (ForceLoad).
-            // A link that reaches static code through the wrapper (a SwiftUI bridge, staticCodeThroughWrapper)
-            // takes no static archive: the wrapper carries it, and a copy here would be a second one.
             foreach (var library in DependencyLinkInputs.CollectLibraryLinkInputs(dependencyScanPaths, forceLoadDependencies))
             {
-                if (staticCodeThroughWrapper != null && DependencyLinkInputs.IsStaticArchive(library.Binary))
-                    continue;
                 transitiveFrameworkLinkerFlags.Append(library.ForceLoad
                     ? $"-Xlinker -force_load -Xlinker \"{library.Binary}\" "
                     : $"-Xlinker \"{library.Binary}\" ");
@@ -2116,10 +2112,7 @@ namespace BindingsGeneration
             }
             // The system frameworks and libraries a static dependency archive's module map declares: the
             // autolinking clang would have done had the wrapper imported that module (DependencyLinkInputs).
-            // A link that takes no static archive needs none of their system links either.
-            var dependencyAutolinks = staticCodeThroughWrapper != null
-                ? DependencyLinkInputs.Autolinks.None
-                : DependencyLinkInputs.CollectStaticArchiveAutolinks(dependencyScanPaths, sdkPath, targetTriple);
+            var dependencyAutolinks = DependencyLinkInputs.CollectStaticArchiveAutolinks(dependencyScanPaths, sdkPath, targetTriple);
             foreach (var fw in dependencyAutolinks.Frameworks)
             {
                 if (seenLinkedFrameworks.Add(fw))
@@ -2131,10 +2124,13 @@ namespace BindingsGeneration
                     explicitLinkFlags.Append($"-l{lib} ");
             }
 
-            // The static code this link reaches through the wrapper image (ResolveBridgeStaticCodeLink): the
-            // wrapper goes on the link line, and a static bound framework is kept off it. Importing the bound
-            // module autolinks its framework, which for a static one would copy every member the bridge
-            // references (and, through them, the dependency archives they call) into this image.
+            // The static code this link reaches through the wrapper image (ResolveBridgeStaticCodeLink). The
+            // wrapper goes on the link line ahead of every dependency input: the linker resolves a symbol from
+            // the first input that defines it and reads autolinked libraries after the command line, so every
+            // symbol the wrapper carries binds to the wrapper, and an archive supplies only members the wrapper
+            // lacks, which then have no other copy. A static bound framework, which the wrapper force-loads in
+            // full, is also kept off the line: importing the bound module autolinks its framework, so a bridge
+            // reference the wrapper cannot satisfy would otherwise copy that member into this image.
             var wrapperLinkFlags = "";
             if (staticCodeThroughWrapper != null)
             {
@@ -2155,10 +2151,10 @@ namespace BindingsGeneration
 
             string BuildArgs(string extraLinkerFlags) =>
                 $"swiftc -emit-library {frontendArgs}" +
+                $"{wrapperLinkFlags}" +
                 $"{thunkLinkerFlags}" +
                 $"{transitiveFrameworkLinkerFlags}" +
                 $"{forceLoadFlags}" +
-                $"{wrapperLinkFlags}" +
                 $"{explicitLinkFlags}" +
                 $"{extraLinkerFlags}" +
                 $"-Xlinker -install_name -Xlinker @rpath/{wrapperModuleName}.framework/{wrapperModuleName} " +

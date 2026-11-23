@@ -423,8 +423,9 @@ namespace BindingsGeneration.Tests
         {
             // The bridge's dependency filter keeps what has a module to resolve and skips the binding
             // wrappers the SDK also passes; a library-type xcframework has no .framework at all and must
-            // still be kept. Its static archive is what the wrapper carries, so the bridge links the
-            // wrapper and takes none of the archive.
+            // still be kept. The wrapper carries its static archive, so the bridge links the wrapper ahead
+            // of the archive: every member the wrapper holds binds to the wrapper, and the archive (with its
+            // module map's system links) supplies only what the wrapper lacks.
             using var layout = new Layout();
             var slice = layout.LibraryXcframework(
                 "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
@@ -496,23 +497,21 @@ namespace BindingsGeneration.Tests
                 staticCodeThroughWrapper: link);
 
             var (_, args) = runner.Invocations[0];
-            Assert.Contains($"-Xlinker \"{wrapper}\" ", args);
-            Assert.DoesNotContain("DepCore.a", args);
-            Assert.DoesNotContain("-framework -Xlinker Metal ", args);
-            Assert.DoesNotContain("-lc++abi ", args);
+            AssertWrapperPrecedes(args, wrapper, Path.Combine(slice, "DepCore.a"));
+            Assert.Contains("-framework -Xlinker Metal ", args);
+            Assert.Contains("-lc++abi ", args);
             // The bound framework is dynamic here: the bridge still links it, as before.
             Assert.DoesNotContain("-disable-autolink-framework", args);
         }
 
-        [Theory]
-        [InlineData(false)]
-        [InlineData(true)]
-        public void BridgeLink_StaticPrimary_ResolvesThroughTheWrapperAndCopiesNoStaticCode(bool forceLoad)
+        [Fact]
+        public void BridgeLink_StaticPrimary_IsNotAutolinkedAndTheWrapperPrecedesTheArchives()
         {
             // A static bound framework is force-loaded into the wrapper, and its calls into a library-type
-            // dependency pull that archive into the wrapper too. The bridge is a second image: linking
-            // either again there runs every static initializer twice and registers every ObjC class twice,
-            // with or without ForceLoad. A dynamic library dependency is its own image and is still linked.
+            // dependency pull that archive's members into the wrapper too. The bridge is a second image:
+            // a copy there runs every static initializer twice and registers every ObjC class twice. So the
+            // bound framework is not autolinked and the wrapper precedes the archive, which then supplies
+            // only members the wrapper lacks. A dynamic library dependency is its own image and is linked.
             using var layout = new Layout();
             var archiveSlice = layout.LibraryXcframework(
                 "DepCore", "DepCore.a", ArMagic, GraphLikeModuleMap, headersSubdir: "DepCore");
@@ -534,13 +533,11 @@ namespace BindingsGeneration.Tests
                 new List<string> { "/tmp/Primary.SwiftUIBridge.swift" }, "/tmp/out/PrimaryBridge", "PrimaryBridge",
                 SimTriple, layout.Sdk, Path.GetDirectoryName(Path.GetDirectoryName(primaryBinary))!, runner, NullLogger.Instance,
                 additionalFrameworkSearchPaths: searchPaths, originalModuleName: "Primary",
-                forceLoadDependencies: forceLoad ? new[] { Path.GetDirectoryName(archiveSlice)! } : null,
                 staticCodeThroughWrapper: link);
 
             var (_, args) = runner.Invocations[0];
             Assert.Contains("-Xfrontend -disable-autolink-framework -Xfrontend Primary ", args);
-            Assert.Contains($"-Xlinker \"{wrapper}\" ", args);
-            Assert.DoesNotContain("DepCore.a", args);
+            AssertWrapperPrecedes(args, wrapper, Path.Combine(archiveSlice, "DepCore.a"));
             Assert.DoesNotContain("-force_load", args);
             Assert.DoesNotContain(primaryBinary, args);
             Assert.Contains($"-Xlinker \"{Path.Combine(dylibSlice, "libDepDyn.dylib")}\" ", args);
@@ -579,6 +576,16 @@ namespace BindingsGeneration.Tests
                 output, "Primary", primaryBinary, SimSlice.WithArchitecture(bridgeArch), null, NoFileTool(), NullLogger.Instance));
             Assert.Contains("PrimarySwiftBindings", ex.Message);
             Assert.Contains(bridgeArch, ex.Message);
+        }
+
+        // The linker binds a symbol to the first input defining it, so the wrapper must come first.
+        private static void AssertWrapperPrecedes(string args, string wrapper, string archive)
+        {
+            var wrapperAt = args.IndexOf($"-Xlinker \"{wrapper}\" ", StringComparison.Ordinal);
+            var archiveAt = args.IndexOf($"-Xlinker \"{archive}\" ", StringComparison.Ordinal);
+            Assert.True(wrapperAt >= 0, $"the bridge link does not name the wrapper {wrapper}: {args}");
+            Assert.True(archiveAt >= 0, $"the bridge link does not name the archive {archive}: {args}");
+            Assert.True(wrapperAt < archiveAt, $"the archive {archive} precedes the wrapper on the bridge link: {args}");
         }
 
         private static SliceVariant SimSlice => PlatformInfoFactory.Create(ApplePlatform.iOS).GetSlice(true);
