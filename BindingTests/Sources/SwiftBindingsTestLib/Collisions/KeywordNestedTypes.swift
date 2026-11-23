@@ -25,7 +25,8 @@ public final class MetatypeKeywordHost {
         public var label: String = ""
     }
 
-    /// A frozen nested struct with the same name problem, laid out inline.
+    /// A frozen nested struct with the same expression-position problem, laid out inline. Only a
+    /// protocol has a metatype spelled `P.Protocol`, so in a signature this name is never ambiguous.
     @frozen public struct `Protocol` {
         public var x: Int32
         public var y: Int32

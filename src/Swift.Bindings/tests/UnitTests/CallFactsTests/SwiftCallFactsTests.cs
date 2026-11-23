@@ -1261,6 +1261,39 @@ public class SwiftCallFactsTests
     }
 
     [Fact]
+    public void TypeNamedProtocol_UnderATypeThatIsNotAProtocol_IsTheNestedType()
+    {
+        // Only a protocol has a metatype spelled P.Protocol (swiftc rejects the spelling on any other
+        // type), so `Host.`Protocol`` under a class is the nested struct: its facts and its layout
+        // resolve. `Host.`Type`` stays refused, since Host.Type is also Host's metatype.
+        const string host = "$s10TestModule4HostC";
+        const string point = host + "8ProtocolV";
+        string Stored(string name, string mangledBase) => Var(name, mangledBase, Int32, settable: true)
+            .Replace("\"declAttributes\": [\"AccessControl\"]", "\"declAttributes\": [\"HasStorage\", \"AccessControl\"], \"hasStorage\": true", StringComparison.Ordinal);
+        var hostDecl = TypeDecl("Class", "Host", host, new[]
+        {
+            TypeDecl("Struct", "Protocol", point, new[]
+            {
+                Stored("x", point + "1xs5Int32V"),
+                Stored("y", point + "1ys5Int32V"),
+                Stored("z", point + "1zs5Int32V"),
+            }, attrs: new[] { "AccessControl", "Frozen" }),
+            TypeDecl("Enum", "Type", host + "4TypeO", Array.Empty<string>()),
+            Func("point", "point()", host + "5pointAC8ProtocolVyF", new[] { Nominal("TestModule.Host.`Protocol`", name: "Protocol") }),
+            Func("kind", "kind()", host + "4kindAC4TypeOyF", new[] { Nominal("TestModule.Host.`Type`", name: "Type") }),
+        });
+
+        var (module, table, db) = Parse(hostDecl);
+
+        var pointFacts = Facts(table, host + "5pointAC8ProtocolVyF");
+        Assert.True(pointFacts.IsComplete, string.Join("; ", pointFacts.Unknowns));
+        Assert.Equal(SwiftTypeCategory.Struct, pointFacts.Result.Type.Category);
+        var lowering = new SwiftLayoutValueLowering(new[] { module }, db);
+        Assert.Equal("i64, i32", Pieces(lowering.Lower(new SwiftTypeFacts { Spelling = "TestModule.Host.Protocol", Category = SwiftTypeCategory.Struct })));
+        Assert.Contains(Facts(table, host + "4kindAC4TypeOyF").Unknowns, u => u.Contains("names both a metatype and a nested type", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void ClassMemberReturningSelf_ReturnsOneReference()
     {
         // A class's dynamic Self is the class or a subclass: one reference, not an address.

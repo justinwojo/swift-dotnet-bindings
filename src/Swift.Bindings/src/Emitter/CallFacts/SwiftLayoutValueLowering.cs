@@ -289,10 +289,14 @@ public sealed class SwiftLayoutResolver
         if (name.EndsWith(".Type", StringComparison.Ordinal) || name.EndsWith(".Protocol", StringComparison.Ordinal))
         {
             // A type nested in T and named Type parses like T's metatype. A module's top-level type
-            // named Type is the type: a module is not a type, so it has no metatype.
+            // named Type is the type: a module is not a type, so it has no metatype. Only a protocol
+            // has a metatype spelled P.Protocol, so a declared T.Protocol under a T that is not a
+            // protocol is the nested type.
             if (!IsDeclaredTypeName(name))
                 return ResolveMetatype(named, name);
-            if (IsDeclaredTypeName(name[..name.LastIndexOf('.')]))
+            var parent = name[..name.LastIndexOf('.')];
+            var nestedProtocolType = name.EndsWith(".Protocol", StringComparison.Ordinal) && IsDeclaredNonProtocol(parent);
+            if (IsDeclaredTypeName(parent) && !nestedProtocolType)
                 return SwiftLayoutResult.Unknown($"'{spelling}' names both a metatype and a nested type, which the parsed type spelling does not tell apart");
         }
         if (IsGenericParameterName(name))
@@ -797,9 +801,15 @@ public sealed class SwiftLayoutResolver
         primitive is not SwiftScalarKind.Bool and not SwiftScalarKind.Pointer
         && managedName is not ("nint" or "nuint" or "System.IntPtr" or "System.UIntPtr");
 
-    /// <summary>Whether a protocol is class-bound, directly or through a protocol it refines.</summary>
     private bool IsDeclaredTypeName(string name) => _types.ContainsKey(name) || TryPeekRecord(name, out _);
 
+    /// <summary>Whether <paramref name="name"/> is a declared type other than a protocol.</summary>
+    private bool IsDeclaredNonProtocol(string name) =>
+        _types.TryGetValue(name, out var entry)
+            ? entry.Decl is not ProtocolDecl
+            : TryPeekRecord(name, out var record) && record.Kind != TypeRecordKind.Protocol;
+
+    /// <summary>Whether a protocol is class-bound, directly or through a protocol it refines.</summary>
     private bool IsClassBound(ProtocolDecl protocol) => SwiftProtocolBounds.IsClassBound(
         protocol,
         name => _types.TryGetValue(name, out var entry) ? entry.Decl as ProtocolDecl : null,
