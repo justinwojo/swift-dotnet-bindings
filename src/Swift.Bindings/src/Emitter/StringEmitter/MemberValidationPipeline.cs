@@ -1097,6 +1097,16 @@ public class MemberValidationPipeline
                 $"Subscript closure parameter passes '{subscriptDirectLaneShape}' by value in registers, " +
                 "a lowering the direct callback does not model.");
 
+        // @objc protocol existential nested in a container/tuple/closure in the element type or an
+        // index parameter — the concrete-subscript mirror of the property gate above and of the
+        // protocol subscript gate (MemberGateEvaluator S5b). Swift lays each such element out as one
+        // 8-byte object pointer, but the accessor carries it as a 40-byte ExistentialContainer1, so
+        // the emitted indexer compiles and over-reads the collection. Fail closed.
+        if (subscriptDecl.IndexParameters.Select(p => p.SwiftTypeSpec).Prepend(subscriptDecl.ReturnTypeSpec)
+                .Any(spec => ExistentialHandler.HasUnsupportedObjCProtocolExistentialPosition(spec, _typeDatabase)))
+            return ValidationResult.Skip(SkipReason.UnsupportedExistential,
+                "Subscript has an @objc protocol existential in an unsupported nested position (container/tuple/closure); only bare `any P` / `Optional<any P>` are supported.");
+
         // ── Tuple index parameters / tuple returns with any non-primitive element ──
         // The subscript path P/Invokes the raw dispatch thunk directly: there is no @_cdecl
         // tuple buffer transport (the method gate's cdecl buffer) and no per-element
