@@ -69,6 +69,12 @@ package only, add <SwiftBindingsTransitionSuppress Include="Acme.Legacy" /> (the
 this warning).
 ```
 
+The affected engines depend on the cause. An unsafe transition breaks only the engines its shapes
+break, so those are named (above, or the engines of each transition the check found). A native wrapper
+that is not the one the assembly was generated with (remedy `WrapperMismatch`) breaks the binding on
+every engine, NativeAOT and macOS included, and the diagnostic says so: only the builds this check
+runs in detect it, and SWIFTBIND133 refuses such a package when it is packed or merged.
+
 ## Opting out
 
 There is no global switch. One item per package downgrades that package's error to a warning:
@@ -94,6 +100,14 @@ assembly in `lib/<tfm>/` is checked against the slices a consumer of that copy l
 the per-TFM layout), and natives shared by every copy. A binding for iOS and
 tvOS ships one wrapper per copy, and the manifests differ wherever the copies' routing does. A
 refused package is deleted and the build fails with `error SWIFTBIND133`.
+
+A project the generator emits for the standalone path builds on `Microsoft.NET.Sdk`, not
+`SwiftBindings.Sdk`, so `dotnet pack` of it would run no SDK check. It sets
+`<SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions>`, and
+`SwiftBindings.Runtime`'s targets, which it imports through its runtime reference, then run the same
+task after `Pack` (`_SwiftBindingsCheckStandalonePackedTransitions`) with the same deletion and error.
+No other project that references the runtime is checked, and an SDK project never sets the property,
+so no package is checked twice.
 
 The error names the remedy by cause. A wrapper that kept an earlier routing (the wrapper-compile
 finalizer does not relink without a lowering receipt, so the wrapper keeps the earlier hash and

@@ -243,6 +243,33 @@
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Pack-time transition check of a standalone binding (SWIFTBIND133)       -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- SwiftBindings.Sdk checks every package it packs (_SwiftBindingsCheckPackedTransitions). A
+       project the generator emits for the standalone path builds on Microsoft.NET.Sdk instead and
+       imports only this file, through its SwiftBindings.Runtime reference, so it opts in with
+       <SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions> and gets the
+       same check of the package `dotnet pack` just wrote: a package its consumers would refuse
+       (SWIFTBIND132), a wrapper identity included, is deleted. Other projects that reference the
+       runtime are not checked. -->
+  <UsingTask TaskName="SwiftBindings.Tasks.SwiftTransitionPackageCheck" AssemblyFile="$(_SwiftBindingsTasksAssembly)" />
+
+  <Target Name="_SwiftBindingsCheckStandalonePackedTransitions"
+          AfterTargets="Pack"
+          DependsOnTargets="ResolveAssemblyReferences"
+          Condition="'$(SwiftBindingsCheckPackedTransitions)' == 'true' AND '$(IsPackable)' != 'false'">
+    <Error Code="SWIFTBIND133"
+           Condition="!Exists('$(_SwiftBindingsTasksAssembly)')"
+           Text="The Swift transition check task $(_SwiftBindingsTasksAssembly) is missing, so the package cannot be checked before it ships. Restore SwiftBindings.Runtime again." />
+    <ItemGroup>
+      <_SwiftBindingsStandalonePackReference Include="@(ReferencePath->'%(RootDir)%(Directory)')" />
+    </ItemGroup>
+    <SwiftTransitionPackageCheck Packages="@(NuGetPackOutput)"
+                                 ReferenceDirectories="@(_SwiftBindingsStandalonePackReference->Distinct())"
+                                 ScratchDirectory="$(BaseIntermediateOutputPath)swift-transition-pack-check" />
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Package copy check (SWIFTBIND136, SWIFTBIND139)                          -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- A binding package carries one copy per toolchain, keyed by its full pack TFM: lib/<tfm>/,

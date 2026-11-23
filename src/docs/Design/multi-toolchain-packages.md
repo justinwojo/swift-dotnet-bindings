@@ -48,7 +48,7 @@ pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitt
 | SWIFTBIND137 | pack (`PrepareSwiftBindingPackageCopy`) | an Apple-framework copy labelled for another platform SDK than the one it was generated from: the label must have the SDK's major version and be no newer. The SDK judged (and declared) is the one the binding's assembly records it was generated from, in its wrapper identity, not the SDK selected when it packs; the selected SDK stands in only for an assembly that records none. A versionless Apple-framework project (the template's default) is labelled 26.0 on every .NET 10 workload, so on Xcode 27.2 it must name its copy (`net10.0-ios27.2`) to pack. A library binding is never refused, so a versionless `net10.0-ios` library binding packed on Xcode 27.2 keeps its 26.0 label and serves .NET 10 + Xcode 26 apps: its surface is the library's, not the SDK's. |
 | SWIFTBIND138 | pack and merge | consumer targets that reference `runtimes/` or another copy's `native/`, found in the text, or a `NativeReference` that does not resolve, from `buildTransitive/<T>/` as NuGet lays the file out, into `native/<T>/` (one through a property, relative to the consuming project, absolute, or out of the package); at merge, every refusal below. |
 | SWIFTBIND139 | every app build | a copy older than the build's toolchain (another .NET version, or a lower platform SDK major): an informational message by default, an error with `SwiftBindingsRequireExactCopy=true`. |
-| SWIFTBIND133 | pack and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. It includes the wrapper identity check below. |
+| SWIFTBIND133 | pack (`SwiftBindings.Sdk`, and a standalone generated project through `SwiftBindings.Runtime`'s targets) and merge | the transition check, paired by full TFM: `lib/<T>/` is checked only against `native/<T>/`. A package whose `buildTransitive/` declares a copy is held to that rule even when no native landed under `native/<T>/`. It includes the wrapper identity check below. |
 | SWIFTBIND132 | every app build the consumer transition check runs in (Mono and the .NET 11 CoreCLR engines on iOS, tvOS and Mac Catalyst; not NativeAOT or macOS) | reads the natives the app actually references, which are the selected copy's (SWIFTBIND136 guarantees the assembly is that copy's too), including the wrapper identity check below. |
 | SWIFTBIND140 | merge | a warning: an entry past the Windows restore path budget (below). An error with `SwiftBindingsMergeRequireWindowsPathBudget=true`. |
 
@@ -140,3 +140,22 @@ Visual Studio restore still fits, and refuses only with `SwiftBindingsMergeRequi
 The copy layout is the same in a one-copy and a merged package, and a merge adds no entry deeper
 than its deepest contribution's. This repository's own four packages are still held to the
 budget as an error at pack (`Build.WindowsPathGuard.cs`).
+
+## The gate
+
+`nuke binding-tests --multi-toolchain-package` (`Build.BindingTests.MultiToolchainPackage.cs`, driver
+`build/scripts/multi-toolchain-package.py`) proves this end to end on one Mac. It runs unprofiled and
+packs one throwaway SwiftBindings feed; the driver takes each pairing's environment (`DOTNET_ROOT`,
+`DEVELOPER_DIR`, SDK pin) from the toolchain launcher's own profile reader, so the three pairings come
+from `build/toolchains/` and are validated as a profile run validates them. Each pairing packs two
+Apple-framework fixtures with its explicit TFMs: ProximityReader (iOS and Mac Catalyst), whose 27.2
+SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in the 26.0 copy, and
+WeatherKit (macOS and tvOS). The gate merges them with `SwiftBindingsMergePackages` and checks the
+layout, each copy's bytes against its contribution, the nuspec groups, the path budget and SWIFTBIND133.
+It then builds consumers from clean NuGet caches (iOS simulator Debug and Release, a NativeAOT
+`ios-arm64` publish on .NET 10, macOS, tvOS simulator, Mac Catalyst, and a versionless library through
+a `ProjectReference`), checks each one's copy line, `project.assets.json` paths, embedded wrapper
+identity and SDK, and SWIFTBIND132 verdict, and runs the apps. Controls that must fail with their own
+code: NU1202, SWIFTBIND136, 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M6), 139 and 140.
+Receipts land in `artifacts/multi-toolchain-package/receipts/`.
+

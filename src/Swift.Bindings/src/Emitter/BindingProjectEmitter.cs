@@ -520,6 +520,9 @@ namespace BindingsGeneration
                     <Nullable>enable</Nullable>
                     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
                     <IsPackable>{(isPackable ? "true" : "false")}</IsPackable>
+                    <!-- Run SwiftBindings.Runtime's pack-time transition check (SWIFTBIND133) on
+                         the package `dotnet pack` writes, as SwiftBindings.Sdk does for its own. -->
+                    <SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions>
                     <PackageId>{packageId}</PackageId>{versionComment}
                     <PackageVersion>{options.Metadata.PackageVersion}</PackageVersion>
                     <SupportedOSPlatformVersion>{options.Metadata.EffectiveMinimumOSVersion}</SupportedOSPlatformVersion>

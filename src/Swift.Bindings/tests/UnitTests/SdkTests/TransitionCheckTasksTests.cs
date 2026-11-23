@@ -112,6 +112,27 @@ public sealed class TransitionCheckTasksTests : IDisposable
     }
 
     [Fact]
+    public void WrapperMismatch_NamesEveryEngineAsAffected()
+    {
+        // A wrapper of another copy breaks the binding on NativeAOT too; only the check does not run there.
+        var own = WrapperIdentityTests.Identity("net10.0-ios27.2", "27.2");
+        var dll = Path.Combine(tempDir, "lib", "Kit.dll");
+        Directory.CreateDirectory(Path.GetDirectoryName(dll)!);
+        File.WriteAllBytes(dll, WrapperIdentityTests.StampedAssembly(own));
+        var framework = Directory.CreateDirectory(Path.Combine(tempDir, "native", "Kit.framework")).FullName;
+        File.WriteAllBytes(Path.Combine(framework, "Kit"),
+            WrapperIdentityTests.StampedDylib(tempDir, "older", WrapperIdentityTests.Identity("net10.0-ios26.0", "26.2")));
+        var (exit, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Kit", version: "1.2.3"),
+            items: $"""<NativeReference Include="{SecurityElement.Escape(framework)}" />""");
+        Assert.NotEqual(0, exit);
+        var error = Assert.Single(output.Split('\n').Where(l => l.Contains("error SWIFTBIND132", StringComparison.Ordinal)).Distinct());
+        Assert.Contains("is not the wrapper Kit was generated with", error);
+        Assert.Contains("breaks the binding on every engine, NativeAOT and macOS included", error);
+        Assert.DoesNotContain("NativeAOT is not affected", error);
+        Assert.Contains("update Acme.Kit to a version packed from one clean build per copy", error);
+    }
+
+    [Fact]
     public void Suppression_DowngradesThatPackageOnly()
     {
         var dll = Fixture("lib", UntypedSelf);
@@ -210,6 +231,51 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.Contains("lib/net10.0/Fixture.dll would be refused by its consumers' Swift transition check (evidence AbsentNonPrimitive)", output);
         Assert.Contains("Regenerate the binding with the current SwiftBindings.Sdk", output);
         Assert.False(File.Exists(package), "a refused package must not stay where it can be pushed");
+    }
+
+    [Theory]
+    // A standalone binding project (Microsoft.NET.Sdk) opts into the runtime's pack check.
+    [InlineData("<SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions>", true)]
+    // Any other project that references the runtime packs unchecked.
+    [InlineData("", false)]
+    [InlineData("<SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions><IsPackable>false</IsPackable>", false)]
+    public void StandalonePack_RunsTheRuntimesPackCheck_WhenTheProjectAsks(string extra, bool checks)
+    {
+        var package = Package("Acme.Binding.1.0.0.nupkg", ("lib/net10.0/Fixture.dll", File.ReadAllBytes(Fixture("lib", UntypedSelf))));
+        var targets = Path.Combine(SwiftCallPlanTests.RepoRoot, "src/Swift.Runtime/src/build/SwiftBindings.Runtime.targets");
+        var project = Path.Combine(tempDir, "binding.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <PropertyGroup>
+                <TargetFramework>net10.0-ios</TargetFramework>
+                <OutputType>Library</OutputType>
+                <BaseIntermediateOutputPath>{SecurityElement.Escape(Path.Combine(tempDir, "obj"))}/</BaseIntermediateOutputPath>
+                <_SwiftBindingsTasksAssembly>{SecurityElement.Escape(TasksDll)}</_SwiftBindingsTasksAssembly>
+                {extra}
+              </PropertyGroup>
+              <Import Project="{SecurityElement.Escape(targets)}" />
+              <Target Name="ResolveAssemblyReferences">
+                <ItemGroup><ReferencePath Include="{SecurityElement.Escape(RuntimeDll)}" /></ItemGroup>
+              </Target>
+              <Target Name="Pack">
+                <ItemGroup><NuGetPackOutput Include="{SecurityElement.Escape(package)}" /></ItemGroup>
+              </Target>
+            </Project>
+            """);
+        var (exit, output) = MSBuild(project, "Pack", "minimal");
+        if (checks)
+        {
+            Assert.NotEqual(0, exit);
+            Assert.Contains("error SWIFTBIND133", output);
+            Assert.Contains("lib/net10.0/Fixture.dll would be refused", output);
+            Assert.False(File.Exists(package), "a refused package must not stay where it can be pushed");
+        }
+        else
+        {
+            Assert.True(exit == 0, output);
+            Assert.DoesNotContain("SWIFTBIND133", output);
+            Assert.True(File.Exists(package));
+        }
     }
 
     [Fact]

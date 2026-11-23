@@ -83,6 +83,9 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
         public List<string> Unverified { get; set; } = new();
         public string Remedy { get; set; } = nameof(ConsumerTransitionRemedy.None);
 
+        /// <summary>Whether a native image of the binding's wrapper is not the one its assembly was generated with.</summary>
+        public bool WrapperMismatch { get; set; }
+
         /// <summary>Each recorded bridge withdrawal: its module, reason, and the members it restored with the engines they refuse on.</summary>
         public List<CachedWithdrawal> Withdrawals { get; set; } = new();
     }
@@ -209,6 +212,7 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
                 Problems = result.Problems.ToList(),
                 Unverified = result.UnverifiedLibraries.ToList(),
                 Remedy = result.Remedy.ToString(),
+                WrapperMismatch = result.WrapperMismatch,
                 Withdrawals = result.Withdrawals.Select(w => new CachedWithdrawal
                 {
                     Module = w.Module,
@@ -287,9 +291,24 @@ public sealed class SwiftTransitionConsumerCheck : Microsoft.Build.Utilities.Tas
         var tail = suppressed
             ? "The suppression accepts the risk for this package only; remove it once the package is updated."
             : $"To accept the risk for this package only, add <SwiftBindingsTransitionSuppress Include=\"{candidate.SuppressionKey}\" /> (the error becomes this warning).";
-        return $"{lead}{what}: {named}{rest}. This build runs on {engine}. "
-               + "Affected engines: Mono (iOS and tvOS simulators, Mac Catalyst, device Mono AOT) and the .NET 11 CoreCLR interpreter (Debug, and whatever ReadyToRun leaves to it in Release); NativeAOT is not affected. "
-               + $"{remedy} {tail}";
+        return $"{lead}{what}: {named}{rest}. This build runs on {engine}. {AffectedEngines(result)} {remedy} {tail}";
+    }
+
+    /// <summary>
+    /// Which engines the refusal's cause breaks. An unsafe transition breaks only the engines that
+    /// mishandle it; a wrapper that is not the assembly's own breaks the binding on every engine,
+    /// although only the builds this check runs in detect it.
+    /// </summary>
+    private static string AffectedEngines(CachedResult result)
+    {
+        const string transitions = "Mono (iOS and tvOS simulators, Mac Catalyst, device Mono AOT) and the .NET 11 CoreCLR interpreter (Debug, and whatever ReadyToRun leaves to it in Release)";
+        if (!result.WrapperMismatch)
+            return $"Affected engines: {transitions}; NativeAOT is not affected.";
+        const string wrapper = "A native wrapper that is not the one the assembly was generated with breaks the binding on every engine, NativeAOT and macOS included: "
+                               + "only the builds this check runs in detect it, and SWIFTBIND133 refuses such a package when it is packed or merged.";
+        return result.Remedy == nameof(ConsumerTransitionRemedy.WrapperMismatch)
+            ? wrapper
+            : $"Affected engines of its transitions: {transitions}. {wrapper}";
     }
 
     /// <summary>What SWIFTBIND132 tells the author to do, from what refused the assembly and where it comes from.</summary>

@@ -79,7 +79,8 @@ public sealed record ConsumerTransitionResult(
     ImmutableArray<string> Problems,
     ImmutableArray<string> UnverifiedLibraries,
     ImmutableArray<TransitionWithdrawal> Withdrawals = default,
-    ConsumerTransitionRemedy Remedy = ConsumerTransitionRemedy.None)
+    ConsumerTransitionRemedy Remedy = ConsumerTransitionRemedy.None,
+    bool WrapperMismatch = false)
 {
     /// <summary>The withdrawals, never default.</summary>
     public ImmutableArray<TransitionWithdrawal> Withdrawals { get; init; } = Withdrawals.IsDefault ? ImmutableArray<TransitionWithdrawal>.Empty : Withdrawals;
@@ -182,18 +183,18 @@ public static class ConsumerTransitionCheck
         {
             case TransitionEvidenceState.AbsentPrimitiveOnly when !wrapperProblems.IsEmpty:
                 return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, wrapperProblems, [],
-                    Remedy: ConsumerTransitionRemedy.WrapperMismatch);
+                    Remedy: ConsumerTransitionRemedy.WrapperMismatch, WrapperMismatch: true);
             case TransitionEvidenceState.AbsentPrimitiveOnly:
                 return new(read.AssemblyName, ConsumerTransitionVerdict.PrimitiveOnly, read.State, [], []);
             case TransitionEvidenceState.AbsentNonPrimitive:
                 return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems.AddRange(wrapperProblems), [],
-                    Remedy: ConsumerTransitionRemedy.Regenerate);
+                    Remedy: ConsumerTransitionRemedy.Regenerate, WrapperMismatch: !wrapperProblems.IsEmpty);
             case TransitionEvidenceState.TamperedOrMismatched:
                 // A dangling bridge import shows here: what a withdrawal the manifests record says
                 // decides whether a clean rebuild can help.
                 var recorded = RecordedWithdrawals(read);
                 return new(read.AssemblyName, ConsumerTransitionVerdict.Refused, read.State, read.Problems.AddRange(wrapperProblems), [], recorded,
-                    recorded.IsEmpty ? ConsumerTransitionRemedy.Regenerate : RemedyOf(recorded));
+                    recorded.IsEmpty ? ConsumerTransitionRemedy.Regenerate : RemedyOf(recorded), !wrapperProblems.IsEmpty);
         }
 
         var problems = new List<string>();
@@ -234,7 +235,8 @@ public static class ConsumerTransitionCheck
             : !withdrawals.IsEmpty ? ConsumerTransitionRemedy.WithdrawalIncoherent
             : ConsumerTransitionRemedy.Regenerate;
         return new(read.AssemblyName, refused ? ConsumerTransitionVerdict.Refused : ConsumerTransitionVerdict.Verified,
-            read.State, problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), unverified.ToImmutableArray(), withdrawals, remedy);
+            read.State, problems.Distinct(StringComparer.Ordinal).ToImmutableArray(), unverified.ToImmutableArray(), withdrawals, remedy,
+            !wrapperProblems.IsEmpty);
     }
 
     /// <summary>

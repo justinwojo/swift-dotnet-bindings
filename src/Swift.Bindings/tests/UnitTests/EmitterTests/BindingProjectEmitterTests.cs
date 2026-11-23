@@ -144,6 +144,8 @@ namespace BindingsGeneration.Tests
             {
                 var content = EmitAndRead(dir, "ImagePipeline", "12.8.0", "15.0", swiftRuntimeVersion: "0.8.0");
                 Assert.Contains("<IsPackable>true</IsPackable>", content);
+                // Microsoft.NET.Sdk runs no SWIFTBIND133 of its own: the runtime's targets do, on request.
+                Assert.Contains("<SwiftBindingsCheckPackedTransitions>true</SwiftBindingsCheckPackedTransitions>", content);
             }
             finally { Directory.Delete(dir, true); }
         }
