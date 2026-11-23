@@ -27,13 +27,11 @@
          suppressed here — nothing in this app may call one. -->
     <!-- CS0108/CS0109: resolved by Session I4 virtual/override dispatch -->
     <!-- CS0649: protocol proxy vtable entries for closure-skipped methods (never assigned) -->
-    <!-- IL2121: "unused UnconditionalSuppressMessage". The suppressions it names live in
-         Swift.Runtime and are load-bearing for ILC, which analyses those generic reflection paths
-         differently from ILLink. Only the Mono full-AOT device lane runs ILLink over this app, and
-         there they read as unused — so the diagnostic is a disagreement between two trimmers about
-         product code that is correct for both, and the repo-wide TreatWarningsAsErrors would
-         otherwise turn it into a build break on that lane alone. Deleting the suppressions to
-         satisfy it would red the NativeAOT lane instead. -->
+    <!-- IL2121: "unused UnconditionalSuppressMessage". It was raised for four suppressions in
+         Swift.Runtime that neither ILLink nor ILC used; those are gone, and Swift.Runtime now
+         trims with no warnings in a consumer app (ILLink on iOS, Mac Catalyst and tvOS, ILC on an
+         iOS NativeAOT publish). The entry stays until the Mono full-AOT device lane, the one lane
+         that runs ILLink over this app, shows the generated bindings raise none either. -->
     <NoWarn>CS0169;CS0649;SB0001;SB0002;SB0008;CA1422;IL2065;IL2075;IL2087;IL2091;IL2026;IL2104;IL2121</NoWarn>
     <!-- Source generator output persisted to obj/ for manifest extraction -->
     <EmitCompilerGeneratedFiles>true</EmitCompilerGeneratedFiles>

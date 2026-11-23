@@ -140,6 +140,9 @@
          `dyld_info -imports`) and its fail-closed rules — positive controls included — are
          unit-tested without a project reference to _build. BCL-only. -->
     <Compile Include="../../../../build/Models/ThunkWeakLinkAudit.cs" Link="Models/ThunkWeakLinkAudit.cs" />
+    <!-- Link-compile the Templates pack's layout rule (each template file once, under content/) so
+         the old two-folder layout is asserted red here without a project reference to _build. -->
+    <Compile Include="../../../../build/Models/TemplatePackageLayout.cs" Link="Models/TemplatePackageLayout.cs" />
     <!-- Link-compile the cdecl ABI parity gate's verdict so its two signature parsers (generated
          Swift `@_cdecl`, generated C# P/Invoke), its register lowering and its fail-closed rules are
          unit-tested, and so emitter tests can hold both halves of a bridge to the same registers. -->

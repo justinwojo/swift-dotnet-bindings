@@ -158,7 +158,7 @@ namespace BindingsGeneration
                 // types) and static-member holders (CryptoKit AES.GCM, etc.) keep the static class.
                 if (IsUninhabitedValueEnum(enumDecl))
                 {
-                    EmitUninhabitedValueEnum(csWriter, enumDecl);
+                    EmitUninhabitedValueEnum(csWriter, enumDecl, GenericTypeEmitter.GetTypeNameWithGenerics(enumDecl, env.TypeDatabase));
                     return;
                 }
 
@@ -356,7 +356,7 @@ namespace BindingsGeneration
             // when the enclosing enum's own C# type name is "Tag" (CS0542 — a member cannot share the
             // enclosing type's name). Computed once so the property, its TryGet readers, and the
             // name-reservation sets below all agree.
-            var tagPropertyName = GetTagPropertyName(enumDecl, typeNameWithGenerics, caseNameMap, env.TypeDatabase);
+            var tagPropertyName = GetTagPropertyName(enumDecl, typeNameWithGenerics, caseNameMap, env.TypeDatabase, propertyRenames);
 
             // Recover enum INSTANCE computed properties whose projected C# name collides with an
             // emitted case-constructor name. Swift legally allows a case and a same-named computed
@@ -406,7 +406,7 @@ namespace BindingsGeneration
                     if (p.IsModuleInternal || p.IsSpiProtected)
                         continue;
                     reservedNames.Add(NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p, enumDecl.Name), propertyRenames));
+                        NameProvider.GetPropertyName(p, enumDecl), propertyRenames));
                 }
 
                 foreach (var propertyDecl in enumDecl.Properties)
@@ -414,7 +414,7 @@ namespace BindingsGeneration
                     if (propertyDecl.IsStatic)
                         continue;
                     var collidingName = NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(propertyDecl, enumDecl.Name), propertyRenames);
+                        NameProvider.GetPropertyName(propertyDecl, enumDecl), propertyRenames);
                     // Recover a property whose projected C# name collides with an emitted case
                     // constructor OR with the synthesized case-discriminator property. The latter is
                     // the `tag`-property-on-an-enum shape: an enum property named `tag` projects to
@@ -523,7 +523,7 @@ namespace BindingsGeneration
                 using var propCsScope = csWriter.BeginFragment(propOwner);
                 using var propSwiftScope = swiftWriter.BeginFragment(propOwner);
                 var propertyName = NameProvider.GetFinalMemberName(
-                    NameProvider.GetPropertyName(propertyDecl, enumDecl.Name), propertyRenames);
+                    NameProvider.GetPropertyName(propertyDecl, enumDecl), propertyRenames);
                 // A property colliding with a case-constructor name is recovered (not dropped) when
                 // the pre-pass assigned it a Value-suffixed rename; PropertyHandler emits it under
                 // that disambiguated name via EnumPropertyRenames. Only fail closed if no rename
@@ -587,7 +587,7 @@ namespace BindingsGeneration
             var propertyNames = new HashSet<string>(enumDecl.Properties.Select(p =>
                 NameProvider.GetFinalMemberName(
                     NameProvider.GetFinalMemberName(
-                        NameProvider.GetPropertyName(p, enumDecl.Name), propertyRenames),
+                        NameProvider.GetPropertyName(p, enumDecl), propertyRenames),
                     enumPropertyRenames)));
 
             // Nested type names collide with method names in C# (CS0102) — reserve the EMITTED
@@ -736,13 +736,13 @@ namespace BindingsGeneration
         /// argument and that cast failed to compile. (A genuinely uninhabited enum has no value,
         /// so it is never actually passed by value across the boundary at runtime.)
         /// </summary>
-        private void EmitUninhabitedValueEnum(CSharpWriter csWriter, EnumDecl enumDecl)
+        private void EmitUninhabitedValueEnum(CSharpWriter csWriter, EnumDecl enumDecl, string enumName)
         {
             XmlDocCommentEmitter.EmitDocComment(csWriter, enumDecl);
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, enumDecl, emitObsolete: true);
             if (SwiftDeclSpelling.HasUnderscoreSwiftName(enumDecl))
                 csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
-            csWriter.WriteLine($"public enum {enumDecl.Name}");
+            csWriter.WriteLine($"public enum {enumName}");
             csWriter.WriteLine("{");
             csWriter.WriteLine("}");
             csWriter.WriteLine();
@@ -831,7 +831,7 @@ namespace BindingsGeneration
             emissionCtx2?.PopTypeNesting();
             var propertyNames = new HashSet<string>(enumDecl.Properties.Where(p => p.IsStatic).Select(p =>
                 NameProvider.GetFinalMemberName(
-                    NameProvider.GetPropertyName(p, enumDecl.Name), propertyRenames)));
+                    NameProvider.GetPropertyName(p, enumDecl), propertyRenames)));
             // The native-width companions the property pass just placed are properties too.
             NameProvider.AddNativeWidthCompanionNames(enumDecl, propertyNames);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList(), conductor, typeDatabase, childContext, propertyNames);

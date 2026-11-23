@@ -234,6 +234,16 @@ namespace BindingsGeneration
         public string? EmittedCSharpName { get; set; }
 
         /// <summary>
+        /// The static factory name a failable initializer emitted under (<c>TryCreate</c>, or the
+        /// label-disambiguated <c>TryCreateWith…</c> a colliding sibling recovered as), or null until it
+        /// emits. Stamped alongside <see cref="EmittedCSharpName"/>, which for an initializer holds the
+        /// constructor name and so cannot say which factory it became. The default-argument trims of a
+        /// later initializer read it to tell a same-named factory, which they may duplicate, from a
+        /// differently named one, which they cannot.
+        /// </summary>
+        public string? EmittedFailableFactoryName { get; set; }
+
+        /// <summary>
         /// The disambiguated Swift-level base name the overload resolver assigned this method at
         /// emission time, or null when it emitted under its natural name. Stamped alongside
         /// <see cref="EmittedCSharpName"/>.

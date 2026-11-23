@@ -1474,7 +1474,7 @@ public class ClassObjCRootedTests
         property.ParentDecl = cls;
         cls.Properties.Add(property);
 
-        Assert.Equal(expected, NameProvider.GetPropertyName(property, "Remote"));
+        Assert.Equal(expected, NameProvider.GetPropertyName(property, cls));
     }
 
     // The constructors of an ObjC-rooted binding call the inherited DangerousRelease() on the new

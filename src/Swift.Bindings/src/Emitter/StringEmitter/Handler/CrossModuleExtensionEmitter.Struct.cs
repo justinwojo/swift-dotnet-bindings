@@ -257,12 +257,14 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine($"/// <summary>");
             csWriter.WriteLine($"/// Nested types defined for {structDecl.Name} in {currentModule}.");
             csWriter.WriteLine($"/// </summary>");
-            csWriter.WriteLine($"public partial class {structDecl.Name}");
+            // Named like the receiver's own C# leaf (see the class variant).
+            var receiverLeaf = NameProvider.GetNaturalTypeLeafName(structDecl);
+            csWriter.WriteLine($"public partial class {receiverLeaf}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
             var emissionCtx = context.GetEmissionContext();
-            emissionCtx?.PushTypeNesting(structDecl.Name);
+            emissionCtx?.PushTypeNesting(receiverLeaf);
             try
             {
                 recurseNestedTypes(nestedTypes, context);

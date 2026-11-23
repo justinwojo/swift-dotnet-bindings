@@ -240,6 +240,68 @@ public class ModuleEmissionContextCollisionTests
     }
 
     [Fact]
+    public void KeywordNamedTypes_NestedInASpecializedGeneric_AreEscaped()
+    {
+        // A keyword-named type nested in a generic type is reached through its specialized parent
+        // (`KwLib.Box<Swift.Int32>.class`), which Swift rejects in type position just like the
+        // unspecialized chain. The generic argument list is part of the chain, the lookup reads
+        // the declared `KwLib.Box.class`, and chains inside the arguments are escaped too.
+        var declared = new HashSet<string>(StringComparer.Ordinal)
+            { "KwLib.Box", "KwLib.Box.class", "KwLib.Box.class.default", "KwLib.Pair", "KwLib.default" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input =
+            "let a: KwLib.Box<Swift.Int32>.class? = nil\n" +
+            "let b = p.assumingMemoryBound(to: Swift.Array<KwLib.Box<Swift.Int32>.class>.self)\n" +
+            "let c: KwLib.Box<KwLib.Pair<Swift.Int, KwLib.default>>.class.default = x\n" +
+            "let d: KwLib.Box<(Swift.Int) -> Swift.Int>.class = y\n" +
+            "let e: KwLib.Box<Swift.Int32> = z\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Equal(
+            "let a: KwLib.Box<Swift.Int32>.`class`? = nil\n" +
+            "let b = p.assumingMemoryBound(to: Swift.Array<KwLib.Box<Swift.Int32>.`class`>.self)\n" +
+            "let c: KwLib.Box<KwLib.Pair<Swift.Int, KwLib.`default`>>.`class`.`default` = x\n" +
+            "let d: KwLib.Box<(Swift.Int) -> Swift.Int>.`class` = y\n" +
+            "let e: KwLib.Box<Swift.Int32> = z\n",
+            output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+    }
+
+    [Fact]
+    public void KeywordNamedTypes_NestedInASpecializedGeneric_AreEscaped_UnderModuleCollision()
+    {
+        // When the module declares a type of its own name, the collision rewrite strips `Soup.`. It
+        // must carry the whole chain, generic arguments included: stopping at `Soup.Box` left
+        // `<Swift.Int32>.class` outside every match, unescaped. A module prefix inside the arguments
+        // is still stripped, with or without the declared-type lookup.
+        var declared = new HashSet<string>(StringComparer.Ordinal) { "Soup.Box", "Soup.Box.class", "Soup.Inner" };
+        var ctx = new ModuleEmissionContext();
+        ctx.SetCollisionContext("Soup", nestedTypesInCollidingClass: null);
+        ctx.SetDeclaredTypePredicate(declared.Contains);
+
+        var input =
+            "let a: Soup.Box<Swift.Int32>.class? = nil\n" +
+            "let b: Soup.Box<Soup.Inner>.class = x\n" +
+            "let c: Soup.Box<Soup.Inner> = y\n";
+        var journal = new TextEditJournal();
+        var output = ctx.QualifyForWrapperSource(input, journal);
+
+        Assert.Equal(
+            "let a: Box<Swift.Int32>.`class`? = nil\n" +
+            "let b: Box<Inner>.`class` = x\n" +
+            "let c: Box<Inner> = y\n",
+            output);
+        Assert.Equal(output.Length, journal.MapOffset(input.Length));
+
+        var collisionOnly = new ModuleEmissionContext();
+        collisionOnly.SetCollisionContext("Soup", nestedTypesInCollidingClass: null);
+        Assert.Equal("let c: Box<Inner> = y\n", collisionOnly.QualifyForWrapperSource("let c: Soup.Box<Soup.Inner> = y\n"));
+    }
+
+    [Fact]
     public void MetatypeAndInitializerExpressions_AreNotEscaped_EvenBesideANestedTypeOfThatName()
     {
         // `Host.self` and `Host.init(…)` name the metatype and initializer of `Host` itself; a nested

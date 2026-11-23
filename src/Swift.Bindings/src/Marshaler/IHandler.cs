@@ -838,6 +838,8 @@ namespace BindingsGeneration
                         {
                             methodDecl.EmittedCSharpName = env.CSharpMethodName;
                             methodDecl.EmittedOverloadNameInput = env.DisambiguatedNameInput;
+                            if (methodDecl.IsConstructor && methodDecl.IsFailable && !methodDecl.IsAsync)
+                                methodDecl.EmittedFailableFactoryName = env.FailableFactoryName ?? "TryCreate";
                             // Record the consumer-visible contract for this emitted member —
                             // its post-collision C# signature → the entry symbol the P/Invoke binds.
                             // Recorded here (not in a later model walk) because env.CSharpMethodName's

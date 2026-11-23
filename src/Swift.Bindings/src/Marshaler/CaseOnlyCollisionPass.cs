@@ -163,7 +163,7 @@ public static class CaseOnlyCollisionPass
                 continue;
 
             var ownChildNames = new HashSet<string>(
-                typeDecl.Types.Select(t => NameProvider.ToPascalCaseForTypeName(t.Name)),
+                typeDecl.Types.Select(NameProvider.GetNaturalTypeLeafName),
                 StringComparer.OrdinalIgnoreCase);
             var newLeaf = NameCollisionPolicy.ResolveTypeSideName(
                 leaf,
@@ -192,7 +192,7 @@ public static class CaseOnlyCollisionPass
     private static string GetEmittedLeaf(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
         if (!typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
-            return NameProvider.ToPascalCaseForTypeName(typeDecl.Name);
+            return NameProvider.GetNaturalTypeLeafName(typeDecl);
 
         var name = record.CSharpTypeName.Name;
         var lastDot = name.LastIndexOf('.');
@@ -343,7 +343,7 @@ public static class CaseOnlyCollisionPass
         // an adopted requirement has already claimed.
         var takenNames = new HashSet<string>(groupIndex.Keys, StringComparer.Ordinal);
         foreach (var nestedType in typeDecl.Types)
-            takenNames.Add(NameProvider.ToPascalCaseForTypeName(nestedType.Name));
+            takenNames.Add(NameProvider.GetNaturalTypeLeafName(nestedType));
         if (typeDecl is EnumDecl enumDecl)
         {
             foreach (var enumCase in enumDecl.Cases)

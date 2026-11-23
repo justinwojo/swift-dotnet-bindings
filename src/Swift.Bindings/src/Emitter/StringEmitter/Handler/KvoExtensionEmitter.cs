@@ -120,7 +120,7 @@ internal static class KvoExtensionEmitter
         List<PropertyDecl> observable,
         ITypeDatabase typeDatabase)
     {
-        var className = NameProvider.ToPascalCaseForTypeName(classDecl.Name);
+        var className = NameProvider.GetNaturalTypeLeafName(classDecl);
         var moduleName = classDecl.ModuleDecl!.Name;
         var invalidateEntryPoint = $"SBW_KVO_{moduleName}_{className}_invalidate";
         var libName = typeDatabase.AsyncLibraryName ?? "libSwiftBindings";
@@ -248,7 +248,7 @@ internal static class KvoExtensionEmitter
         ClassDecl classDecl,
         List<PropertyDecl> observable)
     {
-        var className = NameProvider.ToPascalCaseForTypeName(classDecl.Name);
+        var className = NameProvider.GetNaturalTypeLeafName(classDecl);
         var moduleName = classDecl.ModuleDecl!.Name;
         var swiftQualified = $"{moduleName}.{classDecl.Name}";
         var invalidateSym = $"SBW_KVO_{moduleName}_{className}_invalidate";

@@ -72,6 +72,18 @@ public static class GenericTypeEmitter
     }
 
     /// <summary>
+    /// The simple C# name a type is declared under, without its generic argument list:
+    /// <c>Lock</c> for <c>Lock&lt;T&gt;</c>. Pass the name the handler emits the declaration with
+    /// (<see cref="GetTypeNameWithGenerics"/>), never the stored declaration name, which spells a
+    /// C#-keyword Swift type <c>_lock</c>.
+    /// </summary>
+    public static string GetSimpleTypeName(string typeNameWithGenerics)
+    {
+        var open = typeNameWithGenerics.IndexOf('<');
+        return open < 0 ? typeNameWithGenerics : typeNameWithGenerics.Substring(0, open);
+    }
+
+    /// <summary>
     /// Gets the type name with generic parameters appended.
     /// For example, "Box" becomes "Box&lt;T0&gt;" for a generic type.
     /// When a type database is provided, checks if the CSharpTypeName was renamed
@@ -82,7 +94,7 @@ public static class GenericTypeEmitter
     /// <returns>The type name with generic parameters.</returns>
     public static string GetTypeNameWithGenerics(TypeDecl typeDecl, ITypeDatabase? typeDatabase = null)
     {
-        var baseName = NameProvider.ToPascalCaseForTypeName(typeDecl.Name);
+        var baseName = NameProvider.GetNaturalTypeLeafName(typeDecl);
 
         // Check if CSharpTypeName was renamed (e.g., by ComputePropertyRenames for nested type collisions).
         // The CSharpTypeName.Name may be "Parent.OptionsInfo" when TypeDecl.Name is still "Options".

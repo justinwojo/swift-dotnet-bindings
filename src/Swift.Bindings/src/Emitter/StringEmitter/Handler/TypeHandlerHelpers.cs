@@ -354,8 +354,8 @@ namespace BindingsGeneration
 
             if (_structDecl.IsGeneric)
             {
-                _emissionCtx.RecordOpenGenericISwiftObjectType(_structDecl.Name, _structDecl.GenericParameters.Count);
-                _emissionCtx.RecordOpenGenericPayloadSemantics(_structDecl.Name, _structDecl.GenericParameters.Count, semantics);
+                _emissionCtx.RecordOpenGenericISwiftObjectType(GenericTypeEmitter.GetSimpleTypeName(_typeNameWithGenerics), _structDecl.GenericParameters.Count);
+                _emissionCtx.RecordOpenGenericPayloadSemantics(GenericTypeEmitter.GetSimpleTypeName(_typeNameWithGenerics), _structDecl.GenericParameters.Count, semantics);
                 return;
             }
 
@@ -2047,7 +2047,7 @@ internal static class ProtocolConformanceHelper
                 return false;
 
             propertyName = NameProvider.GetFinalMemberName(
-                NameProvider.GetPropertyName(descProp, typeDecl.Name), renames);
+                NameProvider.GetPropertyName(descProp, typeDecl), renames);
             // A `description` property renamed away from a colliding enum case (DescriptionValue)
             // must be referenced under that name here too. No-op unless the enum channel maps it.
             propertyName = NameProvider.GetFinalMemberName(propertyName, enumPropertyRenames);

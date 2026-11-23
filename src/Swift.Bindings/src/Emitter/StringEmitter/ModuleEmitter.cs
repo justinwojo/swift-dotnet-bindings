@@ -122,7 +122,7 @@ namespace BindingsGeneration
                     // mean the generated code uses the renamed name.
                     foreach (var nested in td.Types)
                     {
-                        var csLeafName = NameProvider.ToPascalCaseForTypeName(nested.Name);
+                        var csLeafName = NameProvider.GetNaturalTypeLeafName(nested);
                         // Check TypeDatabase for rename (e.g., Connection → ConnectionKind)
                         if (_typeDatabase.TryGetTypeRecord(nested.SwiftTypeName, out var nestedRecord))
                         {

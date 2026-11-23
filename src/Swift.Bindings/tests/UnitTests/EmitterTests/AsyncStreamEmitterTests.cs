@@ -435,7 +435,7 @@ public class AsyncStreamEmitterTests
         var csWriter = new CSharpWriter(csOutput);
 
         AsyncStreamEmitter.EmitPropertyGetter(csWriter, property, asyncStreamHandler,
-            "Sensor_readings_AsyncStream", "Sensor_readings", isThrowing: false, "Sensor");
+            "Sensor_readings_AsyncStream", "Sensor_readings", isThrowing: false, classDecl);
 
         var cs = csOutput.ToString();
         Assert.Contains("NextCancelKey()", cs);
@@ -455,7 +455,7 @@ public class AsyncStreamEmitterTests
         var csWriter = new CSharpWriter(csOutput);
 
         AsyncStreamEmitter.EmitPropertyGetter(csWriter, property, asyncStreamHandler,
-            "Feed_events_AsyncStream", "Feed_events", isThrowing: true, "Feed");
+            "Feed_events_AsyncStream", "Feed_events", isThrowing: true, classDecl);
 
         var cs = csOutput.ToString();
         Assert.Contains("_OnError", cs);

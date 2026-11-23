@@ -202,6 +202,12 @@ public static class DefaultParameterOverloadEmitter
         // has no primary at all (its full signature was unbindable), so nothing reaches those forms
         // unless the trims are built.
         bool trailingDefaultsAreMappable = primaryEmitted && !env.PrimaryOmitsDefaultedParameters &&
+            !PrimaryIsFailableFactory(methodDecl) &&
+            AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase);
+        // A failable factory used to stop here too, so its trims of mappable defaults are new
+        // members. They cost against C# arity so they never rename a sibling that already shipped.
+        bool failableTrimsAreNew = primaryEmitted && !env.PrimaryOmitsDefaultedParameters &&
+            PrimaryIsFailableFactory(methodDecl) &&
             AllTrailingDefaultsAreCSharpMappable(methodDecl, env.TypeDatabase);
 
         // The all-defaults form is redundant when the trim loop already reaches it (every default is
@@ -255,12 +261,12 @@ public static class DefaultParameterOverloadEmitter
             else
             {
                 var allDefaultsDecl = BuildOverloadDeclCore(GetOverloadSymbolBase(env), methodDecl, WithDebugParameters(allArgs, defaultedIndices), defaultedIndices.Count);
-                var declinedKey = GetProjectedOverloadKey(
-                    allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
+                var declinedKey = KeyAsEmitted(allDefaultsDecl, GetProjectedOverloadKey(
+                    allDefaultsDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput), env);
                 if (TryFindSignatureCollision(
                         methodDecl, allDefaultsDecl, declinedKey,
                         OverloadAmbiguityGuard.RequiredCountFor(allDefaultsDecl, env.TypeDatabase, declinedKey),
-                        env, out var collidingKey))
+                        env, out var collidingKey, costByProjectedArity: failableTrimsAreNew && everyDefaultIsTrailing))
                 {
                     logger.LogDebug(
                         "DefaultParameterOverload: declining the all-defaults overload for {Name} — a consumer " +
@@ -491,57 +497,7 @@ public static class DefaultParameterOverloadEmitter
                     // Rebuild the key under the primary's disambiguated base name, so a trimmed overload of
                     // `ConfigureZebra` reserves `ConfigureZebra(...)` rather than the bare `Configure(...)`.
                     var projectedKey = GetProjectedOverloadKey(overloadDecl, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
-                    // When the primary method adopted a disambiguated ancestor slot
-                    // name, this trimmed overload emits under that SAME adopted name (propagated to
-                    // overloadEnv.AdoptedOverrideCSharpName at construction above), so CSharpMethodName reads
-                    // `ProcessSecond` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
-                    // from the local NameProvider name, so substitute the adopted name into the key's name
-                    // component — otherwise the reserved key (`Process()`) diverges from the emitted name
-                    // (`ProcessSecond()`): a sibling naturally projecting to `ProcessSecond()` would not collide
-                    // (→ duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
-                    // mutually exclusive with a non-null DisambiguatedNameInput (a self-disambiguating override
-                    // resolves adoption to null), so the two never compound.
-                    if (overloadEnv.AdoptedOverrideCSharpName != null)
-                    {
-                        int keyParen = projectedKey.IndexOf('(');
-                        if (keyParen > 0)
-                            projectedKey = overloadEnv.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
-                    }
-                    // FB-1b: a recovered colliding failable init's default-arg trimmed overloads emit under the
-                    // label-disambiguated factory name (overloadEnv.FailableFactoryName, propagated above), NOT the
-                    // ctor name GetProjectedOverloadKey rebuilds. Re-key into the SAME "failable-factory:" namespace
-                    // the main dedup loop reserved the full factory under (prefix + factory name + input-type list),
-                    // so a trimmed factory overload dedups only against other factory overloads of the same
-                    // name+arity. Without this the trimmed overload dedups in the ctor namespace and a trimmed
-                    // input list matching an UNRELATED init's ctor(...) key would silently drop a valid overload —
-                    // the very silent-drop FB-1b exists to prevent, one path deeper. The factory name already
-                    // carries the disambiguation, so the numeric collision suffix applied above is irrelevant here
-                    // (only the params substring, which the suffix leaves untouched, is used); adoption and a
-                    // failable factory are mutually exclusive, so this never double-applies.
-                    //
-                    // The same holds for a failable init that kept the plain `TryCreate` name: its trims are
-                    // `TryCreate(…, out T)` factories too, which no constructor's `ctor(…)` key can duplicate. In
-                    // the ctor namespace a labelled plain sibling of the same input types (`init(fallback: any P)`
-                    // beside `init?(_: any P, anchor: … = nil)`) read as occupying the trim's signature and dropped
-                    // it. A same-named failable sibling with the same inputs is still refused, by
-                    // TryFindSignatureCollision below.
-                    if (overloadDecl.IsConstructor && overloadDecl.IsFailable && !overloadDecl.IsAsync)
-                    {
-                        int factoryParen = projectedKey.IndexOf('(');
-                        if (factoryParen > 0)
-                            projectedKey = "failable-factory:" + (overloadEnv.FailableFactoryName ?? "TryCreate") + projectedKey.Substring(factoryParen);
-                    }
-                    // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
-                    // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
-                    // ORDINARY key namespace (unlike the failable one): its factory carries no trailing `out`,
-                    // so `CreateWithHost(string)` really can duplicate a natural method of that name and inputs,
-                    // and hiding it in a private namespace would fail open on exactly that CS0111.
-                    if (overloadEnv.InitFactoryName != null)
-                    {
-                        int initFactoryParen = projectedKey.IndexOf('(');
-                        if (initFactoryParen > 0)
-                            projectedKey = overloadEnv.InitFactoryName + projectedKey.Substring(initFactoryParen);
-                    }
+                    projectedKey = KeyAsEmitted(overloadDecl, projectedKey, overloadEnv);
 
                     if (pinPlan.IsRefused)
                     {
@@ -559,7 +515,8 @@ public static class DefaultParameterOverloadEmitter
 
                     // A same-named declaration of the type that a consumer could not tell this overload
                     // from — the same C# signature (CS0111), or a call both bind equally well (CS0121).
-                    if (TryFindSignatureCollision(methodDecl, overloadDecl, projectedKey, requiredCount, env, out var collidingKey))
+                    if (TryFindSignatureCollision(methodDecl, overloadDecl, projectedKey, requiredCount, env, out var collidingKey,
+                            costByProjectedArity: failableTrimsAreNew && (dropIndices == null || everyDefaultIsTrailing)))
                     {
                         logger.LogDebug(
                             "DefaultParameterOverload: declining overload (trim {Trim}) for {Name} — a consumer could not tell it from the sibling {Other}: {Key}",
@@ -1494,8 +1451,16 @@ public static class DefaultParameterOverloadEmitter
     /// not cost the overload. Constructors compare a sibling of equal arity and the same member kind
     /// (<see cref="InitializerMemberKind"/>) by parameter types alone: a constructor never collides
     /// with a <c>TryCreate</c> factory, but within one kind a trimmed initializer can emit under a
-    /// factory name that a sibling's projected key does not carry, so its real C# name cannot be
-    /// rebuilt here, and treating the names as equal is the conservative reading.</para>
+    /// factory name that a sibling's projected key does not carry. A failable sibling that already
+    /// emitted under a different factory name is no rival; for any other sibling the real C# name
+    /// cannot be rebuilt here, and treating the names as equal is the conservative reading.</para>
+    ///
+    /// <para>Constructor arity is Swift's by default. <paramref name="costByProjectedArity"/> counts
+    /// it as C# does instead, after the projection drops caller-location and empty-tuple
+    /// parameters. A candidate that existing bindings never had passes it, so it yields to any
+    /// sibling it would tie rather than pushing an already-shipped factory to another name. A
+    /// candidate that only a sibling's different factory name lets through is new in the same
+    /// way, and is checked again under that reading.</para>
     /// </summary>
     internal static bool TryFindSignatureCollision(
         MethodDecl sourceDecl,
@@ -1503,7 +1468,8 @@ public static class DefaultParameterOverloadEmitter
         string candidateKey,
         int candidateRequiredCount,
         MethodEnvironment env,
-        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? collidingKey)
+        [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out string? collidingKey,
+        bool costByProjectedArity = false)
     {
         collidingKey = null;
         IEnumerable<MethodDecl>? siblingMethods = overloadDecl.ParentDecl switch
@@ -1517,6 +1483,7 @@ public static class DefaultParameterOverloadEmitter
         var origin = sourceDecl.SpecializedFrom ?? sourceDecl;
         int overloadParamCount = overloadDecl.CSSignature.Count - 1;
         var candidateShape = OverloadAmbiguityGuard.ParseKey(candidateKey, candidateRequiredCount);
+        bool admittedByFactoryName = false;
         foreach (var sibling in siblingMethods)
         {
             if (sibling.Name != overloadDecl.Name ||
@@ -1534,31 +1501,45 @@ public static class DefaultParameterOverloadEmitter
 
             if (overloadDecl.IsConstructor)
             {
-                if (sibling.CSSignature.Count - 1 != overloadParamCount)
-                    continue;
                 // An initializer's C# member kind follows its shape: a plain init is a constructor
                 // (or a `CreateWith…` factory), a failable one a `TryCreate…(…, out T)` factory, an
                 // async one a `Task<T>`-returning `Create…Async`. Members of different kinds never
                 // share a C# signature, so only a sibling of the same shape can cost the candidate.
                 if (InitializerMemberKind(sibling) != InitializerMemberKind(overloadDecl))
                     continue;
+                if (!costByProjectedArity && sibling.CSSignature.Count - 1 != overloadParamCount)
+                    continue;
+                var ctorSiblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
+                var siblingShape = OverloadAmbiguityGuard.ParseKey(
+                    ctorSiblingKey, OverloadAmbiguityGuard.RequiredCountFor(sibling, env.TypeDatabase, ctorSiblingKey));
+                // `init?(late: Int32, file: … = #fileID)` is the one-argument `TryCreate(int, out T)`
+                // in C#, though Swift counts two parameters.
+                if (costByProjectedArity && siblingShape.ParameterTypes.Count != candidateShape.ParameterTypes.Count)
+                    continue;
                 // The C# name of either side cannot be rebuilt here (an initializer may emit as a
                 // constructor or under a factory name), so compare the parameter types as though
                 // both took the same name. A sibling of equal arity costs the candidate unless a
                 // parameter position provably separates the two (no argument converts to both);
                 // implicit conversions can tie any other pair (`(int, long)` against `(long, int)`).
-                var ctorSiblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
-                var siblingShape = OverloadAmbiguityGuard.ParseKey(
-                    ctorSiblingKey, OverloadAmbiguityGuard.RequiredCountFor(sibling, env.TypeDatabase, ctorSiblingKey));
                 var candidateUnnamed = candidateShape with { Name = string.Empty };
                 var siblingUnnamed = siblingShape with { Name = string.Empty };
-                if (!OverloadAmbiguityGuard.AreSeparated(candidateUnnamed.ParameterTypes, siblingUnnamed.ParameterTypes)
-                    || OverloadAmbiguityGuard.AreAmbiguous(candidateUnnamed, siblingUnnamed))
+                if (OverloadAmbiguityGuard.AreSeparated(candidateUnnamed.ParameterTypes, siblingUnnamed.ParameterTypes)
+                    && !OverloadAmbiguityGuard.AreAmbiguous(candidateUnnamed, siblingUnnamed))
+                    continue;
+                // Two failable factories of different names never collide (CS0111) or tie a call
+                // (CS0121). A sibling that already emitted in this walk of the type has a fixed factory
+                // name, proven by the factory key it reserved; the candidate's name is the one its key
+                // was re-keyed under. A sibling still to come keeps the conservative reading: its
+                // name depends on what is reserved when it emits.
+                if (TryGetFailableFactoryName(candidateKey) is { } candidateFactoryName
+                    && EmittedFactoryNameInThisWalk(sibling, ctorSiblingKey, env) is { } siblingFactoryName
+                    && !string.Equals(siblingFactoryName, candidateFactoryName, StringComparison.Ordinal))
                 {
-                    collidingKey = ctorSiblingKey;
-                    return true;
+                    admittedByFactoryName = true;
+                    continue;
                 }
-                continue;
+                collidingKey = ctorSiblingKey;
+                return true;
             }
 
             var siblingKey = GetProjectedOverloadKey(sibling, env.TypeDatabase, env.SiblingPropertyNames);
@@ -1575,7 +1556,112 @@ public static class DefaultParameterOverloadEmitter
                 return true;
             }
         }
+        if (admittedByFactoryName && !costByProjectedArity)
+            return TryFindSignatureCollision(sourceDecl, overloadDecl, candidateKey, candidateRequiredCount, env,
+                out collidingKey, costByProjectedArity: true);
         return false;
+    }
+
+    /// <summary>
+    /// A trim's projected key under the C# name it emits as. <see cref="GetProjectedOverloadKey"/>
+    /// rebuilds the name from the declaration; the trim of an override that adopted an ancestor's
+    /// name, of a failable init (a <c>TryCreate…</c> factory) or of a recovered init factory emits
+    /// under the primary's name instead. Every check of a trim's key must read it this way, or it
+    /// compares a name the trim does not carry.
+    /// </summary>
+    private static string KeyAsEmitted(MethodDecl overloadDecl, string projectedKey, MethodEnvironment env)
+    {
+        // When the primary method adopted a disambiguated ancestor slot name, this trimmed overload
+        // emits under that SAME adopted name (env.AdoptedOverrideCSharpName, propagated from the
+        // primary), so CSharpMethodName reads `ProcessSecond` not the recomputed bare `Process`. GetProjectedOverloadKey rebuilds the key
+        // from the local NameProvider name, so substitute the adopted name into the key's name
+        // component — otherwise the reserved key (`Process()`) diverges from the emitted name
+        // (`ProcessSecond()`): a sibling naturally projecting to `ProcessSecond()` would not collide
+        // (→ duplicate CS0111) and a real `Process()` sibling would be wrongly blocked. Adoption is
+        // mutually exclusive with a non-null DisambiguatedNameInput (a self-disambiguating override
+        // resolves adoption to null), so the two never compound.
+        if (env.AdoptedOverrideCSharpName != null)
+        {
+            int keyParen = projectedKey.IndexOf('(');
+            if (keyParen > 0)
+                projectedKey = env.AdoptedOverrideCSharpName + projectedKey.Substring(keyParen);
+        }
+        // FB-1b: a recovered colliding failable init's default-arg trimmed overloads emit under the
+        // label-disambiguated factory name (env.FailableFactoryName, propagated from the primary), NOT the
+        // ctor name GetProjectedOverloadKey rebuilds. Re-key into the SAME "failable-factory:" namespace
+        // the main dedup loop reserved the full factory under (prefix + factory name + input-type list),
+        // so a trimmed factory overload dedups only against other factory overloads of the same
+        // name+arity. Without this the trimmed overload dedups in the ctor namespace and a trimmed
+        // input list matching an UNRELATED init's ctor(...) key would silently drop a valid overload —
+        // the very silent-drop FB-1b exists to prevent, one path deeper. The factory name already
+        // carries the disambiguation, so a numeric collision suffix is irrelevant here
+        // (only the params substring, which the suffix leaves untouched, is used); adoption and a
+        // failable factory are mutually exclusive, so this never double-applies.
+        //
+        // The same holds for a failable init that kept the plain `TryCreate` name: its trims are
+        // `TryCreate(…, out T)` factories too, which no constructor's `ctor(…)` key can duplicate. In
+        // the ctor namespace a labelled plain sibling of the same input types (`init(fallback: any P)`
+        // beside `init?(_: any P, anchor: … = nil)`) read as occupying the trim's signature and dropped
+        // it. A same-named failable sibling with the same inputs is still refused, by
+        // TryFindSignatureCollision.
+        if (overloadDecl.IsConstructor && overloadDecl.IsFailable && !overloadDecl.IsAsync)
+        {
+            int factoryParen = projectedKey.IndexOf('(');
+            if (factoryParen > 0)
+                projectedKey = FailableFactoryKeyPrefix + (env.FailableFactoryName ?? "TryCreate") + projectedKey.Substring(factoryParen);
+        }
+        // A recovered colliding NON-failable init's trimmed overloads likewise emit under the
+        // factory name rather than the ctor name the key builder rebuilds. This lane stays in the
+        // ORDINARY key namespace (unlike the failable one): its factory carries no trailing `out`,
+        // so `CreateWithHost(string)` really can duplicate a natural method of that name and inputs,
+        // and hiding it in a private namespace would fail open on exactly that CS0111.
+        if (env.InitFactoryName != null)
+        {
+            int initFactoryParen = projectedKey.IndexOf('(');
+            if (initFactoryParen > 0)
+                projectedKey = env.InitFactoryName + projectedKey.Substring(initFactoryParen);
+        }
+        return projectedKey;
+    }
+
+    private const string FailableFactoryKeyPrefix = "failable-factory:";
+
+    /// <summary>
+    /// Whether the primary emits as a <c>TryCreate…(…, out T)</c> factory. Its trailing <c>out</c>
+    /// result follows every Swift parameter, and C# allows no optional parameter before a required
+    /// one, so the factory writes no inline default and only the trims reach a defaulted argument.
+    /// </summary>
+    internal static bool PrimaryIsFailableFactory(MethodDecl methodDecl)
+        => methodDecl.IsConstructor && methodDecl.IsFailable && !methodDecl.IsAsync;
+
+    /// <summary>
+    /// The factory name of a key in the <c>failable-factory:</c> namespace
+    /// (<c>failable-factory:TryCreate(nint)</c> → <c>TryCreate</c>), or null for any other key.
+    /// </summary>
+    internal static string? TryGetFailableFactoryName(string key)
+    {
+        if (!key.StartsWith(FailableFactoryKeyPrefix, StringComparison.Ordinal))
+            return null;
+        int paren = key.IndexOf('(', FailableFactoryKeyPrefix.Length);
+        return paren > FailableFactoryKeyPrefix.Length
+            ? key.Substring(FailableFactoryKeyPrefix.Length, paren - FailableFactoryKeyPrefix.Length)
+            : null;
+    }
+
+    /// <summary>
+    /// The factory name a failable sibling initializer emitted under in the current walk of its type,
+    /// or null when it has not emitted yet. The stamp alone is not proof: it survives from an earlier
+    /// pass of the verify-recover loop, so the sibling must also hold the factory key it reserves
+    /// when it emits.
+    /// </summary>
+    private static string? EmittedFactoryNameInThisWalk(MethodDecl sibling, string siblingKey, MethodEnvironment env)
+    {
+        if (sibling.EmittedFailableFactoryName is not { } name || env.EmittedProjectedSignatures is not { } reserved)
+            return null;
+        int paren = siblingKey.IndexOf('(');
+        if (paren <= 0)
+            return null;
+        return reserved.Contains(FailableFactoryKeyPrefix + name + siblingKey.Substring(paren)) ? name : null;
     }
 
     /// <summary>

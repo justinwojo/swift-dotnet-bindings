@@ -586,6 +586,22 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void EnumNamedTag_WithACaseNamedLikeTheEnum_KeepsTheShippedDiscriminatorName()
+    {
+        // `enum tag { case tag(Int32); case none }` projects as class `Tag`. Its `tag` case, newly
+        // bound under a member-side rename (CS0542), must not take `TagValue`: the discriminator
+        // has shipped under that name, and the two would be a CS0102 duplicate.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Tag", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("tag"));
+        enumDecl.Cases.Add(CreateCase("none"));
+        var renames = NameProvider.ComputePropertyRenames(enumDecl, new TypeDatabase());
+
+        Assert.Equal("TagValue", EnumHandler.GetTagPropertyName(enumDecl, "Tag", null, propertyRenames: renames));
+        Assert.NotEqual("TagValue", renames["Tag"]);
+    }
+
+    [Fact]
     public void GetTagPropertyName_EnumNamedTag_WithNestedTagValueType_DodgesToTag2()
     {
         // Collision arm (M1): a nested type whose emitted C# leaf is `TagValue` (the default

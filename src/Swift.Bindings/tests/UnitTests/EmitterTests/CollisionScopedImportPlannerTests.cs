@@ -73,6 +73,25 @@ public class CollisionScopedImportPlannerTests
     }
 
     [Fact]
+    public void Plan_ScopesKeywordNamedTypes_UnderTheirSwiftSpelling()
+    {
+        // The parser holds a C#-keyword type name with an underscore in front (`struct event` as
+        // `_event`). It is a public Swift type, not an underscore-prefixed implementation detail,
+        // and the import has to name it as Swift does, backtick-escaping a Swift keyword.
+        var module = CreateModule("Mod",
+            types:
+            [
+                CreateStruct("_event", swiftName: "event"),
+                CreateClass("_class", swiftName: "class"),
+                CreateStruct("_Hidden"),
+            ]);
+
+        var lines = CollisionScopedImportPlanner.Plan(module, compileImport: "Mod");
+
+        Assert.Equal(new[] { "import class Mod.`class`", "import struct Mod.event" }, lines);
+    }
+
+    [Fact]
     public void Plan_SkipsUnderscorePrefixedNames()
     {
         var underscored = CreateStruct("_PrivateHelper");
@@ -156,10 +175,10 @@ public class CollisionScopedImportPlannerTests
         };
     }
 
-    private static ClassDecl CreateClass(string name) => new()
+    private static ClassDecl CreateClass(string name, string? swiftName = null) => new()
     {
         Name = name,
-        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Mod.{name}"),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Mod.{swiftName ?? name}"),
         MangledName = $"$s3Mod{name.Length}{name}C",
         Properties = new List<PropertyDecl>(),
         Methods = new List<MethodDecl>(),
@@ -170,10 +189,10 @@ public class CollisionScopedImportPlannerTests
         ModuleDecl = null,
     };
 
-    private static StructDecl CreateStruct(string name) => new()
+    private static StructDecl CreateStruct(string name, string? swiftName = null) => new()
     {
         Name = name,
-        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Mod.{name}"),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName($"Mod.{swiftName ?? name}"),
         MangledName = $"$s3Mod{name.Length}{name}V",
         Properties = new List<PropertyDecl>(),
         Methods = new List<MethodDecl>(),

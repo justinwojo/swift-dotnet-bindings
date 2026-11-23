@@ -227,6 +227,16 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void SynthesizedConsumerTargets_PlatformVersionWarning_NamesTheFix()
+        {
+            // The SWIFTBIND011 warning in the consumer targets synthesized for an Apple-framework
+            // binding tells the consumer what to change, as the generator-emitted targets do.
+            Assert.Contains(
+                "Update your project's SupportedOSPlatformVersion to at least $(_SwiftBindingMinimumOSVersion).&quot;\n             Code=&quot;SWIFTBIND011&quot;",
+                TargetsContent.Replace("\r\n", "\n"));
+        }
+
+        [Fact]
         public void Targets_ContainsAllTargets()
         {
             var expectedTargets = new[]

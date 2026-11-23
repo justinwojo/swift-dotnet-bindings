@@ -215,9 +215,12 @@ public sealed class ModuleEmissionContext
         // one place a "Foo." prefix must survive: it is not a type reference to rewrite but the
         // declaration that makes the *stripped* references resolve, and stripping it to
         // `import class Bar` is a syntax error that fails the whole wrapper.
+        // The path may pass through a specialized generic (`Foo.Box<Swift.Int32>.class`) so that the
+        // whole chain reaches the reserved-segment escaping below; its arguments are rewritten as
+        // references of their own.
         _collisionPattern = !string.IsNullOrEmpty(moduleNameForCollision)
             ? new Regex(@"(?<!\bimport (?:class|struct|enum|protocol|typealias) )\b"
-                    + Regex.Escape(moduleNameForCollision) + @"\.(\w+(?:\.\w+)*)",
+                    + Regex.Escape(moduleNameForCollision) + @"\.(\w+" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*)",
                 RegexOptions.Compiled)
             : null;
         RebuildCombinedPattern();
@@ -258,28 +261,29 @@ public sealed class ModuleEmissionContext
 
         return pattern.Replace(moduleQualifiedName, match =>
         {
-            string replacement;
-            if (match.Groups["reserved"].Success)
-            {
-                replacement = EscapeReservedMemberSegments(match.Value, rootQualifier: null);
-            }
-            else
-            {
-                // First captured group is the type path after the module prefix.
-                // Preserve qualification when the head segment names a type nested
-                // inside the colliding class (e.g. LoggingLib.Level).
-                var firstComponent = match.Groups[1].Value;
-                var dotIdx = firstComponent.IndexOf('.');
-                var topLevelName = dotIdx >= 0 ? firstComponent.Substring(0, dotIdx) : firstComponent;
-                replacement = _nestedTypesInCollidingClass?.Contains(topLevelName) == true
-                    ? EscapeReservedMemberSegments(match.Value, rootQualifier: null)
-                    : EscapeReservedMemberSegments(firstComponent, rootQualifier: ModuleNameForCollision);
-            }
-
+            var replacement = RewriteReference(match, pattern);
             if (replacement.Length != match.Length || !string.Equals(replacement, match.Value, StringComparison.Ordinal))
                 journal?.Record(match.Index, match.Length, replacement.Length);
             return replacement;
         });
+    }
+
+    // One match of the wrapper-source pattern. A generic argument list inside the match holds type
+    // references of its own, rewritten by the same pattern.
+    private string RewriteReference(Match match, Regex pattern)
+    {
+        string RewriteArguments(string arguments) => pattern.Replace(arguments, m => RewriteReference(m, pattern));
+
+        if (match.Groups["reserved"].Success)
+            return EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments);
+
+        // First captured group is the type path after the module prefix. Preserve qualification
+        // when the head segment names a type nested inside the colliding class (e.g. LoggingLib.Level).
+        var path = match.Groups[1].Value;
+        var topLevelName = SplitTopLevelSegments(path)[0].Name;
+        return _nestedTypesInCollidingClass?.Contains(topLevelName) == true
+            ? EscapeReservedMemberSegments(match.Value, rootQualifier: null, RewriteArguments)
+            : EscapeReservedMemberSegments(path, rootQualifier: ModuleNameForCollision, RewriteArguments);
     }
 
     // A dotted chain containing a segment Swift's type grammar does not read as a member name.
@@ -289,10 +293,17 @@ public sealed class ModuleEmissionContext
     // name is reachable only as ``Mod.`Protocol` `` or ``Mod.`class` ``. The lookbehind anchors the
     // match at the root of the chain; whether a segment really names a type (rather than being a
     // metatype suffix or `.self`) is decided against the type database, not by the regex.
+    //
+    // Any segment may carry a generic argument list (`Lib.Host<Swift.Int32>.class`, a keyword-named
+    // type nested in a specialized generic): GenericArgumentList matches one balanced `<…>`,
+    // nested lists included, reading a closure type's `->` as text rather than as a bracket.
+    // A list never crosses a line or a brace, so a stray `<` in an expression cannot open one.
+    private const string GenericArgumentList = @"(?:<(?>[^<>\-\r\n{};]+|->|-|<(?<depth>)|>(?<-depth>))*(?(depth)(?!))>)";
+
     private static readonly string ReservedMemberChain =
-        @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*(?:\.\w+)*\.(?:"
+        @"(?<![\w.`])(?<reserved>[A-Za-z_]\w*" + GenericArgumentList + @"?(?:\.\w+" + GenericArgumentList + @"?)*\.(?:"
         + string.Join("|", ReservedMemberSegments.Select(Regex.Escape))
-        + @")\b(?:\.\w+)*)(?!`)";
+        + @")\b(?:\.\w+" + GenericArgumentList + @"?)*)(?!`)";
 
     /// <summary>
     /// Segment names a declared type can only be spelled with backticks after a dot:
@@ -338,32 +349,78 @@ public sealed class ModuleEmissionContext
     /// <paramref name="chain"/> whose qualified prefix (ending at that segment) is a declared type.
     /// <paramref name="rootQualifier"/> is the module prefix a collision rewrite removed from the
     /// chain; it takes part in the lookup but is not written back. Without one the leading segment is
-    /// never escaped: it names a module or a type already in scope.
+    /// never escaped: it names a module or a type already in scope. Each segment's generic argument
+    /// list goes through <paramref name="rewriteArguments"/>.
     /// </summary>
-    private string EscapeReservedMemberSegments(string chain, string? rootQualifier)
+    private string EscapeReservedMemberSegments(string chain, string? rootQualifier, Func<string, string> rewriteArguments)
     {
-        if (_isDeclaredType == null)
+        if (_isDeclaredType == null && chain.IndexOf('<') < 0)
             return chain;
 
-        var segments = chain.Split('.');
+        // Split at the dots outside any generic argument list: `Lib.Host<Swift.Int32>.class` is the
+        // three segments `Lib`, `Host<Swift.Int32>` and `class`. A segment's name is looked up
+        // without its arguments (the declared type is `Lib.Host.class`), and the arguments are
+        // escaped as chains of their own.
+        var segments = SplitTopLevelSegments(chain);
         // Once a collision rewrite has removed the module prefix, the leading segment is a type name
         // standing alone, and a keyword-named one needs its backticks as much as a nested one does.
         var first = rootQualifier != null ? 0 : 1;
-        if (!segments.Skip(first).Any(IsReservedMemberSegment))
-            return chain;
-        var qualified = rootQualifier ?? segments[0];
         var changed = false;
-        for (var i = first; i < segments.Length; i++)
+        var qualified = rootQualifier;
+        for (var i = 0; i < segments.Count; i++)
         {
-            if (i > 0 || rootQualifier != null)
-                qualified += "." + segments[i];
-            if (IsReservedMemberSegment(segments[i]) && _isDeclaredType(qualified))
+            var (name, arguments) = segments[i];
+            qualified = qualified is null ? name : qualified + "." + name;
+            if (i >= first && _isDeclaredType != null && IsReservedMemberSegment(name) && _isDeclaredType(qualified))
             {
-                segments[i] = "`" + segments[i] + "`";
+                name = "`" + name + "`";
                 changed = true;
             }
+            if (arguments.Length > 0)
+            {
+                var escapedArguments = rewriteArguments(arguments);
+                changed |= !string.Equals(escapedArguments, arguments, StringComparison.Ordinal);
+                arguments = escapedArguments;
+            }
+            segments[i] = (name, arguments);
         }
-        return changed ? string.Join('.', segments) : chain;
+        return changed ? string.Join('.', segments.Select(s => s.Name + s.Arguments)) : chain;
+    }
+
+    /// <summary>
+    /// Splits a dotted Swift type chain at the dots that sit outside every generic argument list,
+    /// separating each segment's name from its argument list (<c>Host&lt;Swift.Int32&gt;</c> →
+    /// <c>Host</c>, <c>&lt;Swift.Int32&gt;</c>). A closure type's <c>-&gt;</c> is not a bracket.
+    /// </summary>
+    private static List<(string Name, string Arguments)> SplitTopLevelSegments(string chain)
+    {
+        var segments = new List<(string, string)>();
+        var depth = 0;
+        var start = 0;
+        var argumentsStart = -1;
+        for (var i = 0; i <= chain.Length; i++)
+        {
+            if (i == chain.Length || (chain[i] == '.' && depth == 0))
+            {
+                var nameEnd = argumentsStart >= 0 ? argumentsStart : i;
+                segments.Add((chain.Substring(start, nameEnd - start),
+                    argumentsStart >= 0 ? chain.Substring(argumentsStart, i - argumentsStart) : string.Empty));
+                start = i + 1;
+                argumentsStart = -1;
+                continue;
+            }
+            switch (chain[i])
+            {
+                case '<':
+                    if (depth++ == 0 && argumentsStart < 0)
+                        argumentsStart = i;
+                    break;
+                case '>' when i == 0 || chain[i - 1] != '-':
+                    depth--;
+                    break;
+            }
+        }
+        return segments;
     }
 
     /// <summary>

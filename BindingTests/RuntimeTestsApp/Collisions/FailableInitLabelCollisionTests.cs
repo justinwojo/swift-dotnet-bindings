@@ -65,4 +65,22 @@ public class FailableInitLabelCollisionTests : TestBase
         AssertFalse(ok2, "disambiguated factory fails (init? returns nil) for empty permissions");
         AssertNull(b, "failed TryCreateWithMessengerPageId yields a null result");
     }
+
+    public void TestFailableInitDefaultArgumentTrim()
+    {
+        AssertTrue(FailableDefaultTrimHost.TryCreate(4, out var trimmed), "the one-argument trim TryCreate(x, out v) succeeds");
+        AssertEqual(7, (int)trimmed!.Value, "the trim passes Swift's default y = 3");
+        AssertTrue(FailableDefaultTrimHost.TryCreate(4, 1, out var full), "the full TryCreate(x, y, out v) succeeds");
+        AssertEqual(5, (int)full!.Value, "the full factory passes y");
+        AssertFalse(FailableDefaultTrimHost.TryCreate(-1, out var failed), "the trim surfaces nil as false");
+        AssertNull(failed, "a failed trim yields a null result");
+
+        AssertTrue(FailableDefaultTrimHost.TryCreateWithSecond(2, out var second), "the recovered TryCreateWithSecond succeeds");
+        AssertEqual(4, (int)second!.Value, "TryCreateWithSecond reaches init?(second:)");
+        using var plain = new FailableDefaultTrimHost(9);
+        AssertEqual(9, (int)plain.Value, "init(a:) stays a constructor");
+        trimmed.Dispose();
+        full.Dispose();
+        second.Dispose();
+    }
 }

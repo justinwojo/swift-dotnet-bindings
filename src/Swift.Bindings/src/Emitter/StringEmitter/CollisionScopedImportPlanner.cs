@@ -52,7 +52,7 @@ namespace BindingsGeneration
                 if (!ShouldScope(decl, moduleDecl.Name))
                     continue;
                 if (TryGetImportKeyword(decl, out var keyword))
-                    lines.Add($"import {keyword} {compileImport}.{decl.Name}");
+                    lines.Add($"import {keyword} {compileImport}.{NameProvider.EscapeSwiftKeyword(SwiftDeclSpelling.SwiftSpelledName(decl))}");
             }
 
             return lines.ToList();
@@ -69,12 +69,17 @@ namespace BindingsGeneration
 
             // The shadowing type itself. Scoping it would re-bind the very name the strip relies on
             // resolving to that type, and the nested-type carve-out already reaches its members.
-            if (decl.Name == moduleName)
+            // The parser stores a C#-keyword type name with a leading underscore (`struct event` →
+            // `_event`), so every name test here reads the Swift spelling instead: a keyword-named
+            // type is a public type like any other and must be scoped, while a type really spelled
+            // with an underscore is suppressed.
+            var swiftName = SwiftDeclSpelling.SwiftSpelledName(decl);
+            if (swiftName == moduleName)
                 return false;
 
             // Underscore-prefixed types are suppressed from the binding surface, and a nested or
             // otherwise non-identifier name isn't importable in scoped form.
-            if (!IsPlainIdentifier(decl.Name) || decl.Name[0] == '_')
+            if (!IsPlainIdentifier(swiftName) || SwiftDeclSpelling.HasUnderscoreSwiftName(decl))
                 return false;
 
             return true;

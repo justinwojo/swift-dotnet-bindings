@@ -39,3 +39,23 @@ public final class LabeledLoginConfig {
         self.detail = "page:\(messengerPageId)"
     }
 }
+
+// A failable init's default-argument trims. The `TryCreate(…, out T)` factory carries no inline
+// C# default (its trailing `out` follows every parameter), so `TryCreate(x, out v)` exists only as
+// a trim. `init?(second:)` shares `init(a:)`'s constructor signature and recovers as
+// `TryCreateWithSecond`, a different name, so it does not cost that trim.
+public struct FailableDefaultTrimHost {
+    public let value: Int
+
+    public init(a: Int) { value = a }
+
+    public init?(second: Int) {
+        guard second >= 0 else { return nil }
+        value = second * 2
+    }
+
+    public init?(_ x: Int, y: Int = 3) {
+        guard x >= 0 else { return nil }
+        value = x + y
+    }
+}
