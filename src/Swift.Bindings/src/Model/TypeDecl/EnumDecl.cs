@@ -274,25 +274,87 @@ namespace BindingsGeneration
 
         /// <summary>
         /// The managed identity of a case: its declaration-order tag (<see cref="GetCaseTag"/>), or, for
-        /// an enum with <see cref="HasNameKeyedCaseIds"/>, a value derived from the case's Swift name
-        /// alone (31-bit FNV-1a of its UTF-8 spelling), so every binding of the enum, from every SDK,
-        /// gives the case the same value. Two names that hash alike take the next free value in the
-        /// ordinal order of their names.
+        /// an enum with <see cref="HasNameKeyedCaseIds"/>, the value <see cref="AssignNameKeyedIds"/>
+        /// derives from the case names, so every binding of the enum, from every SDK, gives the case the
+        /// same value.
         /// </summary>
         public uint GetCaseId(EnumCaseDecl caseDecl)
         {
             if (!HasNameKeyedCaseIds)
                 return (uint)GetCaseTag(caseDecl);
-            var used = new HashSet<uint>();
-            foreach (var c in Cases.OrderBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.MangledName, StringComparer.Ordinal))
+            return NameKeyedIdOf(caseDecl);
+        }
+
+        /// <summary>
+        /// Whether this simple enum's C# constants (<see cref="GetCaseMarshalScalar"/>) are keyed by
+        /// case name rather than declaration order: every simple enum that crosses by case identity
+        /// (no raw value, or an integral one a non-<c>@objc</c> enum's interface does not print), is not
+        /// <c>@frozen</c>, and whose C# underlying type is at least 32 bits wide.
+        /// <para>
+        /// Such an enum may be resilient, so a newer SDK may insert a case anywhere. Its crossings go
+        /// through the wrapper's case switch, which names each case, so the constants need not be
+        /// tags; a declaration-order constant would still move when a case is inserted, and a library
+        /// compiled against one copy of a package holds the old value as a literal in an app that runs
+        /// another copy. A name-keyed constant is the same in every copy. A <c>@frozen</c> enum's case
+        /// order is its ABI and keeps its declaration order; an <c>@objc</c> enum crosses as its raw
+        /// value. An 8- or 16-bit enum keeps declaration order: a name-derived value does not fit its
+        /// width without colliding, and the merge's compiled-in value check refuses a copy that
+        /// renumbers one.
+        /// </para>
+        /// </summary>
+        public bool HasNameKeyedCaseValues =>
+            IsSimpleEnum && !IsFrozen && Cases.Count > 0
+            && (!IsIntegralRawRepresentable || CrossesAsCaseTag)
+            && EnumHandler.GetCSharpEnumUnderlyingType(RawValueTypeName) is "int" or "uint" or "long" or "ulong";
+
+        // Not cached: a record's fields take part in its equality, and the assignment is linear.
+        private uint NameKeyedIdOf(EnumCaseDecl caseDecl)
+            => AssignNameKeyedIds(Cases).TryGetValue(caseDecl, out var id)
+                ? id
+                : throw new ArgumentException($"{caseDecl.Name} is not a case of {Name}.", nameof(caseDecl));
+
+        /// <summary>
+        /// The name-keyed identity of each case: 31-bit FNV-1a of its UTF-8 name
+        /// (<see cref="NameKeyedCaseId"/>) when no other case's name hashes alike. Cases whose names hash
+        /// alike form a collision group; each of its members, in ordinal order of name and mangled name,
+        /// takes the first salted hash of its own name (<c>name + "\0" + k</c>, k = 1, 2, …) that is no
+        /// case's unsalted hash and no value already taken.
+        /// <para>
+        /// The rule depends only on the colliding names, so a case a newer SDK adds can move an
+        /// existing case's value only when its own name hashes exactly like that case's name (or like a
+        /// colliding case's salted value): with 31 bits that is about one chance in two billion per
+        /// added case and existing case. A value that moves anyway is refused by the merge's
+        /// compiled-in value check (SWIFTBIND138), so it never reaches a consumer. Linear probing to the
+        /// next free value, the earlier rule, also moved a colliding case when an unrelated added case
+        /// hashed to the value it had probed to.
+        /// </para>
+        /// </summary>
+        internal static IReadOnlyDictionary<EnumCaseDecl, uint> AssignNameKeyedIds(IReadOnlyList<EnumCaseDecl> cases)
+        {
+            var ids = new Dictionary<EnumCaseDecl, uint>(ReferenceEqualityComparer.Instance);
+            var bases = cases.ToLookup(c => NameKeyedCaseId(c.Name));
+            var taken = new HashSet<uint>(bases.Select(g => g.Key));
+            foreach (var group in bases.OrderBy(g => g.Key))
             {
-                var id = NameKeyedCaseId(c.Name);
-                while (!used.Add(id))
-                    id = (id + 1) & 0x7FFF_FFFFu;
-                if (ReferenceEquals(c, caseDecl))
-                    return id;
+                if (group.Count() == 1)
+                {
+                    ids[group.First()] = group.Key;
+                    continue;
+                }
+                foreach (var c in group.OrderBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.MangledName, StringComparer.Ordinal))
+                {
+                    for (var k = 1; ; k++)
+                    {
+                        var salted = NameKeyedCaseId($"{c.Name}\0{k.ToString(System.Globalization.CultureInfo.InvariantCulture)}");
+                        if (taken.Add(salted))
+                        {
+                            ids[c] = salted;
+                            break;
+                        }
+                    }
+                }
             }
-            throw new ArgumentException($"{caseDecl.Name} is not a case of {Name}.", nameof(caseDecl));
+            return ids;
         }
 
         /// <summary>The name-derived case identity before collision resolution: 31-bit FNV-1a of the UTF-8 name.</summary>
@@ -338,6 +400,8 @@ namespace BindingsGeneration
         /// </summary>
         public long GetCaseMarshalScalar(EnumCaseDecl target)
         {
+            if (HasNameKeyedCaseValues)
+                return NameKeyedIdOf(target);
             if (!IsIntegralRawRepresentable || CrossesAsCaseTag || !IntegralRawValuesRepresentableAsInt64())
                 return GetCaseTag(target);
 

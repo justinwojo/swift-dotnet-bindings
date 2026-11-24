@@ -351,8 +351,8 @@ public class SimpleEnumCrossingTests
         var cases = SimpleEnumCrossing.BuildCases(enumDecl);
 
         Assert.Equal(new[] { "north", "south" }, cases.Select(c => c.SwiftName));
-        // The constant stays the declaration-order index, @_spi case included.
-        Assert.Equal(new long[] { 1, 2 }, cases.Select(c => c.Value));
+        // Not @frozen: each constant is keyed by its case's name, so the @_spi case moves no other.
+        Assert.Equal(new long[] { EnumDecl.NameKeyedCaseId("north"), EnumDecl.NameKeyedCaseId("south") }, cases.Select(c => c.Value));
         Assert.Null(cases[0].AvailableClause);
         Assert.Equal("iOS 99.0, *", cases[1].AvailableClause);
         Assert.Equal(3, SimpleEnumCrossing.SlotCount(enumDecl));
@@ -360,9 +360,24 @@ public class SimpleEnumCrossingTests
         var map = SimpleEnumCrossing.GetCaseMap(enumDecl);
         Assert.NotNull(map);
         Assert.Equal(3, map!.SlotCount);
+        Assert.True(map.NameKeyed);
         var definition = SimpleEnumCrossing.GetDefinition(map, "M.Dir");
         Assert.Contains("    default: return nil", KnownIndexOf(definition));
-        Assert.Contains("return __sbUnknownCaseCode(value, slots: 3", definition);
+        // The unnamed values of unknown cases stay above every 31-bit constant.
+        Assert.Contains("return __sbUnknownCaseCode(value, slots: 2147483648", definition);
+    }
+
+    [Fact]
+    public void BuildCases_FrozenEnum_KeepsDeclarationIndicesWithSpiSlots()
+    {
+        var enumDecl = CreateEnum(("hidden", true, null), ("north", false, null), ("south", false, "99.0"));
+        enumDecl.IsFrozen = true;
+        var cases = SimpleEnumCrossing.BuildCases(enumDecl);
+        // The constant stays the declaration-order index, @_spi case included.
+        Assert.Equal(new long[] { 1, 2 }, cases.Select(c => c.Value));
+        var map = SimpleEnumCrossing.GetCaseMap(enumDecl);
+        Assert.False(map!.NameKeyed);
+        Assert.Contains("return __sbUnknownCaseCode(value, slots: 3", SimpleEnumCrossing.GetDefinition(map, "M.Dir"));
     }
 
     [Fact]

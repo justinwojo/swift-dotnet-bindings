@@ -22,12 +22,23 @@ public class CaseIdentityEnumTests : TestBase
 
     #region A hidden case before the visible ones
 
-    public void TestTheConstantsCountOnlyTheCasesTheInterfacePublishes()
+    public void TestTheConstantsAreKeyedByCaseNameNotPosition()
     {
-        // The public interface omits the @_spi case, so the binary's tags (first = 1, second = 2)
-        // are not the binding's constants: a crossing by tag would read First as the hidden case.
-        AssertEqual(0, (int)CaseShift.First, "CaseShift.First is the first published case");
-        AssertEqual(1, (int)CaseShift.Second, "CaseShift.Second is the second published case");
+        // CaseShift is not @frozen, so a newer SDK may insert a case anywhere: each constant is
+        // derived from its case's name, never from a position. The binary's tags (hidden = 0,
+        // first = 1, second = 2) are not the constants either, so a crossing by tag would read
+        // First as the hidden case.
+        AssertEqual(NameKey("first"), (int)CaseShift.First, "CaseShift.First is keyed by its name");
+        AssertEqual(NameKey("second"), (int)CaseShift.Second, "CaseShift.Second is keyed by its name");
+    }
+
+    /// <summary>The 31-bit FNV-1a hash of a case name's UTF-8 bytes: a name-keyed constant's value.</summary>
+    internal static int NameKey(string caseName)
+    {
+        uint hash = 2166136261;
+        foreach (var b in System.Text.Encoding.UTF8.GetBytes(caseName))
+            hash = unchecked((hash ^ b) * 16777619);
+        return (int)(hash & 0x7FFFFFFF);
     }
 
     public void TestVisibleCasesCrossAsThemselves()
@@ -141,7 +152,7 @@ public class CaseIdentityEnumTests : TestBase
         foreach (var index in new[] { 0, 1, 127, 128, 255, 256, 257, 299 })
         {
             var value = Functions.WideCase(index);
-            AssertEqual(index, (int)value, $"case {index} returns as constant {index}");
+            AssertEqual(NameKey($"c{index}"), (int)value, $"case {index} returns as the constant its name keys");
             AssertEqual((nint)index, Functions.WideIndex(value), $"constant {index} reaches Swift as case {index}");
         }
         AssertEqual((nint)299, Functions.WideIndex(WideCases.C299), "the last case");

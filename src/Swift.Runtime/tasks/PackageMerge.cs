@@ -533,7 +533,9 @@ public static class SwiftBindingPackageMerge
             {
                 problems.Add($"{file}: the copy {newer.Tfm} changes {changed.Count} compiled-in value(s) of the older copy {older.Tfm} ({string.Join("; ", changed.Take(10))}{(changed.Count > 10 ? "; …" : "")}). "
                              + "A compiler copies a constant, an enum member's value or a parameter's default into the code that uses it, so a library compiled against the older copy "
-                             + "keeps the older value when the app runs the newer copy: every value the older copy declares must be the same in each newer copy.");
+                             + "keeps the older value when the app runs the newer copy: every value the older copy declares must be the same in each newer copy. "
+                             + "A member of a non-frozen Swift enum's projection (an enum constant or a CaseTag) is keyed by its case's name, so it changes only when a case the newer SDK adds "
+                             + "has a name whose hash collides with it; an enum that changes otherwise is @frozen, @objc or narrower than 32 bits, and its values follow the SDK's case order.");
                 // The refusal names ten; the log names every one.
                 notes.AddRange(changed.Select(c => $"  changed value {file}: {c}"));
             }

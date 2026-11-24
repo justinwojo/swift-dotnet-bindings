@@ -1210,6 +1210,8 @@ namespace BindingsGeneration
                 CrossingSlotCount = (flags & TypeRecordFlags.SimpleEnum) != 0 && (flags & TypeRecordFlags.OptionSet) == 0 && !SimpleEnumCrossing.CrossesAsRawValue(enumDecl)
                     ? SimpleEnumCrossing.SlotCount(enumDecl)
                     : 0,
+                CrossingNameKeyed = (flags & TypeRecordFlags.SimpleEnum) != 0 && (flags & TypeRecordFlags.OptionSet) == 0 && !SimpleEnumCrossing.CrossesAsRawValue(enumDecl)
+                    && enumDecl.HasNameKeyedCaseValues,
                 SwiftTypeInfo = swiftTypeInfo,
                 MetadataAccessor = enumDecl.MetadataAccessor,
                 Flags = flags,

@@ -170,6 +170,23 @@ class ReaderTests(unittest.TestCase):
                 gate.control("c", code, text, expect)
                 self.assertEqual(not gate.failures, red)
 
+    def test_a_run_passes_only_when_it_reports_what_its_library_was_built_by(self):
+        gate = object.__new__(mtp.Gate)
+        gate.record, gate.lines, gate.failures = {"steps": []}, [], []
+        gate.logs = self.dir
+        bundle = self.dir / "App.app"
+        executable = bundle / "Contents" / "MacOS" / "App"
+        executable.parent.mkdir(parents=True)
+        executable.write_text("#!/bin/sh\necho 'MTP info CaseOrder library swift-pre-6.4'\necho 'MTP RESULT PASS fails=0'\n")
+        executable.chmod(0o755)
+        for want, red in (("MTP info CaseOrder library swift-pre-6.4", False), ("MTP info CaseOrder library swift-6.4+", True)):
+            gate.failures.clear()
+            gate.runs = [("p", "lib-app", "macos", bundle)]
+            gate.run_expect = {("p", "lib-app"): want}
+            with self.subTest(want=want):
+                gate.run_each()
+                self.assertEqual(bool(gate.failures), red)
+
     def test_failed_lines_are_the_errors(self):
         text = "noise\nfoo.csproj : error NU1202: no\nwarning SWIFTBIND140: long\nfoo.csproj : error NU1202: no\n"
         self.assertEqual(mtp.first_errors(text), "foo.csproj : error NU1202: no | warning SWIFTBIND140: long")

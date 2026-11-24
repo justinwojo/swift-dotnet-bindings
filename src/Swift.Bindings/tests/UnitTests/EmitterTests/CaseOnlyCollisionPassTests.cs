@@ -408,14 +408,15 @@ public class CaseOnlyCollisionPassTests
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         var moduleDecl = CreateModuleDecl();
 
-        // Facade: member-free enum with a nested type → emits as a C# namespace.
+        // Facade: member-free struct with a nested type → emits as a C# namespace. (A caseless
+        // enum never does: it is a static class, members or not.)
         var facadeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit");
-        var facade = CreateEnumDecl("ScanKit", facadeSwiftName, moduleDecl);
+        var facade = CreateStructDecl("ScanKit", facadeSwiftName, moduleDecl);
         var facadeNested = CreateStructDecl("Region",
             SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit.Region"), moduleDecl);
         facadeNested.ParentDecl = facade;
         facade.Types.Add(facadeNested);
-        RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Enum);
+        RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Struct);
 
         // Sibling spelled the same way in different case. It has a member surface, so it cannot
         // become a namespace — it is the side that has to move.
@@ -489,12 +490,12 @@ public class CaseOnlyCollisionPassTests
         var moduleDecl = CreateModuleDecl();
 
         var facadeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit");
-        var facade = CreateEnumDecl("ScanKit", facadeSwiftName, moduleDecl);
+        var facade = CreateStructDecl("ScanKit", facadeSwiftName, moduleDecl);
         var facadeNested = CreateStructDecl("Region",
             SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit.Region"), moduleDecl);
         facadeNested.ParentDecl = facade;
         facade.Types.Add(facadeNested);
-        RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Enum);
+        RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Struct);
 
         // A populated enum is a real value type, not a facade — and it is an enum, so the
         // kind-aware suffix is Kind.

@@ -623,6 +623,7 @@ namespace BindingsGeneration
                 // Simple-enum crossing cases. Optional element — null on a database that predates it.
                 IReadOnlyList<SimpleEnumCrossingCase>? crossingCases = null;
                 int crossingSlotCount = 0;
+                bool crossingNameKeyed = false;
                 XmlNode? crossingCasesNode = typeDeclarationNode?.SelectSingleNode("crossingCases");
                 if (crossingCasesNode != null)
                 {
@@ -639,6 +640,7 @@ namespace BindingsGeneration
                     }
                     crossingCases = list;
                     _ = int.TryParse(crossingCasesNode.Attributes?["slots"]?.Value, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out crossingSlotCount);
+                    crossingNameKeyed = string.Equals(crossingCasesNode.Attributes?["nameKeyed"]?.Value, "true", StringComparison.OrdinalIgnoreCase);
                 }
 
                 IReadOnlyList<AvailabilityAnnotation>? availabilityAnnotations = null;
@@ -746,6 +748,7 @@ namespace BindingsGeneration
                     CaseTagCount = int.TryParse(caseTagCountStr, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var caseTagCount) ? caseTagCount : 0,
                     CrossingCases = crossingCases,
                     CrossingSlotCount = crossingSlotCount,
+                    CrossingNameKeyed = crossingNameKeyed,
                 };
 
                 moduleDatabase.Register(swiftTypeName, typeRecord, ConflictPolicy.Overwrite);

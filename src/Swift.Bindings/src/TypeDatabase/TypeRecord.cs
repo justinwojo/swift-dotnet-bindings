@@ -549,6 +549,14 @@ public record TypeRecord
     public int CrossingSlotCount { get; init; }
 
     /// <summary>
+    /// Whether the <see cref="CrossingCases"/> constants are keyed by case name
+    /// (<see cref="EnumDecl.HasNameKeyedCaseValues"/>) rather than declaration indices below
+    /// <see cref="CrossingSlotCount"/>. Persisted with <see cref="CrossingCases"/>; false on a database
+    /// that predates it, whose constants are indices.
+    /// </summary>
+    public bool CrossingNameKeyed { get; init; }
+
+    /// <summary>
     /// The fully qualified <c>Require</c> of a simple enum with <see cref="HasCaseFloorGuard"/>, named
     /// from the record's current C# name so it follows a rename of an enclosing type; null otherwise.
     /// </summary>

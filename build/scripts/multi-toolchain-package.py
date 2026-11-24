@@ -13,13 +13,15 @@ launcher validates it, so the pins live only in build/toolchains/<profile>.json.
    target frameworks. ProximityReader (iOS, Mac Catalyst) has API only the 27.2 SDK
    declares; WeatherKit (macOS, tvOS) covers the other two platforms. It also builds a
    first-party Swift library (multi-toolchain-fixtures/CaseOrder.swift) with its own Xcode and
-   packs its binding: the Xcode 27 build inserts enum cases ahead of existing ones, so the
-   generated case tags of every copy must not depend on case order.
+   packs its binding: the Xcode 27 build inserts enum cases ahead of existing ones and gives a
+   namespace enum a member, so the generated case tags and plain enum constants of every copy
+   must not depend on case order, and a namespace enum's nested types must keep their CLR names.
 2. Merge with SwiftBindingsMergePackages; assert the layout, each copy's bytes against its
    contribution, the nuspec groups, SWIFTBIND133 and the Windows path budget.
 3. Consumers, from a private NuGet cache per pairing: iOS simulator Debug and Release,
    NativeAOT ios-arm64 publish on the .NET 10 pairings, macOS, tvOS simulator and Mac
-   Catalyst apps, and a versionless class library consumed through a ProjectReference.
+   Catalyst apps, and a versionless class library consumed through a ProjectReference. The
+   oldest pairing's library app also runs with the newest pairing's CaseOrder library swapped in.
 4. Controls that must go red, each with its own code.
 5. Every app runs (simulators, Mac Catalyst and macOS on this host).
 
@@ -45,6 +47,10 @@ import zipfile
 PAIRINGS = [("net10-xcode26", "net10.0", "26.0"),
             ("net10-xcode27", "net10.0", "27.2"),
             ("net11-xcode27", "net11.0", "27.2")]
+# The pairing whose copy a versionless library compiles against, and the one whose Xcode builds the newest
+# library fixture (cases inserted, a namespace member added); with what CaseOrder reports it was built by.
+OLDEST_PAIRING, NEWEST_PAIRING = "net10-xcode26", "net10-xcode27"
+LIBRARY_COMPILER = {"net10-xcode26": "swift-pre-6.4", "net10-xcode27": "swift-6.4+", "net11-xcode27": "swift-6.4+"}
 FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "tvos"), "CaseOrder": ("ios",)}
 # Fixtures bound as a library (<SwiftFramework>) from a framework each pairing builds from this Swift source.
 LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift"}
@@ -222,6 +228,7 @@ class Gate:
         self.envs, self.receipts_by_profile, self.sdk_versions = {}, {}, {}
         self.created_devices = []
         self.runs = []
+        self.run_expect = {}
         self.started = time.time()
 
     # ---- infrastructure ----------------------------------------------------------------------
@@ -647,7 +654,41 @@ class Gate:
                   "; ".join(f"{c} (built on {b})" for c, b in lines) or "no copy line")
         self.assert_selection(profile, "lib-app CaseOrder", app, text, "CaseOrder", app_copy, "ios", check132=True,
                               configuration="Debug", rid=RIDS["ios"])
-        self.runs.append((profile, "lib-app", "ios", self.app_bundle(app, "Debug", "ios")))
+        bundle = self.app_bundle(app, "Debug", "ios")
+        self.runs.append((profile, "lib-app", "ios", bundle))
+        self.run_expect[(profile, "lib-app")] = f"MTP info CaseOrder library {LIBRARY_COMPILER[profile]}"
+        if profile == OLDEST_PAIRING:
+            self.newer_library_run(profile, bundle)
+
+    def newer_library_run(self, profile, bundle):
+        """MTP3 C5: the oldest copy's app, its binding and its library, run against the newest pairing's Swift library.
+
+        A vendor ships one library; an app built against the oldest copy may meet a newer build of it on a newer
+        OS. The app bundle is copied and only CaseOrder.framework's binary is replaced by the one the newest
+        pairing's Xcode built (cases inserted, a namespace member added), then signed again.
+        """
+        if bundle is None:
+            self.step(f"{profile} lib-app against the newest library is staged", False, "no app bundle")
+            return
+        newest = self.work / NEWEST_PAIRING / "frameworks" / "iphonesimulator" / "CaseOrder.framework" / "CaseOrder"
+        staged = self.work / profile / "apps" / "lib-app-newer-library" / bundle.name
+        if staged.parent.exists():
+            shutil.rmtree(staged.parent)
+        staged.parent.mkdir(parents=True)
+        shutil.copytree(bundle, staged, symlinks=True)
+        target = staged / "Frameworks" / "CaseOrder.framework" / "CaseOrder"
+        if not self.step(f"{profile} lib-app against the {NEWEST_PAIRING} library is staged", target.is_file() and newest.is_file(),
+                         f"app library {'present' if target.is_file() else 'missing'}, newest library {'present' if newest.is_file() else 'missing'}"):
+            return
+        shutil.copy2(newest, target)
+        signed = all(subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(p)], capture_output=True).returncode == 0
+                     for p in (staged / "Frameworks" / "CaseOrder.framework", staged))
+        same = sha256(target.read_bytes()) == sha256(newest.read_bytes())
+        if not self.step(f"{profile} lib-app carries the {NEWEST_PAIRING} CaseOrder library, signed again", signed and same,
+                         f"binary {'matches' if same else 'differs from'} the newest build; codesign {'ok' if signed else 'failed'}"):
+            return
+        self.runs.append((profile, "lib-app-newer-library", "ios", staged))
+        self.run_expect[(profile, "lib-app-newer-library")] = f"MTP info CaseOrder library {LIBRARY_COMPILER[NEWEST_PAIRING]}"
 
     def consumers(self):
         for profile, net, label in PAIRINGS:
@@ -824,6 +865,10 @@ class Gate:
                 output, code = simulator_run(udid, bundle)
             log.write_text(output)
             passed = "MTP RESULT PASS" in output and "MTP RESULT FAIL" not in output and "MTP FAIL" not in output
+            expected = self.run_expect.get((profile, label))
+            if expected and expected not in output:
+                passed = False
+                output += f"\nMTP FAIL the run does not report '{expected}'\n"
             verdict = list(dict.fromkeys(l.split("MTP ", 1)[1] for l in output.splitlines() if "MTP FAIL" in l or "MTP RESULT" in l))
             self.step(f"{profile} {label} runs", passed and code == 0,
                       f"on {where}: exit {code}; " + ("; ".join(verdict) or "no result line"))
@@ -911,8 +956,17 @@ public static class LibUse
             ("Swift's Paint.lateClear reads as CaseTag.LateClear", lateClear.Tag == global::CaseOrder.Paint.CaseTag.LateClear, true),
             ("Paint.LateClear reads back in Swift", palette.Describe(global::CaseOrder.Paint.LateClear), "lateClear"),
             ("Paint.Clear reads back in Swift", palette.Describe(global::CaseOrder.Paint.Clear), "clear"),
+            // A plain C# enum: its constants are compiled into this library from the oldest copy.
+            ("Swift's Mood.bright reads as Mood.Bright", palette.GetBright() == global::CaseOrder.Mood.Bright, true),
+            ("Mood.Bright reaches Swift as bright", palette.MoodName(global::CaseOrder.Mood.Bright), "bright"),
+            ("Mood.Calm reaches Swift as calm", palette.MoodName(global::CaseOrder.Mood.Calm), "calm"),
+            // A namespace enum's nested type, which this library names by the oldest copy's CLR name.
+            ("the namespace enum's nested class", new global::CaseOrder.Studio.Easel().Label, "easel"),
+            ("the nested class's CLR name", typeof(global::CaseOrder.Studio.Easel).FullName, "CaseOrder.Studio+Easel"),
         };
     }
+
+    public static string LibraryCompiler() => new global::CaseOrder.Palette().Compiler;
 }
 """
 
@@ -982,6 +1036,7 @@ def app_source(platform, framework, expected_copy, through_library):
     }[framework]
     anchor = {"ProximityReader": "ProximityReader.MobileDriversLicenseDataRequest", "WeatherKit": "WeatherKit.WeatherService"}[framework]
     library = ("Check(\"library call\", MtpLib.LibUse.GivenName(), true);\n"
+               "            Say(\"MTP info CaseOrder library \" + MtpLib.LibUse.LibraryCompiler());\n"
                "            foreach (var (what, got, want) in MtpLib.LibUse.CaseOrderChecks())\n"
                "                Check(\"library compiled against the oldest copy: \" + what, got, want);") if through_library else ""
     body = f"""
