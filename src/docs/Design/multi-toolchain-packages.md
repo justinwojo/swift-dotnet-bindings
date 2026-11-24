@@ -163,8 +163,12 @@ between those identities and the running library's tags through `Swift.Runtime.S
 which reads the case globals: the case discriminator maps the value witness tag to an identity (a
 case the binding does not name reads as `SwiftEnumCaseMap.UnknownCase`), and a no-payload case
 accessor injects the library's tag, refusing with `PlatformNotSupportedException` a case the loaded
-library lacks. When no case global resolves, the module was built without library evolution and the
-declaration-order tags are the tags. A `@frozen` enum's tag order is its ABI, so its constants stay
+library lacks. When the library loads but no case global resolves, the module was built without
+library evolution and the declaration-order tags are the tags; a library that does not load is refused
+(`DllNotFoundException`) rather than read as declaration order. Two case names whose hashes collide
+take the next free value in name order, so a newer SDK adding a case whose hash collides with an
+existing case's can move the later name's constant: the merge's value check refuses that copy, so the
+collision cannot reach a consumer, and its fix is the generator's, not the package's. A `@frozen` enum's tag order is its ABI, so its constants stay
 its tags. Simple enums projected as C# enums keep their declaration-order constants: their crossings
 already go through the wrapper's case switch, and a constant that moves between copies is refused by
 the merge's value check.

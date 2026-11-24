@@ -543,7 +543,8 @@ public static class SwiftBindingPackageMerge
 
     /// <summary>
     /// The compiled-in values of an assembly's visible API, keyed as <see cref="PublicApi"/> names the
-    /// member: <c>Type::Field</c> for a constant field (an enum member is one) and
+    /// member: <c>Type::Field</c> for a constant field (an enum member is one, and a decimal or
+    /// <c>DateTime</c> constant is a static readonly field carrying its value in an attribute) and
     /// <c>Type::Method`n(parameters):return parameter i</c> for a parameter's default value.
     /// A change of a field's or parameter's type is <see cref="PublicApi"/>'s to report.
     /// </summary>
@@ -587,6 +588,41 @@ public static class SwiftBindingPackageMerge
                 _ => value.ToString() ?? "",
             };
         }
+        // A decimal or DateTime constant has no metadata constant: C# records it in an attribute
+        // (on a static readonly field, or on an optional parameter), and still compiles it in.
+        string? AttributeConstant(CustomAttributeHandleCollection attributes)
+        {
+            foreach (var ah in attributes)
+            {
+                var attribute = md.GetCustomAttribute(ah);
+                var parent = attribute.Constructor.Kind switch
+                {
+                    HandleKind.MemberReference => md.GetMemberReference((MemberReferenceHandle)attribute.Constructor).Parent,
+                    HandleKind.MethodDefinition => (EntityHandle)md.GetMethodDefinition((MethodDefinitionHandle)attribute.Constructor).GetDeclaringType(),
+                    _ => default(EntityHandle),
+                };
+                var (ns, typeName) = parent.Kind switch
+                {
+                    HandleKind.TypeReference => (md.GetString(md.GetTypeReference((TypeReferenceHandle)parent).Namespace), md.GetString(md.GetTypeReference((TypeReferenceHandle)parent).Name)),
+                    HandleKind.TypeDefinition => (md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)parent).Namespace), md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)parent).Name)),
+                    _ => ("", ""),
+                };
+                if (ns != "System.Runtime.CompilerServices" || typeName is not ("DecimalConstantAttribute" or "DateTimeConstantAttribute"))
+                    continue;
+                var blob = md.GetBlobReader(attribute.Value);
+                if (blob.ReadUInt16() != 1)
+                    continue;
+                if (typeName == "DateTimeConstantAttribute")
+                    return new DateTime(blob.ReadInt64()).ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+                var scale = blob.ReadByte();
+                var negative = blob.ReadByte() != 0;
+                var (hi, mid, lo) = (blob.ReadInt32(), blob.ReadInt32(), blob.ReadInt32());
+                return scale <= 28
+                    ? new decimal(lo, mid, hi, negative, scale).ToString(System.Globalization.CultureInfo.InvariantCulture) + "m"
+                    : $"decimal(scale {scale}, {(negative ? "-" : "+")}, {hi:X8}{mid:X8}{lo:X8})";
+            }
+            return null;
+        }
         foreach (var handle in md.TypeDefinitions)
         {
             if (!Visible(handle))
@@ -597,12 +633,16 @@ public static class SwiftBindingPackageMerge
             {
                 var field = md.GetFieldDefinition(fh);
                 var access = field.Attributes & FieldAttributes.FieldAccessMask;
-                if (access is not (FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem)
-                    || (field.Attributes & FieldAttributes.Literal) == 0)
+                if (access is not (FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem))
                     continue;
                 var constant = field.GetDefaultValue();
-                if (!constant.IsNil)
-                    values[$"{name}::{md.GetString(field.Name)}"] = Value(constant);
+                var value = (field.Attributes & FieldAttributes.Literal) != 0
+                    ? constant.IsNil ? null : Value(constant)
+                    : (field.Attributes & (FieldAttributes.Static | FieldAttributes.InitOnly)) == (FieldAttributes.Static | FieldAttributes.InitOnly)
+                        ? AttributeConstant(field.GetCustomAttributes())
+                        : null;
+                if (value is not null)
+                    values[$"{name}::{md.GetString(field.Name)}"] = value;
             }
             foreach (var mh in type.GetMethods())
             {
@@ -614,16 +654,21 @@ public static class SwiftBindingPackageMerge
                 foreach (var ph in method.GetParameters())
                 {
                     var parameter = md.GetParameter(ph);
-                    if (parameter.SequenceNumber == 0 || (parameter.Attributes & ParameterAttributes.HasDefault) == 0)
+                    if (parameter.SequenceNumber == 0)
                         continue;
                     var constant = parameter.GetDefaultValue();
-                    if (constant.IsNil)
+                    var value = (parameter.Attributes & ParameterAttributes.HasDefault) != 0 && !constant.IsNil
+                        ? Value(constant)
+                        : (parameter.Attributes & ParameterAttributes.Optional) != 0
+                            ? AttributeConstant(parameter.GetCustomAttributes())
+                            : null;
+                    if (value is null)
                         continue;
                     signature ??= method.DecodeSignature(provider, md);
                     // Keyed by position, not name: a caller binds the default by the parameter's place,
                     // so a renamed parameter whose default changed is still a changed value.
                     var key = $"{name}::{md.GetString(method.Name)}`{signature.Value.GenericParameterCount}({string.Join(",", signature.Value.ParameterTypes)}):{signature.Value.ReturnType}";
-                    values[$"{key} parameter {parameter.SequenceNumber}"] = Value(constant);
+                    values[$"{key} parameter {parameter.SequenceNumber}"] = value;
                 }
             }
         }

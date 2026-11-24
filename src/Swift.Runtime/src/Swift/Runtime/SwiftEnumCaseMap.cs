@@ -26,7 +26,8 @@ namespace Swift.Runtime;
 /// <para>
 /// When none of the case symbols resolves, the enum is not resilient in the library this process
 /// loaded (a module built without library evolution), and its tags are the declaration-order tags
-/// the generator recorded. When some resolve, a case whose symbol is missing is not in the loaded
+/// the generator recorded. A library that does not load is refused with
+/// <see cref="DllNotFoundException"/>: its tags cannot be known. When some resolve, a case whose symbol is missing is not in the loaded
 /// library: it cannot be built, and no value of the enum is that case.
 /// </para>
 /// </remarks>
@@ -89,13 +90,6 @@ public sealed class SwiftEnumCaseMap
                 $"The case {_caseSymbols[index]} is not in the {_libraryName} this process loaded.");
     }
 
-    /// <summary>Whether the loaded library has the case <paramref name="caseId"/> names.</summary>
-    public bool HasCase(uint caseId)
-    {
-        var index = Array.IndexOf(_caseIds, caseId);
-        return index >= 0 && Resolve().TagByCase[index] is not null;
-    }
-
     private Resolved Resolve()
     {
         var resolved = Volatile.Read(ref _resolved);
@@ -109,27 +103,30 @@ public sealed class SwiftEnumCaseMap
     {
         var tags = new uint?[_caseSymbols.Length];
         var found = 0;
-        if (SwiftFrameworkResolver.TryLoadWithFrameworkFallback(_libraryName, out var library))
+        // The library is the one the binding's own calls into the enum resolve to. If it does not
+        // load here, its tags are unknown: the declaration-order tags are only right for a library
+        // built without evolution, so refuse rather than guess.
+        if (!SwiftFrameworkResolver.TryLoadWithFrameworkFallback(_libraryName, out var library))
+            throw new DllNotFoundException(
+                $"The library {_libraryName}, which defines the enum of the case {_caseSymbols.FirstOrDefault()}, did not load, so its case tags cannot be read.");
+        try
         {
-            try
+            for (var i = 0; i < _caseSymbols.Length; i++)
             {
-                for (var i = 0; i < _caseSymbols.Length; i++)
+                if (NativeLibrary.TryGetExport(library, _caseSymbols[i], out var address))
                 {
-                    if (NativeLibrary.TryGetExport(library, _caseSymbols[i], out var address))
-                    {
-                        // A case index of a real enum is far below this bound; a larger value is not one.
-                        var tag = *(uint*)address;
-                        if (tag < MaximumTag)
-                            tags[i] = tag;
-                        found++;
-                    }
+                    // A case index of a real enum is far below this bound; a larger value is not one.
+                    var tag = *(uint*)address;
+                    if (tag < MaximumTag)
+                        tags[i] = tag;
+                    found++;
                 }
             }
-            finally
-            {
-                // The exports read above are values, not addresses kept past this call.
-                NativeLibrary.Free(library);
-            }
+        }
+        finally
+        {
+            // The exports read above are values, not addresses kept past this call.
+            NativeLibrary.Free(library);
         }
         if (found == 0)
         {

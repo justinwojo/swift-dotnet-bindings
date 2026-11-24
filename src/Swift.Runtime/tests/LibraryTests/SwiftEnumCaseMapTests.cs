@@ -35,7 +35,6 @@ public class SwiftEnumCaseMapTests
         {
             Assert.Equal((uint)i, map.ToTag(Ids[i]));
             Assert.Equal(Ids[i], map.ToCaseId((uint)i));
-            Assert.True(map.HasCase(Ids[i]));
         }
         Assert.Equal(SwiftEnumCaseMap.UnknownCase, map.ToCaseId(4));
     }
@@ -46,7 +45,6 @@ public class SwiftEnumCaseMapTests
         // Three real cases and one the library does not have, as an OS older than the binding's SDK.
         var symbols = new[] { DecodingErrorCases[0], "$ss13DecodingErrorO13notARealCaseyA2BmFWC", DecodingErrorCases[1], DecodingErrorCases[2] };
         var map = new SwiftEnumCaseMap(SwiftCore, symbols, [1u, 2u, 3u, 4u], [0u, 1u, 2u, 3u]);
-        Assert.False(map.HasCase(2u));
         var refusal = Assert.Throws<PlatformNotSupportedException>(() => map.ToTag(2u));
         Assert.Contains("notARealCase", refusal.Message);
         Assert.Equal(0u, map.ToTag(1u));
@@ -56,15 +54,12 @@ public class SwiftEnumCaseMapTests
         Assert.Equal(SwiftEnumCaseMap.UnknownCase, map.ToCaseId(3));
     }
 
-    [Theory]
-    // A library with none of the symbols: a module built without library evolution, whose tags are
-    // the declaration-order tags.
-    [InlineData(SwiftCore)]
-    // A library that does not load.
-    [InlineData("/nonexistent/NoSuch.framework/NoSuch")]
-    public void WhenNoCaseSymbolResolves_TheDeclarationTagsAreTheTags(string library)
+    [Fact]
+    public void WhenNoCaseSymbolResolves_TheDeclarationTagsAreTheTags()
     {
-        var map = new SwiftEnumCaseMap(library, ["$s4Kit5ShadeO5firstyA2CmFWC", "$s4Kit5ShadeO4lateyA2CmFWC"], [500u, 9u], [0u, 1u]);
+        // A library with none of the symbols: a module built without library evolution, whose tags
+        // are the declaration-order tags.
+        var map = new SwiftEnumCaseMap(SwiftCore, ["$s4Kit5ShadeO5firstyA2CmFWC", "$s4Kit5ShadeO4lateyA2CmFWC"], [500u, 9u], [0u, 1u]);
         Assert.Equal(0u, map.ToTag(500u));
         Assert.Equal(1u, map.ToTag(9u));
         Assert.Equal(9u, map.ToCaseId(1));
@@ -72,11 +67,19 @@ public class SwiftEnumCaseMapTests
     }
 
     [Fact]
+    public void ALibraryThatDoesNotLoad_IsRefused_NotReadAsDeclarationOrder()
+    {
+        var map = new SwiftEnumCaseMap("/nonexistent/NoSuch.framework/NoSuch", ["$s6NoSuch5ShadeO5firstyA2CmFWC"], [500u], [0u]);
+        var refusal = Assert.Throws<DllNotFoundException>(() => map.ToTag(500u));
+        Assert.Contains("/nonexistent/NoSuch.framework/NoSuch", refusal.Message);
+        Assert.Throws<DllNotFoundException>(() => map.ToCaseId(0));
+    }
+
+    [Fact]
     public void AnIdentityTheEnumDoesNotHave_IsAnArgumentError()
     {
         var map = new SwiftEnumCaseMap(SwiftCore, DecodingErrorCases, Ids, [0u, 1u, 2u, 3u]);
         Assert.Throws<ArgumentOutOfRangeException>(() => map.ToTag(5u));
-        Assert.False(map.HasCase(5u));
     }
 
     [Fact]

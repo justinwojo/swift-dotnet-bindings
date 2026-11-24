@@ -351,7 +351,8 @@ class Gate:
             sdk_path = subprocess.check_output(["xcrun", "--sdk", sdk, "--show-sdk-path"], env=env, text=True).strip()
             steps = [
                 ["xcrun", "swiftc", "-emit-library", "-emit-module", "-enable-library-evolution", "-emit-module-interface",
-                 "-target", triple, "-sdk", sdk_path, "-module-name", framework, "-o", str(fw / framework),
+                 # Swift 6.4 refuses to emit an interface without an explicit language mode.
+                 "-swift-version", "5", "-target", triple, "-sdk", sdk_path, "-module-name", framework, "-o", str(fw / framework),
                  "-emit-module-path", str(modules / f"{suffix}.swiftmodule"),
                  "-emit-module-interface-path", str(modules / f"{suffix}.swiftinterface"),
                  "-Xlinker", "-install_name", "-Xlinker", f"@rpath/{framework}.framework/{framework}", str(source)],

@@ -556,6 +556,15 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int x = 6) => x; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
     // A parameter's position, not its name, is what the caller binds, so a renamed parameter keeps the value's identity.
     [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int y = 6) => y; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
+    // A decimal constant and a decimal default, which C# records in an attribute rather than a metadata constant.
+    [InlineData("public static class Kit { public const decimal Rate = 1.5m; }", "public static class Kit { public const decimal Rate = 2.5m; }", "Kit::Rate", "1.5m", "2.5m")]
+    [InlineData("public static class Kit { public static decimal F(decimal r = 1.5m) => r; }", "public static class Kit { public static decimal F(decimal r = 2.5m) => r; }",
+        // (The key's type names carry the reference assembly the test compiles against, so match its end.)
+        "System.Decimal parameter 1", "1.5m", "2.5m")]
+    // A DateTime default, likewise an attribute.
+    [InlineData("public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(5)] System.DateTime d) => d.Ticks; }",
+        "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(6)] System.DateTime d) => d.Ticks; }",
+        "System.DateTime):Int64 parameter 1", "0001-01-01T00:00:00.0000005", "0001-01-01T00:00:00.0000006")]
     public void Merge_ANewerCopyThatChangesACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before, string after)
     {
         // A literal is copied into the assembly that uses it: a library compiled against the older copy
@@ -605,6 +614,22 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Contains("4 compiled-in value(s)", problem);
         foreach (var member in new[] { "Mode::A is 0", "Mode::B is 1", "Mode::C is 2", "Mode::D is 3" })
             Assert.Contains(member, problem);
+    }
+
+    [Fact]
+    public void Merge_MoreThanTenChangedValues_TheRefusalNamesTen_AndTheLogNamesEvery()
+    {
+        var names = Enumerable.Range(0, 12).Select(i => ((char)('A' + i)).ToString()).ToList();
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: $"public enum Mode : uint {{ {string.Join(", ", names.Select((n, i) => $"{n} = {i}"))} }}");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: $"public enum Mode : uint {{ {string.Join(", ", names.Select((n, i) => $"{n} = {i + 1}"))} }}");
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("12 compiled-in value(s)", problem);
+        Assert.Contains("Mode::J is 9 in net10.0-ios26.0 and 10 in net10.0-ios27.2; …", problem);
+        Assert.DoesNotContain("Mode::K", problem);
+        var logged = result.Notes.Where(n => n.Contains("changed value", StringComparison.Ordinal)).ToList();
+        Assert.Equal(12, logged.Count);
+        Assert.Contains(logged, n => n.Contains("Mode::L is 11 in net10.0-ios26.0 and 12 in net10.0-ios27.2", StringComparison.Ordinal));
     }
 
     [Fact]
