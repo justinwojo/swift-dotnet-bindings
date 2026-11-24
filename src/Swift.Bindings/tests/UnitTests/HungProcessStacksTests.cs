@@ -71,6 +71,9 @@ public sealed class HungProcessStacksTests : IDisposable
     [InlineData(SampleCallGraph, true)]
     [InlineData(LldbAttachRefused, false)]
     [InlineData("* thread #1, stop reason = signal SIGSTOP\n", false)]
+    [InlineData("Sampling process 4242 for 1 second\nCall graph:\n\nTotal number in stack: 0\n", false)]
+    [InlineData("Call graph:\n    789 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    789 Thread_2\n", false)]
+    [InlineData("Call graph:\n    789 Thread_1\n    789 Thread_2\n      789 thread_start  (in libsystem_pthread.dylib) + 8\n", true)]
     public void HasBacktrace_RequiresFramesOrACallGraph(string text, bool expected) =>
         Assert.Equal(expected, HungProcessSampler.HasBacktrace(text));
 
@@ -281,6 +284,188 @@ public sealed class HungProcessStacksTests : IDisposable
         Assert.Empty(Directory.GetFiles(attempt.Directory, "hung-stacks-*"));
         using var launch = JsonDocument.Parse(File.ReadAllText(Path.Combine(attempt.Directory, "launch.json")));
         Assert.False(launch.RootElement.TryGetProperty("hung_process_stacks", out _));
+    }
+
+    // What the phone capture printed before the fix: the attach had not stopped the app, so
+    // `thread backtrace all` refused, and the batch ended there.
+    const string DeviceAttachStillRunning = """
+        (lldb) device select 559479FD-3C60-51E4-8B2C-872D8CBA8B54
+        (lldb) device process attach --pid 2403
+        (lldb) thread backtrace all
+        error: Command requires a process which is currently stopped.
+        """;
+
+    // `process status` prints the selected thread's top frame even while the attach is still
+    // settling; only the backtrace command's own section is a backtrace.
+    const string StatusFrameButNoBacktrace = """
+        (lldb) device process attach --pid 2415
+        (lldb) process status
+        Process 2415 is running.
+        * thread #1, stop reason = signal SIGSTOP
+            frame #0: 0x00000002376825e8
+        (lldb) thread backtrace all
+        error: Command requires a process which is currently stopped.
+        """;
+
+    [Fact]
+    public void HasBacktrace_CountsOnlyTheBacktraceCommandsOwnOutput() =>
+        Assert.False(HungProcessSampler.HasBacktrace(StatusFrameButNoBacktrace));
+
+    [Fact]
+    public void StallProbeShortfall_AcceptsTwoCapturedBacktraces()
+    {
+        var stacks = HungProcessSampler.Capture("app", 4242, LldbThenSample, TimeSpan.FromSeconds(5), TimeSpan.Zero,
+            run: (_, _) => new HungProcessSampler.CommandRun(false, 0, LldbBacktrace));
+
+        Assert.Null(HungProcessSampler.StallProbeShortfall(stacks));
+    }
+
+    [Fact]
+    public void StallProbeShortfall_RefusesACaptureThatTookNoBacktrace()
+    {
+        var stacks = HungProcessSampler.Capture("app on device", 2403, _ => [new HungProcessSampler.Command("xcrun", ["lldb"])],
+            TimeSpan.FromSeconds(5), TimeSpan.Zero,
+            run: (_, _) => new HungProcessSampler.CommandRun(false, 1, DeviceAttachStillRunning));
+
+        var shortfall = HungProcessSampler.StallProbeShortfall(stacks);
+        Assert.NotNull(shortfall);
+        Assert.Contains("#1 no-backtrace", shortfall);
+        Assert.Contains("#2 no-backtrace", shortfall);
+    }
+
+    [Fact]
+    public void StallProbeShortfall_RefusesOneSampleShort()
+    {
+        var alive = true;
+        var stacks = HungProcessSampler.Capture("app", 4242, LldbThenSample, TimeSpan.FromSeconds(5), TimeSpan.Zero,
+            isAlive: _ => alive,
+            run: (_, _) => { alive = false; return new HungProcessSampler.CommandRun(false, 0, LldbBacktrace); });
+
+        Assert.Contains("#2 process-gone", HungProcessSampler.StallProbeShortfall(stacks));
+    }
+
+    [Fact]
+    public void StallProbeShortfall_RefusesASampleLabelledCapturedWithoutThreadFrames()
+    {
+        var stacks = new HungProcessStacks("app", 4242,
+        [
+            new StackSample(1, DateTimeOffset.Now, TimeSpan.Zero, "lldb", HungProcessSampler.OutcomeCaptured, LldbBacktrace),
+            new StackSample(2, DateTimeOffset.Now, TimeSpan.Zero, "lldb", HungProcessSampler.OutcomeCaptured, StatusFrameButNoBacktrace),
+        ]);
+
+        Assert.Contains("#2", HungProcessSampler.StallProbeShortfall(stacks));
+    }
+
+    [Fact]
+    public void StallProbeShortfall_RefusesAStallWithNoCapture()
+    {
+        Assert.Contains("no hung-process stacks", HungProcessSampler.StallProbeShortfall(null));
+        Assert.Contains("#1 no-pid", HungProcessSampler.StallProbeShortfall(
+            HungProcessSampler.Capture("app", null, LldbThenSample, TimeSpan.FromSeconds(5), TimeSpan.Zero)));
+    }
+
+    static string SessionSample(int index, double start) => FormattableString.Invariant($"""
+        === hung-stacks sample {index} start={start:0.0} end={start + 0.5:0.0} ===
+        (lldb) thread backtrace all
+        * thread #1, queue = 'com.apple.main-thread', stop reason = signal SIGSTOP
+          * frame #0: 0x00000002376825e8 libsystem_kernel.dylib`__semwait_signal + 8
+            frame #1: 0x00000001025c1234 RuntimeTestsApp`TestBase_HarnessStallForever + 40
+        (lldb) image list -o -f
+        [  0] 0x00000000025b0000 /private/var/containers/Bundle/Application/X/RuntimeTestsApp.app/RuntimeTestsApp
+        """);
+
+    const string SessionAttach = """
+        (lldb) device select 559479FD-3C60-51E4-8B2C-872D8CBA8B54
+        (lldb) device process attach --pid 2403
+        [1.8s] process connected
+        [115.5s] process stopped
+        [115.5s] attached; process 2403 stopped
+        """;
+
+    static HungProcessStacks CaptureDeviceWith(HungProcessSampler.CommandRun result, List<HungProcessSampler.Command>? runs = null) =>
+        HungProcessSampler.CaptureDevice("app on device", "/repo/build/scripts/device-hung-stacks.py", "U", 2403,
+            ["/obj/RuntimeTestsApp"], (command, _) => { runs?.Add(command); return result; });
+
+    [Fact]
+    public void CaptureDevice_TakesBothSamplesInOneSession()
+    {
+        var runs = new List<HungProcessSampler.Command>();
+        var stacks = CaptureDeviceWith(new HungProcessSampler.CommandRun(false, 0,
+            SessionAttach + "\n" + SessionSample(1, 115.5) + "\n(lldb) process continue\n" + SessionSample(2, 121.9) +
+            "\n(lldb) process detach\n[122.4s] process 2403 detached"), runs);
+
+        var session = Assert.Single(runs);
+        Assert.Equal("xcrun", session.FileName);
+        Assert.Equal(new[] { "python3", "-I", "/repo/build/scripts/device-hung-stacks.py", "U", "2403", "2", "5", "300", "/obj/RuntimeTestsApp" },
+            session.Arguments);
+        Assert.Null(HungProcessSampler.StallProbeShortfall(stacks));
+        Assert.Equal(TimeSpan.FromSeconds(6.4), stacks.Samples[1].StartedAt - stacks.Samples[0].StartedAt);
+        // Each file stands alone: it says how the session attached and holds only its own backtrace.
+        Assert.All(stacks.Samples, s => Assert.Contains("attached; process 2403 stopped", s.Text));
+        Assert.Contains("start=115.5", stacks.Samples[0].Text);
+        Assert.DoesNotContain("start=121.9", stacks.Samples[0].Text);
+        Assert.Contains("start=121.9", stacks.Samples[1].Text);
+    }
+
+    [Fact]
+    public void CaptureDevice_AnAttachThatNeverStopsTheApp_IsNoBacktrace()
+    {
+        var stacks = CaptureDeviceWith(new HungProcessSampler.CommandRun(false, 2,
+            SessionAttach.Split("[115.5s]")[0] + "error: the attach did not stop process 2403 within 300 s (state connected)"));
+
+        Assert.Equal(HungProcessSampler.OutcomeNoBacktrace, stacks.Samples[0].Outcome);
+        Assert.Contains("did not stop process 2403", stacks.Samples[0].Text);
+        Assert.Contains("[exit 2]", stacks.Samples[0].Text);
+        Assert.Equal(HungProcessSampler.OutcomeSkipped, stacks.Samples[1].Outcome);
+        Assert.NotNull(HungProcessSampler.StallProbeShortfall(stacks));
+    }
+
+    [Fact]
+    public void CaptureDevice_ASessionKilledAfterItsFirstSample_KeepsThatSample()
+    {
+        var stacks = CaptureDeviceWith(new HungProcessSampler.CommandRun(true, null,
+            SessionAttach + "\n" + SessionSample(1, 115.5) + "\n(lldb) process continue"));
+
+        Assert.Equal(HungProcessSampler.OutcomeCaptured, stacks.Samples[0].Outcome);
+        Assert.Equal(HungProcessSampler.OutcomeTimedOut, stacks.Samples[1].Outcome);
+        Assert.Contains("[killed after 420 s]", stacks.Samples[1].Text);
+        Assert.Contains("#2 debugger-timed-out", HungProcessSampler.StallProbeShortfall(stacks));
+    }
+
+    [Fact]
+    public void CaptureDevice_ASampleWhoseBacktraceFailed_IsNoBacktrace()
+    {
+        var failed = "=== hung-stacks sample 2 start=121.9 end=122.0 ===\n(lldb) thread backtrace all\n" +
+                     "error: Command requires a process which is currently stopped.";
+        var stacks = CaptureDeviceWith(new HungProcessSampler.CommandRun(false, 0,
+            SessionAttach + "\n" + SessionSample(1, 115.5) + "\n" + failed));
+
+        Assert.Equal(HungProcessSampler.OutcomeCaptured, stacks.Samples[0].Outcome);
+        Assert.Equal(HungProcessSampler.OutcomeNoBacktrace, stacks.Samples[1].Outcome);
+    }
+
+    [Fact]
+    public void CaptureDevice_WithoutAPid_RunsNothing()
+    {
+        var stacks = HungProcessSampler.CaptureDevice("app", "script", "U", null,
+            run: (_, _) => throw new InvalidOperationException("no debugger without a pid"));
+
+        Assert.Equal(HungProcessSampler.OutcomeNoPid, Assert.Single(stacks.Samples).Outcome);
+    }
+
+    [Fact]
+    public void ParseDwarfdumpUuids_ReadsEverySliceAndSkipsNonMachO()
+    {
+        var uuids = HungProcessSampler.ParseDwarfdumpUuids("""
+            UUID: 1b2c3d4e-0000-1111-2222-333344445555 (arm64) /obj/ios-arm64/RuntimeTestsApp
+            UUID: 6F7A8B9C-0000-1111-2222-333344445555 (arm64) /bin/RuntimeTestsApp.app.dSYM/Contents/Resources/DWARF/Runtime Tests
+            UUID: 0A0B0C0D-0000-1111-2222-333344445555 (x86_64) /bin/RuntimeTestsApp.app.dSYM/Contents/Resources/DWARF/Runtime Tests
+            error: /obj/notes.txt: The file was not recognized as a valid object file
+            """);
+
+        Assert.Equal(2, uuids.Count);
+        Assert.Equal(new[] { "1B2C3D4E-0000-1111-2222-333344445555" }, uuids["/obj/ios-arm64/RuntimeTestsApp"]);
+        Assert.Equal(2, uuids["/bin/RuntimeTestsApp.app.dSYM/Contents/Resources/DWARF/Runtime Tests"].Count);
     }
 
     [Fact]

@@ -9,6 +9,8 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
+using Nuke.Common;
 using Nuke.Common.Tooling;
 using Serilog;
 
@@ -73,7 +75,13 @@ public static class DeviceCtl
     /// Waits for RESULTS FLUSHED marker before checking TEST SUCCESS/TEST FAILURE to ensure
     /// JSONL results are fully written before the process is killed.
     /// </summary>
-    public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout)
+    /// <param name="symbolFiles">
+    /// The build's unstripped copies of the app's images (see <see cref="UnstrippedAppImages"/>),
+    /// handed to the hung-app capture so it can name the app's frames; a packaged app is stripped
+    /// of local symbols. Only called when the launch stalls.
+    /// </param>
+    public static LaunchResult Launch(string udid, string bundleId, string[] args, TimeSpan timeout,
+        Func<IReadOnlyList<string>>? symbolFiles = null)
     {
         var launchArgs = string.Join(" ", args);
         var output = new ConcurrentQueue<string>();
@@ -140,8 +148,9 @@ public static class DeviceCtl
             var pids = FindRunningPids(udid, bundleId);
             Log.Warning("Launch budget ran out with {Bundle} (pid {Pid}) still running on the device; taking its stacks before the kill...",
                 bundleId, pids.Count > 0 ? string.Join(",", pids) : "?");
-            hungStacks = HungProcessSampler.CaptureDevice($"{bundleId} on device {udid}", udid,
-                pids.Count > 0 ? pids[0] : null);
+            hungStacks = HungProcessSampler.CaptureDevice($"{bundleId} on device {udid}",
+                NukeBuild.RootDirectory / "build" / "scripts" / "device-hung-stacks.py", udid,
+                pids.Count > 0 ? pids[0] : null, SymbolFilesOrNone(symbolFiles));
             Log.Warning("Hung-app stacks: {Outcomes}",
                 string.Join(", ", hungStacks.Samples.Select(s => $"#{s.Index} {s.Outcome}")));
         }
@@ -175,6 +184,117 @@ public static class DeviceCtl
         try { if (process.HasExited) exitCode = process.ExitCode; } catch { }
 
         return new LaunchResult(result, finalOutput, exitCode, null, resultsFlushed, hungStacks);
+    }
+
+    /// <summary>How long a stall's capture may spend finding the app's unstripped images before it attaches.</summary>
+    public static readonly TimeSpan SymbolSearchBudget = TimeSpan.FromSeconds(30);
+
+    static IReadOnlyList<string> SymbolFilesOrNone(Func<IReadOnlyList<string>>? symbolFiles)
+    {
+        if (symbolFiles is null) return [];
+        // The search runs off the launcher's thread, so a filesystem call that blocks cannot keep
+        // the launcher from its capture and its kill; past the wait the capture goes unsymbolicated.
+        var search = Task.Run(symbolFiles);
+        try
+        {
+            if (search.Wait(SymbolSearchBudget + TimeSpan.FromSeconds(10)))
+                return search.Result;
+            Log.Warning("The search for the app's unstripped images overran {Seconds} s; the stacks are taken without them",
+                SymbolSearchBudget.TotalSeconds + 10);
+        }
+        catch (Exception ex)
+        {
+            Log.Warning("Could not collect the app's unstripped images for the stack capture: {Message}",
+                (ex as AggregateException)?.InnerException?.Message ?? ex.Message);
+        }
+        return [];
+    }
+
+    /// <summary>
+    /// The build's unstripped copies of the Mach-O images in <paramref name="appPath"/> (its
+    /// executable and each <c>Frameworks/*.framework</c> binary): a dSYM, or else a same-named
+    /// file outside any app bundle, whose UUID equals the bundled image's. They are looked for
+    /// beside the app and under its project's <c>obj/</c> (the project being the directory above
+    /// the app's <c>bin/</c>). Packaging strips a device app of local symbols but keeps each image's
+    /// UUID, which is how lldb pairs a symbol file with the image it describes. Bounded by
+    /// <paramref name="budget"/>: the walk stops at half of it, and the rest checks the UUIDs of
+    /// what it found, dSYMs first.
+    /// </summary>
+    public static IReadOnlyList<string> UnstrippedAppImages(string appPath, TimeSpan budget)
+    {
+        var clock = Stopwatch.StartNew();
+        // The walk gets half the budget, so the UUID check always has time for what it found.
+        var walkDeadline = budget / 2;
+        var appDirectory = Path.GetDirectoryName(Path.GetFullPath(appPath))!;
+        var searchRoots = new List<string> { appDirectory };
+        for (var d = new DirectoryInfo(appDirectory); d?.Parent != null; d = d.Parent)
+            if (d.Name == "bin") { searchRoots.Add(Path.Combine(d.Parent.FullName, "obj")); break; }
+        var images = new List<string> { Path.Combine(appPath, Path.GetFileNameWithoutExtension(appPath)) };
+        var frameworks = Path.Combine(appPath, "Frameworks");
+        if (Directory.Exists(frameworks))
+            images.AddRange(Directory.GetDirectories(frameworks, "*.framework")
+                .Select(f => Path.Combine(f, Path.GetFileNameWithoutExtension(f))));
+        images = images.Where(File.Exists).ToList();
+        var bundled = HungProcessSampler.ParseDwarfdumpUuids(DwarfdumpUuids(images, budget - clock.Elapsed));
+        var wanted = bundled.Values.SelectMany(u => u).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var names = images.Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
+
+        var candidates = new List<string>();
+        var pending = new Stack<string>(searchRoots.Where(Directory.Exists).Reverse());
+        while (pending.Count > 0 && clock.Elapsed < walkDeadline)
+        {
+            var directory = pending.Pop();
+            try
+            {
+                foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    if (clock.Elapsed >= walkDeadline) break;
+                    if (Directory.Exists(entry))
+                        pending.Push(entry);
+                    // An app bundle holds stripped copies; a dSYM inside one still counts.
+                    else if (names.Contains(Path.GetFileName(entry)) && (IsInsideDsym(entry) || !IsInsideApp(entry)))
+                        candidates.Add(entry);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        // dSYMs first, so a check the budget cuts short has read the preferred copies.
+        candidates = candidates.Distinct(StringComparer.Ordinal).OrderByDescending(IsInsideDsym).ToList();
+        var found = HungProcessSampler.ParseDwarfdumpUuids(DwarfdumpUuids(candidates, budget - clock.Elapsed));
+        var chosen = new List<string>();
+        foreach (var uuid in wanted)
+        {
+            var matches = found.Where(kv => kv.Value.Contains(uuid, StringComparer.OrdinalIgnoreCase)).Select(kv => kv.Key)
+                .OrderByDescending(IsInsideDsym)
+                .ThenBy(p => p, StringComparer.Ordinal)
+                .ToList();
+            if (matches.Count > 0 && !chosen.Contains(matches[0]))
+                chosen.Add(matches[0]);
+        }
+        Log.Information("Stack capture symbols: {Found} of {Images} app images have an unstripped copy ({Candidates} candidates in {Elapsed:F1} s)",
+            chosen.Count, images.Count, candidates.Count, clock.Elapsed.TotalSeconds);
+        return chosen;
+    }
+
+    static bool IsInsideDsym(string path) =>
+        path.Split(Path.DirectorySeparatorChar).Any(s => s.EndsWith(".dSYM", StringComparison.Ordinal));
+
+    static bool IsInsideApp(string path) =>
+        path.Split(Path.DirectorySeparatorChar).Any(s => s.EndsWith(".app", StringComparison.Ordinal));
+
+    static string DwarfdumpUuids(IReadOnlyList<string> files, TimeSpan budget)
+    {
+        var text = new System.Text.StringBuilder();
+        var clock = Stopwatch.StartNew();
+        foreach (var chunk in files.Chunk(64))
+        {
+            var left = budget - clock.Elapsed;
+            if (left <= TimeSpan.Zero) break;
+            var run = HungProcessSampler.RunBounded(
+                new HungProcessSampler.Command("xcrun", ["dwarfdump", "--uuid", .. chunk]), left);
+            text.AppendLine(run.Output);
+        }
+        return text.ToString();
     }
 
     /// <summary>

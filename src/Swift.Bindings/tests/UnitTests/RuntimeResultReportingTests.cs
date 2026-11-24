@@ -19,7 +19,8 @@ public class RuntimeResultReportingTests
 {
     private delegate string Reporter(string directory, int verdict, string[] attempts, bool throwAtBoundary,
         bool permissive, string framework = "net10.0", bool coreClr = false, string output = "",
-        string platform = "Simulator", bool harnessStallProbe = false, string stacksFile = null);
+        string platform = "Simulator", bool harnessStallProbe = false, string stacksFile = null,
+        bool framelessStacks = false);
     private static readonly Lazy<Reporter> Report = new(CompileReporter);
     private const string CoreClrBanner = "Runtime flavor: IsMonoRuntime=False, IsNativeAotRuntime=False, " +
         "Framework=.NETCoreApp,Version=v11.0, Runtime=.NET 11";
@@ -168,9 +169,9 @@ public class RuntimeResultReportingTests
 
     [Theory]
     [InlineData(TestResult.Timeout, "/attempts/00/hung-stacks-1.txt",
-        "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured): /attempts/00/hung-stacks-1.txt")]
+        "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured, #2 captured): /attempts/00/hung-stacks-1.txt")]
     [InlineData(TestResult.Crash, "/attempts/00/hung-stacks-1.txt",
-        "Runtime tests crashed (Simulator); hung-process stacks (App, pid 42; #1 captured): /attempts/00/hung-stacks-1.txt")]
+        "Runtime tests crashed (Simulator); hung-process stacks (App, pid 42; #1 captured, #2 captured): /attempts/00/hung-stacks-1.txt")]
     [InlineData(TestResult.Crash, null, "Runtime tests crashed (Simulator)")]
     public void StalledLaunch_NamesItsStacksInTheFailure(TestResult verdict, string stacksFile, string message)
     {
@@ -211,16 +212,28 @@ public class RuntimeResultReportingTests
     public void HarnessStallProbe_CrashDuringCaptureNamesTheStacks()
         => InScratch(directory => Assert.Equal(
             "--harness-stall-probe: the Simulator run ended as Crash after its stacks were taken, not as a stall; " +
-            "hung-process stacks (App, pid 42; #1 captured): /s.txt",
+            "hung-process stacks (App, pid 42; #1 captured, #2 captured): /s.txt",
             Report.Value(directory, (int)TestResult.Crash, new[] { Prefix }, false, false,
                 harnessStallProbe: true, stacksFile: "/s.txt")));
 
     [Fact]
     public void HarnessStallProbe_StallKeepsTheTimeoutFailure()
         => InScratch(directory => Assert.Equal(
-            "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured): /s.txt",
+            "Runtime tests timed out (Simulator); hung-process stacks (App, pid 42; #1 captured, #2 captured): /s.txt",
             Report.Value(directory, (int)TestResult.Timeout, new[] { Prefix }, false, false,
                 harnessStallProbe: true, stacksFile: "/s.txt")));
+
+    // A stall whose capture read no threads is not a proof: the probe names the samples that fell
+    // short instead of failing with the ordinary timeout. Outside the probe the timeout is unchanged.
+    [Theory]
+    [InlineData(true, "--harness-stall-probe: the Device/NativeAOT run stalled, but the capture is not a proof: " +
+        "2 samples with a thread backtrace are required, got #1 no-backtrace, #2 no-backtrace; " +
+        "hung-process stacks (App, pid 42; #1 no-backtrace, #2 no-backtrace): /s.txt")]
+    [InlineData(false, "Runtime tests timed out (Device/NativeAOT); hung-process stacks (App, pid 42; #1 no-backtrace, #2 no-backtrace): /s.txt")]
+    public void HarnessStallProbe_StallWithoutABacktraceIsNotAProof(bool probe, string message)
+        => InScratch(directory => Assert.Equal(message,
+            Report.Value(directory, (int)TestResult.Timeout, new[] { Prefix }, false, false,
+                platform: "Device/NativeAOT", harnessStallProbe: probe, stacksFile: "/s.txt", framelessStacks: true)));
 
     private static readonly string[] BaselineNames = { "validation-baseline.json", "runtime-identity-baseline.json" };
 
@@ -288,7 +301,7 @@ public class RuntimeResultReportingTests
                 {{production}}
                 public static string Run(string directory, int verdict, string[]? attempts, bool throwAtBoundary,
                     bool permissive, string framework, bool coreClr, string output, string platform,
-                    bool harnessStallProbe, string? stacksFile) {
+                    bool harnessStallProbe, string? stacksFile, bool framelessStacks) {
                     var fixture = new ReporterFixture {
                         HarnessStallProbe = harnessStallProbe,
                         directory = directory, throwAtBoundary = throwAtBoundary, Permissive = permissive,
@@ -301,9 +314,15 @@ public class RuntimeResultReportingTests
                         foreach (var jsonl in attempts) merged.Merge(JsonlTestResults.Parse(jsonl));
                     }
                     try {
+                        // Two samples, as a capture takes; frameless ones are what a debugger that
+                        // never stopped the app leaves.
+                        var stackText = framelessStacks
+                            ? "(lldb) thread backtrace all\nerror: Command requires a process which is currently stopped."
+                            : "(lldb) thread backtrace all\n* thread #1\n  * frame #0: 0x1 libsystem_kernel.dylib`__semwait_signal + 8";
                         var stacks = stacksFile == null ? null
-                            : new HungProcessStacks("App", 42, new[] { new StackSample(1, DateTimeOffset.Now, TimeSpan.Zero,
-                                "lldb", HungProcessSampler.OutcomeCaptured, "thread #1") }) { Files = new[] { stacksFile } };
+                            : new HungProcessStacks("App", 42, new[] { 1, 2 }.Select(i => new StackSample(i, DateTimeOffset.Now, TimeSpan.Zero,
+                                "lldb", framelessStacks ? HungProcessSampler.OutcomeNoBacktrace : HungProcessSampler.OutcomeCaptured,
+                                stackText)).ToArray()) { Files = new[] { stacksFile } };
                         fixture.ReportRuntimeTestResult(new LaunchResult((TestResult)verdict, output, null, null,
                             HungStacks: stacks), platform, merged);
                         return "";

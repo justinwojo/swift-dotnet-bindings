@@ -2069,7 +2069,9 @@ partial class Build
             {
                 DeviceCtl.Install(device.Udid, appPath);
                 Log.Information("Launching app on device (timeout: {Timeout}s)...", Timeout);
-                return DeviceCtl.Launch(device.Udid, runtimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout));
+                // A stall's capture names the app's frames from this build's unstripped images.
+                return DeviceCtl.Launch(device.Udid, runtimeTestsBundleId, args, TimeSpan.FromSeconds(Timeout),
+                    () => DeviceCtl.UnstrippedAppImages(appPath, DeviceCtl.SymbolSearchBudget));
             },
             CopyResults: (runToken, _) => DeviceCtl.CopyResultsFromSandbox(device.Udid, runtimeTestsBundleId, runToken),
             // The app got far enough to print its banner — cross-check the runtime it actually
@@ -2901,6 +2903,10 @@ partial class Build
                   $"not as a stall; {probeStacks.Describe()}"
                 : $"--harness-stall-probe: the {platform} run ended as {effectiveResult}, not as a stall, " +
                   "so the hung-app capture was not exercised; pick a --class-filter whose first test runs.");
+        // A stall proves the capture only when the capture read the threads: a sample that ran but
+        // took no backtrace is not a proof, and the probe says which samples fell short.
+        if (HarnessStallProbe && HungProcessSampler.StallProbeShortfall(result.HungStacks) is { } shortfall)
+            throw new Exception($"--harness-stall-probe: the {platform} run stalled, but the capture is not a proof: {shortfall}");
 
         Log.Information("");
         Log.Information("=========================================");
