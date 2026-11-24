@@ -607,6 +607,39 @@ public sealed class TransitionCheckTasksTests : IDisposable
             Assert.Contains(expected, output);
     }
 
+    [Theory]
+    // A pure Objective-C binding of an Apple framework: consumer targets with no natives.
+    [InlineData("none", "<Project />", 0, "<NativePayload>none</NativePayload>")]
+    // A pure Objective-C binding of a library: natives in lib/<tfm>/, no consumer targets.
+    [InlineData("resources", null, 0, "<TargetsFile></TargetsFile>")]
+    [InlineData("", "<Project />", 0, "<NativePayload>native</NativePayload>")]
+    [InlineData("none", "<Project><ItemGroup><NativeReference Include=\"$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/Kit.xcframework\" /></ItemGroup></Project>", 1, "error SWIFTBIND138")]
+    [InlineData("framework", "<Project />", 1, "'framework' is not a native payload")]
+    public void Prepare_DeclaresWhereTheCopysNativesAre(string payload, string? targets, int exit, string expected)
+    {
+        var assembly = Path.Combine(tempDir, "Acme.Kit.dll");
+        File.WriteAllBytes(assembly, Compile("Acme.Kit", PrimitiveOnly));
+        var consumerTargets = Path.Combine(tempDir, "Acme.Kit.targets");
+        if (targets is not null)
+            File.WriteAllText(consumerTargets, targets);
+        var declaration = Path.Combine(tempDir, "pack", "Acme.Kit.props");
+        var project = Path.Combine(tempDir, "payload.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="{SecurityElement.Escape(TasksDll)}" />
+              <Target Name="Declare">
+                <PrepareSwiftBindingPackageCopy PackageId="Acme.Kit" PackTfm="net10.0-ios26.0" TargetKind="AppleFramework"
+                    PlatformSdkVersion="26.2" Assembly="{SecurityElement.Escape(assembly)}" NativePayload="{payload}"
+                    ConsumerTargetsFile="{SecurityElement.Escape(consumerTargets)}"
+                    Toolchain=".NET 10 + Xcode" Generator="0.21.0" DeclarationFile="{SecurityElement.Escape(declaration)}" />
+              </Target>
+            </Project>
+            """);
+        var (code, output) = MSBuild(project, "Declare", "minimal");
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        Assert.Contains(expected, exit == 0 ? File.ReadAllText(declaration) : output);
+    }
+
     // ---- the copy check (SWIFTBIND136, SWIFTBIND139) ---------------------------------------------
 
     [Theory]
@@ -640,6 +673,34 @@ public sealed class TransitionCheckTasksTests : IDisposable
 
         Assert.True(exit == 0 ? code == 0 : code != 0, output);
         Assert.Contains(expected, output);
+    }
+
+    [Fact]
+    public void CopyCheck_ACopyThatShipsNoTargets_IsAnnounced_NotRefused()
+    {
+        // A pure Objective-C binding of a library: its natives travel in lib/<tfm>/, and it ships no
+        // consumer targets, which its declaration states.
+        var root = Path.Combine(tempDir, "packages", "acme.kit", "1.0.0");
+        Directory.CreateDirectory(Path.Combine(root, "lib", "net10.0-ios26.0"));
+        var dll = Path.Combine(root, "lib", "net10.0-ios26.0", "Acme.Kit.dll");
+        File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
+        var copy = $"""
+            <SwiftBindingPackageCopy Include="Acme.Kit">
+              <CopyTfm>net10.0-ios26.0</CopyTfm>
+              <Toolchain>.NET 10 + Xcode 26.3</Toolchain>
+              <NativePayload>resources</NativePayload>
+              <LibDirectory>{SecurityElement.Escape(root)}/lib/net10.0-ios26.0/</LibDirectory>
+              <NativeDirectory></NativeDirectory>
+              <TargetsFile></TargetsFile>
+            </SwiftBindingPackageCopy>
+            """;
+
+        var (code, output) = Build("net10.0-ios", "Debug", References(compile: dll, package: "Acme.Kit"),
+            "<TargetPlatformVersion>26.2</TargetPlatformVersion>", items: copy);
+
+        Assert.True(code == 0, output);
+        Assert.Contains("native=(resources) targets=(none)", output);
+        Assert.DoesNotContain("SWIFTBIND136", output);
     }
 
     [Fact]

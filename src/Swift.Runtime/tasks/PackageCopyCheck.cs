@@ -10,8 +10,13 @@ using System.Linq;
 
 namespace SwiftBindings.Tasks;
 
-/// <summary>A declared package copy, its paths as the declaration states them.</summary>
-public sealed record PackageCopy(string PackageId, string CopyTfm, string Toolchain, string LibDirectory, string NativeDirectory, string TargetsFile);
+/// <summary>
+/// A declared package copy, its paths as the declaration states them. An empty
+/// <paramref name="TargetsFile"/> declares a copy that ships no consumer targets, and
+/// <paramref name="NativePayload"/> where its natives are (an empty one means <c>native</c>).
+/// </summary>
+public sealed record PackageCopy(string PackageId, string CopyTfm, string Toolchain, string LibDirectory, string NativeDirectory, string TargetsFile,
+    string NativePayload = "");
 
 /// <summary>A compile reference, with the package NuGet resolved it from (empty when none).</summary>
 public sealed record ResolvedReference(string Path, string PackageId, string PackageVersion);
@@ -72,7 +77,7 @@ public static class PackageCopyCheck
                     + "Restore again; if this persists the package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ and native/<tfm>/ copy (rebuild it with SwiftBindings.Sdk, or merge its contributions with SwiftBindingsMergePackages)."));
                 continue;
             }
-            if (resolved.Count > 0 && !File.Exists(copy.TargetsFile))
+            if (resolved.Count > 0 && (copy.TargetsFile.Length > 0 || IsNativePayload(copy)) && !File.Exists(copy.TargetsFile))
             {
                 findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Mismatch, copy.PackageId,
                     $"{named}: this build ({targetFramework}) uses the package's {copy.CopyTfm} copy, but its consumer targets '{Full(copy.TargetsFile)}' are missing, "
@@ -80,8 +85,10 @@ public static class PackageCopyCheck
                 continue;
             }
             var built = copy.Toolchain.Length > 0 ? $" (built on {copy.Toolchain})" : "";
+            var native = IsNativePayload(copy) ? Directory(copy.NativeDirectory) : $"({copy.NativePayload.Trim()})";
+            var targets = copy.TargetsFile.Length > 0 ? Full(copy.TargetsFile) : "(none)";
             findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Selected, copy.PackageId,
-                $"SwiftBindings copy: {named} -> {copy.CopyTfm}{built}; lib={expectedLib} native={Directory(copy.NativeDirectory)} targets={Full(copy.TargetsFile)}"));
+                $"SwiftBindings copy: {named} -> {copy.CopyTfm}{built}; lib={expectedLib} native={native} targets={targets}"));
             if (resolved.Count == 0)
                 continue;
             var fallback = Fallback(copy.CopyTfm, targetFramework, targetPlatformVersion);
@@ -103,16 +110,33 @@ public static class PackageCopyCheck
         {
             var first = group.First();
             var root = Directory(Path.Combine(Path.GetDirectoryName(first.Path) ?? "", "..", ".."));
-            var native = Path.Combine(root, "native");
-            if (!System.IO.Directory.Exists(native)
-                || !System.IO.Directory.EnumerateDirectories(native).Any(d => IsCopyTfm(Path.GetFileName(d))))
+            if (!IsCopyLayout(root, group.Key))
                 continue;
             findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Mismatch, group.Key,
                 $"{group.Key} {first.PackageVersion}: this build ({targetFramework}) resolved {Path.GetFileName(first.Path)} from '{Directory(Path.GetDirectoryName(first.Path) ?? "")}', "
-                + "but NuGet chose none of the package's buildTransitive/ copies, so no native payload would be linked. "
-                + "The package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ and native/<tfm>/ copy."));
+                + "but NuGet chose none of the package's buildTransitive/ copies, so the copy's consumer files (and any native payload they link) are missing. "
+                + "The package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ copy, with its declaration."));
         }
         return findings;
+    }
+
+    /// <summary>Whether <paramref name="copy"/> declares its natives under <c>native/&lt;tfm&gt;/</c> (a declaration that names no payload does).</summary>
+    private static bool IsNativePayload(PackageCopy copy) =>
+        copy.NativePayload.Trim().Length == 0 || copy.NativePayload.Trim() == BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadNative;
+
+    /// <summary>
+    /// Whether the extracted package at <paramref name="root"/> is laid out per copy: natives under a
+    /// copy's <c>native/&lt;tfm&gt;/</c>, or a copy declaration (<c>buildTransitive/&lt;tfm&gt;/&lt;id&gt;.props</c>),
+    /// which a copy with no natives of its own still carries.
+    /// </summary>
+    private static bool IsCopyLayout(string root, string packageId)
+    {
+        var native = Path.Combine(root, "native");
+        if (System.IO.Directory.Exists(native) && System.IO.Directory.EnumerateDirectories(native).Any(d => IsCopyTfm(Path.GetFileName(d))))
+            return true;
+        var build = Path.Combine(root, "buildTransitive");
+        return System.IO.Directory.Exists(build) && System.IO.Directory.EnumerateDirectories(build)
+            .Any(d => IsCopyTfm(Path.GetFileName(d)) && File.Exists(Path.Combine(d, BindingsGeneration.PackageCopyDeclarationEmitter.FileName(packageId))));
     }
 
     /// <summary>

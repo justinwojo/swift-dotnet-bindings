@@ -29,10 +29,43 @@ namespace BindingsGeneration
         /// <summary>The declaration's file name for <paramref name="packageId"/>.</summary>
         public static string FileName(string packageId) => $"{packageId}.props";
 
-        /// <summary>The declaration text of the copy <paramref name="packTfm"/> of <paramref name="packageId"/>.</summary>
-        public static string Compose(string packageId, string packTfm, string toolchain, string platformSdkVersion, string generator)
+        /// <summary>
+        /// <c>NativePayload</c>: the copy's natives are under <c>native/&lt;tfm&gt;/</c>, which its consumer
+        /// targets reference (a Swift or mixed binding). A declaration that names no payload predates the
+        /// field and means this.
+        /// </summary>
+        public const string NativePayloadNative = "native";
+
+        /// <summary>
+        /// <c>NativePayload</c>: the copy ships no natives at all. A pure Objective-C binding of an Apple
+        /// framework binds what the OS provides.
+        /// </summary>
+        public const string NativePayloadNone = "none";
+
+        /// <summary>
+        /// <c>NativePayload</c>: the copy's natives travel inside its <c>lib/&lt;tfm&gt;/</c> folder, as the
+        /// binding project's resource package (<c>&lt;Assembly&gt;.resources.zip</c>, or the
+        /// <c>&lt;Assembly&gt;.resources/</c> directory) the consumer's build extracts. A pure Objective-C
+        /// binding of a library ships them so.
+        /// </summary>
+        public const string NativePayloadResources = "resources";
+
+        /// <summary>Whether <paramref name="payload"/> is a <c>NativePayload</c> this format defines.</summary>
+        public static bool IsNativePayload(string payload) =>
+            payload is NativePayloadNative or NativePayloadNone or NativePayloadResources;
+
+        /// <summary>
+        /// The declaration text of the copy <paramref name="packTfm"/> of <paramref name="packageId"/>, whose
+        /// natives are <paramref name="nativePayload"/> and which ships consumer targets when
+        /// <paramref name="hasConsumerTargets"/>. A copy with no <c>native/&lt;tfm&gt;/</c> payload declares an
+        /// empty <c>NativeDirectory</c>, and one with no consumer targets an empty <c>TargetsFile</c>.
+        /// </summary>
+        public static string Compose(string packageId, string packTfm, string toolchain, string platformSdkVersion, string generator,
+            string nativePayload = NativePayloadNative, bool hasConsumerTargets = true)
         {
             string X(string value) => SecurityElement.Escape(value) ?? "";
+            var nativeDirectory = nativePayload == NativePayloadNative ? $"$(MSBuildThisFileDirectory)../../native/{X(packTfm)}/" : "";
+            var targetsFile = hasConsumerTargets ? $"$(MSBuildThisFileDirectory){X(packageId)}.targets" : "";
             return $"""
                 <Project>
                   <!-- The copy of {X(packageId)} this buildTransitive/{X(packTfm)}/ folder belongs to. Read by
@@ -44,9 +77,10 @@ namespace BindingsGeneration
                       <Toolchain>{X(toolchain)}</Toolchain>
                       <PlatformSdkVersion>{X(platformSdkVersion)}</PlatformSdkVersion>
                       <Generator>{X(generator)}</Generator>
+                      <NativePayload>{X(nativePayload)}</NativePayload>
                       <LibDirectory>$(MSBuildThisFileDirectory)../../lib/{X(packTfm)}/</LibDirectory>
-                      <NativeDirectory>$(MSBuildThisFileDirectory)../../native/{X(packTfm)}/</NativeDirectory>
-                      <TargetsFile>$(MSBuildThisFileDirectory){X(packageId)}.targets</TargetsFile>
+                      <NativeDirectory>{nativeDirectory}</NativeDirectory>
+                      <TargetsFile>{targetsFile}</TargetsFile>
                     </{ItemType}>
                   </ItemGroup>
                 </Project>

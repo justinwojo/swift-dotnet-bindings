@@ -4558,25 +4558,29 @@ TARGETSEOF"
          (SWIFTBIND137): an Apple-framework copy labelled below the SDK it was generated from would
          be selected by apps on an older toolchain. The SDK judged and declared is the one the
          binding's assembly records it was generated from (its wrapper identity); the SDK selected
-         now stands in only for an assembly that records none. The pure-ObjC lane ships no consumer targets
-         and no native/<tfm>/, so it declares no copy. -->
-    <PropertyGroup Condition="'$(SwiftFrameworkType)' != 'ObjC'">
+         now stands in only for an assembly that records none (a pure Objective-C binding records none).
+         Every lane declares its copy, and names where the copy's natives are: under native/<tfm>/ (Swift
+         and mixed), nowhere (a pure Objective-C binding of an Apple framework binds what the OS
+         provides), or inside lib/<tfm>/ as the binding project's resource package (a pure Objective-C
+         binding of a library; see the source-xcframework item below). -->
+    <PropertyGroup>
+      <_SwiftBindingCopyNativePayload>native</_SwiftBindingCopyNativePayload>
+      <_SwiftBindingCopyNativePayload Condition="'$(SwiftFrameworkType)' == 'ObjC' AND '$(_SwiftBindingTargetKind)' == 'AppleFramework'">none</_SwiftBindingCopyNativePayload>
+      <_SwiftBindingCopyNativePayload Condition="'$(SwiftFrameworkType)' == 'ObjC' AND '$(_SwiftBindingTargetKind)' != 'AppleFramework'">resources</_SwiftBindingCopyNativePayload>
       <_SwiftBindingCopyXcrunSdk>macosx</_SwiftBindingCopyXcrunSdk>
       <_SwiftBindingCopyXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios'">iphoneos</_SwiftBindingCopyXcrunSdk>
       <_SwiftBindingCopyXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos'">appletvos</_SwiftBindingCopyXcrunSdk>
       <_SwiftBindingCopyDeclaration>$(_SwiftBindingIntermediateDir)pack/$(PackageId).props</_SwiftBindingCopyDeclaration>
     </PropertyGroup>
-    <Exec Condition="'$(SwiftFrameworkType)' != 'ObjC'"
-          Command="xcrun --sdk $(_SwiftBindingCopyXcrunSdk) --show-sdk-version 2&gt;/dev/null"
+    <Exec Command="xcrun --sdk $(_SwiftBindingCopyXcrunSdk) --show-sdk-version 2&gt;/dev/null"
           ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingCopySdkVersion" />
     </Exec>
-    <Exec Condition="'$(SwiftFrameworkType)' != 'ObjC'"
-          Command="xcodebuild -version 2&gt;/dev/null | head -1"
+    <Exec Command="xcodebuild -version 2&gt;/dev/null | head -1"
           ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingCopyXcode" />
     </Exec>
-    <PrepareSwiftBindingPackageCopy Condition="'$(SwiftFrameworkType)' != 'ObjC'"
+    <PrepareSwiftBindingPackageCopy
         PackageId="$(PackageId)"
         PackTfm="$(_SwiftBindingPackTfm)"
         TargetKind="$(_SwiftBindingTargetKind)"
@@ -4585,6 +4589,7 @@ TARGETSEOF"
         Toolchain=".NET $(NETCoreSdkVersion) + $(_SwiftBindingCopyXcode)"
         Generator="$(_SwiftBindingSdkVersion)"
         ConsumerTargetsFile="$(_SwiftBindingIntermediateDir)$(PackageId).targets"
+        NativePayload="$(_SwiftBindingCopyNativePayload)"
         DeclarationFile="$(_SwiftBindingCopyDeclaration)" />
 
     <!--
@@ -4623,7 +4628,7 @@ TARGETSEOF"
       <!-- The copy declaration (SwiftBindingPackageCopy), beside the consumer targets. -->
       <TfmSpecificPackageFile Include="$(_SwiftBindingCopyDeclaration)"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
-            Condition="'$(SwiftFrameworkType)' != 'ObjC' AND Exists('$(_SwiftBindingCopyDeclaration)')" />
+            Condition="Exists('$(_SwiftBindingCopyDeclaration)')" />
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')" />

@@ -48,10 +48,35 @@ public static class PackageCopyRules
     /// <c>buildTransitive/&lt;packTfm&gt;/</c>, so a reference the scan cannot see (through a property,
     /// relative to the consuming project, or absolute) is refused as well.
     /// </summary>
-    public static IEnumerable<string> CheckTargetsReferences(string packTfm, string targets)
+    public static IEnumerable<string> CheckTargetsReferences(string packTfm, string targets,
+        string nativePayload = BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadNative)
     {
         var scanned = ScanTargetsText(packTfm, targets).ToList();
-        return scanned.Count > 0 ? scanned : ResolveNativeReferences(packTfm, targets);
+        if (scanned.Count > 0)
+            return scanned;
+        // A copy that declares no native/<tfm>/ payload has nothing there for its targets to reference.
+        if (nativePayload != BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadNative)
+            return NativeReferenceIncludes(targets, out var unreadable) is { Count: > 0 } includes
+                ? [$"reference {string.Join(", ", includes)}, but the copy declares its native payload '{nativePayload}', so it has no native/{packTfm}/ for them to reference"]
+                : unreadable is not null ? [unreadable] : [];
+        return ResolveNativeReferences(packTfm, targets);
+    }
+
+    /// <summary>Every <c>NativeReference</c> include of <paramref name="targets"/>; null with a reason when it does not read.</summary>
+    private static List<string> NativeReferenceIncludes(string targets, out string? unreadable)
+    {
+        unreadable = null;
+        try
+        {
+            return XDocument.Parse(targets).Descendants().Where(e => e.Name.LocalName == "NativeReference")
+                .SelectMany(e => ((string?)e.Attribute("Include") ?? "").Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                .ToList();
+        }
+        catch (XmlException ex)
+        {
+            unreadable = $"do not read as an MSBuild project ({ex.Message})";
+            return [];
+        }
     }
 
     private static IEnumerable<string> ScanTargetsText(string packTfm, string targets)
