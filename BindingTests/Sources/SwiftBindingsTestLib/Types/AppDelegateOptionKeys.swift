@@ -49,4 +49,22 @@ public final class AppDelegateOptionRelay {
 public func describeOpenURLOptions(_ options: [UIApplication.OpenURLOptionsKey: Any]) -> String {
     return options.isEmpty ? "empty" : "\(options.count) options"
 }
+
+// MARK: - Key ownership probe
+//
+// Each key crosses as the pointer to its NSString. A dictionary Swift returns holds every key at
+// +1 in its storage, and reading the dictionary must not leave a key reference behind.
+
+/// One long-lived NSString (too long to be a tagged pointer), so its retain count is observable.
+private let launchOptionsProbeKey = NSString(string: "UIApplicationLaunchOptionsOwnershipProbeKey")
+
+/// A launch-options dictionary whose single key is `launchOptionsProbeKey` itself.
+public func makeLaunchOptionsWithProbeKey() -> [UIApplication.LaunchOptionsKey: Any] {
+    return [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
+}
+
+/// The probe key's current retain count.
+public func launchOptionsProbeKeyRetainCount() -> Int {
+    return CFGetRetainCount(launchOptionsProbeKey)
+}
 #endif

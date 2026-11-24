@@ -287,4 +287,77 @@ public class CollectionReadOwnershipLeakTests : TestBase
             }
         }
     }
+
+    /// <summary>
+    /// A raw <c>SwiftDictionary&lt;SwiftString, ExistentialContainer0&gt;</c>, read with no projection
+    /// to convert its values. A raw container has no finalizer, so the value a read returns is the
+    /// reader's to destroy, and LINQ's positional reads (<c>Last</c>, <c>LastOrDefault</c>,
+    /// <c>ElementAt</c>) must take only that value: reading every value and keeping one dropped the
+    /// others at +1. The control builds and disposes the dictionary without reading it.
+    /// </summary>
+    public void TestRawExistentialValuesPositionalReadsReleaseTheRest()
+    {
+        AssertNoLeaksAfter(() => BuildRawTrackedAnyMaps(10, 4),
+            "building and disposing a raw [String: Any] dictionary releases every value (control)");
+        AssertNoLeaksAfter(() => ReadRawTrackedAnyMapsPositionally(10, 4),
+            "a positional read of a raw [String: Any] value must release every value it does not return");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void BuildRawTrackedAnyMaps(int iterations, int count)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            using var dict = MakeRawTrackedAnyMap(count);
+            AssertEqual(count, dict.Count, "the raw dictionary keeps every entry");
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void ReadRawTrackedAnyMapsPositionally(int iterations, int count)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            using var dict = MakeRawTrackedAnyMap(count);
+            DestroyTakenContainer(dict.Values.Last());
+            DestroyTakenContainer(dict.Values.LastOrDefault());
+            DestroyTakenContainer(dict.Values.ElementAt(1));
+            DestroyTakenContainer(dict.Values.First());
+            AssertEqual(count, dict.Values.Count(), "Count reads no value");
+            AssertThrows<ArgumentOutOfRangeException>(() => _ = dict.Values.ElementAt(count),
+                "ElementAt past the end throws and releases the snapshot it took");
+        }
+    }
+
+    private static Swift.SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer0> MakeRawTrackedAnyMap(int count)
+    {
+        var pairs = new List<KeyValuePair<SwiftString, Swift.Runtime.ExistentialContainer0>>();
+        try
+        {
+            for (int i = 0; i < count; i++)
+            {
+                using var tracked = new TrackedRef(i);
+                pairs.Add(new(new SwiftString($"k{i}"), Swift.Runtime.ExistentialContainer0.Box(tracked)));
+            }
+            // updateValue consumes each container's +1.
+            return Swift.SwiftDictionary<SwiftString, Swift.Runtime.ExistentialContainer0>.FromDictionary(pairs);
+        }
+        finally
+        {
+            foreach (var pair in pairs)
+                pair.Key.Dispose();
+        }
+    }
+
+    /// <summary>Destroys a raw container a read handed over (a class does not unbox, but the destroy still runs).</summary>
+    private static void DestroyTakenContainer(Swift.Runtime.ExistentialContainer0 taken)
+    {
+        try
+        {
+            _ = Swift.Runtime.ExistentialContainer0.UnboxOwned(taken);
+        }
+        catch (NotSupportedException)
+        {
+        }
+    }
 }

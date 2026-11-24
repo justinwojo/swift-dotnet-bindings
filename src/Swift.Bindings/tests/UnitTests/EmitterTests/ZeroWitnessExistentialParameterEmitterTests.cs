@@ -85,6 +85,27 @@ public class ZeroWitnessExistentialParameterEmitterTests
 
     [Theory]
     [MemberData(nameof(ZeroWitnessExistentials))]
+    public void AsyncCdeclMethod_OptionalZeroWitnessReturn_UnboxesOwnedContainerInPlace(string shape, ProtocolListTypeSpec innerType)
+    {
+        // Swift initializes the result carrier as Optional<Any>: .some is the container itself at +1
+        // and None is a null metadata word. The completion must test that word, unbox the container
+        // with the owned form (which destroys it), and never hand the awaiter the raw container a
+        // SwiftOptional<ExistentialContainer0> wrapper would yield as its Some.
+        var optionalType = new NamedTypeSpec("Swift.Optional", innerType);
+        var (csOutput, _) = EmitCdeclMethod(new NamedTypeSpec("Swift.Int"), isAsync: true, returnType: optionalType);
+
+        Assert.Contains("ExistentialContainer0.UnboxOwned(*(global::Swift.Runtime.ExistentialContainer0*)resultPtr)", csOutput);
+        Assert.Contains("*(IntPtr*)((byte*)resultPtr + (3 * IntPtr.Size)) == IntPtr.Zero", csOutput);
+        Assert.DoesNotContain("_swiftOpt.Some", csOutput);
+        Assert.DoesNotContain("SwiftOptional<Swift.Runtime.ExistentialContainer0>>(resultPtr)", csOutput);
+        // The owned unbox releases the payload; only the raw allocation is left to free.
+        Assert.DoesNotContain("Destroy((void*)resultPtr", csOutput);
+        Assert.Contains("SBW_Free(resultPtr)", csOutput);
+        _ = shape;
+    }
+
+    [Theory]
+    [MemberData(nameof(ZeroWitnessExistentials))]
     public void CdeclClosureCallback_ZeroWitnessArgument_ReceivesPlainValue(string shape, ProtocolListTypeSpec argumentType)
     {
         // Swift lends the argument to the callback, so the callback unboxes a borrowed container
@@ -240,6 +261,16 @@ public class ZeroWitnessExistentialParameterEmitterTests
                 Flags = TypeRecordFlags.Frozen | TypeRecordFlags.RequiresMemoryManagement,
                 Kind = TypeRecordKind.Struct,
                 InlineSize = 16,
+            });
+        swiftModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum,
             });
         typeDatabase.AddModuleDatabase(swiftModule);
 

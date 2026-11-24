@@ -456,14 +456,30 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <summary>
     /// Gets a collection containing the values in the dictionary.
     /// </summary>
+    /// <remarks>
+    /// A value read out of the collection is the reader's: Swift hands every value over at +1. A raw
+    /// existential container (an <c>ExistentialContainer…</c> value type) has no finalizer, so whoever
+    /// reads one must destroy it. For such a value the collection is also a read-only
+    /// <see cref="IList{T}"/>, so LINQ's positional operators (<c>Last</c>, <c>ElementAt</c>, their
+    /// <c>OrDefault</c> forms) read only the value they return; the others are released.
+    /// </remarks>
     public IEnumerable<TValue> Values
     {
         get
         {
             ThrowIfDisposed();
-            return new ValueSnapshot<TValue>(this, static value => value);
+            return IsRawCarrier<TValue>()
+                ? new RawValueList(this)
+                : new ValueSnapshot<TValue>(this, static value => value);
         }
     }
+
+    /// <summary>
+    /// Whether <typeparamref name="T"/> is a raw existential carrier: a value type that holds a Swift
+    /// +1 and nothing releases but an explicit destroy.
+    /// </summary>
+    private static bool IsRawCarrier<T>()
+        => typeof(IExistentialContainer).IsAssignableFrom(typeof(T)) || typeof(T) == typeof(ClassExistentialContainer1);
 
     /// <summary>
     /// <see cref="Values"/> passed through <paramref name="selector"/>, which runs when an entry's
@@ -482,6 +498,13 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// Returns an enumerator that iterates through the dictionary's key-value pairs.
     /// Uses Swift's Dictionary.makeIterator() and Dictionary.Iterator.next() P/Invokes.
     /// </summary>
+    /// <remarks>
+    /// An entry is the reader's once its <see cref="IEnumerator{T}.Current"/> is read; the entries an
+    /// enumeration steps over or stops before are released. A raw existential container value read
+    /// this way must be destroyed by the reader, so an operator that reads every pair and keeps one
+    /// (LINQ's <c>Last</c> over the pairs) leaves the others unreleased. Read such values positionally
+    /// through <see cref="Values"/>, or look them up by key.
+    /// </remarks>
     public IEnumerator<KeyValuePair<TKey, TValue>> GetEnumerator()
     {
         ThrowIfDisposed();
@@ -511,6 +534,101 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         }
 
         IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    /// <summary>
+    /// <see cref="Values"/> for a raw existential carrier. Enumerating it hands out a snapshot's
+    /// values exactly as <see cref="ValueSnapshot{TOut}"/> does. As an <see cref="IList{T}"/> it also
+    /// lets LINQ's <c>Last</c> and <c>ElementAt</c> index the one value they return, instead of reading
+    /// every value and dropping all but one: an enumerated value counts as handed out once read, and a
+    /// dropped raw container is never released. Each indexed read takes its own snapshot and releases
+    /// every value but the one it returns; <see cref="Contains"/> and <see cref="IndexOf"/> hand out
+    /// nothing and release them all.
+    /// </summary>
+    private sealed class RawValueList : IList<TValue>, IReadOnlyList<TValue>
+    {
+        private readonly SwiftDictionary<TKey, TValue> _dictionary;
+
+        public RawValueList(SwiftDictionary<TKey, TValue> dictionary) => _dictionary = dictionary;
+
+        public int Count => _dictionary.Count;
+
+        public bool IsReadOnly => true;
+
+        public TValue this[int index]
+        {
+            get
+            {
+                var entries = TakeSnapshot();
+                if ((uint)index >= (uint)entries.Count)
+                {
+                    ReleaseAllExcept(entries, -1);
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                }
+                TValue value = entries[index].Value;
+                ReleaseAllExcept(entries, index);
+                return value;
+            }
+            set => throw ReadOnly();
+        }
+
+        public IEnumerator<TValue> GetEnumerator()
+            => new SnapshotEnumerator<TValue>(TakeSnapshot(), static kvp => kvp.Value);
+
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+
+        public int IndexOf(TValue item)
+        {
+            var entries = TakeSnapshot();
+            var comparer = EqualityComparer<TValue>.Default;
+            int found = -1;
+            for (int i = 0; i < entries.Count && found < 0; i++)
+            {
+                if (comparer.Equals(entries[i].Value, item))
+                    found = i;
+            }
+            ReleaseAllExcept(entries, -1);
+            return found;
+        }
+
+        public bool Contains(TValue item) => IndexOf(item) >= 0;
+
+        public void CopyTo(TValue[] array, int arrayIndex)
+        {
+            ArgumentNullException.ThrowIfNull(array);
+            var entries = TakeSnapshot();
+            if (arrayIndex < 0 || array.Length - arrayIndex < entries.Count)
+            {
+                ReleaseAllExcept(entries, -1);
+                throw new ArgumentOutOfRangeException(nameof(arrayIndex));
+            }
+            for (int i = 0; i < entries.Count; i++)
+                array[arrayIndex + i] = entries[i].Value;
+        }
+
+        public void Add(TValue item) => throw ReadOnly();
+        public void Clear() => throw ReadOnly();
+        public void Insert(int index, TValue item) => throw ReadOnly();
+        public bool Remove(TValue item) => throw ReadOnly();
+        public void RemoveAt(int index) => throw ReadOnly();
+
+        private List<KeyValuePair<TKey, TValue>> TakeSnapshot()
+        {
+            _dictionary.ThrowIfDisposed();
+            return _dictionary.CollectEntries(EntryParts.Value);
+        }
+
+        private static void ReleaseAllExcept(List<KeyValuePair<TKey, TValue>> entries, int kept)
+        {
+            for (int i = 0; i < entries.Count; i++)
+            {
+                if (i != kept)
+                    ReleaseUnreadCarrier(entries[i].Value, ValueTypeMetadata);
+            }
+        }
+
+        private static NotSupportedException ReadOnly()
+            => new NotSupportedException("The values of a SwiftDictionary are read-only.");
     }
 
     /// <summary>

@@ -85,6 +85,12 @@ public class ExistentialProjection : ITypeProjection
     public bool IsObjCExistential => _isObjCExistential;
 
     /// <summary>
+    /// True for a bare <c>Any</c> (or a marker-only composition): the value crosses in an
+    /// <c>ExistentialContainer0</c> and C# reads it by unboxing, with no proxy or carrier type.
+    /// </summary>
+    public bool IsBareAny => _isBareAny;
+
+    /// <summary>
     /// True when this is a single-protocol existential carried in the opaque
     /// <c>ExistentialContainer1</c> and presented through its generated proxy (live or suppressed):
     /// not bare <c>Any</c> or a marker-only composition, not a multi-protocol composition, not an
