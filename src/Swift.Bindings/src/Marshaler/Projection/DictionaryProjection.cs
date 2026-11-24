@@ -124,7 +124,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             // pair whose conversion throws leave the earlier mints with the abandoned dictionary,
             // which releases them, rather than in a list nothing owns.
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Pairs = global::System.Linq.Enumerable.Select({paramName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr}));"));
+                $"var {paramName}Pairs = {CollectionElementSelect.Pairs(paramName, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", _keyProjection, _valueProjection)};"));
 
             // Disposal applies only to projections whose conversion was actually emitted.
             // When the conversion is skipped (typed-wrapper passthrough), the original
@@ -380,7 +380,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({elementVar}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(elementVar, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", _keyProjection, _valueProjection)})";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar})";
     }

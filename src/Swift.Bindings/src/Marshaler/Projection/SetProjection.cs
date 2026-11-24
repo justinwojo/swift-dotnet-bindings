@@ -98,7 +98,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         else if (needsConversion)
         {
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Containers = global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion});"));
+                $"var {paramName}Containers = {CollectionElementSelect.Elements(paramName, "e => " + elemConversion, _elementProjection)};"));
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}SwiftDirect = SwiftSet<{rawElem}>.FromEnumerable({paramName}Containers);"));
             return (setup, $"{paramName}SwiftDirect");
@@ -250,7 +250,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)
-            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
+            return $"SwiftSet<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(elementVar, "e => " + elemConversion, _elementProjection)})";
         return $"SwiftSet<{rawElem}>.FromEnumerable({elementVar})";
     }
 

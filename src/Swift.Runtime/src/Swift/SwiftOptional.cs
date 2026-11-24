@@ -385,6 +385,24 @@ public class SwiftOptional<T> : ISwiftObject, ISwiftStruct, IDisposable
     }
 
     /// <summary>
+    /// Creates a new SwiftOptional holding a copy of <paramref name="value"/>, then disposes
+    /// <paramref name="value"/>. For a value built only to be wrapped, such as a collection
+    /// created from managed elements: <see cref="NewSome"/> stores a copy, so the original would
+    /// otherwise keep its storage, and every reference that storage holds, alive until finalized.
+    /// </summary>
+    public static SwiftOptional<T> NewSomeConsuming(T value)
+    {
+        try
+        {
+            return NewSome(value);
+        }
+        finally
+        {
+            (value as IDisposable)?.Dispose();
+        }
+    }
+
+    /// <summary>
     /// Creates a new SwiftOptional with a Some case payload
     /// </summary>
     public static unsafe SwiftOptional<T> NewSome(T value)

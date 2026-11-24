@@ -8,11 +8,12 @@ using Swift.Runtime.InteropServices;
 namespace Swift.Runtime;
 
 /// <summary>
-/// The identity of one Swift <c>Hashable</c> type whose value is a single object reference: an
-/// Objective-C class, or a string-backed Objective-C key type (an <c>NS_TYPED_ENUM</c> struct such as
+/// The identity of one Swift type whose value is a single object reference: an Objective-C class,
+/// or a string-backed Objective-C key type (an <c>NS_TYPED_ENUM</c> struct such as
 /// <c>NSAttributedString.Key</c>, which stores its <c>NSString</c>). A binding declares one per such
-/// type that it uses as a dictionary key or set element, and registers it through
-/// <see cref="SwiftObjectKeys.Register{TIdentity}"/>.
+/// type that it uses as a collection's key, set element, array element or dictionary value, and
+/// registers it through <see cref="SwiftObjectKeys.Register{TIdentity}"/> (hashed positions) or
+/// <see cref="SwiftObjectKeys.RegisterValue{TIdentity}"/> (every other position).
 /// </summary>
 [EditorBrowsable(EditorBrowsableState.Never)]
 public interface ISwiftObjectKeyIdentity { }
@@ -27,11 +28,14 @@ internal interface ISwiftObjectKeyCarrier
 }
 
 /// <summary>
-/// A dictionary key or set element of the Swift type <typeparamref name="TIdentity"/> names, carried
-/// as its object pointer. A Swift collection over the bare pointer would be one over <c>Swift.Int</c>:
-/// hashed by address and holding its keys unretained, while Swift reads the same storage as the real
-/// key type and hashes by value. Carried as this type, the collection gets the key type's own
-/// metadata and <c>Hashable</c> witness table, so both sides hash, compare and retain alike.
+/// A value of the Swift type <typeparamref name="TIdentity"/> names, carried as its object pointer
+/// inside a Swift collection: a dictionary key or set element, an array element or a dictionary
+/// value. A Swift collection over the bare pointer would be one over <c>Swift.Int</c>: holding its
+/// elements unretained and, as a dictionary or set, hashed by address, while Swift reads the same
+/// storage as the real element type, releases what it replaces or destroys, bridges it to
+/// Objective-C as that type and hashes by value. Carried as this type, the collection gets the
+/// element type's own metadata (and, in a hashed position, its <c>Hashable</c> witness table), so
+/// both sides retain, release, bridge, hash and compare alike.
 /// </summary>
 /// <remarks>
 /// Ownership follows a Swift value of the key type. Built from a C# object, the carrier borrows the
@@ -101,6 +105,26 @@ public static class SwiftObjectKeys
         var carrier = typeof(SwiftObjectKey<TIdentity>);
         TypeMetadata.RegisterMetadata(carrier, keyMetadata);
         WitnessTableDispatcher.Register(carrier, typeof(ISwiftHashable), hashable);
+    }
+
+    /// <summary>
+    /// Registers the type <typeparamref name="TIdentity"/> names for positions that do not hash it
+    /// (an array element, a dictionary value), from the type's own metadata, which the binding's
+    /// wrapper returns. A type that is also a key or set element is registered through
+    /// <see cref="Register{TIdentity}"/> instead, which registers the same metadata.
+    /// </summary>
+    /// <param name="metadata">The metadata of the element type.</param>
+    /// <exception cref="SwiftRuntimeException">The pointer is not the metadata of a one-word type that
+    /// holds a reference.</exception>
+    public static unsafe void RegisterValue<TIdentity>(IntPtr metadata)
+        where TIdentity : ISwiftObjectKeyIdentity
+    {
+        if (metadata == IntPtr.Zero)
+            throw new SwiftRuntimeException($"No metadata for the element type of {typeof(TIdentity).FullName}.");
+        var elementMetadata = TypeMetadata.FromHandle(metadata);
+        if (!elementMetadata.IsValid || elementMetadata.Size != (nuint)IntPtr.Size || !elementMetadata.ValueWitnessTable->IsNonPOD)
+            throw new SwiftRuntimeException($"The metadata for {typeof(TIdentity).FullName} is not a one-word type that holds a reference.");
+        TypeMetadata.RegisterMetadata(typeof(SwiftObjectKey<TIdentity>), elementMetadata);
     }
 
     /// <summary>

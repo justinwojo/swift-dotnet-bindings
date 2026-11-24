@@ -285,7 +285,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(arr.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({valueExpr}, e => {elemConv}))", true);
+            return ($"SwiftArray<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(valueExpr, "e => " + elemConv, arr.ElementProjection)})", true);
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
@@ -313,7 +313,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         {
             var keyExpr = keyConv ?? "kvp.Key";
             var valExpr = valConv ?? "kvp.Value";
-            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({valueExpr}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(valueExpr, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection)})", true);
         }
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }
@@ -342,7 +342,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(set.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({valueExpr}, e => {elemConv}))", true);
+            return ($"SwiftSet<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(valueExpr, "e => " + elemConv, set.ElementProjection)})", true);
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
@@ -384,21 +384,23 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             }
         }
 
-        // Container inner (Array, Dictionary, Set) — wrap with full container creation
+        // Container inner (Array, Dictionary, Set) — wrap with full container creation. The
+        // optional stores a copy, so the container built here is consumed rather than left to
+        // its finalizer holding its storage and every element reference in it.
         if (inner is ArrayProjection arr)
         {
             var (arrConv, _) = ArraySetterConversion(arr, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
         if (inner is DictionaryProjection dict)
         {
             var (dictConv, _) = DictSetterConversion(dict, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
         if (inner is SetProjection set)
         {
             var (setConv, _) = SetSetterConversion(set, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
 
         // Class/NonFrozenStruct/KeyPath inner — pass the public type as-is. The KeyPath

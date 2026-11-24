@@ -1161,8 +1161,8 @@ public class ModuleHandlerTests
     public void Emit_ObjectKeyOnlyInAClosureParameter_IsRecordedFromTheBoundSurface()
     {
         // A closure's parameter types are translated raw, outside any type projection, so the
-        // module records the hashed keys its surface spells: the Dictionary key and the Set element,
-        // never the Dictionary value.
+        // module records the object types its collections spell: the Dictionary key and the Set
+        // element hashed, the Dictionary value unhashed.
         var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
             moduleDecl => moduleDecl.Methods.Add(new MethodDecl
             {
@@ -1199,9 +1199,55 @@ public class ModuleHandlerTests
 
         Assert.Contains("public sealed class UIKit_UIImage : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
         Assert.Contains("public sealed class UIKit_UIFont : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
-        Assert.DoesNotContain("UIKit_UIColor", csOutput);
+        Assert.Contains("public sealed class UIKit_UIColor : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
         Assert.Contains("Swift.Set<UIKit.UIImage>.self", swiftOutput);
         Assert.Contains("Swift.Set<UIKit.UIFont>.self", swiftOutput);
+        Assert.DoesNotContain("Swift.Set<UIKit.UIColor>", swiftOutput);
+        Assert.Contains("UIKit.UIColor.self as Any.Type", swiftOutput);
+        Assert.Contains("SwiftObjectKeys.RegisterValue<__SwiftObjectKeys.UIKit_UIColor>(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_RecordedObjectValue_ExportsTheTypesOwnMetadataAndRegistersItWithoutHashable()
+    {
+        // An array element or dictionary value needs only the element type's metadata: the wrapper
+        // exports the type itself (no Set, which would demand a Hashable conformance the type may
+        // lack), and the initializer registers it without a witness table.
+        var identity = new ObjectKeyIdentity("Foundation.NSUUID");
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordObjectKey(identity, hashed: false));
+
+        var symbol = identity.ValueAccessorSymbol("TestModule");
+        Assert.Contains($"@_cdecl(\"{symbol}\")", swiftOutput);
+        Assert.Contains("Foundation.NSUUID.self as Any.Type", swiftOutput);
+        Assert.DoesNotContain("Swift.Set<Foundation.NSUUID>", swiftOutput);
+        Assert.DoesNotContain(identity.AccessorSymbol("TestModule"), swiftOutput);
+
+        Assert.Contains("public sealed class Foundation_NSUUID : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
+        Assert.Contains($"EntryPoint = \"{symbol}\"", csOutput);
+        Assert.Contains(
+            "global::Swift.Runtime.SwiftObjectKeys.RegisterValue<__SwiftObjectKeys.Foundation_NSUUID>(__SwiftObjectKeys.__GetValueMetadata_Foundation_NSUUID())",
+            csOutput);
+        Assert.DoesNotContain("SwiftObjectKeys.Register<", csOutput);
+        var diagnostics = CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Emit_ObjectValueNamedOnlyByAGatedMember_GuardsItsAccessor()
+    {
+        // The element accessor takes the same floor as a key's: a member floored at iOS 16 that is the
+        // only one naming the element type guards the accessor at that floor.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(), moduleDecl =>
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "gatedList",
+                new NamedTypeSpec("Swift.Array", new NamedTypeSpec("UIKit.UIFont")), Introduced("iOS", "16.0"))));
+
+        var symbol = new ObjectKeyIdentity("UIKit.UIFont").ValueAccessorSymbol("TestModule");
+        var start = swiftOutput.IndexOf($"@_cdecl(\"{symbol}\")", StringComparison.Ordinal);
+        Assert.True(start >= 0, "no element accessor for UIKit.UIFont");
+        var accessor = swiftOutput.Substring(start, swiftOutput.IndexOf("\n}", start, StringComparison.Ordinal) - start);
+        Assert.Contains("if #available(iOS 16.0, macCatalyst 16.0, *) {", accessor);
+        Assert.Contains("UIKit.UIFont.self", accessor);
     }
 
     private static MethodDecl ObjectKeyMethod(ModuleDecl moduleDecl, string name, TypeSpec parameterType,

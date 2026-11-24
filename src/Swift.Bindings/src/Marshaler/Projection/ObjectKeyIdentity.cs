@@ -6,11 +6,14 @@ using System.Text;
 namespace BindingsGeneration;
 
 /// <summary>
-/// A Swift <c>Hashable</c> type whose value is one object reference (an Objective-C class, or a
-/// string-backed Objective-C key type such as <c>NSAttributedString.Key</c>), used as a dictionary key
-/// or set element. The binding declares one identity class per such type in its module's
-/// <c>__SwiftObjectKeys</c> class, and its wrapper exports the metadata of <c>Set&lt;Key&gt;</c>, from
-/// which the module initializer registers the key type's metadata and <c>Hashable</c> witness table.
+/// A Swift type whose value is one object reference (an Objective-C class, or a string-backed
+/// Objective-C key type such as <c>NSAttributedString.Key</c>), used inside a Swift collection: as a
+/// dictionary key or set element (a hashed position), or as an array element or dictionary value.
+/// The binding declares one identity class per such type in its module's <c>__SwiftObjectKeys</c>
+/// class. For a type the module uses in a hashed position, its wrapper exports the metadata of
+/// <c>Set&lt;Key&gt;</c>, from which the module initializer registers the type's metadata and
+/// <c>Hashable</c> witness table; for a type used only in other positions it exports the type's own
+/// metadata, which is all an element needs.
 /// </summary>
 /// <param name="SwiftTypeName">The module-qualified Swift type (<c>UIKit.UIApplication.LaunchOptionsKey</c>).</param>
 public sealed record ObjectKeyIdentity(string SwiftTypeName)
@@ -40,6 +43,16 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
 
     /// <summary>The C# name of the P/Invoke that calls <see cref="AccessorSymbol"/>.</summary>
     public string AccessorMethodName => $"__GetSetMetadata_{IdentityClassName}";
+
+    /// <summary>
+    /// The exported symbol of the wrapper's accessor of the type's own metadata, for a type the module
+    /// uses only as an array element or dictionary value.
+    /// </summary>
+    public string ValueAccessorSymbol(string moduleName)
+        => $"SBW_GetObjectValueMetadata_{moduleName}_{IdentityClassName}_{EmitterUtility.DeterministicHash8($"{moduleName}.{SwiftTypeName}")}";
+
+    /// <summary>The C# name of the P/Invoke that calls <see cref="ValueAccessorSymbol"/>.</summary>
+    public string ValueAccessorMethodName => $"__GetValueMetadata_{IdentityClassName}";
 
     private static string SafeName(string swiftTypeName)
     {

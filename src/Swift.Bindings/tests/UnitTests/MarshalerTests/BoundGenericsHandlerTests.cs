@@ -1950,23 +1950,24 @@ public class BoundGenericsHandlerTests
     #region ObjC-Bridged IntPtr Projection in Containers
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_ArrayOfObjCBridged_UsesIntPtr()
+    public void TranslateBoundGenericTypeToCSharp_ArrayOfObjCBridged_UsesTheElementTypesCarrier()
     {
-        // Swift.Array<UIKit.UIView> — ObjC-bridged class elements in stdlib containers
-        // should project to IntPtr (the raw pointer representation).
+        // Swift.Array<UIKit.UIView> — an ObjC class element crosses as a pointer, but carried as its
+        // own Swift type: an array of IntPtr is an array of Swift.Int, holding no reference on its
+        // elements while Swift reads it as [UIView].
         var arrayTypeSpec = new NamedTypeSpec("Swift.Array");
         arrayTypeSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
 
         var argDecl = CreateArgumentDecl(arrayTypeSpec);
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
-        Assert.Equal("Swift.Runtime.SwiftArray<IntPtr>", result);
+        Assert.Equal("Swift.Runtime.SwiftArray<global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.UIKit_UIView>>", result);
     }
 
     [Fact]
-    public void TranslateBoundGenericTypeToCSharp_DictionaryWithObjCBridgedValue_UsesIntPtr()
+    public void TranslateBoundGenericTypeToCSharp_DictionaryWithObjCBridgedValue_UsesTheValueTypesCarrier()
     {
-        // Swift.Dictionary<Swift.String, UIKit.UIView> — ObjC-bridged value element uses IntPtr.
+        // Swift.Dictionary<Swift.String, UIKit.UIView> — the ObjC value is carried as its own type.
         var dictTypeSpec = new NamedTypeSpec("Swift.Dictionary");
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
         dictTypeSpec.GenericParameters.Add(new NamedTypeSpec("UIKit.UIView"));
@@ -1974,8 +1975,9 @@ public class BoundGenericsHandlerTests
         var argDecl = CreateArgumentDecl(dictTypeSpec);
         var result = _handler.TranslateBoundGenericTypeToCSharp(argDecl);
 
-        Assert.Contains("IntPtr", result);
         Assert.Contains("SwiftDictionary", result);
+        Assert.EndsWith(", global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.UIKit_UIView>>", result);
+        Assert.DoesNotContain("IntPtr", result);
     }
 
     [Fact]

@@ -142,6 +142,7 @@
       "SwiftClosureData",
       "SwiftClosureFactory",
       "SwiftClosureMarshaller",
+      "SwiftCollectionSource",
       "SwiftConcurrency",
       "SwiftConformance",
       "SwiftDispose",

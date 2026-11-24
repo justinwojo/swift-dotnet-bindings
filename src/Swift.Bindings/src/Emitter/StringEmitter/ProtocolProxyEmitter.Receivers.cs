@@ -1938,7 +1938,7 @@ public partial class ProtocolProxyEmitter
         // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value into each slot.
         // Mirrors the SetProjection.BuildContainerSetup skip-conversion rule.
         if (elemConv != null && rawElem != set.ElementProjection.PublicType)
-            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
+            return $"SwiftSet<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(varName, "e => " + elemConv, set.ElementProjection)})";
         return $"SwiftSet<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1952,7 +1952,7 @@ public partial class ProtocolProxyEmitter
         var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
         // Same skip-conversion rule as ArrayProjection.BuildContainerSetup.
         if (elemConv != null && rawElem != arr.ElementProjection.PublicType)
-            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(varName, "e => " + elemConv, arr.ElementProjection)})";
         return $"SwiftArray<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1979,7 +1979,7 @@ public partial class ProtocolProxyEmitter
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({varName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(varName, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection)})";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
     }
@@ -2053,7 +2053,9 @@ public partial class ProtocolProxyEmitter
     private static string? BuildOptionalContainerGetterConversion(ITypeProjection inner, string varName, string optType, string? innerConv)
     {
         if (innerConv == null) return null;
-        return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())";
+        // The optional stores a copy of the container built here, which is consumed rather than
+        // left to its finalizer holding its storage and every element reference in it.
+        return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSomeConsuming({innerConv}) : SwiftOptional<{optType}>.NewNone())";
     }
 
     /// <summary>
@@ -2513,7 +2515,12 @@ public partial class ProtocolProxyEmitter
             var skipKeyConv = keyConv != null && abiKeyType == dictProj.KeyProjection.PublicType;
             var keyExpr = skipKeyConv ? "kvp.Key" : (keyConv ?? "kvp.Key");
             var valConv = dictExist.GetArrayElementCarrierConversion("kvp.Value");
-            return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary(global::System.Linq.Enumerable.ToDictionary({varName}, kvp => {keyExpr}, kvp => {valConv}))";
+            // The pairs stream into the Swift dictionary as they are converted: a key that borrows an
+            // object's pointer is copied while its object is still reachable, and a pair whose
+            // conversion throws leaves the values minted before it with the abandoned dictionary.
+            var pairs = CollectionElementSelect.Pairs(
+                varName, $"kvp => new KeyValuePair<{abiKeyType}, {containerType}>({keyExpr}, {valConv})", dictProj.KeyProjection);
+            return $"SwiftDictionary<{abiKeyType}, {containerType}>.FromDictionary({pairs})";
         }
 
         return null;
