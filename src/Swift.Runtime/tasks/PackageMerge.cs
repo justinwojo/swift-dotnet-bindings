@@ -603,7 +603,9 @@ public static class SwiftBindingPackageMerge
         static string DecimalValue(int lo, int mid, int hi, bool negative, byte scale) => scale <= 28
             ? (negative && (lo | mid | hi) == 0 ? "-" : "") + new decimal(lo, mid, hi, negative, scale).ToString(System.Globalization.CultureInfo.InvariantCulture) + "m"
             : $"decimal(scale {scale}, {(negative ? "-" : "+")}, {hi:X8}{mid:X8}{lo:X8})";
-        string? AttributeConstant(CustomAttributeHandleCollection attributes, string memberType)
+        // A field is a constant only of the attribute's own type; a parameter's default may also be
+        // passed to a nullable or object parameter.
+        string? AttributeConstant(CustomAttributeHandleCollection attributes, string memberType, bool parameter)
         {
             foreach (var ah in attributes)
             {
@@ -621,7 +623,8 @@ public static class SwiftBindingPackageMerge
                     _ => ("", ""),
                 };
                 if (ns != "System.Runtime.CompilerServices"
-                    || !(typeName == "DecimalConstantAttribute" && Carries(memberType, "System.Decimal") || typeName == "DateTimeConstantAttribute" && Carries(memberType, "System.DateTime")))
+                    || !(typeName == "DecimalConstantAttribute" && (parameter ? Carries(memberType, "System.Decimal") : Is(memberType, "System.Decimal"))
+                         || typeName == "DateTimeConstantAttribute" && (parameter ? Carries(memberType, "System.DateTime") : Is(memberType, "System.DateTime"))))
                     continue;
                 var blob = md.GetBlobReader(attribute.Value);
                 if (blob.ReadUInt16() != 1)
@@ -651,7 +654,7 @@ public static class SwiftBindingPackageMerge
                 var value = (field.Attributes & FieldAttributes.Literal) != 0
                     ? constant.IsNil ? null : Value(constant)
                     : (field.Attributes & (FieldAttributes.Static | FieldAttributes.InitOnly)) == (FieldAttributes.Static | FieldAttributes.InitOnly)
-                        ? AttributeConstant(field.GetCustomAttributes(), field.DecodeSignature(provider, md))
+                        ? AttributeConstant(field.GetCustomAttributes(), field.DecodeSignature(provider, md), parameter: false)
                         : null;
                 if (value is not null)
                     values[$"{name}::{md.GetString(field.Name)}"] = value;
@@ -678,7 +681,7 @@ public static class SwiftBindingPackageMerge
                     var constant = parameter.GetDefaultValue();
                     var value = hasDefault && !constant.IsNil
                         ? Value(constant)
-                        : AttributeConstant(parameter.GetCustomAttributes(), parameterType);
+                        : AttributeConstant(parameter.GetCustomAttributes(), parameterType, parameter: true);
                     // `= default` of a DateTime or decimal parameter is a null constant, and passes the
                     // same value as the attribute's zero.
                     if (value == "null" && Is(parameterType, "System.DateTime"))

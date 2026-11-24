@@ -616,6 +616,8 @@ public sealed class PackageCopyTests : IDisposable
     // A constant attribute on a field of another type is not a constant: compilers read the field.
     [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(5)] public static readonly int X = 30; }",
         "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(6)] public static readonly int X = 30; }")]
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 1u)] public static readonly object X = 30; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 2u)] public static readonly object X = 30; }")]
     public void Merge_ANewerCopyThatKeepsEveryCompiledInValue_AndAddsNew_IsAccepted(string olderApi, string newerApi)
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
