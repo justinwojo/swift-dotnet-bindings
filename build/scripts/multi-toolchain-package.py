@@ -1073,12 +1073,13 @@ def app_source(platform, framework, expected_copy, through_library):
             var assembly = typeof({anchor}).Assembly;
             var identity = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "SwiftBindings.WrapperIdentity")?.Value ?? "";
             var copy = identity.Split(';').Select(f => f.Split('=', 2)).FirstOrDefault(f => f[0] == "copy")?[1];
-            // A pure Objective-C copy records no wrapper identity: its assembly's own target framework names it.
+            // A pure Objective-C copy records no wrapper identity: its assembly's own target framework names it
+            // (TargetPlatformAttribute spells the platform as MSBuild does, "iOS26.0"; a copy TFM is lower-case).
             if (identity.Length == 0)
             {{
                 var net = assembly.GetCustomAttribute<System.Runtime.Versioning.TargetFrameworkAttribute>()?.FrameworkName ?? "";
                 var platformName = assembly.GetCustomAttribute<System.Runtime.Versioning.TargetPlatformAttribute>()?.PlatformName ?? "";
-                copy = $"net{{net.Split("Version=v").Last()}}-{{platformName}}";
+                copy = $"net{{net.Split("Version=v").Last()}}-{{platformName.ToLowerInvariant()}}";
             }}
             Check("loaded copy", copy, "{expected_copy}");
             {probe}
