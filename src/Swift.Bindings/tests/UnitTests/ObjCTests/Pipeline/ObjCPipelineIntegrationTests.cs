@@ -662,6 +662,279 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// Declarations Clang marks unavailable (<c>NS_UNAVAILABLE</c>, as a provisional-API macro expands
+    /// to) are not bound: an unavailable class, method, property, enumerator, function and constant
+    /// disappear and are reported as <see cref="ObjCSkipReason.UnavailableApi"/>; a class whose
+    /// <c>-init</c> is unavailable, directly or through a superclass of the module, gets no
+    /// parameterless constructor; and an implicitly numbered enumerator after a dropped one keeps the
+    /// value C gives it.
+    /// </summary>
+    [Fact]
+    public void Pipeline_UnavailableDeclarations_AreNotBound()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_unavailable_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: """
+                    #import <Foundation/Foundation.h>
+
+                    NS_ASSUME_NONNULL_BEGIN
+
+                    typedef NS_ENUM(NSInteger, UAMode) {
+                        UAModeFirst,
+                        UAModeProvisional NS_UNAVAILABLE,
+                        UAModeAfter,
+                        UAModeExplicit = 10,
+                        UAModeLast,
+                    };
+
+                    typedef NS_ENUM(uint8_t, UATimer) {
+                        UATimerRunning = 0,
+                    } NS_UNAVAILABLE;
+
+                    typedef NS_OPTIONS(NSUInteger, UAFeature) {
+                        UAFeatureA = 1 << 0,
+                    } NS_UNAVAILABLE;
+
+                    FOUNDATION_EXPORT void UALaterHiddenFunction(void);
+                    FOUNDATION_EXPORT void UALaterHiddenFunction(void) NS_UNAVAILABLE;
+
+                    @interface UAWidget : NSObject
+                    - (instancetype)init NS_UNAVAILABLE;
+                    + (instancetype)new NS_UNAVAILABLE;
+                    - (instancetype)initWithName:(NSString *)name;
+                    - (void)stableCall;
+                    - (void)provisionalCall NS_UNAVAILABLE;
+                    @property (nonatomic, readonly) NSInteger stableValue;
+                    @property (nonatomic, readonly) NSInteger provisionalValue NS_UNAVAILABLE;
+                    @end
+
+                    @interface UAGadget : UAWidget
+                    - (instancetype)initWithSize:(NSInteger)size;
+                    @end
+
+                    @interface UAOpenGadget : UAWidget
+                    - (instancetype)init;
+                    @end
+
+                    NS_UNAVAILABLE
+                    @interface UAHidden : NSObject
+                    - (void)hiddenCall;
+                    @end
+
+                    FOUNDATION_EXPORT NSString * const UAStableKey;
+                    FOUNDATION_EXPORT NSString * const UAHiddenKey NS_UNAVAILABLE;
+                    FOUNDATION_EXPORT void UAStableFunction(void);
+                    FOUNDATION_EXPORT void UAHiddenFunction(void) NS_UNAVAILABLE;
+
+                    NS_ASSUME_NONNULL_END
+                    """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.Equal(0, result.ExitCode);
+            var module = result.Module!;
+
+            // The model: unavailable declarations are gone, available ones stay.
+            Assert.DoesNotContain(module.Classes, c => c.Name == "UAHidden");
+            var widget = Assert.Single(module.Classes, c => c.Name == "UAWidget");
+            Assert.DoesNotContain(widget.Methods, m => m.Selector is "init" or "new" or "provisionalCall");
+            Assert.Contains(widget.Methods, m => m.Selector == "stableCall");
+            Assert.DoesNotContain(widget.Properties, p => p.Name == "provisionalValue");
+            Assert.Contains(widget.Properties, p => p.Name == "stableValue");
+            Assert.True(widget.IsInitUnavailable);
+            Assert.True(Assert.Single(module.Classes, c => c.Name == "UAGadget").IsInitUnavailable);
+            Assert.False(Assert.Single(module.Classes, c => c.Name == "UAOpenGadget").IsInitUnavailable);
+            Assert.DoesNotContain(module.Functions, f => f.Name == "UAHiddenFunction");
+            Assert.Contains(module.Functions, f => f.Name == "UAStableFunction");
+            // Clang puts an enum's unavailable attribute on its defining redeclaration only: the
+            // forward declaration NS_ENUM writes first, and an earlier function prototype, carry none.
+            Assert.DoesNotContain(module.Enums, e => e.Name is "UATimer" or "UAFeature");
+            Assert.DoesNotContain(module.Functions, f => f.Name == "UALaterHiddenFunction");
+            Assert.DoesNotContain(module.Constants, c => c.Name == "UAHiddenKey");
+            Assert.Contains(module.Constants, c => c.Name == "UAStableKey");
+            var mode = Assert.Single(module.Enums, e => e.Name == "UAMode");
+            Assert.Equal(["UAModeFirst", "UAModeAfter", "UAModeExplicit", "UAModeLast"], mode.Cases.Select(c => c.Name));
+            // UAModeAfter is 2 in C (one past the dropped UAModeProvisional), not 1.
+            Assert.Equal(2UL, mode.Cases.Single(c => c.Name == "UAModeAfter").EvaluatedValue?.Bits);
+
+            Assert.Equal(
+                new[]
+                {
+                    "class UAHidden", "constant UAHiddenKey", "enum UAFeature", "enum UATimer", "enumerator UAMode.UAModeProvisional",
+                    "function UAHiddenFunction", "function UALaterHiddenFunction",
+                    "method UAWidget.+new", "method UAWidget.-init", "method UAWidget.-provisionalCall", "property UAWidget.provisionalValue",
+                },
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}").Order(StringComparer.Ordinal));
+            Assert.Equal(module.UnavailableDeclarations.Count,
+                result.Diagnostics!.SkippedSymbols.Count(s => s.Reason == ObjCSkipReason.UnavailableApi));
+
+            // The emitted binding: no unavailable member, no parameterless constructor where -init is
+            // unavailable, and the enumerator after the dropped one keeps its C value.
+            var apiDefinition = File.ReadAllText(Path.Combine(outputDir, "ApiDefinition.cs"));
+            Assert.DoesNotContain("provisionalCall", apiDefinition);
+            Assert.DoesNotContain("provisionalValue", apiDefinition);
+            Assert.DoesNotContain("UAHidden", apiDefinition);
+            Assert.Contains("stableCall", apiDefinition);
+            Assert.Matches(@"\[DisableDefaultCtor\]\s*\[BaseType\(typeof\(NSObject\)\)\]\s*partial interface UAWidget\b", apiDefinition);
+            Assert.Matches(@"\[DisableDefaultCtor\]\s*\[BaseType\(typeof\(UAWidget\)\)\]\s*partial interface UAGadget\b", apiDefinition);
+            var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
+            Assert.DoesNotContain("Provisional", structsAndEnums);
+            Assert.DoesNotContain("UATimer", structsAndEnums);
+            Assert.DoesNotContain("UAFeature", structsAndEnums);
+            Assert.Matches(@"\bAfter = 2,", structsAndEnums);
+            Assert.Matches(@"\bLast,", structsAndEnums);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
+    /// What an unavailable declaration takes with it beyond its own node: a bare redeclaration of an
+    /// unavailable method (Clang rejects calls through either), the setter or the whole property when an
+    /// explicitly declared accessor is unavailable, an unavailable typedef (a block type or a struct the
+    /// typedef names), and nothing of the surviving enumerators' names, which are what they would be
+    /// were the dropped one available.
+    /// </summary>
+    [Fact]
+    public void Pipeline_UnavailableRedeclarationsAccessorsAndTypedefs_AreNotBound()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_unavailable_redecl_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: """
+                    #import <Foundation/Foundation.h>
+
+                    NS_ASSUME_NONNULL_BEGIN
+
+                    typedef NS_ENUM(NSInteger, UBShade) {
+                        UBShadeLight,
+                        UBProvisionalShade NS_UNAVAILABLE,
+                        UBShadeDark,
+                    };
+
+                    typedef void (^UBHiddenBlock)(void) NS_UNAVAILABLE;
+                    typedef void (^UBBlock)(void);
+                    typedef struct { int x; } UBHiddenPoint NS_UNAVAILABLE;
+                    typedef struct { int y; } UBPoint;
+                    typedef struct { int z; } UBLaterHidden;
+                    typedef UBLaterHidden UBLaterHidden NS_UNAVAILABLE;
+                    typedef struct UBTagged { int w; } UBTagged NS_UNAVAILABLE;
+                    FOUNDATION_EXPORT int UBReadTagged(struct UBTagged value);
+
+                    @interface UBThing : NSObject
+                    - (instancetype)init NS_UNAVAILABLE;
+                    - (instancetype)init;
+                    - (void)gone NS_UNAVAILABLE;
+                    - (void)gone;
+                    - (void)kept;
+                    - (void)early;
+                    - (void)early NS_UNAVAILABLE;
+                    @property (nonatomic) NSInteger value;
+                    - (void)setValue:(NSInteger)value NS_UNAVAILABLE;
+                    @property (nonatomic) NSInteger hidden;
+                    - (NSInteger)hidden NS_UNAVAILABLE;
+                    @property (nonatomic) NSInteger open;
+                    @property (nonatomic) NSInteger depth;
+                    - (void)setDepth:(NSInteger)depth;
+                    - (void)setDepth:(NSInteger)depth NS_UNAVAILABLE;
+                    - (void)useBlock:(UBBlock)block point:(UBPoint)point;
+                    @end
+
+                    @interface UBSubThing : UBThing
+                    @property (nonatomic) NSInteger open;
+                    - (void)setOpen:(NSInteger)open NS_UNAVAILABLE;
+                    @end
+
+                    NS_ASSUME_NONNULL_END
+                    """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.Equal(0, result.ExitCode);
+            var module = result.Module!;
+
+            var thing = Assert.Single(module.Classes, c => c.Name == "UBThing");
+            Assert.DoesNotContain(thing.Methods, m => m.Selector is "init" or "gone");
+            Assert.Contains(thing.Methods, m => m.Selector == "kept");
+            // Clang reads a declaration ahead of the one that marks it unavailable as available.
+            Assert.Single(thing.Methods, m => m.Selector == "early");
+            Assert.True(thing.IsInitUnavailable);
+            Assert.True(Assert.Single(thing.Properties, p => p.Name == "value").IsReadonly);
+            Assert.False(Assert.Single(thing.Properties, p => p.Name == "open").IsReadonly);
+            // A setter declared available before the declaration that marks it unavailable stays.
+            Assert.False(Assert.Single(thing.Properties, p => p.Name == "depth").IsReadonly);
+            Assert.DoesNotContain(thing.Properties, p => p.Name == "hidden");
+            Assert.DoesNotContain(module.Typedefs, t => t.Name is "UBHiddenBlock" or "UBHiddenPoint");
+            Assert.DoesNotContain(module.Structs, s => s.Name is "UBHiddenPoint" or "UBLaterHidden");
+            // The tag stays usable as `struct UBTagged` when only its typedef is unavailable.
+            Assert.Contains(module.Structs, s => s.Name == "UBTagged");
+            Assert.Contains(module.Structs, s => s.Name == "UBPoint");
+            Assert.Contains(
+                "typedef UBHiddenBlock",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+            Assert.Contains(
+                "typedef UBHiddenPoint",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+            Assert.Contains(
+                "property UBThing.hidden",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+
+            var apiDefinition = File.ReadAllText(Path.Combine(outputDir, "ApiDefinition.cs"));
+            Assert.Matches(@"\[DisableDefaultCtor\]\s*\[BaseType\(typeof\(NSObject\)\)\]\s*partial interface UBThing\b", apiDefinition);
+            Assert.DoesNotContain("Gone", apiDefinition);
+            Assert.DoesNotContain("\"hidden\"", apiDefinition);
+            Assert.DoesNotContain("UBHiddenBlock", apiDefinition);
+            Assert.Matches(@"nint Value \{\s*get;\s*\}", apiDefinition);
+            Assert.Matches(@"nint Open \{\s*get;\s*\[Export\(""setOpen:""\)\] set;", apiDefinition);
+            // The subclass that takes the setter away hides the inherited one.
+            Assert.Matches(@"partial interface UBSubThing\s*\{\s*\[New\]\s*\[Export\(""open""[^)]*\)\]\s*nint Open \{ get; \}", apiDefinition);
+            Assert.DoesNotContain("setValue:", apiDefinition);
+            var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
+            Assert.DoesNotContain("UBHiddenPoint", structsAndEnums);
+            Assert.Contains("UBPoint", structsAndEnums);
+            // Were UBProvisionalShade available the cases would share no UBShade prefix, so the
+            // survivors keep theirs.
+            Assert.DoesNotMatch(@"\b(Light|Dark)\b", structsAndEnums);
+            Assert.Matches(@"\b(UB)?ShadeLight\b", structsAndEnums);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
     /// Writes a minimal single-slice (ios simulator) ObjC xcframework fixture to <paramref name="tempDir"/>
     /// whose umbrella header body is <paramref name="umbrellaBody"/>. Returns the xcframework path and
     /// module name. Used by the precise-109 fixtures to inject a specific failing header surface.

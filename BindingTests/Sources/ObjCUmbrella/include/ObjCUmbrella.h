@@ -561,4 +561,25 @@ extern const char *OUFixtureLabel(void);
 + (NSInteger)init;
 @end
 
+// MARK: - Shape 16 — declarations the headers mark unavailable (NS_UNAVAILABLE).
+//
+// An Objective-C consumer cannot use them, so neither may the binding: an unavailable selector has
+// no implementation to answer it, and a framework's provisional API (a macro that expands to
+// NS_UNAVAILABLE unless the app opts in) changes with the SDK. The initializer goes too, so the class
+// has no default constructor. Dropping the middle enumerator must leave the next one its C value.
+typedef NS_ENUM(NSInteger, OUStage) {
+    OUStageDraft,
+    OUStageProvisional NS_UNAVAILABLE,
+    OUStageFinal,
+};
+
+@interface OUSealedToken : NSObject
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
++ (instancetype)tokenWithValue:(NSInteger)value;
+@property (nonatomic, readonly) NSInteger value;
+- (NSInteger)provisionalValue NS_UNAVAILABLE;
+- (OUStage)stageAfter:(OUStage)stage;
+@end
+
 NS_ASSUME_NONNULL_END

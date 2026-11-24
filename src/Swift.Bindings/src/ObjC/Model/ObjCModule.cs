@@ -44,6 +44,12 @@ public sealed record ObjCModule
     /// </summary>
     public IReadOnlyDictionary<string, string>? AppleSdkEnumNamespaces { get; init; }
 
+    /// <summary>
+    /// The declarations of this module's headers Clang marks unavailable, which the parser did not
+    /// bind (types, members, enumerators, functions and constants), in declaration order.
+    /// </summary>
+    public List<ObjCUnavailableDeclaration> UnavailableDeclarations { get; init; } = [];
+
     public int TotalDeclarations =>
         Classes.Count + Protocols.Count + Enums.Count + Structs.Count +
         Functions.Count + Constants.Count + Typedefs.Count;

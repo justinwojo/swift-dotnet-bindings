@@ -706,6 +706,24 @@ public class ObjCUmbrellaFixtureTests : TestBase
     }
 
     /// <summary>
+    /// Shape 16 — declarations the headers mark <c>NS_UNAVAILABLE</c>: an initializer, a method and an
+    /// enumerator. None is bound, since no Objective-C consumer can use them and the unavailable
+    /// selector has no implementation to answer it. The enumerator after the dropped one keeps its C
+    /// value, which round-tripping it through Objective-C proves.
+    /// </summary>
+    public void TestUnavailableDeclarationsAreNotBound()
+    {
+        using var token = OUSealedToken.TokenWithValue(41);
+        AssertEqual(41, (int)token.Value, "the available factory and property bind");
+        AssertEqual((int)OUStage.Final, (int)token.StageAfter(OUStage.Draft), "the enumerator after the dropped one carries its C value");
+        AssertEqual(2, (int)OUStage.Final, "the enumerator after the dropped one is numbered as C numbers it");
+        AssertEqual((int)OUStage.Draft, (int)token.StageAfter(OUStage.Final), "the enumerator before the dropped one carries its C value");
+        AssertTrue(!Enum.GetNames(typeof(OUStage)).Contains("Provisional"), "the unavailable enumerator is not bound");
+        AssertTrue(typeof(OUSealedToken).GetConstructor(Type.EmptyTypes) is null, "the unavailable init gives no default constructor");
+        AssertTrue(typeof(OUSealedToken).GetMethod("ProvisionalValue") is null, "the unavailable method is not bound");
+    }
+
+    /// <summary>
     /// Managed adopter of the renamed observer protocol, subclassing the generated <c>[Model]</c> class
     /// (Shape 8c). Overriding the optional callback is what the emitter's renamed <c>[Wrap]</c> property
     /// has to accept.

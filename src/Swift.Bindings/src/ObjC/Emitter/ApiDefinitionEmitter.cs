@@ -377,7 +377,10 @@ public static partial class ApiDefinitionEmitter
         var hasParameterlessInitWith = cls.Methods.Any(m =>
             m.IsInstanceMethod && m.Selector.StartsWith("initWith", StringComparison.Ordinal)
             && m.Parameters.Count == 0);
-        var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith;
+        // A class whose -init is unavailable (NS_UNAVAILABLE, here or on a superclass of this module)
+        // gets no parameterless constructor: Clang refuses [[X alloc] init] for it, and the parser has
+        // already dropped the unavailable declaration itself.
+        var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith || cls.IsInitUnavailable;
         if (disableDefaultCtor)
             sb.AppendLine("    [DisableDefaultCtor]");
 
@@ -552,7 +555,7 @@ public static partial class ApiDefinitionEmitter
                 if (inheritedMembers.OfKind(prop.IsClass) is { } inherited)
                 {
                     var (getterSelector, setterSelector) = PropertyAccessorSelectors(prop);
-                    if (ClassifyRedeclaration(inherited, mappedType, prop.IsReadonly, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
+                    if (ClassifyRedeclaration(inherited, mappedType, prop.IsReadonly, prop.IsSetterUnavailable, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
                     {
                         // Deferring is only safe while nothing re-introduces a narrower view of the
                         // inherited member. When a conformed protocol does, the post-pass emits the
@@ -1461,10 +1464,15 @@ public static partial class ApiDefinitionEmitter
     /// deliberately: notably a re-declaration that renames an accessor exports a DIFFERENT selector,
     /// so the inherited member cannot stand in for it and deferring would delete reachable API.
     /// </summary>
-    static RedeclarationDisposition ClassifyRedeclaration(in InheritedProperty inherited, string mappedType, bool isReadonly, string getterSelector, string? setterSelector)
+    static RedeclarationDisposition ClassifyRedeclaration(in InheritedProperty inherited, string mappedType, bool isReadonly, bool setterUnavailable, string getterSelector, string? setterSelector)
     {
         if (!string.Equals(mappedType, inherited.MappedType, StringComparison.Ordinal)
             || !string.Equals(getterSelector, inherited.GetterSelector, StringComparison.Ordinal))
+            return RedeclarationDisposition.HideWithNew;
+
+        // A re-declaration that makes the setter unavailable takes it away, as Clang does for the
+        // subclass: the inherited setter must not stay reachable through it.
+        if (setterUnavailable && !inherited.IsReadonly)
             return RedeclarationDisposition.HideWithNew;
 
         // Wider than the inherited member (it adds a setter the ancestor lacks) — must emit.
@@ -1644,7 +1652,7 @@ public static partial class ApiDefinitionEmitter
 
                 map.TryGetValue(propName, out var alreadyInherited);
                 if (alreadyInherited.OfKind(prop.IsClass) is { } sameKind
-                    && ClassifyRedeclaration(sameKind, mappedType, prop.IsReadonly, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
+                    && ClassifyRedeclaration(sameKind, mappedType, prop.IsReadonly, prop.IsSetterUnavailable, getterSelector, setterSelector) == RedeclarationDisposition.Defer)
                 {
                     // This ancestor emits nothing for the name, so the entry it deferred to stays.
                     claimedInAncestor.Add(propName);

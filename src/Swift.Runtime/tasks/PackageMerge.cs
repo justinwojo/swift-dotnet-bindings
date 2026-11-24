@@ -36,9 +36,17 @@ public static class SwiftBindingPackageMerge
     private const int AssumedMaxUserProfile = 40;
 
     private sealed record Contribution(string Path, string Id, string Version, XDocument Nuspec, string NuspecName,
-        Dictionary<string, byte[]> Files, ImmutableArray<string> Copies);
+        Dictionary<string, byte[]> Files, ImmutableArray<string> Copies, ImmutableDictionary<string, string> Payloads);
 
-    private sealed record Copy(string Tfm, Version Net, string Platform, Version PlatformVersion, Contribution From);
+    private sealed record Copy(string Tfm, Version Net, string Platform, Version PlatformVersion, Contribution From)
+    {
+        /// <summary>Where this copy's natives are, as its declaration states (<see cref="PackageCopyDeclarationEmitter"/>).</summary>
+        public string Payload => From.Payloads[Tfm];
+    }
+
+    private const string PayloadNative = BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadNative;
+    private const string PayloadNone = BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadNone;
+    private const string PayloadResources = BindingsGeneration.PackageCopyDeclarationEmitter.NativePayloadResources;
 
     /// <summary>
     /// Merges <paramref name="contributions"/> into one package carrying exactly
@@ -103,6 +111,14 @@ public static class SwiftBindingPackageMerge
             problems.Add("The copies were packed with different SwiftBindings SDK versions ("
                          + string.Join("; ", generators.Select(g => $"{(g.Key.Length == 0 ? "unrecorded" : g.Key)}: {string.Join(", ", g.Select(x => x.Tfm))}"))
                          + "): pack every contribution with the same SDK.");
+        // One kind of binding across every copy: where a copy's natives are follows from the binding's
+        // kind (Swift or mixed, pure Objective-C of an Apple framework, pure Objective-C of a library).
+        var payloads = owner.Select(kv => (Tfm: kv.Key, Payload: kv.Value.Payloads[kv.Key]))
+            .GroupBy(p => p.Payload, StringComparer.Ordinal).ToList();
+        if (payloads.Count > 1)
+            problems.Add("The copies declare different native payloads ("
+                         + string.Join("; ", payloads.Select(g => $"{g.Key}: {string.Join(", ", g.Select(x => x.Tfm).Order(StringComparer.Ordinal))}"))
+                         + "): every copy of one binding ships its natives the same way, so the contributions are not one binding.");
         if (problems.Count > 0)
             return Refused(problems, notes);
 
@@ -337,9 +353,10 @@ public static class SwiftBindingPackageMerge
             problems.Add($"{name} holds a copy folder '{tfm}', which is not a platform-versioned target framework.");
         if (lib.Count == 0)
             problems.Add($"{name} carries no lib/<tfm>/ copy.");
-        if (!lib.SetEquals(build) || !lib.SetEquals(native))
-            problems.Add($"{name} carries lib/ [{string.Join(", ", lib)}], buildTransitive/ [{string.Join(", ", build)}] and native/ [{string.Join(", ", native)}]: "
-                         + "NuGet selects lib/ and buildTransitive/ separately, so every copy must appear in all three.");
+        if (!lib.SetEquals(build))
+            problems.Add($"{name} carries lib/ [{string.Join(", ", lib)}] and buildTransitive/ [{string.Join(", ", build)}]: "
+                         + "NuGet selects lib/ and buildTransitive/ separately, so every copy must appear in both.");
+        var payloads = ImmutableDictionary.CreateBuilder<string, string>(StringComparer.Ordinal);
         foreach (var tfm in lib)
         {
             var declaration = $"buildTransitive/{tfm}/{id}.props";
@@ -351,15 +368,75 @@ public static class SwiftBindingPackageMerge
             var declared = Declaration(bytes, "CopyTfm");
             if (!string.Equals(declared, tfm, StringComparison.Ordinal))
                 problems.Add($"{name}: {declaration} declares the copy {declared ?? "(none)"}, not {tfm}.");
+            // A declaration from before the field means native/<tfm>/.
+            var payload = Declaration(bytes, "NativePayload") is { Length: > 0 } p ? p.Trim() : PayloadNative;
+            payloads[tfm] = payload;
+            var declaresTargets = Declaration(bytes, "TargetsFile") is not { } t || t.Trim().Length > 0;
+            foreach (var problem in PayloadProblems(name, files, tfm, payload, native.Contains(tfm)))
+                problems.Add(problem);
             var targets = $"buildTransitive/{tfm}/{id}.targets";
             if (!files.TryGetValue(targets, out var targetsBytes))
-                problems.Add($"{name} carries no consumer targets {targets}.");
+            {
+                // Swift and mixed copies reach their natives only through their targets.
+                if (declaresTargets || payload == PayloadNative)
+                    problems.Add($"{name} carries no consumer targets {targets}.");
+            }
             else
-                foreach (var problem in PackageCopyRules.CheckTargetsReferences(tfm, Encoding.UTF8.GetString(targetsBytes)))
+            {
+                if (!declaresTargets)
+                    problems.Add($"{name}: {declaration} declares that the copy ships no consumer targets, but it carries {targets}.");
+                foreach (var problem in PackageCopyRules.CheckTargetsReferences(tfm, Encoding.UTF8.GetString(targetsBytes), payload))
                     problems.Add($"{name}: {targets} {problem}; each copy's targets must reference only its own native/{tfm}/.");
+            }
         }
-        return new Contribution(path, id, version, nuspec, nuspecs[0], files, lib.ToImmutableArray());
+        // native/ holds exactly the copies whose natives are there.
+        foreach (var tfm in native.Where(t => !lib.Contains(t)))
+            problems.Add($"{name} carries native/{tfm}/ with no lib/{tfm}/ copy: NuGet selects lib/ and buildTransitive/ together, so natives of no copy would never be linked.");
+        return new Contribution(path, id, version, nuspec, nuspecs[0], files, lib.ToImmutableArray(), payloads.ToImmutable());
     }
+
+    /// <summary>
+    /// What is wrong with the natives of the copy <paramref name="tfm"/> for its declared
+    /// <paramref name="payload"/>: under <c>native/&lt;tfm&gt;/</c> exactly when it declares them there, a
+    /// resource package in <c>lib/&lt;tfm&gt;/</c> exactly when it declares one, and nothing for a copy
+    /// that declares no natives.
+    /// </summary>
+    private static IEnumerable<string> PayloadProblems(string name, Dictionary<string, byte[]> files, string tfm, string payload, bool hasNativeFolder)
+    {
+        if (!BindingsGeneration.PackageCopyDeclarationEmitter.IsNativePayload(payload))
+        {
+            yield return $"{name}: buildTransitive/{tfm}/ declares the native payload '{payload}', which is not one a copy can declare (native, none or resources).";
+            yield break;
+        }
+        var resources = ResourcePackages(files, tfm).ToList();
+        if (payload == PayloadNative && !hasNativeFolder)
+            yield return $"{name} declares its {tfm} copy's natives under native/{tfm}/, but carries no native/{tfm}/: every copy must appear in lib/, buildTransitive/ and native/.";
+        if (payload != PayloadNative && hasNativeFolder)
+            yield return $"{name} declares its {tfm} copy's native payload '{payload}', but carries native/{tfm}/: a copy's declaration must state where its natives are.";
+        if (payload == PayloadResources && resources.Count == 0)
+            yield return $"{name} declares that its {tfm} copy's natives travel in lib/{tfm}/ as the binding's resource package, but lib/{tfm}/ carries no <Assembly>.resources.zip or <Assembly>.resources/.";
+        foreach (var resource in resources.Where(r => !files.ContainsKey($"lib/{tfm}/{ResourceAssembly(r)}.dll")))
+            yield return $"{name}: lib/{tfm}/{resource} is no binding assembly's resource package: lib/{tfm}/ carries no {ResourceAssembly(resource)}.dll beside it.";
+        if (payload != PayloadResources && resources.Count > 0)
+            yield return $"{name} declares its {tfm} copy's native payload '{payload}', but lib/{tfm}/ carries {resources[0]}: a copy's declaration must state where its natives are.";
+    }
+
+    /// <summary>The binding resource packages (<c>&lt;Assembly&gt;.resources.zip</c> or <c>&lt;Assembly&gt;.resources/</c>) of <c>lib/&lt;tfm&gt;/</c>.</summary>
+    private static IEnumerable<string> ResourcePackages(Dictionary<string, byte[]> files, string tfm)
+    {
+        var prefix = $"lib/{tfm}/";
+        return files.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(k => k[prefix.Length..].Split('/'))
+            .Where(parts => (parts.Length == 1 && parts[0].EndsWith(".resources.zip", StringComparison.OrdinalIgnoreCase))
+                            || (parts.Length > 1 && parts[0].EndsWith(".resources", StringComparison.OrdinalIgnoreCase)))
+            .Select(parts => parts.Length == 1 ? parts[0] : parts[0] + "/")
+            .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
+    }
+
+    /// <summary>The assembly name a resource package (<c>&lt;Assembly&gt;.resources.zip</c> or <c>&lt;Assembly&gt;.resources/</c>) belongs to.</summary>
+    private static string ResourceAssembly(string resource) =>
+        resource.EndsWith(".resources.zip", StringComparison.OrdinalIgnoreCase) ? resource[..^".resources.zip".Length]
+        : resource.TrimEnd('/')[..^".resources".Length];
 
     private static string? DeclarationValue(Contribution c, string tfm, string metadata) =>
         c.Files.TryGetValue($"buildTransitive/{tfm}/{c.Id}.props", out var bytes) ? Declaration(bytes, metadata) : null;
@@ -700,17 +777,38 @@ public static class SwiftBindingPackageMerge
         return values;
     }
 
-    /// <summary>Each export of every framework binary under <c>native/&lt;older&gt;/</c> must be in its counterpart under <c>native/&lt;newer&gt;/</c>, per architecture.</summary>
+    /// <summary>
+    /// Each export of every framework binary of the older copy's natives must be in its counterpart among
+    /// the newer copy's, per architecture: under <c>native/&lt;tfm&gt;/</c>, or inside the binding's
+    /// resource package in <c>lib/&lt;tfm&gt;/</c> for a copy that ships its natives there. A copy that
+    /// declares no natives has none to compare.
+    /// </summary>
     private static IEnumerable<string> ExportSuperset(Copy older, Copy newer, List<string> notes)
     {
         var problems = new List<string>();
-        var prefix = $"native/{older.Tfm}/";
-        foreach (var (name, image) in older.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal) && IsDynamicImage(f.Key)))
+        if (older.Payload == PayloadNone)
         {
-            var relative = name[prefix.Length..];
-            if (!newer.From.Files.TryGetValue($"native/{newer.Tfm}/{relative}", out var newerImage))
+            notes.Add($"  natives: {older.Tfm} and {newer.Tfm} declare none");
+            return problems;
+        }
+        var olderImages = NativeImages(older, problems);
+        var newerImages = NativeImages(newer, problems);
+        foreach (var (relative, image) in olderImages.Where(f => IsDynamicImage(f.Key)))
+        {
+            if (!newerImages.TryGetValue(relative, out var newerImage))
             {
-                problems.Add($"native/{newer.Tfm}/ lacks {relative}, which the older copy {older.Tfm} ships.");
+                problems.Add($"{NativeRoot(newer)} lacks {relative}, which the older copy {older.Tfm} ships.");
+                continue;
+            }
+            // A static framework's binary is an archive the app links in; its exports are not an image's.
+            if (IsStaticArchive(image) != IsStaticArchive(newerImage))
+            {
+                problems.Add($"{NativeRoot(newer)}{relative} is {(IsStaticArchive(newerImage) ? "a static archive" : "a dynamic image")}, but the older copy's is {(IsStaticArchive(image) ? "a static archive" : "a dynamic image")}.");
+                continue;
+            }
+            if (IsStaticArchive(image))
+            {
+                notes.Add($"  {relative}: a static archive, exports not compared");
                 continue;
             }
             ImmutableArray<MachOSlice> before, after;
@@ -729,7 +827,7 @@ public static class SwiftBindingPackageMerge
                 var counterpart = after.FirstOrDefault(s => s.Architecture == slice.Architecture);
                 if (counterpart is null)
                 {
-                    problems.Add($"native/{newer.Tfm}/{relative} has no {slice.Architecture} slice, which the older copy's has.");
+                    problems.Add($"{NativeRoot(newer)}{relative} has no {slice.Architecture} slice, which the older copy's has.");
                     continue;
                 }
                 var missing = slice.Exports.Except(counterpart.Exports, StringComparer.Ordinal)
@@ -737,11 +835,58 @@ public static class SwiftBindingPackageMerge
                     .Order(StringComparer.Ordinal).ToList();
                 notes.Add($"  exports {relative} ({slice.Architecture}): {older.Tfm} {slice.Exports.Count} -> {newer.Tfm} {counterpart.Exports.Count} ({missing.Count} missing)");
                 if (missing.Count > 0)
-                    problems.Add($"native/{newer.Tfm}/{relative} ({slice.Architecture}) lacks {missing.Count} export(s) of the older copy {older.Tfm} ({string.Join(", ", missing.Take(5))}{(missing.Count > 5 ? ", …" : "")}): "
+                    problems.Add($"{NativeRoot(newer)}{relative} ({slice.Architecture}) lacks {missing.Count} export(s) of the older copy {older.Tfm} ({string.Join(", ", missing.Take(5))}{(missing.Count > 5 ? ", …" : "")}): "
                                  + "a newer copy's native payload must contain every older copy's exports.");
             }
         }
         return problems;
+    }
+
+    /// <summary>Where <paramref name="copy"/>'s natives are, as a package path prefix.</summary>
+    private static string NativeRoot(Copy copy) => copy.Payload == PayloadResources ? $"lib/{copy.Tfm}/" : $"native/{copy.Tfm}/";
+
+    /// <summary>
+    /// The native files of <paramref name="copy"/>, keyed by their path under <see cref="NativeRoot"/>:
+    /// <c>native/&lt;tfm&gt;/</c>, or each resource package of <c>lib/&lt;tfm&gt;/</c> (a zip read in
+    /// place, keyed as if it were its directory).
+    /// </summary>
+    private static Dictionary<string, byte[]> NativeImages(Copy copy, List<string> problems)
+    {
+        var images = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var prefix = NativeRoot(copy);
+        foreach (var (name, data) in copy.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)))
+        {
+            var relative = name[prefix.Length..];
+            if (copy.Payload == PayloadNative)
+            {
+                images[relative] = data;
+                continue;
+            }
+            if (relative.Contains('/') && relative.Split('/')[0].EndsWith(".resources", StringComparison.OrdinalIgnoreCase))
+            {
+                images[relative] = data;
+                continue;
+            }
+            if (relative.Contains('/') || !relative.EndsWith(".resources.zip", StringComparison.OrdinalIgnoreCase))
+                continue;
+            var directory = relative[..^".zip".Length] + "/";
+            try
+            {
+                using var zip = new ZipArchive(new MemoryStream(data, writable: false), ZipArchiveMode.Read);
+                foreach (var entry in zip.Entries.Where(e => !e.FullName.EndsWith('/')))
+                {
+                    using var stream = entry.Open();
+                    using var buffer = new MemoryStream();
+                    stream.CopyTo(buffer);
+                    images[directory + entry.FullName.Replace('\\', '/')] = buffer.ToArray();
+                }
+            }
+            catch (InvalidDataException ex)
+            {
+                problems.Add($"{name} does not read as a zip archive: {ex.Message}");
+            }
+        }
+        return images;
     }
 
     // The manifest hash symbol differs per copy by design.
@@ -765,6 +910,25 @@ public static class SwiftBindingPackageMerge
             return (rest.Length == 1 && rest[0] == module) || (rest.Length == 3 && rest[0] == "Versions" && rest[2] == module);
         }
         return false;
+    }
+
+    /// <summary>Whether <paramref name="image"/> is a static archive (<c>!&lt;arch&gt;</c>), thin or as the first slice of a fat file.</summary>
+    private static bool IsStaticArchive(byte[] image)
+    {
+        static bool At(byte[] data, long offset) =>
+            offset >= 0 && offset <= data.Length - 8 && data.AsSpan((int)offset, 8).SequenceEqual("!<arch>\n"u8);
+        if (At(image, 0))
+            return true;
+        if (image.Length < 8)
+            return false;
+        var magic = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(image);
+        if (magic is not (0xCAFEBABE or 0xCAFEBABF))
+            return false;
+        var entry = image.AsSpan(8);
+        long offset = magic == 0xCAFEBABF
+            ? (image.Length >= 8 + 32 ? (long)System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(entry[8..]) : -1)
+            : (image.Length >= 8 + 20 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(entry[8..]) : -1);
+        return At(image, offset);
     }
 
     /// <summary>The public API of an assembly: visible types, and their public or protected methods and fields with decoded signatures.</summary>

@@ -56,6 +56,14 @@ public static class ClangAstParser
     [ThreadStatic]
     private static ClangObjCParameterDirections? _parameterDirections;
 
+    /// <summary>The declarations one parse dropped as unavailable (<see cref="IsMarkedUnavailable"/>).</summary>
+    [ThreadStatic]
+    private static List<ObjCUnavailableDeclaration>? _unavailable;
+
+    /// <summary>The classes on which one parse found <c>-init</c> marked unavailable, by the class or a category on it.</summary>
+    [ThreadStatic]
+    private static HashSet<string>? _initUnavailableClasses;
+
     /// <summary>
     /// Parses a Clang AST JSON string into an ObjCModule.
     /// </summary>
@@ -132,6 +140,14 @@ public static class ClangAstParser
 
         var parameterDirections = new ClangObjCParameterDirections(canonicalDeclarations);
         _parameterDirections = parameterDirections;
+        var unavailable = new List<ObjCUnavailableDeclaration>();
+        _unavailable = unavailable;
+        var initUnavailableClasses = new HashSet<string>(StringComparer.Ordinal);
+        _initUnavailableClasses = initUnavailableClasses;
+        // Classes this framework marks unavailable: a category on one extends nothing a consumer can use.
+        var unavailableClassNames = new HashSet<string>(StringComparer.Ordinal);
+        // Structs a typedef named (an anonymous record promoted under the typedef's name).
+        var promotedStructNames = new HashSet<string>(StringComparer.Ordinal);
         try
         {
 
@@ -207,6 +223,29 @@ public static class ClangAstParser
                 }
             }
 
+            // A declaration Clang marks unavailable (NS_UNAVAILABLE, __attribute__((unavailable)), or a
+            // framework macro expanding to one, such as a provisional-API macro) cannot be used by an
+            // Objective-C consumer, so it is not bound: its binding would follow whichever SDK's headers
+            // happen to declare it, and a call through it could not work. An unavailable framework
+            // typedef goes too, with the anonymous record it would name: Clang rejects every available
+            // use of it, so only unavailable declarations can mention it. A system typedef stays for
+            // resolution; it is no part of this binding.
+            if ((kind != "TypedefDecl" || isFrameworkLocal) && IsMarkedUnavailable(node))
+            {
+                if (kind == "TypedefDecl")
+                    lastAnonymousRecord = null;
+                var droppedName = kind == "ObjCCategoryDecl"
+                    ? $"{(node.TryGetProperty("interface", out var catIface) ? GetOptionalString(catIface, "name") : null)}({GetName(node)})"
+                    : GetName(node);
+                if (droppedName != null && droppedName.Length > 0)
+                {
+                    unavailable.Add(new ObjCUnavailableDeclaration(UnavailableKind(kind), droppedName));
+                    if (kind == "ObjCInterfaceDecl")
+                        unavailableClassNames.Add(droppedName);
+                }
+                continue;
+            }
+
             switch (kind)
             {
                 case "ObjCInterfaceDecl":
@@ -274,9 +313,38 @@ public static class ClangAstParser
                             systemTypedefs.Add(typedefDecl);
                     }
                     if (promotedStruct != null && isFrameworkLocal)
+                    {
                         structs.Add(promotedStruct);
+                        promotedStructNames.Add(promotedStruct.Name);
+                    }
                     break;
             }
+        }
+
+        // Clang inherits an unavailable attribute across redeclarations, but the JSON AST shows it only
+        // on the redeclaration that spells it. NS_ENUM writes a bare forward EnumDecl ahead of the
+        // defining one that carries the attribute, and a function may be prototyped before the
+        // prototype that marks it. Every redeclaration of an unavailable declaration goes with it.
+        if (unavailable.Count > 0)
+        {
+            HashSet<string> Dropped(string kind) =>
+                unavailable.Where(d => d.Kind == kind).Select(d => d.Name).ToHashSet(StringComparer.Ordinal);
+            var droppedEnums = Dropped("enum");
+            var droppedStructs = Dropped("struct");
+            var droppedProtocols = Dropped("protocol");
+            var droppedFunctions = Dropped("function");
+            var droppedConstants = Dropped("constant");
+            var droppedTypedefs = Dropped("typedef");
+            enums.RemoveAll(e => droppedEnums.Contains(e.Name));
+            structs.RemoveAll(s => droppedStructs.Contains(s.Name));
+            classes.RemoveAll(c => unavailableClassNames.Contains(c.Name));
+            protocols.RemoveAll(p => droppedProtocols.Contains(p.Name));
+            functions.RemoveAll(f => droppedFunctions.Contains(f.Name));
+            constants.RemoveAll(c => droppedConstants.Contains(c.Name));
+            typedefs.RemoveAll(t => droppedTypedefs.Contains(t.Name));
+            // A struct an earlier typedef of the same name promoted goes with it; a tagged record of
+            // the same name stays, usable as `struct Name`.
+            structs.RemoveAll(s => droppedTypedefs.Contains(s.Name) && promotedStructNames.Contains(s.Name));
         }
 
         // Census report (Finding 63): full census at debug, SWIFTBIND029 for unrecognized kinds.
@@ -414,8 +482,25 @@ public static class ClangAstParser
         // pass ObjCPipeline.FilterToForeignCategories preserves legitimately-foreign categories on
         // Apple SDK types (e.g. NSNull+MOSValue).
         var dedupedCategories = MergeCategories(categories)
-            .Where(c => !droppedAliasNames.Contains(c.ClassName))
+            .Where(c => !droppedAliasNames.Contains(c.ClassName) && !unavailableClassNames.Contains(c.ClassName))
             .ToList();
+
+        // -init unavailable on a class, or inherited from a superclass of this module that marks it
+        // so, unless the class redeclares an available parameterless init.
+        if (initUnavailableClasses.Count > 0)
+        {
+            var byName = classes.GroupBy(c => c.Name, StringComparer.Ordinal).ToDictionary(g => g.Key, g => g.First(), StringComparer.Ordinal);
+            bool InitUnavailable(ObjCClassDecl cls, int depth)
+            {
+                if (cls.Methods.Any(m => m.IsInstanceMethod && m.Selector == "init" && m.Parameters.Count == 0))
+                    return false;
+                if (initUnavailableClasses.Contains(cls.Name))
+                    return true;
+                return depth < 64 && cls.SuperclassName != null && byName.TryGetValue(cls.SuperclassName, out var parent)
+                       && InitUnavailable(parent, depth + 1);
+            }
+            classes = classes.Select(c => InitUnavailable(c, 0) ? c with { IsInitUnavailable = true } : c).ToList();
+        }
 
         // A supplied compiler sidecar with no joins is an acquisition failure. Isolated misses
         // and conflicts keep their Unknown fact for named refusal at the carrier boundary.
@@ -439,6 +524,7 @@ public static class ClangAstParser
             Categories = dedupedCategories,
             AppleSdkTypeNamespaces = appleSdkTypeNamespaces.Count > 0 ? appleSdkTypeNamespaces : null,
             AppleSdkEnumNamespaces = appleSdkEnumNamespaces.Count > 0 ? appleSdkEnumNamespaces : null,
+            UnavailableDeclarations = unavailable.Distinct().ToList(),
         };
 
         } // try
@@ -448,8 +534,33 @@ public static class ClangAstParser
             ObjCTypeRefParser.SetRecordTypeNames(null);
             _sourceByteCache = null;
             _parameterDirections = null;
+            _unavailable = null;
+            _initUnavailableClasses = null;
         }
     }
+
+    /// <summary>
+    /// Whether Clang marks <paramref name="element"/> unavailable everywhere: an explicit
+    /// <c>UnavailableAttr</c> (<c>NS_UNAVAILABLE</c>, <c>__attribute__((unavailable))</c>). An implicit
+    /// one is Clang's own ARC restriction (a declaration ARC code may not use), not the framework's: the
+    /// binding does not run under ARC, so it keeps those. Per-platform unavailability
+    /// (<c>API_UNAVAILABLE</c>) is an <c>AvailabilityAttr</c>, recovered as availability instead.
+    /// </summary>
+    internal static bool IsMarkedUnavailable(JsonElement element) =>
+        HasDirectAttribute(element, "UnavailableAttr", explicitOnly: true);
+
+    private static string UnavailableKind(string clangKind) => clangKind switch
+    {
+        "ObjCInterfaceDecl" => "class",
+        "ObjCProtocolDecl" => "protocol",
+        "ObjCCategoryDecl" => "category",
+        "EnumDecl" => "enum",
+        "RecordDecl" => "struct",
+        "FunctionDecl" => "function",
+        "VarDecl" => "constant",
+        "TypedefDecl" => "typedef",
+        _ => clangKind,
+    };
 
     /// <summary>
     /// Reports the top-level node-kind census (Finding 63). Logs the full kind→count tally at debug,
@@ -532,7 +643,7 @@ public static class ClangAstParser
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
 
-        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile);
+        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile, container: name, initOwner: name);
 
         var swiftName = ExtractSwiftName(element);
         var (docComment, _) = ExtractDocComment(element);
@@ -594,7 +705,7 @@ public static class ClangAstParser
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
 
-        ParseContainerChildren(element, methods, properties, isProtocol: true, currentFile: currentFile ?? declFile);
+        ParseContainerChildren(element, methods, properties, isProtocol: true, currentFile: currentFile ?? declFile, container: name, initOwner: null);
 
         var (docComment, _) = ExtractDocComment(element);
 
@@ -639,7 +750,7 @@ public static class ClangAstParser
         var methods = new List<ObjCMethodDecl>();
         var properties = new List<ObjCPropertyDecl>();
 
-        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile);
+        ParseContainerChildren(element, methods, properties, isProtocol: false, currentFile: declFile, container: $"{className}({categoryName})", initOwner: className);
 
         return new ObjCCategoryDecl
         {
@@ -660,6 +771,20 @@ public static class ClangAstParser
         var isOptions = false;
         var cases = new List<ObjCEnumCaseDecl>();
         ObjCTypeRef? underlyingType = null;
+        // The value the next implicitly numbered enumerator takes (null once it cannot be known), and
+        // whether an unavailable enumerator was dropped before it.
+        ObjCIntegerValue? running = new ObjCIntegerValue(0, false);
+        var droppedPrecedingCase = false;
+        var unavailableCaseNames = new List<string>();
+        static ObjCIntegerValue Next(ObjCIntegerValue v) => new(unchecked(v.Bits + 1), v.IsUnsigned);
+        static ObjCIntegerValue? ExplicitCaseValue(JsonElement c) =>
+            c.TryGetProperty("inner", out var ci) ? TryExtractEnumValue(ci) : null;
+        // Attributes and comments also appear in an enumerator's inner; only an expression node is an initializer.
+        static bool HasCaseInitializer(JsonElement c) =>
+            c.TryGetProperty("inner", out var ci) && ci.EnumerateArray().Any(n =>
+                GetOptionalString(n, "kind") is { } k &&
+                (k.EndsWith("Expr", StringComparison.Ordinal) || k.EndsWith("Literal", StringComparison.Ordinal)
+                 || k.EndsWith("Operator", StringComparison.Ordinal)));
 
         // Check for fixed underlying type
         if (element.TryGetProperty("fixedUnderlyingType", out var fixedType))
@@ -678,20 +803,37 @@ public static class ClangAstParser
                 {
                     case "EnumConstantDecl":
                         var caseName = GetName(child);
+                        if (caseName != null && IsMarkedUnavailable(child))
+                        {
+                            // Not bound, but it still occupies its value: an implicitly numbered
+                            // enumerator after it counts on from it, so the next one is given its
+                            // value explicitly below.
+                            _unavailable?.Add(new ObjCUnavailableDeclaration("enumerator", $"{name}.{caseName}"));
+                            unavailableCaseNames.Add(caseName);
+                            droppedPrecedingCase = true;
+                            running = ExplicitCaseValue(child) is { } droppedValue ? Next(droppedValue)
+                                : HasCaseInitializer(child) ? null
+                                : running is { } r ? Next(r) : null;
+                            break;
+                        }
                         if (caseName != null)
                         {
                             ObjCIntegerValue? value = null;
                             var hasExplicitValue = false;
                             if (child.TryGetProperty("inner", out var caseInner))
                             {
-                                // Attributes/comments also appear in inner; only expression nodes
-                                // indicate an initializer. Unknown evaluation must never become 0/1.
-                                hasExplicitValue = caseInner.EnumerateArray().Any(c =>
-                                    GetOptionalString(c, "kind") is { } k &&
-                                    (k.EndsWith("Expr", StringComparison.Ordinal) || k.EndsWith("Literal", StringComparison.Ordinal)
-                                     || k.EndsWith("Operator", StringComparison.Ordinal)));
+                                // Unknown evaluation must never become 0/1.
+                                hasExplicitValue = HasCaseInitializer(child);
                                 value = TryExtractEnumValue(caseInner);
                             }
+                            // C numbers an enumerator with no initializer one past the previous one.
+                            // Only after a dropped enumerator does the binding need that value spelled
+                            // out; otherwise the C# enum's own implicit numbering already agrees.
+                            if (!hasExplicitValue && value is null && droppedPrecedingCase && running is { } implicitValue)
+                                value = implicitValue;
+                            else if (hasExplicitValue)
+                                droppedPrecedingCase = false;
+                            running = value is { } current ? Next(current) : (hasExplicitValue ? null : running is { } r2 ? Next(r2) : null);
                             cases.Add(new ObjCEnumCaseDecl
                             {
                                 Name = caseName,
@@ -723,6 +865,7 @@ public static class ClangAstParser
             IsOptions = isOptions,
             UnderlyingType = underlyingType,
             Cases = cases,
+            UnavailableCaseNames = unavailableCaseNames,
             SwiftName = swiftName,
             DocComment = docComment,
             Availability = RecoverAvailability(element, declFile)
@@ -960,7 +1103,9 @@ public static class ClangAstParser
         List<ObjCMethodDecl> methods,
         List<ObjCPropertyDecl> properties,
         bool isProtocol,
-        string? currentFile = null)
+        string? currentFile,
+        string container,
+        string? initOwner)
     {
         if (!element.TryGetProperty("inner", out var inner))
             return;
@@ -975,6 +1120,16 @@ public static class ClangAstParser
         if (isProtocol)
             optionalLines = BuildOptionalLineSet(element, currentFile);
 
+        // Clang carries an unavailable attribute forward to every later redeclaration of the method in
+        // the same container, though the JSON AST shows it only on the one that spells it. A declaration
+        // before that one stays as Clang reads it: available.
+        static string MethodKey(JsonElement method) =>
+            $"{(!method.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean() ? '-' : '+')}{GetName(method)}";
+        var unavailableMethods = new HashSet<string>(StringComparer.Ordinal);
+        // Methods the container declares available before any declaration marks them unavailable.
+        var availableMethods = new HashSet<string>(StringComparer.Ordinal);
+        bool Unavailable(string key) => unavailableMethods.Contains(key) && !availableMethods.Contains(key);
+
         foreach (var child in inner.EnumerateArray())
         {
             var childKind = GetOptionalString(child, "kind");
@@ -984,6 +1139,19 @@ public static class ClangAstParser
                     // Skip implicit accessor methods generated for properties
                     if (child.TryGetProperty("isImplicit", out var implProp) && implProp.GetBoolean())
                         break;
+                    if (unavailableMethods.Contains(MethodKey(child)))
+                        break; // a later redeclaration; the one that spells the attribute is recorded
+                    if (IsMarkedUnavailable(child))
+                    {
+                        unavailableMethods.Add(MethodKey(child));
+                        var isInstanceMethod = !child.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean();
+                        var selector = GetName(child) ?? "";
+                        _unavailable?.Add(new ObjCUnavailableDeclaration("method", $"{container}.{(isInstanceMethod ? '-' : '+')}{selector}"));
+                        if (initOwner != null && isInstanceMethod && selector == "init")
+                            _initUnavailableClasses?.Add(initOwner);
+                        break;
+                    }
+                    availableMethods.Add(MethodKey(child));
                     var method = ParseMethodDecl(child, IsInOptionalSection(child, optionalLines), currentFile);
                     if (method != null)
                     {
@@ -995,6 +1163,11 @@ public static class ClangAstParser
                     break;
 
                 case "ObjCPropertyDecl":
+                    if (IsMarkedUnavailable(child))
+                    {
+                        _unavailable?.Add(new ObjCUnavailableDeclaration("property", $"{container}.{GetName(child)}"));
+                        break;
+                    }
                     var prop = ParsePropertyDecl(child, optionalLines, currentFile);
                     if (prop != null)
                         properties.Add(prop);
@@ -1003,11 +1176,22 @@ public static class ClangAstParser
         }
         // Property accessors include implicit methods which are deliberately not emitted as
         // methods. Transfer their actual ownership facts before discarding that representation.
-        for (var i = 0; i < properties.Count; i++)
+        // An accessor the container declares unavailable takes its half of the property: an
+        // unavailable setter leaves it read-only, an unavailable getter leaves nothing to bind.
+        for (var i = properties.Count - 1; i >= 0; i--)
         {
             var property = properties[i];
+            var accessorPrefix = property.IsClass ? '+' : '-';
             var getter = property.GetterSelector ?? property.Name;
             var setter = property.SetterSelector ?? $"set{char.ToUpperInvariant(property.Name[0])}{property.Name[1..]}:";
+            if (Unavailable($"{accessorPrefix}{getter}"))
+            {
+                _unavailable?.Add(new ObjCUnavailableDeclaration("property", $"{container}.{property.Name}"));
+                properties.RemoveAt(i);
+                continue;
+            }
+            if (Unavailable($"{accessorPrefix}{setter}"))
+                property = property with { IsReadonly = true, IsSetterUnavailable = true };
             var ownership = property.GetterOwnership;
             var consumes = false;
             foreach (var child in inner.EnumerateArray())

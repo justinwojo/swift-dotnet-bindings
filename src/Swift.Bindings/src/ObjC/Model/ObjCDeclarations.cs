@@ -71,6 +71,13 @@ public sealed record ObjCPropertyDecl
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
     public bool IsReadonly { get; init; }
+
+    /// <summary>
+    /// The container declares the property's setter unavailable, which leaves it read-only (<see
+    /// cref="IsReadonly"/>) and, unlike a plain read-only re-declaration, takes away a setter it inherits.
+    /// </summary>
+    public bool IsSetterUnavailable { get; init; }
+
     public bool IsClass { get; init; }
     public bool IsOptional { get; init; }
     public bool IsFromCategory { get; init; }
@@ -119,6 +126,14 @@ public sealed record ObjCClassDecl
     /// keep such classes (it only ever drops with positive proof of absence).
     /// </summary>
     public bool HasCustomRuntimeName { get; init; }
+
+    /// <summary>
+    /// True when <c>-init</c> is unavailable on this class: the class (or a category on it) marks
+    /// <c>init</c> unavailable (<c>NS_UNAVAILABLE</c>), or it inherits that from a superclass of this
+    /// module without redeclaring an available <c>init</c>. Clang refuses <c>[[X alloc] init]</c> for
+    /// such a class, so the binding must not offer a parameterless constructor either.
+    /// </summary>
+    public bool IsInitUnavailable { get; init; }
 
     /// <summary>
     /// Platform-availability records recovered from the declaration's availability macros or a bare
@@ -189,6 +204,14 @@ public sealed record ObjCEnumDecl
     public bool IsOptions { get; init; }
     public ObjCTypeRef? UnderlyingType { get; init; }
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];
+
+    /// <summary>
+    /// The enumerators the declaration marks unavailable, which are not bound. They still count
+    /// toward the case prefix the bound names drop, so a surviving enumerator is named the same
+    /// whether or not an SDK makes one of them available.
+    /// </summary>
+    public List<string> UnavailableCaseNames { get; init; } = [];
+
     public string? SwiftName { get; init; }
     public string? DocComment { get; init; }
 
@@ -290,3 +313,13 @@ public sealed record ObjCCategoryDecl
     /// </summary>
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
+
+/// <summary>
+/// A declaration the parser dropped because Clang marks it unavailable (<c>UnavailableAttr</c>:
+/// <c>NS_UNAVAILABLE</c>, <c>__attribute__((unavailable))</c>, or a framework macro expanding to one).
+/// An Objective-C consumer cannot use it, so neither can the binding; the pipeline reports each one
+/// (<see cref="ObjCSkipReason.UnavailableApi"/>).
+/// </summary>
+/// <param name="Kind">The declaration kind (<c>class</c>, <c>method</c>, <c>enumerator</c>, …).</param>
+/// <param name="Name">Its name, qualified by its container for a member (<c>MTRDevice.-init</c>).</param>
+public sealed record ObjCUnavailableDeclaration(string Kind, string Name);

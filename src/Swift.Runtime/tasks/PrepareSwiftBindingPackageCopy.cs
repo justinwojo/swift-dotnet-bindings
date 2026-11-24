@@ -59,6 +59,13 @@ public sealed class PrepareSwiftBindingPackageCopy : Microsoft.Build.Utilities.T
     /// <summary>Where to write the copy declaration.</summary>
     [Required] public string DeclarationFile { get; set; } = "";
 
+    /// <summary>
+    /// Where the copy's natives are (<see cref="PackageCopyDeclarationEmitter.NativePayloadNative"/>,
+    /// <see cref="PackageCopyDeclarationEmitter.NativePayloadNone"/> or
+    /// <see cref="PackageCopyDeclarationEmitter.NativePayloadResources"/>); <c>native</c> when empty.
+    /// </summary>
+    public string NativePayload { get; set; } = "";
+
     public override bool Execute()
     {
         var sdk = GeneratedSdk();
@@ -67,15 +74,26 @@ public sealed class PrepareSwiftBindingPackageCopy : Microsoft.Build.Utilities.T
         var label = PackageCopyRules.CheckLabel(PackageId, PackTfm, TargetKind, sdk);
         if (label is not null)
             Log.LogError(null, LabelCode, null, null, 0, 0, 0, 0, "{0}", label);
-        if (ConsumerTargetsFile.Length > 0 && File.Exists(ConsumerTargetsFile))
-            foreach (var problem in PackageCopyRules.CheckTargetsReferences(PackTfm, File.ReadAllText(ConsumerTargetsFile)))
+        var payload = NativePayload.Trim().Length == 0 ? PackageCopyDeclarationEmitter.NativePayloadNative : NativePayload.Trim();
+        if (!PackageCopyDeclarationEmitter.IsNativePayload(payload))
+        {
+            Log.LogError(null, LayoutCode, null, null, 0, 0, 0, 0, "{0}",
+                $"{PackageId} {PackTfm}: '{payload}' is not a native payload a copy can declare (native, none or resources).");
+            return false;
+        }
+        var hasTargets = ConsumerTargetsFile.Length > 0 && File.Exists(ConsumerTargetsFile);
+        if (hasTargets)
+            foreach (var problem in PackageCopyRules.CheckTargetsReferences(PackTfm, File.ReadAllText(ConsumerTargetsFile), payload))
                 Log.LogError(null, LayoutCode, null, ConsumerTargetsFile, 0, 0, 0, 0, "{0}",
                     $"{PackageId} {PackTfm}: the consumer targets {problem}. Each copy's targets must reference only its own native/{PackTfm}/. "
                     + "Delete the binding's obj/ and pack again so the targets are regenerated.");
         if (Log.HasLoggedErrors)
             return false;
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(DeclarationFile))!);
-        var text = PackageCopyDeclarationEmitter.Compose(PackageId, PackTfm, Toolchain, sdk, Generator);
+        // A copy whose natives are under native/<tfm>/ is reached only through its consumer targets, so
+        // it always declares them (the merge and the consumer check then refuse a copy that lost them).
+        var text = PackageCopyDeclarationEmitter.Compose(PackageId, PackTfm, Toolchain, sdk, Generator, payload,
+            hasConsumerTargets: hasTargets || payload == PackageCopyDeclarationEmitter.NativePayloadNative);
         if (!File.Exists(DeclarationFile) || File.ReadAllText(DeclarationFile) != text)
             File.WriteAllText(DeclarationFile, text);
         return true;

@@ -58,6 +58,14 @@ class ReaderTests(unittest.TestCase):
         roots = mtp.copy_tfms(mtp.read_entries(self.kit()))
         self.assertEqual(roots, {r: {"net10.0-ios26.0", "net10.0-ios27.2"} for r in ("lib", "buildTransitive", "native")})
 
+    def test_a_copy_with_no_natives_is_laid_out_without_native(self):
+        tfms = ["net10.0-ios26.0", "net10.0-ios27.2"]
+        objc = {"lib": set(tfms), "buildTransitive": set(tfms), "native": set()}
+        self.assertTrue(mtp.laid_out(objc, tfms, natives=False))
+        self.assertFalse(mtp.laid_out(objc, tfms, natives=True))
+        self.assertFalse(mtp.laid_out(mtp.copy_tfms(mtp.read_entries(self.kit())), tfms, natives=False))
+        self.assertTrue(mtp.laid_out(mtp.copy_tfms(mtp.read_entries(self.kit())), tfms, natives=True))
+
     def test_copy_digest_holds_only_that_copy(self):
         digest = mtp.copy_digest(mtp.read_entries(self.kit()), "net10.0-ios27.2")
         self.assertEqual(sorted(digest), ["buildTransitive/net10.0-ios27.2/Acme.Kit.props", "lib/net10.0-ios27.2/Kit.dll",

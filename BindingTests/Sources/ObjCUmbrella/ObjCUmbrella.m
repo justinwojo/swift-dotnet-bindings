@@ -399,3 +399,16 @@ static int OUOwnershipDeallocations;
 @implementation OUClassOnlyInitialization
 + (NSInteger)init { return 123; }
 @end
+
+// Shape 16 — the initializer is unavailable to consumers; the factory uses a private one.
+@interface OUSealedToken ()
+- (instancetype)initWithSealedValue:(NSInteger)value;
+@end
+@implementation OUSealedToken
+- (instancetype)initWithSealedValue:(NSInteger)value {
+    if ((self = [super init])) { _value = value; }
+    return self;
+}
++ (instancetype)tokenWithValue:(NSInteger)value { return [[self alloc] initWithSealedValue:value]; }
+- (OUStage)stageAfter:(OUStage)stage { return stage == OUStageDraft ? OUStageFinal : OUStageDraft; }
+@end

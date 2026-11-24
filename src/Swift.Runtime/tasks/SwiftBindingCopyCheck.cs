@@ -49,7 +49,8 @@ public sealed class SwiftBindingCopyCheck : Microsoft.Build.Utilities.Task
     {
         var copies = Copies.Select(c => new PackageCopy(
             c.ItemSpec, c.GetMetadata("CopyTfm"), c.GetMetadata("Toolchain"),
-            c.GetMetadata("LibDirectory"), c.GetMetadata("NativeDirectory"), c.GetMetadata("TargetsFile"))).ToList();
+            c.GetMetadata("LibDirectory"), c.GetMetadata("NativeDirectory"), c.GetMetadata("TargetsFile"),
+            c.GetMetadata("NativePayload"))).ToList();
         var references = References.Select(r => new ResolvedReference(
             r.GetMetadata("FullPath"), r.GetMetadata("NuGetPackageId"), r.GetMetadata("NuGetPackageVersion"))).ToList();
         foreach (var finding in PackageCopyCheck.Evaluate(copies, references, TargetFramework, TargetPlatformVersion, RequireExactCopy))

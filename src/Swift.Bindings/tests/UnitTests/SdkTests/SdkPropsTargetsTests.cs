@@ -473,6 +473,22 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public void Targets_PackDeclaresThePureObjCCopy_AndWhereItsNativesAre()
+        {
+            // A pure Objective-C binding is a copy like any other: declared, labelled and packed with its
+            // declaration, which names where its natives are (none for an Apple framework, the resource
+            // package in lib/<tfm>/ for a library).
+            var start = TargetsContent.IndexOf("<PrepareSwiftBindingPackageCopy", StringComparison.Ordinal);
+            var invocation = TargetsContent[start..TargetsContent.IndexOf("/>", start, StringComparison.Ordinal)];
+            Assert.DoesNotContain("Condition", invocation);
+            Assert.Contains("NativePayload=\"$(_SwiftBindingCopyNativePayload)\"", invocation);
+            Assert.Contains("'$(SwiftFrameworkType)' == 'ObjC' AND '$(_SwiftBindingTargetKind)' == 'AppleFramework'\">none</_SwiftBindingCopyNativePayload>", TargetsContent);
+            Assert.Contains("'$(SwiftFrameworkType)' == 'ObjC' AND '$(_SwiftBindingTargetKind)' != 'AppleFramework'\">resources</_SwiftBindingCopyNativePayload>", TargetsContent);
+            Assert.Contains("<TfmSpecificPackageFile Include=\"$(_SwiftBindingCopyDeclaration)\"\n            PackagePath=\"buildTransitive/$(_SwiftBindingPackTfm)/\"\n            Condition=\"Exists('$(_SwiftBindingCopyDeclaration)')\" />",
+                TargetsContent.Replace("\r\n", "\n"));
+        }
+
+        [Fact]
         public void Targets_MergeTarget_ChecksTheMergedPackage()
         {
             Assert.Contains("<Target Name=\"SwiftBindingsMergePackages\">", TargetsContent);

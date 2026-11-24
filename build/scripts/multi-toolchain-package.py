@@ -14,7 +14,9 @@ launcher validates it, so the pins live only in build/toolchains/<profile>.json.
    declares; WeatherKit (macOS, tvOS) covers the other two platforms. It also builds a
    first-party Swift library (multi-toolchain-fixtures/CaseOrder.swift) with its own Xcode and
    packs its binding: the Xcode 27 build inserts enum cases ahead of existing ones, so the
-   generated case tags of every copy must not depend on case order.
+   generated case tags of every copy must not depend on case order. Matter (iOS) is the pure
+   Objective-C fixture: its copies ship no natives and declare so, and its headers mark
+   provisional API unavailable, which no copy may bind.
 2. Merge with SwiftBindingsMergePackages; assert the layout, each copy's bytes against its
    contribution, the nuspec groups, SWIFTBIND133 and the Windows path budget.
 3. Consumers, from a private NuGet cache per pairing: iOS simulator Debug and Release,
@@ -45,7 +47,10 @@ import zipfile
 PAIRINGS = [("net10-xcode26", "net10.0", "26.0"),
             ("net10-xcode27", "net10.0", "27.2"),
             ("net11-xcode27", "net11.0", "27.2")]
-FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "tvos"), "CaseOrder": ("ios",)}
+FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "tvos"), "CaseOrder": ("ios",),
+            "Matter": ("ios",)}
+# Fixtures bound as pure Objective-C Apple frameworks: no wrapper, and copies with no native payload.
+OBJC_FIXTURES = {"Matter"}
 # Fixtures bound as a library (<SwiftFramework>) from a framework each pairing builds from this Swift source.
 LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift"}
 PACKAGE_PREFIX = "MtpFixture."
@@ -96,6 +101,12 @@ def copy_tfms(names):
         if len(parts) > 2 and parts[0] in roots:
             roots[parts[0]].add(parts[1])
     return roots
+
+
+def laid_out(roots, tfms, natives):
+    """Whether layout roots hold exactly the copies tfms in lib/ and buildTransitive/, and in native/ when they ship natives
+    (a pure Objective-C copy of an Apple framework has none)."""
+    return roots["lib"] == set(tfms) and roots["buildTransitive"] == set(tfms) and roots["native"] == (set(tfms) if natives else set())
 
 
 def copy_digest(entries, copy):
@@ -317,8 +328,11 @@ class Gate:
         directory.mkdir(parents=True, exist_ok=True)
         item = (f'<SwiftFramework Include="{escape(str(self.library_xcframework(profile, framework)))}" />' if framework in LIBRARY_FIXTURES
                 else f'<SwiftAppleFrameworkTarget Include="{framework}" />')
+        objc = ("<SwiftFrameworkType>ObjC</SwiftFrameworkType>\n    <IsBindingProject>true</IsBindingProject>"
+                if framework in OBJC_FIXTURES else "")
         (directory / f"{package_id(framework)}.csproj").write_text(f"""<Project Sdk="SwiftBindings.Sdk/{self.o.sdk_version}">
   <PropertyGroup>
+    {objc}
     <TargetFramework />
     <TargetFrameworks>$(MtpTargetFrameworks)</TargetFrameworks>
     <PackageId>{package_id(framework)}</PackageId>
@@ -394,7 +408,7 @@ class Gate:
                 ok = code == 0 and nupkg.exists()
                 if ok:
                     roots = copy_tfms(read_entries(nupkg))
-                    ok = all(roots[r] == set(tfms) for r in roots)
+                    ok = laid_out(roots, tfms, framework not in OBJC_FIXTURES)
                     detail = f"{', '.join(tfms)}" if ok else f"layout {roots}, expected {tfms}"
                 else:
                     detail = f"exit {code}; {first_errors(text)}"
@@ -438,8 +452,16 @@ class Gate:
                 continue
             entries = read_entries(nupkg)
             roots = copy_tfms(entries)
-            self.step(f"merge {framework} layout", all(roots[r] == set(expected) for r in roots),
-                      f"lib {sorted(roots['lib'])}, buildTransitive {sorted(roots['buildTransitive'])}, native {sorted(roots['native'])}")
+            # A pure Objective-C copy has no native/<tfm>/, and its declaration says so.
+            payload = "none" if framework in OBJC_FIXTURES else "native"
+            declared = {t: re.search(r"<NativePayload>([^<]*)</NativePayload>",
+                                     entries.get(f"buildTransitive/{t}/{package_id(framework)}.props", b"").decode())
+                        for t in expected}
+            declared = {t: m.group(1) if m else None for t, m in declared.items()}
+            self.step(f"merge {framework} layout", laid_out(roots, expected, framework not in OBJC_FIXTURES)
+                      and all(d == payload for d in declared.values()),
+                      f"lib {sorted(roots['lib'])}, buildTransitive {sorted(roots['buildTransitive'])}, native {sorted(roots['native'])}; "
+                      f"declared payloads {', '.join(f'{t}={d}' for t, d in sorted(declared.items()))}")
             stray = sorted({n.split("/")[0] for n in entries} - {"lib", "buildTransitive", "native", "_rels", "package",
                                                                   "[Content_Types].xml", f"{package_id(framework)}.nuspec",
                                                                   "README.md", "readme.md"})
@@ -573,8 +595,14 @@ class Gate:
         self.step(f"{profile} {label} project.assets.json paths", bool(assets) and not bad,
                   "; ".join(bad) if bad else f"lib/{expected_copy}/, buildTransitive/{expected_copy}/ for {', '.join(sorted(assets))}")
         bundle = self.app_bundle(directory, configuration, platform, rid)
-        self.assert_wrapper(profile, label, bundle, framework, expected_copy, platform)
-        if check132:
+        if framework in OBJC_FIXTURES:
+            stray = [p for p in (bundle.rglob(f"{framework}SwiftBindings*") if bundle else [])]
+            self.step(f"{profile} {label} embeds no wrapper", bundle is not None and not stray,
+                      f"{len(stray)} wrapper image(s) in {bundle}" if stray else "a pure Objective-C copy binds the OS framework")
+        else:
+            self.assert_wrapper(profile, label, bundle, framework, expected_copy, platform)
+        # A pure Objective-C package brings no SwiftBindings.Runtime, so its app runs no transition check.
+        if check132 and framework not in OBJC_FIXTURES:
             caches = sorted(directory.glob("obj/**/swiftbindings-transition-check.json"))
             verdicts = []
             for cache in caches:
@@ -658,6 +686,7 @@ class Gate:
             if net == "net10.0":
                 self.consumer(profile, "ios", "ProximityReader", "Release", ios, probe27, "ios-nativeaot", publish_aot=True)
             self.consumer(profile, "maccatalyst", "ProximityReader", "Debug", tfm(net, "maccatalyst", label), probe27, "maccatalyst")
+            self.consumer(profile, "ios", "Matter", "Debug", ios, False, "ios-matter")
             self.consumer(profile, "macos", "WeatherKit", "Debug", tfm(net, "macos", label), False, "macos")
             self.consumer(profile, "tvos", "WeatherKit", "Debug", tfm(net, "tvos", label), False, "tvos")
             self.library_flow(profile, net, label)
@@ -775,6 +804,33 @@ class Gate:
         self.control("SWIFTBIND138 M7 a newer copy changes an older copy's compiled-in value", code if not list(out.glob("*.nupkg")) else 0, text,
                      [rf"error SWIFTBIND138: .*the copy net10\.0-ios27\.2 changes \d+ compiled-in value\(s\) of the older copy net10\.0-ios26\.0 "
                       rf"\(.*CaseOrder\.Paint\+CaseTag::Solid is {solid} in net10\.0-ios26\.0 and {solid ^ 0x40000000} in net10\.0-ios27\.2"])
+
+        self.objc_controls()
+
+    def objc_controls(self):
+        """The pure Objective-C copies: a copy whose declaration and natives disagree is refused at merge,
+        and the consumer check covers copies that ship no natives."""
+        fw = "Matter"
+        pid = package_id(fw)
+        x26, x27, _ = (p for p, _, _ in PAIRINGS)
+        (m26, mt26), (m27, mt27), _ = self.matrix(fw)
+        doctored = self.work / "doctored"
+        # M8: the 27.2 copy declares natives under native/<tfm>/ it does not ship.
+        lying = variant(m27, doctored / "m8", VERSION,
+                        patches=[("buildTransitive/net10.0-ios27.2/", b"<NativePayload>none</NativePayload>", b"<NativePayload>native</NativePayload>")])
+        out = self.work / "merge-controls" / "M8"
+        code, text = self.merge(fw, [(m26, mt26), (lying, mt27)], VERSION, out, "control-m8.log")
+        self.control("SWIFTBIND138 M8 a copy's declaration and natives disagree", code if not list(out.glob("*.nupkg")) else 0, text,
+                     [r"error SWIFTBIND138: .*declares its net10\.0-ios27\.2 copy's natives under native/net10\.0-ios27\.2/, but carries no native/net10\.0-ios27\.2/"])
+        # SWIFTBIND136 on a pure Objective-C package: buildTransitive/<27.2>/ dropped, so NuGet takes the
+        # 26.0 declaration beside the 27.2 lib.
+        variant(self.merged(fw), self.work / "controls", f"{VERSION}-objc136", drops=["buildTransitive/net10.0-ios27.2/"])
+        directory = self.app_dir(x27, "control-objc136")
+        project = self.write_app(directory, x27, "ios", fw, f"{VERSION}-objc136", "", probe27=False)
+        self.evict(x27, pid)
+        code, text = self.dotnet(x27, ["build", str(project), "-c", "Debug", "-nodeReuse:false"], directory, "control-objc136.log")
+        self.control("SWIFTBIND136 (pure Objective-C copy, buildTransitive copy dropped)", code, text,
+                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
 
     # ---- 5. runs -------------------------------------------------------------------------------
 
@@ -974,13 +1030,24 @@ def app_source(platform, framework, expected_copy, through_library):
             Check("27-only Element.Name absent", name == null, true);
 #endif
 """,
+        "Matter": """
+            // An Objective-C message send into the OS framework.
+            var pin = (long)Matter.MTRSetupPayload.GenerateRandomPIN();
+            Check("MTRSetupPayload.GenerateRandomPIN is a setup PIN", pin >= 1 && pin <= 99999998, true);
+            Check("MTRDiscoveryCapabilities.OnNetwork carries its C value", (long)Matter.MTRDiscoveryCapabilities.OnNetwork, 4);
+            // Provisional API (MTRDiscoveryCapabilitiesNFC) is unavailable to an Objective-C consumer of
+            // every SDK, so no copy binds it.
+            Check("provisional MTRDiscoveryCapabilities NFC absent",
+                Enum.GetNames(typeof(Matter.MTRDiscoveryCapabilities)).Any(n => n.Contains("nfc", StringComparison.OrdinalIgnoreCase)), false);
+""",
         "WeatherKit": """
             Check("WeatherService.Shared non-null", WeatherKit.WeatherService.Shared != null, true);
             Check("MoonPhase.Full symbol", WeatherKit.MoonPhaseExtensions.GetSymbolName(WeatherKit.MoonPhase.Full), "moonphase.full.moon");
             Check("WeatherCondition.AllCases non-empty", WeatherKit.WeatherCondition.AllCases.Count > 0, true);
 """,
     }[framework]
-    anchor = {"ProximityReader": "ProximityReader.MobileDriversLicenseDataRequest", "WeatherKit": "WeatherKit.WeatherService"}[framework]
+    anchor = {"ProximityReader": "ProximityReader.MobileDriversLicenseDataRequest", "WeatherKit": "WeatherKit.WeatherService",
+              "Matter": "Matter.MTRSetupPayload"}[framework]
     library = ("Check(\"library call\", MtpLib.LibUse.GivenName(), true);\n"
                "            foreach (var (what, got, want) in MtpLib.LibUse.CaseOrderChecks())\n"
                "                Check(\"library compiled against the oldest copy: \" + what, got, want);") if through_library else ""
@@ -1006,6 +1073,14 @@ def app_source(platform, framework, expected_copy, through_library):
             var assembly = typeof({anchor}).Assembly;
             var identity = assembly.GetCustomAttributes<AssemblyMetadataAttribute>().FirstOrDefault(a => a.Key == "SwiftBindings.WrapperIdentity")?.Value ?? "";
             var copy = identity.Split(';').Select(f => f.Split('=', 2)).FirstOrDefault(f => f[0] == "copy")?[1];
+            // A pure Objective-C copy records no wrapper identity: its assembly's own target framework names it
+            // (TargetPlatformAttribute spells the platform as MSBuild does, "iOS26.0"; a copy TFM is lower-case).
+            if (identity.Length == 0)
+            {{
+                var net = assembly.GetCustomAttribute<System.Runtime.Versioning.TargetFrameworkAttribute>()?.FrameworkName ?? "";
+                var platformName = assembly.GetCustomAttribute<System.Runtime.Versioning.TargetPlatformAttribute>()?.PlatformName ?? "";
+                copy = $"net{{net.Split("Version=v").Last()}}-{{platformName.ToLowerInvariant()}}";
+            }}
             Check("loaded copy", copy, "{expected_copy}");
             {probe}
             {library}

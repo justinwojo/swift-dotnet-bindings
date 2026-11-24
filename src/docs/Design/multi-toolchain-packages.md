@@ -32,11 +32,24 @@ a versionless `net10.0-<platform>` class library gets platform version 26.0 on e
 toolchain, so a package whose oldest copy names 26.2 is unrestorable from such a library (NU1202).
 Newer copies name their SDK (`net10.0-ios27.2`, `net11.0-ios27.2`).
 
+A pure Objective-C binding has no wrapper, so its copies have no `native/<T>/`. A binding of an
+Apple framework (Matter) binds what the OS provides: each copy is its assembly, its declaration and
+consumer targets that reference no natives. A binding of an Objective-C library carries the library
+inside `lib/<T>/`, as the binding project's resource package (`<Id>.resources.zip`, or the
+`<Id>.resources/` directory) that the consuming build extracts, and ships no consumer targets. Each
+copy's declaration records which of the three a copy is (`NativePayload` below), and every guard
+reads it from there.
+
 ## The copy declaration
 
 `buildTransitive/<T>/<Id>.props` adds one `SwiftBindingPackageCopy` item: the copy TFM, the toolchain
-and platform SDK it was built with, the SwiftBindings SDK version, and the copy's `lib/`, `native/`
-and targets paths. The generator writes it beside the consumer targets of a standalone project;
+and platform SDK it was built with, the SwiftBindings SDK version, where the copy's natives are
+(`NativePayload`: `native` for `native/<T>/`, `none`, or `resources` for the resource package in
+`lib/<T>/`), and the copy's `lib/`, `native/` and targets paths. A copy with no `native/<T>/` declares
+an empty `NativeDirectory`, and one that ships no consumer targets an empty `TargetsFile`. A
+declaration from before `NativePayload` means `native`. Every lane declares its copy, the pure
+Objective-C ones included; a pure Objective-C assembly records no wrapper identity, so its label is
+judged against the SDK selected when it packs. The generator writes it beside the consumer targets of a standalone project;
 `SwiftBindings.Sdk` writes its own at pack time (`PrepareSwiftBindingPackageCopy`), since only the
 pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitter`).
 
@@ -44,7 +57,7 @@ pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitt
 
 | Code | Where | What it refuses |
 |---|---|---|
-| SWIFTBIND136 | every app build (`SwiftBindings.Runtime` targets, `_SwiftBindingsCheckPackageCopies`, before `CoreCompile`) | a binding assembly resolved from another copy's `lib/` than the copy whose targets NuGet imported, or an assembly of a copy-layout package with no declared copy at all. Each build also prints one line per package naming the copy it selected and its lib, native and targets paths. |
+| SWIFTBIND136 | every app build (`SwiftBindings.Runtime` targets, `_SwiftBindingsCheckPackageCopies`, before `CoreCompile`) | a binding assembly resolved from another copy's `lib/` than the copy whose targets NuGet imported, or an assembly of a copy-layout package with no declared copy at all (a package is in the copy layout when it has a copy under `native/` or a copy declaration under `buildTransitive/`, so a pure Objective-C package is too), or a copy whose declared consumer targets are missing (a `native` copy always declares them). Each build also prints one line per package naming the copy it selected and its lib, native and targets paths. |
 | SWIFTBIND137 | pack (`PrepareSwiftBindingPackageCopy`) | an Apple-framework copy labelled for another platform SDK than the one it was generated from: the label must have the SDK's major version and be no newer. The SDK judged (and declared) is the one the binding's assembly records it was generated from, in its wrapper identity, not the SDK selected when it packs; the selected SDK stands in only for an assembly that records none. A versionless Apple-framework project (the template's default) is labelled 26.0 on every .NET 10 workload, so on Xcode 27.2 it must name its copy (`net10.0-ios27.2`) to pack. A library binding is never refused, so a versionless `net10.0-ios` library binding packed on Xcode 27.2 keeps its 26.0 label and serves .NET 10 + Xcode 26 apps: its surface is the library's, not the SDK's. |
 | SWIFTBIND138 | pack and merge | consumer targets that reference `runtimes/` or another copy's `native/`, found in the text, or a `NativeReference` that does not resolve, from `buildTransitive/<T>/` as NuGet lays the file out, into `native/<T>/` (one through a property, relative to the consuming project, absolute, or out of the package); at merge, every refusal below. |
 | SWIFTBIND139 | every app build | a copy older than the build's toolchain (another .NET version, or a lower platform SDK major): an informational message by default, an error with `SwiftBindingsRequireExactCopy=true`. |
@@ -102,14 +115,19 @@ quotes keep the shell from removing them.
 
 It refuses (SWIFTBIND138) contributions that are not one package (id, version, nuspec metadata
 other than the per-copy groups, SwiftBindings SDK), a signed contribution, a matrix the contributions
-do not carry exactly once each, a contribution whose `lib/`, `buildTransitive/` and `native/` TFM sets
-differ or that ships files outside the copy layout, a copy without its declaration, targets or own
-natives, a shared file that differs between contributions (the readme is taken from the newest
+do not carry exactly once each, a contribution whose `lib/` and `buildTransitive/` TFM sets differ,
+that ships files outside the copy layout or a `native/<T>/` with no `lib/<T>/`, a copy without its
+declaration, a copy whose natives are not where its declaration says (`native/<T>/` exactly for a
+`native` copy, a resource package in `lib/<T>/` exactly for a `resources` copy, neither for `none`), a
+copy without the consumer targets it declares or with targets it declares it has not, consumer targets
+of a copy without `native/<T>/` that reference natives, copies that declare different native payloads
+(one binding ships its natives one way), a shared file that differs between contributions (the readme is taken from the newest
 copy), an id or version that is not a plain file name, and — per platform, ordered by .NET and
 platform version — a newer copy whose public API (types with the bases and interfaces they convert
 to through the assembly's own base chain, members with their signatures, static or instance binding
 and public or protected access; widening protected to public is allowed) or per-architecture native exports lack an
-older copy's (a library compiles against the oldest copy,
+older copy's (a `resources` copy's exports are read from the images inside its resource package; a
+`none` copy has none to compare) (a library compiles against the oldest copy,
 the app that consumes it runs the newest). A type a signature, base or interface names from another
 assembly is keyed with that assembly's name, so a same-named type of another assembly is another
 type. A newer copy must also keep every value a compiler copies out of an older copy into the code
@@ -187,7 +205,9 @@ SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in
 WeatherKit (macOS and tvOS), and CaseOrder (iOS), a first-party Swift library
 (`build/scripts/multi-toolchain-fixtures/CaseOrder.swift`) each pairing builds with its own Xcode,
 whose Swift 6.4 build inserts enum cases ahead of existing ones, as an Apple SDK does between
-releases. Its copies merge only because their `CaseTag` constants do not follow case order. The gate merges them with `SwiftBindingsMergePackages` and checks the
+releases. Its copies merge only because their `CaseTag` constants do not follow case order. Matter
+(iOS) is the pure Objective-C fixture: its copies ship no natives, declare so, and bind none of the
+API its headers mark provisional (unavailable). The gate merges them with `SwiftBindingsMergePackages` and checks the
 layout, each copy's bytes against its contribution, the nuspec groups, the path budget and SWIFTBIND133.
 It then builds consumers from clean NuGet caches (iOS simulator Debug and Release, a NativeAOT
 `ios-arm64` publish on .NET 10, macOS, tvOS simulator, Mac Catalyst, and a versionless library through
@@ -196,7 +216,8 @@ identity and SDK, and SWIFTBIND132 verdict, and runs the apps. The versionless l
 calls into CaseOrder, case-tag comparisons included, against its oldest copy, and the app runs them
 against its own copy and that copy's library: each Swift-built case must read as its own `CaseTag`,
 and each managed-built case must reach Swift as itself. Controls that must fail with their own
-code: NU1202, SWIFTBIND136, 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M7; M7 renumbers
-one CaseOrder `CaseTag` constant in the 27.2 copy), 139 and 140.
+code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older
+copy), 137, 138 (M1–M8; M7 renumbers one CaseOrder `CaseTag` constant in the 27.2 copy, M8 makes a
+Matter copy declare natives it does not ship), 139 and 140.
 Receipts land in `artifacts/multi-toolchain-package/receipts/`.
 

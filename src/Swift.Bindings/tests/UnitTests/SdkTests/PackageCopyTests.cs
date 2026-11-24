@@ -157,6 +157,39 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Selection_ANativelessCopyWithNoConsumerTargets_IsAnnounced()
+    {
+        var root = PackageRoot("net10.0-ios26.0");
+        Directory.Delete(Path.Combine(root, "native"), recursive: true);
+        File.Delete(Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.targets"));
+        var copy = new PackageCopy(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", Path.Combine(root, "lib", "net10.0-ios26.0") + "/", "", "", "resources");
+        var reference = new ResolvedReference(Path.Combine(root, "lib", "net10.0-ios26.0", "Acme.Kit.dll"), Id, "1.0.0");
+        var finding = Assert.Single(PackageCopyCheck.Evaluate([copy], [reference], "net10.0-ios", "26.2", requireExactCopy: false));
+        Assert.Equal(PackageCopyFindingKind.Selected, finding.Kind);
+        Assert.Contains("native=(resources) targets=(none)", finding.Text);
+
+        // A Swift copy that lost its targets still is refused.
+        var swift = new PackageCopy(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", Path.Combine(root, "lib", "net10.0-ios26.0") + "/",
+            Path.Combine(root, "native", "net10.0-ios26.0") + "/", Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.targets"));
+        Assert.Equal(PackageCopyFindingKind.Mismatch, Assert.Single(PackageCopyCheck.Evaluate([swift], [reference], "net10.0-ios", "26.2", requireExactCopy: false)).Kind);
+    }
+
+    [Fact]
+    public void Selection_AnAssemblyWithNoDeclaredCopy_InANativelessCopyLayoutPackage_IsRefused()
+    {
+        // A pure Objective-C package has no native/: its copy declarations mark it as laid out per copy.
+        var root = PackageRoot("net10.0-ios26.0", "net10.0-ios27.2");
+        Directory.Delete(Path.Combine(root, "native"), recursive: true);
+        foreach (var tfm in new[] { "net10.0-ios26.0", "net10.0-ios27.2" })
+            File.WriteAllText(Path.Combine(root, "buildTransitive", tfm, "Acme.Kit.props"),
+                PackageCopyDeclarationEmitter.Compose(Id, tfm, ".NET 10 + Xcode 26.3", "26.2", Generator, "none"));
+        var reference = new ResolvedReference(Path.Combine(root, "lib", "net10.0-ios27.2", "Acme.Kit.dll"), Id, "1.0.0");
+        var finding = Assert.Single(PackageCopyCheck.Evaluate([], [reference], "net10.0-ios", "27.2", requireExactCopy: false));
+        Assert.Equal(PackageCopyFindingKind.Mismatch, finding.Kind);
+        Assert.Contains("none of the package's buildTransitive/ copies", finding.Text);
+    }
+
+    [Fact]
     public void Selection_AnUndeclaredPackageWithoutCopies_IsNotABindingPackage()
     {
         var root = Path.Combine(tempDir, "plain");
@@ -228,7 +261,199 @@ public sealed class PackageCopyTests : IDisposable
     {
         var bad = Contribution("x27", ["net10.0-ios27.2"], omit: "buildTransitive/net10.0-ios27.2/");
         var result = Merge([Contribution("x26", ["net10.0-ios26.0"]), bad], "net10.0-ios26.0", "net10.0-ios27.2");
-        Assert.Contains(result.Problems, p => p.Contains("every copy must appear in all three", StringComparison.Ordinal));
+        Assert.Contains(result.Problems, p => p.Contains("every copy must appear in both", StringComparison.Ordinal));
+    }
+
+    // ---- SWIFTBIND138: pure Objective-C copies ----------------------------------------------------
+
+    [Fact]
+    public void Merge_PureObjCCopiesOfAnAppleFramework_WhichShipNoNatives_Merge()
+    {
+        // A pure Objective-C binding of an Apple framework binds what the OS provides: each copy is its
+        // assembly, its declaration and its consumer targets, with no native/<tfm>/.
+        var older = Contribution("x26", ["net10.0-ios26.0"], payload: "none");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], payload: "none", api: "public static class Kit { public static int A() => 1; public static int B() => 2; }");
+        var net11 = Contribution("n11", ["net11.0-ios27.2"], payload: "none", api: "public static class Kit { public static int A() => 1; public static int B() => 2; }");
+        string[] matrix = ["net10.0-ios26.0", "net10.0-ios27.2", "net11.0-ios27.2"];
+
+        var result = SwiftBindingPackageMerge.Merge([older, newer, net11], matrix, Path.Combine(tempDir, "out-objc"));
+
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        using var zip = ZipFile.OpenRead(result.Package!);
+        var names = zip.Entries.Select(e => e.FullName).ToHashSet();
+        foreach (var tfm in matrix)
+        {
+            Assert.Contains($"lib/{tfm}/Acme.Kit.dll", names);
+            Assert.Contains($"buildTransitive/{tfm}/Acme.Kit.props", names);
+            using var reader = new StreamReader(zip.GetEntry($"buildTransitive/{tfm}/Acme.Kit.props")!.Open());
+            Assert.Contains("<NativePayload>none</NativePayload>", reader.ReadToEnd());
+        }
+        Assert.DoesNotContain(names, n => n.StartsWith("native/", StringComparison.Ordinal));
+        Assert.Contains(result.Notes, n => n.Contains("natives: net10.0-ios26.0 and net10.0-ios27.2 declare none", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_PureObjCCopiesOfALibrary_WhoseNativesAreTheResourcePackage_Merge()
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], payload: "resources"),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources")], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+        using var zip = ZipFile.OpenRead(result.Package!);
+        Assert.Contains(zip.Entries, e => e.FullName == "lib/net10.0-ios27.2/Acme.Kit.resources.zip");
+        Assert.DoesNotContain(zip.Entries, e => e.FullName.EndsWith(".targets", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    // The declaration says no natives, but the copy ships native/<tfm>/.
+    [InlineData("native", "none", "carries native/net10.0-ios27.2/")]
+    // The declaration says native/<tfm>/, but there is none: the copy's natives were lost.
+    [InlineData("none", "native", "carries no native/net10.0-ios27.2/")]
+    // The declaration says lib/<tfm>/'s resource package, but there is none.
+    [InlineData("none", "resources", "carries no <Assembly>.resources.zip")]
+    // The copy ships a resource package its declaration does not name.
+    [InlineData("resources", "none", "lib/net10.0-ios27.2/ carries Acme.Kit.resources.zip")]
+    [InlineData("none", "framework", "not one a copy can declare")]
+    public void Merge_ACopyWhoseDeclarationAndNativesDisagree_IsRefused(string ships, string declares, string expected)
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], payload: declares == "framework" ? "none" : declares),
+            Contribution("x27", ["net10.0-ios27.2"], payload: ships, declaredPayload: declares)], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains(expected, StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_CopiesThatShipTheirNativesDifferently_AreRefused()
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"]), Contribution("x27", ["net10.0-ios27.2"], payload: "none")],
+            "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("different native payloads (native: net10.0-ios26.0; none: net10.0-ios27.2)", problem);
+    }
+
+    [Fact]
+    public void Merge_ANativelessCopyWhoseTargetsReferenceNatives_IsRefused()
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], payload: "none", targetsFor: Targets)], "net10.0-ios26.0");
+        Assert.Contains(result.Problems, p => p.Contains("declares its native payload 'none', so it has no native/net10.0-ios26.0/", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ACopyThatShipsTargetsItDeclaresItHasNot_IsRefused()
+    {
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], payload: "none", declaresTargets: false)], "net10.0-ios26.0");
+        Assert.Contains(result.Problems, p => p.Contains("declares that the copy ships no consumer targets, but it carries", StringComparison.Ordinal));
+        // A Swift copy reaches its natives only through its targets: declaring none does not excuse them.
+        var swift = Merge([Contribution("s26", ["net10.0-ios26.0"], omit: "buildTransitive/net10.0-ios26.0/Acme.Kit.targets", declaresTargets: false)], "net10.0-ios26.0");
+        Assert.Contains(swift.Problems, p => p.Contains("carries no consumer targets", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_ANewerResourcePackageThatLosesAnExport_IsRefused()
+    {
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var older = Dylib("rolder", "int kit_a(void){return 1;} int kit_b(void){return 2;}");
+        var newer = Dylib("rnewer", "int kit_a(void){return 1;}");
+        const string binary = "Kit.xcframework/ios-arm64/Kit.framework/Kit";
+        (string, byte[])[] Resources(string tfm, byte[] image) => [($"lib/{tfm}/Acme.Kit.resources.zip", Zip((binary, image)))];
+
+        var refused = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0", older)),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2", newer)),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(refused.Problems);
+        Assert.Contains("lib/net10.0-ios27.2/Acme.Kit.resources/" + binary, problem);
+        Assert.Contains("kit_b", problem);
+
+        var accepted = Merge([
+            Contribution("y26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0", newer)),
+            Contribution("y27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2", older)),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(accepted.Problems.IsEmpty, string.Join("\n", accepted.Problems));
+    }
+
+    [Fact]
+    public void Merge_ResourcePackagesThatCarryAStaticFramework_Merge()
+    {
+        // A static framework's binary is an archive: present in every copy, with no image exports to compare.
+        var archive = Encoding.ASCII.GetBytes("!<arch>\n/               0           0     0     0       8         `\n\0\0\0\0\0\0\0\0");
+        (string, byte[])[] Resources(string tfm) =>
+            [($"lib/{tfm}/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", archive)))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+
+        // A newer copy whose framework turned dynamic where the older one's is static is no superset.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var changed = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources",
+                extra: [("lib/net10.0-ios27.2/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", Dylib("rstatic", "int kit_a(void){return 1;}"))))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(changed.Problems, p => p.Contains("Kit.framework/Kit is a dynamic image, but the older copy's is a static archive", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AFatImageWithAnOffsetPastItsEnd_IsRefusedNotThrown()
+    {
+        // fat_header (64-bit form), one fat_arch_64 whose offset is the largest a signed 64-bit read holds.
+        var image = new byte[8 + 32];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(image, 0xCAFEBABF);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(image.AsSpan(4), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(image.AsSpan(16), long.MaxValue);
+        (string, byte[])[] Resources(string tfm) =>
+            [($"lib/{tfm}/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", image)))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains("Kit.framework/Kit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AResourcePackageOfAnAssemblyWhoseNameHoldsResources_Merges()
+    {
+        var core = SwiftTransitionManifestTests.Compile("Acme.resources.Core", "public static class Core { }");
+        (string, byte[])[] Extra(string tfm) =>
+            [($"lib/{tfm}/Acme.resources.Core.dll", core),
+             ($"lib/{tfm}/Acme.resources.Core.resources.zip", Zip(("Core.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>"))))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Extra("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Extra("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+    }
+
+    [Fact]
+    public void Merge_AResourcePackageNamedForNoAssemblyOfItsCopy_IsRefused()
+    {
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources"),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources",
+                extra: [("lib/net10.0-ios27.2/Acme.Kit.resources.zip", Zip(("Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>")))),
+                        ("lib/net10.0-ios27.2/Other.resources.zip", Zip(("Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>"))))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains("Other.resources.zip is no binding assembly's resource package", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Compose_ANativelessCopy_DeclaresNoNativeDirectory_AndNoTargetsWhenItShipsNone()
+    {
+        var none = PackageCopyDeclarationEmitter.Compose(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", Generator, "none");
+        Assert.Contains("<NativePayload>none</NativePayload>", none);
+        Assert.Contains("<NativeDirectory></NativeDirectory>", none);
+        Assert.Contains("<TargetsFile>$(MSBuildThisFileDirectory)Acme.Kit.targets</TargetsFile>", none);
+        var resources = PackageCopyDeclarationEmitter.Compose(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", Generator, "resources", hasConsumerTargets: false);
+        Assert.Contains("<NativePayload>resources</NativePayload>", resources);
+        Assert.Contains("<TargetsFile></TargetsFile>", resources);
+        Assert.Contains("<NativeDirectory>$(MSBuildThisFileDirectory)../../native/net10.0-ios26.0/</NativeDirectory>",
+            PackageCopyDeclarationEmitter.Compose(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", Generator));
     }
 
     [Fact]
@@ -716,18 +941,29 @@ public sealed class PackageCopyTests : IDisposable
     private string Contribution(string name, string[] tfms, string id = Id, string version = "1.0.0", string generator = Generator,
         string api = "public static class Kit { public static int A() => 1; }", string description = "Kit",
         (string Path, byte[] Data)[]? extra = null, string? omit = null, Func<string, string>? targetsFor = null,
-        Func<string, string>? declares = null, bool duplicateGroup = false, bool noDependencies = false)
+        Func<string, string>? declares = null, bool duplicateGroup = false, bool noDependencies = false,
+        string payload = PackageCopyDeclarationEmitter.NativePayloadNative, string? declaredPayload = null, bool? declaresTargets = null)
     {
         var assembly = SwiftTransitionManifestTests.Compile("Acme.Kit", api);
         var files = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var groups = new StringBuilder();
+        // A Swift or mixed copy: natives under native/<tfm>/, which its targets reference. A pure
+        // Objective-C copy of an Apple framework: targets with no natives. A pure Objective-C copy of a
+        // library: natives in lib/<tfm>/ as the binding's resource package, no consumer targets.
+        var shipsTargets = targetsFor is not null || payload != PackageCopyDeclarationEmitter.NativePayloadResources;
         foreach (var tfm in tfms)
         {
             files[$"lib/{tfm}/Acme.Kit.dll"] = assembly;
-            files[$"buildTransitive/{tfm}/{id}.targets"] = Encoding.UTF8.GetBytes(targetsFor?.Invoke(tfm) ?? Targets(tfm));
+            if (shipsTargets)
+                files[$"buildTransitive/{tfm}/{id}.targets"] = Encoding.UTF8.GetBytes(targetsFor?.Invoke(tfm)
+                    ?? (payload == PackageCopyDeclarationEmitter.NativePayloadNative ? Targets(tfm) : "<Project />"));
             files[$"buildTransitive/{tfm}/{id}.props"] = Encoding.UTF8.GetBytes(
-                PackageCopyDeclarationEmitter.Compose(id, declares?.Invoke(tfm) ?? tfm, $"toolchain of {name}", "26.2", generator));
-            files[$"native/{tfm}/Kit.xcframework/Info.plist"] = Encoding.UTF8.GetBytes("<plist/>");
+                PackageCopyDeclarationEmitter.Compose(id, declares?.Invoke(tfm) ?? tfm, $"toolchain of {name}", "26.2", generator,
+                    declaredPayload ?? payload, declaresTargets ?? shipsTargets));
+            if (payload == PackageCopyDeclarationEmitter.NativePayloadNative)
+                files[$"native/{tfm}/Kit.xcframework/Info.plist"] = Encoding.UTF8.GetBytes("<plist/>");
+            if (payload == PackageCopyDeclarationEmitter.NativePayloadResources && !(extra ?? []).Any(e => e.Path.StartsWith($"lib/{tfm}/Acme.Kit.resources", StringComparison.Ordinal)))
+                files[$"lib/{tfm}/Acme.Kit.resources.zip"] = Zip(("Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>")));
             var group = $"<group targetFramework=\"{tfm}\"><dependency id=\"SwiftBindings.Runtime\" version=\"{generator}\" /></group>";
             groups.Append(group);
             if (duplicateGroup)
@@ -754,6 +990,19 @@ public sealed class PackageCopyTests : IDisposable
             stream.Write(data);
         }
         return path2;
+    }
+
+    /// <summary>A zip archive of <paramref name="entries"/>, as a binding project's resource package.</summary>
+    private static byte[] Zip(params (string Path, byte[] Data)[] entries)
+    {
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+            foreach (var (path, data) in entries)
+            {
+                using var stream = zip.CreateEntry(path).Open();
+                stream.Write(data);
+            }
+        return buffer.ToArray();
     }
 
     /// <summary>An arm64 dylib exporting the C functions of <paramref name="source"/>.</summary>
