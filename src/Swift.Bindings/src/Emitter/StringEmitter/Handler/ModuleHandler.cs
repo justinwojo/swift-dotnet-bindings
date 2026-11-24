@@ -483,8 +483,13 @@ namespace BindingsGeneration
                     swiftWriter, moduleDecl.Name, errorRegistryEmissionCtx, env.TypeDatabase);
             }
 
+            // Every member is emitted by now, so the object-pointer key types the module's
+            // collections use are all recorded: export each one's Set metadata from the wrapper.
+            var objectKeyLibName = env.TypeDatabase.AsyncLibraryName ?? env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
+            EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
+
             // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
-            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext());
+            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext(), objectKeyLibName);
 
             // File-per-type split: everything from the namespace body start to here that is
             // NOT inside a recorded top-level-type span (free functions, foreign-type
@@ -586,7 +591,43 @@ namespace BindingsGeneration
         /// 1. Registers a NativeLibrary.SetDllImportResolver for iOS framework loading
         /// 2. Pre-registers NewFromPayload factories for NativeAOT (avoids reflection trimming)
         /// </summary>
-        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx)
+        /// <summary>
+        /// Exports, from the wrapper, the metadata of <c>Set&lt;Key&gt;</c> for each object-pointer key
+        /// type the module's collections use (<see cref="ObjectKeyIdentity"/>). The module initializer
+        /// reads the key type's metadata and <c>Hashable</c> witness table out of it: a clang-imported
+        /// key type's metadata and synthesized conformance are local to each image, and the runtime
+        /// cannot look either up by name.
+        /// </summary>
+        private void EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
+        {
+            if (emissionCtx == null)
+                return;
+            var moduleName = moduleDecl.Name;
+
+            // The type projections recorded the keys of every collection they marshal. A closure's
+            // parameter types are translated raw (BoundGenericsHandler.TranslateTypeSpecToCSharp),
+            // which names the carrier of an object-pointer key without an emission context, so record
+            // every such key the bound surface spells from the same predicate.
+            var boundGenerics = new BoundGenericsHandler(typeDatabase);
+            _onHashedContainerArgument = key =>
+            {
+                if (boundGenerics.IsObjectPointerContainerArgument(key))
+                    emissionCtx.RecordObjectKey(new ObjectKeyIdentity(key.Name));
+            };
+            try
+            {
+                ScanBoundSurfaceTypeNames(moduleDecl, static _ => { });
+            }
+            finally
+            {
+                _onHashedContainerArgument = null;
+            }
+
+            foreach (var identity in emissionCtx.ObjectKeyIdentities)
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName, identity.AccessorSymbol(moduleName), emissionCtx);
+        }
+
+        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
             var payloadSemantics = emissionCtx?.PayloadSemantics
@@ -602,6 +643,8 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string, string, string)>();
             var caseCodecRegistrations = emissionCtx?.SimpleEnumCaseCodecRegistrations
                 ?? Array.Empty<(string, string, string)>();
+            var objectKeyIdentities = emissionCtx?.ObjectKeyIdentities
+                ?? Array.Empty<ObjectKeyIdentity>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
@@ -758,6 +801,13 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeofExpr}), global::Swift.Runtime.TypeMetadata.FromHandle({accessorName}())); }} catch {{ }}");
             }
+            // Object-pointer collection keys (NSString-backed key types, Objective-C classes): each
+            // key's carrier gets the key type's metadata and Hashable witness table, read from the
+            // Set<Key> metadata the wrapper exports.
+            foreach (var identity in objectKeyIdentities)
+            {
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.Register<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.AccessorMethodName}()); }} catch {{ }}");
+            }
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
             // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
@@ -849,6 +899,29 @@ namespace BindingsGeneration
             csWriter.WriteLines($$"""
                 }
                 """);
+
+            if (objectKeyIdentities.Count > 0)
+            {
+                // The identities of the module's object-pointer collection keys, and the wrapper
+                // accessors of their Set metadata. Referenced unqualified from the module's code.
+                // The identities are public: a closure parameter's raw collection type names one.
+                csWriter.WriteLines($$"""
+
+                    [global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]
+                    public static class {{ObjectKeyIdentity.HolderClassName}}
+                    {
+                    """);
+                foreach (var identity in objectKeyIdentities)
+                {
+                    csWriter.WriteLines($"    /// <summary>The Swift key type <c>{identity.SwiftTypeName}</c>.</summary>");
+                    csWriter.WriteLines($"    public sealed class {identity.IdentityClassName} : global::Swift.Runtime.ISwiftObjectKeyIdentity {{ private {identity.IdentityClassName}() {{ }} }}");
+                    csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{identity.AccessorSymbol(moduleName)}\")]");
+                    csWriter.WriteLines($"    internal static extern IntPtr {identity.AccessorMethodName}();");
+                }
+                csWriter.WriteLines("""
+                    }
+                    """);
+            }
 
             csWriter.WriteLine("#pragma warning restore CA1416");
             csWriter.WriteLine("#pragma warning restore CA2255");
@@ -1330,6 +1403,10 @@ namespace BindingsGeneration
         /// <summary>
         /// Recursively scans a TypeSpec for framework types and adds needed imports.
         /// </summary>
+        // Set only while EmitObjectKeyAccessors walks the bound surface: reports each Dictionary key
+        // and Set element type the walk meets.
+        private Action<NamedTypeSpec>? _onHashedContainerArgument;
+
         private void ScanTypeSpecForImports(TypeSpec? typeSpec, Action<string> onTypeName)
         {
             if (typeSpec == null)
@@ -1341,8 +1418,12 @@ namespace BindingsGeneration
                 onTypeName(namedType.Name);
 
                 // Recursively check generic parameters
-                foreach (var genericParam in namedType.GenericParameters)
+                for (int i = 0; i < namedType.GenericParameters.Count; i++)
                 {
+                    var genericParam = namedType.GenericParameters[i];
+                    if (_onHashedContainerArgument != null && genericParam is NamedTypeSpec hashedArgument &&
+                        BoundGenericsHandler.IsHashedContainerSlot(namedType.Name, i))
+                        _onHashedContainerArgument(hashedArgument);
                     ScanTypeSpecForImports(genericParam, onTypeName);
                 }
             }

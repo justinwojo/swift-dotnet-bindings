@@ -611,7 +611,35 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         ThrowIfDisposed();
         // Snapshot all elements into a list (unsafe code can't coexist with yield return)
         var elements = CollectElements();
-        return elements.GetEnumerator();
+        return typeof(ISwiftObjectKeyCarrier).IsAssignableFrom(typeof(Element))
+            ? EnumerateReleasingUnread(elements)
+            : elements.GetEnumerator();
+    }
+
+    /// <summary>
+    /// Hands out object-reference carriers (<see cref="SwiftObjectKey{TIdentity}"/>), each holding
+    /// the +1 the iterator returned, and releases the ones the enumeration never reaches.
+    /// </summary>
+    private static IEnumerator<Element> EnumerateReleasingUnread(List<Element> elements)
+    {
+        int next = 0;
+        try
+        {
+            while (next < elements.Count)
+            {
+                var element = elements[next];
+                next++;
+                yield return element;
+            }
+        }
+        finally
+        {
+            for (int i = next; i < elements.Count; i++)
+            {
+                if (elements[i] is ISwiftObjectKeyCarrier carrier)
+                    SwiftObjectKeys.Release(carrier, ElementTypeMetadata);
+            }
+        }
     }
 
     /// <summary>

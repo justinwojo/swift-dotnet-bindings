@@ -1537,7 +1537,7 @@ public static class SwiftMarshal
     /// took; primitives and blittable values hold nothing to release.
     /// </summary>
     internal static bool MarshalsOwnedCopy<T>(T value)
-        => value is ISwiftObject || typeof(T) == typeof(string);
+        => value is ISwiftObject || value is ISwiftObjectKeyCarrier || typeof(T) == typeof(string);
 
     /// <summary>
     /// Marshals a value to a Swift destination
@@ -1554,6 +1554,24 @@ public static class SwiftMarshal
         if (value is ISwiftObject swiftValue)
         {
             return swiftValue.MarshalToSwift(ref swiftDestSpan);
+        }
+
+        // An object-reference key crosses as a value of its Swift key type: copied in through that
+        // type's value witness (+1), like a Swift wrapper, rather than as a bare word.
+        if (value is ISwiftObjectKeyCarrier objectKey)
+        {
+            var keyMetadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+            int keySize = (int)keyMetadata.Size;
+            if (keySize > swiftDestSpan.Length)
+                throw new ArgumentException($"Span size does not match type size, Expected: {keySize}, Actual: {swiftDestSpan.Length}");
+            unsafe
+            {
+                fixed (void* swiftDest = swiftDestSpan)
+                {
+                    SwiftObjectKeys.InitializeOwnedCopy(objectKey, keyMetadata, swiftDest);
+                }
+            }
+            return keySize;
         }
 
         var type = typeof(T);

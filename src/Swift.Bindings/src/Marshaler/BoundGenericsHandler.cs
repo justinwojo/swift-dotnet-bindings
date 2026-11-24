@@ -939,8 +939,9 @@ public class BoundGenericsHandler
 
         List<string> translatedGenericParameters = new();
         bool isStdlibContainer = s_stdlibGenerics.Contains(namedTypeSpec.Name);
-        foreach (var genericParameter in namedTypeSpec.GenericParameters)
+        for (int genericIndex = 0; genericIndex < namedTypeSpec.GenericParameters.Count; genericIndex++)
         {
+            var genericParameter = namedTypeSpec.GenericParameters[genericIndex];
             // Zero-witness existentials (bare `Any`, marker-only `any Sendable`) inside stdlib containers
             // use ExistentialContainer0 — the correct ABI type for [String: Any], [Any], [K: any Sendable].
             // Both share the 0-witness-table container, so the raw element type must match the bare-Any
@@ -960,13 +961,16 @@ public class BoundGenericsHandler
             // ObjC-bridged class types (UIView, NSURLSessionTask) in stdlib containers
             // map to IntPtr — the raw pointer representation. The projection system handles
             // element conversion (GetNSObject<T> for return, .Handle for parameter).
+            // A Dictionary key or Set element in that position is hashed, so it carries its key
+            // type's identity instead (see ObjectKeyIdentity): a collection over IntPtr is one over
+            // Swift.Int. ModuleHandler records the identity from the same predicate.
             if (isStdlibContainer &&
                 genericParameter is NamedTypeSpec namedGenericParam &&
-                !namedGenericParam.ContainsGenericParameters &&
-                IsObjCBridgedType(namedGenericParam) &&
-                !IsNonSwiftObjectMappedType(namedGenericParam))
+                IsObjectPointerContainerArgument(namedGenericParam))
             {
-                translatedGenericParameters.Add("IntPtr");
+                translatedGenericParameters.Add(IsHashedContainerSlot(namedTypeSpec.Name, genericIndex)
+                    ? new ObjectKeyIdentity(namedGenericParam.Name).CarrierType
+                    : "IntPtr");
                 continue;
             }
 
@@ -1671,6 +1675,17 @@ public class BoundGenericsHandler
     /// </summary>
     private bool IsProtocolEmittableForConditionalConstraint(SwiftTypeName protocolTypeName)
         => MethodValidationGates.IsProtocolAvailableForConstraint(protocolTypeName, _typeDatabase);
+
+    /// <summary>
+    /// True when <paramref name="typeSpec"/>, as a stdlib container's type argument, crosses as one
+    /// Objective-C object pointer (an ObjC class or a string-backed ObjC key type).
+    /// </summary>
+    internal bool IsObjectPointerContainerArgument(NamedTypeSpec typeSpec)
+        => !typeSpec.ContainsGenericParameters && IsObjCBridgedType(typeSpec) && !IsNonSwiftObjectMappedType(typeSpec);
+
+    /// <summary>True for the hashed type argument of a stdlib container: a Dictionary's key, a Set's element.</summary>
+    internal static bool IsHashedContainerSlot(string containerName, int genericIndex)
+        => genericIndex == 0 && (containerName == "Swift.Dictionary" || containerName == "Swift.Set");
 
     private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
     {

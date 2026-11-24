@@ -1668,6 +1668,29 @@ public sealed class ModuleEmissionContext
         return true;
     }
 
+    private readonly SortedDictionary<string, ObjectKeyIdentity> _objectKeyIdentities = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The object-pointer key types (<see cref="ObjectKeyIdentity"/>) the module's collections use,
+    /// each declared once in its <c>__SwiftObjectKeys</c> class, exported by its wrapper and
+    /// registered by its initializer. Ordered by identity name.
+    /// </summary>
+    public IReadOnlyCollection<ObjectKeyIdentity> ObjectKeyIdentities => _objectKeyIdentities.Values;
+
+    /// <summary>Records an object-pointer key type a collection projection of this module uses.</summary>
+    /// <exception cref="InvalidOperationException">Two Swift types map to one identity name.</exception>
+    public void RecordObjectKey(ObjectKeyIdentity identity)
+    {
+        if (_objectKeyIdentities.TryGetValue(identity.IdentityClassName, out var existing))
+        {
+            if (existing.SwiftTypeName != identity.SwiftTypeName)
+                throw new InvalidOperationException(
+                    $"The object-key types '{existing.SwiftTypeName}' and '{identity.SwiftTypeName}' share the identity name '{identity.IdentityClassName}'.");
+            return;
+        }
+        _objectKeyIdentities.Add(identity.IdentityClassName, identity);
+    }
+
     private readonly List<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> _simpleEnumConformanceRegistrations = new();
     private readonly HashSet<(string, string)> _simpleEnumConformanceKeys = new();
 

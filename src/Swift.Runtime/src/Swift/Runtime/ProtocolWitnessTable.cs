@@ -27,6 +27,11 @@ public readonly struct ProtocolWitnessTable : IEquatable<ProtocolWitnessTable>
     public IntPtr Handle => _handle;
 
     /// <summary>
+    /// Wraps a witness table pointer the caller read from Swift metadata.
+    /// </summary>
+    internal static ProtocolWitnessTable FromHandle(IntPtr handle) => new(handle);
+
+    /// <summary>
     /// An empty / invalid protocol witness table.
     /// </summary>
     public readonly static ProtocolWitnessTable Zero = default;

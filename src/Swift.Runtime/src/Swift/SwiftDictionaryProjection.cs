@@ -102,7 +102,7 @@ internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResV
         {
             var sourceKey = _reverseKeySelector(key);
             try { return _valueSelector(_source[sourceKey]); }
-            finally { (sourceKey as IDisposable)?.Dispose(); }
+            finally { (sourceKey as IDisposable)?.Dispose(); GC.KeepAlive(key); }
         }
     }
 
@@ -114,7 +114,7 @@ internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResV
     {
         var sourceKey = _reverseKeySelector(key);
         try { return _source.ContainsKey(sourceKey); }
-        finally { (sourceKey as IDisposable)?.Dispose(); }
+        finally { (sourceKey as IDisposable)?.Dispose(); GC.KeepAlive(key); }
     }
 
     public bool TryGetValue(TResKey key, out TResVal value)
@@ -130,7 +130,7 @@ internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResV
             value = default!;
             return false;
         }
-        finally { (sourceKey as IDisposable)?.Dispose(); }
+        finally { (sourceKey as IDisposable)?.Dispose(); GC.KeepAlive(key); }
     }
 
     public IEnumerator<KeyValuePair<TResKey, TResVal>> GetEnumerator()

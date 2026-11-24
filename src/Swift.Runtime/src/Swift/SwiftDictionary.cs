@@ -449,8 +449,24 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
 
     private IEnumerable<TKey> GetKeys()
     {
-        foreach (var kvp in CollectEntries(EntryParts.Key))
-            yield return kvp.Key;
+        // Each key holds the +1 the iterator handed over; a key the enumeration never reaches (a
+        // `break`, a `First()`) is released when it is disposed.
+        var entries = CollectEntries(EntryParts.Key);
+        int next = 0;
+        try
+        {
+            while (next < entries.Count)
+            {
+                var key = entries[next].Key;
+                next++;
+                yield return key;
+            }
+        }
+        finally
+        {
+            for (int i = next; i < entries.Count; i++)
+                ReleaseUnreadCarrier(entries[i].Key, KeyTypeMetadata);
+        }
     }
 
     /// <summary>
@@ -644,8 +660,8 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <see cref="MoveNext"/> leaves it, and the entries still ahead
     /// when the enumerator is disposed (a <c>break</c>, a <c>First()</c>, a consumer's conversion
     /// that throws, or no enumeration at all) are released then: a raw existential container has no
-    /// finalizer and nothing else would. Keys need no such pass, since a key is a concrete
-    /// <c>Hashable</c> value, never a raw container.
+    /// finalizer and nothing else would. A key needs the same pass only when it is an object-reference
+    /// carrier (<see cref="SwiftObjectKey{TIdentity}"/>); every other key is a wrapper or a value.
     /// </summary>
     private sealed class SnapshotEnumerator<TOut> : IEnumerator<TOut>
     {
@@ -693,7 +709,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             _currentRead = false;
             _current = default!;
             if (releaseLeaving)
-                ReleaseUnreadCarrier(_entries[leaving].Value, ValueTypeMetadata);
+                ReleaseUnreadEntry(_entries[leaving]);
             return _index < _entries.Count;
         }
 
@@ -706,7 +722,20 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             int first = _index < 0 ? 0 : _currentRead ? _index + 1 : _index;
             _index = _entries.Count;
             for (int i = first; i < _entries.Count; i++)
-                ReleaseUnreadCarrier(_entries[i].Value, ValueTypeMetadata);
+                ReleaseUnreadEntry(_entries[i]);
+        }
+    }
+
+    /// <summary>Releases both halves of an entry nothing read; a half the snapshot left out is <c>default</c>.</summary>
+    private static void ReleaseUnreadEntry(KeyValuePair<TKey, TValue> entry)
+    {
+        try
+        {
+            ReleaseUnreadCarrier(entry.Key, KeyTypeMetadata);
+        }
+        finally
+        {
+            ReleaseUnreadCarrier(entry.Value, ValueTypeMetadata);
         }
     }
 
@@ -719,6 +748,11 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// </summary>
     private static unsafe void ReleaseUnreadCarrier<T>(T value, TypeMetadata metadata)
     {
+        if (value is ISwiftObjectKeyCarrier objectKey)
+        {
+            SwiftObjectKeys.Release(objectKey, metadata);
+            return;
+        }
         if (value is not (IExistentialContainer or ClassExistentialContainer1))
             return;
         int size = (int)metadata.Size;

@@ -50,6 +50,12 @@ public func describeOpenURLOptions(_ options: [UIApplication.OpenURLOptionsKey: 
     return options.isEmpty ? "empty" : "\(options.count) options"
 }
 
+/// Looks one launch option up by its key string: Swift hashes the key by that string, so a
+/// dictionary C# builds must store each key under the same hash for this to find it.
+public func lookUpLaunchOption(_ options: [UIApplication.LaunchOptionsKey: Any], key: String) -> String? {
+    return options[UIApplication.LaunchOptionsKey(rawValue: key)] as? String
+}
+
 // MARK: - Key ownership probe
 //
 // Each key crosses as the pointer to its NSString. A dictionary Swift returns holds every key at

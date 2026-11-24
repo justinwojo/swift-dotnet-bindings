@@ -268,7 +268,7 @@ public class TypeProjectionFactory
                 ?? TryProjectObjCElement(namedType.GenericParameters[0]);
             if (elemProjection == null)
                 return null;
-            return new SetProjection(elemProjection, context.IsParameter);
+            return new SetProjection(AsHashedKey(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
         }
 
         if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
@@ -279,7 +279,7 @@ public class TypeProjectionFactory
                 ?? TryProjectObjCElement(namedType.GenericParameters[1]);
             if (keyProjection == null || valueProjection == null)
                 return null;
-            return new DictionaryProjection(keyProjection, valueProjection, context.IsParameter);
+            return new DictionaryProjection(AsHashedKey(keyProjection, namedType.GenericParameters[0], context), valueProjection, context.IsParameter);
         }
 
         if (name == "Swift.Result" && namedType.GenericParameters.Count == 2)
@@ -767,6 +767,26 @@ public class TypeProjectionFactory
     /// Returns ObjCBridgedProjection if the element is an ObjC class, or ClassProjection if the
     /// element is a non-ObjC concrete-class-fallback Swift class; null otherwise.
     /// </summary>
+    /// <summary>
+    /// Gives an object-pointer key (a dictionary key or set element that projects as an
+    /// Objective-C object) the identity of its Swift key type, so the collection C# builds or reads
+    /// is one over that type rather than over <c>Swift.Int</c>; see <see cref="ObjectKeyIdentity"/>.
+    /// The identity is recorded for the module's initializer and wrapper. Every other key passes
+    /// through unchanged.
+    /// </summary>
+    private static ITypeProjection AsHashedKey(ITypeProjection keyProjection, TypeSpec keyTypeSpec, ProjectionContext context)
+    {
+        if (keyProjection is not ObjCBridgedProjection { KeyIdentity: null } objc)
+            return keyProjection;
+        if (keyTypeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named || !named.HasModule())
+            throw new InvalidOperationException(
+                $"The Objective-C key type '{keyTypeSpec}' has no module-qualified Swift name, so its collection "
+                + "cannot be given the key type's own metadata and Hashable conformance.");
+        var identity = new ObjectKeyIdentity(named.Name);
+        context.EmissionContext?.RecordObjectKey(identity);
+        return objc.AsHashedKey(identity);
+    }
+
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)
     {
         if (elementTypeSpec is NamedTypeSpec elemNamed &&

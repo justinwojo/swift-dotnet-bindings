@@ -1124,6 +1124,97 @@ public class ModuleHandlerTests
 
     #endregion
 
+    #region Object-pointer collection keys
+
+    [Fact]
+    public void Emit_RecordedObjectKey_DeclaresIdentityExportsSetMetadataAndRegistersIt()
+    {
+        // A collection keyed by an ObjC object pointer gets the key type's own metadata and
+        // Hashable conformance from the Set<Key> metadata the wrapper exports; the module
+        // initializer registers it against the identity the generated code references.
+        var identity = new ObjectKeyIdentity("UIKit.UIApplication.LaunchOptionsKey");
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordObjectKey(identity));
+
+        var symbol = identity.AccessorSymbol("TestModule");
+        Assert.Contains($"@_cdecl(\"{symbol}\")", swiftOutput);
+        Assert.Contains("Swift.Set<UIKit.UIApplication.LaunchOptionsKey>.self", swiftOutput);
+
+        // Public: a closure parameter's raw collection type names the identity.
+        Assert.Contains("public static class __SwiftObjectKeys", csOutput);
+        Assert.Contains("public sealed class UIKit_UIApplication_LaunchOptionsKey : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
+        Assert.Contains("internal static extern IntPtr __GetSetMetadata_UIKit_UIApplication_LaunchOptionsKey()", csOutput);
+        Assert.Contains($"EntryPoint = \"{symbol}\"", csOutput);
+        Assert.Contains(
+            "global::Swift.Runtime.SwiftObjectKeys.Register<__SwiftObjectKeys.UIKit_UIApplication_LaunchOptionsKey>(__SwiftObjectKeys.__GetSetMetadata_UIKit_UIApplication_LaunchOptionsKey())",
+            csOutput);
+
+        // The registration sits in the initializer, and the holder parses as C#.
+        var initializer = csOutput.Substring(csOutput.IndexOf("internal static void Initialize()", StringComparison.Ordinal));
+        Assert.True(initializer.IndexOf("SwiftObjectKeys.Register<", StringComparison.Ordinal)
+            < initializer.IndexOf("public static class __SwiftObjectKeys", StringComparison.Ordinal));
+        var diagnostics = CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Emit_ObjectKeyOnlyInAClosureParameter_IsRecordedFromTheBoundSurface()
+    {
+        // A closure's parameter types are translated raw, outside any type projection, so the
+        // module records the hashed keys its surface spells: the Dictionary key and the Set element,
+        // never the Dictionary value.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl => moduleDecl.Methods.Add(new MethodDecl
+            {
+                Name = "withKeys",
+                MangledName = "$s10TestModule8withKeysyyF",
+                MethodType = MethodType.Static,
+                IsConstructor = false,
+                CSSignature = new List<ArgumentDecl>
+                {
+                    new()
+                    {
+                        SwiftTypeSpec = new NamedTypeSpec("Swift.Void"),
+                        Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+                    },
+                    new()
+                    {
+                        SwiftTypeSpec = new ClosureTypeSpec(
+                            new TupleTypeSpec(new TypeSpec[]
+                            {
+                                new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"), new NamedTypeSpec("UIKit.UIColor")),
+                                new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIFont")),
+                            }),
+                            new NamedTypeSpec("Swift.Void")),
+                        Name = "body", PrivateName = "body", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+                    }
+                },
+                Throws = false,
+                IsAsync = false,
+                GenericParameters = new List<GenericArgumentDecl>(),
+                IsSynthesizedAccessor = false,
+                ParentDecl = moduleDecl,
+                ModuleDecl = moduleDecl
+            }));
+
+        Assert.Contains("public sealed class UIKit_UIImage : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
+        Assert.Contains("public sealed class UIKit_UIFont : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
+        Assert.DoesNotContain("UIKit_UIColor", csOutput);
+        Assert.Contains("Swift.Set<UIKit.UIImage>.self", swiftOutput);
+        Assert.Contains("Swift.Set<UIKit.UIFont>.self", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_NoObjectKeys_EmitsNoHolder()
+    {
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>());
+
+        Assert.DoesNotContain("__SwiftObjectKeys", csOutput);
+        Assert.DoesNotContain("SBW_GetObjectKeySetMetadata_", swiftOutput);
+    }
+
+    #endregion
+
     #region Payload Construction Semantics Registration (Finding 11)
 
     [Fact]

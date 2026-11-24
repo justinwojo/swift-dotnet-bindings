@@ -58,6 +58,27 @@ public class AppDelegateOptionKeysTests : TestBase
             "an empty launch-options dictionary crosses as empty rather than as garbage");
     }
 
+    /// <summary>
+    /// A count cannot tell whether Swift can use the dictionary: Swift hashes each key by its
+    /// string, so only a Swift lookup with a key of Swift's own making shows that the dictionary
+    /// C# built stored every key where Swift looks for it.
+    /// </summary>
+    public void TestSwiftLooksUpKeysOfADictionaryBuiltInCSharp()
+    {
+        var options = new Dictionary<Foundation.NSString, object>
+        {
+            { new Foundation.NSString(SourceApplicationKey), "com.example.caller" },
+            { new Foundation.NSString(UrlKey), "https://example.com" },
+        };
+
+        AssertEqual("com.example.caller", TestLibFunctions.LookUpLaunchOption(options, SourceApplicationKey),
+            "Swift finds the source-application key C# stored");
+        AssertEqual("https://example.com", TestLibFunctions.LookUpLaunchOption(options, UrlKey),
+            "Swift finds the URL key C# stored");
+        AssertNull(TestLibFunctions.LookUpLaunchOption(options, "UIApplicationLaunchOptionsRemoteNotificationKey"),
+            "Swift misses a key C# never stored");
+    }
+
     public void TestOpenUrlOptionsKeyedDictionaryReachesSwift()
     {
         using var relay = new AppDelegateOptionRelay(0);
