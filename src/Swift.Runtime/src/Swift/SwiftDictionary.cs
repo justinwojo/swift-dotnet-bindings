@@ -479,7 +479,8 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// +1 and nothing releases but an explicit destroy.
     /// </summary>
     private static bool IsRawCarrier<T>()
-        => typeof(IExistentialContainer).IsAssignableFrom(typeof(T)) || typeof(T) == typeof(ClassExistentialContainer1);
+        => typeof(T).IsValueType
+            && (typeof(IExistentialContainer).IsAssignableFrom(typeof(T)) || typeof(T) == typeof(ClassExistentialContainer1));
 
     /// <summary>
     /// <see cref="Values"/> passed through <paramref name="selector"/>, which runs when an entry's
