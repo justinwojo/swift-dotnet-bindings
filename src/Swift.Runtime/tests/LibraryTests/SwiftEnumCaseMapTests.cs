@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Runtime.InteropServices;
 using Swift.Runtime;
 using Xunit;
 
@@ -67,8 +68,27 @@ public class SwiftEnumCaseMapTests
     }
 
     [Fact]
+    public void ALibraryReachedThroughAnotherResolver_IsReadFromTheLoadedImages()
+    {
+        // The binding's calls found the library, but this lookup cannot by name: the case globals
+        // are read from the image the process already loaded.
+        var swiftCore = NativeLibrary.Load(SwiftCore);
+        try
+        {
+            var map = new SwiftEnumCaseMap("@rpath/NotThisName.framework/NotThisName", DecodingErrorCases, Ids, [3u, 2u, 1u, 0u]);
+            for (var i = 0; i < Ids.Length; i++)
+                Assert.Equal((uint)i, map.ToTag(Ids[i]));
+        }
+        finally
+        {
+            NativeLibrary.Free(swiftCore);
+        }
+    }
+
+    [Fact]
     public void ALibraryThatDoesNotLoad_IsRefused_NotReadAsDeclarationOrder()
     {
+        // No image of the process has the case global either.
         var map = new SwiftEnumCaseMap("/nonexistent/NoSuch.framework/NoSuch", ["$s6NoSuch5ShadeO5firstyA2CmFWC"], [500u], [0u]);
         var refusal = Assert.Throws<DllNotFoundException>(() => map.ToTag(500u));
         Assert.Contains("/nonexistent/NoSuch.framework/NoSuch", refusal.Message);

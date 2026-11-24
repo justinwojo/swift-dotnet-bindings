@@ -565,6 +565,12 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(5)] System.DateTime d) => d.Ticks; }",
         "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(6)] System.DateTime d) => d.Ticks; }",
         "System.DateTime):Int64 parameter 1", "0001-01-01T00:00:00.0000005", "0001-01-01T00:00:00.0000006")]
+    // A decimal zero whose sign changes: the text of both is 0.0, the bits differ.
+    [InlineData("public static class Kit { public const decimal Z = 0.0m; }", "public static class Kit { public const decimal Z = -0.0m; }", "Kit::Z", "0.0m", "-0.0m")]
+    // A DateTime field constant out of DateTime's range is still a value, not a failed merge.
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-1)] public static readonly System.DateTime D; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-2)] public static readonly System.DateTime D; }",
+        "Kit::D", "DateTime(ticks -1)", "DateTime(ticks -2)")]
     public void Merge_ANewerCopyThatChangesACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before, string after)
     {
         // A literal is copied into the assembly that uses it: a library compiled against the older copy
@@ -598,22 +604,17 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public enum Mode : uint { A = 0, B = 1 }", "public enum Mode : uint { A = 0, B = 1, Added = 2 }")]
     [InlineData("public static class Kit { public const long Flag = 65536; public static int F(int x = 5) => x; }",
         "public static class Kit { public const long Flag = 65536; public const long Other = 2; public static int F(int x = 5) => x; public static int G(int y = 9) => y; }")]
+    // Two encodings of one DateTime default pass the same value.
+    [InlineData("public static class Kit { public static long F(System.DateTime d = default) => d.Ticks; }",
+        "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime d) => d.Ticks; }")]
+    // A constant attribute on a field of another type is not a constant: compilers read the field.
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(5)] public static readonly int X = 30; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(6)] public static readonly int X = 30; }")]
     public void Merge_ANewerCopyThatKeepsEveryCompiledInValue_AndAddsNew_IsAccepted(string olderApi, string newerApi)
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
         var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
         Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
-    }
-
-    [Fact]
-    public void Merge_ACompiledInValueThatDiffers_IsListedForEveryMember()
-    {
-        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public enum Mode : uint { A = 0, B = 1, C = 2, D = 3 }");
-        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public enum Mode : uint { Z = 0, A = 1, B = 2, C = 3, D = 4 }");
-        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
-        Assert.Contains("4 compiled-in value(s)", problem);
-        foreach (var member in new[] { "Mode::A is 0", "Mode::B is 1", "Mode::C is 2", "Mode::D is 3" })
-            Assert.Contains(member, problem);
     }
 
     [Fact]

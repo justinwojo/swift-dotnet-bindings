@@ -589,8 +589,17 @@ public static class SwiftBindingPackageMerge
             };
         }
         // A decimal or DateTime constant has no metadata constant: C# records it in an attribute
-        // (on a static readonly field, or on an optional parameter), and still compiles it in.
-        string? AttributeConstant(CustomAttributeHandleCollection attributes)
+        // (on a static readonly field, or on an optional parameter), and still compiles it in. The
+        // attribute counts only on a member of its own type, as the compilers read it.
+        static bool Is(string typeName, string fullName) => typeName == fullName || typeName.EndsWith("]" + fullName, StringComparison.Ordinal);
+        static string DateTimeValue(long ticks) => ticks >= DateTime.MinValue.Ticks && ticks <= DateTime.MaxValue.Ticks
+            ? new DateTime(ticks).ToString("o", System.Globalization.CultureInfo.InvariantCulture)
+            : $"DateTime(ticks {ticks})";
+        // A decimal's text drops the sign of zero; the bits keep it.
+        static string DecimalValue(int lo, int mid, int hi, bool negative, byte scale) => scale <= 28
+            ? (negative && (lo | mid | hi) == 0 ? "-" : "") + new decimal(lo, mid, hi, negative, scale).ToString(System.Globalization.CultureInfo.InvariantCulture) + "m"
+            : $"decimal(scale {scale}, {(negative ? "-" : "+")}, {hi:X8}{mid:X8}{lo:X8})";
+        string? AttributeConstant(CustomAttributeHandleCollection attributes, string memberType)
         {
             foreach (var ah in attributes)
             {
@@ -607,19 +616,18 @@ public static class SwiftBindingPackageMerge
                     HandleKind.TypeDefinition => (md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)parent).Namespace), md.GetString(md.GetTypeDefinition((TypeDefinitionHandle)parent).Name)),
                     _ => ("", ""),
                 };
-                if (ns != "System.Runtime.CompilerServices" || typeName is not ("DecimalConstantAttribute" or "DateTimeConstantAttribute"))
+                if (ns != "System.Runtime.CompilerServices"
+                    || !(typeName == "DecimalConstantAttribute" && Is(memberType, "System.Decimal") || typeName == "DateTimeConstantAttribute" && Is(memberType, "System.DateTime")))
                     continue;
                 var blob = md.GetBlobReader(attribute.Value);
                 if (blob.ReadUInt16() != 1)
                     continue;
                 if (typeName == "DateTimeConstantAttribute")
-                    return new DateTime(blob.ReadInt64()).ToString("o", System.Globalization.CultureInfo.InvariantCulture);
+                    return DateTimeValue(blob.ReadInt64());
                 var scale = blob.ReadByte();
                 var negative = blob.ReadByte() != 0;
                 var (hi, mid, lo) = (blob.ReadInt32(), blob.ReadInt32(), blob.ReadInt32());
-                return scale <= 28
-                    ? new decimal(lo, mid, hi, negative, scale).ToString(System.Globalization.CultureInfo.InvariantCulture) + "m"
-                    : $"decimal(scale {scale}, {(negative ? "-" : "+")}, {hi:X8}{mid:X8}{lo:X8})";
+                return DecimalValue(lo, mid, hi, negative, scale);
             }
             return null;
         }
@@ -639,7 +647,7 @@ public static class SwiftBindingPackageMerge
                 var value = (field.Attributes & FieldAttributes.Literal) != 0
                     ? constant.IsNil ? null : Value(constant)
                     : (field.Attributes & (FieldAttributes.Static | FieldAttributes.InitOnly)) == (FieldAttributes.Static | FieldAttributes.InitOnly)
-                        ? AttributeConstant(field.GetCustomAttributes())
+                        ? AttributeConstant(field.GetCustomAttributes(), field.DecodeSignature(provider, md))
                         : null;
                 if (value is not null)
                     values[$"{name}::{md.GetString(field.Name)}"] = value;
@@ -656,15 +664,25 @@ public static class SwiftBindingPackageMerge
                     var parameter = md.GetParameter(ph);
                     if (parameter.SequenceNumber == 0)
                         continue;
-                    var constant = parameter.GetDefaultValue();
-                    var value = (parameter.Attributes & ParameterAttributes.HasDefault) != 0 && !constant.IsNil
-                        ? Value(constant)
-                        : (parameter.Attributes & ParameterAttributes.Optional) != 0
-                            ? AttributeConstant(parameter.GetCustomAttributes())
-                            : null;
-                    if (value is null)
+                    var hasDefault = (parameter.Attributes & ParameterAttributes.HasDefault) != 0;
+                    if (!hasDefault && (parameter.Attributes & ParameterAttributes.Optional) == 0)
                         continue;
                     signature ??= method.DecodeSignature(provider, md);
+                    var parameterType = parameter.SequenceNumber <= signature.Value.ParameterTypes.Length
+                        ? signature.Value.ParameterTypes[parameter.SequenceNumber - 1]
+                        : "";
+                    var constant = parameter.GetDefaultValue();
+                    var value = hasDefault && !constant.IsNil
+                        ? Value(constant)
+                        : AttributeConstant(parameter.GetCustomAttributes(), parameterType);
+                    // `= default` of a DateTime or decimal parameter is a null constant, and passes the
+                    // same value as the attribute's zero.
+                    if (value == "null" && Is(parameterType, "System.DateTime"))
+                        value = DateTimeValue(0);
+                    else if (value == "null" && Is(parameterType, "System.Decimal"))
+                        value = DecimalValue(0, 0, 0, false, 0);
+                    if (value is null)
+                        continue;
                     // Keyed by position, not name: a caller binds the default by the parameter's place,
                     // so a renamed parameter whose default changed is still a changed value.
                     var key = $"{name}::{md.GetString(method.Name)}`{signature.Value.GenericParameterCount}({string.Join(",", signature.Value.ParameterTypes)}):{signature.Value.ReturnType}";

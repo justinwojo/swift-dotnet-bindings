@@ -26,8 +26,9 @@ namespace Swift.Runtime;
 /// <para>
 /// When none of the case symbols resolves, the enum is not resilient in the library this process
 /// loaded (a module built without library evolution), and its tags are the declaration-order tags
-/// the generator recorded. A library that does not load is refused with
-/// <see cref="DllNotFoundException"/>: its tags cannot be known. When some resolve, a case whose symbol is missing is not in the loaded
+/// the generator recorded. A library this lookup cannot load by name (one the binding reaches
+/// through another resolver) is searched for among every loaded image; when no case global is found
+/// there either, the map refuses with <see cref="DllNotFoundException"/>: the tags cannot be known. When some resolve, a case whose symbol is missing is not in the loaded
 /// library: it cannot be built, and no value of the enum is that case.
 /// </para>
 /// </remarks>
@@ -37,6 +38,11 @@ public sealed class SwiftEnumCaseMap
     public const uint UnknownCase = uint.MaxValue;
 
     private const uint MaximumTag = 1u << 20;
+
+    // dlsym's RTLD_DEFAULT on Apple platforms: every image the process has loaded.
+    private static IntPtr ProcessScope => OperatingSystem.IsMacOS() || OperatingSystem.IsIOS() || OperatingSystem.IsTvOS() || OperatingSystem.IsMacCatalyst()
+        ? new IntPtr(-2)
+        : IntPtr.Zero;
 
     private readonly string _libraryName;
     private readonly string[] _caseSymbols;
@@ -103,31 +109,39 @@ public sealed class SwiftEnumCaseMap
     {
         var tags = new uint?[_caseSymbols.Length];
         var found = 0;
-        // The library is the one the binding's own calls into the enum resolve to. If it does not
-        // load here, its tags are unknown: the declaration-order tags are only right for a library
-        // built without evolution, so refuse rather than guess.
-        if (!SwiftFrameworkResolver.TryLoadWithFrameworkFallback(_libraryName, out var library))
-            throw new DllNotFoundException(
-                $"The library {_libraryName}, which defines the enum of the case {_caseSymbols.FirstOrDefault()}, did not load, so its case tags cannot be read.");
+        // The library is the one the binding's own calls into the enum resolve to. A binding whose
+        // calls resolve through another resolver has the library loaded without this lookup finding
+        // it by name, so its case globals are looked up among every loaded image instead.
+        var loaded = SwiftFrameworkResolver.TryLoadWithFrameworkFallback(_libraryName, out var library);
         try
         {
-            for (var i = 0; i < _caseSymbols.Length; i++)
+            var scope = loaded ? library : ProcessScope;
+            if (scope != IntPtr.Zero)
             {
-                if (NativeLibrary.TryGetExport(library, _caseSymbols[i], out var address))
+                for (var i = 0; i < _caseSymbols.Length; i++)
                 {
-                    // A case index of a real enum is far below this bound; a larger value is not one.
-                    var tag = *(uint*)address;
-                    if (tag < MaximumTag)
-                        tags[i] = tag;
-                    found++;
+                    if (NativeLibrary.TryGetExport(scope, _caseSymbols[i], out var address))
+                    {
+                        // A case index of a real enum is far below this bound; a larger value is not one.
+                        var tag = *(uint*)address;
+                        if (tag < MaximumTag)
+                            tags[i] = tag;
+                        found++;
+                    }
                 }
             }
         }
         finally
         {
             // The exports read above are values, not addresses kept past this call.
-            NativeLibrary.Free(library);
+            if (loaded)
+                NativeLibrary.Free(library);
         }
+        // With no library and no case global anywhere, the tags are unknown: the declaration-order
+        // tags are only right for a library built without evolution, so refuse rather than guess.
+        if (!loaded && found == 0)
+            throw new DllNotFoundException(
+                $"The library {_libraryName}, which defines the enum of the case {_caseSymbols.FirstOrDefault()}, did not load, so its case tags cannot be read.");
         if (found == 0)
         {
             for (var i = 0; i < tags.Length; i++)
