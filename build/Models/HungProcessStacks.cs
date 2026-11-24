@@ -135,8 +135,9 @@ public static class HungProcessSampler
         return false;
     }
 
-    // sample's call graph: a thread row, then at least one frame row under it.
-    static readonly Regex SampleThreadWithFrame = new(@"^Call graph:[ \t]*\r?\n[ \t]+\d+ Thread_\S+[^\n]*\n[ \t+!:|]*\d+ \S",
+    // sample's call graph: a thread row, then a frame row indented under it (a second thread row
+    // sits at the first one's indent, so it is not a frame).
+    static readonly Regex SampleThreadWithFrame = new(@"^Call graph:[ \t]*\r?\n(?<indent>[ \t]+)\d+ Thread_\S+[^\n]*\n\k<indent>[ \t+!:|]+\d+ \S",
         RegexOptions.Multiline | RegexOptions.CultureInvariant);
     static readonly Regex ThreadRow = new(@"^\s*\*?\s*thread #\d+", RegexOptions.CultureInvariant);
     static readonly Regex FrameRow = new(@"^\s*\*?\s*frame #\d+", RegexOptions.CultureInvariant);

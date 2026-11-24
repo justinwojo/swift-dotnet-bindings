@@ -206,11 +206,14 @@ public static class DeviceCtl
     /// beside the app and under its project's <c>obj/</c> (the project being the directory above
     /// the app's <c>bin/</c>). Packaging strips a device app of local symbols but keeps each image's
     /// UUID, which is how lldb pairs a symbol file with the image it describes. Bounded by
-    /// <paramref name="budget"/>: what is found by then is used.
+    /// <paramref name="budget"/>: the walk stops at half of it, and the rest checks the UUIDs of
+    /// what it found, dSYMs first.
     /// </summary>
     public static IReadOnlyList<string> UnstrippedAppImages(string appPath, TimeSpan budget)
     {
         var clock = Stopwatch.StartNew();
+        // The walk gets half the budget, so the UUID check always has time for what it found.
+        var walkDeadline = budget / 2;
         var appDirectory = Path.GetDirectoryName(Path.GetFullPath(appPath))!;
         var searchRoots = new List<string> { appDirectory };
         for (var d = new DirectoryInfo(appDirectory); d?.Parent != null; d = d.Parent)
@@ -225,29 +228,48 @@ public static class DeviceCtl
         var wanted = bundled.Values.SelectMany(u => u).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var names = images.Select(Path.GetFileName).ToHashSet(StringComparer.Ordinal);
 
-        var candidates = searchRoots.Where(Directory.Exists)
-            .SelectMany(root => Directory.EnumerateFiles(root, "*", SearchOption.AllDirectories))
-            .TakeWhile(_ => clock.Elapsed < budget)
-            .Where(p => names.Contains(Path.GetFileName(p)))
-            .Where(p => p.Split(Path.DirectorySeparatorChar) is var segments
-                && (segments.Any(s => s.EndsWith(".dSYM", StringComparison.Ordinal))
-                    || !segments.Any(s => s.EndsWith(".app", StringComparison.Ordinal))))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var candidates = new List<string>();
+        var pending = new Stack<string>(searchRoots.Where(Directory.Exists).Reverse());
+        while (pending.Count > 0 && clock.Elapsed < walkDeadline)
+        {
+            var directory = pending.Pop();
+            try
+            {
+                foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                {
+                    if (clock.Elapsed >= walkDeadline) break;
+                    if (Directory.Exists(entry))
+                    {
+                        // An app bundle holds stripped copies; a dSYM inside one still counts.
+                        if (!entry.EndsWith(".app", StringComparison.Ordinal) || IsInsideDsym(entry))
+                            pending.Push(entry);
+                    }
+                    else if (names.Contains(Path.GetFileName(entry)))
+                        candidates.Add(entry);
+                }
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { }
+        }
+        // dSYMs first, so a check the budget cuts short has read the preferred copies.
+        candidates = candidates.Distinct(StringComparer.Ordinal).OrderByDescending(IsInsideDsym).ToList();
         var found = HungProcessSampler.ParseDwarfdumpUuids(DwarfdumpUuids(candidates, budget - clock.Elapsed));
         var chosen = new List<string>();
         foreach (var uuid in wanted)
         {
             var matches = found.Where(kv => kv.Value.Contains(uuid, StringComparer.OrdinalIgnoreCase)).Select(kv => kv.Key)
-                .OrderByDescending(p => p.Contains(".dSYM" + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                .OrderByDescending(IsInsideDsym)
                 .ThenBy(p => p, StringComparer.Ordinal)
                 .ToList();
             if (matches.Count > 0 && !chosen.Contains(matches[0]))
                 chosen.Add(matches[0]);
         }
-        Log.Information("Stack capture symbols: {Found} of {Images} app images have an unstripped copy", chosen.Count, images.Count);
+        Log.Information("Stack capture symbols: {Found} of {Images} app images have an unstripped copy ({Candidates} candidates in {Elapsed:F1} s)",
+            chosen.Count, images.Count, candidates.Count, clock.Elapsed.TotalSeconds);
         return chosen;
     }
+
+    static bool IsInsideDsym(string path) =>
+        path.Split(Path.DirectorySeparatorChar).Any(s => s.EndsWith(".dSYM", StringComparison.Ordinal));
 
     static string DwarfdumpUuids(IReadOnlyList<string> files, TimeSpan budget)
     {

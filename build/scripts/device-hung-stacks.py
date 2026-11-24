@@ -30,15 +30,18 @@ the launcher splits into one file per sample. The exit code is 0 when every samp
 backtrace, 2 when the attach never stopped the process, 3 otherwise.
 """
 
+import re
 import subprocess
 import sys
 import time
 
 T0 = time.monotonic()
 
-# lldb's defaults, less every argument value (and the thread's return value).
+# lldb's defaults, less every argument value and the thread's return value, and with the raw stop
+# reason: the plain one asks the frame recognizers, which may read values in the app.
 THREAD_FORMAT = ("\"thread #${thread.index}{, name = '${thread.name}'}{, queue = '${thread.queue}'}"
-                 "{, stop reason = ${thread.stop-reason}}\\n\"")
+                 "{, stop reason = ${thread.stop-reason-raw}}\\n\"")
+FRAME_ROW = re.compile(r"^\s*\*?\s*frame #\d+", re.MULTILINE)
 FRAME_FORMAT = ("\"frame #${frame.index}: ${frame.pc}{ ${module.file.basename}"
                 "{`${function.name-without-args}{${frame.no-debug}${function.pc-offset}}}}"
                 "{ at ${line.file.basename}:${line.number}}\\n\"")
@@ -95,6 +98,8 @@ def main(argv):
         run("settings set thread-format " + THREAD_FORMAT)
         run("settings set thread-stop-format " + THREAD_FORMAT)
         run("settings set frame-format " + FRAME_FORMAT)
+        # Recognizers run when a stop is described or a backtrace is taken and can evaluate in the app.
+        run("frame recognizer clear")
         run(f"device select {udid}")
         run(f"device process attach --pid {pid}")
         process = debugger.GetSelectedTarget().GetProcess()
@@ -130,7 +135,7 @@ def main(argv):
             backtrace = ((result.GetOutput() or "") + (result.GetError() or "")).rstrip()
             say(f"=== hung-stacks sample {index} start={start:.1f} end={now():.1f} ===")
             say(f"(lldb) thread backtrace all\n{backtrace}")
-            if result.Succeeded() and "frame #" in backtrace:
+            if result.Succeeded() and FRAME_ROW.search(backtrace):
                 captured += 1
             run("image list -o -f")
     finally:
