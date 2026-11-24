@@ -49,6 +49,23 @@ namespace BindingsGeneration
     internal static class RuntimeVersionRange
     {
         /// <summary>
+        /// The local-dev version sentinel: the version every in-tree build carries
+        /// (<c>Directory.Build.props</c>' <c>SwiftBindingsSdkVersion</c>, <c>Sdk.props</c>' defaults)
+        /// and that no feed publishes. A Runtime version equal to it means "bind against the
+        /// in-tree Swift.Runtime"; any other version names a published package.
+        /// </summary>
+        public const string DevSentinel = "0.0.0-dev";
+
+        /// <summary>
+        /// True when <paramref name="version"/> is the local-dev sentinel. This, never a comparison
+        /// with a version some component was built at, is how a dev build is told from a release:
+        /// a released generator bakes its own real version, so comparing a requested version with
+        /// that baked value would read the generator's own release as a dev build.
+        /// </summary>
+        public static bool IsDevSentinel(string? version) =>
+            string.Equals(version, DevSentinel, System.StringComparison.Ordinal);
+
+        /// <summary>
         /// Builds the bounded version range string for a concrete runtime version.
         /// Falls back to the raw input when the version cannot be parsed as
         /// <c>major.minor.*</c> so unit tests and pre-release strings degrade

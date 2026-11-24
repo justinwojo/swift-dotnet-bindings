@@ -463,6 +463,34 @@ public class RequiresExplicitPlatformVersionTests
     {
         Assert.False(BindingsGeneratorCommand.RequiresExplicitPlatformVersion(runtimeVersion));
     }
+
+    // Only a run that can ship a packable Swift binding project needs its TFM explicit.
+    [Theory]
+    [InlineData(false, false, true, null, true)]                                          // xcframework
+    [InlineData(false, true, true, null, false)]                                          // --objc: never packable
+    [InlineData(true, false, true, null, false)]                                          // SDK mode owns the project
+    [InlineData(false, false, false, "@rpath/Translation.framework/Translation", true)]   // direct system framework
+    [InlineData(true, false, false, "@rpath/Translation.framework/Translation", false)]
+    [InlineData(false, true, false, "@rpath/Translation.framework/Translation", true)]    // --objc does not apply to direct inputs
+    [InlineData(false, false, false, "libFoo.dylib", false)]                              // manual run, no project
+    public void OnlyARunThatShipsASwiftBindingProject_NeedsAnExplicitPlatformVersion(
+        bool sdkMode, bool objcForced, bool hasXcframework, string? libraryName, bool expected)
+    {
+        Assert.Equal(expected, BindingsGeneratorCommand.ShipsSwiftBindingProject(sdkMode, objcForced, hasXcframework, libraryName));
+    }
+
+    // A released generator bakes its own version as the default. Run at that version (the SDK's
+    // flags, or the standalone CLI with no --swift-runtime-version) its project is packable, so the
+    // TFM must be explicit there too; only the dev sentinel is the dev path.
+    [Theory]
+    [InlineData("0.20.2", true)]
+    [InlineData(null, true)]
+    [InlineData("0.0.0-dev", false)]
+    public void ReleasedGenerator_RequiresExplicitPlatformVersionUnlessDevSentinel(string? runtimeVersion, bool expected)
+    {
+        using var _ = BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting("0.20.2");
+        Assert.Equal(expected, BindingsGeneratorCommand.RequiresExplicitPlatformVersion(runtimeVersion));
+    }
 }
 
 #endregion

@@ -2351,4 +2351,125 @@ namespace BindingsGeneration.Tests
     }
 
     #endregion
+
+    #region Released-generator dev-build decision
+
+    /// <summary>
+    /// A released generator bakes its own package version into
+    /// <see cref="BindingProjectEmitter.DefaultSwiftRuntimeVersion"/>. Whether an emitted project is
+    /// a local-dev project (in-tree Swift.Runtime, not packable) must key on the <c>0.0.0-dev</c>
+    /// sentinel itself, never on that baked value: comparing with it read a released generator run
+    /// at its own version (the SDK's <c>--swift-runtime-version $(SwiftRuntimeVersion)</c>, the
+    /// standalone CLI's default) as a dev build. These tests stand in a released generator through
+    /// <see cref="BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting"/>.
+    /// </summary>
+    public class ReleasedGeneratorDevDecisionTests : AppleSupplementReferencesTestBase
+    {
+        private const string Released = "0.20.2";
+        private static readonly ILogger _logger = NullLogger.Instance;
+
+        [Theory]
+        [InlineData(Released)] // the SDK passes its own (= the generator's) version
+        [InlineData(null)]     // the standalone CLI's default is the baked version
+        public void Emit_ReleasedGeneratorAtItsOwnVersion_IsPackableWithBoundedRuntimeRange(string? requested)
+        {
+            using var _ = BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting(Released);
+            var content = Emit(requested, emitsSupplement: false);
+
+            Assert.Contains("<IsPackable>true</IsPackable>", content);
+            Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.20.2,0.21.0)\" />",
+                content);
+            Assert.DoesNotContain("SwiftBindingsRepoRoot", content);
+            Assert.DoesNotContain("Swift.Runtime.csproj", content);
+        }
+
+        [Fact]
+        public void Emit_ReleasedGeneratorWithDevSentinel_KeepsLocalDevWiring()
+        {
+            using var _ = BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting(Released);
+            var content = Emit(RuntimeVersionRange.DevSentinel, emitsSupplement: false);
+
+            Assert.Contains("<IsPackable>false</IsPackable>", content);
+            Assert.Contains(
+                "<ProjectReference Include=\"$(SwiftBindingsRepoRoot)/src/Swift.Runtime/src/Swift.Runtime.csproj\"",
+                content);
+            Assert.Contains(
+                "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.0.0-dev]\" Condition=\"'$(SwiftBindingsRepoRoot)' == ''\" />",
+                content);
+        }
+
+        [Fact]
+        public void Emit_ReleasedGeneratorAtItsOwnVersion_SupplementReferenceHasNoInTreeEscapeHatch()
+        {
+            using var _ = BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting(Released);
+            var content = Emit(Released, emitsSupplement: true);
+
+            Assert.Contains("<PackageReference Include=\"SwiftBindings.Apple\" Version=\"[26.0.0,)\" />", content);
+            Assert.DoesNotContain("Swift.Bindings.Apple.csproj", content);
+        }
+
+        [Fact]
+        public void PrototypeEmit_ReleasedGeneratorAtItsOwnVersion_UsesBoundedRuntimeRange()
+        {
+            using var _ = BindingProjectEmitter.OverrideBakedSwiftRuntimeVersionForTesting(Released);
+            var dir = CreateTempDir();
+            try
+            {
+                var result = AppleSupplementPrototypeEmitter.Emit(new AppleSupplementPrototypeEmitter.Options
+                {
+                    PrototypeDirectory = dir,
+                    ReferencedIdentities = new[] { "Foundation.Locale.Language" },
+                    PlatformInfo = PlatformInfoFactory.Create(ApplePlatform.iOS),
+                    SwiftRuntimeVersion = Released,
+                }, _logger);
+                var csproj = File.ReadAllText(result.CsprojPath);
+
+                Assert.Contains(
+                    "<PackageReference Include=\"SwiftBindings.Runtime\" Version=\"[0.20.2,0.21.0)\" />",
+                    csproj);
+                Assert.DoesNotContain("Swift.Runtime.csproj", csproj);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string Emit(string? requested, bool emitsSupplement)
+        {
+            var dir = CreateTempDir();
+            try
+            {
+                BindingProjectEmitter.Emit(new BindingProjectEmitterOptions
+                {
+                    OutputDirectory = dir,
+                    ModuleName = "Translation",
+                    Metadata = new XCFrameworkMetadata
+                    {
+                        LibraryVersion = "1.0.0",
+                        PackageVersion = "1.0.0",
+                        IsVersionPlaceholder = false,
+                        MinimumOSVersion = "15.0",
+                        EffectiveMinimumOSVersion = "15.0",
+                        SdkVersion = null,
+                        ModuleName = "Translation",
+                        Platforms = new List<string>(),
+                    },
+                    SourceXCFrameworkPath = null,
+                    SwiftRuntimeVersion = requested,
+                    EmitsAppleSupplementReference = emitsSupplement,
+                    AppleSupplementVersion = "26.0.0",
+                }, _logger);
+                return File.ReadAllText(Path.Combine(dir, "Translation.Swift.iOS.csproj"));
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        private static string CreateTempDir()
+        {
+            var dir = Path.Combine(Path.GetTempPath(), $"bpe_test_{Guid.NewGuid():N}");
+            Directory.CreateDirectory(dir);
+            return dir;
+        }
+    }
+
+    #endregion
 }

@@ -114,6 +114,39 @@ namespace BindingsGeneration
         // published at pack time, so the shipped generator emits the correct Runtime reference
         // without any source file being rewritten.
 
+        private static readonly System.Threading.AsyncLocal<string?> s_bakedVersionOverride = new();
+
+        /// <summary>
+        /// The generator's own baked version (<see cref="DefaultSwiftRuntimeVersion"/>): the
+        /// <c>0.0.0-dev</c> sentinel in-tree, the real package version in a released generator.
+        /// Read through this property so a test can stand in a released generator's value
+        /// (<see cref="OverrideBakedSwiftRuntimeVersionForTesting"/>) without rebuilding one.
+        /// </summary>
+        internal static string BakedSwiftRuntimeVersion => s_bakedVersionOverride.Value ?? DefaultSwiftRuntimeVersion;
+
+        /// <summary>
+        /// Test seam: makes <see cref="BakedSwiftRuntimeVersion"/> read <paramref name="version"/> for
+        /// the current async flow until the returned scope is disposed.
+        /// </summary>
+        internal static IDisposable OverrideBakedSwiftRuntimeVersionForTesting(string version)
+        {
+            var previous = s_bakedVersionOverride.Value;
+            s_bakedVersionOverride.Value = version;
+            return new BakedVersionScope(previous);
+        }
+
+        private sealed class BakedVersionScope(string? previous) : IDisposable
+        {
+            public void Dispose() => s_bakedVersionOverride.Value = previous;
+        }
+
+        /// <summary>
+        /// The SwiftBindings.Runtime version an emitted project targets: the requested
+        /// <c>--swift-runtime-version</c>, else the generator's baked version.
+        /// </summary>
+        internal static string ResolveSwiftRuntimeVersion(string? requested) =>
+            string.IsNullOrWhiteSpace(requested) ? BakedSwiftRuntimeVersion : requested;
+
         /// <summary>
         /// Emits a {PackageId}.csproj file into the output directory.
         /// </summary>
@@ -121,7 +154,7 @@ namespace BindingsGeneration
         {
             var pi = options.PlatformInfo ?? PlatformInfoFactory.Create(ApplePlatform.iOS);
             var packageId = pi.GetDefaultSwiftPackageId(options.ModuleName);
-            var runtimeVersion = options.SwiftRuntimeVersion ?? DefaultSwiftRuntimeVersion;
+            var runtimeVersion = ResolveSwiftRuntimeVersion(options.SwiftRuntimeVersion);
             var resolvedNamespace = options.ResolvedNamespace ?? options.ModuleName;
             var csprojPath = Path.Combine(options.OutputDirectory, $"{packageId}.csproj");
 
@@ -347,7 +380,7 @@ namespace BindingsGeneration
                 // wins conflict resolution in an app that also references the in-tree
                 // supplement project directly, so types added since the floor version
                 // disappear from the *app's* compile, not just the binding's.
-                appleSupplementRef = runtimeVersion == DefaultSwiftRuntimeVersion
+                appleSupplementRef = RuntimeVersionRange.IsDevSentinel(runtimeVersion)
                     ? $"""
 
                     <!-- Apple supplement — local-dev wiring. Set SwiftBindingsRepoRoot to bind
@@ -380,7 +413,7 @@ namespace BindingsGeneration
             // doesn't exist on any feed. Refusing to pack is the loud failure mode — to publish,
             // pass --swift-runtime-version <published-version> so the PackageReference path is
             // taken instead.
-            var isPackable = runtimeVersion != DefaultSwiftRuntimeVersion;
+            var isPackable = !RuntimeVersionRange.IsDevSentinel(runtimeVersion);
 
             // SwiftBindings.Runtime resolution. The default version "0.0.0-dev" is a sentinel
             // for local-dev runs (direct mode against an Apple SDK framework, ad-hoc generator
@@ -410,7 +443,7 @@ namespace BindingsGeneration
             // consumers see the same csproj they always did, and the published nupkg's
             // `buildTransitive/SwiftBindings.Runtime.targets` embeds the native framework
             // (via NativeReference) for them.
-            var runtimeReference = runtimeVersion == DefaultSwiftRuntimeVersion
+            var runtimeReference = RuntimeVersionRange.IsDevSentinel(runtimeVersion)
                 ? $"""
                     <!-- Local-dev wiring: 0.0.0-dev has no published nupkg. Set
                          SwiftBindingsRepoRoot (-p:SwiftBindingsRepoRoot=/path/to/swift-bindings
@@ -653,9 +686,9 @@ namespace BindingsGeneration
         /// </summary>
         private static string EmitPackCheckGuard()
         {
-            var required = DefaultSwiftRuntimeVersion == "0.0.0-dev"
+            var required = RuntimeVersionRange.IsDevSentinel(BakedSwiftRuntimeVersion)
                 ? "the version of the generator that emitted this project or later"
-                : $"{DefaultSwiftRuntimeVersion} or later (the version of the generator that emitted this project)";
+                : $"{BakedSwiftRuntimeVersion} or later (the version of the generator that emitted this project)";
             return $"""
 
 

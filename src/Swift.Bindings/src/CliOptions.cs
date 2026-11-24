@@ -118,9 +118,10 @@ public class CliOptions
     public Option<string?> SwiftRuntimeVersion { get; } = new(
         aliases: new[] { "--swift-runtime-version" },
         description: "Version of the SwiftBindings.Runtime NuGet package to reference from the emitted .csproj. " +
-                     "Default '0.0.0-dev' is a local-dev sentinel: it binds against the in-tree Swift.Runtime " +
-                     "via SwiftBindingsRepoRoot and marks the project IsPackable=false. Pass a published " +
-                     "version (e.g. '0.8.0') to emit a normal PackageReference and enable 'dotnet pack'.");
+                     "Default: this generator's own version. '0.0.0-dev' (a source build's version) is a local-dev " +
+                     "sentinel: it binds against the in-tree Swift.Runtime via SwiftBindingsRepoRoot and marks the " +
+                     "project IsPackable=false. Any other version (e.g. '0.8.0') emits a normal PackageReference, " +
+                     "enables 'dotnet pack' and requires --platform-version.");
 
     public Option<string> WrapperArchitectures { get; } = new(
         aliases: new[] { "--wrapper-architectures" },

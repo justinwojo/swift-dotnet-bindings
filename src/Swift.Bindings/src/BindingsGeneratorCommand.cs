@@ -586,26 +586,31 @@ public static class BindingsGeneratorCommand
             return;
         }
 
-        // Enforce --platform-version on the publishable path. The emitted csproj is
-        // packable iff --swift-runtime-version is set to a non-sentinel value (see
-        // BindingProjectEmitter's isPackable gate). On that path the TFM MUST be explicit
+        // Enforce --platform-version on the publishable path. The emitted Swift binding csproj is
+        // packable iff the Runtime version it targets (--swift-runtime-version, else the
+        // generator's baked version) is not the dev sentinel (see BindingProjectEmitter's
+        // isPackable gate). On that path the TFM MUST be explicit
         // — silently falling back to PlatformInfo.DefaultPlatformVersion would label the
         // published nupkg for the wrong SDK cut, and the failure mode would only show up
         // later as a NETSDK1005 / TPV mismatch on whoever consumes it.
         //
-        // Positioned AFTER the --compile-wrapper-only / --compile-bridge-only fast paths
-        // because those modes never emit or pack a csproj — `swiftRuntimeVersion` is a
-        // no-op on those branches and demanding `--platform-version` would be a false
-        // positive. Catching it here still fires before any binding-emit work.
-        if (RequiresExplicitPlatformVersion(swiftRuntimeVersion) &&
-            string.IsNullOrWhiteSpace(platformVersionOverride) && targetFramework != platformInfo.PackTfm)
+        // Only a run that can ship that csproj is held to it (ShipsSwiftBindingProject): not the
+        // --compile-wrapper-only / --compile-bridge-only fast paths above, not SDK mode (the SDK
+        // owns the project and passes the flag), not an --objc xcframework run (a pure-ObjC project
+        // is never packable), and not a manual -a/-d/-t run outside a system framework (no project at
+        // all). It runs before anything touches the output directory, so an xcframework that
+        // later resolves to the pure-ObjC fallback is held to it too.
+        if (ShipsSwiftBindingProject(sdkMode, objcForced, !string.IsNullOrWhiteSpace(xcframeworkPath), libraryName) &&
+            RequiresExplicitPlatformVersion(swiftRuntimeVersion) &&
+            string.IsNullOrWhiteSpace(platformVersionOverride) &&
+            !string.Equals(targetFramework, platformInfo.PackTfm, StringComparison.OrdinalIgnoreCase))
         {
             logger.LogError(
-                "Error: --platform-version is required when --swift-runtime-version is set to a published " +
-                "value (got --swift-runtime-version '{Value}'). Pass --platform-version <major.minor> " +
+                "Error: --platform-version is required when the emitted project targets a published " +
+                "SwiftBindings.Runtime (got '{Value}', from --swift-runtime-version or this generator's own version). Pass --platform-version <major.minor> " +
                 "(e.g. '26.2' for net10.0-ios26.2), or a full --target-framework net10.0-ios26.2, so the emitted csproj is labeled for an explicit Apple " +
                 "workload version instead of silently inheriting the in-tree default.",
-                swiftRuntimeVersion);
+                BindingProjectEmitter.ResolveSwiftRuntimeVersion(swiftRuntimeVersion));
             context.ExitCode = 1;
             return;
         }
@@ -3424,6 +3429,16 @@ public static class BindingsGeneratorCommand
     /// </summary>
     internal static string LoweringPlatform(PlatformInfo platformInfo) => platformInfo.Platform.ToString().ToLowerInvariant();
 
+    /// <summary>
+    /// True when the run can ship a packable Swift binding csproj, the one project whose TFM a
+    /// released Runtime version requires to be explicit: outside SDK mode (the SDK owns its
+    /// project), an xcframework run not forced to --objc (a pure-ObjC project is never packable;
+    /// --objc has no effect on direct inputs), or a direct run against a system framework. A
+    /// manual -a/-d/-t run against any other library emits C# and the wrapper only.
+    /// </summary>
+    internal static bool ShipsSwiftBindingProject(bool sdkMode, bool objcForced, bool hasXcframework, string? libraryName) =>
+        !sdkMode && (hasXcframework ? !objcForced : IsSystemFrameworkTarget(hasXcframework, libraryName));
+
     internal static bool IsSystemFrameworkTarget(bool hasXcframework, string? libraryName)
     {
         if (hasXcframework || string.IsNullOrEmpty(libraryName))
@@ -3513,15 +3528,16 @@ public static class BindingsGeneratorCommand
 
     /// <summary>
     /// Returns true when the run is on the publishable path and therefore requires an
-    /// explicit <c>--platform-version</c>. The emitted csproj is packable iff
-    /// <c>--swift-runtime-version</c> is set to anything other than the dev sentinel
-    /// (matches <see cref="BindingProjectEmitter"/>'s <c>isPackable</c> gate). On that
-    /// path, silently inheriting <c>PlatformInfo.DefaultPlatformVersion</c> would label
-    /// the published nupkg for the wrong SDK cut.
+    /// explicit <c>--platform-version</c>. The emitted csproj is packable iff the Runtime
+    /// version it targets (<c>--swift-runtime-version</c>, else the generator's baked version)
+    /// is not the dev sentinel — the same resolution and the same test as
+    /// <see cref="BindingProjectEmitter"/>'s <c>isPackable</c> gate. On that path, silently
+    /// inheriting <c>PlatformInfo.DefaultPlatformVersion</c> would label the published nupkg
+    /// for the wrong SDK cut. A source build bakes the sentinel, so only a released generator
+    /// requires the flag when <c>--swift-runtime-version</c> is omitted.
     /// </summary>
     internal static bool RequiresExplicitPlatformVersion(string? swiftRuntimeVersion) =>
-        !string.IsNullOrWhiteSpace(swiftRuntimeVersion) &&
-        swiftRuntimeVersion != BindingProjectEmitter.DefaultSwiftRuntimeVersion;
+        !RuntimeVersionRange.IsDevSentinel(BindingProjectEmitter.ResolveSwiftRuntimeVersion(swiftRuntimeVersion));
 
     /// <summary>
     /// Fail-closed gate for the mixed-framework ObjC pipeline. The caller only runs the pipeline
@@ -4164,7 +4180,7 @@ public static class BindingsGeneratorCommand
         Console.WriteLine($"  --namespace-pattern  Optional. Namespace pattern using {{Module}} and {{Framework}}. Default: {NamespacePatternResolver.DefaultPattern}");
         Console.WriteLine("  --sdk-mode           Optional. SDK mode: skips .csproj emission (used when the SDK IS the project system).");
         Console.WriteLine("  --package-id         Optional. Package ID for NuGet packaging. Default: '{Module}.Swift.{Platform}' (e.g. ImagePipeline.Swift.iOS, ImagePipeline.Swift.macOS).");
-        Console.WriteLine("  --swift-runtime-version  Optional. SwiftBindings.Runtime version for the emitted .csproj. Default '0.0.0-dev' is local-dev only (IsPackable=false). Pass a published version to enable 'dotnet pack'.");
+        Console.WriteLine("  --swift-runtime-version  Optional. SwiftBindings.Runtime version for the emitted .csproj. Default: this generator's own version ('0.0.0-dev' in a source build, which is local-dev only: IsPackable=false). Pass a published version to enable 'dotnet pack'.");
         Console.WriteLine("  --wrapper-architectures  Optional. Wrapper compilation scope: 'simulator' (default), 'device', or 'all'.");
         Console.WriteLine("  --framework-dependency   Optional. Repeatable. Path to dependency xcframework for -F search paths. Requires --xcframework.");
         Console.WriteLine("  --link-framework     Optional. Repeatable. Apple system framework to link into the wrapper (e.g. 'CoreVideo'). Emits '-framework <name>' so a force-loaded static-archive source can resolve system-framework deps that carry no autolink hints. Requires --xcframework.");

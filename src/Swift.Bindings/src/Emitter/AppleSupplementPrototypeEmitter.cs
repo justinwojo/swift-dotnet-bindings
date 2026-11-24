@@ -187,7 +187,7 @@ public static class AppleSupplementPrototypeEmitter
         Options options,
         IReadOnlyList<string> emittedFiles)
     {
-        var runtimeVersion = options.SwiftRuntimeVersion ?? BindingProjectEmitter.DefaultSwiftRuntimeVersion;
+        var runtimeVersion = BindingProjectEmitter.ResolveSwiftRuntimeVersion(options.SwiftRuntimeVersion);
         var tfm = options.PlatformInfo.PackTfm;
         var minOs = XCFrameworkMetadataExtractor.ClampMinimumOSVersion(options.MinimumOSVersion, options.PlatformInfo);
 
@@ -196,7 +196,7 @@ public static class AppleSupplementPrototypeEmitter
         // SwiftBindingsRepoRoot is set, exact-version PackageReference otherwise. Keeping
         // them in lockstep avoids the case where the consumer binds against one Runtime
         // and the prototype binds against another.
-        var runtimeReference = runtimeVersion == BindingProjectEmitter.DefaultSwiftRuntimeVersion
+        var runtimeReference = RuntimeVersionRange.IsDevSentinel(runtimeVersion)
             ? $"""
                     <!-- Local-dev wiring: matches BindingProjectEmitter. Set SwiftBindingsRepoRoot to
                          bind against the in-tree Swift.Runtime project; otherwise fall back to a

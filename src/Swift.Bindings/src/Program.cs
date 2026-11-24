@@ -912,7 +912,7 @@ namespace BindingsGeneration
                 // baked default). If they diverged, a binding pinned to an older runtime would restore
                 // cleanly and then hard-abort at module load against the very runtime NuGet resolved.
                 emissionContext.RuntimeContractEpoch =
-                    RuntimeVersionRange.Epoch(swiftRuntimeVersion ?? BindingProjectEmitter.DefaultSwiftRuntimeVersion);
+                    RuntimeVersionRange.Epoch(BindingProjectEmitter.ResolveSwiftRuntimeVersion(swiftRuntimeVersion));
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
                 emissionContext.SetCollisionContext(moduleNameForCollision, nestedTypesInCollidingClass);
                 emissionContext.SetDeclaredTypePredicate(name =>
