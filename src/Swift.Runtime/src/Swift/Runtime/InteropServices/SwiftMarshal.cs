@@ -630,6 +630,18 @@ public static class SwiftMarshal
             return moved;
         }
 
+        // An object-reference key carrier is read borrowed: the slot's +1 is released here, and the
+        // object stays alive through the collection it was read from, which holds its own reference.
+        // A reader that keeps the key past the collection retains it (the projections do), so a key
+        // the consumer never reads, or reads without converting, holds nothing to leak.
+        if (typeof(ISwiftObjectKeyCarrier).IsAssignableFrom(typeof(T)))
+        {
+            T key = MarshalFromSwift<T>((IntPtr)slot);
+            if (metadata.IsValid && metadata.ValueWitnessTable->IsNonPOD)
+                metadata.ValueWitnessTable->Destroy(slot, metadata);
+            return key;
+        }
+
         // A C# enum reads only the case, so a slot whose value holds a reference (a case-identity
         // enum whose binary hides a payload case) still owns it after the read and is destroyed here.
         if (typeof(T).IsEnum && metadata.IsValid && metadata.ValueWitnessTable->IsNonPOD)

@@ -80,11 +80,10 @@ public class ObjCBridgedProjection : ITypeProjection
         ? $"new {identity.CarrierType}({LiveHandleExpressions.ObjCSelf(elementVar)})"
         : LiveHandleExpressions.ObjCSelf(elementVar);
 
-    // A key or element read out of a Swift collection is a copy of the key value, so it holds a +1
-    // on the object whichever way the collection itself was reached; the wrapper adopts it.
-    public string? GetReturnElementConversion(string elementVar) => _keyIdentity is not null
-        ? MarshallingHelpers.FormatObjCBridgeCall(_csharpTypeName, $"{elementVar}.Handle", nonNull: true, ownsReference: true)
-        : MarshallingHelpers.FormatObjCBridgeCall(_csharpTypeName, elementVar, nonNull: true);
+    // A key or element read out of a Swift collection is borrowed from the collection (the runtime
+    // releases the copy the iterator handed over), so the wrapper takes its own reference.
+    public string? GetReturnElementConversion(string elementVar) => MarshallingHelpers.FormatObjCBridgeCall(
+        _csharpTypeName, _keyIdentity is null ? elementVar : $"{elementVar}.Handle", nonNull: true);
 
     public T Accept<T>(IProjectionVisitor<T> visitor) => visitor.Visit(this);
 }

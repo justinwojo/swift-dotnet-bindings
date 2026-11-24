@@ -88,7 +88,7 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Fact]
-    public async Task KeyConversions_BorrowTheObjectIntoTheCarrierAndAdoptTheCopyReadBack()
+    public async Task KeyConversions_BorrowTheObjectIntoTheCarrierAndRetainTheKeyReadBack()
     {
         var projection = Assert.IsType<DictionaryProjection>(_factory.Project(
             Dictionary(new NamedTypeSpec("UIKit.UIApplication.LaunchOptionsKey"), new NamedTypeSpec("Swift.Int")),
@@ -100,10 +100,10 @@ public class ObjectKeyCollectionProjectionTests
         var into = key.GetParameterElementConversion("k");
         Assert.Equal($"new {LaunchOptionsCarrier}({LiveHandleExpressions.ObjCSelf("k")})", into);
 
-        // Out of Swift: a key read from the collection is a copy holding +1, adopted by the wrapper,
-        // on the owned and the borrowed read alike.
+        // Out of Swift: a key read from the collection is borrowed from it, so the wrapper takes its
+        // own reference, on the owned and the borrowed read alike.
         foreach (var read in new[] { key.GetReturnElementConversion("k"), key.GetOwnedReturnElementConversion("k") })
-            Assert.Equal("ObjCRuntime.Runtime.GetINativeObject<Foundation.NSString>(k.Handle, true)!", read);
+            Assert.Equal("ObjCRuntime.Runtime.GetNSObject<Foundation.NSString>(k.Handle)!", read);
 
         // A returned dictionary's lookups go back through the carrier, so a C# lookup hashes the
         // way Swift does.

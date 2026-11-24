@@ -609,10 +609,14 @@ namespace BindingsGeneration
             // which names the carrier of an object-pointer key without an emission context, so record
             // every such key the bound surface spells from the same predicate.
             var boundGenerics = new BoundGenericsHandler(typeDatabase);
+            var floors = new ObjectKeyFloors();
             _onHashedContainerArgument = key =>
             {
-                if (boundGenerics.IsObjectPointerContainerArgument(key))
-                    emissionCtx.RecordObjectKey(new ObjectKeyIdentity(key.Name));
+                if (!boundGenerics.IsObjectPointerContainerArgument(key))
+                    return;
+                var identity = new ObjectKeyIdentity(key.Name);
+                emissionCtx.RecordObjectKey(identity);
+                floors.Add(identity.IdentityClassName, OwnerAvailability(_scanOwner));
             };
             try
             {
@@ -621,10 +625,77 @@ namespace BindingsGeneration
             finally
             {
                 _onHashedContainerArgument = null;
+                _scanOwner = null;
             }
 
+            // A key type may be newer than the module's deployment target, its metadata then
+            // weak-imported. The accessor is guarded by the floor every declaration that names the key
+            // is available at. An identity only a projection recorded has no such declaration and stays
+            // unguarded, as the member's own wrapper references the type unguarded too.
             foreach (var identity in emissionCtx.ObjectKeyIdentities)
-                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName, identity.AccessorSymbol(moduleName), emissionCtx);
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName, identity.AccessorSymbol(moduleName), emissionCtx,
+                    availability: floors.Floor(identity.IdentityClassName));
+        }
+
+        /// <summary>The availability of the declaration a bound-surface scan is reading, with its ancestors'.</summary>
+        private static IReadOnlyList<AvailabilityAnnotation>? OwnerAvailability(BaseDecl? owner) => owner switch
+        {
+            null => null,
+            TypeDecl type => AvailabilityHelpers.MergeAvailabilityFromAncestors(null, type),
+            _ => AvailabilityHelpers.MergeAvailabilityFromAncestors(owner.AvailabilityAnnotations, owner.ParentDecl),
+        };
+
+        /// <summary>
+        /// The OS floor at which each object key's metadata may be referenced: the most permissive
+        /// floor of the declarations that name it. Per platform that is the lowest floor any of them
+        /// declares, and no floor when one of them declares none on the platform (or none at all).
+        /// </summary>
+        internal sealed class ObjectKeyFloors
+        {
+            // A null entry: some declaration names the key with no floor, so the key is referenced unguarded.
+            private readonly Dictionary<string, Dictionary<string, string>?> _floors = new(StringComparer.Ordinal);
+
+            public void Add(string identityName, IReadOnlyList<AvailabilityAnnotation>? ownerAvailability)
+            {
+                var ownerFloors = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var key in WrapperEmitterHelpers.CollectStrictestAvailabilityKeys(ownerAvailability))
+                {
+                    var space = key.IndexOf(' ');
+                    ownerFloors[key[..space]] = key[(space + 1)..];
+                }
+
+                if (!_floors.TryGetValue(identityName, out var existing))
+                {
+                    _floors[identityName] = ownerFloors.Count == 0 ? null : ownerFloors;
+                    return;
+                }
+                if (existing is null)
+                    return;
+                if (ownerFloors.Count == 0)
+                {
+                    _floors[identityName] = null;
+                    return;
+                }
+                foreach (var platform in existing.Keys.ToList())
+                {
+                    if (!ownerFloors.TryGetValue(platform, out var version))
+                        existing.Remove(platform);
+                    else if (AvailabilityHelpers.CompareOsVersions(version, existing[platform]) < 0)
+                        existing[platform] = version;
+                }
+                if (existing.Count == 0)
+                    _floors[identityName] = null;
+            }
+
+            public IReadOnlyList<AvailabilityAnnotation>? Floor(string identityName)
+            {
+                if (!_floors.TryGetValue(identityName, out var floors) || floors is null)
+                    return null;
+                return floors
+                    .OrderBy(kvp => kvp.Key, StringComparer.Ordinal)
+                    .Select(kvp => new AvailabilityAnnotation(kvp.Key, kvp.Value, null, null, false, false, null, null))
+                    .ToList();
+            }
         }
 
         private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName)
@@ -1276,6 +1347,7 @@ namespace BindingsGeneration
                 // not just async ones. Missing imports cause "cannot find type 'X' in scope" errors.
                 foreach (var method in type.Methods)
                 {
+                    _scanOwner = method;
                     foreach (var sig in method.CSSignature)
                     {
                         ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
@@ -1285,6 +1357,7 @@ namespace BindingsGeneration
                 // Check properties — @_cdecl wrappers also reference property types
                 foreach (var property in type.Properties)
                 {
+                    _scanOwner = property;
                     ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
                 }
 
@@ -1295,6 +1368,7 @@ namespace BindingsGeneration
                 // the wrapper, producing "cannot find type in scope" at swiftc.
                 foreach (var op in type.Operators)
                 {
+                    _scanOwner = op.UnderlyingMethod;
                     foreach (var sig in op.UnderlyingMethod.CSSignature)
                     {
                         ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
@@ -1306,6 +1380,7 @@ namespace BindingsGeneration
                 // Protocol subscripts are handled separately in ScanProtocolsForFrameworkImports.
                 foreach (var subscript in type.Subscripts)
                 {
+                    _scanOwner = subscript;
                     ScanTypeSpecForImports(subscript.ReturnTypeSpec, onTypeName);
                     foreach (var param in subscript.IndexParameters)
                     {
@@ -1318,6 +1393,7 @@ namespace BindingsGeneration
                 // so a framework type that appears only in a payload still needs its import.
                 if (type is EnumDecl enumDecl)
                 {
+                    _scanOwner = enumDecl;
                     foreach (var enumCase in enumDecl.PayloadCases)
                     {
                         foreach (var payload in enumCase.AssociatedValues)
@@ -1346,6 +1422,7 @@ namespace BindingsGeneration
         {
             foreach (var method in moduleDecl.Methods)
             {
+                _scanOwner = method;
                 foreach (var sig in method.CSSignature)
                 {
                     ScanTypeSpecForImports(sig.SwiftTypeSpec, onTypeName);
@@ -1354,6 +1431,7 @@ namespace BindingsGeneration
 
             foreach (var property in moduleDecl.Properties)
             {
+                _scanOwner = property;
                 ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
             }
         }
@@ -1369,12 +1447,14 @@ namespace BindingsGeneration
                 // Scan properties
                 foreach (var property in protocol.Properties)
                 {
+                    _scanOwner = property;
                     ScanTypeSpecForImports(property.SwiftTypeSpec, onTypeName);
                 }
 
                 // Scan methods
                 foreach (var method in protocol.Methods)
                 {
+                    _scanOwner = method;
                     // Scan return type
                     if (method.CSSignature.Count > 0)
                     {
@@ -1391,6 +1471,7 @@ namespace BindingsGeneration
                 // Scan subscripts
                 foreach (var subscript in protocol.Subscripts)
                 {
+                    _scanOwner = subscript;
                     ScanTypeSpecForImports(subscript.ReturnTypeSpec, onTypeName);
                     foreach (var param in subscript.IndexParameters)
                     {
@@ -1406,6 +1487,9 @@ namespace BindingsGeneration
         // Set only while EmitObjectKeyAccessors walks the bound surface: reports each Dictionary key
         // and Set element type the walk meets.
         private Action<NamedTypeSpec>? _onHashedContainerArgument;
+
+        // The declaration whose types the bound-surface scan is reading, while EmitObjectKeyAccessors runs it.
+        private BaseDecl? _scanOwner;
 
         private void ScanTypeSpecForImports(TypeSpec? typeSpec, Action<string> onTypeName)
         {
@@ -1425,6 +1509,14 @@ namespace BindingsGeneration
                         BoundGenericsHandler.IsHashedContainerSlot(namedType.Name, i))
                         _onHashedContainerArgument(hashedArgument);
                     ScanTypeSpecForImports(genericParam, onTypeName);
+                }
+
+                // A nested type's own generic arguments (`Outer<Int>.Inner<[Key: Int]>`) hang off its
+                // inner links, which the raw translator walks too.
+                for (var inner = namedType.InnerType; inner != null; inner = inner.InnerType)
+                {
+                    foreach (var innerArgument in inner.GenericParameters)
+                        ScanTypeSpecForImports(innerArgument, onTypeName);
                 }
             }
             else if (typeSpec is TupleTypeSpec tupleType)

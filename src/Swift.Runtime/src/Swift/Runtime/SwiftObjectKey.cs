@@ -36,9 +36,10 @@ internal interface ISwiftObjectKeyCarrier
 /// <remarks>
 /// Ownership follows a Swift value of the key type. Built from a C# object, the carrier borrows the
 /// object's reference: marshalling it into Swift memory copies it (+1) through the key type's value
-/// witness, as any Swift value is copied. Read out of a Swift collection, the carrier holds the +1 the
-/// collection handed over, and the reader adopts it (an owning <c>GetNSObject</c>) or the runtime
-/// releases it when the reader never sees it.
+/// witness, as any Swift value is copied. Read out of a Swift collection, the carrier borrows too: the
+/// runtime releases the copy the collection handed over as it reads it, so a reader that keeps the
+/// object takes its own reference (a retaining <c>GetNSObject</c>), and a carrier nobody keeps needs no
+/// cleanup.
 /// </remarks>
 /// <typeparam name="TIdentity">The binding's identity for the Swift key type.</typeparam>
 [EditorBrowsable(EditorBrowsableState.Never)]
@@ -98,17 +99,6 @@ public static class SwiftObjectKeys
         var carrier = typeof(SwiftObjectKey<TIdentity>);
         TypeMetadata.RegisterMetadata(carrier, keyMetadata);
         WitnessTableDispatcher.Register(carrier, typeof(ISwiftHashable), hashable);
-    }
-
-    /// <summary>
-    /// Releases the +1 a carrier read out of a Swift collection holds, when nothing will adopt it.
-    /// </summary>
-    internal static unsafe void Release(ISwiftObjectKeyCarrier carrier, TypeMetadata metadata)
-    {
-        IntPtr handle = carrier.Handle;
-        if (handle == IntPtr.Zero)
-            return;
-        metadata.ValueWitnessTable->Destroy(&handle, metadata);
     }
 
     /// <summary>

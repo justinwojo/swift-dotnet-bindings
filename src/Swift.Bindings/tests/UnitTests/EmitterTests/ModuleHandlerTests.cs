@@ -1204,6 +1204,94 @@ public class ModuleHandlerTests
         Assert.Contains("Swift.Set<UIKit.UIFont>.self", swiftOutput);
     }
 
+    private static MethodDecl ObjectKeyMethod(ModuleDecl moduleDecl, string name, TypeSpec parameterType,
+        params AvailabilityAnnotation[] availability) => new()
+    {
+        Name = name,
+        MangledName = $"$s10TestModule{name.Length}{name}yyF",
+        MethodType = MethodType.Static,
+        IsConstructor = false,
+        CSSignature = new List<ArgumentDecl>
+        {
+            new()
+            {
+                SwiftTypeSpec = new NamedTypeSpec("Swift.Void"),
+                Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+            },
+            new()
+            {
+                SwiftTypeSpec = parameterType,
+                Name = "value", PrivateName = "value", IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = moduleDecl
+            }
+        },
+        Throws = false,
+        IsAsync = false,
+        GenericParameters = new List<GenericArgumentDecl>(),
+        IsSynthesizedAccessor = false,
+        AvailabilityAnnotations = availability.Length == 0 ? null : availability.ToList(),
+        ParentDecl = moduleDecl,
+        ModuleDecl = moduleDecl
+    };
+
+    private static AvailabilityAnnotation Introduced(string platform, string version)
+        => new(platform, version, null, null, false, false, null, null);
+
+    private static string ObjectKeyAccessor(string swiftOutput, string swiftKeyType)
+    {
+        var symbol = new ObjectKeyIdentity(swiftKeyType).AccessorSymbol("TestModule");
+        var start = swiftOutput.IndexOf($"@_cdecl(\"{symbol}\")", StringComparison.Ordinal);
+        Assert.True(start >= 0, $"no accessor for {swiftKeyType}");
+        var end = swiftOutput.IndexOf("\n}", start, StringComparison.Ordinal);
+        return swiftOutput.Substring(start, end - start);
+    }
+
+    [Fact]
+    public void Emit_ObjectKeyNamedOnlyByGatedMembers_GuardsItsAccessorAtTheMostPermissiveFloor()
+    {
+        // A key type newer than the deployment target has weak-imported metadata. Its accessor may
+        // reference the type only where a member that names it is available: per platform the lowest
+        // floor of those members, no floor on a platform one of them leaves unconstrained, and no
+        // guard at all once one member has no floor.
+        var (_, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(), moduleDecl =>
+        {
+            var fontSet = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIFont"));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "newest", fontSet, Introduced("iOS", "17.0"), Introduced("macOS", "14.0")));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "newer", fontSet, Introduced("iOS", "16.0")));
+
+            var imageSet = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIImage"));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "gated", imageSet, Introduced("iOS", "16.0")));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "ungated", imageSet));
+        });
+
+        var font = ObjectKeyAccessor(swiftOutput, "UIKit.UIFont");
+        Assert.Contains("if #available(iOS 16.0, *) {", font);
+        Assert.DoesNotContain("macOS", font);
+        Assert.Contains("return nil", font);
+
+        var image = ObjectKeyAccessor(swiftOutput, "UIKit.UIImage");
+        Assert.DoesNotContain("#available", image);
+        Assert.Contains("Swift.Set<UIKit.UIImage>.self", image);
+    }
+
+    [Fact]
+    public void Emit_ObjectKeyInANestedTypesGenericArgument_IsRecordedFromTheBoundSurface()
+    {
+        // `Outer<Int>.Inner<[NSUUID: Int]>`: the key sits in the inner link's generic arguments,
+        // which the raw translator renders, so the scan must reach it too.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(), moduleDecl =>
+        {
+            var nested = new NamedTypeSpec("TestModule.Outer", new NamedTypeSpec("Swift.Int"))
+            {
+                InnerType = new NamedTypeSpec("Inner",
+                    new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("Foundation.NSUUID"), new NamedTypeSpec("Swift.Int"))),
+            };
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "nested", nested));
+        });
+
+        Assert.Contains("public sealed class Foundation_NSUUID : global::Swift.Runtime.ISwiftObjectKeyIdentity", csOutput);
+        Assert.Contains("Swift.Set<Foundation.NSUUID>.self", swiftOutput);
+    }
+
     [Fact]
     public void Emit_NoObjectKeys_EmitsNoHolder()
     {

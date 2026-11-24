@@ -1736,8 +1736,9 @@ public class BoundGenericsHandler
     /// <summary>
     /// Returns true when a type is a container (Array/Dictionary/Set, optionally wrapped in Optional)
     /// whose element types that would fail the ISwiftObject check are all ObjC-bridged class types
-    /// (UIImage → IntPtr). The TranslateBoundGenericTypeToCSharp method maps these to IntPtr,
-    /// and the projection system handles element conversion (GetNSObject for return, .Handle for param).
+    /// (UIImage → IntPtr). The TranslateBoundGenericTypeToCSharp method maps these to IntPtr, or to
+    /// the key's SwiftObjectKey carrier in a Dictionary key or Set element slot, and the projection
+    /// system handles element conversion (GetNSObject for return, .Handle for param).
     /// Native-remapped types (Foundation.URL → NSUrl, Foundation.Date → DateTimeOffset) are NOT
     /// included because they need different marshalling that the container path doesn't support.
     /// </summary>

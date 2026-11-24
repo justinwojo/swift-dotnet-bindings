@@ -96,11 +96,14 @@ public static class MetadataWrapperEmitter
     /// Used to compute the merged availability annotations from the type and its
     /// ancestors so the emitted Swift wrapper compiles when the type (or an enclosing
     /// type) is gated behind an OS version (e.g., iOS 16.4+).</param>
+    /// <param name="availability">Floors the type is referenced at besides <paramref name="typeDecl"/>'s,
+    /// for a type the module does not declare (a framework type named by gated members).</param>
     public static void EmitIfNeeded(
         SwiftWriter swiftWriter, string moduleName,
         string moduleQualifiedSwiftName, string symbolName,
         ModuleEmissionContext ctx,
-        BaseDecl? typeDecl = null)
+        BaseDecl? typeDecl = null,
+        IReadOnlyList<AvailabilityAnnotation>? availability = null)
     {
         // one metadata accessor per type. The `SBW_GetMetadata_`-style
         // prefix is structurally distinct from method/property/constructor symbols, so the
@@ -110,8 +113,8 @@ public static class MetadataWrapperEmitter
 
         swiftWriter.WriteLine();
         swiftWriter.WriteLine($"// Metadata accessor @_cdecl wrapper for {moduleQualifiedSwiftName}.");
-        var availability = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(null, typeDecl);
-        var availabilityGuard = WrapperEmitterHelpers.BuildAvailabilityGuardExpression(availability);
+        var merged = WrapperEmitterHelpers.MergeAvailabilityFromAncestors(availability, typeDecl);
+        var availabilityGuard = WrapperEmitterHelpers.BuildAvailabilityGuardExpression(merged);
         var funcName = $"_sbw_getMetadata_{EmitterUtility.DeterministicHash8(symbolName)}";
         var typeReference = $"Swift.unsafeBitCast({moduleQualifiedSwiftName}.self as Any.Type, to: Swift.UnsafeMutableRawPointer.self)";
 
