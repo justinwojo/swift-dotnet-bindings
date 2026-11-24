@@ -544,7 +544,7 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, CreateTypeDatabase());
 
         // One map holding every case's "enum case" symbol, identity and declaration tag, in case order.
-        var map = Regex.Match(csOutput, @"SwiftEnumCaseMap _swiftCaseTagMap = new\((?<args>.*?)\);", RegexOptions.Singleline).Groups["args"].Value;
+        var map = Regex.Match(csOutput, @"SwiftEnumCaseMap _swiftCaseTagMap => _swiftCaseTagMapValue \?\?= new\((?<args>.*?)\);", RegexOptions.Singleline).Groups["args"].Value;
         Assert.NotEmpty(map);
         foreach (var c in enumDecl.Cases)
         {
@@ -561,6 +561,30 @@ public class EnumHandlerOutputTests
         var inject = Regex.Match(csOutput, $@"var tag = _swiftCaseTagMap\.ToTag\({enumDecl.GetCaseId(lateClear)}u\);\s*IntPtr buffer = \(IntPtr\)NativeMemory\.Alloc\(metadata\.Size\);\s*metadata\.ValueWitnessTable->DestructiveInjectEnumTag\(\(void\*\)buffer, tag, metadata\);");
         Assert.True(inject.Success, csOutput);
         Assert.DoesNotContain("DestructiveInjectEnumTag((void*)buffer, (uint)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnum_CaseTagMap_IsNotNullWhereACachedCaseReadsIt()
+    {
+        // Cached no-payload cases are field initializers that may come before the map's declaration;
+        // the map must be non-null wherever a case reads it, which the compiler's nullable analysis checks.
+        var (csOutput, _) = EmitEnum(PaintEnum(isFrozen: false, newerSdk: true), CreateTypeDatabase());
+        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
+        var references = tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Append(Path.Combine(AppContext.BaseDirectory, "Swift.Runtime.dll"))
+            .Distinct()
+            .Select(path => Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create("CaseTagMapNullability",
+            [CSharpSyntaxTree.ParseText("#nullable enable\n" + csOutput)], references,
+            new CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                nullableContextOptions: Microsoft.CodeAnalysis.NullableContextOptions.Enable));
+        var nullable = compilation.GetDiagnostics()
+            .Where(d => d.Id.StartsWith("CS86", StringComparison.Ordinal) && d.GetMessage().Length > 0
+                && d.Location.SourceTree!.GetText().ToString(d.Location.SourceSpan).Contains("_swiftCaseTagMap", StringComparison.Ordinal))
+            .Select(d => d.ToString())
+            .ToList();
+        Assert.True(csOutput.Contains("_swiftCaseTagMap.ToTag(", StringComparison.Ordinal), csOutput);
+        Assert.Empty(nullable);
     }
 
     [Fact]

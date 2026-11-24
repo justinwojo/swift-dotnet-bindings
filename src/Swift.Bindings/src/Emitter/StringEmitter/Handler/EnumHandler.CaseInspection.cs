@@ -101,7 +101,7 @@ namespace BindingsGeneration
             return candidate;
         }
 
-        /// <summary>The private field holding an enum's <see cref="Swift.Runtime.SwiftEnumCaseMap"/>.</summary>
+        /// <summary>The private property holding an enum's <see cref="Swift.Runtime.SwiftEnumCaseMap"/>.</summary>
         internal const string CaseTagMapField = "_swiftCaseTagMap";
 
         /// <summary>
@@ -109,12 +109,15 @@ namespace BindingsGeneration
         /// gives it (<c>Swift.Runtime.SwiftEnumCaseMap</c>), for an enum with
         /// <see cref="EnumDecl.HasNameKeyedCaseIds"/>. Every case is in it, a case the binding does not
         /// emit included, so a value of that case is read as no case the binding names rather than as
-        /// another one.
+        /// another one. The map is created on first use: cached cases are field initializers that may
+        /// come before it in the type, so a field would still be null when they read it.
         /// </summary>
         private static void EmitCaseTagMap(CSharpWriter csWriter, EnumDecl enumDecl, string libraryPath)
         {
+            csWriter.WriteLine($"private static global::Swift.Runtime.SwiftEnumCaseMap? {CaseTagMapField}Value;");
+            csWriter.WriteLine();
             csWriter.WriteLine("/// <summary>The tags the running library gives the cases, by case identity.</summary>");
-            csWriter.WriteLine($"private static readonly global::Swift.Runtime.SwiftEnumCaseMap {CaseTagMapField} = new(");
+            csWriter.WriteLine($"private static global::Swift.Runtime.SwiftEnumCaseMap {CaseTagMapField} => {CaseTagMapField}Value ??= new(");
             csWriter.Indent++;
             csWriter.WriteLine($"\"{libraryPath}\",");
             csWriter.WriteLine($"new string[] {{ {string.Join(", ", enumDecl.Cases.Select(c => $"\"{EnumDecl.GetCaseTagSymbol(c)}\""))} }},");
