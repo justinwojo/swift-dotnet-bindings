@@ -38,12 +38,14 @@ import time
 T0 = time.monotonic()
 
 # lldb's defaults, less every argument value and the thread's return value, and with the raw stop
-# reason: the plain one asks the frame recognizers, which may read values in the app.
+# reason: the plain one asks the frame recognizers, which may read values in the app. Frames use
+# `function.name`, which names the function without reading argument values; the
+# `-without-args` form comes back empty for some NativeAOT symbols.
 THREAD_FORMAT = ("\"thread #${thread.index}{, name = '${thread.name}'}{, queue = '${thread.queue}'}"
                  "{, stop reason = ${thread.stop-reason-raw}}\\n\"")
 FRAME_ROW = re.compile(r"^\s*\*?\s*frame #\d+", re.MULTILINE)
 FRAME_FORMAT = ("\"frame #${frame.index}: ${frame.pc}{ ${module.file.basename}"
-                "{`${function.name-without-args}{${frame.no-debug}${function.pc-offset}}}}"
+                "{`${function.name}{${frame.no-debug}${function.pc-offset}}}}"
                 "{ at ${line.file.basename}:${line.number}}\\n\"")
 
 
