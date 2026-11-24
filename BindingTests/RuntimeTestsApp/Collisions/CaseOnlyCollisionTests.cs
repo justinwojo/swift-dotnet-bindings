@@ -42,15 +42,14 @@ public class CaseOnlyCollisionTests : TestBase
         AssertEqual("UPPER", settings.Url2, "Url2 reads Swift `URL`");
     }
 
-    public void TestNamespaceFacadeAndCaseCollidingSiblingBothUsable()
+    public void TestCaselessEnumContainerAndCaseCollidingSiblingBothUsable()
     {
-        // The facade keeps its name and stays a namespace — its nested type resolves under it.
-        // Spelled out in full because a `using` directive imports a namespace's types, not its
-        // nested namespaces, and `ScanKit` is now a namespace rather than a type.
-        using var region = new SwiftBindingsTestLib.ScanKit.Region(3, 4);
-        AssertEqual(12, region.GetArea(), "ScanKit.Region resolves under the facade namespace");
+        // The caseless enum container keeps its name (a static class); its nested type resolves
+        // under it.
+        using var region = new ScanKit.Region(3, 4);
+        AssertEqual(12, region.GetArea(), "ScanKit.Region resolves under the ScanKit static class");
 
-        // The sibling that case-folds onto the facade took the aggregate suffix.
+        // The sibling that case-folds onto the container took the aggregate suffix.
         using var kit = new SCANKitInfo();
         AssertEqual("SCANKit", kit.GetDescribe(), "SCANKitInfo is the renamed sibling class");
     }

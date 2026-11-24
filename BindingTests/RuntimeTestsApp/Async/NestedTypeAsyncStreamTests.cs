@@ -2,7 +2,7 @@
 // Licensed under the MIT License.
 
 using RuntimeTestsApp.Infrastructure;
-using SwiftBindingsTestLib.StreamTasks;
+using static SwiftBindingsTestLib.StreamTasks;
 
 namespace RuntimeTestsApp.Async;
 

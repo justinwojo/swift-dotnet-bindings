@@ -318,7 +318,8 @@ namespace BindingsGeneration
         /// (<see cref="NameKeyedCaseId"/>) when no other case's name hashes alike. Cases whose names hash
         /// alike form a collision group; each of its members, in ordinal order of name and mangled name,
         /// takes the first salted hash of its own name (<c>name + "\0" + k</c>, k = 1, 2, …) that is no
-        /// case's unsalted hash and no value already taken.
+        /// case's unsalted hash and no value already taken. A name whose hash is 0 is salted the same
+        /// way: 0 is <c>default</c> of the C# enum, which names no case.
         /// <para>
         /// The rule depends only on the colliding names, so a case a newer SDK adds can move an
         /// existing case's value only when its own name hashes exactly like that case's name (or like a
@@ -333,10 +334,11 @@ namespace BindingsGeneration
         {
             var ids = new Dictionary<EnumCaseDecl, uint>(ReferenceEqualityComparer.Instance);
             var bases = cases.ToLookup(c => NameKeyedCaseId(c.Name));
-            var taken = new HashSet<uint>(bases.Select(g => g.Key));
+            // 0 is default(E), which must name no case.
+            var taken = new HashSet<uint>(bases.Select(g => g.Key)) { 0 };
             foreach (var group in bases.OrderBy(g => g.Key))
             {
-                if (group.Count() == 1)
+                if (group.Count() == 1 && group.Key != 0)
                 {
                     ids[group.First()] = group.Key;
                     continue;

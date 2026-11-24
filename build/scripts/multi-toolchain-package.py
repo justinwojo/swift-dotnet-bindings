@@ -681,11 +681,13 @@ class Gate:
                          f"app library {'present' if target.is_file() else 'missing'}, newest library {'present' if newest.is_file() else 'missing'}"):
             return
         shutil.copy2(newest, target)
-        signed = all(subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(p)], capture_output=True).returncode == 0
-                     for p in (staged / "Frameworks" / "CaseOrder.framework", staged))
+        # Compared before signing, which rewrites the binary's signature.
         same = sha256(target.read_bytes()) == sha256(newest.read_bytes())
-        if not self.step(f"{profile} lib-app carries the {NEWEST_PAIRING} CaseOrder library, signed again", signed and same,
-                         f"binary {'matches' if same else 'differs from'} the newest build; codesign {'ok' if signed else 'failed'}"):
+        signed = same and all(subprocess.run(["codesign", "--force", "--sign", "-", "--timestamp=none", str(p)],
+                                             capture_output=True).returncode == 0
+                              for p in (staged / "Frameworks" / "CaseOrder.framework", staged))
+        if not self.step(f"{profile} lib-app carries the {NEWEST_PAIRING} CaseOrder library, signed again", signed,
+                         f"binary {'matches' if same else 'differs from'} the newest build; codesign {'ok' if signed else 'failed or not run'}"):
             return
         self.runs.append((profile, "lib-app-newer-library", "ios", staged))
         self.run_expect[(profile, "lib-app-newer-library")] = f"MTP info CaseOrder library {LIBRARY_COMPILER[NEWEST_PAIRING]}"

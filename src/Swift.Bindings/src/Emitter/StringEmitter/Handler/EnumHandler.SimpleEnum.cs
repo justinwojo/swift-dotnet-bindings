@@ -835,7 +835,6 @@ namespace BindingsGeneration
         /// </summary>
         private const string FromRawValueUnnamedCase = "found.pointee = 0; return 0";
 
-        /// <summary>What a case the binding does not name becomes in C# (see <see cref="SimpleEnumCrossing"/>).</summary>
         /// <summary>The remark on an enum whose member values are keyed by case name (<see cref="EnumDecl.HasNameKeyedCaseValues"/>).</summary>
         private static void WriteNameKeyedValueRemarks(CSharpWriter csWriter)
         {
@@ -844,6 +843,7 @@ namespace BindingsGeneration
             csWriter.WriteLine("/// Every member maps to its own Swift case wherever the binding passes it.</para>");
         }
 
+        /// <summary>What a case the binding does not name becomes in C# (see <see cref="SimpleEnumCrossing"/>).</summary>
         private static void WriteUnknownCaseRemarks(CSharpWriter csWriter)
         {
             csWriter.WriteLine("/// <para>A case this binding does not name (one a newer OS release adds, or one the module interface");

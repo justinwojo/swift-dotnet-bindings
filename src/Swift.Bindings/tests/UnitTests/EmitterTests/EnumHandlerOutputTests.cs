@@ -667,6 +667,18 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void CaseIds_ANameHashingToZeroTakesAnotherValue_SoDefaultNamesNoCase()
+    {
+        const string hashesToZero = "rdklaij";
+        Assert.Equal(0u, EnumDecl.NameKeyedCaseId(hashesToZero));
+
+        var ids = NameKeyedIds(CasesEnum(false, hashesToZero, "plain"));
+        Assert.NotEqual(0u, ids[hashesToZero]);
+        Assert.Equal(EnumDecl.NameKeyedCaseId("plain"), ids["plain"]);
+        Assert.Equal(ids, NameKeyedIds(CasesEnum(false, "plain", "added", hashesToZero)).Where(p => p.Key != "added").ToDictionary());
+    }
+
+    [Fact]
     public void CaseIds_CollidingNamesTakeValuesNoCaseNameHashesTo_WhateverTheCaseOrder()
     {
         var a = CasesEnum(false, CollidingCaseNames[0], "plain", CollidingCaseNames[1]);
@@ -750,7 +762,6 @@ public class EnumHandlerOutputTests
         mode.Cases.Add(CreateCase("spatial"));
         mode.Cases.Add(CreateCase("ambient"));
         audio.Types.Add(mode);
-        Assert.False(NamespaceFacadeDetector.IsNamespaceFacade(audio));
 
         var (csOutput, _) = EmitEnum(audio, CreateTypeDatabase());
         Assert.Contains("public static partial class Audio", csOutput);

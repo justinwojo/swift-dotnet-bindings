@@ -18,9 +18,10 @@ public class NestedEnumTests : TestBase
 
     public void TestCodecFormatValues()
     {
-        AssertEqual(Codec.FormatKind.Json, (Codec.FormatKind)0, "Json is 0");
-        AssertEqual(Codec.FormatKind.Xml, (Codec.FormatKind)1, "Xml is 1");
-        AssertEqual(Codec.FormatKind.Binary, (Codec.FormatKind)2, "Binary is 2");
+        // A non-frozen Swift enum's constants are keyed by case name, not by its raw values.
+        AssertEqual(Codec.FormatKind.Json, (Codec.FormatKind)NameKeyedCase.Of("json"), "Json is keyed by its name");
+        AssertEqual(Codec.FormatKind.Xml, (Codec.FormatKind)NameKeyedCase.Of("xml"), "Xml is keyed by its name");
+        AssertEqual(Codec.FormatKind.Binary, (Codec.FormatKind)NameKeyedCase.Of("binary"), "Binary is keyed by its name");
         TestLogger.Info("Codec.Format enum values passed");
     }
 
@@ -34,10 +35,10 @@ public class NestedEnumTests : TestBase
 
     public void TestSHA2VariantValues()
     {
-        AssertEqual(SHA2Variant.Sha224, (SHA2Variant)0, "Sha224 is 0");
-        AssertEqual(SHA2Variant.Sha256, (SHA2Variant)1, "Sha256 is 1");
-        AssertEqual(SHA2Variant.Sha384, (SHA2Variant)2, "Sha384 is 2");
-        AssertEqual(SHA2Variant.Sha512, (SHA2Variant)3, "Sha512 is 3");
+        AssertEqual(SHA2Variant.Sha224, (SHA2Variant)NameKeyedCase.Of("sha224"), "Sha224 is keyed by its name");
+        AssertEqual(SHA2Variant.Sha256, (SHA2Variant)NameKeyedCase.Of("sha256"), "Sha256 is keyed by its name");
+        AssertEqual(SHA2Variant.Sha384, (SHA2Variant)NameKeyedCase.Of("sha384"), "Sha384 is keyed by its name");
+        AssertEqual(SHA2Variant.Sha512, (SHA2Variant)NameKeyedCase.Of("sha512"), "Sha512 is keyed by its name");
         TestLogger.Info("SHA2Variant enum values passed");
     }
 

@@ -534,8 +534,9 @@ public static class SwiftBindingPackageMerge
                 problems.Add($"{file}: the copy {newer.Tfm} changes {changed.Count} compiled-in value(s) of the older copy {older.Tfm} ({string.Join("; ", changed.Take(10))}{(changed.Count > 10 ? "; …" : "")}). "
                              + "A compiler copies a constant, an enum member's value or a parameter's default into the code that uses it, so a library compiled against the older copy "
                              + "keeps the older value when the app runs the newer copy: every value the older copy declares must be the same in each newer copy. "
-                             + "A member of a non-frozen Swift enum's projection (an enum constant or a CaseTag) is keyed by its case's name, so it changes only when a case the newer SDK adds "
-                             + "has a name whose hash collides with it; an enum that changes otherwise is @frozen, @objc or narrower than 32 bits, and its values follow the SDK's case order.");
+                             + "For enum values: a non-frozen Swift enum's CaseTag constants, and the constants of a plain C# enum of 32 bits or more projected from a non-frozen, non-@objc one, are keyed by case name, so an inserted case moves none of them; "
+                             + "such a value changes only when it now names a different Swift case (a case the newer SDK adds took its C# name, as Swift names that differ only by case do) "
+                             + "or when its name's hash collides with an added case's. A plain enum that is @frozen or narrower than 32 bits follows its SDK's case order, so a case inserted before others moves them; an @objc enum's constants are its raw values.");
                 // The refusal names ten; the log names every one.
                 notes.AddRange(changed.Select(c => $"  changed value {file}: {c}"));
             }

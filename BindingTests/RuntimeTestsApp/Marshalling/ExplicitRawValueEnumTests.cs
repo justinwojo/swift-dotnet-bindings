@@ -31,12 +31,15 @@ public class ExplicitRawValueEnumTests : TestBase
 
     #region Constants and the Swift-backed raw-value helpers
 
-    public void TestConstantsAreCaseIndices()
+    public void TestConstantsAreKeyedByCaseNameNotRawValue()
     {
-        AssertEqual(0L, (long)RawShade.Light, "RawShade.Light is case 0");
-        AssertEqual(1L, (long)RawShade.Dark, "RawShade.Dark is case 1");
-        AssertEqual(3L, (long)RawGapped.D, "RawGapped.D is case 3");
-        AssertEqual(0, (int)RawSigned.Minus, "RawSigned.Minus is case 0");
+        // Non-frozen and at least 32 bits wide: each constant is keyed by its case's name, so a
+        // newer SDK's inserted case renumbers none of them. A byte cannot hold a name key, so
+        // RawByte keeps its case index.
+        AssertEqual((long)NameKeyedCase.Of("light"), (long)RawShade.Light, "RawShade.Light is keyed by its name");
+        AssertEqual((long)NameKeyedCase.Of("dark"), (long)RawShade.Dark, "RawShade.Dark is keyed by its name");
+        AssertEqual((long)NameKeyedCase.Of("d"), (long)RawGapped.D, "RawGapped.D is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("minus"), (int)RawSigned.Minus, "RawSigned.Minus is keyed by its name");
         AssertEqual((byte)1, (byte)RawByte.High, "RawByte.High is case 1");
     }
 

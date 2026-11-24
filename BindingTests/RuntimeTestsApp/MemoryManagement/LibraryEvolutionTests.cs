@@ -78,9 +78,11 @@ public class LibraryEvolutionTests : TestBase
 
     public void TestEvolvingStatusValues()
     {
-        AssertEqual(0, (int)EvolvingStatus.Active, "Active = 0");
-        AssertEqual(1, (int)EvolvingStatus.Inactive, "Inactive = 1");
-        AssertEqual(2, (int)EvolvingStatus.Maintenance, "Maintenance = 2");
+        // A non-frozen enum's constants are keyed by case name, so a case a later library
+        // version inserts moves none of them.
+        AssertEqual(NameKeyedCase.Of("active"), (int)EvolvingStatus.Active, "Active is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("inactive"), (int)EvolvingStatus.Inactive, "Inactive is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("maintenance"), (int)EvolvingStatus.Maintenance, "Maintenance is keyed by its name");
     }
 
     #endregion

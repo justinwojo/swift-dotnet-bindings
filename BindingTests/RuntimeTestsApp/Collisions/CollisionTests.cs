@@ -144,10 +144,10 @@ public class CollisionTests : TestBase
 
     public void TestMarkupStyleValues()
     {
-        AssertEqual(0, (int)MarkupStyle.Plain, "Plain = 0");
-        AssertEqual(1, (int)MarkupStyle.Bold, "Bold = 1");
-        AssertEqual(2, (int)MarkupStyle.Italic, "Italic = 2");
-        AssertEqual(3, (int)MarkupStyle.Strikethrough, "Strikethrough = 3");
+        AssertEqual(NameKeyedCase.Of("plain"), (int)MarkupStyle.Plain, "Plain is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("bold"), (int)MarkupStyle.Bold, "Bold is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("italic"), (int)MarkupStyle.Italic, "Italic is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("strikethrough"), (int)MarkupStyle.Strikethrough, "Strikethrough is keyed by its name");
     }
 
     public void TestFormatText()
@@ -171,10 +171,10 @@ public class CollisionTests : TestBase
 
     public void TestTypeContainerStateEnum()
     {
-        AssertEqual(0, (int)TypeContainer.State.Empty, "Empty = 0");
-        AssertEqual(1, (int)TypeContainer.State.Loading, "Loading = 1");
-        AssertEqual(2, (int)TypeContainer.State.Loaded, "Loaded = 2");
-        AssertEqual(3, (int)TypeContainer.State.Error, "Error = 3");
+        AssertEqual(NameKeyedCase.Of("empty"), (int)TypeContainer.State.Empty, "Empty is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("loading"), (int)TypeContainer.State.Loading, "Loading is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("loaded"), (int)TypeContainer.State.Loaded, "Loaded is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("error"), (int)TypeContainer.State.Error, "Error is keyed by its name");
     }
 
     public void TestContainerStateName()

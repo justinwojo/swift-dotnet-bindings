@@ -3,58 +3,28 @@
 
 using RuntimeTestsApp.Infrastructure;
 using SwiftBindingsTestLib;
-// The namespace-facade emission lifts `LocalFacade.FacadeMessage` /
-// `LocalFacade.FacadeStatus` into the C# namespace
-// `SwiftBindingsTestLib.LocalFacade`. The using directives below succeed
-// ONLY when `LocalFacade` is emitted as a real C# namespace — pre-fix
-// (when it was a `partial class`) `using SwiftBindingsTestLib.LocalFacade;`
-// produces CS0138 because a 'using namespace' directive can only be applied
-// to namespaces, not types. Compile success of these usings is itself the
-// regression gate.
+// A member-less struct used as a namespace (`LocalFacade`) is lifted into the C#
+// namespace `SwiftBindingsTestLib.LocalFacade`, so a plain `using` directive
+// imports its nested types; compile success of that directive is itself a
+// regression check (CS0138 if it were a type).
 //
-// Negative consumer pattern (does NOT compile against the post-fix shape —
-// kept as a comment because "must fail to compile" can't be expressed in a
-// runtime test):
-//
-//     using static SwiftBindingsTestLib.LocalFacade;
-//     using static SwiftBindingsTestLib.LocalFacadeEnum;
-//
-// `using static` only resolves type members; once the facade is a real
-// namespace those lines fail CS7007 ("a 'using static' directive can only
-// be applied to types"). Consumers that wrote `using static Module.Facade;`
-// against the old `partial class` shape broke at the 0.11.0 cutover. The
-// replacement is the plain `using SwiftBindingsTestLib.LocalFacade;` directives below.
+// A caseless enum used as a namespace (`LocalFacadeEnum`) is always a static
+// class, members or not: a newer SDK may give the enum a static member, and a
+// lifted namespace would then become a type and change every nested type's CLR
+// name between a package's copies. `using static` imports a static class's
+// nested types, so it is the directive for the enum (a plain `using` of it
+// fails CS0138).
 using SwiftBindingsTestLib.LocalFacade;
-using SwiftBindingsTestLib.LocalFacadeEnum;
+using static SwiftBindingsTestLib.LocalFacadeEnum;
 
 namespace RuntimeTestsApp.Types;
 
 /// <summary>
-/// Regression coverage for the namespace-facade-as-static-class emission bug.
-/// Swift modules that use the canonical "uninhabited type as namespace"
-/// idiom — a top-level <c>public struct</c>/<c>enum</c> with no inits,
-/// no stored properties, and no instance/static members, used purely to
-/// scope a family of nested types — now emit as a real C# nested
-/// namespace under the parent module's namespace, instead of a
-/// <c>partial class</c> (struct) or <c>static partial class</c>
-/// (caseless enum) container.
-///
-/// Post-fix:
-///   - <c>NamespaceFacadeDetector.IsNamespaceFacade</c> matches the
-///     strict shape (zero properties, methods, inits, operators,
-///     subscripts, conformances, generic parameters; at least one
-///     nested type; for enum: zero cases).
-///   - <c>NamespaceFacadeEmitter.Emit</c> writes a
-///     <c>namespace {Name} { … }</c> block at the current indent
-///     instead of the per-handler class declaration.
-///   - <c>IHandler.HandleBaseDecl</c> intercepts the matched decl
-///     before per-handler dispatch (StructDecl + EnumDecl branches)
-///     and routes through the facade emitter.
-///
-/// Compile success of the <c>using SwiftBindingsTestLib.LocalFacade</c>
-/// directive at the top of this file is the primary regression check —
-/// pre-fix that line would fail with CS0138 because <c>LocalFacade</c>
-/// was a type, not a namespace.
+/// Coverage for types used as namespaces. A top-level <c>public struct</c> with no inits, no
+/// stored properties and no members, used purely to scope nested types, emits as a C# nested
+/// namespace (<c>NamespaceFacadeDetector.IsNamespaceFacade</c>, <c>NamespaceFacadeEmitter</c>).
+/// A caseless enum used the same way emits as a static class, so its nested types keep one CLR
+/// name (<c>LocalFacadeEnum+InnerHolder</c>) in every SDK's binding.
 /// </summary>
 public class NamespaceFacadeTests : TestBase
 {
@@ -92,25 +62,28 @@ public class NamespaceFacadeTests : TestBase
     {
         // FacadeStatus is a nested simple-enum inside the facade. The
         // namespace lift must not break the simple-enum emission path —
-        // the enum should still be a C# `enum` value type with the
-        // declared raw-value cases. Reaches FacadeStatus via the using
-        // directive (no qualifier).
+        // the enum should still be a C# `enum` value type. Its raw values
+        // are not in the interface and it is not @frozen, so its constant is
+        // keyed by case name; the raw value comes from Swift. Reaches
+        // FacadeStatus via the using directive (no qualifier).
         var status = FacadeStatus.Running;
-        AssertEqual(1, (int)status,
-            "FacadeStatus.Running should map to its declared raw value (1)");
+        AssertEqual(NameKeyedCase.Of("running"), (int)status,
+            "FacadeStatus.Running is keyed by its case name");
+        AssertEqual(1, (int)status.ToRawValue(),
+            "FacadeStatus.Running's Swift raw value is 1");
     }
 
     public void TestEnumFacade_NestedStructResolvesViaUsingDirective()
     {
-        // LocalFacadeEnum is a caseless public enum used as a namespace.
-        // Pre-fix this emitted as `public static partial class LocalFacadeEnum`,
-        // which still allowed `using static` access. Post-fix it's a real
-        // namespace, and the `using SwiftBindingsTestLib.LocalFacadeEnum;`
-        // at the top of the file resolves to it. Reaching InnerHolder
-        // without a qualifier proves the namespace path works.
+        // LocalFacadeEnum is a caseless public enum used as a namespace: a
+        // static class, reached here through the `using static` directive.
         using var holder = new InnerHolder(labelValue: 99);
         AssertEqual(99, holder.LabelValue,
             "InnerHolder.LabelValue should round-trip the constructor argument");
+        AssertEqual("SwiftBindingsTestLib.LocalFacadeEnum+InnerHolder", typeof(InnerHolder).FullName,
+            "InnerHolder is nested in the LocalFacadeEnum static class");
+        AssertTrue(typeof(LocalFacadeEnum).IsAbstract && typeof(LocalFacadeEnum).IsSealed,
+            "LocalFacadeEnum is a static class");
     }
 
     public void TestEnumFacade_FreeFunctionReturnTypeRoundTrips()

@@ -199,6 +199,12 @@ a library compiled against the older copy fails to load the nested type under th
 static class the nested types keep one CLR name in every copy. A caseless enum with neither members
 nor nested types (an uninhabited marker) stays an empty C# enum, which a generic argument accepts.
 
+The same holds for the case-only collision rule (`CaseOnlyCollisionPass`): a top-level type whose name
+case-folds onto a container's is renamed, and a caseless enum with nested types counts as a container
+whatever members it has, so a member a newer SDK adds renames no sibling. A struct facade outranks it
+(a namespace and a type of one name cannot coexist), and of two such enums the one whose Swift name
+sorts first keeps the name.
+
 ## The gate
 
 `nuke binding-tests --multi-toolchain-package` (`Build.BindingTests.MultiToolchainPackage.cs`, driver
