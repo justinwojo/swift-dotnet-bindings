@@ -144,7 +144,13 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         var skipInnerConv = innerConv != null
             && _innerProjection.SwiftContainerGenericType == _innerProjection.PublicType;
         var someArg = (skipInnerConv ? null : innerConv) ?? patVar;
-        return $"({elementVar} is {{ }} {patVar} ? {optType}.NewSome({someArg}) : {optType}.NewNone())";
+        // A container inner's conversion builds a Swift collection only to have the optional copy it,
+        // so the optional consumes it; any other argument is the caller's own value.
+        var builtContainer = someArg != patVar
+            && _innerProjection is ArrayProjection or DictionaryProjection or SetProjection
+            && !_innerProjection.UsesObjCContainerBridge;
+        var newSome = builtContainer ? "NewSomeConsuming" : "NewSome";
+        return $"({elementVar} is {{ }} {patVar} ? {optType}.{newSome}({someArg}) : {optType}.NewNone())";
     }
 
     /// <summary>

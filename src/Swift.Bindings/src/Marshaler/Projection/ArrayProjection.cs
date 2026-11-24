@@ -130,7 +130,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             // Conversion needed but no disposal — lazy Select without materialization
             setup.Add(new MarshalStatement.Line(
-                $"var {paramName}Containers = global::System.Linq.Enumerable.Select({paramName}, e => {elemConversion});"));
+                $"var {paramName}Containers = global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(paramName, _elementProjection)}, e => {elemConversion});"));
             setup.Add(new MarshalStatement.Line(
                 $"var {paramName}SwiftDirect = SwiftArray<{rawElem}>.FromEnumerable({paramName}Containers);"));
             return (setup, $"{paramName}SwiftDirect");
@@ -301,7 +301,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         // Same skip-conversion rule as BuildContainerSetup — when SwiftContainerGenericType
         // matches the C# public type, FromEnumerable wants the typed wrapper directly.
         if (elemConversion != null && rawElem != _elementProjection.PublicType)
-            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(elementVar, _elementProjection)}, e => {elemConversion}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({elementVar})";
     }
 

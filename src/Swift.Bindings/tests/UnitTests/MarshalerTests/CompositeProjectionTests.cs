@@ -300,6 +300,30 @@ public class CompositeProjectionTests
         Assert.True(requiresDisposal, "the optional itself is still the setter's to dispose");
     }
 
+    [Theory]
+    [MemberData(nameof(OptionalContainerKinds))]
+    public void OptionalContainerElement_ConsumesTheContainerItBuilt(string kind)
+    {
+        // An optional collection inside a collection ([[T]?]): each element's optional copies the
+        // inner collection its conversion built, so it consumes that collection.
+        var conversion = new OptionalProjection(OptionalContainer(kind)).GetParameterElementConversion("e");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".NewSomeConsuming(", conversion);
+        Assert.DoesNotContain(".NewSome(", conversion);
+    }
+
+    [Fact]
+    public void OptionalValueElement_LeavesTheCallersValueAlone()
+    {
+        // Control: an optional struct element wraps the caller's own value, which it must not dispose.
+        var conversion = new OptionalProjection(new StringProjection()).GetParameterElementConversion("e");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".NewSome(", conversion);
+        Assert.DoesNotContain("NewSomeConsuming", conversion);
+    }
+
     [Fact]
     public void OptionalArray_Return_UsesDiscriminantAndAsProjected()
     {

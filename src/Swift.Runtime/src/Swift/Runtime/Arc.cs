@@ -111,10 +111,11 @@ public static class Arc
     /// Retains a bridge object: the one-word storage of a Swift <c>Array</c>, <c>Set</c> or
     /// <c>Dictionary</c>. The word is a native Swift storage object, or an Objective-C collection
     /// whose pointer carries the bridge-object tag bit when the value was bridged lazily from one;
-    /// <c>swift_retain</c> reads that tagged word as a native object.
+    /// <c>swift_retain</c> reads that tagged word as a native object. The call keeps its GC
+    /// transition: retaining an Objective-C collection sends it <c>retain</c>, which a subclass,
+    /// one defined in managed code included, may implement itself.
     /// </summary>
     [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
-    [SuppressGCTransition]
     static extern IntPtr swift_bridgeObjectRetain(IntPtr p);
 
     /// <summary>

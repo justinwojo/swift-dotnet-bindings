@@ -117,6 +117,49 @@ public class ObjectKeyCollectionProjectionTests
         Assert.Contains("GetNSObject<UIKit.UIImage>(e.Handle)", plan.PInvokeExpression);
     }
 
+    public static TheoryData<TypeSpec> ObjectElementCollections => new()
+    {
+        new NamedTypeSpec("Swift.Array", new NamedTypeSpec("UIKit.UIImage")),
+        new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIImage")),
+        Dictionary(new NamedTypeSpec("Swift.String"), new NamedTypeSpec("UIKit.UIImage")),
+    };
+
+    [Theory]
+    [MemberData(nameof(ObjectElementCollections))]
+    public void ObjCElementCollection_BuildsFromAMaterializedSource(TypeSpec collection)
+    {
+        // A converted element is the object's bare pointer: a lazy source that creates each object
+        // would leave it collectable before Swift copies it, so every build site enumerates a
+        // materialized copy of the source, which keeps each object reachable until the build ends.
+        var projection = Assert.IsAssignableFrom<ITypeProjection>(
+            _factory.Project(collection, Context(new TypeDatabase(), new ModuleEmissionContext())));
+        const string pinned = "global::System.Linq.Enumerable.ToArray(images)";
+
+        var setup = string.Join("\n", projection.GetParameterPlan("images").SetupStatements.Select(Render));
+        Assert.Contains(pinned, setup);
+
+        var setter = projection switch
+        {
+            ArrayProjection array => AccessorSetterConversionVisitor.ArraySetterConversion(array, "images"),
+            SetProjection set => AccessorSetterConversionVisitor.SetSetterConversion(set, "images"),
+            DictionaryProjection dictionary => AccessorSetterConversionVisitor.DictSetterConversion(dictionary, "images"),
+            _ => throw new InvalidOperationException(projection.GetType().Name),
+        };
+        Assert.NotNull(setter.Item1);
+        Assert.Contains(pinned, setter.Item1);
+    }
+
+    [Fact]
+    public void ValueElementCollection_BuildsFromTheSourceItself()
+    {
+        // Control: an element converted to a value holds what it needs, so the source is not copied.
+        var projection = Assert.IsType<ArrayProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")), Context(new TypeDatabase(), new ModuleEmissionContext())));
+        var setup = string.Join("\n", projection.GetParameterPlan("names").SetupStatements.Select(Render));
+        Assert.Contains("FromEnumerable(", setup);
+        Assert.DoesNotContain("ToArray(names)", setup);
+    }
+
     private static string Render(MarshalStatement statement) => statement switch
     {
         MarshalStatement.Line line => line.Code,

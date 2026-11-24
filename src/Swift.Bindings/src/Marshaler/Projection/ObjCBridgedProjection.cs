@@ -89,6 +89,22 @@ public class ObjCBridgedProjection : ITypeProjection
         ? $"new {identity.CarrierType}({LiveHandleExpressions.ObjCSelf(elementVar)})"
         : LiveHandleExpressions.ObjCSelf(elementVar);
 
+    /// <summary>
+    /// The source a C#-built Swift collection converts its elements from, kept alive while Swift copies
+    /// them. An element converted by this projection is the object's pointer, which holds no managed
+    /// reference; Swift retains it only as the collection stores it. A lazy source (a <c>Select</c> that
+    /// creates each object) leaves the object reachable from nothing in between, so a collection could
+    /// finalize it, releasing its only reference, before Swift copies the pointer. Materializing the
+    /// source keeps every object reachable from the array the conversion enumerates until the
+    /// collection's builder, which stores each element as it reads it, has finished.
+    /// </summary>
+    /// <param name="source">The C# expression of the source collection.</param>
+    /// <param name="slots">The projections that convert the source's elements (a dictionary's key and value).</param>
+    internal static string PinnedSource(string source, params ITypeProjection[] slots) =>
+        slots.Any(slot => slot is ObjCBridgedProjection)
+            ? $"global::System.Linq.Enumerable.ToArray({source})"
+            : source;
+
     // A key, element or value read out of a Swift collection is borrowed from the collection (the runtime
     // releases the copy the iterator handed over), so the wrapper takes its own reference.
     public string? GetReturnElementConversion(string elementVar) => MarshallingHelpers.FormatObjCBridgeCall(

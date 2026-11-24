@@ -1938,7 +1938,7 @@ public partial class ProtocolProxyEmitter
         // ISwiftObject.MarshalToSwift copies the struct's payload bytes by value into each slot.
         // Mirrors the SetProjection.BuildContainerSetup skip-conversion rule.
         if (elemConv != null && rawElem != set.ElementProjection.PublicType)
-            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
+            return $"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(varName, set.ElementProjection)}, e => {elemConv}))";
         return $"SwiftSet<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1952,7 +1952,7 @@ public partial class ProtocolProxyEmitter
         var elemConv = arr.ElementProjection.GetParameterElementConversion("e");
         // Same skip-conversion rule as ArrayProjection.BuildContainerSetup.
         if (elemConv != null && rawElem != arr.ElementProjection.PublicType)
-            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
+            return $"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(varName, arr.ElementProjection)}, e => {elemConv}))";
         return $"SwiftArray<{rawElem}>.FromEnumerable({varName})";
     }
 
@@ -1979,7 +1979,7 @@ public partial class ProtocolProxyEmitter
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({varName}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(varName, dict.KeyProjection, dict.ValueProjection)}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
     }
