@@ -42,10 +42,11 @@ public sealed record HungProcessStacks(string Target, int? Pid, IReadOnlyList<St
 /// <summary>
 /// Takes every thread's backtrace of a hung app before the launcher's stall kill: twice, a few
 /// seconds apart, so a thread that is blocked shows the same frames in both and a thread that is
-/// spinning shows different ones. lldb symbolicates from the binaries it can read (an on-disk
-/// simulator or host app, and the device's own copy for a phone); each sample also lists the
-/// loaded images with their slides, so a stripped frame can be resolved later against the
-/// build's unstripped copy. Every debugger run is bounded and its process tree is killed when it
+/// spinning shows different ones. A process on this Mac is read with <c>sample</c>, which runs no
+/// code in the app (lldb is its fallback; see <see cref="HostCommands"/>); a phone's is read with
+/// lldb through CoreDevice. Both symbolicate from the binaries they can read, and each sample also
+/// lists the loaded images with their load addresses, so a stripped frame can be resolved later
+/// against the build's unstripped copy. Every debugger run is bounded and its process tree is killed when it
 /// overruns, so a debugger that hangs or cannot attach costs a bounded delay and never stops
 /// the launcher from killing the app. The capture never touches the launch's result.
 /// </summary>
@@ -70,7 +71,7 @@ public static class HungProcessSampler
     /// <summary>The bounded result of one command.</summary>
     public sealed record CommandRun(bool TimedOut, int? ExitCode, string Output);
 
-    /// <summary>lldb against a process on this Mac (a simulator app, a macOS or Mac Catalyst app).</summary>
+    /// <summary>lldb against a process on this Mac (a simulator app, a macOS or Mac Catalyst app): the fallback when <c>sample</c> gets no backtrace.</summary>
     public static Command HostLldb(int pid) => new("xcrun",
     [
         "lldb", "--batch", "--no-lldbinit",
@@ -80,7 +81,7 @@ public static class HungProcessSampler
         "-o", "process detach",
     ]);
 
-    /// <summary>The <c>sample</c> fallback for a host process lldb could not attach to.</summary>
+    /// <summary><c>sample</c> against a process on this Mac: the host capture's first choice, since it runs nothing in the app.</summary>
     public static Command HostSample(int pid) => new("/usr/bin/sample", [pid.ToString(), "1", "-mayDie"]);
 
     /// <summary>lldb against a process on a connected phone, through CoreDevice.</summary>
@@ -187,9 +188,19 @@ public static class HungProcessSampler
         return new HungProcessStacks(target, id, samples);
     }
 
-    /// <summary>Captures a process on this Mac: lldb, then <c>sample</c>.</summary>
+    /// <summary>
+    /// The commands a host capture tries, in order: <c>sample</c>, then lldb. <c>sample</c> only
+    /// reads the threads. lldb's attach can run code inside the app (its Objective-C runtime
+    /// support calls utility functions to describe frame arguments), and on the .NET 11 CoreCLR
+    /// interpreter that left the main thread stopped at lldb's return trap, where debugserver
+    /// killed the app before the second sample. So lldb is only the fallback for an app
+    /// <c>sample</c> cannot read.
+    /// </summary>
+    public static IReadOnlyList<Command> HostCommands(int pid) => [HostSample(pid), HostLldb(pid)];
+
+    /// <summary>Captures a process on this Mac with <see cref="HostCommands"/>.</summary>
     public static HungProcessStacks CaptureHost(string target, int? pid) =>
-        Capture(target, pid, id => [HostLldb(id), HostSample(id)], HostDebuggerBound, SampleGap, IsHostProcessAlive);
+        Capture(target, pid, HostCommands, HostDebuggerBound, SampleGap, IsHostProcessAlive);
 
     /// <summary>Captures a process on a connected phone through lldb's CoreDevice support.</summary>
     public static HungProcessStacks CaptureDevice(string target, string udid, int? pid) =>

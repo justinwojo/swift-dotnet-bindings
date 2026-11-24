@@ -109,6 +109,44 @@ public sealed class HungProcessStacksTests : IDisposable
     }
 
     [Fact]
+    public void CaptureWithHostCommands_NeverRunsTheDebuggerWhileTheSamplerHasABacktrace()
+    {
+        var runs = new List<string>();
+        var stacks = HungProcessSampler.Capture("app", 4242, HungProcessSampler.HostCommands, TimeSpan.FromSeconds(5), TimeSpan.Zero,
+            isAlive: _ => true,
+            run: (command, _) =>
+            {
+                runs.Add(command.FileName);
+                return command.FileName == "/usr/bin/sample"
+                    ? new HungProcessSampler.CommandRun(false, 0, SampleCallGraph)
+                    : throw new InvalidOperationException("the debugger must not attach while the sampler works");
+            });
+
+        Assert.Equal(new[] { "/usr/bin/sample", "/usr/bin/sample" }, runs);
+        Assert.All(stacks.Samples, s => Assert.Equal(HungProcessSampler.OutcomeCaptured, s.Outcome));
+        Assert.All(stacks.Samples, s => Assert.Equal("/usr/bin/sample", s.Tool));
+    }
+
+    [Fact]
+    public void CaptureWithHostCommands_FallsBackToTheDebuggerWhenTheSamplerFails()
+    {
+        var runs = new List<string>();
+        var stacks = HungProcessSampler.Capture("app", 4242, HungProcessSampler.HostCommands, TimeSpan.FromSeconds(5), TimeSpan.Zero,
+            isAlive: _ => true,
+            run: (command, _) =>
+            {
+                runs.Add(command.FileName);
+                return command.FileName == "/usr/bin/sample"
+                    ? new HungProcessSampler.CommandRun(false, 1, "sample[1]: Failed to examine process 4242")
+                    : new HungProcessSampler.CommandRun(false, 0, LldbBacktrace);
+            });
+
+        Assert.Equal(new[] { "/usr/bin/sample", "xcrun", "/usr/bin/sample", "xcrun" }, runs);
+        Assert.All(stacks.Samples, s => Assert.Equal("lldb", s.Tool));
+        Assert.Contains("Failed to examine", stacks.Samples[0].Text);
+    }
+
+    [Fact]
     public void Capture_StopsAfterADebuggerOverrunsItsBound()
     {
         var runs = 0;
