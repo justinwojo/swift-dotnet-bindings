@@ -66,9 +66,10 @@ public sealed record IdentityCell(
 /// <summary>A fixture the app can run, with the transition shape it exercises.</summary>
 /// <param name="Name">The name passed to the app.</param>
 /// <param name="Shape">The transition shape, for the report.</param>
-/// <param name="DirectMembers">Generated members that must carry a Swift-transition rule in the
-/// binding assembly for this fixture to exercise a direct Swift transition (rule, member
-/// substring). Empty for positive controls, which go through the Cdecl wrapper or a thunk.</param>
+/// <param name="DirectMembers">Members of the app's hand-written <c>DirectControls</c> that must
+/// carry a Swift-transition rule in the app assembly for this fixture to exercise a direct Swift
+/// transition (rule, member substring). Empty for positive controls, which call the generated
+/// binding.</param>
 /// <param name="ReadyToRunGap">Set when crossgen2 leaves the method that makes this fixture's Swift
 /// call to the runtime, so a ReadyToRun app still makes that call from the interpreter.</param>
 public sealed record IdentityFixture(string Name, string Shape, IReadOnlyList<(string Rule, string Member)> DirectMembers,
@@ -105,19 +106,15 @@ public static class InterpIdentityMatrix
         new("string", "String round trip through the @_cdecl wrapper", []),
         new("class-member", "final-class method through a native thunk", []),
         new("self-receiver", "direct CallConvSwift: inout non-frozen struct + SwiftSelf (non-frozen struct receiver by address), repeated",
-            [("R1", "IifSlot::PInvoke_stamp_")]),
+            [("R1", "DirectControls::StampReceiver")]),
         new("self-error", "direct CallConvSwift: inout non-frozen struct, bool, SwiftSelf (struct by address), SwiftError*",
-            [("R1", "IifSlot::PInvoke_stampThrowing_")]),
+            [("R1", "DirectControls::StampWithError")]),
         new("indirect-result", "direct CallConvSwift: SwiftIndirectResult (failable init of a resilient struct)",
-            [("R1", "IifFailable::PInvoke_init_")],
-            new ReadyToRunGap("InterpIdentityFixture_IifFailable__TryCreate",
-                "the failable init reads the Optional's tag and copies the payload through value-witness function " +
-                "pointers; crossgen2 does not precompile a method containing an unmanaged calli " +
-                "(GetCookieForPInvokeCalliSig requires runtime JIT)")),
+            [("R1", "DirectControls::CreateFailable")]),
         new("reverse-error-first", "Swift invokes a CallConvSwift UCO (SwiftError*, void*, SwiftSelf)",
-            [("R4", "iifCallThrowing_arg0_")]),
+            [("R4", "DirectControls::ThrowingSetCallback")]),
         new("reverse-context-last", "Swift invokes a CallConvSwift UCO (void*, SwiftSelf) from a failable init",
-            [("R4", "IifVisitorFactory::init_arg0_"), ("R1", "IifVisitorFactory::PInvoke_init_")]),
+            [("R4", "DirectControls::PointVisitorCallback"), ("R1", "DirectControls::CreateVisitorFactory")]),
     ];
 
     public static IdentityFixture Fixture(string name) =>

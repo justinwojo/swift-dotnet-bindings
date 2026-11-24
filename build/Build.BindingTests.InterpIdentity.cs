@@ -28,9 +28,11 @@ using SwiftBindings.TransitionGate;
 ///
 /// <para>Each cell must prove the lane it claims from method-level receipts (the image and symbol
 /// that called each Swift entry point, the crossgen2 inputs and the composite's precompiled
-/// bodies), and every fixture must meet its expectation for today's emission: positive controls
-/// pass everywhere, negative controls reproduce their interpreter defect, and the x86_64 typed
-/// self/error placement is recorded as measured. The harness then re-classifies each
+/// bodies), and every fixture must meet its expectation: positive controls (calls through the
+/// generated binding) pass everywhere, and negative controls reproduce their interpreter defect.
+/// The binding routes or guards every negative-control shape, so those controls are the app's own
+/// hand-written direct Swift-convention transitions against the fixture's symbols, and the
+/// harness scans the app assembly to prove each one is still direct. The harness then re-classifies each
 /// interpreter cell's receipts under a ReadyToRun claim and vice versa; a classifier that accepts
 /// either mislabel fails the run.</para>
 ///
@@ -92,7 +94,7 @@ partial class Build
             var binding = bindings[cell.Platform];
             var (app, inventory, crossgen) = BuildInterpIdentityApp(cell, binding);
             if (!coverage.ContainsKey(cell.Platform))
-                coverage[cell.Platform] = CheckInterpIdentityDirectLanes(binding, cell.Configuration, app);
+                coverage[cell.Platform] = CheckInterpIdentityDirectLanes(binding, cell, app);
 
             if (cell.Simulator)
                 SimCtl.Install(simulator!, app);
@@ -217,21 +219,34 @@ partial class Build
         return xcframework;
     }
 
-    // The negative controls are only controls while the generator still binds them on a direct
-    // Swift transition. Scan the built binding assembly with the transition gate's own engine.
-    // The app bundle supplies the framework assemblies the scan resolves carrier types against.
-    IReadOnlyList<string> CheckInterpIdentityDirectLanes(IifBinding binding, string configuration, AbsolutePath app)
+    // The negative controls are only controls while they still make a direct Swift transition.
+    // They are the app's own hand-written DirectControls (the generated binding routes or guards
+    // every one of these shapes), so scan the app assembly with the transition gate's own engine.
+    // The binding's scan is kept beside it as the receipt of what the product emits for the same
+    // members. The app bundle supplies the framework assemblies the scans resolve against.
+    IReadOnlyList<string> CheckInterpIdentityDirectLanes(IifBinding binding, IdentityCell cell, AbsolutePath app)
     {
-        var dll = Directory.GetFiles(binding.Directory / "bin" / configuration, $"{binding.ProjectName}.dll", SearchOption.AllDirectories)
+        var bindingDll = Directory.GetFiles(binding.Directory / "bin" / cell.Configuration, $"{binding.ProjectName}.dll", SearchOption.AllDirectories)
             .FirstOrDefault() ?? throw new Exception($"--interp-identity: built binding {binding.ProjectName}.dll not found under {binding.Directory / "bin"}.");
+        var appObj = IifAppDir / "obj" / cell.RuntimeIdentifier / cell.Configuration;
+        var appDll = Directory.GetFiles(appObj, $"{IifAppName}.dll", SearchOption.AllDirectories)
+            .OrderBy(p => p.Length).FirstOrDefault()
+            ?? throw new Exception($"--interp-identity: compiled {IifAppName}.dll not found under {appObj}.");
         var frameworkDir = Directory.GetFiles(app, "System.Private.CoreLib.dll", SearchOption.AllDirectories).Select(Path.GetDirectoryName).FirstOrDefault()
             ?? throw new Exception($"--interp-identity: {app} carries no System.Private.CoreLib.dll to resolve the scan's references against.");
-        var report = SwiftTransitionScanner.Scan(dll, new SwiftTransitionScanOptions { ReferenceDirectories = [Path.GetDirectoryName(dll)!, frameworkDir!] });
-        var lines = report.Violations.Select(v => $"{v.Rule} {v.Member} [{v.Signature}]").ToList();
-        File.WriteAllLines(IifReceiptsDir / $"transitions-{binding.Platform.Name}.txt", lines);
-        var missing = DirectLaneCoverage.Missing(report.Violations.Select(v => (v.Rule.ToString(), v.Member))).ToList();
-        if (report.InspectionErrors.Length > 0)
-            missing.AddRange(report.InspectionErrors.Select(e => $"transition scan inspection error: {e.Member}: {e.Message}"));
+
+        AssemblyTransitionReport Scan(string dll) =>
+            SwiftTransitionScanner.Scan(dll, new SwiftTransitionScanOptions { ReferenceDirectories = [Path.GetDirectoryName(dll)!, frameworkDir!] });
+        static IEnumerable<string> Lines(AssemblyTransitionReport r) =>
+            r.Violations.Select(v => $"{v.Rule} {v.Member} [{v.Signature}]")
+                .Concat(r.InspectionErrors.Select(e => $"inspection error {e.Member}: {e.Message}"));
+
+        var appReport = Scan(appDll);
+        var bindingReport = Scan(bindingDll);
+        File.WriteAllLines(IifReceiptsDir / $"transitions-{binding.Platform.Name}.txt",
+            [$"# {IifAppName} (the negative controls)", .. Lines(appReport), $"# {binding.ProjectName} (the generated binding)", .. Lines(bindingReport)]);
+        var missing = DirectLaneCoverage.Missing(appReport.Violations.Select(v => (v.Rule.ToString(), v.Member))).ToList();
+        missing.AddRange(appReport.InspectionErrors.Select(e => $"{IifAppName} transition scan inspection error: {e.Member}: {e.Message}"));
         return missing;
     }
 

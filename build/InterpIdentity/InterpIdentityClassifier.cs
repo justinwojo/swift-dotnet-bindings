@@ -131,13 +131,14 @@ public sealed record CellVerdict(IdentityCell Cell, LaneVerdict Lane, IReadOnlyL
 }
 
 /// <summary>
-/// Confirms that each negative control still exercises a direct Swift transition: the generated
-/// binding must carry the transition-gate rule its fixture names. Without this a generator change
-/// that reroutes a member through the Cdecl wrapper would turn a control into a silent pass.
+/// Confirms that each negative control still exercises a direct Swift transition: the app's
+/// hand-written <c>DirectControls</c> must carry the transition-gate rule its fixture names. The
+/// generated binding routes or guards these shapes, so the controls cannot rely on it; without
+/// this check a control rewritten onto another lane would turn into a silent pass.
 /// </summary>
 public static class DirectLaneCoverage
 {
-    /// <summary>Every (fixture, rule, member) the binding no longer exercises directly.</summary>
+    /// <summary>Every (fixture, rule, member) the app no longer exercises directly.</summary>
     public static IReadOnlyList<string> Missing(IEnumerable<(string Rule, string Member)> violations)
     {
         var all = violations.ToList();

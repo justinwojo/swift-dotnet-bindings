@@ -10,9 +10,11 @@
 //   stderr before doing anything else, so a call that later crashes still leaves its receipt.
 //   The first frame outside this module and its generated wrapper is the transition's caller:
 //   the interpreter's call stub in libcoreclr, or precompiled ReadyToRun code.
-// - Whether the transition delivered its arguments. Each shape below is one that today's
-//   emission binds as a direct Swift-convention transition, chosen because the interpreter is
-//   known (arm64) or suspected (x86_64) to mishandle it. They are negative controls: a cell that
+// - Whether the transition delivered its arguments. Each negative-control shape below is one
+//   the interpreter is known (arm64) or suspected (x86_64) to mishandle on a direct
+//   Swift-convention transition. The generated binding no longer makes such a transition for any
+//   of them (it routes them through bridges or guards them), so the app reaches them through its
+//   own hand-written imports and callbacks (InterpIdentityApp/DirectControls.cs). A cell that
 //   really runs the interpreter must reproduce the failure, and a ReadyToRun cell must not.
 //
 // Nothing here reads `self` or a stored property on the paths that measure placement, so a
@@ -77,8 +79,7 @@ public final class IifCounter {
 
 // MARK: - Negative controls
 
-// Non-frozen, so an `inout` of it reaches Swift by address. A member taking one keeps the
-// receiver on the direct Swift-convention lane today.
+// Non-frozen, so an `inout` of it reaches Swift by address.
 public struct IifPoint {
     public var x: Int
     public var y: Int
@@ -125,9 +126,9 @@ public struct IifFailable {
     }
 }
 
-// Swift invokes the closure the binding hands it. The binding's callback for a throwing closure
-// is a Swift-convention UnmanagedCallersOnly that takes its context in the self register and
-// reports failure through the error register. The forward call carries only the two-word
+// Swift invokes the closure the app hands it. The app's callback for a throwing closure is a
+// Swift-convention UnmanagedCallersOnly that takes its context in the self register and reports
+// failure through the error register. The forward call carries only the two-word
 // closure, which every x86_64 calling convention places in the same two registers, so a failure
 // here is the reverse transition's own. Returns the set's count, or -1 if the callback threw.
 public func iifCallThrowing(_ callback: @escaping (Set<String>) throws -> Void) -> Int32 {

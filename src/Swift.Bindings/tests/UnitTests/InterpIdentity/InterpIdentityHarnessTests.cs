@@ -489,16 +489,17 @@ public class InterpIdentityHarnessTests
                 Assert.Equal(f.ReadyToRunGap == null ? FixtureExpectation.Pass : InterpIdentityMatrix.ExpectationFor(interp, f.Name),
                     InterpIdentityMatrix.ExpectationFor(cell, f.Name));
         }
-        // The measured gap: on x86_64 the Release app makes the indirect-result call from the
-        // interpreter, so it reproduces the same defect as the Debug app.
-        Assert.Equal(FixtureExpectation.Reproduce, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M4, "indirect-result"));
+        // The hand-written controls read their results without an unmanaged calli, so crossgen2
+        // precompiles every one of them and both ReadyToRun cells must pass the indirect result.
+        Assert.DoesNotContain(InterpIdentityMatrix.Fixtures, f => f.ReadyToRunGap != null);
+        Assert.Equal(FixtureExpectation.Pass, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M4, "indirect-result"));
         Assert.Equal(FixtureExpectation.Pass, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M2, "indirect-result"));
     }
 
     [Fact]
     public void ReverseErrorFirst_PassesOnTheArm64Interpreter_AndStillReproducesOnX64()
     {
-        // The generator places a reverse callback's SwiftError* first, where the arm64 interpreter
+        // The control places a reverse callback's SwiftError* first, as the generator did, where the arm64 interpreter
         // writes the error register, so the arm64 cell is a positive control. The x86_64
         // interpreter has no Swift lowering at all, so the same callback stays a negative control.
         Assert.Equal(FixtureExpectation.Pass, InterpIdentityMatrix.ExpectationFor(InterpIdentityMatrix.M1, "reverse-error-first"));
@@ -585,7 +586,17 @@ public class InterpIdentityHarnessTests
     // MARK: - Direct-lane coverage
 
     static IEnumerable<(string Rule, string Member)> AllDirectMembers() =>
-        InterpIdentityMatrix.Fixtures.SelectMany(f => f.DirectMembers.Select(m => (m.Rule, $"InterpIdentityFixture.{m.Member}(...)")));
+        InterpIdentityMatrix.Fixtures.SelectMany(f => f.DirectMembers.Select(m => (m.Rule, $"{m.Member}(...)")));
+
+    [Fact]
+    public void NegativeControls_NameTheAppsHandWrittenTransitions_NotTheBinding()
+    {
+        // The generated binding routes or guards every negative-control shape, so a control that
+        // named a generated member would measure the product's safe path, never the defect.
+        var direct = InterpIdentityMatrix.Fixtures.SelectMany(f => f.DirectMembers).ToList();
+        Assert.NotEmpty(direct);
+        Assert.All(direct, m => Assert.StartsWith("DirectControls::", m.Member, StringComparison.Ordinal));
+    }
 
     [Fact]
     public void DirectLaneCoverage_EveryControlStillDirect_IsComplete()
@@ -596,15 +607,15 @@ public class InterpIdentityHarnessTests
     [Fact]
     public void DirectLaneCoverage_AControlReroutedOffTheDirectLane_IsReported()
     {
-        var violations = AllDirectMembers().Where(v => !v.Member.Contains("PInvoke_stamp_", StringComparison.Ordinal)).ToList();
+        var violations = AllDirectMembers().Where(v => !v.Member.Contains("StampReceiver", StringComparison.Ordinal)).ToList();
         var missing = DirectLaneCoverage.Missing(violations);
-        Assert.Equal(["self-receiver: no R1 transition on a member matching 'IifSlot::PInvoke_stamp_'"], missing);
+        Assert.Equal(["self-receiver: no R1 transition on a member matching 'DirectControls::StampReceiver'"], missing);
     }
 
     [Fact]
     public void DirectLaneCoverage_TheRuleMustMatchToo()
     {
-        var violations = AllDirectMembers().Select(v => v.Member.Contains("iifCallThrowing", StringComparison.Ordinal) ? ("R1", v.Member) : v);
+        var violations = AllDirectMembers().Select(v => v.Member.Contains("ThrowingSetCallback", StringComparison.Ordinal) ? ("R1", v.Member) : v);
         Assert.Contains(DirectLaneCoverage.Missing(violations), m => m.StartsWith("reverse-error-first", StringComparison.Ordinal));
     }
 }

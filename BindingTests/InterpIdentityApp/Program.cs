@@ -1,8 +1,10 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
-// Lane-identity runner. Runs exactly one fixture (`--iif-fixture <name>`) against the generated
-// InterpIdentityFixture binding, then prints what it saw:
+// Lane-identity runner. Runs exactly one fixture (`--iif-fixture <name>`) against the
+// InterpIdentityFixture module, then prints what it saw. The positive controls call the generated
+// binding; the negative controls make their direct Swift-convention transitions through
+// DirectControls (see that file for why):
 //
 //   IIF START fixture=<name> framework=<description> arch=<arch> configuration=<Debug|Release>
 //   IIF BEGIN <name>
@@ -21,9 +23,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.InteropServices.Swift;
 using InterpIdentityFixture;
-using Swift;
-using Swift.Runtime;
 
 static unsafe class Program
 {
@@ -63,6 +64,7 @@ static unsafe class Program
             return Finish(2);
         }
 
+        DirectControls.RegisterResolver();
         Emit($"IIF BEGIN {fixture}");
         var issues = new List<string>();
         bool passed;
@@ -124,115 +126,133 @@ static unsafe class Program
     }
 
     // MARK: - Negative controls
+    //
+    // Each makes its fixture's direct Swift-convention transition through DirectControls, never
+    // through the binding, which no longer reaches Swift directly for these shapes.
 
     // The receiver is a non-frozen struct passed by address in the self register, and Swift
     // writes the address it received into point.y. Its first stored property sits at offset 0;
     // the arm64 interpreter's x20 defect writes 1 into the word four bytes in, which reads back
-    // as the tag plus 2^32. The tag is read straight from the payload, not through the binding,
-    // so the measurement makes no further transition.
+    // as the tag plus 2^32. Receiver and point are native memory the app reads directly, so the
+    // measurement makes no further transition.
     const nint Tag = 5;
 
-    static void StampOnce(IifSlot slot, nint handle, int call, List<string> issues, bool throwing = false, bool fail = false)
+    static void StampOnce(nint* slot, int call, List<string> issues, bool throwing = false, bool fail = false)
     {
-        var point = new IifPoint(0, 0);
-        try
-        {
-            Exception? thrown = null;
-            try
-            {
-                if (throwing) slot.StampThrowing(ref point, fail);
-                else slot.Stamp(ref point);
-            }
-            catch (Exception ex) when (throwing)
-            {
-                thrown = ex;
-            }
+        var point = stackalloc nint[2];
+        point[0] = 0;
+        point[1] = 0;
+        var handle = (nint)slot;
+        var error = default(SwiftError);
+        if (throwing) DirectControls.StampWithError((IntPtr)point, fail ? (byte)1 : (byte)0, new SwiftSelf(slot), &error);
+        else DirectControls.StampReceiver((IntPtr)point, new SwiftSelf(slot));
 
-            var tag = *(nint*)handle;
-            if (tag != Tag)
-            {
-                issues.Add($"call {call}: receiver word 0 changed from 0x{Tag:x} to 0x{tag:x}");
-                // Restore it so each later call is measured from the same state.
-                *(nint*)handle = Tag;
-            }
-            if (point.YNative != handle)
-                issues.Add($"call {call}: Swift saw self 0x{point.YNative:x}, expected 0x{handle:x}");
-            var expectedX = fail ? 0 : 1;
-            if (point.XNative != expectedX)
-                issues.Add($"call {call}: point.x is {point.XNative}, expected {expectedX}");
-            if (throwing)
-            {
-                Observe($"call {call}: fail={fail} thrown={(thrown == null ? "none" : thrown.GetType().Name)}");
-                if (fail && thrown == null) issues.Add($"call {call}: the Swift error did not surface");
-                if (!fail && thrown != null) issues.Add($"call {call}: unexpected {thrown.GetType().Name}: {thrown.Message}");
-            }
-        }
-        finally
+        if (slot[0] != Tag)
         {
-            point.Dispose();
+            issues.Add($"call {call}: receiver word 0 changed from 0x{Tag:x} to 0x{slot[0]:x}");
+            // Restore it so each later call is measured from the same state.
+            slot[0] = Tag;
         }
+        if (point[1] != handle)
+            issues.Add($"call {call}: Swift saw self 0x{point[1]:x}, expected 0x{handle:x}");
+        var expectedX = fail ? 0 : 1;
+        if (point[0] != expectedX)
+            issues.Add($"call {call}: point.x is {point[0]}, expected {expectedX}");
+        if (throwing)
+        {
+            // A thrown error is the app's to release; one leaked object in a one-fixture process is harmless.
+            var thrown = error.Value != null;
+            Observe($"call {call}: fail={fail} thrown={(thrown ? $"0x{(nint)error.Value:x}" : "none")}");
+            if (fail && !thrown) issues.Add($"call {call}: the Swift error did not surface");
+            if (!fail && thrown) issues.Add($"call {call}: an error surfaced from a call that does not throw");
+        }
+    }
+
+    static nint* NewSlot()
+    {
+        // IifSlot is two Ints: tag, then spare.
+        var slot = (nint*)NativeMemory.AllocZeroed(2, (nuint)sizeof(nint));
+        slot[0] = Tag;
+        return slot;
     }
 
     static bool SelfReceiver(List<string> issues)
     {
-        using var slot = new IifSlot(Tag);
-        var handle = ((ISwiftObject)slot).SwiftHandle;
-        Observe($"receiver=0x{handle:x} word0=0x{*(nint*)handle:x}");
+        var slot = NewSlot();
+        Observe($"receiver=0x{(nint)slot:x} word0=0x{slot[0]:x}");
         for (var call = 0; call < 4; call++)
-            StampOnce(slot, handle, call, issues);
+            StampOnce(slot, call, issues);
+        NativeMemory.Free(slot);
         return true;
     }
 
     static bool SelfError(List<string> issues)
     {
-        using var slot = new IifSlot(Tag);
-        var handle = ((ISwiftObject)slot).SwiftHandle;
-        Observe($"receiver=0x{handle:x} word0=0x{*(nint*)handle:x}");
-        StampOnce(slot, handle, 0, issues, throwing: true, fail: false);
-        StampOnce(slot, handle, 1, issues, throwing: true, fail: true);
+        var slot = NewSlot();
+        Observe($"receiver=0x{(nint)slot:x} word0=0x{slot[0]:x}");
+        StampOnce(slot, 0, issues, throwing: true, fail: false);
+        StampOnce(slot, 1, issues, throwing: true, fail: true);
+        NativeMemory.Free(slot);
         return true;
+    }
+
+    // An Optional of a one-Int32 struct: the Int32, then a tag byte (0 a value, 1 nil). The buffer
+    // is filled with a pattern first, so a result Swift never wrote reads back as neither.
+    const byte Unwritten = 0xA5;
+
+    static (bool Written, bool HasValue, int Value) ReadOptionalInt32(byte* buffer)
+    {
+        var tag = buffer[4];
+        return (tag is 0 or 1, tag == 0, *(int*)buffer);
     }
 
     static bool IndirectResult(List<string> issues)
     {
-        if (!IifFailable.TryCreate(21, out var made))
-            issues.Add("TryCreate(21) returned nil");
-        else
-        {
-            using (made)
-                if (made.Value != 42) issues.Add($"TryCreate(21).Value is {made.Value}, expected 42");
-        }
-        if (IifFailable.TryCreate(-1, out var none))
-        {
-            issues.Add("TryCreate(-1) returned a value");
-            none.Dispose();
-        }
+        var buffer = stackalloc byte[16];
+        new Span<byte>(buffer, 16).Fill(Unwritten);
+        DirectControls.CreateFailable(new SwiftIndirectResult(buffer), 21);
+        var made = ReadOptionalInt32(buffer);
+        Observe($"init?(value: 21) tag=0x{buffer[4]:x2} payload={made.Value}");
+        if (!made.Written) issues.Add($"init?(value: 21) left the result unwritten (tag 0x{buffer[4]:x2})");
+        else if (!made.HasValue) issues.Add("init?(value: 21) returned nil");
+        else if (made.Value != 42) issues.Add($"init?(value: 21).value is {made.Value}, expected 42");
+
+        new Span<byte>(buffer, 16).Fill(Unwritten);
+        DirectControls.CreateFailable(new SwiftIndirectResult(buffer), -1);
+        var none = ReadOptionalInt32(buffer);
+        Observe($"init?(value: -1) tag=0x{buffer[4]:x2}");
+        if (!none.Written) issues.Add($"init?(value: -1) left the result unwritten (tag 0x{buffer[4]:x2})");
+        else if (none.HasValue) issues.Add("init?(value: -1) returned a value");
         return true;
     }
 
     static bool ReverseErrorFirst(List<string> issues)
     {
-        var seen = -1;
-        var r = Functions.IifCallThrowing((SwiftSet<SwiftString> set) => { seen = set.Count; });
-        if (r != 3 || seen != 3) issues.Add($"non-throwing callback: returned {r}, callback saw {seen} members");
+        DirectControls.Throw = false;
+        var r = DirectControls.CallThrowing(DirectControls.ThrowingSetCallbackFunction, IntPtr.Zero);
+        Observe($"non-throwing: returned {r}, calls {DirectControls.Calls}, set count {DirectControls.SetCount}, context 0x{DirectControls.ContextSeen:x}");
+        if (r != 3 || DirectControls.Calls != 1 || DirectControls.SetCount != 3 || DirectControls.ContextSeen != 0)
+            issues.Add($"non-throwing callback: returned {r}, callback ran {DirectControls.Calls} time(s), saw {DirectControls.SetCount} members and context 0x{DirectControls.ContextSeen:x}");
         if (issues.Count > 0) return true;
-        var thrown = Functions.IifCallThrowing((Action<SwiftSet<SwiftString>>)(_ => throw new InvalidOperationException("requested")));
-        if (thrown != -1) issues.Add($"throwing callback: returned {thrown}, expected -1");
+        DirectControls.Throw = true;
+        var thrown = DirectControls.CallThrowing(DirectControls.ThrowingSetCallbackFunction, IntPtr.Zero);
+        Observe($"throwing: returned {thrown}, calls {DirectControls.Calls}");
+        if (thrown != -1 || DirectControls.Calls != 2) issues.Add($"throwing callback: returned {thrown} after {DirectControls.Calls} call(s), expected -1 after 2");
         return true;
     }
 
     static bool ReverseContextLast(List<string> issues)
     {
-        nint x = 0, y = 0;
-        var calls = 0;
-        if (!IifVisitorFactory.TryCreate(point => { calls++; x = point.XNative; y = point.YNative; }, true, out var made))
-        {
-            issues.Add("TryCreate(valid: true) returned nil");
-            return true;
-        }
-        using (made)
-            if (made.Number != 76) issues.Add($"Number is {made.Number}, expected 76");
-        if (calls != 1 || x != 7 || y != 9) issues.Add($"callback ran {calls} time(s) and saw ({x}, {y}), expected once with (7, 9)");
+        var buffer = stackalloc byte[16];
+        new Span<byte>(buffer, 16).Fill(Unwritten);
+        DirectControls.CreateVisitorFactory(new SwiftIndirectResult(buffer), DirectControls.PointVisitorCallbackFunction, IntPtr.Zero, 1);
+        var made = ReadOptionalInt32(buffer);
+        Observe($"init?(valid: true) tag=0x{buffer[4]:x2} number={made.Value} calls={DirectControls.Calls} point=({DirectControls.PointX}, {DirectControls.PointY}) context=0x{DirectControls.ContextSeen:x}");
+        if (!made.Written) issues.Add($"init?(valid: true) left the result unwritten (tag 0x{buffer[4]:x2})");
+        else if (!made.HasValue) issues.Add("init?(valid: true) returned nil");
+        else if (made.Value != 76) issues.Add($"number is {made.Value}, expected 76");
+        if (DirectControls.Calls != 1 || DirectControls.PointX != 7 || DirectControls.PointY != 9 || DirectControls.ContextSeen != 0)
+            issues.Add($"callback ran {DirectControls.Calls} time(s) and saw ({DirectControls.PointX}, {DirectControls.PointY}) with context 0x{DirectControls.ContextSeen:x}, expected once with (7, 9) and a null context");
         return true;
     }
 }
