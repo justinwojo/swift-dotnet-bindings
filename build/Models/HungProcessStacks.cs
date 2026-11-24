@@ -112,7 +112,8 @@ public static class HungProcessSampler
     /// </summary>
     public static bool HasBacktrace(string text)
     {
-        if (SampleThreadWithFrame.IsMatch(text))
+        var callGraph = SampleCallGraph.Match(text);
+        if (callGraph.Success && SampleThreadWithFrame.IsMatch(text, callGraph.Index + callGraph.Length))
             return true;
         var lines = text.Split('\n');
         var echoes = lines.Any(l => l.TrimStart().StartsWith("(lldb) ", StringComparison.Ordinal));
@@ -135,9 +136,10 @@ public static class HungProcessSampler
         return false;
     }
 
-    // sample's call graph: a thread row, then a frame row indented under it (a second thread row
-    // sits at the first one's indent, so it is not a frame).
-    static readonly Regex SampleThreadWithFrame = new(@"^Call graph:[ \t]*\r?\n(?<indent>[ \t]+)\d+ Thread_\S+[^\n]*\n\k<indent>[ \t+!:|]+\d+ \S",
+    // sample's call graph: some thread row with a frame row indented under it (a second thread
+    // row sits at the first one's indent, so it is not a frame).
+    static readonly Regex SampleCallGraph = new(@"^Call graph:[ \t]*\r?$", RegexOptions.Multiline | RegexOptions.CultureInvariant);
+    static readonly Regex SampleThreadWithFrame = new(@"^(?<indent>[ \t]+)\d+ Thread_\S+[^\n]*\n\k<indent>[ \t+!:|]+\d+ \S",
         RegexOptions.Multiline | RegexOptions.CultureInvariant);
     static readonly Regex ThreadRow = new(@"^\s*\*?\s*thread #\d+", RegexOptions.CultureInvariant);
     static readonly Regex FrameRow = new(@"^\s*\*?\s*frame #\d+", RegexOptions.CultureInvariant);

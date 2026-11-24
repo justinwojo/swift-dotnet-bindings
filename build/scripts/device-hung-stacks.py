@@ -98,8 +98,6 @@ def main(argv):
         run("settings set thread-format " + THREAD_FORMAT)
         run("settings set thread-stop-format " + THREAD_FORMAT)
         run("settings set frame-format " + FRAME_FORMAT)
-        # Recognizers run when a stop is described or a backtrace is taken and can evaluate in the app.
-        run("frame recognizer clear")
         run(f"device select {udid}")
         run(f"device process attach --pid {pid}")
         process = debugger.GetSelectedTarget().GetProcess()
@@ -129,6 +127,10 @@ def main(argv):
                     break
             # The backtrace is written before the image list runs, so a list that hangs until the
             # session is killed cannot take the backtrace with it.
+            # Frame recognizers can read values in the app while a backtrace is drawn. The language
+            # runtimes register theirs during the attach (and may again as images load), so they are
+            # cleared after each stop rather than once up front.
+            run("frame recognizer clear")
             start = now()
             result = lldb.SBCommandReturnObject()
             interpreter.HandleCommand("thread backtrace all", result)

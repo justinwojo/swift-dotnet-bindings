@@ -73,6 +73,7 @@ public sealed class HungProcessStacksTests : IDisposable
     [InlineData("* thread #1, stop reason = signal SIGSTOP\n", false)]
     [InlineData("Sampling process 4242 for 1 second\nCall graph:\n\nTotal number in stack: 0\n", false)]
     [InlineData("Call graph:\n    789 Thread_1   DispatchQueue_1: com.apple.main-thread  (serial)\n    789 Thread_2\n", false)]
+    [InlineData("Call graph:\n    789 Thread_1\n    789 Thread_2\n      789 thread_start  (in libsystem_pthread.dylib) + 8\n", true)]
     public void HasBacktrace_RequiresFramesOrACallGraph(string text, bool expected) =>
         Assert.Equal(expected, HungProcessSampler.HasBacktrace(text));
 

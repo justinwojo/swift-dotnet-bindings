@@ -9,6 +9,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
+using System.Threading.Tasks;
 using Nuke.Common;
 using Nuke.Common.Tooling;
 using Serilog;
@@ -191,12 +192,22 @@ public static class DeviceCtl
     static IReadOnlyList<string> SymbolFilesOrNone(Func<IReadOnlyList<string>>? symbolFiles)
     {
         if (symbolFiles is null) return [];
-        try { return symbolFiles(); }
+        // The search runs off the launcher's thread, so a filesystem call that blocks cannot keep
+        // the launcher from its capture and its kill; past the wait the capture goes unsymbolicated.
+        var search = Task.Run(symbolFiles);
+        try
+        {
+            if (search.Wait(SymbolSearchBudget + TimeSpan.FromSeconds(10)))
+                return search.Result;
+            Log.Warning("The search for the app's unstripped images overran {Seconds} s; the stacks are taken without them",
+                SymbolSearchBudget.TotalSeconds + 10);
+        }
         catch (Exception ex)
         {
-            Log.Warning("Could not collect the app's unstripped images for the stack capture: {Message}", ex.Message);
-            return [];
+            Log.Warning("Could not collect the app's unstripped images for the stack capture: {Message}",
+                (ex as AggregateException)?.InnerException?.Message ?? ex.Message);
         }
+        return [];
     }
 
     /// <summary>
@@ -239,12 +250,9 @@ public static class DeviceCtl
                 {
                     if (clock.Elapsed >= walkDeadline) break;
                     if (Directory.Exists(entry))
-                    {
-                        // An app bundle holds stripped copies; a dSYM inside one still counts.
-                        if (!entry.EndsWith(".app", StringComparison.Ordinal) || IsInsideDsym(entry))
-                            pending.Push(entry);
-                    }
-                    else if (names.Contains(Path.GetFileName(entry)))
+                        pending.Push(entry);
+                    // An app bundle holds stripped copies; a dSYM inside one still counts.
+                    else if (names.Contains(Path.GetFileName(entry)) && (IsInsideDsym(entry) || !IsInsideApp(entry)))
                         candidates.Add(entry);
                 }
             }
@@ -270,6 +278,9 @@ public static class DeviceCtl
 
     static bool IsInsideDsym(string path) =>
         path.Split(Path.DirectorySeparatorChar).Any(s => s.EndsWith(".dSYM", StringComparison.Ordinal));
+
+    static bool IsInsideApp(string path) =>
+        path.Split(Path.DirectorySeparatorChar).Any(s => s.EndsWith(".app", StringComparison.Ordinal));
 
     static string DwarfdumpUuids(IReadOnlyList<string> files, TimeSpan budget)
     {
