@@ -840,6 +840,8 @@ public class ObjCPipelineIntegrationTests
                     typedef struct { int y; } UBPoint;
                     typedef struct { int z; } UBLaterHidden;
                     typedef UBLaterHidden UBLaterHidden NS_UNAVAILABLE;
+                    typedef struct UBTagged { int w; } UBTagged NS_UNAVAILABLE;
+                    FOUNDATION_EXPORT int UBReadTagged(struct UBTagged value);
 
                     @interface UBThing : NSObject
                     - (instancetype)init NS_UNAVAILABLE;
@@ -854,6 +856,9 @@ public class ObjCPipelineIntegrationTests
                     @property (nonatomic) NSInteger hidden;
                     - (NSInteger)hidden NS_UNAVAILABLE;
                     @property (nonatomic) NSInteger open;
+                    @property (nonatomic) NSInteger depth;
+                    - (void)setDepth:(NSInteger)depth;
+                    - (void)setDepth:(NSInteger)depth NS_UNAVAILABLE;
                     - (void)useBlock:(UBBlock)block point:(UBPoint)point;
                     @end
 
@@ -884,9 +889,13 @@ public class ObjCPipelineIntegrationTests
             Assert.True(thing.IsInitUnavailable);
             Assert.True(Assert.Single(thing.Properties, p => p.Name == "value").IsReadonly);
             Assert.False(Assert.Single(thing.Properties, p => p.Name == "open").IsReadonly);
+            // A setter declared available before the declaration that marks it unavailable stays.
+            Assert.False(Assert.Single(thing.Properties, p => p.Name == "depth").IsReadonly);
             Assert.DoesNotContain(thing.Properties, p => p.Name == "hidden");
             Assert.DoesNotContain(module.Typedefs, t => t.Name is "UBHiddenBlock" or "UBHiddenPoint");
             Assert.DoesNotContain(module.Structs, s => s.Name is "UBHiddenPoint" or "UBLaterHidden");
+            // The tag stays usable as `struct UBTagged` when only its typedef is unavailable.
+            Assert.Contains(module.Structs, s => s.Name == "UBTagged");
             Assert.Contains(module.Structs, s => s.Name == "UBPoint");
             Assert.Contains(
                 "typedef UBHiddenBlock",

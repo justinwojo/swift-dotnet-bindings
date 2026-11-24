@@ -146,6 +146,8 @@ public static class ClangAstParser
         _initUnavailableClasses = initUnavailableClasses;
         // Classes this framework marks unavailable: a category on one extends nothing a consumer can use.
         var unavailableClassNames = new HashSet<string>(StringComparer.Ordinal);
+        // Structs a typedef named (an anonymous record promoted under the typedef's name).
+        var promotedStructNames = new HashSet<string>(StringComparer.Ordinal);
         try
         {
 
@@ -311,7 +313,10 @@ public static class ClangAstParser
                             systemTypedefs.Add(typedefDecl);
                     }
                     if (promotedStruct != null && isFrameworkLocal)
+                    {
                         structs.Add(promotedStruct);
+                        promotedStructNames.Add(promotedStruct.Name);
+                    }
                     break;
             }
         }
@@ -337,8 +342,9 @@ public static class ClangAstParser
             functions.RemoveAll(f => droppedFunctions.Contains(f.Name));
             constants.RemoveAll(c => droppedConstants.Contains(c.Name));
             typedefs.RemoveAll(t => droppedTypedefs.Contains(t.Name));
-            // A struct an earlier typedef of the same name promoted goes with it.
-            structs.RemoveAll(s => droppedTypedefs.Contains(s.Name));
+            // A struct an earlier typedef of the same name promoted goes with it; a tagged record of
+            // the same name stays, usable as `struct Name`.
+            structs.RemoveAll(s => droppedTypedefs.Contains(s.Name) && promotedStructNames.Contains(s.Name));
         }
 
         // Census report (Finding 63): full census at debug, SWIFTBIND029 for unrecognized kinds.
@@ -1120,6 +1126,9 @@ public static class ClangAstParser
         static string MethodKey(JsonElement method) =>
             $"{(!method.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean() ? '-' : '+')}{GetName(method)}";
         var unavailableMethods = new HashSet<string>(StringComparer.Ordinal);
+        // Methods the container declares available before any declaration marks them unavailable.
+        var availableMethods = new HashSet<string>(StringComparer.Ordinal);
+        bool Unavailable(string key) => unavailableMethods.Contains(key) && !availableMethods.Contains(key);
 
         foreach (var child in inner.EnumerateArray())
         {
@@ -1142,6 +1151,7 @@ public static class ClangAstParser
                             _initUnavailableClasses?.Add(initOwner);
                         break;
                     }
+                    availableMethods.Add(MethodKey(child));
                     var method = ParseMethodDecl(child, IsInOptionalSection(child, optionalLines), currentFile);
                     if (method != null)
                     {
@@ -1174,13 +1184,13 @@ public static class ClangAstParser
             var accessorPrefix = property.IsClass ? '+' : '-';
             var getter = property.GetterSelector ?? property.Name;
             var setter = property.SetterSelector ?? $"set{char.ToUpperInvariant(property.Name[0])}{property.Name[1..]}:";
-            if (unavailableMethods.Contains($"{accessorPrefix}{getter}"))
+            if (Unavailable($"{accessorPrefix}{getter}"))
             {
                 _unavailable?.Add(new ObjCUnavailableDeclaration("property", $"{container}.{property.Name}"));
                 properties.RemoveAt(i);
                 continue;
             }
-            if (!property.IsReadonly && unavailableMethods.Contains($"{accessorPrefix}{setter}"))
+            if (Unavailable($"{accessorPrefix}{setter}"))
                 property = property with { IsReadonly = true, IsSetterUnavailable = true };
             var ownership = property.GetterOwnership;
             var consumes = false;
