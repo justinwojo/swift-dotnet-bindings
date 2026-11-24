@@ -792,7 +792,6 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool IsSupersetOf(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        ArgumentNullException.ThrowIfNull(other);
         foreach (var element in other)
         {
             if (!Contains(element))
@@ -807,7 +806,6 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool Overlaps(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        ArgumentNullException.ThrowIfNull(other);
         foreach (var element in other)
         {
             if (Contains(element))

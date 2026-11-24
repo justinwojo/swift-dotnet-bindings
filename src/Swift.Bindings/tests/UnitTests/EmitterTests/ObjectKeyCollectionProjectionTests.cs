@@ -453,6 +453,41 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Fact]
+    public async Task OptionalBoundGenericObjCElement_ProjectsAsTheOptionalClassCarriedWithItsArguments()
+    {
+        // [NSCache<NSString, NSUUID>?]: the optional of the class's projection, its slot carrying the
+        // optional type's identity, never the class spelled with Swift generic arguments C# lacks.
+        var typeDatabase = await LoadAppleDatabaseAsync();
+        var optionalCache = Optional(new NamedTypeSpec("Foundation.NSCache",
+            new NamedTypeSpec("Foundation.NSString"), new NamedTypeSpec("Foundation.NSUUID")));
+        const string carrier = "global::Swift.Runtime.SwiftObjectKey<" +
+            "__SwiftObjectKeys.Swift_Optional_Foundation_NSCache_Foundation_NSString__Foundation_NSUUID__>";
+
+        var emission = new ModuleEmissionContext();
+        var array = Assert.IsType<ArrayProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Array", optionalCache), Context(typeDatabase, emission)));
+        Assert.Equal("IEnumerable<Foundation.NSCache?>", array.PublicType);
+        Assert.Equal($"SwiftArray<{carrier}>", array.SwiftContainerGenericType);
+        Assert.Equal("Swift.Optional<Foundation.NSCache<Foundation.NSString, Foundation.NSUUID>>",
+            Assert.Single(emission.ObjectKeyIdentities).SwiftTypeName);
+        Assert.Equal(
+            "ObjCRuntime.Runtime.GetINativeObject<Foundation.NSCache>(global::Swift.Runtime.SwiftObjectKeys.TakeReference(e), true)",
+            Assert.IsType<OptionalProjection>(array.ElementProjection).GetReturnElementConversion("e"));
+
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(new NamedTypeSpec("Swift.String"), optionalCache), Context(typeDatabase, new ModuleEmissionContext())));
+        Assert.EndsWith($", {carrier}>", dictionary.SwiftContainerGenericType);
+
+        var handler = new BoundGenericsHandler(typeDatabase);
+        Assert.EndsWith($"SwiftArray<{carrier}>", handler.TranslateBoundGenericTypeToCSharp(
+            new NamedTypeSpec("Swift.Array", optionalCache), GenericContext.Empty));
+
+        // The member is emitted: no C# generic over the class's Swift arguments is involved.
+        Assert.False(handler.HasNonSwiftObjectGenericArg(new NamedTypeSpec("Swift.Array", optionalCache), isParameterPosition: true));
+        Assert.False(handler.HasNonSwiftObjectGenericArg(new NamedTypeSpec("Swift.Array", optionalCache), isParameterPosition: false));
+    }
+
+    [Fact]
     public async Task CollectionValuedSlots_DisposeEachTemporaryOnceCopied()
     {
         // A dictionary whose values are Swift collections, and an array of optional arrays, build

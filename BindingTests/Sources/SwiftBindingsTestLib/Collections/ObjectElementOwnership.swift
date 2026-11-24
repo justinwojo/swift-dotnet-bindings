@@ -20,6 +20,7 @@ public final class ObjectOwnershipStore {
     private var tracked: [ObjectElementTracked?] = []
     private var refs: [ObjectElementRef?] = []
     private var caches: [NSCache<NSString, NSUUID>] = []
+    private var optionalCaches: [NSCache<NSString, NSUUID>?] = []
     private var groupsStorage: [String: [NSUUID]] = [:]
     private var nestedStorage: [[NSUUID]?] = []
 
@@ -30,6 +31,13 @@ public final class ObjectOwnershipStore {
     public func keepTracked(_ list: [ObjectElementTracked?]) { tracked = list }
     public func keepRefs(_ list: [ObjectElementRef?]) { refs = list }
     public func keepCaches(_ list: [NSCache<NSString, NSUUID>]) { caches = list }
+    public func keepOptionalCaches(_ list: [NSCache<NSString, NSUUID>?]) { optionalCaches = list }
+
+    /// The kept optional Swift class elements, read back by C#.
+    public func keptRefs() -> [ObjectElementRef?] { refs }
+
+    /// The kept optional caches, read back by C#.
+    public func keptOptionalCaches() -> [NSCache<NSString, NSUUID>?] { optionalCaches }
     public func keepGroups(_ groups: [String: [NSUUID]]) { groupsStorage = groups }
 
     /// The kept optional list, as a property C# can set and read.
@@ -67,6 +75,11 @@ public final class ObjectOwnershipStore {
         caches.map { $0.object(forKey: key as NSString)?.uuidString ?? "nil" }.joined(separator: ",")
     }
 
+    /// The UUID each kept optional cache holds under `key`, `nil` for a nil cache or none held.
+    public func keptOptionalCacheStrings(_ key: String) -> String {
+        optionalCaches.map { $0?.object(forKey: key as NSString)?.uuidString ?? "nil" }.joined(separator: ",")
+    }
+
     /// The kept groups as `key=uuid;uuid` sorted by key.
     public func keptGroupStrings() -> String {
         groupsStorage.sorted { $0.key < $1.key }
@@ -85,6 +98,7 @@ public final class ObjectOwnershipStore {
         tracked = []
         refs = []
         caches = []
+        optionalCaches = []
         groupsStorage = [:]
         nestedStorage = []
     }

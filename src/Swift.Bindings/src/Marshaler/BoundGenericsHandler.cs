@@ -1843,6 +1843,17 @@ public class BoundGenericsHandler
                 continue;
             }
 
+            // The optional of a bound generic Objective-C class ([NSCache<NSString, NSUUID>?]) projects
+            // as the optional of the class's .NET type, carried by its own object key
+            // (TypeProjectionFactory.ProjectCollectionSlot): its Swift generic arguments never reach C#.
+            if (namedParam is { Name: "Swift.Optional", GenericParameters.Count: 1 }
+                && namedParam.GenericParameters[0] is NamedTypeSpec wrapped
+                && IsBoundGenericObjCClass(wrapped) && IsObjectPointerContainerArgument(wrapped))
+            {
+                hasObjCBridgedElement = true;
+                continue;
+            }
+
             // Normal types that implement ISwiftObject are fine in containers
             // (they wouldn't trigger the non-ISwiftObject check on their own)
             if (!IsObjCBridgedType(namedParam) && !IsNonSwiftObjectMappedType(namedParam))

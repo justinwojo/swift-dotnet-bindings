@@ -255,9 +255,7 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Array" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0])
-                ?? TryProjectBoundGenericObjCElement(namedType.GenericParameters[0], context);
+            var elemProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
             if (elemProjection == null)
                 return null;
             return new ArrayProjection(AsCollectionValue(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
@@ -265,9 +263,7 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Set" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0])
-                ?? TryProjectBoundGenericObjCElement(namedType.GenericParameters[0], context);
+            var elemProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
             if (elemProjection == null)
                 return null;
             return new SetProjection(AsHashedKey(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
@@ -275,12 +271,8 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
         {
-            var keyProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0])
-                ?? TryProjectBoundGenericObjCElement(namedType.GenericParameters[0], context);
-            var valueProjection = Project(namedType.GenericParameters[1], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[1])
-                ?? TryProjectBoundGenericObjCElement(namedType.GenericParameters[1], context);
+            var keyProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
+            var valueProjection = ProjectCollectionSlot(namedType.GenericParameters[1], context);
             if (keyProjection == null || valueProjection == null)
                 return null;
             return new DictionaryProjection(
@@ -848,6 +840,25 @@ public class TypeProjectionFactory
     /// identity spelled with the arguments (<see cref="AsCollectionValue"/>, <see cref="AsHashedKey"/>),
     /// as the raw translator's does (BoundGenericsHandler.IsBoundGenericObjCClass).
     /// </summary>
+    private ITypeProjection? ProjectCollectionSlot(TypeSpec slotTypeSpec, ProjectionContext context)
+        => TryProjectOptionalBoundGenericObjCElement(slotTypeSpec, context)
+           ?? Project(slotTypeSpec, context)
+           ?? TryProjectObjCElement(slotTypeSpec)
+           ?? TryProjectBoundGenericObjCElement(slotTypeSpec, context);
+
+    /// <summary>
+    /// The optional of a bound generic Objective-C class in a collection slot
+    /// (<c>[NSCache&lt;NSString, NSUUID&gt;?]</c>): the optional of the class's projection
+    /// (<see cref="TryProjectBoundGenericObjCElement"/>), whose slot carries the optional type's identity.
+    /// Checked before the general optional projection, whose bound-generic fallback spells the class
+    /// with its Swift generic arguments.
+    /// </summary>
+    private static OptionalProjection? TryProjectOptionalBoundGenericObjCElement(TypeSpec slotTypeSpec, ProjectionContext context)
+        => slotTypeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+           && TryProjectBoundGenericObjCElement(optional.GenericParameters[0], context) is { } inner
+            ? new OptionalProjection(inner)
+            : null;
+
     private static ObjCBridgedProjection? TryProjectBoundGenericObjCElement(TypeSpec elementTypeSpec, ProjectionContext context)
     {
         if (elementTypeSpec is not NamedTypeSpec named)

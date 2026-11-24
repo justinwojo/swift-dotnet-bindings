@@ -142,6 +142,32 @@ public class ObjectElementOwnershipTests : TestBase
         reference.Dispose();
     }
 
+    /// <summary>
+    /// Optional Swift class elements Swift hands back read as wrappers that hold their own
+    /// references: they outlive the array, the store's copy and the collector.
+    /// </summary>
+    public void TestOptionalSwiftClassElementsReadBackOutliveTheirContainer()
+    {
+        using var store = new ObjectOwnershipStore();
+        KeepFreshOptionalSwiftObjects(store);
+        var kept = ReadKeptRefs(store);
+        store.Clear();
+        CollectAll();
+        AssertEqual(2, kept.Length, "every element read");
+        AssertEqual(null, kept[0], "the nil element reads as null");
+        AssertEqual(4L, (long)(kept[1]?.Tag ?? -1), "the Swift class element outlives the array and the store");
+        foreach (var reference in kept) reference?.Dispose();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static ObjectElementRef?[] ReadKeptRefs(ObjectOwnershipStore store)
+    {
+        var list = store.GetKeptRefs();
+        var kept = list.ToArray();
+        (list as IDisposable)?.Dispose();
+        return kept;
+    }
+
     /// <summary>Arrays and dictionaries of optional objects Swift builds read back, nil included.</summary>
     public void TestOptionalElementsSwiftBuiltRead()
     {
@@ -206,6 +232,43 @@ public class ObjectElementOwnershipTests : TestBase
         store.KeepCaches(new[] { first, second });
         first.Dispose();
         second.Dispose();
+    }
+
+    /// <summary>
+    /// An array of optional bound generic Objective-C objects C# builds holds its own references,
+    /// and the caches C# reads back out of it outlive the array.
+    /// </summary>
+    public void TestOptionalBoundGenericObjCElementsAreRetained()
+    {
+        using var store = new ObjectOwnershipStore();
+        KeepFreshOptionalCaches(store);
+        CollectAll();
+        AssertEqual($"{UuidA},nil", store.KeptOptionalCacheStrings("k"), "the kept caches still read back");
+
+        var kept = ReadKeptOptionalCaches(store);
+        store.Clear();
+        CollectAll();
+        AssertEqual(2, kept.Length, "every element read");
+        AssertEqual(UuidA, (kept[0]?.ObjectForKey(new NSString("k")) as NSUuid)?.AsString(), "the cache read outlives the array");
+        AssertEqual(null, kept[1], "the nil element reads as null");
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static void KeepFreshOptionalCaches(ObjectOwnershipStore store)
+    {
+        var cache = new NSCache();
+        cache.SetObjectForKey(new NSUuid(UuidA), new NSString("k"));
+        store.KeepOptionalCaches(new NSCache?[] { cache, null });
+        cache.Dispose();
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    static NSCache?[] ReadKeptOptionalCaches(ObjectOwnershipStore store)
+    {
+        var list = store.GetKeptOptionalCaches();
+        var kept = list.ToArray();
+        (list as IDisposable)?.Dispose();
+        return kept;
     }
 
     // ── Raw collections: what a reader holds stays valid ────────────────────────────────────

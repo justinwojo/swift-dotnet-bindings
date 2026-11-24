@@ -632,11 +632,10 @@ public static class SwiftMarshal
 
         // An object-reference carrier takes the slot's +1 into the owner it carries: the object stays
         // alive as long as the carrier (or a copy) is held, whatever happens to the collection it was
-        // read from, and is released when the carrier is collected or a wrapper adopts the reference.
+        // read from, and is released once the last copy of the carrier is collected.
         if (typeof(ISwiftObjectKeyCarrier).IsAssignableFrom(typeof(T)))
         {
-            var carrierMetadata = metadata.IsValid ? metadata : TypeMetadata.GetTypeMetadataOrThrow<T>();
-            return SwiftObjectKeys.AdoptCarrier<T>(*(IntPtr*)slot, carrierMetadata);
+            return SwiftObjectKeys.AdoptCarrier<T>(*(IntPtr*)slot);
         }
 
         // A C# enum reads only the case, so a slot whose value holds a reference (a case-identity
