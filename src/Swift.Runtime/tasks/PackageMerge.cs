@@ -118,6 +118,7 @@ public static class SwiftBindingPackageMerge
             for (var i = 1; i < ordered.Count; i++)
             {
                 problems.AddRange(ApiSuperset(ordered[i - 1], ordered[i], notes));
+                problems.AddRange(SameCompiledInValues(ordered[i - 1], ordered[i], notes));
                 problems.AddRange(ExportSuperset(ordered[i - 1], ordered[i], notes));
             }
         }
@@ -493,10 +494,140 @@ public static class SwiftBindingPackageMerge
                 .Order(StringComparer.Ordinal).ToList();
             notes.Add($"  API {file}: {older.Tfm} {before.Count} -> {newer.Tfm} {after.Count} ({removed.Count} removed, {after.Except(before).Count()} added)");
             if (removed.Count > 0)
+            {
                 problems.Add($"{file}: the copy {newer.Tfm} lacks {removed.Count} public API member(s) of the older copy {older.Tfm} ({string.Join("; ", removed.Take(5))}{(removed.Count > 5 ? "; …" : "")}). "
                              + "A library compiles against the oldest copy and the app that consumes it runs the newest, so each newer copy must contain every older copy's API.");
+                // The refusal names five; the log names every one.
+                notes.AddRange(removed.Select(r => $"  removed API {file} ({older.Tfm} -> {newer.Tfm}): {r}"));
+            }
         }
         return problems;
+    }
+
+    /// <summary>
+    /// Every value a compiler copies out of a <c>lib/&lt;older&gt;/</c> assembly into the code that uses
+    /// it (constant fields, enum members included, and parameter default values) must be the same in
+    /// <c>lib/&lt;newer&gt;/</c>: a library compiled against the older copy keeps the older value when
+    /// the app that consumes it runs the newer copy, so a changed value changes what the library does
+    /// with no member missing. A value only the newer copy declares is an addition.
+    /// </summary>
+    private static IEnumerable<string> SameCompiledInValues(Copy older, Copy newer, List<string> notes)
+    {
+        var problems = new List<string>();
+        foreach (var (name, image) in older.From.Files.Where(f => f.Key.StartsWith($"lib/{older.Tfm}/", StringComparison.Ordinal) && f.Key.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)))
+        {
+            var file = name[$"lib/{older.Tfm}/".Length..];
+            if (!newer.From.Files.TryGetValue($"lib/{newer.Tfm}/{file}", out var newerImage))
+                continue; // ApiSuperset names the missing assembly.
+            var after = CompiledInValues(newerImage);
+            // A value the newer copy no longer declares is as different as a changed one: the older
+            // library's call site still holds it (a dropped default, or a constant turned into a field).
+            var changed = CompiledInValues(image)
+                .Where(kv => !after.TryGetValue(kv.Key, out var value) || !string.Equals(value, kv.Value, StringComparison.Ordinal))
+                .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+                .Select(kv => after.TryGetValue(kv.Key, out var value)
+                    ? $"{kv.Key} is {kv.Value} in {older.Tfm} and {value} in {newer.Tfm}"
+                    : $"{kv.Key} is {kv.Value} in {older.Tfm} and has no compiled-in value in {newer.Tfm}")
+                .ToList();
+            if (changed.Count > 0)
+            {
+                problems.Add($"{file}: the copy {newer.Tfm} changes {changed.Count} compiled-in value(s) of the older copy {older.Tfm} ({string.Join("; ", changed.Take(10))}{(changed.Count > 10 ? "; …" : "")}). "
+                             + "A compiler copies a constant, an enum member's value or a parameter's default into the code that uses it, so a library compiled against the older copy "
+                             + "keeps the older value when the app runs the newer copy: every value the older copy declares must be the same in each newer copy.");
+                // The refusal names ten; the log names every one.
+                notes.AddRange(changed.Select(c => $"  changed value {file}: {c}"));
+            }
+        }
+        return problems;
+    }
+
+    /// <summary>
+    /// The compiled-in values of an assembly's visible API, keyed as <see cref="PublicApi"/> names the
+    /// member: <c>Type::Field</c> for a constant field (an enum member is one) and
+    /// <c>Type::Method`n(parameters):return parameter i</c> for a parameter's default value.
+    /// A change of a field's or parameter's type is <see cref="PublicApi"/>'s to report.
+    /// </summary>
+    public static Dictionary<string, string> CompiledInValues(byte[] image)
+    {
+        var values = new Dictionary<string, string>(StringComparer.Ordinal);
+        using var pe = new PEReader(new MemoryStream(image, writable: false));
+        if (!pe.HasMetadata)
+            return values;
+        var md = pe.GetMetadataReader();
+        var provider = new SignatureNames();
+        string TypeName(TypeDefinitionHandle h)
+        {
+            var t = md.GetTypeDefinition(h);
+            var declaring = t.GetDeclaringType();
+            return declaring.IsNil ? $"{md.GetString(t.Namespace)}.{md.GetString(t.Name)}" : $"{TypeName(declaring)}+{md.GetString(t.Name)}";
+        }
+        bool Visible(TypeDefinitionHandle h)
+        {
+            var t = md.GetTypeDefinition(h);
+            return (t.Attributes & TypeAttributes.VisibilityMask) switch
+            {
+                TypeAttributes.Public => true,
+                TypeAttributes.NestedPublic or TypeAttributes.NestedFamily or TypeAttributes.NestedFamORAssem => Visible(t.GetDeclaringType()),
+                _ => false,
+            };
+        }
+        string Value(ConstantHandle handle)
+        {
+            var constant = md.GetConstant(handle);
+            var blob = md.GetBlobReader(constant.Value);
+            var value = blob.ReadConstant(constant.TypeCode);
+            return value switch
+            {
+                null => "null",
+                string s => "\"" + s.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("\"", "\\\"", StringComparison.Ordinal) + "\"",
+                char c => $"'{c}' (U+{(int)c:X4})",
+                float f => f.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                double d => d.ToString("R", System.Globalization.CultureInfo.InvariantCulture),
+                IFormattable f => f.ToString(null, System.Globalization.CultureInfo.InvariantCulture),
+                _ => value.ToString() ?? "",
+            };
+        }
+        foreach (var handle in md.TypeDefinitions)
+        {
+            if (!Visible(handle))
+                continue;
+            var type = md.GetTypeDefinition(handle);
+            var name = TypeName(handle);
+            foreach (var fh in type.GetFields())
+            {
+                var field = md.GetFieldDefinition(fh);
+                var access = field.Attributes & FieldAttributes.FieldAccessMask;
+                if (access is not (FieldAttributes.Public or FieldAttributes.Family or FieldAttributes.FamORAssem)
+                    || (field.Attributes & FieldAttributes.Literal) == 0)
+                    continue;
+                var constant = field.GetDefaultValue();
+                if (!constant.IsNil)
+                    values[$"{name}::{md.GetString(field.Name)}"] = Value(constant);
+            }
+            foreach (var mh in type.GetMethods())
+            {
+                var method = md.GetMethodDefinition(mh);
+                var access = method.Attributes & MethodAttributes.MemberAccessMask;
+                if (access is not (MethodAttributes.Public or MethodAttributes.Family or MethodAttributes.FamORAssem))
+                    continue;
+                MethodSignature<string>? signature = null;
+                foreach (var ph in method.GetParameters())
+                {
+                    var parameter = md.GetParameter(ph);
+                    if (parameter.SequenceNumber == 0 || (parameter.Attributes & ParameterAttributes.HasDefault) == 0)
+                        continue;
+                    var constant = parameter.GetDefaultValue();
+                    if (constant.IsNil)
+                        continue;
+                    signature ??= method.DecodeSignature(provider, md);
+                    // Keyed by position, not name: a caller binds the default by the parameter's place,
+                    // so a renamed parameter whose default changed is still a changed value.
+                    var key = $"{name}::{md.GetString(method.Name)}`{signature.Value.GenericParameterCount}({string.Join(",", signature.Value.ParameterTypes)}):{signature.Value.ReturnType}";
+                    values[$"{key} parameter {parameter.SequenceNumber}"] = Value(constant);
+                }
+            }
+        }
+        return values;
     }
 
     /// <summary>Each export of every framework binary under <c>native/&lt;older&gt;/</c> must be in its counterpart under <c>native/&lt;newer&gt;/</c>, per architecture.</summary>

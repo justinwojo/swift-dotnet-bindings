@@ -10,15 +10,20 @@ namespace BindingsGeneration
     public partial class EnumHandler
     {
         /// <summary>
-        /// Emits a nested CaseTag enum for type-safe case discrimination.
-        /// Tag values follow Swift's ordering: payload cases first (in declaration order),
-        /// then no-payload cases (in declaration order).
+        /// Emits a nested CaseTag enum for type-safe case discrimination. Each constant is the case's
+        /// managed identity (<see cref="EnumDecl.GetCaseId"/>): the Swift tag of a <c>@frozen</c> enum's
+        /// case (payload cases first, then no-payload cases, each in declaration order), and a value
+        /// derived from the case's name otherwise, which <see cref="EmitCaseTagMap"/> translates to the
+        /// running library's tag.
         /// </summary>
         private void EmitCaseTagEnum(CSharpWriter csWriter, EnumDecl enumDecl, Dictionary<string, string>? caseNameMap = null)
         {
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine($"/// Enum representing the possible cases of {enumDecl.Name}.");
-            csWriter.WriteLine("/// Tag values follow Swift's ordering: payload cases first, then no-payload cases.");
+            if (enumDecl.HasNameKeyedCaseIds)
+                csWriter.WriteLine("/// Each value identifies its case by name and is the same in every binding of the enum; it is not the case's Swift tag.");
+            else
+                csWriter.WriteLine("/// Tag values follow Swift's ordering: payload cases first, then no-payload cases.");
             csWriter.WriteLine("/// </summary>");
             csWriter.WriteLine("public enum CaseTag : uint");
             csWriter.WriteLine("{");
@@ -28,7 +33,7 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.PayloadCases)
             {
                 var capitalizedName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
-                var tag = enumDecl.GetCaseTag(caseDecl);
+                var tag = enumDecl.GetCaseId(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
 
@@ -36,7 +41,7 @@ namespace BindingsGeneration
             foreach (var caseDecl in enumDecl.NoPayloadCases)
             {
                 var capitalizedName = NameProvider.GetCaseName(caseDecl.Name, caseNameMap);
-                var tag = enumDecl.GetCaseTag(caseDecl);
+                var tag = enumDecl.GetCaseId(caseDecl);
                 csWriter.WriteLine($"{capitalizedName} = {tag},");
             }
 
@@ -96,12 +101,39 @@ namespace BindingsGeneration
             return candidate;
         }
 
+        /// <summary>The private field holding an enum's <see cref="Swift.Runtime.SwiftEnumCaseMap"/>.</summary>
+        internal const string CaseTagMapField = "_swiftCaseTagMap";
+
+        /// <summary>
+        /// Emits the map between the managed identity of each case and the tag the running library
+        /// gives it (<c>Swift.Runtime.SwiftEnumCaseMap</c>), for an enum with
+        /// <see cref="EnumDecl.HasNameKeyedCaseIds"/>. Every case is in it, a case the binding does not
+        /// emit included, so a value of that case is read as no case the binding names rather than as
+        /// another one.
+        /// </summary>
+        private static void EmitCaseTagMap(CSharpWriter csWriter, EnumDecl enumDecl, string libraryPath)
+        {
+            csWriter.WriteLine("/// <summary>The tags the running library gives the cases, by case identity.</summary>");
+            csWriter.WriteLine($"private static readonly global::Swift.Runtime.SwiftEnumCaseMap {CaseTagMapField} = new(");
+            csWriter.Indent++;
+            csWriter.WriteLine($"\"{libraryPath}\",");
+            csWriter.WriteLine($"new string[] {{ {string.Join(", ", enumDecl.Cases.Select(c => $"\"{EnumDecl.GetCaseTagSymbol(c)}\""))} }},");
+            csWriter.WriteLine($"new uint[] {{ {string.Join(", ", enumDecl.Cases.Select(c => $"{enumDecl.GetCaseId(c)}u"))} }},");
+            csWriter.WriteLine($"new uint[] {{ {string.Join(", ", enumDecl.Cases.Select(c => $"{enumDecl.GetCaseTag(c)}u"))} }});");
+            csWriter.Indent--;
+            csWriter.WriteLine();
+        }
+
         /// <summary>
         /// Emits the Tag property that returns the current case of the enum.
-        /// Uses ValueWitnessTable->GetEnumTag to determine the case.
+        /// Uses ValueWitnessTable->GetEnumTag to determine the case, translated to the case's
+        /// managed identity through <see cref="EmitCaseTagMap"/> when the constants are name-keyed.
         /// </summary>
-        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl, string typeNameWithGenerics, string tagPropertyName)
+        private void EmitTagProperty(CSharpWriter csWriter, EnumDecl enumDecl, string typeNameWithGenerics, string tagPropertyName, string libraryPath)
         {
+            if (enumDecl.HasNameKeyedCaseIds)
+                EmitCaseTagMap(csWriter, enumDecl, libraryPath);
+
             csWriter.WriteLine("/// <summary>");
             csWriter.WriteLine("/// Gets the current case of this enum instance.");
             csWriter.WriteLine("/// </summary>");
@@ -123,7 +155,9 @@ namespace BindingsGeneration
 
             csWriter.WriteLine($"var metadata = SwiftObjectHelper<{typeNameWithGenerics}>.GetTypeMetadata();");
             csWriter.WriteLine("byte* payload = (byte*)_payload.DangerousGetHandle();");
-            csWriter.WriteLine("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);");
+            csWriter.WriteLine(enumDecl.HasNameKeyedCaseIds
+                ? $"return (CaseTag){CaseTagMapField}.ToCaseId(metadata.ValueWitnessTable->GetEnumTag(payload, metadata));"
+                : "return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);");
 
             csWriter.Indent--;
             csWriter.WriteLine("}");

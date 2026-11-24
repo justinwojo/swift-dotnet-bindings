@@ -256,6 +256,61 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// Whether the managed identity of each case (the value of its <c>CaseTag</c> constant) is
+        /// derived from the case's name (<see cref="GetCaseId"/>) and translated to the running
+        /// library's tag when the binding runs, rather than being the declaration-order tag.
+        /// <para>
+        /// True for every enum that is not <c>@frozen</c> and whose cases all carry a mangled name.
+        /// Such an enum may be resilient: the library that defines it owns its case tags, so a newer
+        /// library may insert a case anywhere and renumber every case after it (Swift exports each
+        /// case's tag as a symbol for exactly this reason). A declaration-order constant then names
+        /// another case on an OS other than the one the SDK describes, and differs between the copies
+        /// of one package built from different SDKs, while a library compiled against one copy keeps
+        /// that copy's constants in an app that runs another. A <c>@frozen</c> enum's tag order is its
+        /// ABI, the same in every SDK and on every OS, so it keeps its tag as its constant.
+        /// </para>
+        /// </summary>
+        public bool HasNameKeyedCaseIds => !IsFrozen && Cases.Count > 0 && Cases.All(c => !string.IsNullOrEmpty(c.MangledName));
+
+        /// <summary>
+        /// The managed identity of a case: its declaration-order tag (<see cref="GetCaseTag"/>), or, for
+        /// an enum with <see cref="HasNameKeyedCaseIds"/>, a value derived from the case's Swift name
+        /// alone (31-bit FNV-1a of its UTF-8 spelling), so every binding of the enum, from every SDK,
+        /// gives the case the same value. Two names that hash alike take the next free value in the
+        /// ordinal order of their names.
+        /// </summary>
+        public uint GetCaseId(EnumCaseDecl caseDecl)
+        {
+            if (!HasNameKeyedCaseIds)
+                return (uint)GetCaseTag(caseDecl);
+            var used = new HashSet<uint>();
+            foreach (var c in Cases.OrderBy(c => c.Name, StringComparer.Ordinal).ThenBy(c => c.MangledName, StringComparer.Ordinal))
+            {
+                var id = NameKeyedCaseId(c.Name);
+                while (!used.Add(id))
+                    id = (id + 1) & 0x7FFF_FFFFu;
+                if (ReferenceEquals(c, caseDecl))
+                    return id;
+            }
+            throw new ArgumentException($"{caseDecl.Name} is not a case of {Name}.", nameof(caseDecl));
+        }
+
+        /// <summary>The name-derived case identity before collision resolution: 31-bit FNV-1a of the UTF-8 name.</summary>
+        internal static uint NameKeyedCaseId(string caseName)
+        {
+            var hash = 2166136261u;
+            foreach (var b in System.Text.Encoding.UTF8.GetBytes(caseName))
+                hash = unchecked((hash ^ b) * 16777619u);
+            return hash & 0x7FFF_FFFFu;
+        }
+
+        /// <summary>
+        /// The symbol of a case's "enum case" global (its mangled name with the <c>WC</c> suffix),
+        /// which holds the tag the library that defines a resilient enum gives the case.
+        /// </summary>
+        public static string GetCaseTagSymbol(EnumCaseDecl caseDecl) => caseDecl.MangledName + "WC";
+
+        /// <summary>
         /// Gets the scalar value that both (a) the emitted C# enum member is assigned and
         /// (b) the @_cdecl wrapper uses to marshal this case across the boundary. The two
         /// MUST agree, so a single source computes both.

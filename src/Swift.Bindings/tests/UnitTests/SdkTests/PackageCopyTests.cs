@@ -543,6 +543,70 @@ public sealed class PackageCopyTests : IDisposable
             "net10.0-ios26.0", "net10.0-ios27.2").Problems);
     }
 
+    [Theory]
+    // An enum member's value: a library compiled against the older copy compiled `Mode.B` as 1.
+    [InlineData("public enum Mode : uint { A = 0, B = 1 }", "public enum Mode : uint { A = 0, Inserted = 1, B = 2 }", "Mode::B", "1", "2")]
+    // A nested generated discriminator, as a case-tag enum is emitted.
+    [InlineData("public class Kit { public enum CaseTag : uint { X = 0, Y = 1 } }", "public class Kit { public enum CaseTag : uint { Y = 0, X = 1 } }", "Kit+CaseTag::X", "0", "1")]
+    // A const field of a class.
+    [InlineData("public static class Kit { public const long Flag = 65536; }", "public static class Kit { public const long Flag = 1048576; }", "Kit::Flag", "65536", "1048576")]
+    // A string constant.
+    [InlineData("public static class Kit { public const string Name = \"a\"; }", "public static class Kit { public const string Name = \"b\"; }", "Kit::Name", "\"a\"", "\"b\"")]
+    // A parameter's default value, which the caller compiles in.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int x = 6) => x; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
+    // A parameter's position, not its name, is what the caller binds, so a renamed parameter keeps the value's identity.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int y = 6) => y; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
+    public void Merge_ANewerCopyThatChangesACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before, string after)
+    {
+        // A literal is copied into the assembly that uses it: a library compiled against the older copy
+        // keeps the older value when the app runs the newer copy, so a changed value is a different API
+        // even though the member's name and signature are the same.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems, p => p.Contains("compiled-in value", StringComparison.Ordinal));
+        Assert.Contains($"{member} is {before} in net10.0-ios26.0 and {after} in net10.0-ios27.2", problem);
+    }
+
+    [Theory]
+    // A default the newer copy drops: the signature is the same, but the older library's call site still passes 5.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int x) => x; }", "Kit::F`0(Int32):Int32 parameter 1", "5")]
+    // A constant the newer copy turns into a field of the same type: the field's signature is the same, but
+    // a library compiled against the older copy holds the constant's value and never reads the field.
+    [InlineData("public static class Kit { public const long Flag = 1; }", "public static class Kit { public static readonly long Flag = 1; }", "Kit::Flag", "1")]
+    public void Merge_ANewerCopyThatDropsACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems, p => p.Contains("compiled-in value", StringComparison.Ordinal));
+        Assert.Contains($"{member} is {before} in net10.0-ios26.0 and has no compiled-in value in net10.0-ios27.2", problem);
+    }
+
+    [Theory]
+    [InlineData("public enum Mode : uint { A = 0, B = 1 }", "public enum Mode : uint { A = 0, B = 1, Added = 2 }")]
+    [InlineData("public static class Kit { public const long Flag = 65536; public static int F(int x = 5) => x; }",
+        "public static class Kit { public const long Flag = 65536; public const long Other = 2; public static int F(int x = 5) => x; public static int G(int y = 9) => y; }")]
+    public void Merge_ANewerCopyThatKeepsEveryCompiledInValue_AndAddsNew_IsAccepted(string olderApi, string newerApi)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+    }
+
+    [Fact]
+    public void Merge_ACompiledInValueThatDiffers_IsListedForEveryMember()
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public enum Mode : uint { A = 0, B = 1, C = 2, D = 3 }");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public enum Mode : uint { Z = 0, A = 1, B = 2, C = 3, D = 4 }");
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+        Assert.Contains("4 compiled-in value(s)", problem);
+        foreach (var member in new[] { "Mode::A is 0", "Mode::B is 1", "Mode::C is 2", "Mode::D is 3" })
+            Assert.Contains(member, problem);
+    }
+
     [Fact]
     public void Merge_AnEntryPastTheWindowsPathBudget_IsAWarning_AndARefusalWhenRequired()
     {
