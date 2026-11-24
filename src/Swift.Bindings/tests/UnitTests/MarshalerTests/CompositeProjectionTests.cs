@@ -314,9 +314,9 @@ public class CompositeProjectionTests
     }
 
     [Fact]
-    public void OptionalValueElement_LeavesTheCallersValueAlone()
+    public void OptionalNonCollectionElement_KeepsNewSome()
     {
-        // Control: an optional struct element wraps the caller's own value, which it must not dispose.
+        // Control: only a collection the conversion built is consumed; any other inner value keeps NewSome.
         var conversion = new OptionalProjection(new StringProjection()).GetParameterElementConversion("e");
 
         Assert.NotNull(conversion);

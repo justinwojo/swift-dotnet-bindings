@@ -126,14 +126,15 @@ public class ObjectKeyCollectionProjectionTests
 
     [Theory]
     [MemberData(nameof(ObjectElementCollections))]
-    public void ObjCElementCollection_BuildsFromAMaterializedSource(TypeSpec collection)
+    public void ObjCElementCollection_KeepsEachSourceElementAliveUntilCopied(TypeSpec collection)
     {
         // A converted element is the object's bare pointer: a lazy source that creates each object
-        // would leave it collectable before Swift copies it, so every build site enumerates a
-        // materialized copy of the source, which keeps each object reachable until the build ends.
+        // would leave it collectable before Swift copies it, so every build site converts through
+        // the runtime's borrowing sequence, which keeps each element reachable until the builder has
+        // copied it and still reads the source one element at a time.
         var projection = Assert.IsAssignableFrom<ITypeProjection>(
             _factory.Project(collection, Context(new TypeDatabase(), new ModuleEmissionContext())));
-        const string pinned = "global::System.Linq.Enumerable.ToArray(images)";
+        const string pinned = "global::Swift.Runtime.SwiftCollectionSource.Borrowing(images, ";
 
         var setup = string.Join("\n", projection.GetParameterPlan("images").SetupStatements.Select(Render));
         Assert.Contains(pinned, setup);
@@ -147,17 +148,34 @@ public class ObjectKeyCollectionProjectionTests
         };
         Assert.NotNull(setter.Item1);
         Assert.Contains(pinned, setter.Item1);
+        Assert.DoesNotContain("ToArray(images)", setup + setter.Item1);
     }
 
     [Fact]
-    public void ValueElementCollection_BuildsFromTheSourceItself()
+    public void ValueElementCollection_ConvertsThroughAPlainSelect()
     {
-        // Control: an element converted to a value holds what it needs, so the source is not copied.
+        // Control: an element converted to a value holds what it needs, so a plain Select converts it.
         var projection = Assert.IsType<ArrayProjection>(_factory.Project(
             new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.String")), Context(new TypeDatabase(), new ModuleEmissionContext())));
-        var setup = string.Join("\n", projection.GetParameterPlan("names").SetupStatements.Select(Render));
-        Assert.Contains("FromEnumerable(", setup);
-        Assert.DoesNotContain("ToArray(names)", setup);
+        var (setter, _) = AccessorSetterConversionVisitor.ArraySetterConversion(projection, "names");
+        Assert.NotNull(setter);
+        Assert.Contains("global::System.Linq.Enumerable.Select(names, ", setter);
+        Assert.DoesNotContain("SwiftCollectionSource", setter);
+    }
+
+    [Fact]
+    public void NestedCollectionSetter_DisposesEachInnerCollectionOnceCopied()
+    {
+        // A [[T]] setter is one expression: each inner collection it builds is copied into the outer
+        // one and would otherwise wait for its finalizer, holding its element references until then.
+        var projection = Assert.IsType<ArrayProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Array", new NamedTypeSpec("UIKit.UIImage"))),
+            Context(new TypeDatabase(), new ModuleEmissionContext())));
+        var (setter, _) = AccessorSetterConversionVisitor.ArraySetterConversion(projection, "rows");
+
+        Assert.NotNull(setter);
+        Assert.Contains("global::Swift.Runtime.SwiftCollectionSource.Consuming(rows, ", setter);
+        Assert.Contains("global::Swift.Runtime.SwiftCollectionSource.Borrowing(e, ", setter);
     }
 
     private static string Render(MarshalStatement statement) => statement switch

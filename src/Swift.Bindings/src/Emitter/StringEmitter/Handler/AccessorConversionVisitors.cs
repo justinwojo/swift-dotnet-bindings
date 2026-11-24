@@ -285,7 +285,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(arr.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftArray<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(valueExpr, arr.ElementProjection)}, e => {elemConv}))", true);
+            return ($"SwiftArray<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(valueExpr, "e => " + elemConv, arr.ElementProjection)})", true);
         return ($"SwiftArray<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
@@ -313,7 +313,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         {
             var keyExpr = keyConv ?? "kvp.Key";
             var valExpr = valConv ?? "kvp.Value";
-            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(valueExpr, dict.KeyProjection, dict.ValueProjection)}, kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})))", true);
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(valueExpr, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection)})", true);
         }
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }
@@ -342,7 +342,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             ? null
             : ExistentialElementCarrier.ParamConversion(set.ElementProjection, "e");
         if (elemConv != null)
-            return ($"SwiftSet<{rawElem}>.FromEnumerable(global::System.Linq.Enumerable.Select({ObjCBridgedProjection.PinnedSource(valueExpr, set.ElementProjection)}, e => {elemConv}))", true);
+            return ($"SwiftSet<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(valueExpr, "e => " + elemConv, set.ElementProjection)})", true);
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
 
