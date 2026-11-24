@@ -16,6 +16,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     private readonly bool _isExistentialInner;
     private readonly bool _useDangerousGetHandle;
     private readonly string? _carrierTypeName;
+    private readonly ObjectKeyIdentity? _objectCarrier;
 
     /// <summary>
     /// Creates an optional projection.
@@ -42,8 +43,36 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         _carrierTypeName = carrierTypeName;
     }
 
+    private OptionalProjection(OptionalProjection source, ObjectKeyIdentity objectCarrier)
+        : this(source._innerProjection, source._isExistentialInner, source._useDangerousGetHandle, source._carrierTypeName)
+    {
+        _objectCarrier = objectCarrier;
+    }
+
     /// <summary>The inner projection for the wrapped type.</summary>
     public ITypeProjection InnerProjection => _innerProjection;
+
+    /// <summary>
+    /// Whether the optional is one object reference or nil (an Objective-C class, an NSObject-rooted
+    /// or pure Swift class inner): the shape that, inside a Swift collection, crosses as the
+    /// optional type's <see cref="ObjectKeyIdentity"/> carrier (<see cref="AsObjectCarrier"/>).
+    /// </summary>
+    public bool IsObjectReference =>
+        !_isExistentialInner && _innerProjection is ObjCBridgedProjection { KeyIdentity: null } or ObjCRootedClassProjection or ClassProjection;
+
+    /// <summary>
+    /// The optional type this projection carries inside a Swift collection, or <c>null</c> outside one.
+    /// </summary>
+    public ObjectKeyIdentity? ObjectCarrier => _objectCarrier;
+
+    /// <summary>
+    /// The same projection as a collection's element, value, key or set element of the optional type
+    /// <paramref name="identity"/> names. A bare pointer there would make the collection one over
+    /// <c>Swift.Int</c>, holding its elements unretained while Swift releases what it replaces or
+    /// destroys; the carrier gives the collection <c>Optional&lt;T&gt;</c>'s own metadata (a null pointer
+    /// is <c>nil</c>), so each element is copied in and read out through its value witness.
+    /// </summary>
+    public OptionalProjection AsObjectCarrier(ObjectKeyIdentity identity) => new(this, identity);
 
     /// <summary>Whether the inner type is an existential.</summary>
     public bool IsExistentialInner => _isExistentialInner;
@@ -77,7 +106,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     /// Uses MarshalFromSwiftType for the inner type so that non-frozen structs/classes use their
     /// public type name (e.g., SwiftOptional&lt;AssetType&gt;) instead of IntPtr.
     /// </summary>
-    public string ContainerTypeName => $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
+    public string ContainerTypeName => _objectCarrier?.CarrierType ?? $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
 
     /// <summary>
     /// For MarshalFromSwift deserialization, use the inner type's MarshalFromSwiftType.
@@ -97,6 +126,7 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     /// the bare value's PInvokeType, which may be a lowered <c>.Buffer</c> carrier.
     /// </summary>
     public string SwiftContainerGenericType =>
+        _objectCarrier is { } carrier ? carrier.CarrierType :
         _innerProjection is ClassProjection or KeyPathProjection or ObjCBridgedProjection or ObjCBridgeableProjection or ObjCRootedClassProjection
             ? "IntPtr"
             : $"SwiftOptional<{_innerProjection.MarshalFromSwiftType}>";
@@ -116,6 +146,16 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
         // optional value) don't both declare `__v`, which would trigger CS0128.
         var safeVar = elementVar.Replace(".", "_").Replace("[", "").Replace("]", "");
         var patVar = $"__v_{safeVar}";
+
+        // A collection slot of an object-reference optional holds the optional type's carrier; the
+        // collection's builder copies it in (+1) while the element is still reachable.
+        if (_objectCarrier is { } carrier)
+        {
+            var handle = _innerProjection is ClassProjection
+                ? LiveHandleExpressions.SafeHandle($"{patVar}.Payload")
+                : ObjCInnerHandleExpression(patVar);
+            return $"new {carrier.CarrierType}({elementVar} is {{ }} {patVar} ? {handle} : IntPtr.Zero)";
+        }
 
         if (_innerProjection is ClassProjection)
             return $"({elementVar} is {{ }} {patVar} ? {LiveHandleExpressions.SafeHandle($"{patVar}.Payload")} : IntPtr.Zero)";
@@ -893,6 +933,15 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
+        // A carrier read out of a collection holds a reference of its own, which the wrapper adopts;
+        // a nil element is a null pointer.
+        if (_objectCarrier is not null)
+        {
+            if (_innerProjection is ClassProjection)
+                return $"global::Swift.Runtime.SwiftObjectKeys.TakeSwiftObject<{_objectCarrier.IdentityType}, {_innerProjection.PublicType}>({elementVar})";
+            return ObjCInnerReadExpression($"global::Swift.Runtime.SwiftObjectKeys.TakeReference({elementVar})");
+        }
+
         // Both arms below gate on HasValue and build a CONCRETE Nullable<PublicType> rather than
         // routing a genuine None through `ToNullable()`. Inside SwiftOptional<T>, ToNullable()
         // returns the *unconstrained* type parameter's `T?`, which for a value-type inner collapses

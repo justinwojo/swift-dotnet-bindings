@@ -99,9 +99,35 @@ public class SwiftCollectionSourceTests
     }
 
     [Fact]
+    public void ConsumingValues_DisposesEachValueOnceTheReaderMovesOn()
+    {
+        // A dictionary's value built only to be copied in (an inner collection) is disposed once the
+        // builder moves past its pair, not when the collector gets to it.
+        var built = new List<Token>();
+        using var reader = SwiftCollectionSource.ConsumingValues(new[] { 1, 2 }, value =>
+        {
+            var token = new Token(value);
+            built.Add(token);
+            return new KeyValuePair<int, Token>(value, token);
+        }).GetEnumerator();
+
+        Assert.True(reader.MoveNext());
+        var first = reader.Current.Value;
+        Assert.False(first.IsDisposed, "the current pair's value is the reader's to copy");
+
+        Assert.True(reader.MoveNext());
+        Assert.True(first.IsDisposed, "a value the reader moved past was copied and is disposed");
+        Assert.False(reader.Current.Value.IsDisposed);
+
+        Assert.False(reader.MoveNext());
+        Assert.All(built, token => Assert.True(token.IsDisposed));
+    }
+
+    [Fact]
     public void Conversions_RefuseANullSourceWhenCalled()
     {
         Assert.Throws<ArgumentNullException>(() => SwiftCollectionSource.Borrowing<int, int>(null!, v => v));
         Assert.Throws<ArgumentNullException>(() => SwiftCollectionSource.Consuming<int, Token>(null!, v => new Token(v)));
+        Assert.Throws<ArgumentNullException>(() => SwiftCollectionSource.ConsumingValues<int, int, Token>(null!, v => new KeyValuePair<int, Token>(v, new Token(v))));
     }
 }

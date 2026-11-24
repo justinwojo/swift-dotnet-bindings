@@ -614,9 +614,11 @@ namespace BindingsGeneration
             var floors = new ObjectKeyFloors();
             _onCollectionArgument = (element, hashed) =>
             {
-                if (!boundGenerics.IsObjectPointerContainerArgument(element))
+                var identity = boundGenerics.IsObjectPointerContainerArgument(element)
+                    ? ObjectKeyIdentity.For(element)
+                    : boundGenerics.OptionalObjectCarrierIdentity(element, hashed);
+                if (identity == null)
                     return;
-                var identity = new ObjectKeyIdentity(element.Name);
                 emissionCtx.RecordObjectKey(identity, hashed);
                 floors.Add(identity.IdentityClassName, OwnerAvailability(_scanOwner));
             };
@@ -1001,7 +1003,7 @@ namespace BindingsGeneration
                 foreach (var identity in objectKeyIdentities)
                 {
                     var hashed = emissionCtx!.IsHashedObjectKey(identity);
-                    csWriter.WriteLines($"    /// <summary>The Swift type <c>{identity.SwiftTypeName}</c>.</summary>");
+                    csWriter.WriteLines($"    /// <summary>The Swift type <c>{System.Security.SecurityElement.Escape(identity.SwiftTypeName)}</c>.</summary>");
                     csWriter.WriteLines($"    public sealed class {identity.IdentityClassName} : global::Swift.Runtime.ISwiftObjectKeyIdentity {{ private {identity.IdentityClassName}() {{ }} }}");
                     csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{(hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName))}\")]");
                     csWriter.WriteLines($"    internal static extern IntPtr {(hashed ? identity.AccessorMethodName : identity.ValueAccessorMethodName)}();");
@@ -1523,7 +1525,7 @@ namespace BindingsGeneration
                 {
                     var genericParam = namedType.GenericParameters[i];
                     if (_onCollectionArgument != null && genericParam is NamedTypeSpec collectionArgument &&
-                        BoundGenericsHandler.IsObjectCarrierSlot(namedType.Name, i, collectionArgument))
+                        BoundGenericsHandler.IsObjectCarrierSlot(namedType.Name, i))
                         _onCollectionArgument(collectionArgument, BoundGenericsHandler.IsHashedContainerSlot(namedType.Name, i));
                     ScanTypeSpecForImports(genericParam, onTypeName);
                 }

@@ -25,6 +25,15 @@ public interface ISwiftObjectKeyIdentity { }
 internal interface ISwiftObjectKeyCarrier
 {
     IntPtr Handle { get; }
+
+    /// <summary>
+    /// A carrier of the same type over <paramref name="handle"/>, kept valid by <paramref name="owner"/>
+    /// (boxed: called on a default instance by code that knows the carrier only as a type argument).
+    /// </summary>
+    object WithOwner(IntPtr handle, SwiftObjectReference? owner);
+
+    /// <summary>The reference that keeps the carrier's object alive, if the carrier holds one.</summary>
+    SwiftObjectReference? Owner { get; }
 }
 
 /// <summary>
@@ -40,29 +49,88 @@ internal interface ISwiftObjectKeyCarrier
 /// <remarks>
 /// Ownership follows a Swift value of the key type. Built from a C# object, the carrier borrows the
 /// object's reference: marshalling it into Swift memory copies it (+1) through the key type's value
-/// witness, as any Swift value is copied. Read out of a Swift collection, the carrier borrows too: the
-/// runtime releases the copy the collection handed over as it reads it, so a reader that keeps the
-/// object takes its own reference (a retaining <c>GetNSObject</c>), and a carrier nobody keeps needs no
-/// cleanup. A carrier read out of a collection is therefore valid only while that collection holds the
-/// key, as is any object pointer read out of a raw Swift collection: convert it before removing the key
-/// or releasing the collection.
+/// witness, as any Swift value is copied. Read out of a Swift collection, the carrier holds the
+/// reference the collection handed over, in an owner it carries along: whoever holds the carrier
+/// (or a copy of it) holds the object, however long the collection lives or whatever happens to it
+/// after the read, and the reference is released when the last copy of the carrier is collected. A
+/// reader that wraps the object takes the carrier's reference over through
+/// <see cref="SwiftObjectKeys.TakeReference{TIdentity}"/>. The carrier of an optional type
+/// (<c>Optional&lt;NSUUID&gt;</c>) holds a null pointer for <c>nil</c>.
 /// </remarks>
 /// <typeparam name="TIdentity">The binding's identity for the Swift key type.</typeparam>
 [EditorBrowsable(EditorBrowsableState.Never)]
 [StructLayout(LayoutKind.Sequential)]
-public readonly struct SwiftObjectKey<TIdentity> : ISwiftObjectKeyCarrier
+public readonly struct SwiftObjectKey<TIdentity> : ISwiftObjectKeyCarrier, IEquatable<SwiftObjectKey<TIdentity>>
     where TIdentity : ISwiftObjectKeyIdentity
 {
     private readonly IntPtr _handle;
+    private readonly SwiftObjectReference? _owner;
 
-    /// <summary>Carries the object pointer <paramref name="handle"/>.</summary>
+    /// <summary>Carries the object pointer <paramref name="handle"/>, borrowing the caller's reference.</summary>
     public SwiftObjectKey(IntPtr handle)
     {
         _handle = handle;
+        _owner = null;
+    }
+
+    private SwiftObjectKey(IntPtr handle, SwiftObjectReference? owner)
+    {
+        _handle = handle;
+        _owner = owner;
     }
 
     /// <summary>The object pointer.</summary>
     public IntPtr Handle => _handle;
+
+    SwiftObjectReference? ISwiftObjectKeyCarrier.Owner => _owner;
+
+    object ISwiftObjectKeyCarrier.WithOwner(IntPtr handle, SwiftObjectReference? owner) => new SwiftObjectKey<TIdentity>(handle, owner);
+
+    /// <summary>Whether both carry the same object pointer (the owner is not part of the value).</summary>
+    public bool Equals(SwiftObjectKey<TIdentity> other) => _handle == other._handle;
+
+    /// <inheritdoc/>
+    public override bool Equals(object? obj) => obj is SwiftObjectKey<TIdentity> other && Equals(other);
+
+    /// <inheritdoc/>
+    public override int GetHashCode() => _handle.GetHashCode();
+}
+
+/// <summary>
+/// One Swift reference (+1) on the object a <see cref="SwiftObjectKey{TIdentity}"/> read out of a
+/// Swift collection carries, released through the value's own type when the last carrier holding it
+/// is collected, or handed over to a wrapper that adopts it.
+/// </summary>
+internal sealed class SwiftObjectReference
+{
+    private IntPtr _handle;
+    private readonly TypeMetadata _metadata;
+
+    internal SwiftObjectReference(IntPtr handle, TypeMetadata metadata)
+    {
+        _handle = handle;
+        _metadata = metadata;
+    }
+
+    /// <summary>
+    /// Hands the reference over to the caller (which then owns the +1), or returns zero if it was
+    /// already handed over.
+    /// </summary>
+    internal IntPtr Take()
+    {
+        IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+        if (handle != IntPtr.Zero)
+            GC.SuppressFinalize(this);
+        return handle;
+    }
+
+    /// <summary>Releases the reference unless it was handed over.</summary>
+    ~SwiftObjectReference()
+    {
+        IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+        if (handle != IntPtr.Zero)
+            SwiftObjectKeys.Destroy(handle, _metadata);
+    }
 }
 
 /// <summary>
@@ -135,5 +203,78 @@ public static class SwiftObjectKeys
     {
         IntPtr handle = carrier.Handle;
         metadata.ValueWitnessTable->InitializeWithCopy(destination, &handle, metadata);
+        // The copy is taken while the carrier's owner, if any, still holds the object.
+        GC.KeepAlive(carrier.Owner);
+    }
+
+    /// <summary>
+    /// A carrier of <typeparamref name="T"/> that takes over the +1 reference <paramref name="handle"/>
+    /// holds (a value moved out of a Swift slot), released when the carrier is collected.
+    /// </summary>
+    internal static T AdoptCarrier<T>(IntPtr handle, TypeMetadata metadata)
+    {
+        var owner = handle == IntPtr.Zero ? null : new SwiftObjectReference(handle, metadata);
+        return (T)((ISwiftObjectKeyCarrier)default(T)!).WithOwner(handle, owner);
+    }
+
+    /// <summary>
+    /// A carrier of <typeparamref name="T"/> over the value at <paramref name="source"/>, which the
+    /// caller keeps: the carrier takes its own reference (+1), released when it is collected.
+    /// </summary>
+    internal static unsafe T CopyCarrier<T>(IntPtr source, TypeMetadata metadata)
+    {
+        IntPtr copy;
+        metadata.ValueWitnessTable->InitializeWithCopy(&copy, (void*)source, metadata);
+        return AdoptCarrier<T>(copy, metadata);
+    }
+
+    /// <summary>Releases one reference on <paramref name="handle"/> as a value of the type <paramref name="metadata"/> describes.</summary>
+    internal static unsafe void Destroy(IntPtr handle, TypeMetadata metadata)
+    {
+        metadata.ValueWitnessTable->Destroy(&handle, metadata);
+    }
+
+    /// <summary>
+    /// A +1 reference on the object <paramref name="key"/> carries, for a wrapper that adopts it
+    /// (<c>GetINativeObject(handle, owns: true)</c>), or zero for a <c>nil</c> optional. A carrier read
+    /// out of a Swift collection hands over the reference it holds the first time; any other carrier
+    /// (one built from a C# object, or one whose reference was handed over already) has its value copied.
+    /// The generated conversion of a collection's element calls this once per carrier it reads.
+    /// </summary>
+    /// <param name="key">The carrier.</param>
+    /// <returns>An owned reference the caller must adopt, or <see cref="IntPtr.Zero"/>.</returns>
+    public static unsafe IntPtr TakeReference<TIdentity>(SwiftObjectKey<TIdentity> key)
+        where TIdentity : ISwiftObjectKeyIdentity
+    {
+        IntPtr handle = key.Handle;
+        if (handle == IntPtr.Zero)
+            return IntPtr.Zero;
+        var owner = ((ISwiftObjectKeyCarrier)key).Owner;
+        IntPtr taken = owner?.Take() ?? IntPtr.Zero;
+        if (taken != IntPtr.Zero)
+            return taken;
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<SwiftObjectKey<TIdentity>>();
+        IntPtr copy;
+        metadata.ValueWitnessTable->InitializeWithCopy(&copy, &handle, metadata);
+        GC.KeepAlive(owner);
+        return copy;
+    }
+
+    /// <summary>
+    /// Hands the reference the carrier of an optional Swift class holds (see <see cref="TakeReference{TIdentity}"/>)
+    /// to a wrapper of the class, or returns <c>null</c> for a <c>nil</c> carrier.
+    /// </summary>
+    /// <typeparam name="TIdentity">The binding's identity for the optional class type.</typeparam>
+    /// <typeparam name="T">The class's wrapper.</typeparam>
+    public static unsafe T? TakeSwiftObject<TIdentity, T>(SwiftObjectKey<TIdentity> key)
+        where TIdentity : ISwiftObjectKeyIdentity
+        where T : class, ISwiftObject
+    {
+        IntPtr handle = TakeReference(key);
+        if (handle == IntPtr.Zero)
+            return null;
+        // The local is the reference's slot: the wrapper takes it over or copies it, and the slot's
+        // own reference is released either way.
+        return SwiftMarshal.MarshalFromSwiftObjectConsuming<T>(&handle);
     }
 }

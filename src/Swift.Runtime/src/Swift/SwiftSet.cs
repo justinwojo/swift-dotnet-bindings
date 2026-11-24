@@ -750,20 +750,20 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
 
     #region IReadOnlySet<Element> implementation
 
+    // Every comparison is Swift's: elements are matched with this set's Hashable conformance (its
+    // Contains), and the other collection is first made a Swift set of the same element type, so its
+    // elements Swift calls equal count once. Two distinct objects that are equal to Swift (two NSUUIDs
+    // of the same value, two string-backed keys built from the same text) are one element here, as
+    // they are to Contains, Add and Swift itself.
+
     /// <summary>
     /// Determines whether the current set is a proper subset of a specified collection.
     /// </summary>
     public bool IsProperSubsetOf(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        var otherSet = new HashSet<Element>(other);
-        if (Count >= otherSet.Count) return false;
-        foreach (var element in this)
-        {
-            if (!otherSet.Contains(element))
-                return false;
-        }
-        return true;
+        using var otherSet = AsSwiftSet(other);
+        return Count < otherSet.Count && AllIn(this, otherSet);
     }
 
     /// <summary>
@@ -772,14 +772,8 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool IsProperSupersetOf(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        var otherSet = new HashSet<Element>(other);
-        if (Count <= otherSet.Count) return false;
-        foreach (var element in otherSet)
-        {
-            if (!Contains(element))
-                return false;
-        }
-        return true;
+        using var otherSet = AsSwiftSet(other);
+        return Count > otherSet.Count && AllIn(otherSet, this);
     }
 
     /// <summary>
@@ -788,13 +782,8 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool IsSubsetOf(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        var otherSet = new HashSet<Element>(other);
-        foreach (var element in this)
-        {
-            if (!otherSet.Contains(element))
-                return false;
-        }
-        return true;
+        using var otherSet = AsSwiftSet(other);
+        return Count <= otherSet.Count && AllIn(this, otherSet);
     }
 
     /// <summary>
@@ -803,6 +792,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool IsSupersetOf(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(other);
         foreach (var element in other)
         {
             if (!Contains(element))
@@ -817,6 +807,7 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool Overlaps(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
+        ArgumentNullException.ThrowIfNull(other);
         foreach (var element in other)
         {
             if (Contains(element))
@@ -831,11 +822,23 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     public bool SetEquals(IEnumerable<Element> other)
     {
         ThrowIfDisposed();
-        var otherSet = new HashSet<Element>(other);
-        if (Count != otherSet.Count) return false;
-        foreach (var element in this)
+        using var otherSet = AsSwiftSet(other);
+        return Count == otherSet.Count && AllIn(otherSet, this);
+    }
+
+    /// <summary>The elements of <paramref name="other"/> as a Swift set of this element type.</summary>
+    private static SwiftSet<Element> AsSwiftSet(IEnumerable<Element> other)
+    {
+        ArgumentNullException.ThrowIfNull(other);
+        return new SwiftSet<Element>(other);
+    }
+
+    /// <summary>Whether every element of <paramref name="subset"/> is in <paramref name="superset"/>, by Swift equality.</summary>
+    private static bool AllIn(SwiftSet<Element> subset, SwiftSet<Element> superset)
+    {
+        foreach (var element in subset)
         {
-            if (!otherSet.Contains(element))
+            if (!superset.Contains(element))
                 return false;
         }
         return true;

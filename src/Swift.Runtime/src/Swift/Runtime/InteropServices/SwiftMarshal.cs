@@ -630,16 +630,13 @@ public static class SwiftMarshal
             return moved;
         }
 
-        // An object-reference key carrier is read borrowed: the slot's +1 is released here, and the
-        // object stays alive through the collection it was read from, which holds its own reference.
-        // A reader that keeps the key past the collection retains it (the projections do), so a key
-        // the consumer never reads, or reads without converting, holds nothing to leak.
+        // An object-reference carrier takes the slot's +1 into the owner it carries: the object stays
+        // alive as long as the carrier (or a copy) is held, whatever happens to the collection it was
+        // read from, and is released when the carrier is collected or a wrapper adopts the reference.
         if (typeof(ISwiftObjectKeyCarrier).IsAssignableFrom(typeof(T)))
         {
-            T key = MarshalFromSwift<T>((IntPtr)slot);
-            if (metadata.IsValid && metadata.ValueWitnessTable->IsNonPOD)
-                metadata.ValueWitnessTable->Destroy(slot, metadata);
-            return key;
+            var carrierMetadata = metadata.IsValid ? metadata : TypeMetadata.GetTypeMetadataOrThrow<T>();
+            return SwiftObjectKeys.AdoptCarrier<T>(*(IntPtr*)slot, carrierMetadata);
         }
 
         // A C# enum reads only the case, so a slot whose value holds a reference (a case-identity
@@ -2057,6 +2054,10 @@ public static class SwiftMarshal
         {
             unsafe { return Unsafe.Read<T>((void*)swiftSource); }
         }
+
+        // An object-reference carrier read from memory the caller keeps takes its own reference.
+        if (typeof(ISwiftObjectKeyCarrier).IsAssignableFrom(type))
+            return SwiftObjectKeys.CopyCarrier<T>(swiftSource, TypeMetadata.GetTypeMetadataOrThrow<T>());
 
         // Handle delegate types (closures)
         if (typeof(Delegate).IsAssignableFrom(typeof(T)))

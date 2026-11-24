@@ -380,7 +380,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(elementVar, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", _keyProjection, _valueProjection)})";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({(effectiveValConv != null ? CollectionElementSelect.ConsumedPairs(elementVar, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", _keyProjection, _valueProjection) : CollectionElementSelect.Pairs(elementVar, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", _keyProjection, _valueProjection))})";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({elementVar})";
     }
