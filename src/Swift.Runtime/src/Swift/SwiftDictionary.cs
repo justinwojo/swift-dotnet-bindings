@@ -777,13 +777,15 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         try
         {
             // Call Dictionary.makeIterator() — writes the iterator into the indirect result.
-            // Arc.Retain the dictionary storage before calling makeIterator. The iterator
+            // Retain the dictionary storage before calling makeIterator. The iterator
             // takes ownership of the storage reference passed via the dictionary value
             // parameter. Without this retain, the iterator's VWT Destroy would over-release
-            // the dictionary's storage, causing a crash on dict.Dispose().
+            // the dictionary's storage, causing a crash on dict.Dispose(). The storage
+            // is a bridge object: an NSDictionary when Swift bridged the value lazily,
+            // its word tagged, so it is retained as one rather than as a native object.
             using (PayloadBuffer<IntPtr> disposable = PayloadBuffer)
             {
-                Arc.Retain((IntPtr)disposable.Buffer);
+                Arc.BridgeObjectRetain((IntPtr)disposable.Buffer);
                 SwiftDictionaryPInvokes.MakeIterator(
                     new SwiftIndirectResult(iteratorBuffer),
                     disposable.Buffer,

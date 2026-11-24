@@ -11,16 +11,33 @@ namespace BindingsGeneration;
 public class ObjCRootedClassProjection : ITypeProjection
 {
     private readonly string _typeName;
+    private readonly bool _isCollectionValue;
 
     public ObjCRootedClassProjection(string typeName)
+        : this(typeName, isCollectionValue: false)
+    {
+    }
+
+    private ObjCRootedClassProjection(string typeName, bool isCollectionValue)
     {
         _typeName = typeName;
+        _isCollectionValue = isCollectionValue;
     }
+
+    /// <summary>The same projection as an array element or dictionary value (see <see cref="SwiftContainerGenericType"/>).</summary>
+    public ObjCRootedClassProjection AsCollectionValue() => new(_typeName, isCollectionValue: true);
 
     public string PublicType => _typeName;
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
     public string MarshalFromSwiftType => _typeName;
+
+    /// <summary>
+    /// As an array element or dictionary value the element is the class itself, as for a pure Swift class
+    /// (<see cref="ClassProjection.SwiftContainerGenericType"/>): copied in through the class's value
+    /// witness (+1), so the storage is the class's own and holds a reference on every element.
+    /// </summary>
+    public string SwiftContainerGenericType => _isCollectionValue ? _typeName : PInvokeType;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {
@@ -54,8 +71,8 @@ public class ObjCRootedClassProjection : ITypeProjection
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
-    // Cast to IntPtr: ObjC classes return ObjCRuntime.NativeHandle from .Handle,
-    // but SwiftArray<IntPtr>/container projections need IntPtr.
+    // Cast to IntPtr: ObjC classes return ObjCRuntime.NativeHandle from .Handle. A container
+    // carries the wrapper itself (SwiftContainerGenericType), so its element conversion is skipped.
     public string? GetParameterElementConversion(string elementVar) =>
         LiveHandleExpressions.ObjCSelf(elementVar);
 

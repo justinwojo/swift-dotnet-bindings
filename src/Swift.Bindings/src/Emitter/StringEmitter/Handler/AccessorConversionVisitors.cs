@@ -384,21 +384,23 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             }
         }
 
-        // Container inner (Array, Dictionary, Set) — wrap with full container creation
+        // Container inner (Array, Dictionary, Set) — wrap with full container creation. The
+        // optional stores a copy, so the container built here is consumed rather than left to
+        // its finalizer holding its storage and every element reference in it.
         if (inner is ArrayProjection arr)
         {
             var (arrConv, _) = ArraySetterConversion(arr, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({arrConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
         if (inner is DictionaryProjection dict)
         {
             var (dictConv, _) = DictSetterConversion(dict, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({dictConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
         if (inner is SetProjection set)
         {
             var (setConv, _) = SetSetterConversion(set, $"{valueExpr}Val");
-            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSome({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
+            return ($"({valueExpr} is {{}} {valueExpr}Val ? SwiftOptional<{optType}>.NewSomeConsuming({setConv}) : SwiftOptional<{optType}>.NewNone())", true);
         }
 
         // Class/NonFrozenStruct/KeyPath inner — pass the public type as-is. The KeyPath

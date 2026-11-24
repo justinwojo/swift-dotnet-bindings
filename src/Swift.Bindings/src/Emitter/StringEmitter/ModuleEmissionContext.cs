@@ -1669,27 +1669,40 @@ public sealed class ModuleEmissionContext
     }
 
     private readonly SortedDictionary<string, ObjectKeyIdentity> _objectKeyIdentities = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _hashedObjectKeys = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// The object-pointer key types (<see cref="ObjectKeyIdentity"/>) the module's collections use,
-    /// each declared once in its <c>__SwiftObjectKeys</c> class, exported by its wrapper and
-    /// registered by its initializer. Ordered by identity name.
+    /// The object-pointer types (<see cref="ObjectKeyIdentity"/>) the module's collections hold, as
+    /// keys, set elements, array elements or dictionary values, each declared once in its
+    /// <c>__SwiftObjectKeys</c> class, exported by its wrapper and registered by its initializer.
+    /// Ordered by identity name.
     /// </summary>
     public IReadOnlyCollection<ObjectKeyIdentity> ObjectKeyIdentities => _objectKeyIdentities.Values;
 
-    /// <summary>Records an object-pointer key type a collection projection of this module uses.</summary>
+    /// <summary>
+    /// Records an object-pointer type a collection of this module holds. <paramref name="hashed"/>
+    /// marks a dictionary key or set element, which needs the type's <c>Hashable</c> conformance
+    /// registered as well as its metadata.
+    /// </summary>
     /// <exception cref="InvalidOperationException">Two Swift types map to one identity name.</exception>
-    public void RecordObjectKey(ObjectKeyIdentity identity)
+    public void RecordObjectKey(ObjectKeyIdentity identity, bool hashed = true)
     {
         if (_objectKeyIdentities.TryGetValue(identity.IdentityClassName, out var existing))
         {
             if (existing.SwiftTypeName != identity.SwiftTypeName)
                 throw new InvalidOperationException(
                     $"The object-key types '{existing.SwiftTypeName}' and '{identity.SwiftTypeName}' share the identity name '{identity.IdentityClassName}'.");
-            return;
         }
-        _objectKeyIdentities.Add(identity.IdentityClassName, identity);
+        else
+        {
+            _objectKeyIdentities.Add(identity.IdentityClassName, identity);
+        }
+        if (hashed)
+            _hashedObjectKeys.Add(identity.IdentityClassName);
     }
+
+    /// <summary>True when some collection of the module holds <paramref name="identity"/>'s type as a key or set element.</summary>
+    public bool IsHashedObjectKey(ObjectKeyIdentity identity) => _hashedObjectKeys.Contains(identity.IdentityClassName);
 
     private readonly List<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> _simpleEnumConformanceRegistrations = new();
     private readonly HashSet<(string, string)> _simpleEnumConformanceKeys = new();

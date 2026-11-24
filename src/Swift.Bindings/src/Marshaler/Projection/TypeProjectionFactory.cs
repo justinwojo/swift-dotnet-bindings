@@ -259,7 +259,7 @@ public class TypeProjectionFactory
                 ?? TryProjectObjCElement(namedType.GenericParameters[0]);
             if (elemProjection == null)
                 return null;
-            return new ArrayProjection(elemProjection, context.IsParameter);
+            return new ArrayProjection(AsCollectionValue(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
         }
 
         if (name == "Swift.Set" && namedType.GenericParameters.Count == 1)
@@ -279,7 +279,10 @@ public class TypeProjectionFactory
                 ?? TryProjectObjCElement(namedType.GenericParameters[1]);
             if (keyProjection == null || valueProjection == null)
                 return null;
-            return new DictionaryProjection(AsHashedKey(keyProjection, namedType.GenericParameters[0], context), valueProjection, context.IsParameter);
+            return new DictionaryProjection(
+                AsHashedKey(keyProjection, namedType.GenericParameters[0], context),
+                AsCollectionValue(valueProjection, namedType.GenericParameters[1], context),
+                context.IsParameter);
         }
 
         if (name == "Swift.Result" && namedType.GenericParameters.Count == 2)
@@ -778,13 +781,44 @@ public class TypeProjectionFactory
     {
         if (keyProjection is not ObjCBridgedProjection { KeyIdentity: null } objc)
             return keyProjection;
-        if (keyTypeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named || !named.HasModule())
-            throw new InvalidOperationException(
-                $"The Objective-C key type '{keyTypeSpec}' has no module-qualified Swift name, so its collection "
-                + "cannot be given the key type's own metadata and Hashable conformance.");
-        var identity = new ObjectKeyIdentity(named.Name);
+        var identity = ObjectIdentityOf(keyTypeSpec);
         context.EmissionContext?.RecordObjectKey(identity);
         return objc.AsHashedKey(identity);
+    }
+
+    /// <summary>
+    /// Gives an object-reference array element or dictionary value its own Swift type inside the
+    /// collection: an Objective-C object the identity of its Swift type (see
+    /// <see cref="ObjectKeyIdentity"/>), a Swift class its wrapper. The collection C# builds then holds
+    /// a reference on each element, and the one it reads is read as a collection of that type (an
+    /// NSArray-backed array included) rather than of <c>Swift.Int</c>. Every other element passes
+    /// through unchanged.
+    /// </summary>
+    private static ITypeProjection AsCollectionValue(ITypeProjection valueProjection, TypeSpec valueTypeSpec, ProjectionContext context)
+    {
+        // A Swift class (NSObject-rooted or not) is carried as its own wrapper.
+        if (valueProjection is ClassProjection swiftClass)
+            return swiftClass.AsCollectionValue();
+        if (valueProjection is ObjCRootedClassProjection objcRooted)
+            return objcRooted.AsCollectionValue();
+
+        // A bound generic Objective-C class (a lightweight-generic element) has no one-name
+        // identity; it keeps the bare pointer, as BoundGenericsHandler.IsObjectCarrierSlot does.
+        if (valueProjection is not ObjCBridgedProjection { KeyIdentity: null } objc ||
+            valueTypeSpec is NamedTypeSpec { GenericParameters.Count: > 0 })
+            return valueProjection;
+        var identity = ObjectIdentityOf(valueTypeSpec);
+        context.EmissionContext?.RecordObjectKey(identity, hashed: false);
+        return objc.AsCollectionValue(identity);
+    }
+
+    private static ObjectKeyIdentity ObjectIdentityOf(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named || !named.HasModule())
+            throw new InvalidOperationException(
+                $"The Objective-C type '{typeSpec}' has no module-qualified Swift name, so its collection "
+                + "cannot be given the type's own metadata.");
+        return new ObjectKeyIdentity(named.Name);
     }
 
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)

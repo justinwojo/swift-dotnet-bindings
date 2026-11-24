@@ -961,14 +961,15 @@ public class BoundGenericsHandler
             // ObjC-bridged class types (UIView, NSURLSessionTask) in stdlib containers
             // map to IntPtr — the raw pointer representation. The projection system handles
             // element conversion (GetNSObject<T> for return, .Handle for parameter).
-            // A Dictionary key or Set element in that position is hashed, so it carries its key
-            // type's identity instead (see ObjectKeyIdentity): a collection over IntPtr is one over
-            // Swift.Int. ModuleHandler records the identity from the same predicate.
+            // In a collection's slot (a Dictionary key or value, a Set or Array element) it carries
+            // its Swift type's identity instead (see ObjectKeyIdentity): a collection over IntPtr is
+            // one over Swift.Int, holding its elements unretained and hashing by address.
+            // ModuleHandler records the identity from the same predicates.
             if (isStdlibContainer &&
                 genericParameter is NamedTypeSpec namedGenericParam &&
                 IsObjectPointerContainerArgument(namedGenericParam))
             {
-                translatedGenericParameters.Add(IsHashedContainerSlot(namedTypeSpec.Name, genericIndex)
+                translatedGenericParameters.Add(IsObjectCarrierSlot(namedTypeSpec.Name, genericIndex, namedGenericParam)
                     ? new ObjectKeyIdentity(namedGenericParam.Name).CarrierType
                     : "IntPtr");
                 continue;
@@ -1686,6 +1687,20 @@ public class BoundGenericsHandler
     /// <summary>True for the hashed type argument of a stdlib container: a Dictionary's key, a Set's element.</summary>
     internal static bool IsHashedContainerSlot(string containerName, int genericIndex)
         => genericIndex == 0 && (containerName == "Swift.Dictionary" || containerName == "Swift.Set");
+
+    /// <summary>True for an unhashed element type argument of a stdlib collection: an Array's element, a Dictionary's value.</summary>
+    internal static bool IsCollectionValueSlot(string containerName, int genericIndex)
+        => (genericIndex == 0 && containerName == "Swift.Array") || (genericIndex == 1 && containerName == "Swift.Dictionary");
+
+    /// <summary>
+    /// True when an object-pointer type argument (<see cref="IsObjectPointerContainerArgument"/>) in
+    /// this slot crosses as its <see cref="ObjectKeyIdentity"/> carrier: every hashed slot, and every
+    /// array element or dictionary value except a bound generic Objective-C class, which has no
+    /// one-name identity and keeps the bare pointer (TypeProjectionFactory.AsCollectionValue).
+    /// </summary>
+    internal static bool IsObjectCarrierSlot(string containerName, int genericIndex, NamedTypeSpec argument)
+        => IsHashedContainerSlot(containerName, genericIndex)
+            || (IsCollectionValueSlot(containerName, genericIndex) && argument.GenericParameters.Count == 0);
 
     private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
     {

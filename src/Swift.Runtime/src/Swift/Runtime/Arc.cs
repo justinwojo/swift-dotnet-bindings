@@ -108,6 +108,28 @@ public static class Arc
     static extern void swift_unknownObjectRelease(IntPtr p);
 
     /// <summary>
+    /// Retains a bridge object: the one-word storage of a Swift <c>Array</c>, <c>Set</c> or
+    /// <c>Dictionary</c>. The word is a native Swift storage object, or an Objective-C collection
+    /// whose pointer carries the bridge-object tag bit when the value was bridged lazily from one;
+    /// <c>swift_retain</c> reads that tagged word as a native object.
+    /// </summary>
+    [DllImport(KnownLibraries.SwiftCore, CallingConvention = CallingConvention.Cdecl)]
+    [SuppressGCTransition]
+    static extern IntPtr swift_bridgeObjectRetain(IntPtr p);
+
+    /// <summary>
+    /// Retains the storage word of a Swift collection value, native or bridged from an
+    /// Objective-C collection, as the collection's own copy does.
+    /// </summary>
+    /// <param name="p">The collection's storage word.</param>
+    /// <returns>The pointer passed in.</returns>
+    internal static IntPtr BridgeObjectRetain(IntPtr p)
+    {
+        swift_bridgeObjectRetain(p);
+        return p;
+    }
+
+    /// <summary>
     /// Retains a class-bound existential payload (<c>any P</c> class reference) that may
     /// be a native Swift or an Objective-C object. Unlike <see cref="Retain"/>
     /// (<c>swift_retain</c>, native-only), this routes through the runtime's

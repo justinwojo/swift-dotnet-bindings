@@ -636,13 +636,15 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         try
         {
             // Call Set.makeIterator() — writes the iterator into the indirect result.
-            // Arc.Retain the set storage before calling makeIterator. The iterator
+            // Retain the set storage before calling makeIterator. The iterator
             // takes ownership of the storage reference passed via the set value
             // parameter. Without this retain, the iterator's VWT Destroy would over-release
-            // the set's storage, causing a crash on set.Dispose().
+            // the set's storage, causing a crash on set.Dispose(). The storage
+            // is a bridge object: an NSSet when Swift bridged the value lazily,
+            // its word tagged, so it is retained as one rather than as a native object.
             using (PayloadBuffer<IntPtr> disposable = PayloadBuffer)
             {
-                Arc.Retain((IntPtr)disposable.Buffer);
+                Arc.BridgeObjectRetain((IntPtr)disposable.Buffer);
                 SwiftSetPInvokes.MakeIterator(
                     new SwiftIndirectResult(iteratorBuffer),
                     disposable.Buffer,

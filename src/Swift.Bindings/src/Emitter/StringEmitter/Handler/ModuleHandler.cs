@@ -483,8 +483,8 @@ namespace BindingsGeneration
                     swiftWriter, moduleDecl.Name, errorRegistryEmissionCtx, env.TypeDatabase);
             }
 
-            // Every member is emitted by now, so the object-pointer key types the module's
-            // collections use are all recorded: export each one's Set metadata from the wrapper.
+            // Every member is emitted by now, so the object-pointer types the module's collections
+            // hold are all recorded: export each one's metadata (a key's through its Set) from the wrapper.
             var objectKeyLibName = env.TypeDatabase.AsyncLibraryName ?? env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
             EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
@@ -592,11 +592,13 @@ namespace BindingsGeneration
         /// 2. Pre-registers NewFromPayload factories for NativeAOT (avoids reflection trimming)
         /// </summary>
         /// <summary>
-        /// Exports, from the wrapper, the metadata of <c>Set&lt;Key&gt;</c> for each object-pointer key
-        /// type the module's collections use (<see cref="ObjectKeyIdentity"/>). The module initializer
-        /// reads the key type's metadata and <c>Hashable</c> witness table out of it: a clang-imported
-        /// key type's metadata and synthesized conformance are local to each image, and the runtime
-        /// cannot look either up by name.
+        /// Exports, from the wrapper, the metadata of each object-pointer type the module's collections
+        /// hold (<see cref="ObjectKeyIdentity"/>). For a type held as a key or set element that is the
+        /// metadata of <c>Set&lt;Key&gt;</c>, from which the module initializer reads the type's metadata
+        /// and <c>Hashable</c> witness table: a clang-imported type's metadata and synthesized
+        /// conformance are local to each image, and the runtime cannot look either up by name. A type
+        /// held only as an array element or dictionary value needs no conformance, and its own
+        /// metadata is exported.
         /// </summary>
         private void EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
         {
@@ -604,18 +606,18 @@ namespace BindingsGeneration
                 return;
             var moduleName = moduleDecl.Name;
 
-            // The type projections recorded the keys of every collection they marshal. A closure's
-            // parameter types are translated raw (BoundGenericsHandler.TranslateTypeSpecToCSharp),
-            // which names the carrier of an object-pointer key without an emission context, so record
-            // every such key the bound surface spells from the same predicate.
+            // The type projections recorded the element types of every collection they marshal. A
+            // closure's parameter types are translated raw (BoundGenericsHandler.TranslateTypeSpecToCSharp),
+            // which names the carrier of an object-pointer element without an emission context, so
+            // record every such element the bound surface spells from the same predicates.
             var boundGenerics = new BoundGenericsHandler(typeDatabase);
             var floors = new ObjectKeyFloors();
-            _onHashedContainerArgument = key =>
+            _onCollectionArgument = (element, hashed) =>
             {
-                if (!boundGenerics.IsObjectPointerContainerArgument(key))
+                if (!boundGenerics.IsObjectPointerContainerArgument(element))
                     return;
-                var identity = new ObjectKeyIdentity(key.Name);
-                emissionCtx.RecordObjectKey(identity);
+                var identity = new ObjectKeyIdentity(element.Name);
+                emissionCtx.RecordObjectKey(identity, hashed);
                 floors.Add(identity.IdentityClassName, OwnerAvailability(_scanOwner));
             };
             try
@@ -624,17 +626,22 @@ namespace BindingsGeneration
             }
             finally
             {
-                _onHashedContainerArgument = null;
+                _onCollectionArgument = null;
                 _scanOwner = null;
             }
 
-            // A key type may be newer than the module's deployment target, its metadata then
-            // weak-imported. The accessor is guarded by the floor every declaration that names the key
+            // A type may be newer than the module's deployment target, its metadata then
+            // weak-imported. The accessor is guarded by the floor every declaration that names the type
             // is available at. An identity only a projection recorded has no such declaration and stays
             // unguarded, as the member's own wrapper references the type unguarded too.
             foreach (var identity in emissionCtx.ObjectKeyIdentities)
-                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName, identity.AccessorSymbol(moduleName), emissionCtx,
-                    availability: floors.Floor(identity.IdentityClassName));
+            {
+                var hashed = emissionCtx.IsHashedObjectKey(identity);
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName,
+                    hashed ? identity.SwiftSetTypeName : identity.SwiftTypeName,
+                    hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName),
+                    emissionCtx, availability: floors.Floor(identity.IdentityClassName));
+            }
         }
 
         /// <summary>The availability of the declaration a bound-surface scan is reading, with its ancestors'.</summary>
@@ -878,12 +885,15 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLines($"        try {{ global::Swift.Runtime.TypeMetadata.RegisterMetadata(typeof({typeofExpr}), global::Swift.Runtime.TypeMetadata.FromHandle({accessorName}())); }} catch {{ }}");
             }
-            // Object-pointer collection keys (NSString-backed key types, Objective-C classes): each
-            // key's carrier gets the key type's metadata and Hashable witness table, read from the
-            // Set<Key> metadata the wrapper exports.
+            // Object-pointer collection elements (NSString-backed key types, Objective-C classes):
+            // each one's carrier gets its type's metadata, and a key's its Hashable witness table too,
+            // read from the Set<Key> metadata the wrapper exports.
             foreach (var identity in objectKeyIdentities)
             {
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.Register<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.AccessorMethodName}()); }} catch {{ }}");
+                if (emissionCtx!.IsHashedObjectKey(identity))
+                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.Register<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.AccessorMethodName}()); }} catch {{ }}");
+                else
+                    csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterValue<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.ValueAccessorMethodName}()); }} catch {{ }}");
             }
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
@@ -979,8 +989,8 @@ namespace BindingsGeneration
 
             if (objectKeyIdentities.Count > 0)
             {
-                // The identities of the module's object-pointer collection keys, and the wrapper
-                // accessors of their Set metadata. Referenced unqualified from the module's code.
+                // The identities of the module's object-pointer collection elements, and the wrapper
+                // accessors of their metadata. Referenced unqualified from the module's code.
                 // The identities are public: a closure parameter's raw collection type names one.
                 csWriter.WriteLines($$"""
 
@@ -990,10 +1000,11 @@ namespace BindingsGeneration
                     """);
                 foreach (var identity in objectKeyIdentities)
                 {
-                    csWriter.WriteLines($"    /// <summary>The Swift key type <c>{identity.SwiftTypeName}</c>.</summary>");
+                    var hashed = emissionCtx!.IsHashedObjectKey(identity);
+                    csWriter.WriteLines($"    /// <summary>The Swift type <c>{identity.SwiftTypeName}</c>.</summary>");
                     csWriter.WriteLines($"    public sealed class {identity.IdentityClassName} : global::Swift.Runtime.ISwiftObjectKeyIdentity {{ private {identity.IdentityClassName}() {{ }} }}");
-                    csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{identity.AccessorSymbol(moduleName)}\")]");
-                    csWriter.WriteLines($"    internal static extern IntPtr {identity.AccessorMethodName}();");
+                    csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{(hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName))}\")]");
+                    csWriter.WriteLines($"    internal static extern IntPtr {(hashed ? identity.AccessorMethodName : identity.ValueAccessorMethodName)}();");
                 }
                 csWriter.WriteLines("""
                     }
@@ -1490,9 +1501,9 @@ namespace BindingsGeneration
         /// <summary>
         /// Recursively scans a TypeSpec for framework types and adds needed imports.
         /// </summary>
-        // Set only while EmitObjectKeyAccessors walks the bound surface: reports each Dictionary key
-        // and Set element type the walk meets.
-        private Action<NamedTypeSpec>? _onHashedContainerArgument;
+        // Set only while EmitObjectKeyAccessors walks the bound surface: reports each collection
+        // element type the walk meets in an object-carrier slot, and whether the slot is hashed.
+        private Action<NamedTypeSpec, bool>? _onCollectionArgument;
 
         // The declaration whose types the bound-surface scan is reading, while EmitObjectKeyAccessors runs it.
         private BaseDecl? _scanOwner;
@@ -1511,9 +1522,9 @@ namespace BindingsGeneration
                 for (int i = 0; i < namedType.GenericParameters.Count; i++)
                 {
                     var genericParam = namedType.GenericParameters[i];
-                    if (_onHashedContainerArgument != null && genericParam is NamedTypeSpec hashedArgument &&
-                        BoundGenericsHandler.IsHashedContainerSlot(namedType.Name, i))
-                        _onHashedContainerArgument(hashedArgument);
+                    if (_onCollectionArgument != null && genericParam is NamedTypeSpec collectionArgument &&
+                        BoundGenericsHandler.IsObjectCarrierSlot(namedType.Name, i, collectionArgument))
+                        _onCollectionArgument(collectionArgument, BoundGenericsHandler.IsHashedContainerSlot(namedType.Name, i));
                     ScanTypeSpecForImports(genericParam, onTypeName);
                 }
 

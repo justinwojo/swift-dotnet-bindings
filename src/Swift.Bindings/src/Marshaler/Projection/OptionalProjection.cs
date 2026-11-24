@@ -342,11 +342,14 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
             var someBody = new List<MarshalStatement>();
             if (containerPlan != null)
             {
-                // Inner is a container (Array, Dictionary) — use container creation plan
-                // which creates the SwiftArray/SwiftDictionary without PayloadBuffer extraction
+                // Inner is a container (Array, Dictionary, Set) — use container creation plan
+                // which creates the SwiftArray/SwiftDictionary without PayloadBuffer extraction.
+                // NewSome stores a copy, so the container built here is consumed: left to the
+                // finalizer it would keep its storage, and every element reference the storage
+                // holds, alive.
                 someBody.AddRange(containerPlan.SetupStatements);
                 someBody.Add(new MarshalStatement.Line(
-                    $"{paramName}SwiftInner = SwiftOptional<{optTypeParam}>.NewSome({containerPlan.PInvokeExpression});"));
+                    $"{paramName}SwiftInner = SwiftOptional<{optTypeParam}>.NewSomeConsuming({containerPlan.PInvokeExpression});"));
             }
             else if (innerParamConv != null)
             {

@@ -249,6 +249,57 @@ public class CompositeProjectionTests
         Assert.Contains("SwiftOptional<SwiftArray<Int64>>", allCode);
     }
 
+    public static TheoryData<string> OptionalContainerKinds => new() { "Array", "Dictionary", "Set" };
+
+    private static ITypeProjection OptionalContainer(string kind) => kind switch
+    {
+        "Array" => new ArrayProjection(new BlittableProjection("Int64"), isParameter: true),
+        "Dictionary" => new DictionaryProjection(new StringProjection(), new BlittableProjection("Int64"), isParameter: true),
+        _ => new SetProjection(new BlittableProjection("Int64"), isParameter: true),
+    };
+
+    private static IEnumerable<string> Lines(IEnumerable<MarshalStatement> statements)
+    {
+        foreach (var statement in statements)
+        {
+            switch (statement)
+            {
+                case MarshalStatement.Line line: yield return line.Code; break;
+                case MarshalStatement.Using u: yield return u.Type + " " + u.InitExpression; break;
+                case MarshalStatement.Block block:
+                    yield return block.Header;
+                    foreach (var inner in Lines(block.Body)) yield return inner;
+                    break;
+            }
+        }
+    }
+
+    [Theory]
+    [MemberData(nameof(OptionalContainerKinds))]
+    public void OptionalContainer_Param_ConsumesTheContainerItBuilt(string kind)
+    {
+        // The optional stores a copy of the container built for it. That container is consumed:
+        // left to its finalizer, it keeps its storage and every element reference in it alive.
+        var plan = new OptionalProjection(OptionalContainer(kind)).GetParameterPlan("items");
+        var code = string.Join("\n", Lines(plan.SetupStatements));
+
+        Assert.Contains(".NewSomeConsuming(itemsValueSwift", code);
+        Assert.DoesNotContain(".NewSome(", code);
+    }
+
+    [Theory]
+    [MemberData(nameof(OptionalContainerKinds))]
+    public void OptionalContainer_PropertySetter_ConsumesTheContainerItBuilt(string kind)
+    {
+        var (conversion, requiresDisposal) = PropertyHandler.GetOptionalAccessorSetterConversion(
+            new OptionalProjection(OptionalContainer(kind)), "value");
+
+        Assert.NotNull(conversion);
+        Assert.Contains(".NewSomeConsuming(", conversion);
+        Assert.DoesNotContain(".NewSome(", conversion);
+        Assert.True(requiresDisposal, "the optional itself is still the setter's to dispose");
+    }
+
     [Fact]
     public void OptionalArray_Return_UsesDiscriminantAndAsProjected()
     {

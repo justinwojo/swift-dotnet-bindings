@@ -10,12 +10,14 @@ namespace BindingsGeneration;
 /// <see cref="MarshallingHelpers.ReturnedObjectPointer"/>).
 /// </summary>
 /// <remarks>
-/// As the key of a <c>Dictionary</c> or the element of a <c>Set</c>, the object pointer alone would make
-/// the Swift collection one over <c>Swift.Int</c>: hashed by address and holding its keys unretained,
-/// while Swift reads the storage as the real key type and hashes by value. In that position the
-/// projection carries the key's <see cref="ObjectKeyIdentity"/> (<see cref="AsHashedKey"/>), and the
-/// collection's slots hold a <c>Swift.Runtime.SwiftObjectKey&lt;Identity&gt;</c>, which the module
-/// initializer gives the key type's own metadata and <c>Hashable</c> witness table.
+/// Inside a Swift collection the object pointer alone would make the collection one over
+/// <c>Swift.Int</c>: holding its elements unretained and, as a dictionary key or set element, hashed by
+/// address, while Swift reads the storage as the real element type, releases what it replaces or
+/// destroys, bridges it to Objective-C as that type and hashes by value. There the projection carries
+/// the type's <see cref="ObjectKeyIdentity"/> (<see cref="AsHashedKey"/> for a key or set element,
+/// <see cref="AsCollectionValue"/> for an array element or dictionary value), and the collection's
+/// slots hold a <c>Swift.Runtime.SwiftObjectKey&lt;Identity&gt;</c>, which the module initializer gives
+/// the type's own metadata (and, for a key, its <c>Hashable</c> witness table).
 /// </remarks>
 public class ObjCBridgedProjection : ITypeProjection
 {
@@ -34,13 +36,20 @@ public class ObjCBridgedProjection : ITypeProjection
     }
 
     /// <summary>
-    /// The Swift key type this projection carries as a hashed collection key or set element, or
-    /// <c>null</c> everywhere else.
+    /// The Swift type this projection carries as a collection's key, set element, array element or
+    /// dictionary value, or <c>null</c> outside a collection.
     /// </summary>
     public ObjectKeyIdentity? KeyIdentity => _keyIdentity;
 
     /// <summary>The same projection in a hashed key or set-element position of <paramref name="identity"/>'s type.</summary>
     public ObjCBridgedProjection AsHashedKey(ObjectKeyIdentity identity) => new(_csharpTypeName, identity);
+
+    /// <summary>
+    /// The same projection as an array element or dictionary value of <paramref name="identity"/>'s
+    /// type. The slot carries the same value as a key's; only the registration differs (no
+    /// <c>Hashable</c> conformance), which the module's recorded identities decide.
+    /// </summary>
+    public ObjCBridgedProjection AsCollectionValue(ObjectKeyIdentity identity) => new(_csharpTypeName, identity);
 
     public string PublicType => _csharpTypeName;
     public string PInvokeType => "IntPtr";
@@ -71,8 +80,8 @@ public class ObjCBridgedProjection : ITypeProjection
     public bool RequiresSwiftWrapper => false;
     public string? GetSwiftWrapperCode(SwiftWrapperContext context) => null;
 
-    // A key slot holds the carrier; every other slot (an array element, a dictionary value) still
-    // holds the bare pointer.
+    // A collection slot holds the carrier; outside a collection (an optional, a result) the value is
+    // the bare pointer.
     public string SwiftContainerGenericType => _keyIdentity?.CarrierType ?? PInvokeType;
     public string ContainerTypeName => SwiftContainerGenericType;
 
@@ -80,7 +89,7 @@ public class ObjCBridgedProjection : ITypeProjection
         ? $"new {identity.CarrierType}({LiveHandleExpressions.ObjCSelf(elementVar)})"
         : LiveHandleExpressions.ObjCSelf(elementVar);
 
-    // A key or element read out of a Swift collection is borrowed from the collection (the runtime
+    // A key, element or value read out of a Swift collection is borrowed from the collection (the runtime
     // releases the copy the iterator handed over), so the wrapper takes its own reference.
     public string? GetReturnElementConversion(string elementVar) => MarshallingHelpers.FormatObjCBridgeCall(
         _csharpTypeName, _keyIdentity is null ? elementVar : $"{elementVar}.Handle", nonNull: true);

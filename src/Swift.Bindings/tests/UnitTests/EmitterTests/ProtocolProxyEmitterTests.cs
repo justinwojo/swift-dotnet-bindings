@@ -1287,6 +1287,24 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_OptionalArrayReceiver_ConsumesTheArrayItBuilt()
+    {
+        // The receiver getter builds a SwiftArray from the conformer's list and wraps it in an
+        // optional, which stores a copy. The array built for the copy is consumed, not left to its
+        // finalizer holding its storage and every element reference in it.
+        RegisterSwiftInt32();
+        RegisterSwiftOptional();
+        var optionalArray = new NamedTypeSpec("Swift.Optional");
+        optionalArray.GenericParameters.Add(new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int32")));
+        var protocolDecl = CreateProtocolWithProperty("OptListProto", "items", hasGetter: true, hasSetter: false, optionalArray);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_items_get(");
+
+        Assert.Contains(".NewSomeConsuming(SwiftArray<", receiverBody);
+        Assert.DoesNotContain(".NewSome(SwiftArray<", receiverBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_BareExistentialReceiver_KeepsTheUnsatisfiableTerminal()
     {
         // The control that keeps the collection arm from over-widening. `any P` is not

@@ -2053,7 +2053,9 @@ public partial class ProtocolProxyEmitter
     private static string? BuildOptionalContainerGetterConversion(ITypeProjection inner, string varName, string optType, string? innerConv)
     {
         if (innerConv == null) return null;
-        return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSome({innerConv}) : SwiftOptional<{optType}>.NewNone())";
+        // The optional stores a copy of the container built here, which is consumed rather than
+        // left to its finalizer holding its storage and every element reference in it.
+        return $"({varName} is {{}} {varName}Val ? SwiftOptional<{optType}>.NewSomeConsuming({innerConv}) : SwiftOptional<{optType}>.NewNone())";
     }
 
     /// <summary>
