@@ -565,6 +565,12 @@ public sealed class PackageCopyTests : IDisposable
     [InlineData("public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(5)] System.DateTime d) => d.Ticks; }",
         "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(6)] System.DateTime d) => d.Ticks; }",
         "System.DateTime):Int64 parameter 1", "0001-01-01T00:00:00.0000005", "0001-01-01T00:00:00.0000006")]
+    // A decimal default of a nullable or object parameter is the same attribute.
+    [InlineData("public static class Kit { public static decimal? F(decimal? r = 1m) => r; }", "public static class Kit { public static decimal? F(decimal? r = 2m) => r; }",
+        "parameter 1", "1m", "2m")]
+    [InlineData("public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 1u)] object r) => r; }",
+        "public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 2u)] object r) => r; }",
+        "Kit::F`0(Object):Object parameter 1", "1m", "2m")]
     // A decimal zero whose sign changes: the text of both is 0.0, the bits differ.
     [InlineData("public static class Kit { public const decimal Z = 0.0m; }", "public static class Kit { public const decimal Z = -0.0m; }", "Kit::Z", "0.0m", "-0.0m")]
     // A DateTime field constant out of DateTime's range is still a value, not a failed merge.

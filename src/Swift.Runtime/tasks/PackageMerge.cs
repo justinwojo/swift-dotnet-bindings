@@ -592,6 +592,10 @@ public static class SwiftBindingPackageMerge
         // (on a static readonly field, or on an optional parameter), and still compiles it in. The
         // attribute counts only on a member of its own type, as the compilers read it.
         static bool Is(string typeName, string fullName) => typeName == fullName || typeName.EndsWith("]" + fullName, StringComparison.Ordinal);
+        // The member's type, a nullable of it, or object (a boxed default) carries the constant.
+        static bool Carries(string memberType, string fullName) => Is(memberType, fullName) || memberType == "Object"
+            || memberType.EndsWith("System.Nullable`1<" + fullName + ">", StringComparison.Ordinal)
+            || memberType.Contains("System.Nullable`1<", StringComparison.Ordinal) && memberType.EndsWith("]" + fullName + ">", StringComparison.Ordinal);
         static string DateTimeValue(long ticks) => ticks >= DateTime.MinValue.Ticks && ticks <= DateTime.MaxValue.Ticks
             ? new DateTime(ticks).ToString("o", System.Globalization.CultureInfo.InvariantCulture)
             : $"DateTime(ticks {ticks})";
@@ -617,7 +621,7 @@ public static class SwiftBindingPackageMerge
                     _ => ("", ""),
                 };
                 if (ns != "System.Runtime.CompilerServices"
-                    || !(typeName == "DecimalConstantAttribute" && Is(memberType, "System.Decimal") || typeName == "DateTimeConstantAttribute" && Is(memberType, "System.DateTime")))
+                    || !(typeName == "DecimalConstantAttribute" && Carries(memberType, "System.Decimal") || typeName == "DateTimeConstantAttribute" && Carries(memberType, "System.DateTime")))
                     continue;
                 var blob = md.GetBlobReader(attribute.Value);
                 if (blob.ReadUInt16() != 1)
