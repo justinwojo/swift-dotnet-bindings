@@ -81,13 +81,21 @@ def main(argv):
         return lldb.SBDebugger.StateAsCString(state)
 
     def wait_for(process, wanted, seconds):
-        """Pumps the debugger's events until the process reaches one of `wanted` or `seconds` pass."""
+        """Pumps the debugger's events until one reports a state in `wanted` (a stop lldb restarted on
+        its own does not count), or `seconds` pass. The event decides, not the process's current
+        state: Xcode 27's lldb reports an attaching process as stopped before the attach has
+        stopped it, and a command sent then fails or races the attach."""
         deadline = now() + seconds
         event = lldb.SBEvent()
-        while process.GetState() not in wanted and now() < deadline:
-            if listener.WaitForEvent(1, event) and lldb.SBProcess.EventIsProcessEvent(event):
-                say(f"[{now():.1f}s] process {state_name(lldb.SBProcess.GetStateFromEvent(event))}")
-        return process.GetState() in wanted
+        while now() < deadline:
+            if not listener.WaitForEvent(1, event) or not lldb.SBProcess.EventIsProcessEvent(event):
+                continue
+            state = lldb.SBProcess.GetStateFromEvent(event)
+            restarted = state == lldb.eStateStopped and lldb.SBProcess.GetRestartedFromEvent(event)
+            say(f"[{now():.1f}s] process {state_name(state)}{' (restarted)' if restarted else ''}")
+            if state in wanted and not restarted:
+                return True
+        return False
 
     gone = (lldb.eStateExited, lldb.eStateDetached, lldb.eStateCrashed)
     captured = 0
