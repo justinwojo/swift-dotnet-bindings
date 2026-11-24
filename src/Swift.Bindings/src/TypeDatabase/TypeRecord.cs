@@ -516,6 +516,16 @@ public record TypeRecord
     public bool RawValueCrossesAsCaseTag { get; init; }
 
     /// <summary>
+    /// How Swift stores a simple enum's value in memory: as its case tag (every non-<c>@objc</c> Swift
+    /// enum) or as its raw value (an <c>@objc</c> enum, an ObjC NS_ENUM / NS_OPTIONS, an Apple enum
+    /// synthesized from the managed surface). A site that reads the enum out of Swift memory, a payload
+    /// slot for one, reads it at that width. Persisted for every simple enum across the cross-module
+    /// XML round-trip; <see cref="SimpleEnumStorage.Unknown"/> on a database that predates the field,
+    /// which cannot tell an <c>@objc</c> enum from a plain <c>enum E: Int</c>.
+    /// </summary>
+    public SimpleEnumStorage SimpleEnumStorage { get; init; }
+
+    /// <summary>
     /// The number of case tags of a simple enum with <see cref="RawValueCrossesAsCaseTag"/> (its case
     /// count), which a site that turns an incoming tag back into a case checks it against; 0 otherwise.
     /// Persisted with <see cref="RawValueCrossesAsCaseTag"/>.
@@ -622,4 +632,17 @@ public readonly record struct TypeEmissionResult
         CSharpTypeName = CSharpTypeName ?? existing.CSharpTypeName,
         RenamedMembers = RenamedMembers ?? existing.RenamedMembers,
     };
+}
+
+/// <summary>How Swift stores a simple enum's value in memory (<see cref="TypeRecord.SimpleEnumStorage"/>).</summary>
+public enum SimpleEnumStorage
+{
+    /// <summary>Not recorded: the record came from a module database written before the field.</summary>
+    Unknown = 0,
+
+    /// <summary>Stored as its case tag, in the fewest bytes that hold the case count.</summary>
+    CaseTag,
+
+    /// <summary>Stored as its raw value, at the raw type's width (a C enum).</summary>
+    RawValue,
 }

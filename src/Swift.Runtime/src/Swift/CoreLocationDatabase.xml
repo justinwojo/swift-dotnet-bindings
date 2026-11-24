@@ -7,10 +7,10 @@
         <!-- CLLocationDegrees, CLLocationDirection, CLLocationDistance are Swift typealiases
              for Double with no standalone .NET type — intentionally excluded -->
         <entity managedNameSpace="CoreLocation" managedTypeName="CLAuthorizationStatus">
-            <typedeclaration kind="enum" name="CLAuthorizationStatus" module="CoreLocation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int32" />
+            <typedeclaration kind="enum" name="CLAuthorizationStatus" module="CoreLocation" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int32" />
         </entity>
         <entity managedNameSpace="CoreLocation" managedTypeName="CLAccuracyAuthorization">
-            <typedeclaration kind="enum" name="CLAccuracyAuthorization" module="CoreLocation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="CLAccuracyAuthorization" module="CoreLocation" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
     </entities>
 </swifttypedatabase>

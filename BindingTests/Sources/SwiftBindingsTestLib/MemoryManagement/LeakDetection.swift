@@ -379,6 +379,27 @@ public func makeTrackedRefSet(count: Int32) -> Set<TrackedRef> {
     return result
 }
 
+/// Factory returning `[Any]` whose elements are `TrackedRef`s. Each element read hands the
+/// existential over at +1; `ExistentialContainer0` cannot unbox a class, so the read throws, and
+/// the leak probe checks that the element is released all the same.
+public func makeTrackedRefAnyArray(count: Int32) -> [Any] {
+    var result: [Any] = []
+    for i in 0..<count {
+        result.append(TrackedRef(tag: i))
+    }
+    return result
+}
+
+/// Factory returning `[String: Any]` whose values are `TrackedRef`s, keyed `"k0"`, `"k1"`, ….
+/// The dictionary counterpart of `makeTrackedRefAnyArray(count:)`.
+public func makeTrackedRefAnyMap(count: Int32) -> [String: Any] {
+    var result: [String: Any] = [:]
+    for i in 0..<count {
+        result["k\(i)"] = TrackedRef(tag: i)
+    }
+    return result
+}
+
 /// Factory returning `Result<TrackedRef, TrackedRefError>` — wire carrier is SwiftResult,
 /// whose from-handle constructor runs VWT InitializeWithCopy (SwiftResult.cs), taking a +1
 /// on the success payload's embedded reference.

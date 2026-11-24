@@ -155,6 +155,74 @@ namespace BindingsGeneration.Tests
             finally { Directory.Delete(dir, true); }
         }
 
+        [Theory]
+        [InlineData(SimpleEnumStorage.CaseTag, "caseTag")]
+        [InlineData(SimpleEnumStorage.RawValue, "rawValue")]
+        public async Task Emit_SimpleEnum_PreservesHowSwiftStoresIt(SimpleEnumStorage storage, string attribute)
+        {
+            // A dependent module reads a payload slot holding a dependency's enum at the width this
+            // record gives, so how Swift stores the enum must survive the module database.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Shade");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Shade"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib5ShadeO",
+                    Flags = TypeRecordFlags.Frozen | TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    RawValueTypeName = "Int",
+                    SimpleEnumStorage = storage,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                Assert.NotNull(path);
+                Assert.Contains($"storedAs=\"{attribute}\"", File.ReadAllText(path!));
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.Equal(storage, loaded!.SimpleEnumStorage);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Theory]
+        [InlineData(null)]
+        [InlineData("bitPattern")]
+        public async Task Load_SimpleEnumWithoutAKnownStorage_ReadsUnknown(string storedAs)
+        {
+            // A database written before the field, or by a later version with a value this one does
+            // not know, leaves the storage unknown, which the payload read treats as it always did.
+            var dir = CreateTempDir();
+            try
+            {
+                var attribute = storedAs is null ? string.Empty : $" storedAs=\"{storedAs}\"";
+                var path = Path.Combine(dir, "Legacy.xml");
+                File.WriteAllText(path, $$"""
+                    <?xml version="1.0" encoding="utf-8"?>
+                    <swifttypedatabase version="1.0" moduleName="Legacy" modulePath="/fake/Legacy.dylib">
+                      <entities>
+                        <entity managedNameSpace="Legacy" managedTypeName="Shade">
+                          <typedeclaration kind="enum" name="Shade" module="Legacy" frozen="true" simpleEnum="true"{{attribute}} requiresMemoryManagement="false" rawValueType="Int" />
+                        </entity>
+                      </entities>
+                    </swifttypedatabase>
+                    """);
+
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName("Legacy.Shade"), out var loaded));
+                Assert.Equal(SimpleEnumStorage.Unknown, loaded!.SimpleEnumStorage);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
         [Fact]
         public async Task Emit_SimpleEnum_PreservesItsCrossingCases()
         {

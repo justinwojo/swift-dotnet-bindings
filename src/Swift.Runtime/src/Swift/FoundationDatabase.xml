@@ -42,7 +42,7 @@
             <typedeclaration kind="class" name="Bundle" module="Foundation" mangledName="$sSo8NSBundleC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="Foundation" managedTypeName="NSUrlSessionWebSocketCloseCode">
-            <typedeclaration kind="enum" name="URLSessionWebSocketTask.CloseCode" module="Foundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="URLSessionWebSocketTask.CloseCode" module="Foundation" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <!-- IndexPath — Swift value type bridging to NSIndexPath (ObjC class).
              Follows the same pattern as URL → NSUrl (objcBridgeable struct). -->
@@ -434,7 +434,7 @@
         <!-- ComparisonResult — ObjC enum (NSComparisonResult) -->
         <entity managedNameSpace="Foundation" managedTypeName="NSComparisonResult">
             <typedeclaration kind="enum" name="ComparisonResult" module="Foundation"
-                             frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+                             frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <!-- URLError.Code — maps to nint (Int-backed). Uses kind="struct" (not enum)
              because we map to a primitive, not a real .NET enum type. -->

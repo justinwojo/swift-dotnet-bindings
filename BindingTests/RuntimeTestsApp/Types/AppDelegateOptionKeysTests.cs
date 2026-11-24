@@ -121,6 +121,54 @@ public class AppDelegateOptionKeysTests : TestBase
 
         AssertEqual(1, relay.CountLaunchOptions(round), "a dictionary produced by Swift is accepted back by Swift");
     }
+
+    /// <summary>
+    /// Reading a dictionary Swift returns leaves no reference on its keys. Each key crosses as the
+    /// pointer to its NSString; the dictionary's iterator hands every key over, and if a read kept
+    /// a reference nothing released, the probe key's retain count would climb by one per read.
+    /// </summary>
+    public void TestReadingReturnedOptionsLeavesNoKeyReference()
+    {
+        AssertTrue(TestLibFunctions.CheckLaunchOptionsProbeKeyIsStored(), "the dictionary's key is the probe key itself");
+        nint baseline = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        TestLibFunctions.RetainLaunchOptionsProbeKey();
+        nint retained = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        TestLibFunctions.ReleaseLaunchOptionsProbeKey();
+        AssertEqual(baseline + 1, retained, "one extra reference moves the probe key's retain count (control)");
+
+        nint before = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        ReadProbeKeyedOptions(25);
+        for (int i = 0; i < 4; i++)
+        {
+            GC.Collect();
+            GC.WaitForPendingFinalizers();
+        }
+        nint after = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        AssertEqual(before, after, "reading the returned dictionary 25 times leaves the key's retain count where it was");
+    }
+
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    private void ReadProbeKeyedOptions(int iterations)
+    {
+        for (int i = 0; i < iterations; i++)
+        {
+            var produced = TestLibFunctions.MakeLaunchOptionsWithProbeKey();
+            try
+            {
+                foreach (var pair in produced)
+                {
+                    AssertEqual("UIApplicationLaunchOptionsOwnershipProbeKey", pair.Key.ToString(), "the probe key reads back");
+                    pair.Key.Dispose();
+                }
+                foreach (var key in produced.Keys)
+                    key.Dispose();
+            }
+            finally
+            {
+                (produced as IDisposable)?.Dispose();
+            }
+        }
+    }
 }
 
 #endif

@@ -118,12 +118,15 @@ public class ComplexProjectionTests
     }
 
     [Fact]
-    public void Existential_OwnedElementConversion_BareAny_FallsBackNonOwning()
+    public void Existential_OwnedElementConversion_BareAny_UnboxesAndDestroysTheContainer()
     {
-        // Bare any (EC0 / object) has no proxy and no single owned +1 to adopt, so the owned variant
-        // falls back to the non-owning form (OwnsContainerArg is empty for EC0).
+        // A collection element read hands bare any (EC0 / object) over at +1, and unboxing only
+        // copies the payload out, so the owned variant must destroy the container afterwards. The
+        // borrowed form stays a plain unbox for receiver callbacks, whose argument Swift still owns.
         var bareAny = new ExistentialProjection("Swift.Runtime.ExistentialContainer0", "object", proxyClassName: null, isBareAny: true);
-        Assert.Equal(bareAny.GetReturnElementConversion("e"), bareAny.GetOwnedReturnElementConversion("e"));
+        Assert.Equal("global::Swift.Runtime.ExistentialContainer0.UnboxOwned(e)", bareAny.GetOwnedReturnElementConversion("e"));
+        Assert.Equal("ExistentialContainer0.Unbox(e)", bareAny.GetReturnElementConversion("e"));
+        Assert.False(bareAny.AdoptsOwnedReturn, "an Optional<Any> read borrows its buffer, so the frame still destroys it");
     }
 
     [Fact]

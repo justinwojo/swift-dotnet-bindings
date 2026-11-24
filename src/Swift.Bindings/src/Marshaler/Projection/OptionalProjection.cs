@@ -520,7 +520,9 @@ public class OptionalProjection : ITypeProjection, IResolvedReturnLocalProjectio
             // or the payload's +1 leaks. Request the owned element conversion (ownsContainer: true)
             // explicitly — the shared GetReturnElementConversion stays non-owning because it is also
             // reused for borrowed Swift->C# receiver-callback parameter wraps.
-            var elemConversion = _innerProjection is ExistentialProjection existInner
+            // A read that does not adopt (a bare Any?, copied out) leaves the +1 for this frame's
+            // buffer cleanup (MethodMarshalPlanBuilder.OwnedExistentialReadAdopts), so it borrows.
+            var elemConversion = _innerProjection is ExistentialProjection { AdoptsOwnedReturn: true } existInner
                 ? existInner.GetOwnedReturnElementConversion($"{localName}.Some")
                 : _innerProjection.GetReturnElementConversion($"{localName}.Some");
             var convExpr = elemConversion ?? $"{localName}.Some";

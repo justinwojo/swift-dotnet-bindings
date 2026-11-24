@@ -62,7 +62,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
         return (null, false);
     }
 
-    internal static (string?, bool) DictGetterConversion(DictionaryProjection dict, string resultExpr)
+    private static (string?, bool) DictGetterConversion(DictionaryProjection dict, string resultExpr)
     {
         // ObjC bridge: resultExpr is IntPtr (NSDictionary handle) — convert to typed dictionary
         if (dict.UsesObjCContainerBridge)
@@ -84,7 +84,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
         return ($"{resultExpr}{dict.BuildAsProjected(keyConv, valConv)}", false);
     }
 
-    internal static (string?, bool) SetGetterConversion(SetProjection set, string resultExpr)
+    private static (string?, bool) SetGetterConversion(SetProjection set, string resultExpr)
     {
         // ObjC bridge: resultExpr is IntPtr (NSSet handle) — convert to typed HashSet
         if (set.UsesObjCContainerBridge)

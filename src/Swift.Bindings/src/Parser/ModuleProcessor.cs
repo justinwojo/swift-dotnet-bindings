@@ -1199,6 +1199,10 @@ namespace BindingsGeneration
                 // A non-@objc enum's raw values are in no input, so its values cross as the case tag.
                 RawValueCrossesAsCaseTag = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag,
                 CaseTagCount = (flags & TypeRecordFlags.SimpleEnum) != 0 && enumDecl.CrossesAsCaseTag ? enumDecl.Cases.Count : 0,
+                // An @objc enum is a C enum, stored as its raw value; any other Swift enum stores its case tag.
+                SimpleEnumStorage = (flags & TypeRecordFlags.SimpleEnum) == 0
+                    ? SimpleEnumStorage.Unknown
+                    : enumDecl.IsObjC ? SimpleEnumStorage.RawValue : SimpleEnumStorage.CaseTag,
                 // A simple enum that does not cross as its raw value maps its constants to its cases by name.
                 CrossingCases = (flags & TypeRecordFlags.SimpleEnum) != 0 && (flags & TypeRecordFlags.OptionSet) == 0 && !SimpleEnumCrossing.CrossesAsRawValue(enumDecl)
                     ? SimpleEnumCrossing.BuildCases(enumDecl)

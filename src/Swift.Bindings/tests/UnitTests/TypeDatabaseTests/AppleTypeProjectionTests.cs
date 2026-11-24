@@ -138,6 +138,8 @@ public class AppleTypeProjectionTests
         Assert.True(Has(r, TypeRecordFlags.Frozen));
         Assert.False(Has(r, TypeRecordFlags.OptionSet));
         Assert.Equal("Int", r.RawValueTypeName);
+        // A C enum: Swift stores it as its raw value, so a payload slot holding one is read whole.
+        Assert.Equal(SimpleEnumStorage.RawValue, r.SimpleEnumStorage);
         Assert.Equal("UIKit", r.CSharpTypeName.Namespace);
         Assert.Equal("UIImpactFeedbackStyle", r.CSharpTypeName.Name);
     }
@@ -152,6 +154,7 @@ public class AppleTypeProjectionTests
         Assert.True(Has(r, TypeRecordFlags.ExternalAppleEnum));
         Assert.True(Has(r, TypeRecordFlags.OptionSet));
         Assert.Equal("UInt", r.RawValueTypeName);
+        Assert.Equal(SimpleEnumStorage.RawValue, r.SimpleEnumStorage);
     }
 
     [Fact]

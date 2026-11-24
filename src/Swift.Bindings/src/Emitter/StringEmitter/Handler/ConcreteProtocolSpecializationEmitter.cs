@@ -4085,9 +4085,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             // Each element read out of the array is the caller's own copy: a proxy adopts it, and a
             // bare Any's value is unboxed and the copy destroyed (Unbox alone borrows, which would
             // leave every read's retain behind).
-            elementConversion = element.AdoptsOwnedReturn
-                ? element.GetOwnedReturnElementConversion("e") ?? "e"
-                : "global::Swift.Runtime.ExistentialContainer0.UnboxOwned(e)";
+            elementConversion = element.GetOwnedReturnElementConversion("e") ?? "e";
         }
         catch (SuppressedProxyReferenceException)
         {

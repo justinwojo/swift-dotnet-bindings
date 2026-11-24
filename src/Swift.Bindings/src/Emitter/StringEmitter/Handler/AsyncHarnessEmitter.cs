@@ -889,7 +889,7 @@ namespace BindingsGeneration
             }
             else if (isClassType)
                 marshalResultCode = $"var result = SwiftMarshal.MarshalFromSwift<{_wrapperSignature.ReturnType}>(_retainedObjPtr);";
-            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion, out var optionalProxySuppressed, out var optionalSuppressedProxyName))
+            else if (TryGetOptionalMarshalType(out var optionalMarshalType, out var objcBridgeConversion, out var containerBridgeConversion, out var valueContainerInnerConversion, out var optionalProxySuppressed, out var optionalSuppressedProxyName, out var optionalInnerIsBareAny))
             {
                 if (optionalProxySuppressed)
                 {
@@ -969,6 +969,19 @@ namespace BindingsGeneration
                         $"                                {{\n" +
                         $"                                    _vwtMetadata.ValueWitnessTable->Destroy((void*)resultPtr, _vwtMetadata);\n" +
                         $"                                }}";
+                }
+                else if (optionalInnerIsBareAny)
+                {
+                    // Optional<Any>: Swift initialized the carrier as Optional<Any>, whose .some payload
+                    // is the Any container itself at +1 and whose None is a null metadata word (the
+                    // container's extra inhabitant at 3 x IntPtr.Size). Read the container in place and
+                    // unbox it with the owned form, which destroys it even when the unbox throws; None
+                    // holds nothing. Going through SwiftOptional<ExistentialContainer0> instead would
+                    // hand the awaiter the raw container, borrowed from a wrapper that never unboxes it.
+                    marshalResultCode =
+                        $"{_wrapperSignature.ReturnType} result = *(IntPtr*)((byte*)resultPtr + (3 * IntPtr.Size)) == IntPtr.Zero\n" +
+                        $"                                    ? null\n" +
+                        $"                                    : global::Swift.Runtime.ExistentialContainer0.UnboxOwned(*(global::Swift.Runtime.ExistentialContainer0*)resultPtr);";
                 }
                 else if (carrierNeedsDestroy)
                 {
@@ -1289,8 +1302,10 @@ namespace BindingsGeneration
             out string? containerBridgeConversion,
             out string? valueContainerInnerConversion,
             out bool proxySuppressed,
-            out string? suppressedProxyName)
+            out string? suppressedProxyName,
+            out bool innerIsBareAny)
         {
+            innerIsBareAny = false;
             marshalType = null;
             objcBridgeConversion = null;
             containerBridgeConversion = null;
@@ -1325,6 +1340,7 @@ namespace BindingsGeneration
             if (projection is OptionalProjection op)
             {
                 marshalType = op.ContainerTypeName;
+                innerIsBareAny = op.InnerProjection is ExistentialProjection { IsBareAny: true };
 
                 try
                 {

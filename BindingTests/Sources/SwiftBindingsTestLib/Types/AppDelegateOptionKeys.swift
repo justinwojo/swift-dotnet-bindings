@@ -49,4 +49,41 @@ public final class AppDelegateOptionRelay {
 public func describeOpenURLOptions(_ options: [UIApplication.OpenURLOptionsKey: Any]) -> String {
     return options.isEmpty ? "empty" : "\(options.count) options"
 }
+
+// MARK: - Key ownership probe
+//
+// Each key crosses as the pointer to its NSString. A dictionary Swift returns holds every key at
+// +1 in its storage, and reading the dictionary must not leave a key reference behind.
+
+/// One NSString built at run time: a string literal would be an immortal constant, whose retain
+/// count never moves, and a short one a tagged pointer.
+private let launchOptionsProbeKey = NSString(format: "%@%@", "UIApplicationLaunchOptions", "OwnershipProbeKey")
+
+/// A launch-options dictionary whose single key is `launchOptionsProbeKey` itself. Each call
+/// builds new storage, which holds its own reference on the key, so a dictionary C# never
+/// releases also shows in the key's count.
+public func makeLaunchOptionsWithProbeKey() -> [UIApplication.LaunchOptionsKey: Any] {
+    return [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
+}
+
+/// The probe key's current retain count.
+public func launchOptionsProbeKeyRetainCount() -> Int {
+    return CFGetRetainCount(launchOptionsProbeKey)
+}
+
+/// Whether the dictionary's key is the probe key object itself, so the count measured is the key's.
+public func checkLaunchOptionsProbeKeyIsStored() -> Bool {
+    guard let stored = makeLaunchOptionsWithProbeKey().keys.first else { return false }
+    return (stored.rawValue as NSString) === launchOptionsProbeKey
+}
+
+/// Takes one extra reference on the probe key: the control that its count moves.
+public func retainLaunchOptionsProbeKey() {
+    _ = Unmanaged.passRetained(launchOptionsProbeKey)
+}
+
+/// Drops the reference `retainLaunchOptionsProbeKey` took.
+public func releaseLaunchOptionsProbeKey() {
+    Unmanaged.passUnretained(launchOptionsProbeKey).release()
+}
 #endif

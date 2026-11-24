@@ -1529,6 +1529,17 @@ public static class SwiftMarshal
         => ConformanceSymbolRegistry.Register(conformingType, protocolType, libraryName, symbolName);
 
     /// <summary>
+    /// Whether <see cref="MarshalToSwift{T}(T, ref Span{byte})"/> initializes its buffer with an owned
+    /// (+1) copy of <paramref name="value"/>. A Swift wrapper copies itself in through its value
+    /// witness and a C# <c>string</c> crosses as a new Swift String, so after a call that only borrows
+    /// the argument the caller destroys that buffer. An existential container is written bitwise at
+    /// +0 (its +1 is minted upstream), so destroying it would release a reference the caller never
+    /// took; primitives and blittable values hold nothing to release.
+    /// </summary>
+    internal static bool MarshalsOwnedCopy<T>(T value)
+        => value is ISwiftObject || typeof(T) == typeof(string);
+
+    /// <summary>
     /// Marshals a value to a Swift destination
     /// </summary>
     /// <typeparam name="T">The type of the value being marshaled</typeparam>

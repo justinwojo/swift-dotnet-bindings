@@ -948,6 +948,8 @@ public static class TypeDatabaseExtensions
             Flags = flags,
             Kind = TypeRecordKind.Enum,
             RawValueTypeName = entry.EnumUnderlyingType ?? "Int",
+            // An Apple NS_ENUM / NS_OPTIONS is a C enum: Swift stores it as its raw value.
+            SimpleEnumStorage = SimpleEnumStorage.RawValue,
         };
     }
 

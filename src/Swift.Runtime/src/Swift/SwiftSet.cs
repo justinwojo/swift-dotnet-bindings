@@ -323,12 +323,24 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
         var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<Element>();
 
+        // Marshalling initializes the buffer with an owned element, and `contains` borrows it,
+        // so the buffer is this frame's to destroy. The pointer is published only once the buffer
+        // holds a value, so a marshal that throws unwinds without destroying uninitialized bytes.
         Span<byte> span = stackalloc byte[(int)ElementSize];
-        SwiftMarshal.MarshalToSwift(element, ref span);
-        IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+        IntPtr elementPayload = IntPtr.Zero;
+        try
+        {
+            SwiftMarshal.MarshalToSwift(element, ref span);
+            elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
 
-        byte result = SwiftSetPInvokes.Contains(elementPayload, disposable.Buffer, ElementTypeMetadata, witnessTable);
-        return result != 0;
+            byte result = SwiftSetPInvokes.Contains(elementPayload, disposable.Buffer, ElementTypeMetadata, witnessTable);
+            return result != 0;
+        }
+        finally
+        {
+            if (elementPayload != IntPtr.Zero && SwiftMarshal.MarshalsOwnedCopy(element))
+                ElementTypeMetadata.ValueWitnessTable->Destroy((void*)elementPayload, ElementTypeMetadata);
+        }
     }
 
     /// <summary>
@@ -520,15 +532,19 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
         _payload.DangerousAddRef(ref success);
         try
         {
+            // `remove(_:)` borrows the element, so the owned copy marshalling makes is destroyed
+            // after the call. The pointer is published only once the buffer holds a value.
             Span<byte> span = stackalloc byte[(int)ElementSize];
-            SwiftMarshal.MarshalToSwift(element, ref span);
-            IntPtr elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
-
-            // Remove returns Optional<Element> via SwiftIndirectResult (x8)
-            var optionalMetadata = SwiftObjectHelper<SwiftOptional<Element>>.GetTypeMetadata();
-            void* resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
+            IntPtr elementPayload = IntPtr.Zero;
+            void* resultPayload = null;
             try
             {
+                SwiftMarshal.MarshalToSwift(element, ref span);
+                elementPayload = (IntPtr)Unsafe.AsPointer(ref MemoryMarshal.GetReference(span));
+
+                // Remove returns Optional<Element> via SwiftIndirectResult (x8)
+                var optionalMetadata = SwiftObjectHelper<SwiftOptional<Element>>.GetTypeMetadata();
+                resultPayload = NativeMemory.Alloc(optionalMetadata.Size);
                 // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono
                 // CallConvSwift trampoline; see SwiftCollectionCdeclWrappers.
                 SwiftCollectionCdeclWrappers.SetRemove(
@@ -547,7 +563,10 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
             }
             finally
             {
-                NativeMemory.Free(resultPayload);
+                if (resultPayload != null)
+                    NativeMemory.Free(resultPayload);
+                if (elementPayload != IntPtr.Zero && SwiftMarshal.MarshalsOwnedCopy(element))
+                    ElementTypeMetadata.ValueWitnessTable->Destroy((void*)elementPayload, ElementTypeMetadata);
             }
         }
         finally

@@ -143,6 +143,8 @@ public static class ObjCBridgeRecordFactory
                 Flags = flags,
                 Kind = TypeRecordKind.Enum,
                 RawValueTypeName = rawValueType,
+                // An ObjC enum is a C enum: Swift stores it as its raw value.
+                SimpleEnumStorage = SimpleEnumStorage.RawValue,
                 ObjCEnumCaseNames = caseNameMap,
             });
         }

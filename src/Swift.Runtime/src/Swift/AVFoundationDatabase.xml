@@ -8,10 +8,10 @@
             <typedeclaration kind="class" name="AVCaptureSession" module="AVFoundation" mangledName="$sSo16AVCaptureSessionC" frozen="false" requiresMemoryManagement="true" objcBridged="true" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureVideoOrientation">
-            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="AVCaptureVideoOrientation" module="AVFoundation" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureFocusMode">
-            <typedeclaration kind="enum" name="AVCaptureDevice.FocusMode" module="AVFoundation" frozen="true" simpleEnum="true" requiresMemoryManagement="false" rawValueType="Int" />
+            <typedeclaration kind="enum" name="AVCaptureDevice.FocusMode" module="AVFoundation" frozen="true" simpleEnum="true" storedAs="rawValue" requiresMemoryManagement="false" rawValueType="Int" />
         </entity>
         <entity managedNameSpace="AVFoundation" managedTypeName="AVCaptureAutoFocusRangeRestriction">
             <typedeclaration kind="struct" name="AVCaptureDevice.AutoFocusRangeRestriction" module="AVFoundation" frozen="true" requiresMemoryManagement="false" />

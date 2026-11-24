@@ -15,6 +15,29 @@ namespace BindingsGeneration
     /// </summary>
     public class TypeDatabase : ITypeDatabase
     {
+        private const string StoredAsCaseTag = "caseTag";
+        private const string StoredAsRawValue = "rawValue";
+
+        /// <summary>The <c>storedAs</c> attribute value persisting <see cref="TypeRecord.SimpleEnumStorage"/>.</summary>
+        internal static string FormatSimpleEnumStorage(SimpleEnumStorage storage) => storage switch
+        {
+            SimpleEnumStorage.CaseTag => StoredAsCaseTag,
+            SimpleEnumStorage.RawValue => StoredAsRawValue,
+            _ => throw new ArgumentOutOfRangeException(nameof(storage), storage, "Unknown storage is not persisted."),
+        };
+
+        /// <summary>
+        /// Reads a <c>storedAs</c> attribute. Absent (a database that predates it) is
+        /// <see cref="SimpleEnumStorage.Unknown"/>, and so is a value this version does not know (a later
+        /// writer's): both are read the way a database without the field is.
+        /// </summary>
+        internal static SimpleEnumStorage ParseSimpleEnumStorage(string? storedAs) => storedAs switch
+        {
+            StoredAsCaseTag => SimpleEnumStorage.CaseTag,
+            StoredAsRawValue => SimpleEnumStorage.RawValue,
+            _ => SimpleEnumStorage.Unknown,
+        };
+
         private readonly ConcurrentDictionary<string, ModuleTypeDatabase> _modules = new();
 
         // This store is intended for types which are encountered in one module but should belong to another.
@@ -439,6 +462,8 @@ namespace BindingsGeneration
                 // Absent on databases that predate the field: their bindings marshalled the raw value.
                 string rawValueCrossesAsCaseTag = typeDeclarationNode?.Attributes?["rawValueCrossesAsCaseTag"]?.Value ?? "false";
                 string? caseTagCountStr = typeDeclarationNode?.Attributes?["caseTagCount"]?.Value;
+                // Absent on databases that predate the field: Unknown, read the way those bindings did.
+                string? storedAs = typeDeclarationNode?.Attributes?["storedAs"]?.Value;
                 // Absent on every record whose C# name is already its ObjC name, and on databases
                 // written before the Swift-import rename existed — null is the correct reading of both.
                 string? objcRuntimeName = typeDeclarationNode?.Attributes?["objcRuntimeName"]?.Value;
@@ -717,6 +742,7 @@ namespace BindingsGeneration
                     AvailabilityAnnotations = availabilityAnnotations,
                     HasCaseFloorGuard = string.Equals(hasCaseFloorGuard, "true", StringComparison.OrdinalIgnoreCase),
                     RawValueCrossesAsCaseTag = string.Equals(rawValueCrossesAsCaseTag, "true", StringComparison.OrdinalIgnoreCase),
+                    SimpleEnumStorage = ParseSimpleEnumStorage(storedAs),
                     CaseTagCount = int.TryParse(caseTagCountStr, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out var caseTagCount) ? caseTagCount : 0,
                     CrossingCases = crossingCases,
                     CrossingSlotCount = crossingSlotCount,

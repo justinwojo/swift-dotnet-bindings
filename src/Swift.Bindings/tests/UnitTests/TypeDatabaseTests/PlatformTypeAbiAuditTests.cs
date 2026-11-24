@@ -130,6 +130,36 @@ public class PlatformTypeAbiAuditTests
     }
 
     /// <summary>
+    /// Every simple enum a bundled database declares is an ObjC NS_ENUM / NS_OPTIONS, a C enum Swift
+    /// stores as its raw value, so a Swift payload slot holding one is read at the raw type's width.
+    /// A bundled entry without that storage would be read as a one-byte case tag:
+    /// <c>ComparisonResult.orderedAscending</c> (-1) back as 255.
+    /// </summary>
+    [Fact]
+    public async Task EveryBundledSimpleEnum_IsStoredAsItsRawValue()
+    {
+        var database = new TypeDatabase();
+        var declared = new List<string>();
+        foreach (var xml in Directory.GetFiles(Path.Combine(AppContext.BaseDirectory, "Swift"), "*Database.xml").OrderBy(p => p, StringComparer.Ordinal))
+        {
+            await database.LoadModuleDatabaseFromFile(xml);
+            declared.AddRange(XDocument.Load(xml).Descendants("typedeclaration")
+                .Where(d => (string?)d.Attribute("kind") == "enum" && (string?)d.Attribute("simpleEnum") == "true")
+                .Select(d => $"{(string?)d.Attribute("module")}.{(string?)d.Attribute("name")}"));
+        }
+
+        Assert.NotEmpty(declared);
+        var wrong = new List<string>();
+        foreach (var name in declared)
+        {
+            Assert.True(database.TryGetTypeRecord(SwiftTypeName.FromModuleQualifiedName(name), out var record), $"{name} has no record");
+            if (record!.SimpleEnumStorage != SimpleEnumStorage.RawValue)
+                wrong.Add($"{name} ({record.SimpleEnumStorage})");
+        }
+        Assert.True(wrong.Count == 0, "These bundled simple enums are not recorded as stored by raw value (storedAs=\"rawValue\"):\n" + string.Join("\n", wrong));
+    }
+
+    /// <summary>
     /// A platform value the SDK declares without <c>@frozen</c> is address-only to every client: Swift
     /// takes it <c>@in_guaranteed</c> and returns it indirectly, whatever its size. When a bundled
     /// database still calls it frozen and projects it onto a by-value managed carrier, each

@@ -85,6 +85,12 @@ public class ExistentialProjection : ITypeProjection
     public bool IsObjCExistential => _isObjCExistential;
 
     /// <summary>
+    /// True for a bare <c>Any</c> (or a marker-only composition): the value crosses in an
+    /// <c>ExistentialContainer0</c> and C# reads it by unboxing, with no proxy or carrier type.
+    /// </summary>
+    public bool IsBareAny => _isBareAny;
+
+    /// <summary>
     /// True when this is a single-protocol existential carried in the opaque
     /// <c>ExistentialContainer1</c> and presented through its generated proxy (live or suppressed):
     /// not bare <c>Any</c> or a marker-only composition, not a multi-protocol composition, not an
@@ -561,38 +567,43 @@ public class ExistentialProjection : ITypeProjection
     }
 
     /// <summary>
-    /// Owned-return variant of <see cref="GetReturnElementConversion"/>: the proxy ADOPTS a
-    /// Swift-returned existential at +1 (read out of an sret/out buffer that is then raw-freed,
-    /// so the only surviving retain lives in the proxy) and releases it on Dispose/finalize.
-    /// Used only by owned OPTIONAL existential returns (<c>OptionalProjection</c>); the borrowed
-    /// receiver-callback path keeps the non-owning <see cref="GetReturnElementConversion"/>.
-    /// Falls back to the non-owning form for bare-<c>any</c>/no-proxy containers, which have no
-    /// single-proxy +1 to adopt. For a proxy-backed container <see cref="OwnsContainerArg"/> is
-    /// gated on the container TYPE (EC1 through EC8, via
-    /// <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>), not on protocol count —
-    /// so composition (EC2+) proxies adopt the +1 here exactly like single-protocol (EC1) ones.
-    /// </summary>
-    /// <summary>
     /// Whether the owned-return read hands the payload to a carrier that ADOPTS its +1 and
     /// balances it on Dispose/finalize. A caller that allocated the buffer the payload was
     /// written into uses this to decide cleanup: an adopted payload must only have its storage
     /// freed (a value-witness destroy would release the same retain twice), while a payload
     /// nothing adopted still owes that destroy or its retain is orphaned on every call.
     ///
-    /// False for bare <c>any</c>, whose read unboxes by COPY — the copy carries its own balanced
-    /// retain and the source container's retain is left exactly as Swift wrote it. True for the
-    /// proxy-backed containers (which take <c>ownsContainer: true</c>) and for the self-owning
-    /// well-known carriers.
+    /// False for bare <c>any</c>: an Optional return of one reads the payload by copy
+    /// (<see cref="GetReturnElementConversion"/>) and leaves the container's retain for the frame
+    /// that allocated the buffer to destroy. True for the proxy-backed containers (which take
+    /// <c>ownsContainer: true</c>) and for the self-owning well-known carriers. A collection
+    /// element has no such frame: its owned read (<see cref="GetOwnedReturnElementConversion"/>)
+    /// consumes the +1 for every container, a bare <c>Any</c> included.
     /// </summary>
     public bool AdoptsOwnedReturn => !_isBareAny;
 
+    /// <summary>
+    /// Owned-return variant of <see cref="GetReturnElementConversion"/>, for an existential Swift
+    /// handed over at +1: an owned Optional existential return (<c>OptionalProjection</c>, when
+    /// <see cref="AdoptsOwnedReturn"/>) and every collection element read. The proxy ADOPTS the +1
+    /// (read out of a buffer that is then raw-freed, so the only surviving retain lives in the proxy)
+    /// and releases it on Dispose/finalize; the borrowed receiver-callback path keeps the non-owning
+    /// <see cref="GetReturnElementConversion"/>. A bare <c>Any</c> has no proxy to adopt the +1, so
+    /// its read unboxes by copy and destroys the container (<c>UnboxOwned</c>). For a proxy-backed
+    /// container <see cref="OwnsContainerArg"/> is gated on the container TYPE (EC1 through EC8, via
+    /// <see cref="ExistentialHandler.IsOwnedExistentialContainerType"/>), not on protocol count —
+    /// so composition (EC2+) proxies adopt the +1 here exactly like single-protocol (EC1) ones.
+    /// </summary>
     public string? GetOwnedReturnElementConversion(string elementVar)
     {
         // PRODUCE: a suppressed proxy cannot back a `new {Proxy}(…)` element construction (see GetReturnPlan).
         if (!_isBareAny && _proxyClassName != null && _proxyIsSuppressed)
             throw new SuppressedProxyReferenceException(_proxyClassName);
+        // A bare Any is unboxed by copy and the container destroyed, or the +1 a collection element
+        // arrived with is never released (Unbox alone borrows). An Optional return, whose frame
+        // destroys its buffer itself, reads with the borrowing form instead (AdoptsOwnedReturn).
         if (_isBareAny)
-            return GetReturnElementConversion(elementVar);
+            return $"global::Swift.Runtime.ExistentialContainer0.UnboxOwned({elementVar})";
         if (_proxyClassName != null)
             return $"({_publicType})new {_proxyClassName}({elementVar}{OwnsContainerArg})";
         // No proxy class: the carrier adopts the +1, matching AdoptsOwnedReturn (the caller then

@@ -36,7 +36,7 @@ internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : I
 
     public IEnumerable<TKey> Keys => _source.Keys;
 
-    public IEnumerable<TResult> Values => _source.Values.Select(_valueSelector);
+    public IEnumerable<TResult> Values => _source.ProjectValues(_valueSelector);
 
     public bool ContainsKey(TKey key) => _source.ContainsKey(key);
 
@@ -108,7 +108,7 @@ internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResV
 
     public IEnumerable<TResKey> Keys => _source.Keys.Select(_keySelector);
 
-    public IEnumerable<TResVal> Values => _source.Values.Select(_valueSelector);
+    public IEnumerable<TResVal> Values => _source.ProjectValues(_valueSelector);
 
     public bool ContainsKey(TResKey key)
     {

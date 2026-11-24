@@ -475,14 +475,45 @@ public class SwiftArray<Element> : ISwiftObject, ISwiftStruct, IReadOnlyList<Ele
 
     int IList<Element>.IndexOf(Element item)
     {
-        int count = Count;
         var comparer = EqualityComparer<Element>.Default;
-        for (int i = 0; i < count; i++)
+        // The search covers the elements present when it starts, and Count is also read on every
+        // pass, as the indexer's bounds check did: an element's Equals may shrink the array, and the
+        // Swift getter traps on an index past the end.
+        int count = Count;
+        for (int i = 0; i < count && i < Count; i++)
         {
-            if (comparer.Equals(this[i], item))
+            using PayloadBuffer<IntPtr> disposable = PayloadBuffer;
+            if (ElementEquals(i, disposable.Buffer, item, comparer))
                 return i;
         }
         return -1;
+    }
+
+    /// <summary>
+    /// Compares one element with <paramref name="item"/> without taking it. The getter initializes an
+    /// owned element in the temporary; a search compares a borrowed read of it and then destroys the
+    /// slot, so no element it passes over is left at +1. (Reading through the indexer handed each
+    /// element out owned and dropped it, which leaked every element whose carrier has no finalizer
+    /// to release it, an existential container for one.)
+    /// </summary>
+    private static unsafe bool ElementEquals(int index, IntPtr storage, Element item, EqualityComparer<Element> comparer)
+    {
+        var metadata = ElementTypeMetadata;
+        void* payload = NativeMemory.Alloc(ElementSize);
+        bool slotLive = false;
+        try
+        {
+            SwiftArrayPInvokes.Get(new SwiftIndirectResult(payload), index, storage, metadata);
+            slotLive = true;
+            Element element = SwiftMarshal.MarshalBorrowedValueFromSlot<Element>(payload, metadata);
+            return comparer.Equals(element, item);
+        }
+        finally
+        {
+            if (slotLive)
+                metadata.ValueWitnessTable->Destroy(payload, metadata);
+            NativeMemory.Free(payload);
+        }
     }
 
     bool ICollection<Element>.Contains(Element item) => ((IList<Element>)this).IndexOf(item) >= 0;
