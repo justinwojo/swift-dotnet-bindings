@@ -55,16 +55,37 @@ public func describeOpenURLOptions(_ options: [UIApplication.OpenURLOptionsKey: 
 // Each key crosses as the pointer to its NSString. A dictionary Swift returns holds every key at
 // +1 in its storage, and reading the dictionary must not leave a key reference behind.
 
-/// One long-lived NSString (too long to be a tagged pointer), so its retain count is observable.
-private let launchOptionsProbeKey = NSString(string: "UIApplicationLaunchOptionsOwnershipProbeKey")
+/// One NSString built at run time: a string literal would be an immortal constant, whose retain
+/// count never moves, and a short one a tagged pointer.
+private let launchOptionsProbeKey = NSString(format: "%@%@", "UIApplicationLaunchOptions", "OwnershipProbeKey")
+
+/// The dictionary every call returns; its storage holds the probe key at a steady count.
+private let launchOptionsProbeOptions: [UIApplication.LaunchOptionsKey: Any] =
+    [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
 
 /// A launch-options dictionary whose single key is `launchOptionsProbeKey` itself.
 public func makeLaunchOptionsWithProbeKey() -> [UIApplication.LaunchOptionsKey: Any] {
-    return [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
+    return launchOptionsProbeOptions
 }
 
 /// The probe key's current retain count.
 public func launchOptionsProbeKeyRetainCount() -> Int {
     return CFGetRetainCount(launchOptionsProbeKey)
+}
+
+/// Whether the dictionary's key is the probe key object itself, so the count measured is the key's.
+public func checkLaunchOptionsProbeKeyIsStored() -> Bool {
+    guard let stored = launchOptionsProbeOptions.keys.first else { return false }
+    return (stored.rawValue as NSString) === launchOptionsProbeKey
+}
+
+/// Takes one extra reference on the probe key: the control that its count moves.
+public func retainLaunchOptionsProbeKey() {
+    _ = Unmanaged.passRetained(launchOptionsProbeKey)
+}
+
+/// Drops the reference `retainLaunchOptionsProbeKey` took.
+public func releaseLaunchOptionsProbeKey() {
+    Unmanaged.passUnretained(launchOptionsProbeKey).release()
 }
 #endif

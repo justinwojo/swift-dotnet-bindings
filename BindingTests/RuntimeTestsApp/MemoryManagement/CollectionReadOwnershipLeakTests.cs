@@ -292,7 +292,7 @@ public class CollectionReadOwnershipLeakTests : TestBase
     /// A raw <c>SwiftDictionary&lt;SwiftString, ExistentialContainer0&gt;</c>, read with no projection
     /// to convert its values. A raw container has no finalizer, so the value a read returns is the
     /// reader's to destroy, and LINQ's positional reads (<c>Last</c>, <c>LastOrDefault</c>,
-    /// <c>ElementAt</c>) must take only that value: reading every value and keeping one dropped the
+    /// <c>ElementAt</c>, <c>Take</c>) must take only the values they return: reading every value and keeping one dropped the
     /// others at +1. The control builds and disposes the dictionary without reading it.
     /// </summary>
     public void TestRawExistentialValuesPositionalReadsReleaseTheRest()
@@ -323,6 +323,8 @@ public class CollectionReadOwnershipLeakTests : TestBase
             DestroyTakenContainer(dict.Values.LastOrDefault());
             DestroyTakenContainer(dict.Values.ElementAt(1));
             DestroyTakenContainer(dict.Values.First());
+            foreach (var taken in dict.Values.Take(2))
+                DestroyTakenContainer(taken);
             AssertEqual(count, dict.Values.Count(), "Count reads no value");
             AssertThrows<ArgumentOutOfRangeException>(() => _ = dict.Values.ElementAt(count),
                 "ElementAt past the end throws and releases the snapshot it took");

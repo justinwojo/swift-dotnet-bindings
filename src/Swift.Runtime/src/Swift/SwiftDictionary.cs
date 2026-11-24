@@ -541,11 +541,12 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// values exactly as <see cref="ValueSnapshot{TOut}"/> does. As an <see cref="IList{T}"/> it also
     /// lets LINQ's <c>Last</c> and <c>ElementAt</c> index the one value they return, instead of reading
     /// every value and dropping all but one: an enumerated value counts as handed out once read, and a
-    /// dropped raw container is never released. Each indexed read takes its own snapshot and releases
-    /// every value but the one it returns; <see cref="Contains"/> and <see cref="IndexOf"/> hand out
-    /// nothing and release them all.
+    /// dropped raw container is never released. Each indexed read walks the dictionary up to the value
+    /// it returns and releases the values before it, so it costs the index's position and sees the
+    /// dictionary as it is at that moment, as any operator that indexes a list does.
+    /// <see cref="Contains"/> and <see cref="IndexOf"/> hand out nothing and release them all.
     /// </summary>
-    private sealed class RawValueList : IList<TValue>, IReadOnlyList<TValue>
+    private sealed class RawValueList : IList<TValue>
     {
         private readonly SwiftDictionary<TKey, TValue> _dictionary;
 
@@ -559,8 +560,11 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         {
             get
             {
-                var entries = TakeSnapshot();
-                if ((uint)index >= (uint)entries.Count)
+                if (index < 0)
+                    throw new ArgumentOutOfRangeException(nameof(index));
+                // Stop at the entry returned: the walk fetches, and so releases, only the ones before it.
+                var entries = TakeSnapshot(index == int.MaxValue ? int.MaxValue : index + 1);
+                if (index >= entries.Count)
                 {
                     ReleaseAllExcept(entries, -1);
                     throw new ArgumentOutOfRangeException(nameof(index));
@@ -612,10 +616,10 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
         public bool Remove(TValue item) => throw ReadOnly();
         public void RemoveAt(int index) => throw ReadOnly();
 
-        private List<KeyValuePair<TKey, TValue>> TakeSnapshot()
+        private List<KeyValuePair<TKey, TValue>> TakeSnapshot(int limit = int.MaxValue)
         {
             _dictionary.ThrowIfDisposed();
-            return _dictionary.CollectEntries(EntryParts.Value);
+            return _dictionary.CollectEntries(EntryParts.Value, limit);
         }
 
         private static void ReleaseAllExcept(List<KeyValuePair<TKey, TValue>> entries, int kept)
@@ -745,7 +749,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// moved into the entry; the other half is destroyed in its slot and left <c>default</c> in the
     /// entry, so a <see cref="Keys"/> or <see cref="Values"/> read releases what it does not return.
     /// </summary>
-    private unsafe List<KeyValuePair<TKey, TValue>> CollectEntries(EntryParts parts)
+    private unsafe List<KeyValuePair<TKey, TValue>> CollectEntries(EntryParts parts, int limit = int.MaxValue)
     {
         var result = new List<KeyValuePair<TKey, TValue>>();
         var witnessTable = HashableConformanceRegistry.GetHashableWitnessTable<TKey>();
@@ -802,7 +806,7 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
             bool valueMoved = false;
             try
             {
-                while (true)
+                while (result.Count < limit)
                 {
                     // Call Dictionary.Iterator.next() — mutates the iterator in-place.
                     // Cdecl-wrapped to bypass the Mac Catalyst-x64 workload Mono

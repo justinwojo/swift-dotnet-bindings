@@ -158,7 +158,10 @@ public struct ExistentialContainer0 : IExistentialContainer
         // Compare against known type metadata to determine the contained type
         if (TypeMetadata.Cache.TryGet(typeof(bool), out var boolMeta) && metadata.Equals(boolMeta.Value))
         {
-            return container.Payload0 != IntPtr.Zero;
+            // A Swift Bool is one byte: whoever initialized the container wrote only that byte, so
+            // the rest of the word is whatever the buffer held (an uninitialized allocation for an
+            // async result carrier). Read the value byte alone.
+            return *(byte*)&container != 0;
         }
 
         if (TypeMetadata.Cache.TryGet(typeof(nint), out var intMeta) && metadata.Equals(intMeta.Value))

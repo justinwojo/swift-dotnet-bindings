@@ -129,6 +129,13 @@ public class AppDelegateOptionKeysTests : TestBase
     /// </summary>
     public void TestReadingReturnedOptionsLeavesNoKeyReference()
     {
+        AssertTrue(TestLibFunctions.CheckLaunchOptionsProbeKeyIsStored(), "the dictionary's key is the probe key itself");
+        nint baseline = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        TestLibFunctions.RetainLaunchOptionsProbeKey();
+        nint retained = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
+        TestLibFunctions.ReleaseLaunchOptionsProbeKey();
+        AssertEqual(baseline + 1, retained, "one extra reference moves the probe key's retain count (control)");
+
         nint before = TestLibFunctions.GetLaunchOptionsProbeKeyRetainCount();
         ReadProbeKeyedOptions(25);
         for (int i = 0; i < 4; i++)
