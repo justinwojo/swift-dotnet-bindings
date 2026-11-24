@@ -121,6 +121,14 @@ public sealed record ObjCClassDecl
     public bool HasCustomRuntimeName { get; init; }
 
     /// <summary>
+    /// True when <c>-init</c> is unavailable on this class: the class (or a category on it) marks
+    /// <c>init</c> unavailable (<c>NS_UNAVAILABLE</c>), or it inherits that from a superclass of this
+    /// module without redeclaring an available <c>init</c>. Clang refuses <c>[[X alloc] init]</c> for
+    /// such a class, so the binding must not offer a parameterless constructor either.
+    /// </summary>
+    public bool IsInitUnavailable { get; init; }
+
+    /// <summary>
     /// Platform-availability records recovered from the declaration's availability macros or a bare
     /// <c>__attribute__((availability(...)))</c> attribute (Finding 22, recovery option a2).
     /// </summary>
@@ -290,3 +298,13 @@ public sealed record ObjCCategoryDecl
     /// </summary>
     public List<ObjCAvailability> Availability { get; init; } = [];
 }
+
+/// <summary>
+/// A declaration the parser dropped because Clang marks it unavailable (<c>UnavailableAttr</c>:
+/// <c>NS_UNAVAILABLE</c>, <c>__attribute__((unavailable))</c>, or a framework macro expanding to one).
+/// An Objective-C consumer cannot use it, so neither can the binding; the pipeline reports each one
+/// (<see cref="ObjCSkipReason.UnavailableApi"/>).
+/// </summary>
+/// <param name="Kind">The declaration kind (<c>class</c>, <c>method</c>, <c>enumerator</c>, …).</param>
+/// <param name="Name">Its name, qualified by its container for a member (<c>MTRDevice.-init</c>).</param>
+public sealed record ObjCUnavailableDeclaration(string Kind, string Name);

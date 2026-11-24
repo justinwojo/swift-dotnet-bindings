@@ -174,6 +174,14 @@ public static class ObjCPipeline
             return new ObjCParseResult(1, null, $"AST parsing failed: {ex.Message}", "", pi, diagnostics);
         }
 
+        // 4b. Name every declaration the headers mark unavailable, which the parser did not bind.
+        foreach (var dropped in module.UnavailableDeclarations)
+            diagnostics.RecordSkip(dropped.Kind, dropped.Name, ObjCSkipReason.UnavailableApi,
+                "marked unavailable in the headers (NS_UNAVAILABLE / __attribute__((unavailable))): an Objective-C consumer cannot use it");
+        if (module.UnavailableDeclarations.Count > 0)
+            logger.LogInformation("Module '{Module}': {Count} declaration(s) marked unavailable in its headers are not bound",
+                module.ModuleName, module.UnavailableDeclarations.Count);
+
         // 4c. Filter out platform type stubs (types already in the Apple SDK)
         module = FilterPlatformTypeStubs(module, logger);
 

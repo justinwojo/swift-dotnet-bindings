@@ -377,7 +377,10 @@ public static partial class ApiDefinitionEmitter
         var hasParameterlessInitWith = cls.Methods.Any(m =>
             m.IsInstanceMethod && m.Selector.StartsWith("initWith", StringComparison.Ordinal)
             && m.Parameters.Count == 0);
-        var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith;
+        // A class whose -init is unavailable (NS_UNAVAILABLE, here or on a superclass of this module)
+        // gets no parameterless constructor: Clang refuses [[X alloc] init] for it, and the parser has
+        // already dropped the unavailable declaration itself.
+        var disableDefaultCtor = hasExplicitParameterlessInit || hasParameterlessInitWith || cls.IsInitUnavailable;
         if (disableDefaultCtor)
             sb.AppendLine("    [DisableDefaultCtor]");
 
