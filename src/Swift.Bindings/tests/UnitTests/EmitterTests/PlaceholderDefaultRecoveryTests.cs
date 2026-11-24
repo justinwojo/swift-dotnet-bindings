@@ -123,6 +123,83 @@ public class PlaceholderDefaultRecoveryTests
             k => k.Contains("HardConfig.HardConfig(") || k.Contains("HardConfig.Init("));
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Constructor_TrailingPlaceholderRecovered_SkipRowIsRecoveredByTheTrimmedForm(bool asClass)
+    {
+        // The full init(a:b:style:) keeps its skip row (the full form is really unbindable), but the
+        // consumer can call init(a:b:), so the row is recovered, not lost, and names that form.
+        var (_, _, _, report, ctor) = EmitTypeWithMember(
+            "PayConfig", asClass, "init",
+            new[]
+            {
+                CreateArg("a", "Swift.Int", hasDefault: false),
+                CreateArg("b", "Swift.Int", hasDefault: false),
+                CreateArg("style", "UnmappedKit.ButtonStyle", hasDefault: true),
+            });
+
+        var row = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(ctor).Canonical);
+        Assert.Equal(SkipReason.UnsupportedSignature, row.Reason);
+        Assert.Equal(new[] { "TestModule.PayConfig.init(a:b:)" }, row.RecoveredBy);
+        Assert.Equal(SkipDisposition.Recovered, SkipDispositionClassifier.Classify(row));
+        Assert.False(SkipAttributionLinker.IsLoss(row));
+    }
+
+    [Fact]
+    public void Method_TrailingPlaceholderRecovered_SkipRowIsRecoveredByTheTrimmedForm()
+    {
+        var (csOutput, _, _, report, method) = EmitTypeWithMember(
+            "PayConfig", asClass: false, "configure",
+            new[]
+            {
+                CreateArg("a", "Swift.Int", hasDefault: false),
+                CreateArg("style", "UnmappedKit.ButtonStyle", hasDefault: true),
+            });
+
+        Assert.DoesNotContain("// Unsupported: method 'PayConfig.configure'", csOutput);
+        var row = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(method).Canonical);
+        Assert.Equal(new[] { "TestModule.PayConfig.configure(a:)" }, row.RecoveredBy);
+        Assert.False(SkipAttributionLinker.IsLoss(row));
+    }
+
+    [Fact]
+    public void Method_TrailingPlaceholderRecoveredBesideADebugParameter_SkipRowIsRecovered()
+    {
+        // Lowering strips the defaulted #fileID parameter before the skip row is keyed, so the
+        // recovery must be keyed on the declaration as the row saw it.
+        var (csOutput, _, _, report, method) = EmitTypeWithMember(
+            "PayConfig", asClass: false, "configure",
+            new[]
+            {
+                CreateArg("a", "Swift.Int", hasDefault: false),
+                CreateArg("style", "UnmappedKit.ButtonStyle", hasDefault: true),
+                CreateArg("file", "Swift.StaticString", hasDefault: true),
+            });
+
+        Assert.DoesNotContain("// Unsupported: method 'PayConfig.configure'", csOutput);
+        var row = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(method).Canonical);
+        Assert.Equal(new[] { "TestModule.PayConfig.configure(a:)" }, row.RecoveredBy);
+        Assert.False(SkipAttributionLinker.IsLoss(row));
+    }
+
+    [Fact]
+    public void Constructor_RequiredParamIsPlaceholder_SkipRowStaysALoss()
+    {
+        // The control: no trim removes a required placeholder, nothing recovers, the row is a loss.
+        var (_, _, _, report, ctor) = EmitTypeWithMember(
+            "HardConfig", asClass: false, "init",
+            new[]
+            {
+                CreateArg("style", "UnmappedKit.ButtonStyle", hasDefault: false),
+                CreateArg("count", "Swift.Int", hasDefault: true),
+            });
+
+        var row = Assert.Single(report.SkippedItems, i => i.DeclId == DeclIdFactory.ForMethod(ctor).Canonical);
+        Assert.Null(row.RecoveredBy);
+        Assert.True(SkipAttributionLinker.IsLoss(row));
+    }
+
     #region Helpers
 
     private static ArgumentDecl CreateArg(string name, string swiftType, bool hasDefault)
@@ -162,6 +239,19 @@ public class PlaceholderDefaultRecoveryTests
     private static (string csOutput, string swiftOutput, ModuleEmissionContext emissionContext)
         EmitTypeWithConstructor(string typeName, bool asClass, ArgumentDecl[] ctorParams)
     {
+        var (cs, swift, ctx, _, _) = EmitTypeWithMember(typeName, asClass, "init", ctorParams);
+        return (cs, swift, ctx);
+    }
+
+    /// <summary>
+    /// <see cref="EmitTypeWithConstructor"/> for a constructor (<paramref name="memberName"/>
+    /// <c>init</c>) or an instance method, under a report session; also returns the report and the
+    /// member's declaration.
+    /// </summary>
+    private static (string csOutput, string swiftOutput, ModuleEmissionContext emissionContext, BindingReport report, MethodDecl member)
+        EmitTypeWithMember(string typeName, bool asClass, string memberName, ArgumentDecl[] ctorParams)
+    {
+        var isConstructor = memberName == "init";
         var moduleDecl = new ModuleDecl
         {
             Name = "TestModule",
@@ -216,7 +306,7 @@ public class PlaceholderDefaultRecoveryTests
         // it an empty tuple would emit a void P/Invoke + undeclared result local (a synthetic-harness
         // artifact, not a real ctor shape). The frozen-struct cdecl path derives its `_cdeclResult`
         // buffer type from ParentDecl, so an empty-tuple return already produces its correct shape.
-        TypeSpec returnTypeSpec = asClass
+        TypeSpec returnTypeSpec = asClass && isConstructor
             ? new NamedTypeSpec($"TestModule.{typeName}")
             : TupleTypeSpec.Empty;
         var csSignature = new List<ArgumentDecl> { CreateReturnArg(moduleDecl, returnTypeSpec) };
@@ -229,10 +319,12 @@ public class PlaceholderDefaultRecoveryTests
 
         var ctor = new MethodDecl
         {
-            Name = "init",
-            MangledName = $"$s10TestModule{typeName.Length}{typeName}{nominalTag}4inity...cfC",
+            Name = memberName,
+            MangledName = isConstructor
+                ? $"$s10TestModule{typeName.Length}{typeName}{nominalTag}4inity...cfC"
+                : $"$s10TestModule{typeName.Length}{typeName}{nominalTag}{memberName.Length}{memberName}y...F",
             MethodType = MethodType.Instance,
-            IsConstructor = true,
+            IsConstructor = isConstructor,
             CSSignature = csSignature,
             GenericParameters = new List<GenericArgumentDecl>(),
             ParentDecl = typeDecl,
@@ -287,9 +379,21 @@ public class PlaceholderDefaultRecoveryTests
         var emissionContext = new ModuleEmissionContext();
         var context = TypeHandlerContext.Empty with { EmissionContext = emissionContext };
 
-        handler.Emit(csWriter, swiftWriter, env, conductor, context);
+        ReportCollector.Reset();
+        ReportCollector.Start(moduleDecl);
+        BindingReport report;
+        try
+        {
+            handler.Emit(csWriter, swiftWriter, env, conductor, context);
+            report = ReportCollector.Complete();
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+        Assert.NotNull(report);
 
-        return (csStringWriter.ToString(), swiftStringWriter.ToString(), emissionContext);
+        return (csStringWriter.ToString(), swiftStringWriter.ToString(), emissionContext, report, ctor);
     }
 
     #endregion

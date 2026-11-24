@@ -83,6 +83,10 @@ public static class DefaultParameterOverloadEmitter
         bool failableNeedsHelperFreeRoute)
     {
         emissionContext ??= env.EmissionContext;
+        // The refused member's skip row was keyed on its declaration as it stands now, after
+        // lowering stripped any debug parameters and before a replay swaps in another environment;
+        // a recovery must be recorded under that same identity.
+        var refusedRowId = primaryEmitted ? (DeclId?)null : DeclIdFactory.ForMethod(env.MethodDecl);
         DefaultOverloadReplayRecipe? recipe = null;
         var producerEnv = env;
         if (emissionContext != null && emissionContext.TryGetDefaultOverloadRecipe(env.SourceDeclId, out var previous))
@@ -92,7 +96,7 @@ public static class DefaultParameterOverloadEmitter
             producerEnv.EmissionContext = emissionContext;
         }
         var emitted = TryEmitOverloadsCore(csWriter, swiftWriter, producerEnv, logger, emissionContext, primaryEmitted,
-            failableNeedsHelperFreeRoute);
+            failableNeedsHelperFreeRoute, refusedRowId);
         // The core reads producer inputs and mutates its candidate declarations/environments.
         // Capture only when a real bundle completed, preserving cheap declines (including unknown
         // TypeSpecs on methods with no defaults). A swallowed containment signal abandons the render.
@@ -111,7 +115,8 @@ public static class DefaultParameterOverloadEmitter
         ILogger logger,
         ModuleEmissionContext? emissionContext,
         bool primaryEmitted,
-        bool failableNeedsHelperFreeRoute)
+        bool failableNeedsHelperFreeRoute,
+        DeclId? refusedRowId)
     {
         var methodDecl = env.MethodDecl;
         int emittedCount = 0;
@@ -753,6 +758,12 @@ public static class DefaultParameterOverloadEmitter
                             emissionContext.GetEmittedApiShape(overloadDecl)),
                         overloadEnv.EmissionSymbol);
                 }
+
+                // A recovery call: the full member was refused and keeps its skip row, but the consumer
+                // can call this trimmed form, so the row is recovered rather than lost. Keyed by the
+                // row's own DeclId, so a same-named sibling that nothing recovered stays a loss.
+                if (refusedRowId is { } rowId)
+                    ReportCollector.RecordMemberRecovered(rowId, BaseHandler.GateReducedRecoveryProjection(overloadDecl));
             });
         }
         return emittedCount != 0;

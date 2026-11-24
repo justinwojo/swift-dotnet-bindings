@@ -531,12 +531,6 @@ The placeholder-default *recovery* overload shipped (additive; also the U-004 `A
 
 The auto-generated `{Module}.api-surface.md` shipped, and residuals (a) and (b) are now closed: the manifest — and so the doc — records **properties and subscripts** alongside methods and free functions, and the doc is packed as the binding package's `PackageReadmeFile`, so the shipped README *is* the machine-derived member list. A load-time reconciliation check now fails the generator if any manifest entry names a member the emitted C# does not contain, which makes a *phantom* entry impossible by construction. What remains is the opposite direction: additive **convenience** overloads emitted into the C# but not recorded — the `string`→`NSUrl` URL sugar and the enum-case `Int` forwarder. (The `nint` indexer convenience overload is now recorded, so subscripts are complete.) The reconciler cannot catch these: an unrecorded emitted member is not a lie, only an omission, so the doc lists the primary member (`DescribeURL(NSUrl)`) but not its sugar sibling (`DescribeURL(string)`). The underlying member stays documented, so this is a completeness refinement rather than a member gap; closing it means a manifest write at each convenience-emission site. **Trigger:** a session itemizes every additive convenience overload.
 
-<a id="recovered-placeholder-default-member-is-reported-as-skipped-u-004-u-008-residual"></a>
-
-## Recovered placeholder-default member is reported as skipped (U-004/U-008 residual)
-
-When a constructor/method's full signature is rejected for a trailing-defaulted `AnyType` placeholder and a truncated overload is recovered, the completeness/skip report still records the member under `SkipReason.UnsupportedSignature` (the skip is recorded before recovery runs; only the loud drop *comment* is suppressed on success). So the report counts a member that ships a usable truncated surface as fully unsupported. The emitted C# and — after the api-surface fix — `api-surface.md` are correct; only the internal completeness tally under-counts. A faithful "recovered/degraded" member status is a broader `ReportCollector` change (a third state between emitted and skipped) rather than a flag flip. **Trigger:** a completeness-report accuracy pass, or a consumer relies on the skip tally to gauge coverage.
-
 <a id="a-returned-dictionary-cannot-be-handed-straight-to-a-dictionary-parameter-documented-not-fixed"></a>
 
 ## A returned dictionary cannot be handed straight to a dictionary parameter (documented, not fixed)
