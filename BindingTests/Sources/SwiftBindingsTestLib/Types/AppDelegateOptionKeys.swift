@@ -59,13 +59,11 @@ public func describeOpenURLOptions(_ options: [UIApplication.OpenURLOptionsKey: 
 /// count never moves, and a short one a tagged pointer.
 private let launchOptionsProbeKey = NSString(format: "%@%@", "UIApplicationLaunchOptions", "OwnershipProbeKey")
 
-/// The dictionary every call returns; its storage holds the probe key at a steady count.
-private let launchOptionsProbeOptions: [UIApplication.LaunchOptionsKey: Any] =
-    [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
-
-/// A launch-options dictionary whose single key is `launchOptionsProbeKey` itself.
+/// A launch-options dictionary whose single key is `launchOptionsProbeKey` itself. Each call
+/// builds new storage, which holds its own reference on the key, so a dictionary C# never
+/// releases also shows in the key's count.
 public func makeLaunchOptionsWithProbeKey() -> [UIApplication.LaunchOptionsKey: Any] {
-    return launchOptionsProbeOptions
+    return [UIApplication.LaunchOptionsKey(rawValue: launchOptionsProbeKey as String): "probe"]
 }
 
 /// The probe key's current retain count.
@@ -75,7 +73,7 @@ public func launchOptionsProbeKeyRetainCount() -> Int {
 
 /// Whether the dictionary's key is the probe key object itself, so the count measured is the key's.
 public func checkLaunchOptionsProbeKeyIsStored() -> Bool {
-    guard let stored = launchOptionsProbeOptions.keys.first else { return false }
+    guard let stored = makeLaunchOptionsWithProbeKey().keys.first else { return false }
     return (stored.rawValue as NSString) === launchOptionsProbeKey
 }
 
