@@ -723,8 +723,11 @@ public sealed class TransitionCheckTasksTests : IDisposable
         File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
         var declaration = Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.props");
         Directory.CreateDirectory(Path.GetDirectoryName(declaration)!);
+        var hasTargets = payload != PackageCopyDeclarationEmitter.NativePayloadResources;
         File.WriteAllText(declaration, PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2",
-            "0.21.0", payload, hasConsumerTargets: payload != PackageCopyDeclarationEmitter.NativePayloadResources));
+            "0.21.0", payload, hasConsumerTargets: hasTargets));
+        if (hasTargets)
+            File.WriteAllText(Path.Combine(Path.GetDirectoryName(declaration)!, "Acme.Kit.targets"), "<Project />");
         var project = Path.Combine(tempDir, "objc-app.proj");
         File.WriteAllText(project, $"""
             <Project>
@@ -750,6 +753,101 @@ public sealed class TransitionCheckTasksTests : IDisposable
         // The copy is announced as SwiftBindings.Runtime's check would, by exactly one of the two.
         var announced = exit == 0 && payload != PackageCopyDeclarationEmitter.NativePayloadNative && !runtimeInBuild;
         Assert.Equal(announced, output.Contains($"SwiftBindings copy: Acme.Kit 1.0.0 -> net10.0-ios26.0 (built on .NET 10 + Xcode 26.3); lib=", StringComparison.Ordinal));
+    }
+
+    [Theory]
+    // The copy is this build's own: same .NET, same platform SDK major (a 26.0 copy serves 26.x).
+    [InlineData("v10.0", "26.2", false, "", 0)]
+    [InlineData("v10.0", "", false, "", 0)]
+    // An older platform SDK or .NET: reported, and refused when the build requires its exact copy.
+    [InlineData("v10.0", "27.2", false, "built against the platform 26.0 SDK rather than this build's 27.2", 0)]
+    [InlineData("v10.0", "27.2", true, "built against the platform 26.0 SDK rather than this build's 27.2", 1)]
+    [InlineData("v11.0", "26.0", false, "built for .NET 10.0 rather than this build's .NET 11.0", 0)]
+    public void CopyCheck_ANativelessCopy_ReportsAnOlderCopyItself(
+        string frameworkVersion, string platformVersion, bool requireExact, string reason, int exit)
+    {
+        var project = ObjCApp($"""
+            <TargetFrameworkVersion>{frameworkVersion}</TargetFrameworkVersion>
+            <TargetPlatformVersion>{platformVersion}</TargetPlatformVersion>
+            <SwiftBindingsRequireExactCopy>{(requireExact ? "true" : "")}</SwiftBindingsRequireExactCopy>
+            """, NativelessCopy("Acme.Kit"));
+
+        var (code, output) = MSBuild(project, "CoreCompile", "minimal");
+
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        if (reason.Length == 0)
+            Assert.DoesNotContain("SWIFTBIND139", output);
+        else
+            Assert.Contains($"{(requireExact ? "error SWIFTBIND139: " : "SWIFTBIND139: ")}Acme.Kit: this build (net10.0-ios, platform {platformVersion}) uses the package's net10.0-ios26.0 copy (built on .NET 10 + Xcode 26.3), {reason}", output);
+    }
+
+    [Fact]
+    public void CopyCheck_ANativelessCopy_RefusesItsMissingConsumerTargets()
+    {
+        var copy = NativelessCopy("Acme.Kit");
+        var project = ObjCApp("", copy);
+        File.Delete(copy.Targets);
+
+        var (code, output) = MSBuild(project, "CoreCompile", "minimal");
+
+        Assert.True(code != 0, output);
+        Assert.Contains("error SWIFTBIND136: Acme.Kit: this build (net10.0-ios) uses the package's net10.0-ios26.0 copy, but its consumer targets", output);
+    }
+
+    [Fact]
+    public void CopyCheck_TwoNativelessPackagesWhoseIdsDifferOnlyInPunctuation_AreBothChecked()
+    {
+        // Acme.Kit, imported first, resolved its assembly from another copy's lib/; Acme-Kit is laid out
+        // right. Acme-Kit's declaration must not replace Acme.Kit's check.
+        var project = ObjCApp("", NativelessCopy("Acme.Kit", resolvedFrom: "net10.0-ios27.2"), NativelessCopy("Acme-Kit"));
+
+        var (code, output) = MSBuild(project, "CoreCompile", "minimal");
+
+        Assert.True(code != 0, output);
+        Assert.Contains("error SWIFTBIND136: Acme.Kit: this build (net10.0-ios) resolved Acme.Kit.dll", output);
+        Assert.DoesNotContain("SWIFTBIND136: Acme-Kit", output);
+    }
+
+    /// <summary>
+    /// <paramref name="packageId"/>'s pure Objective-C (NativePayload none) net10.0-ios26.0 copy as NuGet
+    /// lays it out, its assembly resolved from <paramref name="resolvedFrom"/>'s lib/.
+    /// </summary>
+    private (string PackageId, string Declaration, string Assembly, string Targets) NativelessCopy(
+        string packageId, string resolvedFrom = "net10.0-ios26.0")
+    {
+        var root = Path.Combine(tempDir, "packages", packageId.ToLowerInvariant(), "1.0.0");
+        foreach (var tfm in new[] { "net10.0-ios26.0", "net10.0-ios27.2" })
+            Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
+        var dll = Path.Combine(root, "lib", resolvedFrom, packageId + ".dll");
+        File.WriteAllBytes(dll, Compile(packageId.Replace('-', '_'), "public static class Kit { }"));
+        var copy = Path.Combine(root, "buildTransitive", "net10.0-ios26.0");
+        Directory.CreateDirectory(copy);
+        var declaration = Path.Combine(copy, packageId + ".props");
+        File.WriteAllText(declaration, PackageCopyDeclarationEmitter.Compose(packageId, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2",
+            "0.21.0", PackageCopyDeclarationEmitter.NativePayloadNone, hasConsumerTargets: true));
+        var targets = Path.Combine(copy, packageId + ".targets");
+        File.WriteAllText(targets, "<Project />");
+        return (packageId, declaration, dll, targets);
+    }
+
+    /// <summary>An app with no SwiftBindings.Runtime that references only <paramref name="copies"/>.</summary>
+    private string ObjCApp(string properties, params (string PackageId, string Declaration, string Assembly, string Targets)[] copies)
+    {
+        var project = Path.Combine(tempDir, "objc-app.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <PropertyGroup>
+                <TargetFramework>net10.0-ios</TargetFramework>
+                {properties}
+              </PropertyGroup>
+              {string.Concat(copies.Select(c => $"<Import Project=\"{SecurityElement.Escape(c.Declaration)}\" />"))}
+              <Target Name="ResolveAssemblyReferences">
+                <ItemGroup>{string.Concat(copies.Select(c => References(compile: c.Assembly, package: c.PackageId)))}</ItemGroup>
+              </Target>
+              <Target Name="CoreCompile" />
+            </Project>
+            """);
+        return project;
     }
 
     [Fact]

@@ -838,6 +838,8 @@ public class ObjCPipelineIntegrationTests
                     typedef void (^UBBlock)(void);
                     typedef struct { int x; } UBHiddenPoint NS_UNAVAILABLE;
                     typedef struct { int y; } UBPoint;
+                    typedef struct { int z; } UBLaterHidden;
+                    typedef UBLaterHidden UBLaterHidden NS_UNAVAILABLE;
 
                     @interface UBThing : NSObject
                     - (instancetype)init NS_UNAVAILABLE;
@@ -845,12 +847,19 @@ public class ObjCPipelineIntegrationTests
                     - (void)gone NS_UNAVAILABLE;
                     - (void)gone;
                     - (void)kept;
+                    - (void)early;
+                    - (void)early NS_UNAVAILABLE;
                     @property (nonatomic) NSInteger value;
                     - (void)setValue:(NSInteger)value NS_UNAVAILABLE;
                     @property (nonatomic) NSInteger hidden;
                     - (NSInteger)hidden NS_UNAVAILABLE;
                     @property (nonatomic) NSInteger open;
                     - (void)useBlock:(UBBlock)block point:(UBPoint)point;
+                    @end
+
+                    @interface UBSubThing : UBThing
+                    @property (nonatomic) NSInteger open;
+                    - (void)setOpen:(NSInteger)open NS_UNAVAILABLE;
                     @end
 
                     NS_ASSUME_NONNULL_END
@@ -870,12 +879,14 @@ public class ObjCPipelineIntegrationTests
             var thing = Assert.Single(module.Classes, c => c.Name == "UBThing");
             Assert.DoesNotContain(thing.Methods, m => m.Selector is "init" or "gone");
             Assert.Contains(thing.Methods, m => m.Selector == "kept");
+            // Clang reads a declaration ahead of the one that marks it unavailable as available.
+            Assert.Single(thing.Methods, m => m.Selector == "early");
             Assert.True(thing.IsInitUnavailable);
             Assert.True(Assert.Single(thing.Properties, p => p.Name == "value").IsReadonly);
             Assert.False(Assert.Single(thing.Properties, p => p.Name == "open").IsReadonly);
             Assert.DoesNotContain(thing.Properties, p => p.Name == "hidden");
             Assert.DoesNotContain(module.Typedefs, t => t.Name is "UBHiddenBlock" or "UBHiddenPoint");
-            Assert.DoesNotContain(module.Structs, s => s.Name == "UBHiddenPoint");
+            Assert.DoesNotContain(module.Structs, s => s.Name is "UBHiddenPoint" or "UBLaterHidden");
             Assert.Contains(module.Structs, s => s.Name == "UBPoint");
             Assert.Contains(
                 "typedef UBHiddenBlock",
@@ -894,6 +905,8 @@ public class ObjCPipelineIntegrationTests
             Assert.DoesNotContain("UBHiddenBlock", apiDefinition);
             Assert.Matches(@"nint Value \{\s*get;\s*\}", apiDefinition);
             Assert.Matches(@"nint Open \{\s*get;\s*\[Export\(""setOpen:""\)\] set;", apiDefinition);
+            // The subclass that takes the setter away hides the inherited one.
+            Assert.Matches(@"partial interface UBSubThing\s*\{\s*\[New\]\s*\[Export\(""open""[^)]*\)\]\s*nint Open \{ get; \}", apiDefinition);
             Assert.DoesNotContain("setValue:", apiDefinition);
             var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
             Assert.DoesNotContain("UBHiddenPoint", structsAndEnums);

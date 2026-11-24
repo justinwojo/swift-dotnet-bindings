@@ -728,7 +728,7 @@ class Gate:
         code, text = self.control_app(x27, "swiftbind136", f"{VERSION}-negb",
                                       extra_items=f'<SwiftBindingsTransitionSuppress Include="{pid}" />')
         self.control("SWIFTBIND136 (buildTransitive copy dropped, 132 suppressed)", code, text,
-                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
+                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer targets"])
 
         # SWIFTBIND132 and SWIFTBIND133: the 26.0 copy's wrapper in the 27.2 copy's native/ (NEG-C).
         negc = variant(merged, controls, f"{VERSION}-negc", copies=[(None, "native/net10.0-ios26.0/", "native/net10.0-ios27.2/")])

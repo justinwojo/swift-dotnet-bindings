@@ -71,6 +71,13 @@ public sealed record ObjCPropertyDecl
     public required string Name { get; init; }
     public required ObjCTypeRef Type { get; init; }
     public bool IsReadonly { get; init; }
+
+    /// <summary>
+    /// The container declares the property's setter unavailable, which leaves it read-only (<see
+    /// cref="IsReadonly"/>) and, unlike a plain read-only re-declaration, takes away a setter it inherits.
+    /// </summary>
+    public bool IsSetterUnavailable { get; init; }
+
     public bool IsClass { get; init; }
     public bool IsOptional { get; init; }
     public bool IsFromCategory { get; init; }

@@ -337,6 +337,8 @@ public static class ClangAstParser
             functions.RemoveAll(f => droppedFunctions.Contains(f.Name));
             constants.RemoveAll(c => droppedConstants.Contains(c.Name));
             typedefs.RemoveAll(t => droppedTypedefs.Contains(t.Name));
+            // A struct an earlier typedef of the same name promoted goes with it.
+            structs.RemoveAll(s => droppedTypedefs.Contains(s.Name));
         }
 
         // Census report (Finding 63): full census at debug, SWIFTBIND029 for unrecognized kinds.
@@ -1112,14 +1114,12 @@ public static class ClangAstParser
         if (isProtocol)
             optionalLines = BuildOptionalLineSet(element, currentFile);
 
-        // An unavailable method stays unavailable through every redeclaration in the same container,
-        // though the JSON AST shows the attribute only on the one that spells it.
+        // Clang carries an unavailable attribute forward to every later redeclaration of the method in
+        // the same container, though the JSON AST shows it only on the one that spells it. A declaration
+        // before that one stays as Clang reads it: available.
         static string MethodKey(JsonElement method) =>
             $"{(!method.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean() ? '-' : '+')}{GetName(method)}";
         var unavailableMethods = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var child in inner.EnumerateArray())
-            if (GetOptionalString(child, "kind") == "ObjCMethodDecl" && IsMarkedUnavailable(child))
-                unavailableMethods.Add(MethodKey(child));
 
         foreach (var child in inner.EnumerateArray())
         {
@@ -1131,9 +1131,10 @@ public static class ClangAstParser
                     if (child.TryGetProperty("isImplicit", out var implProp) && implProp.GetBoolean())
                         break;
                     if (unavailableMethods.Contains(MethodKey(child)))
+                        break; // a later redeclaration; the one that spells the attribute is recorded
+                    if (IsMarkedUnavailable(child))
                     {
-                        if (!IsMarkedUnavailable(child))
-                            break; // a bare redeclaration; the one that spells the attribute is recorded
+                        unavailableMethods.Add(MethodKey(child));
                         var isInstanceMethod = !child.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean();
                         var selector = GetName(child) ?? "";
                         _unavailable?.Add(new ObjCUnavailableDeclaration("method", $"{container}.{(isInstanceMethod ? '-' : '+')}{selector}"));
@@ -1180,7 +1181,7 @@ public static class ClangAstParser
                 continue;
             }
             if (!property.IsReadonly && unavailableMethods.Contains($"{accessorPrefix}{setter}"))
-                property = property with { IsReadonly = true };
+                property = property with { IsReadonly = true, IsSetterUnavailable = true };
             var ownership = property.GetterOwnership;
             var consumes = false;
             foreach (var child in inner.EnumerateArray())

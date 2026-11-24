@@ -385,6 +385,48 @@ public sealed class PackageCopyTests : IDisposable
             Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2")),
         ], "net10.0-ios26.0", "net10.0-ios27.2");
         Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+
+        // A newer copy whose framework turned dynamic where the older one's is static is no superset.
+        if (!OperatingSystem.IsMacOS())
+            return;
+        var changed = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources",
+                extra: [("lib/net10.0-ios27.2/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", Dylib("rstatic", "int kit_a(void){return 1;}"))))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains(changed.Problems, p => p.Contains("Kit.framework/Kit is a dynamic image, but the older copy's is a static archive", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AFatImageWithAnOffsetPastItsEnd_IsRefusedNotThrown()
+    {
+        // fat_header (64-bit form), one fat_arch_64 whose offset is the largest a signed 64-bit read holds.
+        var image = new byte[8 + 32];
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(image, 0xCAFEBABF);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt32BigEndian(image.AsSpan(4), 1);
+        System.Buffers.Binary.BinaryPrimitives.WriteUInt64BigEndian(image.AsSpan(16), long.MaxValue);
+        (string, byte[])[] Resources(string tfm) =>
+            [($"lib/{tfm}/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", image)))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains("Kit.framework/Kit", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Merge_AResourcePackageOfAnAssemblyWhoseNameHoldsResources_Merges()
+    {
+        var core = SwiftTransitionManifestTests.Compile("Acme.resources.Core", "public static class Core { }");
+        (string, byte[])[] Extra(string tfm) =>
+            [($"lib/{tfm}/Acme.resources.Core.dll", core),
+             ($"lib/{tfm}/Acme.resources.Core.resources.zip", Zip(("Core.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>"))))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Extra("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Extra("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
     }
 
     [Fact]

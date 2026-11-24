@@ -415,8 +415,8 @@ public static class SwiftBindingPackageMerge
             yield return $"{name} declares its {tfm} copy's native payload '{payload}', but carries native/{tfm}/: a copy's declaration must state where its natives are.";
         if (payload == PayloadResources && resources.Count == 0)
             yield return $"{name} declares that its {tfm} copy's natives travel in lib/{tfm}/ as the binding's resource package, but lib/{tfm}/ carries no <Assembly>.resources.zip or <Assembly>.resources/.";
-        foreach (var resource in resources.Where(r => !files.ContainsKey($"lib/{tfm}/{r[..r.IndexOf(".resources", StringComparison.OrdinalIgnoreCase)]}.dll")))
-            yield return $"{name}: lib/{tfm}/{resource} is no binding assembly's resource package: lib/{tfm}/ carries no {resource[..resource.IndexOf(".resources", StringComparison.OrdinalIgnoreCase)]}.dll beside it.";
+        foreach (var resource in resources.Where(r => !files.ContainsKey($"lib/{tfm}/{ResourceAssembly(r)}.dll")))
+            yield return $"{name}: lib/{tfm}/{resource} is no binding assembly's resource package: lib/{tfm}/ carries no {ResourceAssembly(resource)}.dll beside it.";
         if (payload != PayloadResources && resources.Count > 0)
             yield return $"{name} declares its {tfm} copy's native payload '{payload}', but lib/{tfm}/ carries {resources[0]}: a copy's declaration must state where its natives are.";
     }
@@ -432,6 +432,11 @@ public static class SwiftBindingPackageMerge
             .Select(parts => parts.Length == 1 ? parts[0] : parts[0] + "/")
             .Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal);
     }
+
+    /// <summary>The assembly name a resource package (<c>&lt;Assembly&gt;.resources.zip</c> or <c>&lt;Assembly&gt;.resources/</c>) belongs to.</summary>
+    private static string ResourceAssembly(string resource) =>
+        resource.EndsWith(".resources.zip", StringComparison.OrdinalIgnoreCase) ? resource[..^".resources.zip".Length]
+        : resource.TrimEnd('/')[..^".resources".Length];
 
     private static string? DeclarationValue(Contribution c, string tfm, string metadata) =>
         c.Files.TryGetValue($"buildTransitive/{tfm}/{c.Id}.props", out var bytes) ? Declaration(bytes, metadata) : null;
@@ -796,7 +801,12 @@ public static class SwiftBindingPackageMerge
                 continue;
             }
             // A static framework's binary is an archive the app links in; its exports are not an image's.
-            if (IsStaticArchive(image) || IsStaticArchive(newerImage))
+            if (IsStaticArchive(image) != IsStaticArchive(newerImage))
+            {
+                problems.Add($"{NativeRoot(newer)}{relative} is {(IsStaticArchive(newerImage) ? "a static archive" : "a dynamic image")}, but the older copy's is {(IsStaticArchive(image) ? "a static archive" : "a dynamic image")}.");
+                continue;
+            }
+            if (IsStaticArchive(image))
             {
                 notes.Add($"  {relative}: a static archive, exports not compared");
                 continue;
@@ -906,7 +916,7 @@ public static class SwiftBindingPackageMerge
     private static bool IsStaticArchive(byte[] image)
     {
         static bool At(byte[] data, long offset) =>
-            offset >= 0 && offset + 8 <= data.Length && data.AsSpan((int)offset, 8).SequenceEqual("!<arch>\n"u8);
+            offset >= 0 && offset <= data.Length - 8 && data.AsSpan((int)offset, 8).SequenceEqual("!<arch>\n"u8);
         if (At(image, 0))
             return true;
         if (image.Length < 8)
