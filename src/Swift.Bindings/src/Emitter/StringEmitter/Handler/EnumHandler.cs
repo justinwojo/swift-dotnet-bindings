@@ -486,7 +486,7 @@ namespace BindingsGeneration
             if (enumDecl.Cases.Any())
             {
                 EmitCaseTagEnum(csWriter, enumDecl, caseNameMap);
-                EmitTagProperty(csWriter, enumDecl, typeNameWithGenerics, tagPropertyName);
+                EmitTagProperty(csWriter, enumDecl, typeNameWithGenerics, tagPropertyName, env.TypeDatabase.GetLibraryPath(moduleDecl.Name));
             }
 
             // Emit TryGet methods for cases with associated values
@@ -936,7 +936,11 @@ namespace BindingsGeneration
                 NameProvider.GetCaseName(caseName, caseNameMap), propertyRenames);
             // Strip backticks for field names (belt-and-suspenders — parser should already strip them)
             var fieldName = caseName.Replace("`", "");
-            var caseTag = enumDecl.GetCaseTag(caseDecl);
+            // The tag to inject: the running library's for a name-keyed enum (resolved before the
+            // buffer is allocated, since a case the library lacks throws), the declaration-order tag otherwise.
+            var caseTag = enumDecl.HasNameKeyedCaseIds
+                ? $"{CaseTagMapField}.ToTag({enumDecl.GetCaseId(caseDecl)}u)"
+                : $"(uint){enumDecl.GetCaseTag(caseDecl)}";
 
             if (canCacheCases)
             {
@@ -949,8 +953,9 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine($"var result = new {enumTypeName}();");
                 csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var tag = {caseTag};");
                 csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
-                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
+                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, tag, metadata);");
                 csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
                 csWriter.WriteLine("result._isCachedSingleton = true;");
                 csWriter.WriteLine("return result;");
@@ -986,8 +991,9 @@ namespace BindingsGeneration
                 csWriter.Indent++;
                 csWriter.WriteLine($"var result = new {enumTypeName}();");
                 csWriter.WriteLine($"var metadata = SwiftObjectHelper<{enumTypeName}>.GetTypeMetadata();");
+                csWriter.WriteLine($"var tag = {caseTag};");
                 csWriter.WriteLine($"IntPtr buffer = (IntPtr)NativeMemory.Alloc(metadata.Size);");
-                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, (uint){caseTag}, metadata);");
+                csWriter.WriteLine($"metadata.ValueWitnessTable->DestructiveInjectEnumTag((void*)buffer, tag, metadata);");
                 csWriter.WriteLine($"result._payload = new SwiftSafeHandle<{enumTypeName}>(buffer);");
                 csWriter.WriteLine("return result;");
                 csWriter.Indent--;

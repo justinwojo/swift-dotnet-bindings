@@ -543,6 +543,104 @@ public sealed class PackageCopyTests : IDisposable
             "net10.0-ios26.0", "net10.0-ios27.2").Problems);
     }
 
+    [Theory]
+    // An enum member's value: a library compiled against the older copy compiled `Mode.B` as 1.
+    [InlineData("public enum Mode : uint { A = 0, B = 1 }", "public enum Mode : uint { A = 0, Inserted = 1, B = 2 }", "Mode::B", "1", "2")]
+    // A nested generated discriminator, as a case-tag enum is emitted.
+    [InlineData("public class Kit { public enum CaseTag : uint { X = 0, Y = 1 } }", "public class Kit { public enum CaseTag : uint { Y = 0, X = 1 } }", "Kit+CaseTag::X", "0", "1")]
+    // A const field of a class.
+    [InlineData("public static class Kit { public const long Flag = 65536; }", "public static class Kit { public const long Flag = 1048576; }", "Kit::Flag", "65536", "1048576")]
+    // A string constant.
+    [InlineData("public static class Kit { public const string Name = \"a\"; }", "public static class Kit { public const string Name = \"b\"; }", "Kit::Name", "\"a\"", "\"b\"")]
+    // A parameter's default value, which the caller compiles in.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int x = 6) => x; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
+    // A parameter's position, not its name, is what the caller binds, so a renamed parameter keeps the value's identity.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int y = 6) => y; }", "Kit::F`0(Int32):Int32 parameter 1", "5", "6")]
+    // A decimal constant and a decimal default, which C# records in an attribute rather than a metadata constant.
+    [InlineData("public static class Kit { public const decimal Rate = 1.5m; }", "public static class Kit { public const decimal Rate = 2.5m; }", "Kit::Rate", "1.5m", "2.5m")]
+    [InlineData("public static class Kit { public static decimal F(decimal r = 1.5m) => r; }", "public static class Kit { public static decimal F(decimal r = 2.5m) => r; }",
+        // (The key's type names carry the reference assembly the test compiles against, so match its end.)
+        "System.Decimal parameter 1", "1.5m", "2.5m")]
+    // A DateTime default, likewise an attribute.
+    [InlineData("public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(5)] System.DateTime d) => d.Ticks; }",
+        "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(6)] System.DateTime d) => d.Ticks; }",
+        "System.DateTime):Int64 parameter 1", "0001-01-01T00:00:00.0000005", "0001-01-01T00:00:00.0000006")]
+    // A decimal default of a nullable or object parameter is the same attribute.
+    [InlineData("public static class Kit { public static decimal? F(decimal? r = 1m) => r; }", "public static class Kit { public static decimal? F(decimal? r = 2m) => r; }",
+        "parameter 1", "1m", "2m")]
+    [InlineData("public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 1u)] object r) => r; }",
+        "public static class Kit { public static object F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 2u)] object r) => r; }",
+        "Kit::F`0(Object):Object parameter 1", "1m", "2m")]
+    // A decimal zero whose sign changes: the text of both is 0.0, the bits differ.
+    [InlineData("public static class Kit { public const decimal Z = 0.0m; }", "public static class Kit { public const decimal Z = -0.0m; }", "Kit::Z", "0.0m", "-0.0m")]
+    // A DateTime field constant out of DateTime's range is still a value, not a failed merge.
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-1)] public static readonly System.DateTime D; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(-2)] public static readonly System.DateTime D; }",
+        "Kit::D", "DateTime(ticks -1)", "DateTime(ticks -2)")]
+    public void Merge_ANewerCopyThatChangesACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before, string after)
+    {
+        // A literal is copied into the assembly that uses it: a library compiled against the older copy
+        // keeps the older value when the app runs the newer copy, so a changed value is a different API
+        // even though the member's name and signature are the same.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems, p => p.Contains("compiled-in value", StringComparison.Ordinal));
+        Assert.Contains($"{member} is {before} in net10.0-ios26.0 and {after} in net10.0-ios27.2", problem);
+    }
+
+    [Theory]
+    // A default the newer copy drops: the signature is the same, but the older library's call site still passes 5.
+    [InlineData("public static class Kit { public static int F(int x = 5) => x; }", "public static class Kit { public static int F(int x) => x; }", "Kit::F`0(Int32):Int32 parameter 1", "5")]
+    // A constant the newer copy turns into a field of the same type: the field's signature is the same, but
+    // a library compiled against the older copy holds the constant's value and never reads the field.
+    [InlineData("public static class Kit { public const long Flag = 1; }", "public static class Kit { public static readonly long Flag = 1; }", "Kit::Flag", "1")]
+    public void Merge_ANewerCopyThatDropsACompiledInValue_IsRefused_NamingTheMember(string olderApi, string newerApi, string member, string before)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        var problem = Assert.Single(result.Problems, p => p.Contains("compiled-in value", StringComparison.Ordinal));
+        Assert.Contains($"{member} is {before} in net10.0-ios26.0 and has no compiled-in value in net10.0-ios27.2", problem);
+    }
+
+    [Theory]
+    [InlineData("public enum Mode : uint { A = 0, B = 1 }", "public enum Mode : uint { A = 0, B = 1, Added = 2 }")]
+    [InlineData("public static class Kit { public const long Flag = 65536; public static int F(int x = 5) => x; }",
+        "public static class Kit { public const long Flag = 65536; public const long Other = 2; public static int F(int x = 5) => x; public static int G(int y = 9) => y; }")]
+    // Two encodings of one DateTime default pass the same value.
+    [InlineData("public static class Kit { public static long F(System.DateTime d = default) => d.Ticks; }",
+        "public static class Kit { public static long F([System.Runtime.InteropServices.Optional, System.Runtime.CompilerServices.DateTimeConstant(0)] System.DateTime d) => d.Ticks; }")]
+    // A constant attribute on a field of another type is not a constant: compilers read the field.
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(5)] public static readonly int X = 30; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DateTimeConstant(6)] public static readonly int X = 30; }")]
+    [InlineData("public static class Kit { [System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 1u)] public static readonly object X = 30; }",
+        "public static class Kit { [System.Runtime.CompilerServices.DecimalConstant(0, 0, 0u, 0u, 2u)] public static readonly object X = 30; }")]
+    public void Merge_ANewerCopyThatKeepsEveryCompiledInValue_AndAddsNew_IsAccepted(string olderApi, string newerApi)
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi);
+        Assert.Empty(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+    }
+
+    [Fact]
+    public void Merge_MoreThanTenChangedValues_TheRefusalNamesTen_AndTheLogNamesEvery()
+    {
+        var names = Enumerable.Range(0, 12).Select(i => ((char)('A' + i)).ToString()).ToList();
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: $"public enum Mode : uint {{ {string.Join(", ", names.Select((n, i) => $"{n} = {i}"))} }}");
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: $"public enum Mode : uint {{ {string.Join(", ", names.Select((n, i) => $"{n} = {i + 1}"))} }}");
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("12 compiled-in value(s)", problem);
+        Assert.Contains("Mode::J is 9 in net10.0-ios26.0 and 10 in net10.0-ios27.2; …", problem);
+        Assert.DoesNotContain("Mode::K", problem);
+        var logged = result.Notes.Where(n => n.Contains("changed value", StringComparison.Ordinal)).ToList();
+        Assert.Equal(12, logged.Count);
+        Assert.Contains(logged, n => n.Contains("Mode::L is 11 in net10.0-ios26.0 and 12 in net10.0-ios27.2", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void Merge_AnEntryPastTheWindowsPathBudget_IsAWarning_AndARefusalWhenRequired()
     {

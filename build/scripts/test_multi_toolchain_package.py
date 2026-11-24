@@ -107,6 +107,21 @@ class ReaderTests(unittest.TestCase):
         out = mtp.variant(self.kit(), self.dir / "out", "1.0.0", copies=[(other, "lib/net10.0-ios27.2/", "lib/net10.0-ios26.0/")])
         self.assertEqual(mtp.read_entries(out)["lib/net10.0-ios26.0/Kit.dll"], b"other")
 
+    def test_variant_patches_every_occurrence_only_under_its_prefix(self):
+        out = mtp.variant(self.kit(), self.dir / "out", "1.0.0-m7", patches=[("lib/net10.0-ios27.2/", b"e", b"E")])
+        entries = mtp.read_entries(out)
+        self.assertEqual(entries["lib/net10.0-ios27.2/Kit.dll"], b"nEw")
+        self.assertEqual(entries["lib/net10.0-ios26.0/Kit.dll"], b"old")
+
+    def test_variant_refuses_a_patch_that_matches_nothing(self):
+        with self.assertRaises(ValueError):
+            mtp.variant(self.kit(), self.dir / "out", "1.0.0-x", patches=[("lib/net10.0-ios27.2/", b"absent", b"x")])
+
+    def test_name_keyed_case_id_matches_the_generator(self):
+        # EnumDecl.NameKeyedCaseId: 31-bit FNV-1a of the UTF-8 case name (the CaseOrder binding's Paint.CaseTag.Solid).
+        self.assertEqual(mtp.name_keyed_case_id("solid"), 826309364)
+        self.assertEqual(mtp.name_keyed_case_id("lateClear"), 1739921590)
+
     def test_wrapper_identities_reads_every_slice(self):
         one = b"schema=1;module=Kit;library=KitSwiftBindings;copy=net10.0-ios27.2;sdk=27.2;generator=1.0.0;source=sha256:ab"
         image = self.dir / "Kit"

@@ -112,7 +112,14 @@ and public or protected access; widening protected to public is allowed) or per-
 older copy's (a library compiles against the oldest copy,
 the app that consumes it runs the newest). A type a signature, base or interface names from another
 assembly is keyed with that assembly's name, so a same-named type of another assembly is another
-type. The manifest-hash symbol (`SBTM_`) differs per copy by design and is not compared; the wrapper
+type. A newer copy must also keep every value a compiler copies out of an older copy into the code
+that uses it: each public or protected constant field (an enum member is one) and each parameter
+default, keyed by member and, for a default, by parameter position. A library compiled against the
+older copy holds those values as literals and keeps them in an app that runs the newer copy, so a
+changed value, or one the newer copy no longer declares (a dropped default, a constant turned into a
+field), changes what the library does with no member missing. The refusal names ten values with both
+copies' values and the merge log names every one, as it names every removed member. The manifest-hash
+symbol (`SBTM_`) differs per copy by design and is not compared; the wrapper
 identity `SBWI_<M>` has one name in every copy and a value of each copy's own. It writes a nuspec
 with each copy's own dependency group, checks the Windows restore path budget for the real id and
 version, and runs SWIFTBIND133 on the result. The
@@ -141,6 +148,33 @@ The copy layout is the same in a one-copy and a merged package, and a merge adds
 than its deepest contribution's. This repository's own four packages are still held to the
 budget as an error at pack (`Build.WindowsPathGuard.cs`).
 
+### Case identity of resilient enums
+
+A Swift enum that is not `@frozen` is resilient: the library that defines it owns its case tags, and
+a newer library may insert a case anywhere and renumber every later case (RealityFoundation 27.2 adds
+`ModelDebugOptionsComponent.VisualizationMode.baseColorTexture` before `textureCoordinates`). Swift
+clients read each case's tag from the case's exported "enum case" global (its mangled name with a
+`WC` suffix) when they build or test the case. A binding that numbered its `CaseTag` constants by
+declaration order would read and build other cases on an OS other than its SDK's, and its copies
+would disagree on the constants a library compiled against the oldest one holds. So the `CaseTag`
+constant of a non-frozen enum's case is derived from the case's name alone (31-bit FNV-1a, the next
+free value on a collision; `EnumDecl.GetCaseId`), the same in every copy, and the binding translates
+between those identities and the running library's tags through `Swift.Runtime.SwiftEnumCaseMap`,
+which reads the case globals: the case discriminator maps the value witness tag to an identity (a
+case the binding does not name reads as `SwiftEnumCaseMap.UnknownCase`), and a no-payload case
+accessor injects the library's tag, refusing with `PlatformNotSupportedException` a case the loaded
+library lacks. When the library loads but no case global resolves, the module was built without
+library evolution and the declaration-order tags are the tags. A library the map cannot load by name
+(a binding whose calls resolve through another resolver) is searched for among the process's loaded
+images; with no case global there either, the map refuses (`DllNotFoundException`) rather than read
+declaration order. Two case names whose hashes collide
+take the next free value in name order, so a newer SDK adding a case whose hash collides with an
+existing case's can move the later name's constant: the merge's value check refuses that copy, so the
+collision cannot reach a consumer, and its fix is the generator's, not the package's. A `@frozen` enum's tag order is its ABI, so its constants stay
+its tags. Simple enums projected as C# enums keep their declaration-order constants: their crossings
+already go through the wrapper's case switch, and a constant that moves between copies is refused by
+the merge's value check.
+
 ## The gate
 
 `nuke binding-tests --multi-toolchain-package` (`Build.BindingTests.MultiToolchainPackage.cs`, driver
@@ -149,13 +183,20 @@ packs one throwaway SwiftBindings feed; the driver takes each pairing's environm
 `DEVELOPER_DIR`, SDK pin) from the toolchain launcher's own profile reader, so the three pairings come
 from `build/toolchains/` and are validated as a profile run validates them. Each pairing packs two
 Apple-framework fixtures with its explicit TFMs: ProximityReader (iOS and Mac Catalyst), whose 27.2
-SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in the 26.0 copy, and
-WeatherKit (macOS and tvOS). The gate merges them with `SwiftBindingsMergePackages` and checks the
+SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in the 26.0 copy,
+WeatherKit (macOS and tvOS), and CaseOrder (iOS), a first-party Swift library
+(`build/scripts/multi-toolchain-fixtures/CaseOrder.swift`) each pairing builds with its own Xcode,
+whose Swift 6.4 build inserts enum cases ahead of existing ones, as an Apple SDK does between
+releases. Its copies merge only because their `CaseTag` constants do not follow case order. The gate merges them with `SwiftBindingsMergePackages` and checks the
 layout, each copy's bytes against its contribution, the nuspec groups, the path budget and SWIFTBIND133.
 It then builds consumers from clean NuGet caches (iOS simulator Debug and Release, a NativeAOT
 `ios-arm64` publish on .NET 10, macOS, tvOS simulator, Mac Catalyst, and a versionless library through
 a `ProjectReference`), checks each one's copy line, `project.assets.json` paths, embedded wrapper
-identity and SDK, and SWIFTBIND132 verdict, and runs the apps. Controls that must fail with their own
-code: NU1202, SWIFTBIND136, 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M6), 139 and 140.
+identity and SDK, and SWIFTBIND132 verdict, and runs the apps. The versionless library also compiles
+calls into CaseOrder, case-tag comparisons included, against its oldest copy, and the app runs them
+against its own copy and that copy's library: each Swift-built case must read as its own `CaseTag`,
+and each managed-built case must reach Swift as itself. Controls that must fail with their own
+code: NU1202, SWIFTBIND136, 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M7; M7 renumbers
+one CaseOrder `CaseTag` constant in the 27.2 copy), 139 and 140.
 Receipts land in `artifacts/multi-toolchain-package/receipts/`.
 

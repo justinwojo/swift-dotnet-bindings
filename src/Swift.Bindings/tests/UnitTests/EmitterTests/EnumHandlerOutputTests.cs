@@ -492,6 +492,137 @@ public class EnumHandlerOutputTests
         Assert.Contains("GC.SuppressFinalize(this);", csOutput);
     }
 
+    private static Dictionary<string, uint> CaseTagValues(string csOutput)
+    {
+        var body = Regex.Match(csOutput, @"public enum CaseTag : uint\s*\{(?<body>[^}]*)\}").Groups["body"].Value;
+        return Regex.Matches(body, @"(?<name>\w+) = (?<value>\d+),")
+            .ToDictionary(m => m.Groups["name"].Value, m => uint.Parse(m.Groups["value"].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static EnumDecl PaintEnum(bool isFrozen, bool newerSdk)
+    {
+        // `newerSdk` inserts a payload case before every case and a no-payload case in the middle,
+        // as a newer SDK of a resilient enum may: every later case's Swift tag moves.
+        var enumDecl = CreateEnumDecl("Paint", CreateModuleDecl("TestModule"), isFrozen);
+        EnumCaseDecl Payload(string name)
+        {
+            var c = CreateCase(name);
+            c.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+            return c;
+        }
+        if (newerSdk)
+            enumDecl.Cases.Add(Payload("gradient"));
+        enumDecl.Cases.Add(Payload("solid"));
+        enumDecl.Cases.Add(CreateCase("clear"));
+        if (newerSdk)
+            enumDecl.Cases.Add(CreateCase("insertedClear"));
+        enumDecl.Cases.Add(CreateCase("lateClear"));
+        return enumDecl;
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnum_CaseTagValues_AreTheSameWhenANewerSdkInsertsCases()
+    {
+        // A library compiled against the older copy holds CaseTag values as literals and runs with the
+        // newer copy, so a case's value must not depend on which cases the SDK declares around it.
+        var older = CaseTagValues(EmitEnum(PaintEnum(isFrozen: false, newerSdk: false), CreateTypeDatabase()).Item1);
+        var newer = CaseTagValues(EmitEnum(PaintEnum(isFrozen: false, newerSdk: true), CreateTypeDatabase()).Item1);
+        Assert.Equal(["Clear", "LateClear", "Solid"], older.Keys.Order(StringComparer.Ordinal));
+        foreach (var (name, value) in older)
+            Assert.Equal(value, newer[name]);
+        Assert.Equal(newer.Count, newer.Values.Distinct().Count());
+        Assert.DoesNotContain(SwiftEnumCaseMapUnknown, newer.Values);
+    }
+
+    // Swift.Runtime.SwiftEnumCaseMap.UnknownCase, which no case may take.
+    private const uint SwiftEnumCaseMapUnknown = uint.MaxValue;
+
+    [Fact]
+    public void Emit_NonFrozenEnum_ReadsAndBuildsCasesThroughTheLoadedLibrarysTags()
+    {
+        var enumDecl = PaintEnum(isFrozen: false, newerSdk: true);
+        var (csOutput, _) = EmitEnum(enumDecl, CreateTypeDatabase());
+
+        // One map holding every case's "enum case" symbol, identity and declaration tag, in case order.
+        var map = Regex.Match(csOutput, @"SwiftEnumCaseMap _swiftCaseTagMap => _swiftCaseTagMapValue \?\?= new\((?<args>.*?)\);", RegexOptions.Singleline).Groups["args"].Value;
+        Assert.NotEmpty(map);
+        foreach (var c in enumDecl.Cases)
+        {
+            Assert.Contains($"\"{c.MangledName}WC\"", map);
+            Assert.Contains($"{enumDecl.GetCaseId(c)}u", map);
+        }
+        Assert.Contains("new uint[] { 0u, 1u, 2u, 3u, 4u }", map.Replace("\n", " ").Replace("  ", " "));
+
+        // The discriminator translates the witness tag, and a no-payload case injects the library's
+        // tag, resolved before any memory is allocated.
+        Assert.Contains("return (CaseTag)_swiftCaseTagMap.ToCaseId(metadata.ValueWitnessTable->GetEnumTag(payload, metadata));", csOutput);
+        Assert.DoesNotContain("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag", csOutput);
+        var lateClear = enumDecl.Cases.Single(c => c.Name == "lateClear");
+        var inject = Regex.Match(csOutput, $@"var tag = _swiftCaseTagMap\.ToTag\({enumDecl.GetCaseId(lateClear)}u\);\s*IntPtr buffer = \(IntPtr\)NativeMemory\.Alloc\(metadata\.Size\);\s*metadata\.ValueWitnessTable->DestructiveInjectEnumTag\(\(void\*\)buffer, tag, metadata\);");
+        Assert.True(inject.Success, csOutput);
+        Assert.DoesNotContain("DestructiveInjectEnumTag((void*)buffer, (uint)", csOutput);
+    }
+
+    [Fact]
+    public void Emit_NonFrozenEnum_CaseTagMap_IsNotNullWhereACachedCaseReadsIt()
+    {
+        // Cached no-payload cases are field initializers that may come before the map's declaration;
+        // the map must be non-null wherever a case reads it, which the compiler's nullable analysis checks.
+        var (csOutput, _) = EmitEnum(PaintEnum(isFrozen: false, newerSdk: true), CreateTypeDatabase());
+        var tpa = (string)AppContext.GetData("TRUSTED_PLATFORM_ASSEMBLIES")!;
+        var references = tpa.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries)
+            .Append(Path.Combine(AppContext.BaseDirectory, "Swift.Runtime.dll"))
+            .Distinct()
+            .Select(path => Microsoft.CodeAnalysis.MetadataReference.CreateFromFile(path));
+        var compilation = CSharpCompilation.Create("CaseTagMapNullability",
+            [CSharpSyntaxTree.ParseText("#nullable enable\n" + csOutput)], references,
+            new CSharpCompilationOptions(Microsoft.CodeAnalysis.OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
+                nullableContextOptions: Microsoft.CodeAnalysis.NullableContextOptions.Enable));
+        var nullable = compilation.GetDiagnostics()
+            .Where(d => d.Id.StartsWith("CS86", StringComparison.Ordinal) && d.GetMessage().Length > 0
+                && d.Location.SourceTree!.GetText().ToString(d.Location.SourceSpan).Contains("_swiftCaseTagMap", StringComparison.Ordinal))
+            .Select(d => d.ToString())
+            .ToList();
+        Assert.True(csOutput.Contains("_swiftCaseTagMap.ToTag(", StringComparison.Ordinal), csOutput);
+        Assert.Empty(nullable);
+    }
+
+    [Fact]
+    public void Emit_FrozenEnum_KeepsTheSwiftTagAsTheCaseTagValue()
+    {
+        // A @frozen enum's tag order is its ABI: payload cases first, then no-payload cases.
+        var (csOutput, _) = EmitEnum(PaintEnum(isFrozen: true, newerSdk: true), CreateTypeDatabase());
+        var values = CaseTagValues(csOutput);
+        Assert.Equal(0u, values["Gradient"]);
+        Assert.Equal(1u, values["Solid"]);
+        Assert.Equal(2u, values["Clear"]);
+        Assert.Equal(3u, values["InsertedClear"]);
+        Assert.Equal(4u, values["LateClear"]);
+        Assert.DoesNotContain("_swiftCaseTagMap", csOutput);
+        Assert.Contains("return (CaseTag)metadata.ValueWitnessTable->GetEnumTag(payload, metadata);", csOutput);
+        Assert.Contains("DestructiveInjectEnumTag((void*)buffer, tag, metadata)", csOutput);
+        Assert.Contains("var tag = (uint)4;", csOutput);
+    }
+
+    [Fact]
+    public void CaseIds_DoNotDependOnCaseOrder_AndACaseWithoutASymbolKeepsDeclarationTags()
+    {
+        var a = PaintEnum(isFrozen: false, newerSdk: true);
+        var b = PaintEnum(isFrozen: false, newerSdk: true);
+        b.Cases.Reverse();
+        foreach (var c in a.Cases)
+            Assert.Equal(a.GetCaseId(c), b.GetCaseId(b.Cases.Single(x => x.Name == c.Name)));
+        Assert.True(a.HasNameKeyedCaseIds);
+        // 31-bit FNV-1a of "solid"; the multi-toolchain package gate's M7 control computes the same value.
+        Assert.Equal(826309364u, a.GetCaseId(a.Cases.Single(c => c.Name == "solid")));
+
+        // Without every case's symbol the binding cannot translate tags, so it keeps the Swift tags.
+        var unsymbolled = PaintEnum(isFrozen: false, newerSdk: false);
+        unsymbolled.Cases[1].MangledName = "";
+        Assert.False(unsymbolled.HasNameKeyedCaseIds);
+        Assert.Equal((uint)unsymbolled.GetCaseTag(unsymbolled.Cases[2]), unsymbolled.GetCaseId(unsymbolled.Cases[2]));
+    }
+
     [Fact]
     public void Emit_EnumNamedTag_RenamesDiscriminatorToAvoidCS0542()
     {
@@ -5004,7 +5135,7 @@ public class EnumHandlerOutputTests
         // The unsafe out parameter that would otherwise crash must not appear
         Assert.DoesNotContain("out Swift.AnyType value", csOutput);
         // Sanity: case still participates in tag enumeration
-        Assert.Contains("Data = 0", csOutput);
+        Assert.Contains($"Data = {enumDecl.GetCaseId(dataCase)},", csOutput);
     }
 
     [Fact]

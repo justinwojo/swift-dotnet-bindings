@@ -148,6 +148,7 @@
       "SwiftDispose",
       "SwiftDisposeScope",
       "SwiftDisposeScopeExtensions",
+      "SwiftEnumCaseMap",
       "SwiftEquatable",
       "SwiftEscapingClosure",
       "SwiftException",

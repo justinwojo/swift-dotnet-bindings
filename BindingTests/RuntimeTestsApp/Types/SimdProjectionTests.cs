@@ -323,11 +323,17 @@ public class SimdProjectionTests : TestBase
 
     public void TestSimdMatrixPayloadTagSlotsPreservedAcrossSkip()
     {
-        // The skipped affine2x2 case still occupies discriminator slot 0; the bindable cases keep
-        // their original Swift tags. A skip that renumbered slots would corrupt every Tag read.
-        AssertEqual(0, (int)SimdMatrixPayload.CaseTag.Affine2x2, "Affine2x2 keeps discriminator slot 0 even though its factory is skipped");
-        AssertEqual(1, (int)SimdMatrixPayload.CaseTag.Transform4x4, "Transform4x4 discriminator slot");
-        AssertEqual(2, (int)SimdMatrixPayload.CaseTag.Untextured, "Untextured discriminator slot");
+        // The skipped affine2x2 case still occupies Swift's tag 0 and keeps its own case identity, so
+        // a value Swift builds reads back as its own case. A skip that dropped the case from the
+        // binding's tag map would read Swift's tag 1 as another case.
+        AssertTrue(SimdMatrixPayload.CaseTag.Affine2x2 != SimdMatrixPayload.CaseTag.Transform4x4
+                   && SimdMatrixPayload.CaseTag.Transform4x4 != SimdMatrixPayload.CaseTag.Untextured
+                   && SimdMatrixPayload.CaseTag.Affine2x2 != SimdMatrixPayload.CaseTag.Untextured,
+            "every case, the skipped one included, has its own case identity");
+        using var swiftBuilt = TestLibFunctions.MakeTransform4x4Payload(Matrix4x4.Identity);
+        AssertEqual(SimdMatrixPayload.CaseTag.Transform4x4, swiftBuilt.Tag, "a Swift-built transform4x4 reads back as Transform4x4 past the skipped case");
+        using var untextured = SimdMatrixPayload.Untextured(true);
+        AssertTrue(TestLibFunctions.UntexturedFlag(untextured), "Swift reads the managed-built untextured case as untextured");
     }
 
     public void TestSimdMatrixPayloadTransform4x4FactoryRoundTrips()

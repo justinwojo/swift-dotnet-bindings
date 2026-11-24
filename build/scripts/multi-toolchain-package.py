@@ -11,7 +11,10 @@ launcher validates it, so the pins live only in build/toolchains/<profile>.json.
 
 1. Contributions: each pairing packs two Apple-framework fixtures with its own explicit
    target frameworks. ProximityReader (iOS, Mac Catalyst) has API only the 27.2 SDK
-   declares; WeatherKit (macOS, tvOS) covers the other two platforms.
+   declares; WeatherKit (macOS, tvOS) covers the other two platforms. It also builds a
+   first-party Swift library (multi-toolchain-fixtures/CaseOrder.swift) with its own Xcode and
+   packs its binding: the Xcode 27 build inserts enum cases ahead of existing ones, so the
+   generated case tags of every copy must not depend on case order.
 2. Merge with SwiftBindingsMergePackages; assert the layout, each copy's bytes against its
    contribution, the nuspec groups, SWIFTBIND133 and the Windows path budget.
 3. Consumers, from a private NuGet cache per pairing: iOS simulator Debug and Release,
@@ -42,7 +45,9 @@ import zipfile
 PAIRINGS = [("net10-xcode26", "net10.0", "26.0"),
             ("net10-xcode27", "net10.0", "27.2"),
             ("net11-xcode27", "net11.0", "27.2")]
-FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "tvos")}
+FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "tvos"), "CaseOrder": ("ios",)}
+# Fixtures bound as a library (<SwiftFramework>) from a framework each pairing builds from this Swift source.
+LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift"}
 PACKAGE_PREFIX = "MtpFixture."
 VERSION = "27.2.0"
 # What an app on each platform runs on, and the RID it builds for.
@@ -116,13 +121,29 @@ def describe_groups(groups, tfms):
     return "; ".join(f"{t}: " + ", ".join(f"{dict(d).get('id')} {dict(d).get('version')}" for d in groups.get(t, [])) for t in tfms)
 
 
-def variant(source, out_dir, version, drops=(), copies=()):
+def name_keyed_case_id(name):
+    """The CaseTag value the generator gives a case of a non-frozen enum (EnumDecl.NameKeyedCaseId)."""
+    value = 2166136261
+    for b in name.encode():
+        value = ((value ^ b) * 16777619) & 0xFFFFFFFF
+    return value & 0x7FFFFFFF
+
+
+def variant(source, out_dir, version, drops=(), copies=(), patches=()):
     """A doctored copy of a package under a new version (controls only).
 
     copies: (other_nupkg or None, src_prefix, dst_prefix): every entry under dst_prefix is replaced
     by the entries under src_prefix of other_nupkg (or of the package itself).
+    patches: (prefix, old_bytes, new_bytes): every occurrence of old_bytes in each entry under prefix
+    is replaced; at least one entry must hold it.
     """
     entries = read_entries(source)
+    for prefix, old, new in patches:
+        hit = [n for n in entries if n.startswith(prefix) and old in entries[n]]
+        if not hit:
+            raise ValueError(f"variant: no entry under {prefix} of {source} holds the bytes to patch")
+        for name in hit:
+            entries[name] = entries[name].replace(old, new)
     for other, src, dst in copies:
         pool = read_entries(other) if other else dict(entries)
         for name in [n for n in entries if n.startswith(dst)]:
@@ -294,6 +315,8 @@ class Gate:
     def write_binding(self, profile, framework):
         directory = self.binding_dir(profile, framework)
         directory.mkdir(parents=True, exist_ok=True)
+        item = (f'<SwiftFramework Include="{escape(str(self.library_xcframework(profile, framework)))}" />' if framework in LIBRARY_FIXTURES
+                else f'<SwiftAppleFrameworkTarget Include="{framework}" />')
         (directory / f"{package_id(framework)}.csproj").write_text(f"""<Project Sdk="SwiftBindings.Sdk/{self.o.sdk_version}">
   <PropertyGroup>
     <TargetFramework />
@@ -304,11 +327,51 @@ class Gate:
     <Description>Multi-toolchain package gate fixture: a binding of {framework} (throwaway).</Description>
   </PropertyGroup>
   <ItemGroup>
-    <SwiftAppleFrameworkTarget Include="{framework}" />
+    {item}
   </ItemGroup>
 </Project>
 """)
         return directory / f"{package_id(framework)}.csproj"
+
+    def library_xcframework(self, profile, framework):
+        return self.work / profile / "frameworks" / f"{framework}.xcframework"
+
+    def build_library(self, profile, framework):
+        """Builds a library fixture's device and simulator framework with the pairing's own Xcode, as its vendor would."""
+        env = self.envs[profile]
+        source = Path(__file__).resolve().parent / LIBRARY_FIXTURES[framework]
+        root = self.work / profile / "frameworks"
+        log = (self.logs / f"framework-{profile}-{framework}.log").open("w")
+        slices = []
+        for sdk, triple, suffix, platform in (("iphoneos", "arm64-apple-ios17.0", "arm64-apple-ios", "iPhoneOS"),
+                                              ("iphonesimulator", "arm64-apple-ios17.0-simulator", "arm64-apple-ios-simulator", "iPhoneSimulator")):
+            fw = root / sdk / f"{framework}.framework"
+            modules = fw / "Modules" / f"{framework}.swiftmodule"
+            modules.mkdir(parents=True)
+            sdk_path = subprocess.check_output(["xcrun", "--sdk", sdk, "--show-sdk-path"], env=env, text=True).strip()
+            steps = [
+                ["xcrun", "swiftc", "-emit-library", "-emit-module", "-enable-library-evolution", "-emit-module-interface",
+                 # Swift 6.4 refuses to emit an interface without an explicit language mode.
+                 "-swift-version", "5", "-target", triple, "-sdk", sdk_path, "-module-name", framework, "-o", str(fw / framework),
+                 "-emit-module-path", str(modules / f"{suffix}.swiftmodule"),
+                 "-emit-module-interface-path", str(modules / f"{suffix}.swiftinterface"),
+                 "-Xlinker", "-install_name", "-Xlinker", f"@rpath/{framework}.framework/{framework}", str(source)],
+                ["xcrun", "swift-frontend", "-compile-module-from-interface", str(modules / f"{suffix}.swiftinterface"),
+                 "-target", triple, "-module-name", framework, "-sdk", sdk_path,
+                 "-emit-abi-descriptor-path", str(modules / f"{suffix}.abi.json"), "-o", str(root / sdk / f"{suffix}.swiftmodule")],
+            ]
+            for args in steps:
+                log.write("$ " + " ".join(args) + "\n")
+                log.flush()
+                if subprocess.call(args, env=env, stdout=log, stderr=subprocess.STDOUT) != 0:
+                    return False
+            shutil.copy2(modules / f"{suffix}.swiftinterface", modules / f"{suffix}.private.swiftinterface")
+            (fw / "Info.plist").write_text(FRAMEWORK_INFO_PLIST.format(name=framework, platform=platform))
+            slices += ["-framework", str(fw)]
+        args = ["xcrun", "xcodebuild", "-create-xcframework", *slices, "-output", str(self.library_xcframework(profile, framework))]
+        log.write("$ " + " ".join(args) + "\n")
+        log.flush()
+        return subprocess.call(args, env=env, stdout=log, stderr=subprocess.STDOUT) == 0
 
     def pack(self, profile, framework, tfms, version, out, log):
         project = self.write_binding(profile, framework)
@@ -321,6 +384,10 @@ class Gate:
         for profile, net, label in PAIRINGS:
             for framework, platforms in FIXTURES.items():
                 tfms = [tfm(net, p, label) for p in platforms]
+                if framework in LIBRARY_FIXTURES and not self.library_xcframework(profile, framework).exists() \
+                        and not self.step(f"{profile} builds the {framework} framework", self.build_library(profile, framework),
+                                          f"see framework-{profile}-{framework}.log"):
+                    continue
                 out = self.work / "contributions" / profile
                 code, text = self.pack(profile, framework, tfms, VERSION, out, f"pack-{profile}-{framework}.log")
                 nupkg = out / f"{package_id(framework)}.{VERSION}.nupkg"
@@ -548,18 +615,18 @@ class Gate:
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="{package_id('ProximityReader')}" Version="[{VERSION}]" />
+    <PackageReference Include="{package_id('CaseOrder')}" Version="[{VERSION}]" />
   </ItemGroup>
 </Project>
 """)
-        (lib / "LibUse.cs").write_text("namespace MtpLib;\npublic static class LibUse\n{\n"
-                                        "    public static bool GivenName() => ProximityReader.MobileDriversLicenseDataRequest.Element.GivenName"
-                                        ".Equals(ProximityReader.MobileDriversLicenseDataRequest.Element.GivenName);\n}\n")
+        (lib / "LibUse.cs").write_text(LIBRARY_SOURCE)
         app_copy = tfm(net, "ios", label)
         lib_copy = tfm(net, "ios", "26.0" if net == "net10.0" else label)
         app = self.app_dir(profile, "lib-app")
         project = self.write_app(app, profile, "ios", "ProximityReader", VERSION, app_copy, probe27=label == "27.2",
                                  reference=lib / "MtpLib.csproj", assembly="MtpLibApp")
         self.evict(profile, package_id("ProximityReader"))
+        self.evict(profile, package_id("CaseOrder"))
         code, text = self.dotnet(profile, ["build", str(project), "-c", "Debug", "-nodeReuse:false"], app, f"app-{profile}-lib-app.log")
         if not self.step(f"{profile} library through a ProjectReference builds", code == 0, f"exit {code}; {first_errors(text)}" if code else ""):
             return
@@ -571,6 +638,14 @@ class Gate:
         self.step(f"{profile} versionless library restores the {lib_copy} copy", bool(assets) and not bad,
                   "; ".join(bad) or f"{', '.join(sorted(assets))}")
         self.assert_selection(profile, "lib-app", app, text, "ProximityReader", app_copy, "ios", check132=True,
+                              configuration="Debug", rid=RIDS["ios"])
+        # The library compiled its CaseOrder calls, case tags included, against the oldest copy of its
+        # .NET version; the app runs its own copy, whose Swift library inserted cases on Xcode 27.
+        lines = copy_lines(text, package_id("CaseOrder"))
+        self.step(f"{profile} versionless library's CaseOrder copy is {lib_copy}, the app's {app_copy}",
+                  len(lines) == 2 and lines[0][0] == lib_copy and lines[1][0] == app_copy,
+                  "; ".join(f"{c} (built on {b})" for c, b in lines) or "no copy line")
+        self.assert_selection(profile, "lib-app CaseOrder", app, text, "CaseOrder", app_copy, "ios", check132=True,
                               configuration="Debug", rid=RIDS["ios"])
         self.runs.append((profile, "lib-app", "ios", self.app_bundle(app, "Debug", "ios")))
 
@@ -660,7 +735,7 @@ class Gate:
         self.control("SWIFTBIND140 (SwiftBindingsMergeRequireWindowsPathBudget=true)", code if not list(out.glob("*.nupkg")) else 0,
                      text, [r"error SWIFTBIND140"])
 
-        # SWIFTBIND138: the merge's refusals (M1-M6).
+        # SWIFTBIND138: the merge's refusals (M1-M7).
         c26, c27 = parts[x26][0], parts[x27][0]
         doctored = self.work / "doctored"
         rev = variant(c27, doctored / "m3", f"{VERSION}-other")
@@ -687,6 +762,19 @@ class Gate:
             out = self.work / "merge-controls" / name.split()[0]
             code, text = self.merge(pr, case_parts, VERSION, out, f"control-{name.split()[0].lower()}.log")
             self.control(f"SWIFTBIND138 {name}", code if not list(out.glob("*.nupkg")) else 0, text, expect)
+
+        # M7: the CaseOrder 27.2 copy with one CaseTag constant renumbered, as a binding whose case
+        # values followed the SDK's case order would be. API and exports are unchanged, so only the
+        # compiled-in value check can refuse it.
+        (co26, cot26), (co27, cot27), _ = self.matrix("CaseOrder")
+        solid = name_keyed_case_id("solid")
+        renumbered = variant(co27, doctored / "m7", VERSION,
+                             patches=[("lib/net10.0-ios27.2/", solid.to_bytes(4, "little"), (solid ^ 0x40000000).to_bytes(4, "little"))])
+        out = self.work / "merge-controls" / "M7"
+        code, text = self.merge("CaseOrder", [(co26, cot26), (renumbered, cot27)], VERSION, out, "control-m7.log")
+        self.control("SWIFTBIND138 M7 a newer copy changes an older copy's compiled-in value", code if not list(out.glob("*.nupkg")) else 0, text,
+                     [rf"error SWIFTBIND138: .*the copy net10\.0-ios27\.2 changes \d+ compiled-in value\(s\) of the older copy net10\.0-ios26\.0 "
+                      rf"\(.*CaseOrder\.Paint\+CaseTag::Solid is {solid} in net10\.0-ios26\.0 and {solid ^ 0x40000000} in net10\.0-ios27\.2"])
 
     # ---- 5. runs -------------------------------------------------------------------------------
 
@@ -799,6 +887,51 @@ def first_errors(text, count=3):
 
 RESULT_FILE = "mtp-result.txt"
 
+# The versionless library's code. Each comparison with a CaseTag member is compiled against the oldest
+# copy, so the constant it holds is that copy's; the values it reads come from the copy the app runs.
+LIBRARY_SOURCE = """namespace MtpLib;
+public static class LibUse
+{
+    public static bool GivenName() => ProximityReader.MobileDriversLicenseDataRequest.Element.GivenName
+        .Equals(ProximityReader.MobileDriversLicenseDataRequest.Element.GivenName);
+
+    public static System.Collections.Generic.List<(string, object, object)> CaseOrderChecks()
+    {
+        var palette = new global::CaseOrder.Palette();
+        var late = palette.GetLate();
+        var solid = palette.Solid(7);
+        var lateClear = palette.GetLateClear();
+        return new()
+        {
+            ("Swift's Shade.late reads as CaseTag.Late", late.Tag == global::CaseOrder.Shade.CaseTag.Late, true),
+            ("Shade.Late reads back in Swift", palette.Name(global::CaseOrder.Shade.Late), "late"),
+            ("Shade.Late's tag", global::CaseOrder.Shade.Late.Tag == global::CaseOrder.Shade.CaseTag.Late, true),
+            ("Swift's Paint.solid reads as CaseTag.Solid", solid.Tag == global::CaseOrder.Paint.CaseTag.Solid, true),
+            ("Swift's Paint.solid(7) payload", solid.TryGetSolid(out var payload) ? (long)payload : -1L, 7L),
+            ("Swift's Paint.lateClear reads as CaseTag.LateClear", lateClear.Tag == global::CaseOrder.Paint.CaseTag.LateClear, true),
+            ("Paint.LateClear reads back in Swift", palette.Describe(global::CaseOrder.Paint.LateClear), "lateClear"),
+            ("Paint.Clear reads back in Swift", palette.Describe(global::CaseOrder.Paint.Clear), "clear"),
+        };
+    }
+}
+"""
+
+FRAMEWORK_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleExecutable</key><string>{name}</string>
+  <key>CFBundleIdentifier</key><string>com.swiftbindings.mtp.{name}</string>
+  <key>CFBundleName</key><string>{name}</string>
+  <key>CFBundlePackageType</key><string>FMWK</string>
+  <key>CFBundleShortVersionString</key><string>1.0</string>
+  <key>CFBundleVersion</key><string>1</string>
+  <key>CFBundleSupportedPlatforms</key><array><string>{platform}</string></array>
+  <key>MinimumOSVersion</key><string>17.0</string>
+</dict>
+</plist>
+"""
+
 SCENE_INFO_PLIST = """<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -848,7 +981,9 @@ def app_source(platform, framework, expected_copy, through_library):
 """,
     }[framework]
     anchor = {"ProximityReader": "ProximityReader.MobileDriversLicenseDataRequest", "WeatherKit": "WeatherKit.WeatherService"}[framework]
-    library = "Check(\"library call\", MtpLib.LibUse.GivenName(), true);" if through_library else ""
+    library = ("Check(\"library call\", MtpLib.LibUse.GivenName(), true);\n"
+               "            foreach (var (what, got, want) in MtpLib.LibUse.CaseOrderChecks())\n"
+               "                Check(\"library compiled against the oldest copy: \" + what, got, want);") if through_library else ""
     body = f"""
     public static int Run()
     {{
