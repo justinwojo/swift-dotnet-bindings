@@ -1261,12 +1261,20 @@ public class ModuleHandlerTests
             var imageSet = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIImage"));
             moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "gated", imageSet, Introduced("iOS", "16.0")));
             moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "ungated", imageSet));
+
+            // Catalyst tracks iOS: an iOS-only floor still floors Catalyst against a Catalyst-only sibling.
+            var colorSet = new NamedTypeSpec("Swift.Set", new NamedTypeSpec("UIKit.UIColor"));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "iosOnly", colorSet, Introduced("iOS", "16.0")));
+            moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "catalystOnly", colorSet, Introduced("macCatalyst", "17.0")));
         });
 
         var font = ObjectKeyAccessor(swiftOutput, "UIKit.UIFont");
-        Assert.Contains("if #available(iOS 16.0, *) {", font);
+        Assert.Contains("if #available(iOS 16.0, macCatalyst 16.0, *) {", font);
         Assert.DoesNotContain("macOS", font);
         Assert.Contains("return nil", font);
+
+        var color = ObjectKeyAccessor(swiftOutput, "UIKit.UIColor");
+        Assert.Contains("if #available(macCatalyst 16.0, *) {", color);
 
         var image = ObjectKeyAccessor(swiftOutput, "UIKit.UIImage");
         Assert.DoesNotContain("#available", image);

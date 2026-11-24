@@ -39,7 +39,9 @@ internal interface ISwiftObjectKeyCarrier
 /// witness, as any Swift value is copied. Read out of a Swift collection, the carrier borrows too: the
 /// runtime releases the copy the collection handed over as it reads it, so a reader that keeps the
 /// object takes its own reference (a retaining <c>GetNSObject</c>), and a carrier nobody keeps needs no
-/// cleanup.
+/// cleanup. A carrier read out of a collection is therefore valid only while that collection holds the
+/// key, as is any object pointer read out of a raw Swift collection: convert it before removing the key
+/// or releasing the collection.
 /// </remarks>
 /// <typeparam name="TIdentity">The binding's identity for the Swift key type.</typeparam>
 [EditorBrowsable(EditorBrowsableState.Never)]

@@ -663,6 +663,12 @@ namespace BindingsGeneration
                     var space = key.IndexOf(' ');
                     ownerFloors[key[..space]] = key[(space + 1)..];
                 }
+                // Mac Catalyst tracks iOS from iOS 13: a declaration floored only on iOS is floored on
+                // Catalyst too, so a sibling floored only on Catalyst must not unguard it there.
+                if (ownerFloors.TryGetValue("iOS", out var iosFloor)
+                    && !ownerFloors.ContainsKey("macCatalyst")
+                    && AvailabilityHelpers.CompareOsVersions(iosFloor, "13.0") >= 0)
+                    ownerFloors["macCatalyst"] = iosFloor;
 
                 if (!_floors.TryGetValue(identityName, out var existing))
                 {
