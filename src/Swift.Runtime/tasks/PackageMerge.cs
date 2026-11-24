@@ -415,6 +415,8 @@ public static class SwiftBindingPackageMerge
             yield return $"{name} declares its {tfm} copy's native payload '{payload}', but carries native/{tfm}/: a copy's declaration must state where its natives are.";
         if (payload == PayloadResources && resources.Count == 0)
             yield return $"{name} declares that its {tfm} copy's natives travel in lib/{tfm}/ as the binding's resource package, but lib/{tfm}/ carries no <Assembly>.resources.zip or <Assembly>.resources/.";
+        foreach (var resource in resources.Where(r => !files.ContainsKey($"lib/{tfm}/{r[..r.IndexOf(".resources", StringComparison.OrdinalIgnoreCase)]}.dll")))
+            yield return $"{name}: lib/{tfm}/{resource} is no binding assembly's resource package: lib/{tfm}/ carries no {resource[..resource.IndexOf(".resources", StringComparison.OrdinalIgnoreCase)]}.dll beside it.";
         if (payload != PayloadResources && resources.Count > 0)
             yield return $"{name} declares its {tfm} copy's native payload '{payload}', but lib/{tfm}/ carries {resources[0]}: a copy's declaration must state where its natives are.";
     }
@@ -793,6 +795,12 @@ public static class SwiftBindingPackageMerge
                 problems.Add($"{NativeRoot(newer)} lacks {relative}, which the older copy {older.Tfm} ships.");
                 continue;
             }
+            // A static framework's binary is an archive the app links in; its exports are not an image's.
+            if (IsStaticArchive(image) || IsStaticArchive(newerImage))
+            {
+                notes.Add($"  {relative}: a static archive, exports not compared");
+                continue;
+            }
             ImmutableArray<MachOSlice> before, after;
             try
             {
@@ -892,6 +900,25 @@ public static class SwiftBindingPackageMerge
             return (rest.Length == 1 && rest[0] == module) || (rest.Length == 3 && rest[0] == "Versions" && rest[2] == module);
         }
         return false;
+    }
+
+    /// <summary>Whether <paramref name="image"/> is a static archive (<c>!&lt;arch&gt;</c>), thin or as the first slice of a fat file.</summary>
+    private static bool IsStaticArchive(byte[] image)
+    {
+        static bool At(byte[] data, long offset) =>
+            offset >= 0 && offset + 8 <= data.Length && data.AsSpan((int)offset, 8).SequenceEqual("!<arch>\n"u8);
+        if (At(image, 0))
+            return true;
+        if (image.Length < 8)
+            return false;
+        var magic = System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(image);
+        if (magic is not (0xCAFEBABE or 0xCAFEBABF))
+            return false;
+        var entry = image.AsSpan(8);
+        long offset = magic == 0xCAFEBABF
+            ? (image.Length >= 8 + 32 ? (long)System.Buffers.Binary.BinaryPrimitives.ReadUInt64BigEndian(entry[8..]) : -1)
+            : (image.Length >= 8 + 20 ? System.Buffers.Binary.BinaryPrimitives.ReadUInt32BigEndian(entry[8..]) : -1);
+        return At(image, offset);
     }
 
     /// <summary>The public API of an assembly: visible types, and their public or protected methods and fields with decoded signatures.</summary>

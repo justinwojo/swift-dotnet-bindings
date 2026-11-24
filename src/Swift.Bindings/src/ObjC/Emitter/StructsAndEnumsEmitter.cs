@@ -382,11 +382,15 @@ public static class StructsAndEnumsEmitter
         // an enum `Foo` whose cases read `Foobar`/`Foobaz` strip mid-word into `bar`/`baz`. The
         // equality arm covers the one legitimate non-boundary case — a case spelled exactly like its
         // enum — which strips to the empty string and is handled by the fall-back-to-full-name rule.
+        //
+        // Unbound unavailable enumerators count too, so whether an SDK makes one of them available
+        // does not rename the others.
         var typeName = enumDecl.RawObjCName ?? enumDecl.Name;
-        if (enumDecl.Cases.All(c => c.Name == typeName || CarriesTagAtTokenBoundary(c.Name, typeName)))
+        var names = enumDecl.Cases.Select(c => c.Name).Concat(enumDecl.UnavailableCaseNames).ToList();
+        if (names.All(n => n == typeName || CarriesTagAtTokenBoundary(n, typeName)))
             return typeName;
 
-        if (moduleTag != null && enumDecl.Cases.All(c => CarriesTagAtTokenBoundary(c.Name, moduleTag)))
+        if (moduleTag != null && names.All(n => CarriesTagAtTokenBoundary(n, moduleTag)))
             return moduleTag;
 
         return null;

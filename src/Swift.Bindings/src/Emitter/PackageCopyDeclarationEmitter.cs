@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Linq;
 using System.Security;
 
 namespace BindingsGeneration
@@ -66,6 +67,7 @@ namespace BindingsGeneration
             string X(string value) => SecurityElement.Escape(value) ?? "";
             var nativeDirectory = nativePayload == NativePayloadNative ? $"$(MSBuildThisFileDirectory)../../native/{X(packTfm)}/" : "";
             var targetsFile = hasConsumerTargets ? $"$(MSBuildThisFileDirectory){X(packageId)}.targets" : "";
+            var selfCheck = nativePayload == NativePayloadNative ? "" : SelfCheck(packageId, packTfm, toolchain, nativePayload, hasConsumerTargets);
             return $"""
                 <Project>
                   <!-- The copy of {X(packageId)} this buildTransitive/{X(packTfm)}/ folder belongs to. Read by
@@ -83,7 +85,54 @@ namespace BindingsGeneration
                       <TargetsFile>{targetsFile}</TargetsFile>
                     </{ItemType}>
                   </ItemGroup>
-                </Project>
+                {selfCheck}</Project>
+
+                """;
+        }
+
+        /// <summary>
+        /// The copy check a copy with no <c>native/&lt;tfm&gt;/</c> payload runs itself. A pure Objective-C
+        /// package depends on no SwiftBindings.Runtime, so an app that references only such packages
+        /// imports no copy check; this target stands in for its SWIFTBIND136 there, and steps aside
+        /// whenever SwiftBindings.Runtime is in the build. The copy's natives, if any, sit in the same
+        /// <c>lib/&lt;tfm&gt;/</c> folder as its assembly, so what can go wrong is the assembly coming from
+        /// another copy than the consumer files NuGet chose. Like that check, it announces the copy the
+        /// build uses.
+        /// </summary>
+        private static string SelfCheck(string packageId, string packTfm, string toolchain, string nativePayload, bool hasConsumerTargets)
+        {
+            string X(string value) => SecurityElement.Escape(value) ?? "";
+            var key = new string(packageId.Select(c => char.IsAsciiLetterOrDigit(c) ? c : '_').ToArray());
+            var lib = $"_SwiftBindingCopyLib_{key}";
+            var strays = $"_SwiftBindingCopyStray_{key}";
+            var resolved = $"_SwiftBindingCopyResolved_{key}";
+            var built = toolchain.Length > 0 ? $" (built on {X(toolchain)})" : "";
+            var targets = hasConsumerTargets ? $"$(MSBuildThisFileDirectory){X(packageId)}.targets" : "(none)";
+            return $"""
+                  <PropertyGroup>
+                    <{lib}>$([MSBuild]::NormalizeDirectory('$(MSBuildThisFileDirectory)../../lib/{X(packTfm)}/'))</{lib}>
+                  </PropertyGroup>
+                  <!-- Stands in for SwiftBindings.Runtime's copy check (SWIFTBIND136) in a build that has none:
+                       the binding assembly must come from this copy's lib/{X(packTfm)}/ folder. -->
+                  <Target Name="_SwiftBindingCheckCopy_{key}"
+                          BeforeTargets="CoreCompile"
+                          DependsOnTargets="ResolveAssemblyReferences"
+                          Condition="'$(DesignTimeBuild)' != 'true' AND '$(_SwiftBindingsTasksAssembly)' == ''">
+                    <ItemGroup>
+                      <{resolved} Include="@(ReferencePath)" Condition="'%(ReferencePath.NuGetPackageId)' == '{X(packageId)}'" />
+                      <{strays} Include="@({resolved})" Condition="'%({resolved}.RootDir)%({resolved}.Directory)' != '$({lib})'" />
+                    </ItemGroup>
+                    <Error Code="SWIFTBIND136"
+                           Condition="'@({strays})' != ''"
+                           Text="{X(packageId)}: this build ($(TargetFramework)) resolved @({strays}->'%(Filename)%(Extension)') from '@({strays}->'%(RootDir)%(Directory)')', but NuGet chose the package's {X(packTfm)} consumer files, which belong to '$({lib})'. The package's lib/ and buildTransitive/ copies disagree. Restore again; if this persists the package is malformed: every lib/&lt;tfm&gt;/ copy must carry its own buildTransitive/&lt;tfm&gt;/ copy (rebuild it with SwiftBindings.Sdk, or merge its contributions with SwiftBindingsMergePackages)." />
+                    <Message Importance="high"
+                             Condition="'@({resolved})' != ''"
+                             Text="SwiftBindings copy: {X(packageId)} @({resolved}->'%(NuGetPackageVersion)'->Distinct()) -> {X(packTfm)}{built}; lib=$({lib}) native=({X(nativePayload)}) targets={targets}" />
+                    <ItemGroup>
+                      <{resolved} Remove="@({resolved})" />
+                      <{strays} Remove="@({strays})" />
+                    </ItemGroup>
+                  </Target>
 
                 """;
         }

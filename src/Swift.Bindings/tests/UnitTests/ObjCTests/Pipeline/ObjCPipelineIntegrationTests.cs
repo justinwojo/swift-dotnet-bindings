@@ -806,6 +806,113 @@ public class ObjCPipelineIntegrationTests
     }
 
     /// <summary>
+    /// What an unavailable declaration takes with it beyond its own node: a bare redeclaration of an
+    /// unavailable method (Clang rejects calls through either), the setter or the whole property when an
+    /// explicitly declared accessor is unavailable, an unavailable typedef (a block type or a struct the
+    /// typedef names), and nothing of the surviving enumerators' names, which are what they would be
+    /// were the dropped one available.
+    /// </summary>
+    [Fact]
+    public void Pipeline_UnavailableRedeclarationsAccessorsAndTypedefs_AreNotBound()
+    {
+        if (!HasXcode())
+            return; // Skip gracefully — CI may not have Xcode
+
+        var tempDir = Path.Combine(Path.GetTempPath(), $"objc_unavailable_redecl_test_{Guid.NewGuid():N}");
+        try
+        {
+            var (xcfwPath, _) = WriteFixtureXCFramework(
+                tempDir,
+                umbrellaBody: """
+                    #import <Foundation/Foundation.h>
+
+                    NS_ASSUME_NONNULL_BEGIN
+
+                    typedef NS_ENUM(NSInteger, UBShade) {
+                        UBShadeLight,
+                        UBProvisionalShade NS_UNAVAILABLE,
+                        UBShadeDark,
+                    };
+
+                    typedef void (^UBHiddenBlock)(void) NS_UNAVAILABLE;
+                    typedef void (^UBBlock)(void);
+                    typedef struct { int x; } UBHiddenPoint NS_UNAVAILABLE;
+                    typedef struct { int y; } UBPoint;
+
+                    @interface UBThing : NSObject
+                    - (instancetype)init NS_UNAVAILABLE;
+                    - (instancetype)init;
+                    - (void)gone NS_UNAVAILABLE;
+                    - (void)gone;
+                    - (void)kept;
+                    @property (nonatomic) NSInteger value;
+                    - (void)setValue:(NSInteger)value NS_UNAVAILABLE;
+                    @property (nonatomic) NSInteger hidden;
+                    - (NSInteger)hidden NS_UNAVAILABLE;
+                    @property (nonatomic) NSInteger open;
+                    - (void)useBlock:(UBBlock)block point:(UBPoint)point;
+                    @end
+
+                    NS_ASSUME_NONNULL_END
+                    """);
+
+            var outputDir = Path.Combine(tempDir, "output");
+            Directory.CreateDirectory(outputDir);
+            var resolution = XCFrameworkResolver.ResolveObjCFramework(
+                xcfwPath, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.NotNull(resolution);
+
+            var result = ObjCPipeline.Run(
+                resolution!, xcfwPath, outputDir, XCFrameworkPlatformTarget.Simulator, Logger);
+            Assert.Equal(0, result.ExitCode);
+            var module = result.Module!;
+
+            var thing = Assert.Single(module.Classes, c => c.Name == "UBThing");
+            Assert.DoesNotContain(thing.Methods, m => m.Selector is "init" or "gone");
+            Assert.Contains(thing.Methods, m => m.Selector == "kept");
+            Assert.True(thing.IsInitUnavailable);
+            Assert.True(Assert.Single(thing.Properties, p => p.Name == "value").IsReadonly);
+            Assert.False(Assert.Single(thing.Properties, p => p.Name == "open").IsReadonly);
+            Assert.DoesNotContain(thing.Properties, p => p.Name == "hidden");
+            Assert.DoesNotContain(module.Typedefs, t => t.Name is "UBHiddenBlock" or "UBHiddenPoint");
+            Assert.DoesNotContain(module.Structs, s => s.Name == "UBHiddenPoint");
+            Assert.Contains(module.Structs, s => s.Name == "UBPoint");
+            Assert.Contains(
+                "typedef UBHiddenBlock",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+            Assert.Contains(
+                "typedef UBHiddenPoint",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+            Assert.Contains(
+                "property UBThing.hidden",
+                module.UnavailableDeclarations.Select(d => $"{d.Kind} {d.Name}"));
+
+            var apiDefinition = File.ReadAllText(Path.Combine(outputDir, "ApiDefinition.cs"));
+            Assert.Matches(@"\[DisableDefaultCtor\]\s*\[BaseType\(typeof\(NSObject\)\)\]\s*partial interface UBThing\b", apiDefinition);
+            Assert.DoesNotContain("Gone", apiDefinition);
+            Assert.DoesNotContain("\"hidden\"", apiDefinition);
+            Assert.DoesNotContain("UBHiddenBlock", apiDefinition);
+            Assert.Matches(@"nint Value \{\s*get;\s*\}", apiDefinition);
+            Assert.Matches(@"nint Open \{\s*get;\s*\[Export\(""setOpen:""\)\] set;", apiDefinition);
+            Assert.DoesNotContain("setValue:", apiDefinition);
+            var structsAndEnums = File.ReadAllText(Path.Combine(outputDir, "StructsAndEnums.cs"));
+            Assert.DoesNotContain("UBHiddenPoint", structsAndEnums);
+            Assert.Contains("UBPoint", structsAndEnums);
+            // Were UBProvisionalShade available the cases would share no UBShade prefix, so the
+            // survivors keep theirs.
+            Assert.DoesNotMatch(@"\b(Light|Dark)\b", structsAndEnums);
+            Assert.Matches(@"\b(UB)?ShadeLight\b", structsAndEnums);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+            {
+                try { Directory.Delete(tempDir, true); } catch { }
+            }
+        }
+    }
+
+    /// <summary>
     /// Writes a minimal single-slice (ios simulator) ObjC xcframework fixture to <paramref name="tempDir"/>
     /// whose umbrella header body is <paramref name="umbrellaBody"/>. Returns the xcframework path and
     /// module name. Used by the precise-109 fixtures to inject a specific failing header surface.

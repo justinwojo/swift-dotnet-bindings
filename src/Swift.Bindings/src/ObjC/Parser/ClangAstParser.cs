@@ -224,10 +224,14 @@ public static class ClangAstParser
             // A declaration Clang marks unavailable (NS_UNAVAILABLE, __attribute__((unavailable)), or a
             // framework macro expanding to one, such as a provisional-API macro) cannot be used by an
             // Objective-C consumer, so it is not bound: its binding would follow whichever SDK's headers
-            // happen to declare it, and a call through it could not work. Typedefs stay: an alias names
-            // a type for resolution and declares nothing callable.
-            if (kind != "TypedefDecl" && IsMarkedUnavailable(node))
+            // happen to declare it, and a call through it could not work. An unavailable framework
+            // typedef goes too, with the anonymous record it would name: Clang rejects every available
+            // use of it, so only unavailable declarations can mention it. A system typedef stays for
+            // resolution; it is no part of this binding.
+            if ((kind != "TypedefDecl" || isFrameworkLocal) && IsMarkedUnavailable(node))
             {
+                if (kind == "TypedefDecl")
+                    lastAnonymousRecord = null;
                 var droppedName = kind == "ObjCCategoryDecl"
                     ? $"{(node.TryGetProperty("interface", out var catIface) ? GetOptionalString(catIface, "name") : null)}({GetName(node)})"
                     : GetName(node);
@@ -325,12 +329,14 @@ public static class ClangAstParser
             var droppedProtocols = Dropped("protocol");
             var droppedFunctions = Dropped("function");
             var droppedConstants = Dropped("constant");
+            var droppedTypedefs = Dropped("typedef");
             enums.RemoveAll(e => droppedEnums.Contains(e.Name));
             structs.RemoveAll(s => droppedStructs.Contains(s.Name));
             classes.RemoveAll(c => unavailableClassNames.Contains(c.Name));
             protocols.RemoveAll(p => droppedProtocols.Contains(p.Name));
             functions.RemoveAll(f => droppedFunctions.Contains(f.Name));
             constants.RemoveAll(c => droppedConstants.Contains(c.Name));
+            typedefs.RemoveAll(t => droppedTypedefs.Contains(t.Name));
         }
 
         // Census report (Finding 63): full census at debug, SWIFTBIND029 for unrecognized kinds.
@@ -544,6 +550,7 @@ public static class ClangAstParser
         "RecordDecl" => "struct",
         "FunctionDecl" => "function",
         "VarDecl" => "constant",
+        "TypedefDecl" => "typedef",
         _ => clangKind,
     };
 
@@ -760,6 +767,7 @@ public static class ClangAstParser
         // whether an unavailable enumerator was dropped before it.
         ObjCIntegerValue? running = new ObjCIntegerValue(0, false);
         var droppedPrecedingCase = false;
+        var unavailableCaseNames = new List<string>();
         static ObjCIntegerValue Next(ObjCIntegerValue v) => new(unchecked(v.Bits + 1), v.IsUnsigned);
         static ObjCIntegerValue? ExplicitCaseValue(JsonElement c) =>
             c.TryGetProperty("inner", out var ci) ? TryExtractEnumValue(ci) : null;
@@ -793,6 +801,7 @@ public static class ClangAstParser
                             // enumerator after it counts on from it, so the next one is given its
                             // value explicitly below.
                             _unavailable?.Add(new ObjCUnavailableDeclaration("enumerator", $"{name}.{caseName}"));
+                            unavailableCaseNames.Add(caseName);
                             droppedPrecedingCase = true;
                             running = ExplicitCaseValue(child) is { } droppedValue ? Next(droppedValue)
                                 : HasCaseInitializer(child) ? null
@@ -848,6 +857,7 @@ public static class ClangAstParser
             IsOptions = isOptions,
             UnderlyingType = underlyingType,
             Cases = cases,
+            UnavailableCaseNames = unavailableCaseNames,
             SwiftName = swiftName,
             DocComment = docComment,
             Availability = RecoverAvailability(element, declFile)
@@ -1102,6 +1112,15 @@ public static class ClangAstParser
         if (isProtocol)
             optionalLines = BuildOptionalLineSet(element, currentFile);
 
+        // An unavailable method stays unavailable through every redeclaration in the same container,
+        // though the JSON AST shows the attribute only on the one that spells it.
+        static string MethodKey(JsonElement method) =>
+            $"{(!method.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean() ? '-' : '+')}{GetName(method)}";
+        var unavailableMethods = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var child in inner.EnumerateArray())
+            if (GetOptionalString(child, "kind") == "ObjCMethodDecl" && IsMarkedUnavailable(child))
+                unavailableMethods.Add(MethodKey(child));
+
         foreach (var child in inner.EnumerateArray())
         {
             var childKind = GetOptionalString(child, "kind");
@@ -1111,8 +1130,10 @@ public static class ClangAstParser
                     // Skip implicit accessor methods generated for properties
                     if (child.TryGetProperty("isImplicit", out var implProp) && implProp.GetBoolean())
                         break;
-                    if (IsMarkedUnavailable(child))
+                    if (unavailableMethods.Contains(MethodKey(child)))
                     {
+                        if (!IsMarkedUnavailable(child))
+                            break; // a bare redeclaration; the one that spells the attribute is recorded
                         var isInstanceMethod = !child.TryGetProperty("instance", out var instanceFlag) || instanceFlag.GetBoolean();
                         var selector = GetName(child) ?? "";
                         _unavailable?.Add(new ObjCUnavailableDeclaration("method", $"{container}.{(isInstanceMethod ? '-' : '+')}{selector}"));
@@ -1144,11 +1165,22 @@ public static class ClangAstParser
         }
         // Property accessors include implicit methods which are deliberately not emitted as
         // methods. Transfer their actual ownership facts before discarding that representation.
-        for (var i = 0; i < properties.Count; i++)
+        // An accessor the container declares unavailable takes its half of the property: an
+        // unavailable setter leaves it read-only, an unavailable getter leaves nothing to bind.
+        for (var i = properties.Count - 1; i >= 0; i--)
         {
             var property = properties[i];
+            var accessorPrefix = property.IsClass ? '+' : '-';
             var getter = property.GetterSelector ?? property.Name;
             var setter = property.SetterSelector ?? $"set{char.ToUpperInvariant(property.Name[0])}{property.Name[1..]}:";
+            if (unavailableMethods.Contains($"{accessorPrefix}{getter}"))
+            {
+                _unavailable?.Add(new ObjCUnavailableDeclaration("property", $"{container}.{property.Name}"));
+                properties.RemoveAt(i);
+                continue;
+            }
+            if (!property.IsReadonly && unavailableMethods.Contains($"{accessorPrefix}{setter}"))
+                property = property with { IsReadonly = true };
             var ownership = property.GetterOwnership;
             var consumes = false;
             foreach (var child in inner.EnumerateArray())

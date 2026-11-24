@@ -703,6 +703,55 @@ public sealed class TransitionCheckTasksTests : IDisposable
         Assert.DoesNotContain("SWIFTBIND136", output);
     }
 
+    [Theory]
+    // A pure Objective-C package depends on no SwiftBindings.Runtime, so its declaration checks the copy itself.
+    [InlineData("none", "net10.0-ios26.0", false, 0)]
+    [InlineData("none", "net10.0-ios27.2", false, 1)]
+    [InlineData("resources", "net10.0-ios27.2", false, 1)]
+    // With SwiftBindings.Runtime in the build its copy check decides, once.
+    [InlineData("none", "net10.0-ios27.2", true, 0)]
+    // A copy with native/<tfm>/ always comes with SwiftBindings.Runtime.
+    [InlineData("native", "net10.0-ios27.2", false, 0)]
+    public void CopyCheck_ANativelessCopy_ChecksItselfInABuildWithoutSwiftBindingsRuntime(
+        string payload, string resolvedFrom, bool runtimeInBuild, int exit)
+    {
+        // NuGet imported the 26.0 copy's declaration; the build resolved the assembly from resolvedFrom's lib/.
+        var root = Path.Combine(tempDir, "packages", "acme.kit", "1.0.0");
+        foreach (var tfm in new[] { "net10.0-ios26.0", "net10.0-ios27.2" })
+            Directory.CreateDirectory(Path.Combine(root, "lib", tfm));
+        var dll = Path.Combine(root, "lib", resolvedFrom, "Acme.Kit.dll");
+        File.WriteAllBytes(dll, Compile("Acme.Kit", "public static class Kit { }"));
+        var declaration = Path.Combine(root, "buildTransitive", "net10.0-ios26.0", "Acme.Kit.props");
+        Directory.CreateDirectory(Path.GetDirectoryName(declaration)!);
+        File.WriteAllText(declaration, PackageCopyDeclarationEmitter.Compose("Acme.Kit", "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2",
+            "0.21.0", payload, hasConsumerTargets: payload != PackageCopyDeclarationEmitter.NativePayloadResources));
+        var project = Path.Combine(tempDir, "objc-app.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <PropertyGroup>
+                <TargetFramework>net10.0-ios</TargetFramework>
+                {(runtimeInBuild ? $"<_SwiftBindingsTasksAssembly>{SecurityElement.Escape(TasksDll)}</_SwiftBindingsTasksAssembly>" : "")}
+              </PropertyGroup>
+              <Import Project="{SecurityElement.Escape(declaration)}" />
+              <Target Name="ResolveAssemblyReferences">
+                <ItemGroup>{References(compile: dll, package: "Acme.Kit")}</ItemGroup>
+              </Target>
+              <Target Name="CoreCompile" />
+            </Project>
+            """);
+
+        var (code, output) = MSBuild(project, "CoreCompile", "minimal");
+
+        Assert.True(exit == 0 ? code == 0 : code != 0, output);
+        if (exit == 0)
+            Assert.DoesNotContain("SWIFTBIND136", output);
+        else
+            Assert.Contains("error SWIFTBIND136: Acme.Kit: this build (net10.0-ios) resolved Acme.Kit.dll", output);
+        // The copy is announced as SwiftBindings.Runtime's check would, by exactly one of the two.
+        var announced = exit == 0 && payload != PackageCopyDeclarationEmitter.NativePayloadNative && !runtimeInBuild;
+        Assert.Equal(announced, output.Contains($"SwiftBindings copy: Acme.Kit 1.0.0 -> net10.0-ios26.0 (built on .NET 10 + Xcode 26.3); lib=", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void CopyCheck_WithNoDeclaredCopies_IsSilent()
     {

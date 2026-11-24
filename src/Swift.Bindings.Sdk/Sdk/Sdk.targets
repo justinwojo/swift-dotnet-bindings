@@ -4074,8 +4074,10 @@ done; true"
   <!-- Xamarin.Shared.Sdk.targets packs it to lib/<tfm>/. The consumer's       -->
   <!-- _ExpandNativeReferences finds it next to the restored assembly          -->
   <!-- (_ReferencesWithNativeReferencesToExpand) and ResolveNativeReferences   -->
-  <!-- extracts, embeds and signs the frameworks. No buildTransitive/ and no   -->
-  <!-- native/ payloads are involved — see src/docs/Design/objc-binding-consumption.md. -->
+  <!-- extracts, embeds and signs the frameworks. No native/ payload is       -->
+  <!-- involved; buildTransitive/ carries only the copy declaration (and, for  -->
+  <!-- an Apple framework, empty consumer targets) — see                       -->
+  <!-- src/docs/Design/objc-binding-consumption.md.                            -->
   <!--                                                                         -->
   <!-- CompressBindingResourcePackage defaults to 'auto', so the sidecar is    -->
   <!-- either a .zip or a .resources DIRECTORY; both are accepted here.        -->

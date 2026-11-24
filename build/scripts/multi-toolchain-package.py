@@ -103,6 +103,12 @@ def copy_tfms(names):
     return roots
 
 
+def laid_out(roots, tfms, natives):
+    """Whether layout roots hold exactly the copies tfms in lib/ and buildTransitive/, and in native/ when they ship natives
+    (a pure Objective-C copy of an Apple framework has none)."""
+    return roots["lib"] == set(tfms) and roots["buildTransitive"] == set(tfms) and roots["native"] == (set(tfms) if natives else set())
+
+
 def copy_digest(entries, copy):
     """Every entry of one copy (lib/, buildTransitive/, native/ under the copy's TFM) with its sha256."""
     return {name: sha256(data) for name, data in entries.items()
@@ -402,7 +408,7 @@ class Gate:
                 ok = code == 0 and nupkg.exists()
                 if ok:
                     roots = copy_tfms(read_entries(nupkg))
-                    ok = all(roots[r] == set(tfms) for r in roots)
+                    ok = laid_out(roots, tfms, framework not in OBJC_FIXTURES)
                     detail = f"{', '.join(tfms)}" if ok else f"layout {roots}, expected {tfms}"
                 else:
                     detail = f"exit {code}; {first_errors(text)}"
@@ -447,14 +453,13 @@ class Gate:
             entries = read_entries(nupkg)
             roots = copy_tfms(entries)
             # A pure Objective-C copy has no native/<tfm>/, and its declaration says so.
-            natives = set() if framework in OBJC_FIXTURES else set(expected)
             payload = "none" if framework in OBJC_FIXTURES else "native"
             declared = {t: re.search(r"<NativePayload>([^<]*)</NativePayload>",
                                      entries.get(f"buildTransitive/{t}/{package_id(framework)}.props", b"").decode())
                         for t in expected}
             declared = {t: m.group(1) if m else None for t, m in declared.items()}
-            self.step(f"merge {framework} layout", roots["lib"] == set(expected) and roots["buildTransitive"] == set(expected)
-                      and roots["native"] == natives and all(d == payload for d in declared.values()),
+            self.step(f"merge {framework} layout", laid_out(roots, expected, framework not in OBJC_FIXTURES)
+                      and all(d == payload for d in declared.values()),
                       f"lib {sorted(roots['lib'])}, buildTransitive {sorted(roots['buildTransitive'])}, native {sorted(roots['native'])}; "
                       f"declared payloads {', '.join(f'{t}={d}' for t, d in sorted(declared.items()))}")
             stray = sorted({n.split("/")[0] for n in entries} - {"lib", "buildTransitive", "native", "_rels", "package",
@@ -596,13 +601,8 @@ class Gate:
                       f"{len(stray)} wrapper image(s) in {bundle}" if stray else "a pure Objective-C copy binds the OS framework")
         else:
             self.assert_wrapper(profile, label, bundle, framework, expected_copy, platform)
-        if check132 and framework in OBJC_FIXTURES:
-            # A pure Objective-C assembly makes no Swift transition: the check has nothing to refuse.
-            caches = sorted(directory.glob("obj/**/swiftbindings-transition-check.json"))
-            refused = [v["Verdict"] for cache in caches for v in json.loads(cache.read_text()).get("Results", {}).values()
-                       if v.get("Name") == pid and v.get("Verdict") not in ("Verified", "PrimitiveOnly")]
-            self.step(f"{profile} {label} SWIFTBIND132 check", not refused, ", ".join(refused) or "nothing refused")
-        elif check132:
+        # A pure Objective-C package brings no SwiftBindings.Runtime, so its app runs no transition check.
+        if check132 and framework not in OBJC_FIXTURES:
             caches = sorted(directory.glob("obj/**/swiftbindings-transition-check.json"))
             verdicts = []
             for cache in caches:
@@ -728,7 +728,7 @@ class Gate:
         code, text = self.control_app(x27, "swiftbind136", f"{VERSION}-negb",
                                       extra_items=f'<SwiftBindingsTransitionSuppress Include="{pid}" />')
         self.control("SWIFTBIND136 (buildTransitive copy dropped, 132 suppressed)", code, text,
-                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer targets"])
+                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
 
         # SWIFTBIND132 and SWIFTBIND133: the 26.0 copy's wrapper in the 27.2 copy's native/ (NEG-C).
         negc = variant(merged, controls, f"{VERSION}-negc", copies=[(None, "native/net10.0-ios26.0/", "native/net10.0-ios27.2/")])
@@ -830,7 +830,7 @@ class Gate:
         self.evict(x27, pid)
         code, text = self.dotnet(x27, ["build", str(project), "-c", "Debug", "-nodeReuse:false"], directory, "control-objc136.log")
         self.control("SWIFTBIND136 (pure Objective-C copy, buildTransitive copy dropped)", code, text,
-                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer targets"])
+                     [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
 
     # ---- 5. runs -------------------------------------------------------------------------------
 

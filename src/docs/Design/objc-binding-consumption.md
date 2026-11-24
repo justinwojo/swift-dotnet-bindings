@@ -37,7 +37,7 @@ Consumer side, when an app `PackageReference`s the package:
 
 Empirical proof outside this repo: **`Plugin.Maui.Intercom.iOS.Binding` 0.7.1** on nuget.org was produced by this SDK with `SwiftFrameworkType=ObjC`, ships zero `buildTransitive` entries, and is consumed by a published MAUI plugin via `PackageReference` — working in the wild.
 
-Empirical proof from our own catalog: **`SwiftBindings.Stripe.ThreeDS2` 26.4.1** is live on nuget.org today, built by this same SDK on this same lane — 2.1 MB, `lib/net10.0-ios26.0/{dll,xml,resources.zip}`, 172 `runtimes/` entries, **0 `buildTransitive`** — and has been consumed in the wild since the Stripe wave. Same shape, same conclusion, but on a package we ship and can re-measure at will.
+Empirical proof from our own catalog: **`SwiftBindings.Stripe.ThreeDS2` 26.4.1** is live on nuget.org today, built by this same SDK on this same lane — 2.1 MB, `lib/net10.0-ios26.0/{dll,xml,resources.zip}`, 172 `runtimes/` entries, **0 `buildTransitive`** — and has been consumed in the wild since the Stripe wave. Same shape, same conclusion, but on a package we ship and can re-measure at will. (Packs built since multi-toolchain packages each also carry a `buildTransitive/<tfm>/<PackageId>.props` copy declaration recording `NativePayload` `resources`; it names the copy and adds no native reference, so the sidecar path above is unchanged.)
 
 ## Consequences
 

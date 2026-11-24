@@ -197,6 +197,14 @@ public sealed record ObjCEnumDecl
     public bool IsOptions { get; init; }
     public ObjCTypeRef? UnderlyingType { get; init; }
     public List<ObjCEnumCaseDecl> Cases { get; init; } = [];
+
+    /// <summary>
+    /// The enumerators the declaration marks unavailable, which are not bound. They still count
+    /// toward the case prefix the bound names drop, so a surviving enumerator is named the same
+    /// whether or not an SDK makes one of them available.
+    /// </summary>
+    public List<string> UnavailableCaseNames { get; init; } = [];
+
     public string? SwiftName { get; init; }
     public string? DocComment { get; init; }
 

@@ -374,6 +374,33 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ResourcePackagesThatCarryAStaticFramework_Merge()
+    {
+        // A static framework's binary is an archive: present in every copy, with no image exports to compare.
+        var archive = Encoding.ASCII.GetBytes("!<arch>\n/               0           0     0     0       8         `\n\0\0\0\0\0\0\0\0");
+        (string, byte[])[] Resources(string tfm) =>
+            [($"lib/{tfm}/Acme.Kit.resources.zip", Zip(("Kit.xcframework/ios-arm64/Kit.framework/Kit", archive)))];
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources", extra: Resources("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources", extra: Resources("net10.0-ios27.2")),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(result.Problems.IsEmpty, string.Join("\n", result.Problems));
+    }
+
+    [Fact]
+    public void Merge_AResourcePackageNamedForNoAssemblyOfItsCopy_IsRefused()
+    {
+        var result = Merge([
+            Contribution("x26", ["net10.0-ios26.0"], payload: "resources"),
+            Contribution("x27", ["net10.0-ios27.2"], payload: "resources",
+                extra: [("lib/net10.0-ios27.2/Acme.Kit.resources.zip", Zip(("Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>")))),
+                        ("lib/net10.0-ios27.2/Other.resources.zip", Zip(("Kit.xcframework/Info.plist", Encoding.UTF8.GetBytes("<plist/>"))))]),
+        ], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Null(result.Package);
+        Assert.Contains(result.Problems, p => p.Contains("Other.resources.zip is no binding assembly's resource package", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Compose_ANativelessCopy_DeclaresNoNativeDirectory_AndNoTargetsWhenItShipsNone()
     {
         var none = PackageCopyDeclarationEmitter.Compose(Id, "net10.0-ios26.0", ".NET 10 + Xcode 26.3", "26.2", Generator, "none");

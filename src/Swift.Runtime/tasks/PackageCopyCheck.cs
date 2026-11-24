@@ -72,16 +72,19 @@ public static class PackageCopyCheck
                 var stray = strays[0];
                 findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Mismatch, copy.PackageId,
                     $"{named}: this build ({targetFramework}) resolved {Path.GetFileName(stray.Path)} from '{Directory(Path.GetDirectoryName(stray.Path) ?? "")}', "
-                    + $"but NuGet chose the package's {copy.CopyTfm} consumer targets, whose native payload only matches '{expectedLib}'. "
-                    + "The package's lib/ and buildTransitive/ copies disagree, so the build would link a native payload built for another toolchain. "
-                    + "Restore again; if this persists the package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ and native/<tfm>/ copy (rebuild it with SwiftBindings.Sdk, or merge its contributions with SwiftBindingsMergePackages)."));
+                    + (IsNativePayload(copy)
+                        ? $"but NuGet chose the package's {copy.CopyTfm} consumer targets, whose native payload only matches '{expectedLib}'. "
+                          + "The package's lib/ and buildTransitive/ copies disagree, so the build would link a native payload built for another toolchain. "
+                        : $"but NuGet chose the package's {copy.CopyTfm} consumer files, which belong to '{expectedLib}'. "
+                          + "The package's lib/ and buildTransitive/ copies disagree. ")
+                    + "Restore again; if this persists the package is malformed: every lib/<tfm>/ copy must carry its own buildTransitive/<tfm>/ copy, and its own native/<tfm>/ copy unless its declaration records none (rebuild it with SwiftBindings.Sdk, or merge its contributions with SwiftBindingsMergePackages)."));
                 continue;
             }
             if (resolved.Count > 0 && (copy.TargetsFile.Length > 0 || IsNativePayload(copy)) && !File.Exists(copy.TargetsFile))
             {
                 findings.Add(new PackageCopyFinding(PackageCopyFindingKind.Mismatch, copy.PackageId,
                     $"{named}: this build ({targetFramework}) uses the package's {copy.CopyTfm} copy, but its consumer targets '{Full(copy.TargetsFile)}' are missing, "
-                    + "so no native payload would be linked. The package is malformed: every copy carries its declaration, its consumer targets and its native/<tfm>/ payload."));
+                    + "so no native payload would be linked. The package is malformed: every copy carries its declaration, the consumer targets it declares, and the native/<tfm>/ payload it declares."));
                 continue;
             }
             var built = copy.Toolchain.Length > 0 ? $" (built on {copy.Toolchain})" : "";
