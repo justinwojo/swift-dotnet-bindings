@@ -1158,6 +1158,22 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_GenericObjectKeyIdentity_DocumentsItsSwiftTypeAsWellFormedXml()
+    {
+        // An optional or bound generic element type is named with its generic arguments, whose
+        // angle brackets must not leak into the identity's XML doc comment as tags (CS1570).
+        var identity = new ObjectKeyIdentity("Swift.Optional<Foundation.NSUUID>");
+        var (csOutput, _) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordObjectKey(identity));
+
+        Assert.Contains("<c>Swift.Optional&lt;Foundation.NSUUID&gt;</c>", csOutput);
+        var options = CSharpParseOptions.Default.WithDocumentationMode(DocumentationMode.Diagnose);
+        var xmlDiagnostics = CSharpSyntaxTree.ParseText(csOutput, options).GetDiagnostics()
+            .Where(d => d.Id == "CS1570");
+        Assert.Empty(xmlDiagnostics);
+    }
+
+    [Fact]
     public void Emit_ObjectKeyOnlyInAClosureParameter_IsRecordedFromTheBoundSurface()
     {
         // A closure's parameter types are translated raw, outside any type projection, so the

@@ -433,7 +433,7 @@ public partial class ProtocolProxyEmitter
                         }
                         else if (getterConversion != null)
                         {
-                            writer.WriteLine($"var swiftResult = {getterConversion};");
+                            writer.WriteLine($"{ReceiverResultLocal(property.SwiftTypeSpec)} swiftResult = {getterConversion};");
                             writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
                         }
                         else
@@ -443,12 +443,12 @@ public partial class ProtocolProxyEmitter
                     }
                     else
                     {
-                        EmitGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, getterConversion, isStringReturn);
+                        EmitGetterLookupHit(writer, interfaceName, "primary", pascalPropertyName, getterConversion, ReceiverResultLocal(property.SwiftTypeSpec), isStringReturn);
                         int siblingIdx = 0;
                         foreach (var sibling in siblingFallbacks)
                         {
                             var siblingIface = GetQualifiedInterfaceName(sibling.Proto);
-                            EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, isStringReturn);
+                            EmitGetterLookupHit(writer, siblingIface, $"s{siblingIdx}", pascalPropertyName, getterConversion, ReceiverResultLocal(property.SwiftTypeSpec), isStringReturn);
                             siblingIdx++;
                         }
                         EmitSiblingFanOutTerminal(writer, protocolDecl, $"{pascalPropertyName} getter", getterDegradation);
@@ -962,7 +962,7 @@ public partial class ProtocolProxyEmitter
                         }
                         else if (subscriptGetterConv != null)
                         {
-                            writer.WriteLine($"var swiftResult = {subscriptGetterConv};");
+                            writer.WriteLine($"{ReceiverResultLocal(subscript.ReturnTypeSpec)} swiftResult = {subscriptGetterConv};");
                             writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
                         }
                         else
@@ -1125,7 +1125,7 @@ public partial class ProtocolProxyEmitter
         }
         else if (getterConversion != null)
         {
-            writer.WriteLine($"var swiftResult = {getterConversion};");
+            writer.WriteLine($"{ReceiverResultLocal(returnTypeSpec)} swiftResult = {getterConversion};");
             writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
         }
         else
@@ -1422,6 +1422,7 @@ public partial class ProtocolProxyEmitter
         var pascalMethodName = ComputeReceiverPascalMethodName(method, protocolDecl, hasReturn, isSelfReturning);
 
         var returnConv = BuildMethodReturnConversion("result");
+        var resultLocal = hasReturn ? ReceiverResultLocal(returnType) : "var";
 
         // This is the LEGACY blocking async receiver — the fallback for async requirements the real
         // reverse-async witness predicate rejects (EveryProtocolEmitter.EmitsRealAsyncWitness:
@@ -1475,7 +1476,7 @@ public partial class ProtocolProxyEmitter
             // sibling proxy the C# impl populated — not necessarily the one matching this interface.
             // Params are already unmarshalled once above; try this interface first, then each
             // recorded sibling interface, then fall back to the dead-impl null value.
-            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, inOutWriteBacks);
+            EmitMethodLookupHit(writer, interfaceName, "primary", pascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, resultLocal, inOutWriteBacks);
             int siblingIdx = 0;
             foreach (var sibling in siblingFallbacks!)
             {
@@ -1486,7 +1487,7 @@ public partial class ProtocolProxyEmitter
                 // interface actually emitted — reusing pascalMethodName would emit a call to a
                 // method the sibling interface never defined (CS1061/CS1955).
                 var siblingPascalMethodName = ComputeReceiverPascalMethodName(method, sibling.Proto, hasReturn, isSelfReturning);
-                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, inOutWriteBacks);
+                EmitMethodLookupHit(writer, siblingIface, $"s{siblingIdx}", siblingPascalMethodName, implCallArgs, hasReturn, isStringMethodReturn, returnConv, resultLocal, inOutWriteBacks);
                 siblingIdx++;
             }
             EmitSiblingFanOutTerminal(writer, protocolDecl, $"{method.Name}()", methodDegradation);
@@ -1501,7 +1502,7 @@ public partial class ProtocolProxyEmitter
             }
             else if (returnConv != null)
             {
-                writer.WriteLine($"var swiftResult = {returnConv};");
+                writer.WriteLine($"{resultLocal} swiftResult = {returnConv};");
                 writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
             }
             else
@@ -1910,6 +1911,21 @@ public partial class ProtocolProxyEmitter
     /// Dispatches on projection type for whole-value conversion.
     /// Returns null if no conversion needed (passthrough).
     /// </summary>
+    /// <summary>
+    /// How a receiver declares the local holding its converted return value: <c>using var</c> when the
+    /// conversion builds a Swift collection (or the tagged optional of one) that C# owns only until
+    /// <c>MarshalToSwiftBuffer</c> copies it into the buffer Swift takes. The copy holds Swift's own
+    /// references, so the temporary gives its back as soon as the copy is made, not when the collector
+    /// reaches it. Every other conversion either yields a plain value or hands the result over as is.
+    /// </summary>
+    private string ReceiverResultLocal(TypeSpec? typeSpec)
+    {
+        if (typeSpec == null)
+            return "var";
+        var projection = ProjectReceiverType(typeSpec, isParameter: true);
+        return projection != null && CollectionElementSelect.BuildsDisposableTemporary(projection) ? "using var" : "var";
+    }
+
     private string? GetReceiverGetterConversion(string varName, TypeSpec? typeSpec)
     {
         if (typeSpec == null) return null;
@@ -1979,7 +1995,7 @@ public partial class ProtocolProxyEmitter
         {
             var keyExpr = effectiveKeyConv ?? "kvp.Key";
             var valExpr = effectiveValConv ?? "kvp.Value";
-            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(varName, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection)})";
+            return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({(effectiveValConv != null ? CollectionElementSelect.ConsumedPairs(varName, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection) : CollectionElementSelect.Pairs(varName, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection))})";
         }
         return $"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({varName})";
     }
@@ -3139,7 +3155,7 @@ public partial class ProtocolProxyEmitter
             }
             var conversion = buildConversion("__degraded");
             if (conversion != null)
-                writer.WriteLine($"var __degradedSwift = {conversion};");
+                writer.WriteLine($"{ReceiverResultLocal(returnSpec)} __degradedSwift = {conversion};");
             writer.WriteLine(conversion != null
                 ? "return MarshalToSwiftBuffer(__degradedSwift);"
                 : "return MarshalToSwiftBuffer(__degraded);");
@@ -3336,7 +3352,7 @@ public partial class ProtocolProxyEmitter
     /// via the appropriate marshalling helper. On miss, falls through to the next sibling.
     /// </summary>
     private static void EmitGetterLookupHit(CSharpWriter writer, string interfaceName, string slug,
-        string pascalPropertyName, string? getterConversion, bool isStringReturn)
+        string pascalPropertyName, string? getterConversion, string resultLocal, bool isStringReturn)
     {
         var implVar = $"impl_{slug}";
         writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
@@ -3347,7 +3363,7 @@ public partial class ProtocolProxyEmitter
             writer.WriteLine("return MarshalStringToUtf8Slice(result);");
         else if (getterConversion != null)
         {
-            writer.WriteLine($"var swiftResult = {getterConversion};");
+            writer.WriteLine($"{resultLocal} swiftResult = {getterConversion};");
             writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
         }
         else
@@ -3368,7 +3384,7 @@ public partial class ProtocolProxyEmitter
     /// </summary>
     private static void EmitMethodLookupHit(CSharpWriter writer, string interfaceName, string slug,
         string pascalMethodName, string argsString, bool hasReturn, bool isStringReturn, string? returnConv,
-        IReadOnlyList<string> inOutWriteBacks)
+        string resultLocal, IReadOnlyList<string> inOutWriteBacks)
     {
         var implVar = $"impl_{slug}";
         writer.WriteLine($"if (Swift.Runtime.ProxyLifetimeTracker.ResolveImpl<{interfaceName}>(handle) is {{}} {implVar})");
@@ -3384,7 +3400,7 @@ public partial class ProtocolProxyEmitter
             }
             else if (returnConv != null)
             {
-                writer.WriteLine($"var swiftResult = {returnConv};");
+                writer.WriteLine($"{resultLocal} swiftResult = {returnConv};");
                 writer.WriteLine("return MarshalToSwiftBuffer(swiftResult);");
             }
             else

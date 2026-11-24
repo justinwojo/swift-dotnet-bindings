@@ -313,7 +313,7 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
         {
             var keyExpr = keyConv ?? "kvp.Key";
             var valExpr = valConv ?? "kvp.Value";
-            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({CollectionElementSelect.Pairs(valueExpr, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection)})", true);
+            return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({(valConv != null ? CollectionElementSelect.ConsumedPairs(valueExpr, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection) : CollectionElementSelect.Pairs(valueExpr, $"kvp => new KeyValuePair<{rawK}, {rawV}>({keyExpr}, {valExpr})", dict.KeyProjection, dict.ValueProjection))})", true);
         }
         return ($"SwiftDictionary<{rawK}, {rawV}>.FromDictionary({valueExpr})", true);
     }

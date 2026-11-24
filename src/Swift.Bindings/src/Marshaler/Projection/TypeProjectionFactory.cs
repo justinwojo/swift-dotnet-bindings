@@ -255,8 +255,7 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Array" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
+            var elemProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
             if (elemProjection == null)
                 return null;
             return new ArrayProjection(AsCollectionValue(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
@@ -264,8 +263,7 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Set" && namedType.GenericParameters.Count == 1)
         {
-            var elemProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
+            var elemProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
             if (elemProjection == null)
                 return null;
             return new SetProjection(AsHashedKey(elemProjection, namedType.GenericParameters[0], context), context.IsParameter);
@@ -273,10 +271,8 @@ public class TypeProjectionFactory
 
         if (name == "Swift.Dictionary" && namedType.GenericParameters.Count == 2)
         {
-            var keyProjection = Project(namedType.GenericParameters[0], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[0]);
-            var valueProjection = Project(namedType.GenericParameters[1], context)
-                ?? TryProjectObjCElement(namedType.GenericParameters[1]);
+            var keyProjection = ProjectCollectionSlot(namedType.GenericParameters[0], context);
+            var valueProjection = ProjectCollectionSlot(namedType.GenericParameters[1], context);
             if (keyProjection == null || valueProjection == null)
                 return null;
             return new DictionaryProjection(
@@ -779,6 +775,17 @@ public class TypeProjectionFactory
     /// </summary>
     private static ITypeProjection AsHashedKey(ITypeProjection keyProjection, TypeSpec keyTypeSpec, ProjectionContext context)
     {
+        // An optional Objective-C object is Hashable as Optional<T> is: carried as that type, its
+        // collection hashes and retains as Swift's does. The rule is the raw translator's
+        // (BoundGenericsHandler.OptionalObjectCarrierIdentity), so an accessor's raw and projected
+        // types agree.
+        if (keyProjection is OptionalProjection { IsObjectReference: true, ObjectCarrier: null, InnerProjection: ObjCBridgedProjection } optionalKey
+            && keyTypeSpec is NamedTypeSpec optionalKeySpec
+            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalKeySpec, hashed: true) is { } optionalIdentity)
+        {
+            context.EmissionContext?.RecordObjectKey(optionalIdentity);
+            return optionalKey.AsObjectCarrier(optionalIdentity);
+        }
         if (keyProjection is not ObjCBridgedProjection { KeyIdentity: null } objc)
             return keyProjection;
         var identity = ObjectIdentityOf(keyTypeSpec);
@@ -802,10 +809,19 @@ public class TypeProjectionFactory
         if (valueProjection is ObjCRootedClassProjection objcRooted)
             return objcRooted.AsCollectionValue();
 
-        // A bound generic Objective-C class (a lightweight-generic element) has no one-name
-        // identity; it keeps the bare pointer, as BoundGenericsHandler.IsObjectCarrierSlot does.
-        if (valueProjection is not ObjCBridgedProjection { KeyIdentity: null } objc ||
-            valueTypeSpec is NamedTypeSpec { GenericParameters.Count: > 0 })
+        // An optional object reference is one pointer, null for nil, and Swift's storage retains it
+        // like any element: carried as the optional type, not as a bare pointer (a Swift.Int), by
+        // the raw translator's rule (BoundGenericsHandler.OptionalObjectCarrierIdentity).
+        if (valueProjection is OptionalProjection { IsObjectReference: true, ObjectCarrier: null } optional
+            && valueTypeSpec is NamedTypeSpec optionalValueSpec
+            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalValueSpec, hashed: false) is { } optionalIdentity)
+        {
+            context.EmissionContext?.RecordObjectKey(optionalIdentity, hashed: false);
+            return optional.AsObjectCarrier(optionalIdentity);
+        }
+
+        // A bound generic Objective-C class (NSCache<NSString, NSUUID>) is named with its arguments.
+        if (valueProjection is not ObjCBridgedProjection { KeyIdentity: null } objc)
             return valueProjection;
         var identity = ObjectIdentityOf(valueTypeSpec);
         context.EmissionContext?.RecordObjectKey(identity, hashed: false);
@@ -813,12 +829,45 @@ public class TypeProjectionFactory
     }
 
     private static ObjectKeyIdentity ObjectIdentityOf(TypeSpec typeSpec)
+        => ObjectKeyIdentity.For(typeSpec) ?? throw new InvalidOperationException(
+            $"The object type '{typeSpec}' has no module-qualified Swift name, so its collection "
+            + "cannot be given the type's own metadata.");
+
+    /// <summary>
+    /// A collection element, key or value that is a bound generic Objective-C class
+    /// (<c>[NSCache&lt;NSString, NSUUID&gt;]</c>): one object pointer, whose Swift generic arguments
+    /// .NET's binding of the class does not carry. It projects as the class, and its slot carries the
+    /// identity spelled with the arguments (<see cref="AsCollectionValue"/>, <see cref="AsHashedKey"/>),
+    /// as the raw translator's does (BoundGenericsHandler.IsBoundGenericObjCClass).
+    /// </summary>
+    private ITypeProjection? ProjectCollectionSlot(TypeSpec slotTypeSpec, ProjectionContext context)
+        => TryProjectOptionalBoundGenericObjCElement(slotTypeSpec, context)
+           ?? Project(slotTypeSpec, context)
+           ?? TryProjectObjCElement(slotTypeSpec)
+           ?? TryProjectBoundGenericObjCElement(slotTypeSpec, context);
+
+    /// <summary>
+    /// The optional of a bound generic Objective-C class in a collection slot
+    /// (<c>[NSCache&lt;NSString, NSUUID&gt;?]</c>): the optional of the class's projection
+    /// (<see cref="TryProjectBoundGenericObjCElement"/>), whose slot carries the optional type's identity.
+    /// Checked before the general optional projection, whose bound-generic fallback spells the class
+    /// with its Swift generic arguments.
+    /// </summary>
+    private static OptionalProjection? TryProjectOptionalBoundGenericObjCElement(TypeSpec slotTypeSpec, ProjectionContext context)
+        => slotTypeSpec is NamedTypeSpec { Name: "Swift.Optional", GenericParameters.Count: 1 } optional
+           && TryProjectBoundGenericObjCElement(optional.GenericParameters[0], context) is { } inner
+            ? new OptionalProjection(inner)
+            : null;
+
+    private static ObjCBridgedProjection? TryProjectBoundGenericObjCElement(TypeSpec elementTypeSpec, ProjectionContext context)
     {
-        if (typeSpec is not NamedTypeSpec { GenericParameters.Count: 0 } named || !named.HasModule())
-            throw new InvalidOperationException(
-                $"The Objective-C type '{typeSpec}' has no module-qualified Swift name, so its collection "
-                + "cannot be given the type's own metadata.");
-        return new ObjectKeyIdentity(named.Name);
+        if (elementTypeSpec is not NamedTypeSpec named)
+            return null;
+        var boundGenerics = new BoundGenericsHandler(context.TypeDatabase);
+        if (!boundGenerics.IsBoundGenericObjCClass(named) || !boundGenerics.IsObjectPointerContainerArgument(named) ||
+            !context.TypeDatabase.TryGetTypeRecord(named, out var record))
+            return null;
+        return new ObjCBridgedProjection(record.CSharpTypeName.FullyQualifiedName);
     }
 
     private static ITypeProjection? TryProjectObjCElement(TypeSpec elementTypeSpec)

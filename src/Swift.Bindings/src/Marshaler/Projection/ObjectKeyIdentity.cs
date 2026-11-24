@@ -6,8 +6,9 @@ using System.Text;
 namespace BindingsGeneration;
 
 /// <summary>
-/// A Swift type whose value is one object reference (an Objective-C class, or a string-backed
-/// Objective-C key type such as <c>NSAttributedString.Key</c>), used inside a Swift collection: as a
+/// A Swift type whose value is one object reference (an Objective-C class, bound generic or not, a
+/// string-backed Objective-C key type such as <c>NSAttributedString.Key</c>, or an optional of an object
+/// type, whose nil is a null pointer), used inside a Swift collection: as a
 /// dictionary key or set element (a hashed position), or as an array element or dictionary value.
 /// The binding declares one identity class per such type in its module's <c>__SwiftObjectKeys</c>
 /// class. For a type the module uses in a hashed position, its wrapper exports the metadata of
@@ -53,6 +54,30 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
 
     /// <summary>The C# name of the P/Invoke that calls <see cref="ValueAccessorSymbol"/>.</summary>
     public string ValueAccessorMethodName => $"__GetValueMetadata_{IdentityClassName}";
+
+    /// <summary>
+    /// The identity of <paramref name="typeSpec"/>, spelled module-qualified with its generic arguments
+    /// (<c>Swift.Optional&lt;Foundation.NSUUID&gt;</c>, <c>Foundation.NSCache&lt;Foundation.NSString,
+    /// Foundation.NSUUID&gt;</c>), or <c>null</c> when some part of it has no module-qualified Swift name.
+    /// </summary>
+    public static ObjectKeyIdentity? For(TypeSpec typeSpec)
+        => SwiftSpelling(typeSpec) is { } name ? new ObjectKeyIdentity(name) : null;
+
+    private static string? SwiftSpelling(TypeSpec typeSpec)
+    {
+        if (typeSpec is not NamedTypeSpec { InnerType: null, IsInOut: false } named || !named.HasModule())
+            return null;
+        if (named.GenericParameters.Count == 0)
+            return named.Name;
+        var arguments = new List<string>(named.GenericParameters.Count);
+        foreach (var argument in named.GenericParameters)
+        {
+            if (SwiftSpelling(argument) is not { } spelled)
+                return null;
+            arguments.Add(spelled);
+        }
+        return $"{named.Name}<{string.Join(", ", arguments)}>";
+    }
 
     private static string SafeName(string swiftTypeName)
     {

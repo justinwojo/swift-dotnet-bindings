@@ -969,9 +969,21 @@ public class BoundGenericsHandler
                 genericParameter is NamedTypeSpec namedGenericParam &&
                 IsObjectPointerContainerArgument(namedGenericParam))
             {
-                translatedGenericParameters.Add(IsObjectCarrierSlot(namedTypeSpec.Name, genericIndex, namedGenericParam)
-                    ? new ObjectKeyIdentity(namedGenericParam.Name).CarrierType
+                translatedGenericParameters.Add(IsObjectCarrierSlot(namedTypeSpec.Name, genericIndex)
+                    ? ObjectKeyIdentity.For(namedGenericParam)!.CarrierType
                     : "IntPtr");
+                continue;
+            }
+
+            // An optional object reference in a collection's slot is one pointer, null for nil, which
+            // Swift's storage retains like any element: it carries the optional type's identity too,
+            // not SwiftOptional<IntPtr> (an Optional<Int>, whose stride is not the element's).
+            if (isStdlibContainer &&
+                IsObjectCarrierSlot(namedTypeSpec.Name, genericIndex) &&
+                genericParameter is NamedTypeSpec optionalSlotArgument &&
+                OptionalObjectCarrierIdentity(optionalSlotArgument, IsHashedContainerSlot(namedTypeSpec.Name, genericIndex)) is { } optionalIdentity)
+            {
+                translatedGenericParameters.Add(optionalIdentity.CarrierType);
                 continue;
             }
 
@@ -1681,8 +1693,48 @@ public class BoundGenericsHandler
     /// True when <paramref name="typeSpec"/>, as a stdlib container's type argument, crosses as one
     /// Objective-C object pointer (an ObjC class or a string-backed ObjC key type).
     /// </summary>
+    /// <remarks>
+    /// A bound generic Objective-C class (<c>NSCache&lt;NSString, NSUUID&gt;</c>) is one object pointer
+    /// too: its Swift generic arguments are erased in Objective-C and in .NET, and its identity is
+    /// spelled with them (<see cref="ObjectKeyIdentity.For"/>).
+    /// </remarks>
     internal bool IsObjectPointerContainerArgument(NamedTypeSpec typeSpec)
-        => !typeSpec.ContainsGenericParameters && IsObjCBridgedType(typeSpec) && !IsNonSwiftObjectMappedType(typeSpec);
+        => (!typeSpec.ContainsGenericParameters || IsBoundGenericObjCClass(typeSpec))
+            && IsObjCBridgedType(typeSpec) && !IsNonSwiftObjectMappedType(typeSpec);
+
+    /// <summary>
+    /// True for a bound generic Objective-C class the type database records
+    /// (<c>Foundation.NSCache&lt;Foundation.NSString, Foundation.NSUUID&gt;</c>) whose every argument
+    /// has a module-qualified Swift name.
+    /// </summary>
+    internal bool IsBoundGenericObjCClass(NamedTypeSpec typeSpec)
+        => typeSpec.ContainsGenericParameters && typeSpec.InnerType == null && typeSpec.HasModule()
+            && !s_stdlibGenerics.Contains(typeSpec.Name)
+            && _typeDatabase.TryGetTypeRecord(typeSpec, out var record)
+            && record.Kind == TypeRecordKind.Class && record.Flags.HasFlag(TypeRecordFlags.ObjCBridged)
+            && ObjectKeyIdentity.For(typeSpec) is not null;
+
+    /// <summary>
+    /// The identity an optional collection slot argument (<c>Swift.Optional&lt;T&gt;</c>) carries, or
+    /// <c>null</c> when <c>T</c> is not one object reference: an Objective-C object
+    /// (<see cref="IsObjectPointerContainerArgument"/>) in any slot, or, in an unhashed slot, a Swift
+    /// class (NSObject-rooted or not). TypeProjectionFactory's collection slots apply the same rule.
+    /// </summary>
+    internal ObjectKeyIdentity? OptionalObjectCarrierIdentity(NamedTypeSpec argument, bool hashed)
+    {
+        if (argument is not { Name: "Swift.Optional", GenericParameters.Count: 1, InnerType: null } ||
+            argument.GenericParameters[0] is not NamedTypeSpec inner)
+            return null;
+        if (!IsObjectPointerContainerArgument(inner) && (hashed || !IsSwiftClassSlotArgument(inner)))
+            return null;
+        return ObjectKeyIdentity.For(argument);
+    }
+
+    private bool IsSwiftClassSlotArgument(NamedTypeSpec typeSpec)
+        => !typeSpec.ContainsGenericParameters && typeSpec.HasModule()
+            && _typeDatabase.TryGetTypeRecord(typeSpec, out var record)
+            && record.Kind == TypeRecordKind.Class && record.NativeTypeName == null
+            && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
 
     /// <summary>True for the hashed type argument of a stdlib container: a Dictionary's key, a Set's element.</summary>
     internal static bool IsHashedContainerSlot(string containerName, int genericIndex)
@@ -1693,14 +1745,13 @@ public class BoundGenericsHandler
         => (genericIndex == 0 && containerName == "Swift.Array") || (genericIndex == 1 && containerName == "Swift.Dictionary");
 
     /// <summary>
-    /// True when an object-pointer type argument (<see cref="IsObjectPointerContainerArgument"/>) in
-    /// this slot crosses as its <see cref="ObjectKeyIdentity"/> carrier: every hashed slot, and every
-    /// array element or dictionary value except a bound generic Objective-C class, which has no
-    /// one-name identity and keeps the bare pointer (TypeProjectionFactory.AsCollectionValue).
+    /// True when an object-pointer type argument (<see cref="IsObjectPointerContainerArgument"/>, or an
+    /// optional of one, <see cref="OptionalObjectCarrierIdentity"/>) in this slot crosses as its
+    /// <see cref="ObjectKeyIdentity"/> carrier: every hashed slot, every array element and every
+    /// dictionary value.
     /// </summary>
-    internal static bool IsObjectCarrierSlot(string containerName, int genericIndex, NamedTypeSpec argument)
-        => IsHashedContainerSlot(containerName, genericIndex)
-            || (IsCollectionValueSlot(containerName, genericIndex) && argument.GenericParameters.Count == 0);
+    internal static bool IsObjectCarrierSlot(string containerName, int genericIndex)
+        => IsHashedContainerSlot(containerName, genericIndex) || IsCollectionValueSlot(containerName, genericIndex);
 
     private bool IsObjCBridgedType(NamedTypeSpec typeSpec)
     {
@@ -1787,6 +1838,17 @@ public class BoundGenericsHandler
 
             // ObjC-bridged class types project to IntPtr
             if (IsObjCBridgedType(namedParam) && !IsNonSwiftObjectMappedType(namedParam))
+            {
+                hasObjCBridgedElement = true;
+                continue;
+            }
+
+            // The optional of a bound generic Objective-C class ([NSCache<NSString, NSUUID>?]) projects
+            // as the optional of the class's .NET type, carried by its own object key
+            // (TypeProjectionFactory.ProjectCollectionSlot): its Swift generic arguments never reach C#.
+            if (namedParam is { Name: "Swift.Optional", GenericParameters.Count: 1 }
+                && namedParam.GenericParameters[0] is NamedTypeSpec wrapped
+                && IsBoundGenericObjCClass(wrapped) && IsObjectPointerContainerArgument(wrapped))
             {
                 hasObjCBridgedElement = true;
                 continue;

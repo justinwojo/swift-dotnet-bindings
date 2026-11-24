@@ -1305,6 +1305,22 @@ public class ProtocolProxyEmitterTests
     }
 
     [Fact]
+    public void EmitProxyClass_CollectionReceiver_ReleasesTheCollectionOnceCopiedForSwift()
+    {
+        // MarshalToSwiftBuffer copies the collection the receiver built into the buffer Swift takes,
+        // so the built one gives its storage and element references back right there, on the live and
+        // the degraded exit alike, instead of holding them until its finalizer runs.
+        RegisterSwiftInt32();
+        var array = new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int32"));
+        var protocolDecl = CreateProtocolWithProperty("ListProto", "items", hasGetter: true, hasSetter: false, array);
+        var output = EmitProxyClass(protocolDecl);
+        var receiverBody = ExtractReceiverBody(output, "private static IntPtr Receive_items_get(");
+
+        Assert.Contains("using var swiftResult = SwiftArray<", receiverBody);
+        Assert.Contains("using var __degradedSwift = SwiftArray<", receiverBody);
+    }
+
+    [Fact]
     public void EmitProxyClass_BareExistentialReceiver_KeepsTheUnsatisfiableTerminal()
     {
         // The control that keeps the collection arm from over-widening. `any P` is not
