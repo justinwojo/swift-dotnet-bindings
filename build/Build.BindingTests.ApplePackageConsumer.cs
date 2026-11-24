@@ -141,7 +141,8 @@ partial class Build
                 device.Udid,
                 ApplePackageConsumerBundleId,
                 Array.Empty<string>(),
-                TimeSpan.FromSeconds(Timeout));
+                TimeSpan.FromSeconds(Timeout),
+                () => DeviceCtl.UnstrippedAppImages(appPath, DeviceCtl.SymbolSearchBudget));
         }, "--apple-package-consumer (device NativeAOT)");
 
         Log.Information("");

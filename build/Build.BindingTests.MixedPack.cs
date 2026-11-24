@@ -535,7 +535,8 @@ partial class Build
             deployAndLaunch = () =>
             {
                 DeviceCtl.Install(dev.Udid, appPath);
-                return DeviceCtl.Launch(dev.Udid, bundleId, arguments, TimeSpan.FromSeconds(Timeout));
+                return DeviceCtl.Launch(dev.Udid, bundleId, arguments, TimeSpan.FromSeconds(Timeout),
+                    () => DeviceCtl.UnstrippedAppImages(appPath, DeviceCtl.SymbolSearchBudget));
             };
         }
         else
