@@ -22,11 +22,11 @@ public class CollisionTests : TestBase
     {
         // The generator must disambiguate Swift cases that differ only in capitalization
         var move = DrawCommand.Move;
-        AssertEqual(0, (int)move, "move (lowercase) maps to 0");
+        AssertEqual(NameKeyedCase.Of("move"), (int)move, "move (lowercase) is keyed by its Swift name");
 
         // The second case (Move) gets renamed to avoid collision
         var moveUpper = DrawCommand.Move2;
-        AssertEqual(1, (int)moveUpper, "Move (uppercase) renamed to Move2, maps to 1");
+        AssertEqual(NameKeyedCase.Of("Move"), (int)moveUpper, "Move (uppercase) renamed to Move2, keyed by its Swift name");
     }
 
     public void TestDrawCommandDescribe()
@@ -38,16 +38,16 @@ public class CollisionTests : TestBase
     public void TestDrawCommandLineValues()
     {
         var line = DrawCommand.Line;
-        AssertEqual(2, (int)line, "line (lowercase) maps to 2");
+        AssertEqual(NameKeyedCase.Of("line"), (int)line, "line (lowercase) is keyed by its Swift name");
 
         var lineUpper = DrawCommand.Line2;
-        AssertEqual(3, (int)lineUpper, "Line (uppercase) renamed to Line2, maps to 3");
+        AssertEqual(NameKeyedCase.Of("Line"), (int)lineUpper, "Line (uppercase) renamed to Line2, keyed by its Swift name");
     }
 
     public void TestDrawCommandCloseValue()
     {
         var close = DrawCommand.Close;
-        AssertEqual(4, (int)close, "close maps to 4");
+        AssertEqual(NameKeyedCase.Of("close"), (int)close, "close is keyed by its Swift name");
     }
 
     public void TestDrawCommandDescribeLine()
@@ -192,16 +192,16 @@ public class CollisionTests : TestBase
         // Emoji in case names sanitized to underscores:
         // success → Success, error🚫 → Error__ (2 UTF-16 units = 2 underscores)
         var success = ValidationStatus.Success;
-        AssertEqual(0, (int)success, "success maps to 0");
+        AssertEqual(NameKeyedCase.Of("success"), (int)success, "success is keyed by its Swift name");
 
         var error = ValidationStatus.Error__;
-        AssertEqual(1, (int)error, "error🚫 sanitized to Error__, maps to 1");
+        AssertEqual(NameKeyedCase.Of("error🚫"), (int)error, "error🚫 sanitized to Error__, keyed by its Swift name");
 
         var warning = ValidationStatus.Warning__;
-        AssertEqual(2, (int)warning, "warning🔶 sanitized to Warning__, maps to 2");
+        AssertEqual(NameKeyedCase.Of("warning🔶"), (int)warning, "warning🔶 sanitized to Warning__, keyed by its Swift name");
 
         var pending = ValidationStatus.Pending__;
-        AssertEqual(3, (int)pending, "pending🔄 sanitized to Pending__, maps to 3");
+        AssertEqual(NameKeyedCase.Of("pending🔄"), (int)pending, "pending🔄 sanitized to Pending__, keyed by its Swift name");
     }
 
     public void TestDescribeValidationStatus()

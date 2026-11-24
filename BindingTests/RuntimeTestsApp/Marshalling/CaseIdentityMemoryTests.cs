@@ -153,7 +153,7 @@ public class CaseIdentityMemoryTests : TestBase
         var responder = new Responder { CaseShiftCurrent = CaseShift.First };
         // Swift reads `caseShiftCurrent`, `respond`'s result and `adjust`'s inout value from the conformer.
         var seen = TestLibFunctions.CaseShiftDriveResponder(responder, CaseShift.First);
-        AssertEqual("first,first,saw:0,second", seen, "Swift saw First, First, the described First and the adjusted Second");
+        AssertEqual($"first,first,saw:{(int)CaseShift.First},second", seen, "Swift saw First, First, the described First and the adjusted Second");
         AssertEqual(3, responder.Received.Count, "three requirements received a value");
         AssertTrue(responder.Received.All(v => v == CaseShift.First),
             $"every requirement received First (got {string.Join(",", responder.Received.Select(v => (int)v))})");
