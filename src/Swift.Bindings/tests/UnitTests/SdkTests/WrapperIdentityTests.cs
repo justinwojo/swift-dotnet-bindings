@@ -127,6 +127,15 @@ public sealed class WrapperIdentityTests : IDisposable
             Assert.True(SwiftDeclarationRecordFormat.TryParseWitness(witness, out var module, out var record, out var hash));
             Assert.Equal(("Kit", "Acme.Kit.swift-declarations.json"), (module, record));
             Assert.StartsWith("sha256:", hash);
+
+            // With no identity (an SDK whose version cannot be read), the witness is still written.
+            WrapperIdentityEmission.Current = null;
+            var witnessOnly = WrapperIdentityEmission.Write(tempDir, "Acme.Kit", "Kit", "AcmeKitSwiftBindings", "public func f() {}", witness);
+            Assert.NotNull(witnessOnly);
+            var unidentified = Compile("Kit", witnessOnly + PrimitiveOnly);
+            Assert.Equal(witness, Assert.Single(SwiftWrapperIdentityCheck.ReadMetadata(unidentified, SwiftDeclarationRecordFormat.AttributeKey)));
+            Assert.Empty(SwiftWrapperIdentityCheck.Read(unidentified).Identities);
+            Assert.False(File.Exists(Path.Combine(tempDir, SwiftWrapperIdentityFormat.AssemblyFileName("Acme.Kit"))));
         }
         finally
         {

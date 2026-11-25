@@ -36,8 +36,9 @@ public static class WrapperIdentityEmission
     /// and returns the C# attribute file's text; or removes both files and returns null when there is
     /// no context, no wrapper library or no wrapper source. The attribute file also carries
     /// <paramref name="declarationWitness"/>, the witness of the module's Swift declaration record
-    /// (<see cref="SwiftDeclarationRecordFormat.Witness"/>), when there is one: every module with a
-    /// wrapper identity then names its record, so the merge can refuse a copy that lost it.
+    /// (<see cref="SwiftDeclarationRecordFormat.Witness"/>), when there is one, and with no identity
+    /// carries the witness alone: every module that has a record names it, so the merge can refuse a
+    /// copy that lost it.
     /// </summary>
     public static string? Write(string directory, string @namespace, string module, string? library, string wrapperSource,
         string? declarationWitness = null)
@@ -48,6 +49,10 @@ public static class WrapperIdentityEmission
         {
             if (File.Exists(assemblyPath))
                 File.Delete(assemblyPath);
+            // A module with no identity still names its record: the merge refuses a copy whose
+            // assembly names a record it does not carry, whether or not the wrapper is identified.
+            if (declarationWitness is not null)
+                return WriteIfChanged(attributePath, SwiftDeclarationRecordFormat.AttributeSource(declarationWitness));
             if (File.Exists(attributePath))
                 File.Delete(attributePath);
             return null;
@@ -59,8 +64,13 @@ public static class WrapperIdentityEmission
                         + (declarationWitness is null ? "" : SwiftDeclarationRecordFormat.AttributeSource(declarationWitness));
         if (!File.Exists(assemblyPath) || File.ReadAllText(assemblyPath) != assembly)
             File.WriteAllText(assemblyPath, assembly);
-        if (!File.Exists(attributePath) || File.ReadAllText(attributePath) != attribute)
-            File.WriteAllText(attributePath, attribute);
-        return attribute;
+        return WriteIfChanged(attributePath, attribute);
+    }
+
+    private static string WriteIfChanged(string path, string text)
+    {
+        if (!File.Exists(path) || File.ReadAllText(path) != text)
+            File.WriteAllText(path, text);
+        return text;
     }
 }

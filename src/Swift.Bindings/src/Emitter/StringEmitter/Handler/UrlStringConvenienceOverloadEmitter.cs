@@ -99,6 +99,8 @@ internal static class UrlStringConvenienceOverloadEmitter
         var paramParts = new List<string>();
         var callArgs = new List<string>();
         var targetTypes = new List<string>();
+        var declaredTypes = new List<string>();
+        var primaryTypes = NativeIntOverloadEmitter.PrimaryApiSurfaceTypes(methodEnv);
         for (int i = 1; i < csSignature.Count; i++)
         {
             var arg = csSignature[i];
@@ -111,6 +113,7 @@ internal static class UrlStringConvenienceOverloadEmitter
                 paramParts.Add($"string {paramName}");
                 callArgs.Add($"new global::Foundation.NSUrl({paramName})");
                 targetTypes.Add(NSUrlPublicType);
+                declaredTypes.Add("string");
             }
             else
             {
@@ -118,14 +121,17 @@ internal static class UrlStringConvenienceOverloadEmitter
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
                 targetTypes.Add(typeName);
+                declaredTypes.Add(primaryTypes.TryGetValue(paramName, out var primaryType) ? primaryType : typeName);
             }
         }
 
         // The `string` forwarder's C# signature is one a newer SDK's Swift overload taking a `String`
-        // path would take over, so it is recorded as the forwarder it is for the package merge to compare.
+        // path would take over, so it is recorded as the forwarder it is for the package merge to
+        // compare, keyed by the parameter types it declares as that primary would record its own.
         methodEnv.EmissionContext?.RecordSwiftDeclaration(
             ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodName,
-                BuildOverloadKey(methodEnv, urlParamIndices), methodEnv.TypeDatabase),
+                BuildOverloadKey(methodEnv, urlParamIndices), methodEnv.TypeDatabase,
+                new ModuleEmissionContext.EmittedApiShape(null, ModuleEmissionContext.FormatParameterPortion(declaredTypes))),
             methodDecl, methodEnv.TypeDatabase,
             forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),
             forwarderKind: SwiftDeclarationMapEmitter.UrlStringForwarder);

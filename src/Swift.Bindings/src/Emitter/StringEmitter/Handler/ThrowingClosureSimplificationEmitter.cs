@@ -101,6 +101,8 @@ internal static class ThrowingClosureSimplificationEmitter
         var wrapperSetup = new List<string>();
         var callArgs = new List<string>();
         var targetTypes = new List<string>();
+        var declaredTypes = new List<string>();
+        var primaryTypes = NativeIntOverloadEmitter.PrimaryApiSurfaceTypes(methodEnv);
         var closureHandler = methodEnv.ClosureHandler;
 
         for (int i = 1; i < csSignature.Count; i++)
@@ -124,6 +126,7 @@ internal static class ThrowingClosureSimplificationEmitter
                 // lane's SwiftSet<SwiftString>) the lambda's pass-through call is a compile error.
                 var simplifiedType = GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler);
                 paramParts.Add($"{simplifiedType} {paramName}");
+                declaredTypes.Add(simplifiedType);
 
                 var originalType = closureHandler.GetCSharpDelegateType(throwingClosure.ClosureSpec);
                 var wrapperName = $"_wrapped_{paramName}";
@@ -138,6 +141,7 @@ internal static class ThrowingClosureSimplificationEmitter
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
                 targetTypes.Add(typeName);
+                declaredTypes.Add(primaryTypes.TryGetValue(paramName, out var primaryType) ? primaryType : typeName);
             }
         }
 
@@ -146,11 +150,11 @@ internal static class ThrowingClosureSimplificationEmitter
 
         // The simplified overload's C# signature is the one a newer SDK's Swift overload taking a
         // non-throwing closure projects to, so it is recorded as the forwarder it is for the package
-        // merge to compare.
+        // merge to compare, keyed by the parameter types it declares as that primary would record its own.
         methodEnv.EmissionContext?.RecordSwiftDeclaration(
             ModuleEmissionContext.BuildApiManifestKey(methodEnv.MethodDecl.ParentDecl, methodName,
-                ModuleEmissionContext.WithRefParameters(BuildOverloadKey(methodEnv, throwingClosures), methodEnv.MethodDecl),
-                methodEnv.TypeDatabase),
+                BuildOverloadKey(methodEnv, throwingClosures), methodEnv.TypeDatabase,
+                new ModuleEmissionContext.EmittedApiShape(null, ModuleEmissionContext.FormatParameterPortion(declaredTypes))),
             methodEnv.MethodDecl, methodEnv.TypeDatabase,
             forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),
             forwarderKind: SwiftDeclarationMapEmitter.NonThrowingClosureForwarder);

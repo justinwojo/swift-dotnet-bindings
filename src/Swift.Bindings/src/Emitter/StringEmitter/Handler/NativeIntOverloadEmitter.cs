@@ -271,21 +271,17 @@ internal static class NativeIntOverloadEmitter
             methodEnv.EmittedProjectedSignatures!.Add(overloadKey);
             // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
             // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
-            // forwarder it is for the package merge to compare.
-            // A method is keyed by its projected key with its `ref` parameters spelled, as the primary
-            // method is, so two forwarders differing only by an `inout` stay apart. Every constructor
-            // shape records the parameter types it declares, `ref` included, as the primary
-            // constructor or factory records its own; a failable factory adds its trailing `out` result.
-            var emittedShape = !isConstructorOverload
-                ? default
-                : new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
-                    ctorShape.Kind == ConstructorEmissionKind.FailableFactory
-                        ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
-                        : declaredTypes));
+            // forwarder it is for the package merge to compare. It is keyed by the parameter types it
+            // declares, `ref` included, as the primary member records its own (the projected key
+            // normalizes types and drops `ref`, so it would miss the primary that takes the name); a
+            // failable factory adds its trailing `out` result.
+            var emittedShape = new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
+                isConstructorOverload && ctorShape.Kind == ConstructorEmissionKind.FailableFactory
+                    ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
+                    : declaredTypes));
             methodEnv.EmissionContext?.RecordSwiftDeclaration(
                 ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName,
-                    isConstructorOverload ? overloadKey : ModuleEmissionContext.WithRefParameters(overloadKey, methodDecl),
-                    methodEnv.TypeDatabase, emittedShape),
+                    overloadKey, methodEnv.TypeDatabase, emittedShape),
                 methodDecl, methodEnv.TypeDatabase,
                 forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes));
         }
@@ -679,6 +675,21 @@ internal static class NativeIntOverloadEmitter
     /// as MethodHandler (TypeProjectionFactory → TypeDatabase → ToString fallback),
     /// with generic type parameter substitution.
     /// </summary>
+    /// <summary>
+    /// The primary member's parameter types by parameter name, spelled as its API-manifest key spells
+    /// them (modifier and type, no name). A convenience overload records its key with these for every
+    /// parameter it passes through, so its key and that of a newer SDK's primary member declaring the
+    /// same C# signature are spelled alike.
+    /// </summary>
+    internal static Dictionary<string, string> PrimaryApiSurfaceTypes(MethodEnvironment methodEnv)
+    {
+        var types = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var parameter in new SignatureHandler(methodEnv).GetWrapperSignature().Parameters)
+            types.TryAdd(parameter.Name, string.IsNullOrWhiteSpace(parameter.modifier)
+                ? parameter.TypeString() : $"{parameter.modifier.Trim()} {parameter.TypeString()}");
+        return types;
+    }
+
     internal static string ResolveType(TypeSpec typeSpec, MethodEnvironment methodEnv, bool isParameter)
     {
         // Handle generic type parameters via GenericTypeMapping

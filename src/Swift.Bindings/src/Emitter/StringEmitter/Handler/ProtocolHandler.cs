@@ -711,6 +711,9 @@ namespace BindingsGeneration
 
             foreach (var methodDecl in deferredNintOverloads)
             {
+                // Attributed to its method as when it was written in the method's own iteration, so a
+                // compile fault in it withdraws the method's leaf, not the protocol.
+                using var dimCsScope = bodyWriter.BeginFragment(FragmentOwners.ForDecl(methodDecl));
                 // Contain the nint→int convenience overload for the same method leaf.
                 // Escalates to the protocol on a sticky overload-emission fault.
                 EmissionSeam.Guard(

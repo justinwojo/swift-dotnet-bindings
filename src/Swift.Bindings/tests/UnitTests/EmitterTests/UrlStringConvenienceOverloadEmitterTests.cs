@@ -209,6 +209,30 @@ public class UrlStringConvenienceOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_RecordsTheForwarderUnderItsDeclaredSignature()
+    {
+        // The record key is the signature the forwarder declares, spelled as the primary member's
+        // would be: a nullable passthrough stays `string?`, not the projected key's normalized `string`.
+        var optString = new NamedTypeSpec("Swift.Optional");
+        optString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodCore("load", MethodType.Instance, TupleTypeSpec.Empty, isInOut: false,
+            ("url", new NamedTypeSpec("Foundation.URL")), ("name", optString));
+        var context = new ModuleEmissionContext();
+        var writer = new StringWriter();
+        var env = new MethodEnvironment(method, CreateTypeDatabase())
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(System.StringComparer.Ordinal),
+        };
+
+        UrlStringConvenienceOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+
+        Assert.Contains("Load(string url, string? name)", writer.ToString());
+        var (key, _) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.EndsWith(".Load(string,string?)", key);
+    }
+
+    [Fact]
     public void TryEmitOverload_DuplicateSignature_SkipsSecond()
     {
         var method1 = CreateMethod("open", MethodType.Instance,

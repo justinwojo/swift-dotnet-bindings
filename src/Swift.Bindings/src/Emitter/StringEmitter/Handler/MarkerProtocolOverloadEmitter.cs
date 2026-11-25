@@ -299,10 +299,10 @@ namespace BindingsGeneration
                 emittedAny = true;
                 // The overload's C# signature is one a newer SDK's Swift overload taking the conformer
                 // itself would take over, so it is recorded as the overload it is for the package
-                // merge to compare.
+                // merge to compare. Every parameter is a primitive passed by value (an `inout` one
+                // declines the overload above), so the reserved key spells the declaration.
                 env.EmissionContext?.RecordSwiftDeclaration(
-                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, csMethodName,
-                        ModuleEmissionContext.WithRefParameters(reservedKey, methodDecl), env.TypeDatabase),
+                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, csMethodName, reservedKey, env.TypeDatabase),
                     methodDecl, env.TypeDatabase,
                     forwardsTo: swiftType, forwarderKind: SwiftDeclarationMapEmitter.MarkerConformerOverload);
 
