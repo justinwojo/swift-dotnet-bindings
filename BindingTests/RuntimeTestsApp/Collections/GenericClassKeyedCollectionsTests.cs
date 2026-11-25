@@ -100,9 +100,9 @@ public class GenericClassKeyedCollectionsTests : TestBase
         AssertTrue(TestLibFunctions.SwiftBoxNestedContains(groups, "first", "beta"), "a nested set's element is found");
         AssertFalse(TestLibFunctions.SwiftBoxNestedContains(groups, "first", "gamma"), "an absent one is not");
 
-        using var list = new SwiftArray<SwiftSet<SwiftKeyBox<SwiftString>>>();
-        list.Add(Boxes("alpha"));
-        list.Add(Boxes("beta", "gamma"));
+        using var first = Boxes("alpha");
+        using var second = Boxes("beta", "gamma");
+        using var list = new SwiftArray<SwiftSet<SwiftKeyBox<SwiftString>>>(new[] { first, second });
         AssertTrue(TestLibFunctions.SwiftBoxArrayContains(list, 1, "gamma"), "an array's set element is found");
         AssertFalse(TestLibFunctions.SwiftBoxArrayContains(list, 0, "gamma"), "and not in the other set");
 
@@ -243,8 +243,7 @@ public class GenericClassKeyedCollectionsTests : TestBase
 
         using (var control = new SwiftKeyBoxArrayStore())
         {
-            using var array = new SwiftArray<SwiftKeyBox<SwiftString>>();
-            array.Add(box);
+            using var array = new SwiftArray<SwiftKeyBox<SwiftString>>(new[] { box });
             control.Keep(array);
             array.Dispose();
             AssertEqual(baseline + 1, TestLibFunctions.SwiftBoxRetainCount(box), "control: the array Swift keeps holds one reference");
@@ -311,9 +310,9 @@ public class NilOptionalKeyedCollectionsTests : TestBase
     static string Entries<TKey>(IEnumerable<KeyValuePair<TKey, nint>> index, Func<TKey, string> name)
         => string.Join(",", index.Select(kv => $"{(kv.Key is null ? "nil" : name(kv.Key))}={kv.Value}").OrderBy(s => s, StringComparer.Ordinal));
 
-    static string NodeName(SwiftKeyNode node) => node.Name.ToString();
+    static string NodeName(SwiftKeyNode? node) => node!.Name.ToString();
 
-    static string UuidName(Foundation.NSUuid uuid) => uuid.AsString() == First ? "first" : uuid.AsString() == Second ? "second" : uuid.AsString();
+    static string UuidName(Foundation.NSUuid? uuid) => uuid!.AsString() == First ? "first" : uuid.AsString() == Second ? "second" : uuid.AsString();
 
     /// <summary>A dictionary C# builds whose nil key Swift sees.</summary>
     static NilKeyDictionary<SwiftKeyNode?, nint> NodeIndex()
