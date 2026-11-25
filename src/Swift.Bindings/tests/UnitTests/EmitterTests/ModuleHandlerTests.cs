@@ -1587,6 +1587,33 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_AHashedUseAddedToAnElementType_KeepsEveryExportTheElementOnlyModuleHad()
+    {
+        // An older SDK's module holds NSUUID only as an array element ([NSUUID]); a newer SDK adds a
+        // method returning Set<NSUUID>. The newer wrapper must still export the value accessor the
+        // older copy's assembly binds, or the package merge (each newer copy exports every symbol an
+        // older one did) refuses an additive API change.
+        var identity = new ObjectKeyIdentity("Foundation.NSUUID");
+        var (_, older) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordObjectKey(identity, hashed: false));
+        var (newerCs, newer) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx =>
+            {
+                ctx.RecordObjectKey(identity, hashed: false);
+                ctx.RecordObjectKey(identity, hashed: true);
+            });
+
+        static HashSet<string> Exports(string swift) =>
+            System.Text.RegularExpressions.Regex.Matches(swift, "@_cdecl\\(\"([^\"]+)\"\\)").Select(m => m.Groups[1].Value).ToHashSet();
+        var missing = Exports(older).Except(Exports(newer)).ToList();
+        Assert.True(missing.Count == 0, "the newer wrapper lacks " + string.Join(", ", missing));
+        Assert.Contains($"@_cdecl(\"{identity.ValueAccessorSymbol("TestModule")}\")", newer);
+        Assert.Contains($"@_cdecl(\"{identity.AccessorSymbol("TestModule")}\")", newer);
+        // The newer copy registers the type from its Set metadata, which carries the Hashable witness.
+        Assert.Contains($"EntryPoint = \"{identity.AccessorSymbol("TestModule")}\"", newerCs);
+    }
+
+    [Fact]
     public void Emit_NoObjectKeys_EmitsNoHolder()
     {
         var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>());

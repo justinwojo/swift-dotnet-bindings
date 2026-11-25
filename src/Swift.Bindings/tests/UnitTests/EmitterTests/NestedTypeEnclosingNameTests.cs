@@ -232,6 +232,44 @@ public class NestedTypeEnclosingNameTests
             NameProvider.ComputePropertyRenames(fixture.Container, fixture.Database)["OuterKind"]);
     }
 
+    [Fact]
+    public void SwiftDeclarationRecord_NamesTheSwiftTypeBehindTheRenamedLeaf_InEachSdkShape()
+    {
+        // The older SDK's `Outer.outer` is `Outer.OuterInfo`; a newer SDK adding the sibling
+        // `outerInfo` gives that C# name to the sibling and moves `outer` to `OuterInfo2`. The two
+        // copies agree on every C# name and differ only in the Swift declaration behind one of
+        // them, which the record names, so the package merge can refuse to combine them.
+        string? Behind(bool newer, string csharpPath, out string? member)
+        {
+            var fixture = new Fixture("struct");
+            var nested = fixture.AddNested("outer", "class");
+            fixture.AddProperty(nested, "ping");
+            // The sibling has no member: only the walk over every emitted type records it.
+            if (newer)
+                fixture.AddNested("outerInfo", "class");
+            NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+            var context = new ModuleEmissionContext();
+            foreach (var type in fixture.Container.Types)
+            {
+                if (type.Properties.SingleOrDefault(p => p.Name == "ping") is not { } ping)
+                    continue;
+                context.RecordApiManifestEntry(
+                    ModuleEmissionContext.BuildPropertyApiManifestKey(type, "Ping", fixture.Database), "sym", ping, fixture.Database);
+            }
+            SwiftDeclarationMapEmitter.RecordTypes(fixture.Module, context, fixture.Database);
+            context.SwiftMemberDeclarations.TryGetValue(csharpPath + ".Ping", out member);
+            return context.SwiftTypeDeclarations.GetValueOrDefault(csharpPath);
+        }
+
+        Assert.Equal("type TestModule.Outer.outer", Behind(newer: false, "Outer.OuterInfo", out var olderPing));
+        Assert.Equal("var TestModule.Outer.outer.ping", olderPing);
+        Assert.Equal("type TestModule.Outer.outerInfo", Behind(newer: true, "Outer.OuterInfo", out var newerPing));
+        Assert.Null(newerPing);
+        Assert.Equal("type TestModule.Outer.outer", Behind(newer: true, "Outer.OuterInfo2", out var movedPing));
+        Assert.Equal("var TestModule.Outer.outer.ping", movedPing);
+        Assert.Equal("type TestModule.Outer", Behind(newer: true, "Outer", out _));
+    }
+
     private sealed class Fixture
     {
         public TypeDatabase Database { get; } = new();

@@ -100,26 +100,19 @@ public sealed class PrepareSwiftBindingPackageCopy : Microsoft.Build.Utilities.T
     }
 
     /// <summary>
-    /// The SDK the binding was generated from, as its assembly records it; the SDK selected now when
-    /// it records none (an assembly from before identities, or a module with no wrapper).
+    /// The SDK the binding was generated from, as its assembly records it; the SDK it was built
+    /// against when it records no generation SDK (a pure Objective-C binding has no wrapper identity);
+    /// the SDK selected now only for an assembly that records neither (one built before the records).
     /// </summary>
     private string GeneratedSdk()
     {
         if (Assembly.Length == 0 || !File.Exists(Assembly))
             return PlatformSdkVersion;
-        var read = SwiftWrapperIdentityCheck.Read(File.ReadAllBytes(Assembly));
-        foreach (var problem in read.Problems)
-            Log.LogError(null, LabelCode, null, Assembly, 0, 0, 0, 0, "{0}",
-                $"{PackageId} {PackTfm}: the binding's record of the SDK it was generated from does not read: {problem}. Rebuild the binding clean (delete its bin/ and obj/) and pack again.");
-        var sdks = read.Identities.Select(i => i.Sdk).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
-        if (sdks.Count > 1)
-            Log.LogError(null, LabelCode, null, Assembly, 0, 0, 0, 0, "{0}",
-                $"{PackageId} {PackTfm}: the binding's modules were generated from different SDKs ({string.Join(", ", sdks)}), so the copy has no one SDK to be labelled by. Rebuild the binding clean (delete its bin/ and obj/) and pack again.");
-        if (sdks.Count != 1)
-            return PlatformSdkVersion;
-        if (sdks[0] != PlatformSdkVersion.Trim())
-            Log.LogMessage(MessageImportance.High, "{0} {1}: the binding was generated from the {2} SDK; the SDK selected now is {3}. The copy is labelled and declared by the SDK it was generated from.",
-                PackageId, PackTfm, sdks[0], PlatformSdkVersion.Trim().Length > 0 ? PlatformSdkVersion.Trim() : "unknown");
-        return sdks[0];
+        var sdk = PackageCopyRules.CopySdk(File.ReadAllBytes(Assembly), PlatformSdkVersion, out var errors, out var message);
+        foreach (var error in errors)
+            Log.LogError(null, LabelCode, null, Assembly, 0, 0, 0, 0, "{0}", $"{PackageId} {PackTfm}: {error}");
+        if (message is not null)
+            Log.LogMessage(MessageImportance.High, "{0} {1}: {2}", PackageId, PackTfm, message);
+        return sdk;
     }
 }

@@ -340,6 +340,11 @@ namespace BindingsGeneration
                 // the module owed no rows.
                 ApiManifestEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
 
+                // The Swift declaration each of those members and their types stands for, which the
+                // package merge compares across a package's copies ({namespace}.swift-declarations.json).
+                SwiftDeclarationMapEmitter.RecordTypes(moduleDecl, emissionContext, _typeDatabase);
+                SwiftDeclarationMapEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
+
                 // Emit the human-readable member table ({namespace}.api-surface.md) from the SAME
                 // emitted-surface facts, so a consumer-facing README can derive its member list from
                 // what the generator actually emitted instead of a hand-authored (drift-prone) list.

@@ -231,6 +231,30 @@ public class ArtifactParityGateTests
     }
 
     [Fact]
+    public void Reverse_AHashedObjectKeysValueAccessor_IsReferencedThroughItsSetAccessor_AndOnlyThen()
+    {
+        // The wrapper exports a hashed object key's value accessor beside the Set accessor the binding
+        // calls, so the package's newer copies keep every export an older one bound. The pairing is
+        // read off the generator's own symbol names, so a renamed accessor breaks this test.
+        var hashed = new ObjectKeyIdentity("Foundation.NSUUID");
+        var other = new ObjectKeyIdentity("Foundation.NSURL");
+        var cs = $$"""
+            [LibraryImport("SwiftBindings", EntryPoint = "{{hashed.AccessorSymbol("Kit")}}")]
+            private static partial nint GetSet();
+            public nint Use() => GetSet();
+            """;
+        var exports = new[] { hashed.AccessorSymbol("Kit"), hashed.ValueAccessorSymbol("Kit"), other.ValueAccessorSymbol("Kit") };
+        var findings = ArtifactParityGate.ComputeFindings(
+            cs, swiftWrapperSource: "", abiJson: EmptyAbi,
+            symbolsByLibrary: Libs(("SwiftBindings", exports)),
+            wrapperAuthoredSymbols: Set(exports));
+
+        Assert.Equal(hashed.AccessorSymbol("Kit"), ArtifactParityGate.ObjectKeySetAccessorOf(hashed.ValueAccessorSymbol("Kit")));
+        // The other identity's value accessor has no referenced Set accessor, so it is still an orphan.
+        Assert.Equal(new[] { other.ValueAccessorSymbol("Kit") }, findings.ReverseOrphans);
+    }
+
+    [Fact]
     public void Reverse_ExportCalledByAReferencedBridge_IsReferenced_ButNotThroughAnUnreferencedOne()
     {
         // A wrapper export a native Swift bridge calls is reached through the twin that imports the

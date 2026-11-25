@@ -384,7 +384,19 @@ public sealed class HungProcessStacksTests : IDisposable
 
     static HungProcessStacks CaptureDeviceWith(HungProcessSampler.CommandRun result, List<HungProcessSampler.Command>? runs = null) =>
         HungProcessSampler.CaptureDevice("app on device", "/repo/build/scripts/device-hung-stacks.py", "U", 2403,
-            ["/obj/RuntimeTestsApp"], (command, _) => { runs?.Add(command); return result; });
+            () => ["/obj/RuntimeTestsApp"], (command, _) => { runs?.Add(command); return result; });
+
+    [Fact]
+    public void CaptureDevice_WithNoPid_NeitherSearchesForSymbolsNorRunsASession()
+    {
+        var searched = false;
+        var ran = false;
+        var stacks = HungProcessSampler.CaptureDevice("app on device", "/repo/build/scripts/device-hung-stacks.py", "U", null,
+            () => { searched = true; return ["/obj/RuntimeTestsApp"]; }, (_, _) => { ran = true; return new HungProcessSampler.CommandRun(false, 0, ""); });
+        Assert.False(searched);
+        Assert.False(ran);
+        Assert.NotEmpty(stacks.Samples);
+    }
 
     [Fact]
     public void CaptureDevice_TakesBothSamplesInOneSession()

@@ -186,6 +186,10 @@ internal static class NativeIntOverloadEmitter
         // Build parameter list and call arguments
         var paramParts = new List<string>();
         var callArgs = new List<string>();
+        // The C# parameter types the forwarder declares and those of the member it calls, as an
+        // API-surface record spells them (modifier and type, no name).
+        var declaredTypes = new List<string>();
+        var targetTypes = new List<string>();
         for (int i = 1; i < csSignature.Count; i++)
         {
             var arg = csSignature[i];
@@ -206,11 +210,15 @@ internal static class NativeIntOverloadEmitter
                 {
                     paramParts.Add($"{conv.convType}? {paramName}");
                     callArgs.Add($"({conv.nativeType}?){paramName}");
+                    declaredTypes.Add($"{conv.convType}?");
+                    targetTypes.Add($"{conv.nativeType}?");
                 }
                 else
                 {
                     paramParts.Add($"{conv.convType} {paramName}");
                     callArgs.Add($"({conv.nativeType}){paramName}");
+                    declaredTypes.Add(conv.convType);
+                    targetTypes.Add(conv.nativeType);
                 }
             }
             else if (primaryParameters.TryGetValue(paramName, out var primaryParam))
@@ -224,6 +232,8 @@ internal static class NativeIntOverloadEmitter
                     : primaryParam.modifier.Trim() + " ";
                 paramParts.Add(primaryParam.SignatureString());
                 callArgs.Add($"{primaryModifier}{paramName}");
+                declaredTypes.Add($"{primaryModifier}{primaryParam.TypeString()}");
+                targetTypes.Add($"{primaryModifier}{primaryParam.TypeString()}");
             }
             else
             {
@@ -241,6 +251,8 @@ internal static class NativeIntOverloadEmitter
                     typeName = ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
                 paramParts.Add($"{refModifier}{typeName} {paramName}");
                 callArgs.Add($"{refModifier}{paramName}");
+                declaredTypes.Add($"{refModifier}{typeName}");
+                targetTypes.Add($"{refModifier}{typeName}");
             }
         }
 
@@ -255,7 +267,25 @@ internal static class NativeIntOverloadEmitter
             return;
 
         if (overloadKey != null)
+        {
             methodEnv.EmittedProjectedSignatures!.Add(overloadKey);
+            // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
+            // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
+            // forwarder it is for the package merge to compare.
+            // A method is keyed by its projected key, as the primary method is. Every constructor
+            // shape records the parameter types it declares, `ref` included, as the primary
+            // constructor or factory records its own; a failable factory adds its trailing `out` result.
+            var emittedShape = !isConstructorOverload
+                ? default
+                : new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
+                    ctorShape.Kind == ConstructorEmissionKind.FailableFactory
+                        ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
+                        : declaredTypes));
+            methodEnv.EmissionContext?.RecordSwiftDeclaration(
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase, emittedShape),
+                methodDecl, methodEnv.TypeDatabase,
+                forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes));
+        }
 
         // The primary member's own static decision, so a module-level free function (MethodType.Instance,
         // parent is the module) gets a static overload a consumer calling through the type name can reach.
@@ -288,9 +318,7 @@ internal static class NativeIntOverloadEmitter
         {
             // The recovered lanes emit as static factories, so the forwarder delegates in an
             // expression body the way a method's does rather than chaining with `: this(...)`.
-            var factoryTypeName = NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase);
-            if (methodDecl.ParentDecl is TypeDecl factoryParent && factoryParent.IsGeneric)
-                factoryTypeName += GenericTypeEmitter.GetGenericParameterList(factoryParent);
+            var factoryTypeName = FactoryTypeName(methodDecl, methodEnv);
 
             if (ctorShape.Kind == ConstructorEmissionKind.InitFactory)
             {
@@ -604,7 +632,7 @@ internal static class NativeIntOverloadEmitter
                 var conv = conversions.Find(c => c.index == i);
                 return conv != default ? conv.convType : p.typeName;
             }),
-            typeDatabase);
+            typeDatabase, forwardsTo: $"[{string.Join(",", paramInfos.Select(p => p.typeName))}]");
 
         if (getterPoisoned)
         {
@@ -867,6 +895,15 @@ internal static class NativeIntOverloadEmitter
         }
         narrowedType = "";
         return false;
+    }
+
+    /// <summary>The type a recovered constructor factory returns or hands back, generic arguments included.</summary>
+    private static string FactoryTypeName(MethodDecl methodDecl, MethodEnvironment methodEnv)
+    {
+        var name = NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase);
+        return methodDecl.ParentDecl is TypeDecl { IsGeneric: true } parent
+            ? name + GenericTypeEmitter.GetGenericParameterList(parent)
+            : name;
     }
 
     private static string BuildOverloadKey(

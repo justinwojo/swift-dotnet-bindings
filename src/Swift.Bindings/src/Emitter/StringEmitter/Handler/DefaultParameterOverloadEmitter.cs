@@ -756,7 +756,8 @@ public static class DefaultParameterOverloadEmitter
                         ModuleEmissionContext.BuildApiManifestKey(
                             overloadDecl.ParentDecl, overloadEnv.CSharpMethodName, recordedProjectedKey, env.TypeDatabase,
                             emissionContext.GetEmittedApiShape(overloadDecl)),
-                        overloadEnv.EmissionSymbol);
+                        // The trimmed form stands for the full declaration it calls.
+                        overloadEnv.EmissionSymbol, env.MethodDecl, env.TypeDatabase);
                 }
 
                 // A recovery call: the full member was refused and keeps its skip row, but the consumer

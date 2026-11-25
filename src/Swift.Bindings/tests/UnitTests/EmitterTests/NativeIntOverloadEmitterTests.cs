@@ -27,6 +27,43 @@ public class NativeIntOverloadEmitterTests
         Assert.Contains("Skip(int count) => Skip((nint)count);", output);
     }
 
+    [Theory]
+    [InlineData(false, false, "TestClass.TestClass(int)", "(nint)")]
+    [InlineData(true, false, "TestClass.TryCreate(int,out TestClass)", "(nint)")]
+    // This fixture's database spells Swift.Int as System.IntPtr; the forwarder copies the primary's
+    // spelling of every parameter it does not narrow, so its key matches the primary's either way.
+    [InlineData(false, true, "TestClass.TestClass(int,ref System.IntPtr)", "(nint,ref System.IntPtr)")]
+    public void TryEmitOverload_Constructor_RecordsTheForwarderAsTheForwarderItIs(bool failable, bool inoutSeed, string key, string target)
+    {
+        // `TestClass(int)` forwards to `init(count: Int)`; a newer SDK's `init(count: Int32)` would
+        // take that C# signature with the same labels, so the Swift declaration record must tell the
+        // forwarder from a declaration the package merge would otherwise read as unchanged. It is
+        // keyed as the member it declares (a failable factory's with its `out` result, as the primary
+        // factory records it) and names the C# parameter list it calls.
+        // An inout parameter is declared `ref`, and the primary constructor records it so.
+        var method = inoutSeed
+            ? CreateMethod("init", MethodType.Instance, returnType: TupleTypeSpec.Empty, ("count", "Swift.Int"), ("seed", "Swift.Int"))
+            : CreateMethod("init", MethodType.Instance, returnType: TupleTypeSpec.Empty, ("count", "Swift.Int"));
+        if (inoutSeed)
+            method.CSSignature[2].IsInOut = true;
+        method.IsConstructor = true;
+        method.IsFailable = failable;
+        var context = new ModuleEmissionContext();
+
+        var output = EmitMethodOverload(method, env =>
+        {
+            env.EmissionContext = context;
+            env.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        });
+
+        Assert.Contains(failable ? "public static bool TryCreate(int count, out TestClass result)" : "public TestClass(int count", output);
+        var (recorded, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.Equal(key, recorded);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder(
+            inoutSeed ? "init TestModule.TestClass.init(count:seed:)" : "init TestModule.TestClass.init(count:)", target), swift);
+        Assert.NotEqual(SwiftDeclarationMapEmitter.Describe(method), swift);
+    }
+
     [Fact]
     public void TryEmitOverload_SingleNuintParam_EmitsUintOverload()
     {

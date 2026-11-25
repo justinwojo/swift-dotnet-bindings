@@ -2478,12 +2478,57 @@ public sealed class ModuleEmissionContext
     /// Records one emitted public member's C# signature key → native entry symbol
     /// into the API manifest. Called from the overload-disambiguation chokepoints once
     /// the post-collision C# name is known.
+    /// <para>
+    /// <paramref name="declaration"/> is the Swift declaration the member stands for. It is recorded
+    /// under the same key, with every type that contains it under its C# path, in the module's Swift
+    /// declaration record (<see cref="SwiftDeclarationMapEmitter"/>), which the package merge compares
+    /// across a package's copies: a C# name that a newer SDK's added sibling moves to another Swift
+    /// declaration must not merge.
+    /// </para>
     /// </summary>
-    public void RecordApiManifestEntry(string memberSignature, string entrySymbol) =>
+    public void RecordApiManifestEntry(string memberSignature, string entrySymbol,
+        BaseDecl? declaration = null, ITypeDatabase? typeDatabase = null)
+    {
         _apiManifest[memberSignature] = entrySymbol;
+        if (declaration is not null)
+            RecordSwiftDeclaration(memberSignature, declaration, typeDatabase);
+    }
+
+    /// <summary>
+    /// Records that the emitted member keyed <paramref name="memberSignature"/> (an API-manifest key)
+    /// stands for the Swift <paramref name="declaration"/>, and every type containing it for itself.
+    /// <paramref name="forwardsTo"/> marks a native-width convenience overload (an <c>int</c> forwarder
+    /// to an <c>nint</c> member) with the C# parameter list of the member it calls: a newer SDK that
+    /// adds a Swift overload taking the narrow type, or another forwarder, takes over the forwarder's
+    /// C# signature, and only a record that tells the forwarder and its target apart sees that move.
+    /// </summary>
+    public void RecordSwiftDeclaration(string memberSignature, BaseDecl declaration, ITypeDatabase? typeDatabase,
+        string? forwardsTo = null)
+    {
+        if (SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
+            return;
+        _swiftMemberDeclarations[memberSignature] = forwardsTo is null
+            ? described
+            : SwiftDeclarationMapEmitter.DescribeForwarder(described, forwardsTo);
+        for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
+            RecordSwiftTypeDeclaration(type, typeDatabase);
+    }
+
+    /// <summary>Records that the emitted type <paramref name="type"/>'s C# path stands for it.</summary>
+    public void RecordSwiftTypeDeclaration(TypeDecl type, ITypeDatabase? typeDatabase) =>
+        _swiftTypeDeclarations[BuildParentPath(type, typeDatabase)] = SwiftDeclarationMapEmitter.Describe(type)!;
+
+    private readonly SortedDictionary<string, string> _swiftMemberDeclarations = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, string> _swiftTypeDeclarations = new(StringComparer.Ordinal);
 
     /// <summary>The accumulated C# signature → entry symbol map, Ordinal-sorted.</summary>
     public IReadOnlyDictionary<string, string> ApiManifestEntries => _apiManifest;
+
+    /// <summary>The recorded member C# signature → Swift declaration map (see <see cref="RecordApiManifestEntry"/>).</summary>
+    public IReadOnlyDictionary<string, string> SwiftMemberDeclarations => _swiftMemberDeclarations;
+
+    /// <summary>The recorded type C# path → Swift declaration map (see <see cref="RecordApiManifestEntry"/>).</summary>
+    public IReadOnlyDictionary<string, string> SwiftTypeDeclarations => _swiftTypeDeclarations;
 
     /// <summary>
     /// Builds the API-manifest signature key for an emitted member: the parent-type path
@@ -2546,12 +2591,12 @@ public sealed class ModuleEmissionContext
     /// when it has neither.
     /// </summary>
     public void RecordSubscriptApiManifestEntry(SubscriptDecl subscriptDecl,
-        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null)
+        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null, string? forwardsTo = null)
     {
         string symbol = BuildAccessorEntrySymbol(subscriptDecl.Accessors) ?? subscriptDecl.MangledName;
-        RecordApiManifestEntry(
-            BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase),
-            symbol);
+        var key = BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase);
+        RecordApiManifestEntry(key, symbol);
+        RecordSwiftDeclaration(key, subscriptDecl, typeDatabase, forwardsTo);
     }
 
     /// <summary>

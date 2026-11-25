@@ -1134,14 +1134,14 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
             return;
         emissionCtx.RecordApiManifestEntry(
             ModuleEmissionContext.BuildPropertyApiManifestKey(propertyDecl.ParentDecl, name, typeDatabase),
-            symbol);
+            symbol, propertyDecl, typeDatabase);
         // The native-width companion is public surface bound to the same accessors, so the retarget
         // gate sees it the same way; dropping it would let the companion disappear unnoticed.
         if (propertyDecl.EmittedNativeWidthCSharpName is { Length: > 0 } companionName)
         {
             emissionCtx.RecordApiManifestEntry(
                 ModuleEmissionContext.BuildPropertyApiManifestKey(propertyDecl.ParentDecl, companionName, typeDatabase),
-                symbol);
+                symbol, propertyDecl, typeDatabase);
         }
     }
 
@@ -1839,7 +1839,7 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 asyncPropCtx.RecordApiManifestEntry(
                     ModuleEmissionContext.BuildApiManifestKey(
                         propertyDecl.ParentDecl, shape.CSharpName, "()", propertyEnv.TypeDatabase, shape),
-                    asyncPropCtx.GetMethodEntryPointSymbol(accessor.Method));
+                    asyncPropCtx.GetMethodEntryPointSymbol(accessor.Method), propertyDecl, propertyEnv.TypeDatabase);
             }
         }
 

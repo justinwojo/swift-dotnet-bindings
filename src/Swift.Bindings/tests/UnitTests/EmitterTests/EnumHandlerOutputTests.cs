@@ -1061,6 +1061,26 @@ public class EnumHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_SimpleEnumExtensionMembers_RecordTheSwiftDeclarationBehindEachName()
+    {
+        // Extension members are named like every other member (a case-only rename moves one when a
+        // newer SDK adds a sibling), so the Swift declaration record names the declaration behind each.
+        var typeDatabase = CreateTypeDatabase();
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Status", moduleDecl, isFrozen: false);
+        enumDecl.Cases.Add(CreateCase("active"));
+        enumDecl.Cases.Add(CreateCase("inactive"));
+        enumDecl.Properties.Add(CreateInstanceIntProperty("priority", enumDecl, moduleDecl));
+        enumDecl.Properties.Add(CreateStaticIntProperty("count", enumDecl, moduleDecl));
+
+        var (csOutput, _, context) = EmitEnumWithContext(enumDecl, typeDatabase);
+
+        Assert.Contains("GetPriority(this Status self)", csOutput);
+        Assert.Equal("var TestModule.Status.priority", context.SwiftMemberDeclarations["StatusExtensions.GetPriority(this Status)"]);
+        Assert.Equal("static var TestModule.Status.count", context.SwiftMemberDeclarations["StatusExtensions.Count"]);
+    }
+
+    [Fact]
     public void Emit_NonFrozenEnumWithInstanceProperty_EmitsDangerousAddRefRelease()
     {
         // B18 gate lift: non-simple enum instance property accessors must emit

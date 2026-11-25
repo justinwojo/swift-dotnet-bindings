@@ -43,6 +43,15 @@ public static class SwiftWrapperIdentityFormat
     /// <summary>The <c>AssemblyMetadataAttribute</c> key of an identity.</summary>
     public const string AttributeKey = "SwiftBindings.WrapperIdentity";
 
+    /// <summary>
+    /// The <c>AssemblyMetadataAttribute</c> key of the platform SDK version a binding's assembly was
+    /// built against, which the SDK's build stamps on every binding (<c>_RecordSwiftBindingPlatformSdk</c>
+    /// in Sdk.targets). The pack's label check (SWIFTBIND137) reads it for a copy whose assembly carries
+    /// no wrapper identity (a pure Objective-C binding), so a copy packed after another Xcode was
+    /// selected is still labelled by the SDK it was built with.
+    /// </summary>
+    public const string PlatformSdkAttributeKey = "SwiftBindings.PlatformSdk";
+
     /// <summary>The prefix of the native data symbol holding a module's identity.</summary>
     public const string NativeSymbolPrefix = "SBWI_";
 
