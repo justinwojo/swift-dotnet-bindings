@@ -7209,7 +7209,46 @@ public class EveryProtocolEmitter
             used.Add(candidate);
             names.Add(candidate);
         }
+
+        // A thunk body introduces locals named after each parameter (BodyLocalsOf). A parameter
+        // spelled as a sibling's local would be shadowed by it and read as that local's value, so
+        // such a parameter moves aside the same way. The renamed spelling's own locals must not
+        // land on a parameter either; every rename removes one clash, so the loop ends.
+        while (true)
+        {
+            var derived = new HashSet<string>(names.SelectMany(BodyLocalsOf), StringComparer.Ordinal);
+            int clash = names.FindIndex(derived.Contains);
+            if (clash < 0)
+                break;
+            var suffix = 2;
+            string candidate;
+            do
+            {
+                candidate = $"{names[clash]}{suffix++}";
+            }
+            while (reserved.Contains(candidate) || names.Contains(candidate) || derived.Contains(candidate)
+                   || BodyLocalsOf(candidate).Any(names.Contains));
+            names[clash] = candidate;
+        }
         return names;
+    }
+
+    /// <summary>
+    /// The locals a method thunk's body derives from the parameter named <paramref name="name"/>:
+    /// its copy and pointers, its function and context pointers when it is a closure, its
+    /// Objective-C pointer word and the bridged object that word borrows from
+    /// (<see cref="TryBuildObjCPointerInput"/>). Every <c>{paramName}…</c> local the method paths
+    /// write is listed here, so <see cref="BuildSwiftParameterNames"/> can keep parameters off them.
+    /// </summary>
+    private static IEnumerable<string> BodyLocalsOf(string name)
+    {
+        yield return $"{name}Copy";
+        yield return $"{name}CopyPtr";
+        yield return $"{name}CtxPtr";
+        yield return $"{name}FnPtr";
+        yield return $"{name}Local";
+        yield return $"{name}Ref";
+        yield return $"__{name}Bridged";
     }
 
     /// <summary>

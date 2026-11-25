@@ -20,7 +20,7 @@ public protocol URLContainerSink: AnyObject {
     func describeGroups(_ groups: [String: [URL]]) -> String
     func describeRows(_ rows: [[URL]]) -> String
     // Sibling parameters named as a thunk might name its own locals for `urls` and `url`.
-    func describeTagged(_ urls: [URL], urlsNS: String, url: URL, urlNS: Int) -> String
+    func describeTagged(_ urls: [URL], urlsNS: String, url: URL, urlNS: Int, __urlsBridged: Int) -> String
     var storedURLs: [URL] { get set }
     var storedGroups: [String: [URL]] { get set }
     subscript(count urls: [URL]) -> Int { get }
@@ -55,9 +55,9 @@ public func urlSinkDescribeOptionalArray(_ sink: URLContainerSink, present: Bool
     sink.describeOptionalArray(present ? [sinkURL("c")] : nil)
 }
 
-/// What the conformer says about `[a, b]` tagged "tag" and `c` tagged 7.
+/// What the conformer says about `[a, b]` tagged "tag" and `c` tagged 7, and 9.
 public func urlSinkDescribeTagged(_ sink: URLContainerSink) -> String {
-    sink.describeTagged([sinkURL("a"), sinkURL("b")], urlsNS: "tag", url: sinkURL("c"), urlNS: 7)
+    sink.describeTagged([sinkURL("a"), sinkURL("b")], urlsNS: "tag", url: sinkURL("c"), urlNS: 7, __urlsBridged: 9)
 }
 
 /// What the conformer says about `["ab": [a, b], "c": [c]]`.

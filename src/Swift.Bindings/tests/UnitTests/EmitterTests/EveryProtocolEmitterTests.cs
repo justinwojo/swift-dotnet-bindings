@@ -6060,6 +6060,42 @@ public class EveryProtocolEmitterTests
         Assert.Contains("&inSection2Copy", call);
     }
 
+    [Theory]
+    [InlineData("__urlsBridged")]
+    [InlineData("urlsRef")]
+    public void EmitProtocolExtension_ParameterSpelledAsASiblingsBodyLocal_MovesAsideUnderItsLabel(string sibling)
+    {
+        // The body binds `__urlsBridged` and `urlsRef` for a bridged `urls`; a sibling parameter
+        // spelled that way would be shadowed and hand the conformer the bridged object instead.
+        RegisterBridgeableURL();
+        var protocol = CreateSimpleProtocol("URLContainerSink");
+        var method = CreateMethodDecl("inspect");
+        foreach (var (label, type) in new[]
+                 {
+                     ("urls", (TypeSpec)new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.URL"))),
+                     (sibling, new NamedTypeSpec("Swift.Int")),
+                 })
+        {
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                Name = label,
+                SwiftTypeSpec = type,
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            });
+        }
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains($"{sibling} {sibling}2: Swift.Int", SingleLineContaining(output, "func inspect("));
+        Assert.Contains($"var {sibling}2Copy = {sibling}2", output);
+        Assert.Contains($"&{sibling}2Copy", SingleLineContaining(output, "&urlsRef"));
+    }
+
     /// <summary>
     /// A protocol whose method repeats the external label `inSection`, with no private names —
     /// the shape the ABI JSON hands us for a declaration written `inSection source:` /
