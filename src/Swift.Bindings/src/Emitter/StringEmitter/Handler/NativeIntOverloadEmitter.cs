@@ -271,18 +271,17 @@ internal static class NativeIntOverloadEmitter
             methodEnv.EmittedProjectedSignatures!.Add(overloadKey);
             // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
             // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
-            // forwarder it is for the package merge to compare.
-            // A method is keyed by its projected key, as the primary method is. Every constructor
-            // shape records the parameter types it declares, `ref` included, as the primary
-            // constructor or factory records its own; a failable factory adds its trailing `out` result.
-            var emittedShape = !isConstructorOverload
-                ? default
-                : new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
-                    ctorShape.Kind == ConstructorEmissionKind.FailableFactory
-                        ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
-                        : declaredTypes));
+            // forwarder it is for the package merge to compare. It is keyed by the parameter types it
+            // declares, `ref` included, as the primary member records its own (the projected key
+            // normalizes types and drops `ref`, so it would miss the primary that takes the name); a
+            // failable factory adds its trailing `out` result.
+            var emittedShape = new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
+                isConstructorOverload && ctorShape.Kind == ConstructorEmissionKind.FailableFactory
+                    ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
+                    : declaredTypes));
             methodEnv.EmissionContext?.RecordSwiftDeclaration(
-                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase, emittedShape),
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName,
+                    overloadKey, methodEnv.TypeDatabase, emittedShape),
                 methodDecl, methodEnv.TypeDatabase,
                 forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes));
         }

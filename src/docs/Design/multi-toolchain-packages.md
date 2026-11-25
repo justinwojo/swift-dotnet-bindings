@@ -51,9 +51,14 @@ declaration from before `NativePayload` means `native`. Every lane declares its 
 Objective-C ones included; a pure Objective-C assembly records no wrapper identity, so its label is
 judged against the SDK it was built against, which `SwiftBindings.Sdk` stamps on every binding assembly
 it compiles (`AssemblyMetadata("SwiftBindings.PlatformSdk", …)`, target `_RecordSwiftBindingPlatformSdk`):
-a pack without a build after switching Xcode still labels the copy by the SDK its surface came from. The generator writes it beside the consumer targets of a standalone project;
+a pack without a build after switching Xcode still labels the copy by the SDK its surface came from.
+The same target stamps the toolchain that build ran on (`AssemblyMetadata("SwiftBindings.Toolchain",
+".NET <sdk> + Xcode <version>")`), and the declaration's toolchain, which the merge log reports each copy
+as built on, is that one whenever the build read the SDK the label names; a pack on another Xcode with
+no build in between therefore still names the Xcode the label came from, and one that cannot tell says
+so rather than naming the pack-time Xcode (`PackageCopyRules.CopyToolchain`). The generator writes it beside the consumer targets of a standalone project;
 `SwiftBindings.Sdk` writes its own at pack time (`PrepareSwiftBindingPackageCopy`), since only the
-pack knows the toolchain. One writer composes both (`PackageCopyDeclarationEmitter`).
+pack knows the SDK version and paths. One writer composes both (`PackageCopyDeclarationEmitter`).
 
 ## Guards
 
@@ -153,11 +158,28 @@ types, which another SDK may spell differently for the same declaration). Every 
 with members or without, and a native-width convenience overload (an `int` forwarder to the `nint` a Swift
 `Int` projects to) is recorded as a forwarder of its declaration naming the C# parameter list it calls,
 since a newer SDK's `Int32` overload with the same labels, or another overload's forwarder, can take over
-its C# signature. A simple enum's extension members (`<Enum>Extensions`) and a protocol's interface
-properties and methods, which have no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
+its C# signature. The other convenience overloads are recorded the same way, each as what it is: a
+`string` forwarder to a member taking a Swift `URL`, a non-throwing-delegate forwarder to a member taking
+a throwing closure, and a marker-conformer overload naming the conformer it passes. A member's key keeps
+its `ref` parameters, so overloads that differ only by an `inout` parameter, and a forwarder whose
+member has one, have keys of their own. A key spells each parameter as the member declares it, nullable
+annotations and tuple element names included, and neither is part of the CLR signature, so an older key
+the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
+with `Load(string)`, an indexer's `this[string?]` with `this[string]`). A value type's `T?` folds into
+the same shape, so the spelling cannot tell which of them is the older member's: the name moved unless
+every one of them keeps its declaration. That errs toward refusing: a copy that only respells a member
+beside an added overload of another declaration whose key has the same shape is refused too. A simple enum's extension members (`<Enum>Extensions`) and a
+protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
+no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy
 records that another copy does not, and a record that is incomplete (no module, a missing map or an empty
-declaration). The naming rule itself stays
+declaration). Since a record no copy carries would leave its module unchecked, the assembly a module is
+generated into names the module's record and its SHA-256 (`[assembly: AssemblyMetadata("SwiftBindings.SwiftDeclarations", "module=<M>;record=<file>;hash=sha256:<hex>")]`,
+in the `<ns>.WrapperIdentity.g.cs` every build path compiles), and the merge refuses a copy whose
+`lib/<T>/` assembly names a record `buildTransitive/<T>/` does not carry or carries with other bytes, and
+one that declares a module's wrapper identity but names no record for it. That covers a copy packed
+with `--no-build` after its `obj/` was cleaned and a hand-assembled package, which carry the assembly
+without the record it was generated with. The naming rule itself stays
 natural-name-first: a name the newer SDK declares naturally wins over a renamed one, since giving the
 renamed type priority would instead move the natural name in the opposite direction. The manifest-hash
 symbol (`SBTM_`) differs per copy by design and is not compared; the wrapper
@@ -291,10 +313,13 @@ against its own copy and that copy's library: each Swift-built case must read as
 and each managed-built case must reach Swift as itself. The oldest pairing's library app runs a
 second time with only its `CaseOrder.framework` binary replaced by the Xcode 27 build (signed again),
 so the 26.0 copy's binding and wrapper meet the newest library. Controls that must fail with their own
-code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M9; M7 renumbers
+code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M11; M7 renumbers
 one CaseOrder `CaseTag` constant in the 27.2 copy, M8 makes a Matter copy declare natives it does
 not ship, M9 merges two copies of the control library `NestedMove` whose Xcode 27 build gives the renamed
-nested type's C# name to an added sibling), 139 and 140. CaseOrder's Xcode 27 build also gives an
+nested type's C# name to an added sibling, M10 two copies of `InterfaceMove`, whose Xcode 27 build gives
+an interface indexer to another subscript and an `int` default-interface forwarder's signature to an
+`Int32` requirement, and M11 two copies of `InOutMove`, whose Xcode 27 build gives the `int` forwarder of
+an overload with an `inout` parameter to an `Int32` overload), 139 and 140. CaseOrder's Xcode 27 build also gives an
 Objective-C class used as an array element its first set use; the wrapper keeps the element's metadata
 export beside the set's, so its copies still merge.
 Receipts land in `artifacts/multi-toolchain-package/receipts/`.

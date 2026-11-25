@@ -52,6 +52,14 @@ public static class SwiftWrapperIdentityFormat
     /// </summary>
     public const string PlatformSdkAttributeKey = "SwiftBindings.PlatformSdk";
 
+    /// <summary>
+    /// The <c>AssemblyMetadataAttribute</c> key of the toolchain (.NET SDK and Xcode) a binding's
+    /// assembly was built on, which the SDK's build stamps beside <see cref="PlatformSdkAttributeKey"/>.
+    /// The pack declares the copy as built on it, so the toolchain a merged package's log names for a
+    /// copy is the one that read the SDK the copy is labelled by, not the one selected when it packs.
+    /// </summary>
+    public const string ToolchainAttributeKey = "SwiftBindings.Toolchain";
+
     /// <summary>The prefix of the native data symbol holding a module's identity.</summary>
     public const string NativeSymbolPrefix = "SBWI_";
 

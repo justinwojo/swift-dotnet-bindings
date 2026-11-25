@@ -546,6 +546,127 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ASignatureANewerDeclarationTakesWithOtherNullableAnnotations_IsRefused()
+    {
+        // Xcode 26: `Load(string, string?)` forwards `load(url: URL, name: String?)`. Xcode 27 adds
+        // `load(url: String, name: String)`, which declares `Load(string, string)`: one CLR signature,
+        // since a reference type's `?` is only an annotation, so its keys differ while a library compiled
+        // against the older copy binds the newer declaration.
+        const string api = "public static class Kit { public static void Load(string url, string name) { } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,string?)", "static func Kit.Kit.load(url:name:) (url-string forwarder to (Foundation.NSUrl,string?))")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,string)", "static func Kit.Kit.load(url:name:)")])]);
+
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("the C# member Kit.Kit.Load(string,string?) is Swift `static func Kit.Kit.load(url:name:) (url-string forwarder to (Foundation.NSUrl,string?))` "
+            + "in net10.0-ios26.0 but Swift `static func Kit.Kit.load(url:name:)` in net10.0-ios27.2", problem);
+        Assert.Contains("Kit.Load(string,string)", problem);
+    }
+
+    [Fact]
+    public void Merge_ATakeoverBesideAnAddedValueTypeOverloadOfTheSameShape_IsRefused()
+    {
+        // The newer copy declares the older forwarder's CLR signature `Load(string, string, int?)` itself
+        // and adds `Load(string, string, int)`: two keys of one shape, neither the older declaration.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public static class Kit { public static void Load(string url, string name, int? count) { } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,string?,int?)", "static func Kit.Kit.load(url:name:count:) (url-string forwarder to (Foundation.NSUrl,string?,int?))")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "public static class Kit { public static void Load(string url, string name, int? count) { } public static void Load(string url, string name, int count) { } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,string,int?)", "static func Kit.Kit.load(url:name:count:)"),
+                          ("Kit.Load(string,string,int)", "static func Kit.Kit.load(url:name:count:) (native-width forwarder to (string,string,nint))")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(string,string?,int?) is Swift `static func Kit.Kit.load(url:name:count:) (url-string forwarder to (Foundation.NSUrl,string?,int?))` in net10.0-ios26.0", problem);
+        Assert.Contains("as Kit.Kit.Load(string,string,int) or Kit.Kit.Load(string,string,int?)", problem);
+    }
+
+    [Fact]
+    public void Merge_ASignatureANewerDeclarationTakesWithOtherTupleElementNames_IsRefused()
+    {
+        const string api = "public static class Kit { public static void Load(string url, (int, int) options) { } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,(int, int))", "static func Kit.Kit.load(url:options:) (url-string forwarder to (Foundation.NSUrl,(int, int)))")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,(int x, int y))", "static func Kit.Kit.load(url:options:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("as Kit.Kit.Load(string,(int x, int y))", problem);
+    }
+
+    [Fact]
+    public void Merge_ATakeoverBesideAnAddedOverloadThatKeepsTheOlderDeclaration_IsRefused()
+    {
+        // `Load(string?, int?)` is `load(a:b:)`. The newer copy's `Load(string, int?)`, the same CLR
+        // signature, is another declaration, and an added `Load(string, int)` keeps `load(a:b:)`: a
+        // candidate of the same shape that keeps the declaration does not clear the one that moved.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public static class Kit { public static void Load(string a, int? b) { } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string?,int?)", "static func Kit.Kit.load(a:b:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "public static class Kit { public static void Load(string a, int? b) { } public static void Load(string a, int b) { } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,int?)", "static func Kit.Kit.load(c:d:)"), ("Kit.Load(string,int)", "static func Kit.Kit.load(a:b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(string?,int?) is Swift `static func Kit.Kit.load(a:b:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(c:d:)` in net10.0-ios27.2, as Kit.Kit.Load(string,int?)", problem);
+    }
+
+    [Fact]
+    public void Merge_AnIndexerANewerSubscriptTakesWithOtherNullableAnnotations_IsRefused()
+    {
+        const string api = "public interface IIndexed { string this[string key] { get; } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string]", "subscript Kit.Indexed.subscript(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("as Kit.IIndexed.this[string]", problem);
+    }
+
+    [Fact]
+    public void Merge_AKeyWhoseBracketsDoNotClose_IsComparedAsSpelled()
+    {
+        const string api = "public interface IIndexed { string this[string key] { get; } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)"), ("IIndexed.this][", "subscript Kit.Indexed.subscript(b:)")])]);
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
+    [Theory]
+    [InlineData("Kit.Load(string,string?)", "Kit.Load(string,string)")]
+    [InlineData("Kit.Load(string,(int, System.Collections.Generic.IReadOnlyList<string?> b))", "Kit.Load(string,(int a, System.Collections.Generic.IReadOnlyList<string> b))")]
+    [InlineData("Kit.Load(ref string?,int)`1", "Kit.Load(ref string,int)`1")]
+    [InlineData("IIndexed.this[string?]", "IIndexed.this[string]")]
+    public void Merge_AnnotationsAndTupleNamesAloneDoNotMoveAName(string olderKey, string newerKey)
+    {
+        // The same declaration spelled with other annotations or element names is no move.
+        const string api = "public static class Kit { public static void Load(string url, string name) { } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")], members: [(olderKey, "static func Kit.Kit.load(url:name:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("Kit", "type Kit.Kit")], members: [(newerKey, "static func Kit.Kit.load(url:name:)")])]);
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
+    [Fact]
     public void Merge_CopiesWhoseNamesKeepTheirSwiftDeclarations_Merge_AndANewerCopyWithoutTheRecord_IsRefused()
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], extra: [Declarations("net10.0-ios26.0",
@@ -570,6 +691,56 @@ public sealed class PackageCopyTests : IDisposable
             Encoding.UTF8.GetBytes($"{{\"schema_version\": {SwiftDeclarationRecordFormat.SchemaVersion}, \"module\": \"Kit\", \"types\": {{}}}}"))]);
         Assert.Contains("is not a complete Swift declaration record", Assert.Single(Merge([older, incomplete], "net10.0-ios26.0", "net10.0-ios27.2").Problems));
     }
+
+    [Fact]
+    public void Merge_ARecordNoCopyCarries_IsRefused_AndOneFromAnotherGeneration_IsRefused()
+    {
+        // Each assembly names its module's record and the record's hash. A pack that loses the record
+        // (`--no-build` after obj/ was cleaned, a hand-assembled package) loses it from every copy, which
+        // the pairwise comparison cannot see: the module's names would merge unchecked.
+        var record = Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")], members: [("Kit.A()", "static func Kit.Kit.a()")]).Data;
+        var api = Witnessed(record) + "public static class Kit { public static int A() => 1; }";
+        (string, byte[]) Record(string tfm, byte[] data) => ($"buildTransitive/{tfm}/{SwiftDeclarationRecordFormat.FileName("Kit")}", data);
+
+        var carried = Merge([Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Record("net10.0-ios26.0", record)]),
+            Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Record("net10.0-ios27.2", record)])], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(carried.Problems.IsEmpty, string.Join("\n", carried.Problems));
+
+        var lost = Merge([Contribution("y26", ["net10.0-ios26.0"], api: api), Contribution("y27", ["net10.0-ios27.2"], api: api)],
+            "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Equal(2, lost.Problems.Length);
+        Assert.All(lost.Problems, p => Assert.Contains("was generated with the Swift declaration record Kit.swift-declarations.json of the module Kit", p));
+        Assert.Contains(lost.Problems, p => p.Contains("the copy net10.0-ios26.0 does not carry it", StringComparison.Ordinal));
+        Assert.Null(lost.Package);
+
+        // A record of another generation passes the pairwise comparison against itself, but describes
+        // names the assembly may not declare.
+        var other = Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")], members: [("Kit.B()", "static func Kit.Kit.b()")]).Data;
+        var stale = Merge([Contribution("z26", ["net10.0-ios26.0"], api: api, extra: [Record("net10.0-ios26.0", other)]),
+            Contribution("z27", ["net10.0-ios27.2"], api: api, extra: [Record("net10.0-ios27.2", record)])], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains("buildTransitive/net10.0-ios26.0/Kit.swift-declarations.json is not the Swift declaration record lib/net10.0-ios26.0/Acme.Kit.dll was generated with",
+            Assert.Single(stale.Problems));
+    }
+
+    [Fact]
+    public void Merge_AModuleWithAWrapperButNoRecordWitness_IsRefused()
+    {
+        // A generator that records no declarations names no record, so neither copy carries one and
+        // nothing names it missing; the module's wrapper identity says a record is owed.
+        string Api(string tfm) =>
+            $"[assembly: System.Reflection.AssemblyMetadata(\"{SwiftWrapperIdentityFormat.AttributeKey}\", \"{new SwiftWrapperIdentity("Kit", "AcmeKitSwiftBindings", tfm, "26.2", Generator, SwiftWrapperIdentityFormat.SourceDigest("x")).Value}\")]\n"
+            + "public static class Kit { public static int A() => 1; }";
+
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], api: Api("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], api: Api("net10.0-ios27.2"))], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        Assert.Contains(result.Problems, p => p.Contains("lib/net10.0-ios26.0/Acme.Kit.dll declares the wrapper of the Swift module Kit but names no Swift declaration record for it", StringComparison.Ordinal));
+        Assert.Contains(result.Problems, p => p.Contains("lib/net10.0-ios27.2/Acme.Kit.dll declares the wrapper of the Swift module Kit but names no Swift declaration record for it", StringComparison.Ordinal));
+        Assert.Null(result.Package);
+    }
+
+    private static string Witnessed(byte[] record) =>
+        $"[assembly: System.Reflection.AssemblyMetadata(\"{SwiftDeclarationRecordFormat.AttributeKey}\", \"{SwiftDeclarationRecordFormat.Witness("Kit", SwiftDeclarationRecordFormat.FileName("Kit"), SwiftDeclarationRecordFormat.Hash(record))}\")]\n";
 
     [Fact]
     public void Merge_CopiesOfDifferentPlatforms_AreNotComparedForApi()

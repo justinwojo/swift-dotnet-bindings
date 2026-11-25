@@ -125,7 +125,10 @@ public static class SwiftBindingPackageMerge
         var copies = owner.Select(kv => ToCopy(kv.Key, kv.Value)).OrderBy(c => c.Platform, StringComparer.Ordinal)
             .ThenBy(c => c.Net).ThenBy(c => c.PlatformVersion).ToList();
         foreach (var copy in copies)
+        {
             notes.Add($"  {copy.Tfm}: {Name(copy.From)} (built on {DeclarationValue(copy.From, copy.Tfm, "Toolchain") ?? "an unrecorded toolchain"})");
+            problems.AddRange(WitnessedSwiftDeclarations(copy));
+        }
 
         // Newer copies contain older ones: API and native exports, per platform.
         foreach (var platform in copies.GroupBy(c => c.Platform))
@@ -636,6 +639,25 @@ public static class SwiftBindingPackageMerge
                 foreach (var (key, was) in olderMap.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                     if (newerMap.TryGetValue(key, out var now) && !string.Equals(was, now, StringComparison.Ordinal))
                         moved.Add($"the C# {kind} {before.Module}.{key} is Swift `{was}` in {older.Tfm} but Swift `{now}` in {newer.Tfm}");
+            // A key spells its parameters as the member declares them, nullable annotations and tuple
+            // element names included, and neither is part of the CLR signature a library binds:
+            // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
+            // member whose key the newer copy lacks is compared with the newer copy's own keys of the
+            // same CLR shape (ClrShape). The shape also folds a value type's `T?` into `T`, so it can name
+            // several signatures and the spelling cannot tell which one is the older member's: the name
+            // moved unless every one of them keeps its declaration. An older signature the newer copy
+            // lost outright is refused by the public API comparison.
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
+            foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
+            {
+                var candidates = newerOnly[ClrShape(olderKey)].OrderBy(k => k, StringComparer.Ordinal).ToList();
+                var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
+                if (others.Count == 0)
+                    continue;
+                moved.Add($"the C# member {before.Module}.{olderKey} is Swift `{was}` in {older.Tfm} but Swift "
+                          + string.Join(" or ", others.Select(k => $"`{after.Members[k]}`")) + $" in {newer.Tfm}, as "
+                          + string.Join(" or ", others.Select(k => $"{before.Module}.{k}")));
+            }
             notes.Add($"  Swift declarations {file}: {older.Tfm} -> {newer.Tfm}, {before.Types.Count + before.Members.Count} names, {moved.Count} moved");
             if (moved.Count == 0)
                 continue;
@@ -646,6 +668,123 @@ public static class SwiftBindingPackageMerge
                          + "ship them as separate packages, or pin the name in the binding.");
             // The refusal names ten; the log names every one.
             notes.AddRange(moved.Select(m => $"  moved name {file}: {m}"));
+        }
+        return problems;
+    }
+
+    /// <summary>
+    /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix, or an indexer's
+    /// <c>Parent.this[T1]</c>) without what its parameter spelling carries beyond the CLR signature:
+    /// nullable annotations and tuple element names. A value type's <c>T?</c> is a signature of its own,
+    /// so the shape can name several signatures. A property key has no parameter list and stays as it is.
+    /// </summary>
+    internal static string ClrShape(string key)
+    {
+        var open = key.IndexOfAny(new[] { '(', '[' });
+        var close = open < 0 ? -1 : Matching(key, open, key[open], key[open] == '(' ? ')' : ']');
+        if (open < 0 || close < 0)
+            return key;
+        return key[..(open + 1)] + WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal) + key[close..];
+
+        static string WithoutTupleNames(string types)
+        {
+            var text = new System.Text.StringBuilder(types.Length);
+            for (var i = 0; i < types.Length; i++)
+            {
+                var end = types[i] == '(' ? Matching(types, i, '(', ')') : -1;
+                if (end < 0)
+                {
+                    text.Append(types[i]);
+                    continue;
+                }
+                var elements = TopLevelElements(types[(i + 1)..end]).Select(e => WithoutName(WithoutTupleNames(e.Trim())));
+                text.Append('(').Append(string.Join(", ", elements)).Append(')');
+                i = end;
+            }
+            return text.ToString();
+        }
+
+        static IEnumerable<string> TopLevelElements(string list)
+        {
+            var (depth, from) = (0, 0);
+            for (var i = 0; i < list.Length; i++)
+            {
+                if (list[i] is '(' or '<' or '[') depth++;
+                else if (list[i] is ')' or '>' or ']') depth--;
+                else if (list[i] == ',' && depth == 0)
+                {
+                    yield return list[from..i];
+                    from = i + 1;
+                }
+            }
+            yield return list[from..];
+        }
+
+        // `int x` -> `int`; a space inside a nested type's arguments is not a name.
+        static string WithoutName(string element)
+        {
+            var depth = 0;
+            for (var i = element.Length - 1; i >= 0; i--)
+            {
+                if (element[i] is ')' or '>' or ']') depth++;
+                else if (element[i] is '(' or '<' or '[') depth--;
+                else if (element[i] == ' ' && depth == 0) return element[..i];
+            }
+            return element;
+        }
+
+        static int Matching(string text, int open, char opening, char closing)
+        {
+            var depth = 0;
+            for (var i = open; i < text.Length; i++)
+            {
+                if (text[i] == opening) depth++;
+                else if (text[i] == closing && --depth == 0) return i;
+            }
+            return -1;
+        }
+    }
+
+    /// <summary>
+    /// Every Swift declaration record a copy's assemblies name (<see cref="BindingsGeneration.SwiftDeclarationRecordFormat.AttributeKey"/>,
+    /// written by generation beside each module's wrapper identity) must be packed in the copy's
+    /// <c>buildTransitive/&lt;tfm&gt;/</c> with the bytes the assembly hashed, and every module with a
+    /// wrapper identity must name one. The pairwise comparison checks only records both copies carry,
+    /// so a record no copy carries (a pack with <c>--no-build</c> after the intermediate directory was
+    /// cleaned, a hand-assembled package) would otherwise leave the module's names unchecked, and a
+    /// record from another generation would compare names the assembly does not declare.
+    /// </summary>
+    private static IEnumerable<string> WitnessedSwiftDeclarations(Copy copy)
+    {
+        var problems = new List<string>();
+        var lib = $"lib/{copy.Tfm}/";
+        var records = $"buildTransitive/{copy.Tfm}/";
+        const string repack = "Pack the copy again from a clean build of the binding (delete its bin/ and obj/), with the same SwiftBindings SDK as the other copies.";
+        foreach (var (name, image) in copy.From.Files
+                     .Where(f => f.Key.StartsWith(lib, StringComparison.Ordinal) && f.Key.IndexOf('/', lib.Length) < 0
+                                 && f.Key.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                     .OrderBy(f => f.Key, StringComparer.Ordinal))
+        {
+            var witnessed = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var witness in SwiftBindings.TransitionGate.SwiftWrapperIdentityCheck.ReadMetadata(image, BindingsGeneration.SwiftDeclarationRecordFormat.AttributeKey))
+            {
+                if (!BindingsGeneration.SwiftDeclarationRecordFormat.TryParseWitness(witness, out var module, out var record, out var hash))
+                {
+                    problems.Add($"{name} names a Swift declaration record as '{witness}', which does not read as one. {repack}");
+                    continue;
+                }
+                witnessed.Add(module);
+                if (!copy.From.Files.TryGetValue(records + record, out var bytes))
+                    problems.Add($"{name} was generated with the Swift declaration record {record} of the module {module}, but the copy {copy.Tfm} does not carry it in {records}, "
+                                 + $"so the C# names of {module} cannot be checked against the other copies. {repack}");
+                else if (BindingsGeneration.SwiftDeclarationRecordFormat.Hash(bytes) != hash)
+                    problems.Add($"{records}{record} is not the Swift declaration record {name} was generated with ({hash}): it comes from another generation of the binding, "
+                                 + $"so it does not describe the names the copy {copy.Tfm} declares. {repack}");
+            }
+            var identities = SwiftBindings.TransitionGate.SwiftWrapperIdentityCheck.Read(image).Identities;
+            foreach (var identity in identities.Where(i => !witnessed.Contains(i.Module)).OrderBy(i => i.Module, StringComparer.Ordinal))
+                problems.Add($"{name} declares the wrapper of the Swift module {identity.Module} but names no Swift declaration record for it: it was generated by a SwiftBindings SDK "
+                             + $"that does not record which Swift declaration each C# name stands for, so the copy {copy.Tfm}'s names cannot be checked. {repack}");
         }
         return problems;
     }

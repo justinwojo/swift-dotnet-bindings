@@ -100,6 +100,8 @@ internal static class ThrowingClosureSimplificationEmitter
         var paramParts = new List<string>();
         var wrapperSetup = new List<string>();
         var callArgs = new List<string>();
+        var targetTypes = new List<string>();
+        var declaredTypes = new List<string>();
         var closureHandler = methodEnv.ClosureHandler;
 
         for (int i = 1; i < csSignature.Count; i++)
@@ -123,23 +125,38 @@ internal static class ThrowingClosureSimplificationEmitter
                 // lane's SwiftSet<SwiftString>) the lambda's pass-through call is a compile error.
                 var simplifiedType = GetSimplifiedDelegateType(throwingClosure.ClosureSpec, closureHandler);
                 paramParts.Add($"{simplifiedType} {paramName}");
+                declaredTypes.Add(simplifiedType);
 
                 var originalType = closureHandler.GetCSharpDelegateType(throwingClosure.ClosureSpec);
                 var wrapperName = $"_wrapped_{paramName}";
                 var wrapperBody = BuildWrapperLambda(throwingClosure, closureHandler, paramName);
                 wrapperSetup.Add($"{originalType} {wrapperName} = {wrapperBody};");
                 callArgs.Add(wrapperName);
+                targetTypes.Add(originalType);
             }
             else
             {
                 var typeName = NativeIntOverloadEmitter.ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
+                targetTypes.Add(typeName);
+                declaredTypes.Add(typeName);
             }
         }
 
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
+
+        // The simplified overload's C# signature is the one a newer SDK's Swift overload taking a
+        // non-throwing closure projects to, so it is recorded as the forwarder it is for the package
+        // merge to compare, keyed by the parameter types it declares.
+        methodEnv.EmissionContext?.RecordSwiftDeclaration(
+            ModuleEmissionContext.BuildApiManifestKey(methodEnv.MethodDecl.ParentDecl, methodName,
+                methodName, methodEnv.TypeDatabase,
+                new ModuleEmissionContext.EmittedApiShape(null, ModuleEmissionContext.FormatParameterPortion(declaredTypes))),
+            methodEnv.MethodDecl, methodEnv.TypeDatabase,
+            forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),
+            forwarderKind: SwiftDeclarationMapEmitter.NonThrowingClosureForwarder);
 
         // Determine the effective return type for the overload
         string effectiveReturnType;

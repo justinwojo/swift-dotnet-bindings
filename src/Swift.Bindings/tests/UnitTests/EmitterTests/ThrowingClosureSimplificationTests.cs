@@ -92,6 +92,28 @@ public class ThrowingClosureSimplificationTests
     }
 
     [Fact]
+    public void ThrowingOverload_RecordsTheForwarderAsTheForwarderItIs()
+    {
+        // The simplified overload's C# signature is the one a newer SDK's overload taking a
+        // non-throwing closure with the same labels declares, so the Swift declaration record must
+        // tell the forwarder from the declaration for the package merge to see the move.
+        var method = CreateMethodWithThrowingClosure("doWork", "action",
+            hasClosureReturn: false);
+        var context = new ModuleEmissionContext();
+        var env = new MethodEnvironment(method, _typeDatabase)
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal),
+        };
+
+        ThrowingClosureSimplificationEmitter.TryEmitOverload(new CSharpWriter(new StringWriter()), env);
+
+        var (key, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.Contains("DoWork(", key);
+        Assert.StartsWith(SwiftDeclarationMapEmitter.Describe(method)! + " (" + SwiftDeclarationMapEmitter.NonThrowingClosureForwarder + " (", swift);
+    }
+
+    [Fact]
     public void ShouldSimplify_ReturnsFalse_WhenDedupKeyAlreadyExists()
     {
         var method = CreateMethodWithThrowingClosure("doWork", "action",

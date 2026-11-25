@@ -183,6 +183,81 @@ public class UrlStringConvenienceOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_RecordsTheForwarderAsTheForwarderItIs()
+    {
+        // `Load(string, string)` forwards to `load(url:name:)`. A newer SDK's `load(url: String, name:
+        // String)` declares that C# signature itself, so the Swift declaration record must tell the
+        // forwarder from the declaration, or the package merge reads the moved signature as unchanged.
+        var method = CreateMethod("load", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("url", "Foundation.URL"), ("name", "Swift.String"));
+        var context = new ModuleEmissionContext();
+        var writer = new StringWriter();
+        var env = new MethodEnvironment(method, CreateTypeDatabase())
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(System.StringComparer.Ordinal),
+        };
+
+        UrlStringConvenienceOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+
+        Assert.Contains("Load(string url, string name)", writer.ToString());
+        var (key, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.EndsWith(".Load(string,string)", key);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder(SwiftDeclarationMapEmitter.Describe(method)!,
+            "(Foundation.NSUrl,string)", SwiftDeclarationMapEmitter.UrlStringForwarder), swift);
+    }
+
+    [Fact]
+    public void TryEmitOverload_RecordsTheForwarderUnderItsDeclaredSignature()
+    {
+        // The record key is the signature the forwarder declares, spelled as the primary member's
+        // would be: a nullable passthrough stays `string?`, not the projected key's normalized `string`.
+        var optString = new NamedTypeSpec("Swift.Optional");
+        optString.GenericParameters.Add(new NamedTypeSpec("Swift.String"));
+        var method = CreateMethodCore("load", MethodType.Instance, TupleTypeSpec.Empty, isInOut: false,
+            ("url", new NamedTypeSpec("Foundation.URL")), ("name", optString));
+        var context = new ModuleEmissionContext();
+        var writer = new StringWriter();
+        var env = new MethodEnvironment(method, CreateTypeDatabase())
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(System.StringComparer.Ordinal),
+        };
+
+        UrlStringConvenienceOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+
+        Assert.Contains("Load(string url, string? name)", writer.ToString());
+        var (key, _) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.EndsWith(".Load(string,string?)", key);
+    }
+
+    [Fact]
+    public void TryEmitOverload_RecordsEveryPassThroughAsTheForwarderDeclaresIt()
+    {
+        // A passed-through parameter is recorded with the type the forwarder declares, which need not
+        // be the primary's (a tuple element the primary keeps as its ABI type): the key must be the
+        // signature a caller binds, or a newer member declaring that signature is never compared.
+        var tuple = new TupleTypeSpec(new TypeSpec[] { new NamedTypeSpec("Swift.Int32"), new NamedTypeSpec("Swift.String") });
+        var method = CreateMethodCore("load", MethodType.Instance, TupleTypeSpec.Empty, isInOut: false,
+            ("url", new NamedTypeSpec("Foundation.URL")), ("options", tuple));
+        var context = new ModuleEmissionContext();
+        var writer = new StringWriter();
+        var env = new MethodEnvironment(method, CreateTypeDatabase())
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(System.StringComparer.Ordinal),
+        };
+
+        UrlStringConvenienceOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+
+        var declared = System.Text.RegularExpressions.Regex.Match(writer.ToString(), @"Load\(string url, ([^\n]+?) options\)");
+        Assert.True(declared.Success, writer.ToString());
+        var (key, _) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.EndsWith($".Load(string,{declared.Groups[1].Value})", key);
+    }
+
+    [Fact]
     public void TryEmitOverload_DuplicateSignature_SkipsSecond()
     {
         var method1 = CreateMethod("open", MethodType.Instance,

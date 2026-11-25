@@ -63,6 +63,24 @@ public static class PackageCopyRules
 
 
     /// <summary>
+    /// The toolchain a copy labelled by <paramref name="labelSdk"/> is declared as built on: the one
+    /// its assembly records it was built on (<see cref="SwiftWrapperIdentityFormat.ToolchainAttributeKey"/>)
+    /// when that build read the label's SDK; the one selected now (<paramref name="selectedToolchain"/>)
+    /// when it selects the label's SDK; otherwise neither is the toolchain the label came from, and the
+    /// declaration says so rather than name one that did not build the copy.
+    /// </summary>
+    public static string CopyToolchain(byte[] image, string labelSdk, string selectedSdk, string selectedToolchain)
+    {
+        var built = SwiftWrapperIdentityCheck.ReadPlatformSdks(image);
+        var toolchains = SwiftWrapperIdentityCheck.ReadToolchains(image);
+        if (toolchains.Length == 1 && built.Length == 1 && built[0] == labelSdk.Trim())
+            return toolchains[0];
+        if (selectedSdk.Trim() == labelSdk.Trim())
+            return selectedToolchain;
+        return $"an unrecorded toolchain with the {labelSdk.Trim()} SDK (packed on {selectedToolchain})";
+    }
+
+    /// <summary>
     /// SWIFTBIND137: the copy <paramref name="packTfm"/> of an Apple-framework binding must be labelled
     /// with the platform SDK it was generated from: the same major version, and no newer. A label below
     /// the SDK's major (a versionless .NET 10 library defaults to <c>26.0</c> on Xcode 27.2, whose SDK is

@@ -2497,19 +2497,21 @@ public sealed class ModuleEmissionContext
     /// <summary>
     /// Records that the emitted member keyed <paramref name="memberSignature"/> (an API-manifest key)
     /// stands for the Swift <paramref name="declaration"/>, and every type containing it for itself.
-    /// <paramref name="forwardsTo"/> marks a native-width convenience overload (an <c>int</c> forwarder
-    /// to an <c>nint</c> member) with the C# parameter list of the member it calls: a newer SDK that
-    /// adds a Swift overload taking the narrow type, or another forwarder, takes over the forwarder's
-    /// C# signature, and only a record that tells the forwarder and its target apart sees that move.
+    /// <paramref name="forwardsTo"/> marks a convenience overload of <paramref name="forwarderKind"/>
+    /// (by default a native-width <c>int</c> forwarder to an <c>nint</c> member) with what it reaches
+    /// the declaration through, for a forwarder the C# parameter list of the member it calls: a newer
+    /// SDK that adds a Swift overload with the overload's C# shape, or another convenience overload,
+    /// takes over its C# signature, and only a record that tells the overload and its target apart
+    /// sees that move.
     /// </summary>
     public void RecordSwiftDeclaration(string memberSignature, BaseDecl declaration, ITypeDatabase? typeDatabase,
-        string? forwardsTo = null)
+        string? forwardsTo = null, string forwarderKind = SwiftDeclarationMapEmitter.NativeWidthForwarder)
     {
         if (SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
             return;
         _swiftMemberDeclarations[memberSignature] = forwardsTo is null
             ? described
-            : SwiftDeclarationMapEmitter.DescribeForwarder(described, forwardsTo);
+            : SwiftDeclarationMapEmitter.DescribeForwarder(described, forwardsTo, forwarderKind);
         for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
             RecordSwiftTypeDeclaration(type, typeDatabase);
     }
@@ -2740,6 +2742,39 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public static string FormatParameterPortion(IEnumerable<string> parameterTypes) =>
         "(" + string.Join(",", parameterTypes) + ")";
+
+    /// <summary>
+    /// <paramref name="projectedKey"/> (<c>Name(T1,T2)</c>, optionally with a generic-arity suffix)
+    /// with each parameter <paramref name="method"/> takes <c>inout</c> spelled <c>ref T</c>, as the
+    /// member declares it. The projected key is an overload-identity key and leaves <c>ref</c> out, so
+    /// it cannot tell <c>F(ref int)</c> from <c>F(int)</c>; a key that names a member must. The key's
+    /// parameters are the method's own after the debug and empty-tuple parameters a projected key
+    /// drops, plus an async method's trailing token, which is never <c>inout</c>. A key whose
+    /// parameter count does not match is returned unchanged.
+    /// </summary>
+    public static string WithRefParameters(string projectedKey, MethodDecl method)
+    {
+        var inout = new List<bool>();
+        for (var i = 1; i < method.CSSignature.Count; i++)
+        {
+            var arg = method.CSSignature[i];
+            if (DefaultParameterOverloadEmitter.IsDebugParameter(arg) || arg.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            inout.Add(arg.IsInOut);
+        }
+        if (!inout.Contains(true))
+            return projectedKey;
+        var open = projectedKey.IndexOf('(');
+        var close = open < 0 ? -1 : IndexOfMatchingParen(projectedKey, open);
+        if (close < 0)
+            return projectedKey;
+        var shape = OverloadAmbiguityGuard.ParseKey(projectedKey[..(close + 1)], 0);
+        var types = shape.ParameterTypes;
+        if (types.Count < inout.Count)
+            return projectedKey;
+        var spelled = types.Select((t, i) => i < inout.Count && inout[i] && !t.StartsWith("ref ", StringComparison.Ordinal) ? "ref " + t : t);
+        return projectedKey[..open] + FormatParameterPortion(spelled) + projectedKey[(close + 1)..];
+    }
 
     private static string BuildParentPath(BaseDecl? parent, ITypeDatabase? typeDatabase)
     {

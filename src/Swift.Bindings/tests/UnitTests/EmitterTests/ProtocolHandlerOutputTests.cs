@@ -3473,10 +3473,227 @@ public class ProtocolHandlerOutputTests
             TypeHandlerContext.Empty with { EmissionContext = emissionContext });
 
         Assert.Contains("SettingMethod(nint input)", csOutput);
-        var (key, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains('('));
+        var (key, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains("(nint)", StringComparison.Ordinal));
         Assert.EndsWith(".SettingMethod(nint)", key);
         Assert.Equal("func setting(input:)", swift);
+        // Its `int` forwarder is declared under the same name and recorded as the forwarder it is.
+        var (forwarderKey, forwarder) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains("(int)", StringComparison.Ordinal));
+        Assert.EndsWith(".SettingMethod(int)", forwarderKey);
+        Assert.Equal("func setting(input:) (native-width forwarder to (nint))", forwarder);
     }
+
+    [Fact]
+    public void Emit_InterfaceSubscript_RecordsTheSwiftDeclarationBehindTheIndexer()
+    {
+        // A newer SDK can add a subscript whose index types project like an existing one's; the first
+        // declared keeps `this[nint]`, so the indexer's C# signature can stand for another subscript.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        protocol.Subscripts.Add(CreateIntSubscript("b", protocol, moduleDecl));
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("nint this[nint b]", csOutput);
+        var (_, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".this[nint]", StringComparison.Ordinal));
+        Assert.StartsWith("subscript ", swift);
+        Assert.EndsWith(".subscript(b:)", swift);
+    }
+
+    [Fact]
+    public void Emit_InterfaceSubscriptsSharingAnIndexer_ProxyImplementsOnlyTheEmittedOne()
+    {
+        // Two subscripts that differ only by label project to one indexer. The interface keeps the first;
+        // the proxy must implement exactly the interface's indexer, not both (CS0111 refuses the binding).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        protocol.Subscripts.Add(CreateIntSubscript("a", protocol, moduleDecl));
+        protocol.Subscripts.Add(CreateIntSubscript("b", protocol, moduleDecl));
+        // No emission context: the proxy is written inline rather than deferred to the module.
+        var (csOutput, _) = EmitProtocol(protocol, CreateTypeDatabase());
+        var proxy = csOutput.IndexOf("class RecordedProxy", StringComparison.Ordinal);
+        Assert.True(proxy > 0, "the proxy is emitted");
+        Assert.Contains("nint this[nint a]", csOutput[..proxy]);
+        Assert.DoesNotContain("this[nint b]", csOutput);
+        Assert.Contains("nint this[nint a]", csOutput[proxy..]);
+
+        var emissionContext = new ModuleEmissionContext();
+        EmitProtocol(protocol, CreateTypeDatabase(), TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+        var (_, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".this[nint]", StringComparison.Ordinal));
+        Assert.EndsWith(".subscript(a:)", swift);
+    }
+
+    [Fact]
+    public void Emit_InterfaceNativeIntOverload_RecordsTheForwarder()
+    {
+        // The `int` default interface method forwards to the `nint` requirement. A newer SDK's `Int32`
+        // requirement with the same labels declares that signature itself, so the record must name the
+        // forwarder as one, or the merge cannot see the signature change hands.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        protocol.Methods.Add(CreateRequirement("skip", "count", "Swift.Int", protocol, moduleDecl));
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateRecordTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("Skip(int count) => Skip((nint)count);", csOutput);
+        var (_, requirement) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".Skip(nint)`1", StringComparison.Ordinal));
+        Assert.EndsWith(".skip(count:)", requirement);
+        var (_, forwarder) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".Skip(int)`1", StringComparison.Ordinal));
+        Assert.Equal($"{requirement} (native-width forwarder to (nint))", forwarder);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Emit_InterfaceNarrowRequirementBesideNativeInt_KeepsTheRequirementOverTheForwarder(bool nativeFirst)
+    {
+        // `skip(count: Int32)` declares `Skip(int)` itself, so the `Int` requirement's forwarder must
+        // yield to it whatever the declaration order: two `Skip(int)` members do not compile, and the
+        // compile recovery would then withdraw a requirement a conformer has to implement.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        var native = CreateRequirement("skip", "count", "Swift.Int", protocol, moduleDecl);
+        var narrow = CreateRequirement("skip", "count", "Swift.Int32", protocol, moduleDecl);
+        protocol.Methods.AddRange(nativeFirst ? new[] { native, narrow } : new[] { narrow, native });
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateRecordTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        var interfaceStart = csOutput.IndexOf("interface IRecorded", StringComparison.Ordinal);
+        var interfaceEnd = csOutput.IndexOf(" class ", interfaceStart, StringComparison.Ordinal);
+        var interfaceBody = interfaceEnd < 0 ? csOutput[interfaceStart..] : csOutput[interfaceStart..interfaceEnd];
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(interfaceBody, @"Skip\(int count\)"));
+        Assert.Contains("Skip(int count);", interfaceBody);
+        Assert.Contains("Skip(nint count);", interfaceBody);
+        var (_, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".Skip(int)`1", StringComparison.Ordinal));
+        Assert.DoesNotContain("forwarder", swift);
+    }
+
+    [Fact]
+    public void Emit_InterfaceInOutRequirement_RecordsItsRefSignature()
+    {
+        // The interface declares `Bump(ref int)`. A record keyed `Bump(int)` guards a signature the
+        // interface never declares, and does not meet the key a forwarder or a class member writes
+        // for the same C# signature.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        var bump = CreateRequirement("bump", "value", "Swift.Int32", protocol, moduleDecl);
+        bump.CSSignature[1].IsInOut = true;
+        protocol.Methods.Add(bump);
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateRecordTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("Bump(ref int value);", csOutput);
+        var (key, _) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains(".Bump(", StringComparison.Ordinal));
+        Assert.EndsWith(".Bump(ref int)`1", key);
+    }
+
+    [Fact]
+    public void Emit_InterfaceNativeIntOverloadWithInOut_RecordsTheForwarderUnderItsRefSignature()
+    {
+        // `skip(count: Int, seed: inout Int)` gets the forwarder `Skip(int, ref nint)`, the signature a
+        // newer SDK's `skip(count: Int32, seed: inout Int)` requirement declares; both must key it with
+        // its `ref`, or the merge compares two different rows and misses the move.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateRecordProtocol(moduleDecl);
+        var skip = CreateRequirement("skip", "count", "Swift.Int", protocol, moduleDecl);
+        skip.CSSignature.Add(CreateArgument("seed", new NamedTypeSpec("Swift.Int"), moduleDecl) with { IsInOut = true });
+        protocol.Methods.Add(skip);
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateRecordTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("Skip(int count, ref nint seed) => Skip((nint)count, ref seed);", csOutput);
+        var (_, forwarder) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".Skip(int,ref nint)`1", StringComparison.Ordinal));
+        Assert.EndsWith("(native-width forwarder to (nint,ref nint))", forwarder);
+        Assert.Contains(emissionContext.SwiftMemberDeclarations.Keys, k => k.EndsWith(".Skip(nint,ref nint)`1", StringComparison.Ordinal));
+    }
+
+    private static TypeDatabase CreateRecordTypeDatabase()
+    {
+        var typeDatabase = CreateTypeDatabase();
+        RegisterSwiftInt32(typeDatabase);
+        return typeDatabase;
+    }
+
+    private static ProtocolDecl CreateRecordProtocol(ModuleDecl moduleDecl) => new()
+    {
+        Name = "Recorded",
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Recorded"),
+        MangledName = "$s10TestModule8RecordedP",
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        GenericSignature = null,
+        AssociatedTypes = new List<AssociatedTypeDecl>(),
+        InheritedProtocols = new List<NamedTypeSpec>(),
+        IsClassBound = false,
+        HasSelfRequirement = false,
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        ParentDecl = moduleDecl,
+        ModuleDecl = moduleDecl
+    };
+
+    /// <summary>A requirement as the parser reads one: generic over the conforming <c>Self</c>.</summary>
+    private static MethodDecl CreateRequirement(string name, string label, string swiftType, ProtocolDecl protocol, ModuleDecl moduleDecl) => new()
+    {
+        Name = name,
+        MangledName = $"$s10TestModule8RecordedP{name}{label}{swiftType.Replace(".", "")}",
+        MethodType = MethodType.Instance,
+        IsConstructor = false,
+        CSSignature = new List<ArgumentDecl>
+        {
+            CreateArgument(string.Empty, TupleTypeSpec.Empty, moduleDecl),
+            CreateArgument(label, new NamedTypeSpec(swiftType), moduleDecl)
+        },
+        GenericParameters = new List<GenericArgumentDecl>
+        {
+            new("τ_0_0", "Self", new List<GenericParameterConformance>(), new List<GenericParameterConformance>())
+        },
+        ParentDecl = protocol,
+        ModuleDecl = moduleDecl,
+        Throws = false,
+        IsAsync = false,
+        IsSynthesizedAccessor = false
+    };
+
+    private static SubscriptDecl CreateIntSubscript(string label, ProtocolDecl protocol, ModuleDecl moduleDecl) => new()
+    {
+        Name = "subscript",
+        MangledName = $"$s10TestModule8RecordedP9subscript{label}Sicig",
+        ReturnTypeSpec = new NamedTypeSpec("Swift.Int"),
+        IsStatic = false,
+        IndexParameters = new List<ArgumentDecl> { CreateArgument(label, new NamedTypeSpec("Swift.Int"), moduleDecl) },
+        Accessors = new List<AccessorDecl>
+        {
+            new GetAccessorDecl
+            {
+                Method = new MethodDecl
+                {
+                    Name = "subscript_get",
+                    MangledName = $"$s10TestModule8RecordedP9subscript{label}Sicig",
+                    MethodType = MethodType.Instance,
+                    IsConstructor = false,
+                    CSSignature = new List<ArgumentDecl>
+                    {
+                        CreateArgument(string.Empty, new NamedTypeSpec("Swift.Int"), moduleDecl),
+                        CreateArgument(label, new NamedTypeSpec("Swift.Int"), moduleDecl)
+                    },
+                    GenericParameters = new List<GenericArgumentDecl>(),
+                    ParentDecl = protocol,
+                    ModuleDecl = moduleDecl,
+                    Throws = false,
+                    IsAsync = false,
+                    IsSynthesizedAccessor = false
+                }
+            }
+        },
+        ParentDecl = protocol,
+        ModuleDecl = moduleDecl
+    };
 
     [Fact]
     public void Emit_SetterIntroducedAfterProperty_InterfaceProxyAndPInvokeAgreeOnTheSetterFloor()

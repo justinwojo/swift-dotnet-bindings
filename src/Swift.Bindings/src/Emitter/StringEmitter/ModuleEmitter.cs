@@ -343,7 +343,10 @@ namespace BindingsGeneration
                 // The Swift declaration each of those members and their types stands for, which the
                 // package merge compares across a package's copies ({namespace}.swift-declarations.json).
                 SwiftDeclarationMapEmitter.RecordTypes(moduleDecl, emissionContext, _typeDatabase);
-                SwiftDeclarationMapEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
+                var declarationRecord = SwiftDeclarationMapEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
+                var declarationWitness = declarationRecord is null ? null
+                    : SwiftDeclarationRecordFormat.Witness(moduleDecl.Name, SwiftDeclarationRecordFormat.FileName(@namespace),
+                        SwiftDeclarationRecordFormat.Hash(File.ReadAllBytes(declarationRecord)));
 
                 // Emit the human-readable member table ({namespace}.api-surface.md) from the SAME
                 // emitted-surface facts, so a consumer-facing README can derive its member list from
@@ -393,8 +396,9 @@ namespace BindingsGeneration
 
                 // The wrapper identity: one value, fixed now, that the assembly embeds and every slice
                 // of the wrapper exports, so a wrapper of another copy or build does not pass for this
-                // one. Its attribute is C# the binding compiles, owned by the module like the manifest's.
-                if (WrapperIdentityEmission.Write(_outputDirectory, @namespace, moduleDecl.Name, wrapperLibrary, swiftOutput) is { } identity)
+                // one. Its attribute is C# the binding compiles, owned by the module like the manifest's,
+                // and it names the module's Swift declaration record with its hash for the package merge.
+                if (WrapperIdentityEmission.Write(_outputDirectory, @namespace, moduleDecl.Name, wrapperLibrary, swiftOutput, declarationWitness) is { } identity)
                 {
                     var fragment = new OutputFragment
                     {

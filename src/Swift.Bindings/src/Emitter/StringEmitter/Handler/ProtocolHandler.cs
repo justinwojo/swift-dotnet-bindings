@@ -110,6 +110,7 @@ namespace BindingsGeneration
             var emittedCSharpKeys = new HashSet<string>();
             var emittedResolvedSignatures = new HashSet<string>(StringComparer.Ordinal);
             var emittedSubscripts = new HashSet<string>();
+            var deferredNintOverloads = new List<MethodDecl>();
             var closureHandler = new ClosureHandler(env.TypeDatabase);
             var witnessDispatchClassifier = new WitnessDispatchEmitter(
                 env.TypeDatabase,
@@ -376,6 +377,10 @@ namespace BindingsGeneration
                 {
                     _logger.LogDebug($"Skipping duplicate subscript in interface {protocolDecl.Name}");
                     ReportCollector.RecordMemberSkipped(subscriptDecl, SkipReason.DuplicateSignature, "Duplicate protocol subscript signature.");
+                    // The proxy and the reverse-dispatch fill read the skip set, as a duplicate
+                    // method's key does: left out, the proxy implemented this subscript's indexer a
+                    // second time (CS0111), since the interface's indexer is the first subscript's.
+                    skippedSubscriptIndices.Add(subscriptIndex);
                     subscriptIndex++;
                     continue;
                 }
@@ -408,14 +413,22 @@ namespace BindingsGeneration
                 // so a sticky subscript fault can withdraw the interface type.
                 // Seam-denial backstop. The index is consumed either way — the slot exists in the
                 // Swift vtable regardless of whether this requirement filled it.
+                IReadOnlyList<string>? indexTypes = null;
                 if (EmissionSeam.Guard(
                     subscriptDecl,
                     RecoveryScope.LeafApi,
                     protocolDecl,
-                    () => EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl, emissionCtx: emissionCtx)))
+                    () => indexTypes = EmitInterfaceSubscript(bodyWriter, subscriptDecl, env.TypeDatabase, closureHandler, protocolDecl, emissionCtx: emissionCtx)))
                 {
                     emittedInterfaceMemberCount++;
                     ReportCollector.RecordMemberEmitted(subscriptDecl);
+                    // An indexer's C# name is its index types, which two Swift subscripts that differ
+                    // only by label share: a newer SDK's `subscript(a: Int)` takes `this[nint]` from
+                    // `subscript(b: Int)`, so the record names the subscript behind it.
+                    if (emissionCtx is not null && indexTypes is not null)
+                        emissionCtx.RecordSwiftDeclaration(
+                            ModuleEmissionContext.BuildSubscriptApiManifestKey(protocolDecl, indexTypes, env.TypeDatabase),
+                            subscriptDecl, env.TypeDatabase);
                 }
                 else
                 {
@@ -688,16 +701,27 @@ namespace BindingsGeneration
                 // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
                 // Skip nint DIM overload for extension-defaulted methods (a DIM that throws shouldn't also get a convenience overload).
+                // Deferred until every requirement has claimed its signature, as the concrete types'
+                // convenience overloads are: a requirement declared after the one a forwarder narrows
+                // (`skip(count: Int32)` after `skip(count: Int)`) owns `Skip(int)`, and the forwarder
+                // yields to it instead of taking it in declaration order.
                 if (!isExtensionDefault)
-                {
-                    // Contain the nint→int convenience overload for the same method leaf.
-                    // Escalates to the protocol on a sticky overload-emission fault.
-                    EmissionSeam.Guard(
-                        methodDecl,
-                        RecoveryScope.LeafApi,
-                        protocolDecl,
-                        () => TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames));
-                }
+                    deferredNintOverloads.Add(methodDecl);
+            }
+
+            foreach (var methodDecl in deferredNintOverloads)
+            {
+                // Attributed to its method as when it was written in the method's own iteration, so a
+                // compile fault in it withdraws the method's leaf, not the protocol.
+                using var dimCsScope = bodyWriter.BeginFragment(FragmentOwners.ForDecl(methodDecl));
+                // Contain the nint→int convenience overload for the same method leaf.
+                // Escalates to the protocol on a sticky overload-emission fault.
+                EmissionSeam.Guard(
+                    methodDecl,
+                    RecoveryScope.LeafApi,
+                    protocolDecl,
+                    () => TryEmitInterfaceMethodNintOverload(bodyWriter, methodDecl, env.TypeDatabase, protocolDecl, emittedCSharpKeys, emittedCSharpPropertyNames,
+                        emittedResolvedSignatures, emissionCtx));
             }
 
             // Record operators as skipped - C# interfaces cannot have operator overloads
@@ -908,14 +932,26 @@ namespace BindingsGeneration
             if (member is PropertyDecl property)
                 key = ModuleEmissionContext.BuildPropertyApiManifestKey(protocolDecl, NameProvider.GetPropertyName(property), typeDatabase);
             else if (member is MethodDecl method)
-            {
-                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, emittedPropertyNames);
-                var paren = projectedKey.IndexOf('(');
-                key = ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase);
-            }
+                key = InterfaceMethodRecordKey(method, protocolDecl, typeDatabase, emittedPropertyNames);
             else
                 return;
             emissionCtx.RecordSwiftDeclaration(key, member, typeDatabase);
+        }
+
+        /// <summary>
+        /// The record key of an interface method: its projected key with each <c>inout</c> parameter
+        /// spelled <c>ref</c>, as the interface declares it. The projected key leaves <c>ref</c> out
+        /// (it is an overload-identity key, and the dedup keeps one of two Swift overloads that differ
+        /// only by <c>inout</c>), so without it <c>Bump(ref int)</c> and a newer SDK's <c>Bump(int)</c>,
+        /// two C# members, would be recorded under one key.
+        /// </summary>
+        internal static string InterfaceMethodRecordKey(MethodDecl method, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
+            IReadOnlySet<string>? emittedPropertyNames)
+        {
+            var projectedKey = ModuleEmissionContext.WithRefParameters(
+                ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, emittedPropertyNames), method);
+            var paren = projectedKey.IndexOf('(');
+            return ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase);
         }
 
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
@@ -1297,7 +1333,8 @@ namespace BindingsGeneration
         /// Swift: subscript(key: ImageCacheKey) -> ImageContainer? { get set }
         /// C#:   SwiftOptional<ImageContainer> this[ImageCacheKey key] { get; set; }
         /// </summary>
-        private void EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, ModuleEmissionContext? emissionCtx = null)
+        /// <returns>The C# index parameter types the indexer declares (with <c>ref</c> where it has one).</returns>
+        private IReadOnlyList<string> EmitInterfaceSubscript(CSharpWriter csWriter, SubscriptDecl subscriptDecl, ITypeDatabase typeDatabase, ClosureHandler closureHandler, ProtocolDecl? protocolContext = null, ModuleEmissionContext? emissionCtx = null)
         {
             // Module context so an existential nested in a bound-generic argument's closure
             // signature names the module owning its protocol (see EmitInterfaceProperty).
@@ -1310,11 +1347,13 @@ namespace BindingsGeneration
 
             // Build index parameters
             var parameters = new List<string>();
+            var indexTypes = new List<string>();
             foreach (var param in subscriptDecl.IndexParameters)
             {
                 var paramTypeName = GetCSharpTypeName(param.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var paramName = NameProvider.GetCSharpParameterName(param);
                 parameters.Add($"{paramTypeName} {paramName}");
+                indexTypes.Add(paramTypeName);
             }
 
             // Determine accessors
@@ -1365,6 +1404,7 @@ namespace BindingsGeneration
 
             AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, subscriptDecl, protocolContext, emitObsolete: true);
             csWriter.WriteLine($"{returnTypeName} this[{string.Join(", ", parameters)}] {accessors}");
+            return indexTypes;
         }
 
         /// <summary>
@@ -1864,10 +1904,18 @@ namespace BindingsGeneration
         /// overloads emitted for concrete types.
         /// Proxy classes inherit DIMs automatically.
         /// </summary>
+        /// <param name="emittedResolvedSignatures">
+        /// The interface's emitted-signature set (<see cref="BuildEmittedSignature"/>), which spells a
+        /// signature as this overload's key does. The projected keys in <paramref name="emittedCSharpKeys"/>
+        /// carry a generic-arity marker (a protocol requirement is generic over <c>Self</c>), so a
+        /// requirement that declares the narrowed signature is found here.
+        /// </param>
+        /// <param name="emissionCtx">Records the overload in the module's Swift declaration record, as the forwarder it is.</param>
         internal void TryEmitInterfaceMethodNintOverload(
             CSharpWriter csWriter, MethodDecl methodDecl, ITypeDatabase typeDatabase,
             ProtocolDecl? protocolContext, HashSet<string> emittedCSharpKeys,
-            IReadOnlySet<string>? propertyNames = null)
+            IReadOnlySet<string>? propertyNames = null, HashSet<string>? emittedResolvedSignatures = null,
+            ModuleEmissionContext? emissionCtx = null)
         {
             // Skip async methods — async interface methods are reshaped to Task<T> with CancellationToken.
             // Generating correct DIM for these requires mirroring the Task wrapping + await + token forwarding.
@@ -1925,6 +1973,8 @@ namespace BindingsGeneration
             // Dedup: build projected key with narrowed types
             var dimVisibleGenericNames = BaseHandler.CollectVisibleGenericParamNames(methodDecl);
             var dimParamTypes = new List<string>();
+            // The same list as the record spells it: `ref` where the overload declares it.
+            var recordParamTypes = new List<string>();
             for (int i = 1; i < csSignature.Count; i++)
             {
                 var arg = csSignature[i];
@@ -1934,7 +1984,10 @@ namespace BindingsGeneration
                     continue;
                 var conv = conversions.Find(c => c.index == i);
                 if (conv != default)
+                {
                     dimParamTypes.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
+                    recordParamTypes.Add(dimParamTypes[^1]);
+                }
                 else
                 {
                     var typeSpecForKey = ProtocolSignatureHelper.StripOptionalClassLikeForOverloadIdentity(
@@ -1942,6 +1995,7 @@ namespace BindingsGeneration
                     var paramType = GetCSharpTypeName(typeSpecForKey, typeDatabase, boundGenericsHandler, protocolContext, isParameter: true);
                     paramType = ProtocolSignatureHelper.NormalizeParamTypeForOverloadIdentity(paramType, arg.SwiftTypeSpec, typeDatabase);
                     dimParamTypes.Add(paramType);
+                    recordParamTypes.Add(arg.IsInOut ? "ref " + paramType : paramType);
                 }
             }
 
@@ -1954,8 +2008,14 @@ namespace BindingsGeneration
                 isMutating: methodDecl.IsMutating);
 
             var dimKey = $"{methodName}({string.Join(",", dimParamTypes)})";
-            if (!emittedCSharpKeys.Add(dimKey))
+            // The projected keys of the requirements carry the generic-arity marker; the
+            // emitted-signature set spells a signature as dimKey does. A requirement's narrowed
+            // signature is in one of them, depending on which dedup it went through.
+            var arity = methodDecl.GenericParameters.Count > 0 ? $"`{methodDecl.GenericParameters.Count}" : "";
+            if (emittedResolvedSignatures?.Contains(dimKey) == true || emittedCSharpKeys.Contains(dimKey)
+                || !emittedCSharpKeys.Add(dimKey + arity))
                 return;
+            emittedResolvedSignatures?.Add(dimKey);
 
             // Build parameter list and call arguments
             var paramParts = new List<string>();
@@ -2015,6 +2075,21 @@ namespace BindingsGeneration
             else
             {
                 csWriter.WriteLine($"void {methodName}({paramStr}) => {methodName}({argsStr});");
+            }
+
+            // A newer SDK's requirement with the narrow type and the same labels (`skip(count: Int32)`
+            // beside `skip(count: Int)`) takes this overload's C# signature, so it is recorded as the
+            // forwarder it is, naming the requirement it calls by that requirement's own C# parameters.
+            if (emissionCtx is not null && protocolContext is not null)
+            {
+                var target = InterfaceMethodRecordKey(methodDecl, protocolContext, typeDatabase, propertyNames);
+                var open = target.IndexOf('(');
+                var close = target.LastIndexOf(')');
+                emissionCtx.RecordSwiftDeclaration(
+                    ModuleEmissionContext.BuildApiManifestKey(protocolContext, methodName,
+                        methodName + ModuleEmissionContext.FormatParameterPortion(recordParamTypes) + arity, typeDatabase),
+                    methodDecl, typeDatabase,
+                    forwardsTo: open >= 0 && close > open ? target[open..(close + 1)] : target);
             }
         }
 

@@ -59,9 +59,24 @@ FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "
 OBJC_FIXTURES = {"Matter"}
 # Fixtures bound as a library (<SwiftFramework>) from a framework each pairing builds from this Swift source.
 LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift",
-                    "NestedMove": "multi-toolchain-fixtures/NestedMove.swift"}
+                    "NestedMove": "multi-toolchain-fixtures/NestedMove.swift",
+                    "InterfaceMove": "multi-toolchain-fixtures/InterfaceMove.swift",
+                    "InOutMove": "multi-toolchain-fixtures/InOutMove.swift"}
 # Library fixtures built and packed only by a control, never merged into a package or consumed.
-CONTROL_FIXTURES = {"NestedMove": ("ios",)}
+CONTROL_FIXTURES = {"NestedMove": ("ios",), "InterfaceMove": ("ios",), "InOutMove": ("ios",)}
+# The moved-name controls: a library whose Xcode 27 build gives an existing C# name to another Swift
+# declaration, so its two copies carry the same API and exports and only their Swift declaration
+# records tell them apart. Each merge must be refused, naming every moved name.
+_MOVED = r"error SWIFTBIND138: .*stand for a different Swift declaration in the copy net10\.0-ios27\.2 than in the older copy net10\.0-ios26\.0"
+MOVED_NAME_CONTROLS = [
+    ("M9", "NestedMove", "a newer copy gives a C# name to another Swift declaration",
+     [_MOVED, r"the C# type NestedMove\.Outer\.OuterInfo is Swift `type NestedMove\.Outer\.outer` in net10\.0-ios26\.0 but Swift `type NestedMove\.Outer\.outerInfo` in net10\.0-ios27\.2"]),
+    ("M10", "InterfaceMove", "a newer copy gives an interface member's C# name to another Swift declaration",
+     [_MOVED, r"IIndexed\.this\[nint\]\S* is Swift `subscript InterfaceMove\.Indexed\.subscript\(b:\)` in net10\.0-ios26\.0 but Swift `subscript InterfaceMove\.Indexed\.subscript\(a:\)` in net10\.0-ios27\.2",
+      r"ISkipping\.Skip\(int\)\S* is Swift `func InterfaceMove\.Skipping\.skip\(count:\) \(native-width forwarder to \(nint\)\)` in net10\.0-ios26\.0 but Swift `func InterfaceMove\.Skipping\.skip\(count:\)` in net10\.0-ios27\.2"]),
+    ("M11", "InOutMove", "a newer copy gives an inout overload's C# name to another Swift declaration",
+     [_MOVED, r"Stepper\.Step\(int,ref nint\) is Swift `func InOutMove\.Stepper\.step\(count:seed:\) \(native-width forwarder to \(nint,ref nint\)\)` in net10\.0-ios26\.0 but Swift `func InOutMove\.Stepper\.step\(count:seed:\)` in net10\.0-ios27\.2"]),
+]
 PACKAGE_PREFIX = "MtpFixture."
 VERSION = "27.2.0"
 # What an app on each platform runs on, and the RID it builds for.
@@ -868,7 +883,7 @@ class Gate:
         code, text = self.merge(fw, [(m26, mt26), (lying, mt27)], VERSION, out, "control-m8.log")
         self.control("SWIFTBIND138 M8 a copy's declaration and natives disagree", code if not list(out.glob("*.nupkg")) else 0, text,
                      [r"error SWIFTBIND138: .*declares its net10\.0-ios27\.2 copy's natives under native/net10\.0-ios27\.2/, but carries no native/net10\.0-ios27\.2/"])
-        self.moved_name_control()
+        self.moved_name_controls()
         # SWIFTBIND136 on a pure Objective-C package: buildTransitive/<27.2>/ dropped, so NuGet takes the
         # 26.0 declaration beside the 27.2 lib.
         variant(self.merged(fw), self.work / "controls", f"{VERSION}-objc136", drops=["buildTransitive/net10.0-ios27.2/"])
@@ -879,30 +894,29 @@ class Gate:
         self.control("SWIFTBIND136 (pure Objective-C copy, buildTransitive copy dropped)", code, text,
                      [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
 
-    def moved_name_control(self):
-        """M9: a C# name the newer SDK's build gives to another Swift declaration. The NestedMove library's
-        Xcode 27 build adds a sibling that takes the renamed nested type's C# name, so both copies carry
-        the same API and exports and only their Swift declaration records tell them apart."""
-        fw = "NestedMove"
-        parts = []
-        for profile, net, label in PAIRINGS[:2]:
-            tfms = [tfm(net, p, label) for p in CONTROL_FIXTURES[fw]]
-            if not self.library_xcframework(profile, fw).exists() and not self.step(
-                    f"control M9 setup: {profile} builds the {fw} framework", self.build_library(profile, fw),
-                    f"see framework-{profile}-{fw}.log"):
-                return
-            out = self.work / "control-contributions" / profile
-            code, text = self.pack(profile, fw, tfms, VERSION, out, f"control-m9-pack-{profile}.log")
-            nupkg = out / f"{package_id(fw)}.{VERSION}.nupkg"
-            if not self.step(f"control M9 setup: {profile} packs {fw}", code == 0 and nupkg.exists(),
-                             f"exit {code}; {first_errors(text)}" if code else ", ".join(tfms)):
-                return
-            parts.append((nupkg, tfms))
-        out = self.work / "merge-controls" / "M9"
-        code, text = self.merge(fw, parts, VERSION, out, "control-m9.log")
-        self.control("SWIFTBIND138 M9 a newer copy gives a C# name to another Swift declaration", code if not list(out.glob("*.nupkg")) else 0, text,
-                     [r"error SWIFTBIND138: .*stand for a different Swift declaration in the copy net10\.0-ios27\.2 than in the older copy net10\.0-ios26\.0",
-                      r"the C# type NestedMove\.Outer\.OuterInfo is Swift `type NestedMove\.Outer\.outer` in net10\.0-ios26\.0 but Swift `type NestedMove\.Outer\.outerInfo` in net10\.0-ios27\.2"])
+    def moved_name_controls(self):
+        """M9-M11 (MOVED_NAME_CONTROLS): a C# name the newer SDK's build gives to another Swift
+        declaration. Each library's two oldest pairings are packed and merged, and the merge must name
+        every moved name."""
+        for control, fw, title, expect in MOVED_NAME_CONTROLS:
+            parts = []
+            for profile, net, label in PAIRINGS[:2]:
+                tfms = [tfm(net, p, label) for p in CONTROL_FIXTURES[fw]]
+                if not self.library_xcframework(profile, fw).exists() and not self.step(
+                        f"control {control} setup: {profile} builds the {fw} framework", self.build_library(profile, fw),
+                        f"see framework-{profile}-{fw}.log"):
+                    break
+                out = self.work / "control-contributions" / profile
+                code, text = self.pack(profile, fw, tfms, VERSION, out, f"control-{control.lower()}-pack-{profile}.log")
+                nupkg = out / f"{package_id(fw)}.{VERSION}.nupkg"
+                if not self.step(f"control {control} setup: {profile} packs {fw}", code == 0 and nupkg.exists(),
+                                 f"exit {code}; {first_errors(text)}" if code else ", ".join(tfms)):
+                    break
+                parts.append((nupkg, tfms))
+            else:
+                out = self.work / "merge-controls" / control
+                code, text = self.merge(fw, parts, VERSION, out, f"control-{control.lower()}.log")
+                self.control(f"SWIFTBIND138 {control} {title}", code if not list(out.glob("*.nupkg")) else 0, text, expect)
 
     # ---- 5. runs -------------------------------------------------------------------------------
 

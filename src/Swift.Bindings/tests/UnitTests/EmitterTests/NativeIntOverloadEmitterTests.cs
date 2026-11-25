@@ -64,6 +64,34 @@ public class NativeIntOverloadEmitterTests
         Assert.NotEqual(SwiftDeclarationMapEmitter.Describe(method), swift);
     }
 
+    [Theory]
+    [InlineData(false, "TestClass.Skip(int)", "(nint)")]
+    // The forwarder `Skip(int, ref nint)` is the signature a newer SDK's `skip(count: Int32, seed: inout
+    // Int)` declares, and the primary method records that one with its `ref`; keyed without it, the two
+    // rows never meet and the merge misses the move.
+    [InlineData(true, "TestClass.Skip(int,ref System.IntPtr)", "(nint,ref System.IntPtr)")]
+    public void TryEmitOverload_Method_RecordsTheForwarderUnderTheSignatureItDeclares(bool inoutSeed, string key, string target)
+    {
+        var method = inoutSeed
+            ? CreateMethod("skip", MethodType.Instance, returnType: TupleTypeSpec.Empty, ("count", "Swift.Int"), ("seed", "Swift.Int"))
+            : CreateMethod("skip", MethodType.Instance, returnType: TupleTypeSpec.Empty, ("count", "Swift.Int"));
+        if (inoutSeed)
+            method.CSSignature[2].IsInOut = true;
+        var context = new ModuleEmissionContext();
+
+        var output = EmitMethodOverload(method, env =>
+        {
+            env.EmissionContext = context;
+            env.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        });
+
+        Assert.Contains(inoutSeed ? "Skip(int count, ref System.IntPtr seed)" : "Skip(int count)", output);
+        var (recorded, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.Equal(key, recorded);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder(
+            inoutSeed ? "func TestModule.TestClass.skip(count:seed:)" : "func TestModule.TestClass.skip(count:)", target), swift);
+    }
+
     [Fact]
     public void TryEmitOverload_SingleNuintParam_EmitsUintOverload()
     {

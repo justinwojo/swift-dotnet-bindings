@@ -309,6 +309,46 @@ public class MarkerProtocolOverloadEmitterTests
     }
 
     [Fact]
+    public void EmitOverloads_RecordsEachOverloadAsTheConformerOverloadItIs()
+    {
+        // `Offset(double)` reaches `offset(amount:)` through its own wrapper. A newer SDK's
+        // `offset(amount: Double)` declares that C# signature itself, so the Swift declaration record
+        // must name the overload as one, or the package merge reads the moved signature as unchanged.
+        var moduleDecl = CreateModuleDecl();
+        var parentDecl = CreateClassDecl("Widget");
+        var method = new MethodDecl
+        {
+            Name = "offset",
+            MangledName = "$s10TestModule6Widget6offsetyySiF",
+            MethodType = MethodType.Instance,
+            IsConstructor = false,
+            Throws = false,
+            IsAsync = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateArg("", TupleTypeSpec.Empty, moduleDecl),
+                CreateArg("amount", new ProtocolListTypeSpec(new[] { new NamedTypeSpec("TestModule.OffsetTarget") }), moduleDecl)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            IsSynthesizedAccessor = false
+        };
+        var ctx = new ModuleEmissionContext();
+        var env = CreateMethodEnvironment(method);
+        env.EmissionContext = ctx;
+
+        MarkerProtocolOverloadEmitter.EmitOverloads(
+            new CSharpWriter(new StringWriter()), new SwiftWriter(new StringWriter()), method, env, parentDecl,
+            new Dictionary<string, List<string>> { ["OffsetTarget"] = new() { "Swift.Double" } });
+
+        var (key, swift) = Assert.Single(ctx.SwiftMemberDeclarations);
+        Assert.StartsWith("Widget.Offset(", key);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder(SwiftDeclarationMapEmitter.Describe(method)!,
+            "Swift.Double", SwiftDeclarationMapEmitter.MarkerConformerOverload), swift);
+    }
+
+    [Fact]
     public void EmitOverloads_NonVoidNonSelfReturn_Skipped()
     {
         // Methods returning anything other than void or Self are not supported

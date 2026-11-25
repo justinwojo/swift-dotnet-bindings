@@ -4529,9 +4529,11 @@ TARGETSEOF"
     A Swift or mixed binding's wrapper identity already records the SDK its surface was generated
     from; a pure Objective-C binding has no wrapper, so without this record the pack's label check
     (SWIFTBIND137) could only judge the SDK selected when it packs, and a pack without a build
-    run after switching Xcode would label an Xcode 27 copy as an Xcode 26 one. The file is rewritten
-    only when the SDK changes, which recompiles the assembly; with no SDK to read, no stale record
-    is left behind.
+    run after switching Xcode would label an Xcode 27 copy as an Xcode 26 one. Beside it the file
+    records the toolchain the assembly was built on (SwiftBindings.Toolchain), which the pack declares
+    the copy as built on when that build read the SDK the copy is labelled by, so the merge's log names
+    the toolchain the label came from. The file is rewritten only when either changes, which
+    recompiles the assembly; with no SDK to read, no stale record is left behind.
   -->
   <Target Name="_RecordSwiftBindingPlatformSdk"
           BeforeTargets="_GenerateCompileDependencyCache;CoreCompile"
@@ -4547,13 +4549,23 @@ TARGETSEOF"
           ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
       <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingBuildSdkVersion" />
     </Exec>
+    <!-- The toolchain that read that SDK, which the pack declares the copy as built on
+         (SwiftBindings.Toolchain): a pack after another Xcode was selected names the toolchain the
+         copy's label SDK came from, not the one selected when it packs. -->
+    <Exec Command="xcodebuild -version 2&gt;/dev/null | head -1"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingBuildXcode" />
+    </Exec>
     <PropertyGroup>
       <_SwiftBindingBuildSdkVersion>$(_SwiftBindingBuildSdkVersion.Trim())</_SwiftBindingBuildSdkVersion>
       <_SwiftBindingBuildSdkVersion Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SwiftBindingBuildSdkVersion)', '^\d+(\.\d+)*$'))" />
+      <_SwiftBindingBuildXcode>$(_SwiftBindingBuildXcode.Trim())</_SwiftBindingBuildXcode>
+      <_SwiftBindingBuildXcode Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SwiftBindingBuildXcode)', '^Xcode [0-9][0-9A-Za-z. ()-]*$'))" />
+      <_SwiftBindingBuildToolchainLine Condition="'$(_SwiftBindingBuildXcode)' != ''">;[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;SwiftBindings.Toolchain&quot;, &quot;.NET $(NETCoreSdkVersion) + $(_SwiftBindingBuildXcode)&quot;)]</_SwiftBindingBuildToolchainLine>
     </PropertyGroup>
     <WriteLinesToFile Condition="'$(_SwiftBindingBuildSdkVersion)' != ''"
                       File="$(_SwiftBindingPlatformSdkFile)"
-                      Lines="// &lt;auto-generated&gt; The platform SDK this binding was built against, written by SwiftBindings.Sdk. Do not edit. &lt;/auto-generated&gt;;[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;SwiftBindings.PlatformSdk&quot;, &quot;$(_SwiftBindingBuildSdkVersion)&quot;)]"
+                      Lines="// &lt;auto-generated&gt; The platform SDK this binding was built against, and the toolchain it was built on, written by SwiftBindings.Sdk. Do not edit. &lt;/auto-generated&gt;;[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;SwiftBindings.PlatformSdk&quot;, &quot;$(_SwiftBindingBuildSdkVersion)&quot;)]$(_SwiftBindingBuildToolchainLine)"
                       Overwrite="true" WriteOnlyWhenDifferent="true" />
     <Delete Condition="'$(_SwiftBindingBuildSdkVersion)' == ''" Files="$(_SwiftBindingPlatformSdkFile)" />
     <ItemGroup Condition="'$(_SwiftBindingBuildSdkVersion)' != ''">

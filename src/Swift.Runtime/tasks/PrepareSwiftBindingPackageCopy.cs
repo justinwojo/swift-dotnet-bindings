@@ -47,7 +47,11 @@ public sealed class PrepareSwiftBindingPackageCopy : Microsoft.Build.Utilities.T
     /// </summary>
     public string Assembly { get; set; } = "";
 
-    /// <summary>The toolchain the copy is built on, as the build log names it.</summary>
+    /// <summary>
+    /// The toolchain selected when the copy packs, as the build log names it. The copy is declared as
+    /// built on the toolchain its assembly records (<see cref="PackageCopyRules.CopyToolchain"/>) when that
+    /// build read the SDK the copy is labelled by; this one stands in only when it selects that SDK.
+    /// </summary>
     public string Toolchain { get; set; } = "";
 
     /// <summary>The SwiftBindings SDK (generator) version.</summary>
@@ -92,7 +96,10 @@ public sealed class PrepareSwiftBindingPackageCopy : Microsoft.Build.Utilities.T
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(DeclarationFile))!);
         // A copy whose natives are under native/<tfm>/ is reached only through its consumer targets, so
         // it always declares them (the merge and the consumer check then refuse a copy that lost them).
-        var text = PackageCopyDeclarationEmitter.Compose(PackageId, PackTfm, Toolchain, sdk, Generator, payload,
+        var toolchain = Assembly.Length > 0 && File.Exists(Assembly)
+            ? PackageCopyRules.CopyToolchain(File.ReadAllBytes(Assembly), sdk, PlatformSdkVersion, Toolchain)
+            : Toolchain;
+        var text = PackageCopyDeclarationEmitter.Compose(PackageId, PackTfm, toolchain, sdk, Generator, payload,
             hasConsumerTargets: hasTargets || payload == PackageCopyDeclarationEmitter.NativePayloadNative);
         if (!File.Exists(DeclarationFile) || File.ReadAllText(DeclarationFile) != text)
             File.WriteAllText(DeclarationFile, text);
