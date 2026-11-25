@@ -163,8 +163,9 @@ its C# signature. The other convenience overloads are recorded the same way, eac
 a throwing closure, and a marker-conformer overload naming the conformer it passes. A member's key keeps
 its `ref` parameters, so overloads that differ only by an `inout` parameter, and a forwarder whose
 member has one, have keys of their own. A key spells each parameter as the member declares it, nullable
-annotations included; since a reference type's `?` is not part of the CLR signature, a member one copy
-records as `Load(string?)` and the other as `Load(string)` is compared as one name. A simple enum's extension members (`<Enum>Extensions`) and a
+annotations and tuple element names included, and neither is part of the CLR signature, so an older key
+the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
+with `Load(string)`): the name moved unless one of them keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
 protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
 no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy

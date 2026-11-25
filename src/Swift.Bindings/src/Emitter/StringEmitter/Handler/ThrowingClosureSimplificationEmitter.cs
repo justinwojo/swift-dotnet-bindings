@@ -152,7 +152,7 @@ internal static class ThrowingClosureSimplificationEmitter
         // merge to compare, keyed by the parameter types it declares.
         methodEnv.EmissionContext?.RecordSwiftDeclaration(
             ModuleEmissionContext.BuildApiManifestKey(methodEnv.MethodDecl.ParentDecl, methodName,
-                BuildOverloadKey(methodEnv, throwingClosures), methodEnv.TypeDatabase,
+                methodName, methodEnv.TypeDatabase,
                 new ModuleEmissionContext.EmittedApiShape(null, ModuleEmissionContext.FormatParameterPortion(declaredTypes))),
             methodEnv.MethodDecl, methodEnv.TypeDatabase,
             forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),

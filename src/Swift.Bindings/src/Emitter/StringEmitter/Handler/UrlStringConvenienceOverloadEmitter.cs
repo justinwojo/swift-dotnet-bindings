@@ -129,7 +129,7 @@ internal static class UrlStringConvenienceOverloadEmitter
         // compare, keyed by the parameter types it declares.
         methodEnv.EmissionContext?.RecordSwiftDeclaration(
             ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodName,
-                BuildOverloadKey(methodEnv, urlParamIndices), methodEnv.TypeDatabase,
+                methodName, methodEnv.TypeDatabase,
                 new ModuleEmissionContext.EmittedApiShape(null, ModuleEmissionContext.FormatParameterPortion(declaredTypes))),
             methodDecl, methodEnv.TypeDatabase,
             forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),

@@ -639,23 +639,22 @@ public static class SwiftBindingPackageMerge
                 foreach (var (key, was) in olderMap.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                     if (newerMap.TryGetValue(key, out var now) && !string.Equals(was, now, StringComparison.Ordinal))
                         moved.Add($"the C# {kind} {before.Module}.{key} is Swift `{was}` in {older.Tfm} but Swift `{now}` in {newer.Tfm}");
-            // A key spells its parameters as the member declares them, nullable annotations included,
-            // but a reference type's `?` is no part of the CLR signature a library binds: `Load(string?)`
-            // in one copy and `Load(string)` in the other are one signature. A member each copy records
-            // under its own spelling is paired by the key without annotations. Pairing is skipped when
-            // either side has more than one candidate; that only happens for `T?` of a value type, a CLR
-            // signature of its own, whose loss the public API comparison refuses.
-            static string Unannotated(string key) => key.Replace("?", "", StringComparison.Ordinal);
-            var olderOnly = before.Members.Keys.Where(k => !after.Members.ContainsKey(k)).ToLookup(Unannotated, StringComparer.Ordinal);
-            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(Unannotated, StringComparer.Ordinal);
-            foreach (var group in olderOnly.OrderBy(g => g.Key, StringComparer.Ordinal))
+            // A key spells its parameters as the member declares them, nullable annotations and tuple
+            // element names included, and neither is part of the CLR signature a library binds:
+            // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
+            // member whose key the newer copy lacks is compared with the newer copy's own keys of the
+            // same CLR shape (ClrShape, which also folds a value type's `T?` into `T`, so a shape can
+            // name several signatures), and the name moved unless one of them keeps its declaration.
+            // An older signature the newer copy lost outright is refused by the public API comparison.
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
+            foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
-                if (group.Count() != 1 || newerOnly[group.Key].Count() != 1)
+                var candidates = newerOnly[ClrShape(olderKey)].OrderBy(k => k, StringComparer.Ordinal).ToList();
+                if (candidates.Count == 0 || candidates.Any(k => string.Equals(after.Members[k], was, StringComparison.Ordinal)))
                     continue;
-                var (olderKey, newerKey) = (group.Single(), newerOnly[group.Key].Single());
-                var (was, now) = (before.Members[olderKey], after.Members[newerKey]);
-                if (!string.Equals(was, now, StringComparison.Ordinal))
-                    moved.Add($"the C# member {before.Module}.{olderKey} is Swift `{was}` in {older.Tfm} but Swift `{now}` in {newer.Tfm}, as {before.Module}.{newerKey}");
+                moved.Add($"the C# member {before.Module}.{olderKey} is Swift `{was}` in {older.Tfm} but Swift "
+                          + string.Join(" or ", candidates.Select(k => $"`{after.Members[k]}`")) + $" in {newer.Tfm}, as "
+                          + string.Join(" or ", candidates.Select(k => $"{before.Module}.{k}")));
             }
             notes.Add($"  Swift declarations {file}: {older.Tfm} -> {newer.Tfm}, {before.Types.Count + before.Members.Count} names, {moved.Count} moved");
             if (moved.Count == 0)
@@ -669,6 +668,78 @@ public static class SwiftBindingPackageMerge
             notes.AddRange(moved.Select(m => $"  moved name {file}: {m}"));
         }
         return problems;
+    }
+
+    /// <summary>
+    /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix) without what its
+    /// parameter spelling carries beyond the CLR signature: nullable annotations and tuple element names.
+    /// A value type's <c>T?</c> is a signature of its own, so the shape can name several signatures.
+    /// </summary>
+    internal static string ClrShape(string key)
+    {
+        var open = key.IndexOf('(');
+        var close = open < 0 ? -1 : MatchingParen(key, open);
+        if (close < 0)
+            return key;
+        return key[..(open + 1)] + WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal) + key[close..];
+
+        static string WithoutTupleNames(string types)
+        {
+            var text = new System.Text.StringBuilder(types.Length);
+            for (var i = 0; i < types.Length; i++)
+            {
+                var end = types[i] == '(' ? MatchingParen(types, i) : -1;
+                if (end < 0)
+                {
+                    text.Append(types[i]);
+                    continue;
+                }
+                var elements = TopLevelElements(types[(i + 1)..end]).Select(e => WithoutName(WithoutTupleNames(e.Trim())));
+                text.Append('(').Append(string.Join(", ", elements)).Append(')');
+                i = end;
+            }
+            return text.ToString();
+        }
+
+        static IEnumerable<string> TopLevelElements(string list)
+        {
+            var (depth, from) = (0, 0);
+            for (var i = 0; i < list.Length; i++)
+            {
+                if (list[i] is '(' or '<' or '[') depth++;
+                else if (list[i] is ')' or '>' or ']') depth--;
+                else if (list[i] == ',' && depth == 0)
+                {
+                    yield return list[from..i];
+                    from = i + 1;
+                }
+            }
+            yield return list[from..];
+        }
+
+        // `int x` -> `int`; a space inside a nested type's arguments is not a name.
+        static string WithoutName(string element)
+        {
+            var depth = 0;
+            for (var i = element.Length - 1; i >= 0; i--)
+            {
+                if (element[i] is ')' or '>' or ']') depth++;
+                else if (element[i] is '(' or '<' or '[') depth--;
+                else if (element[i] == ' ' && depth == 0) return element[..i];
+            }
+            return element;
+        }
+
+        static int MatchingParen(string text, int open)
+        {
+            var depth = 0;
+            for (var i = open; i < text.Length; i++)
+            {
+                if (text[i] == '(') depth++;
+                else if (text[i] == ')' && --depth == 0) return i;
+            }
+            return -1;
+        }
     }
 
     /// <summary>
