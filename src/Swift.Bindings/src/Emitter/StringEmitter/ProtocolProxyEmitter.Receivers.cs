@@ -493,7 +493,7 @@ public partial class ProtocolProxyEmitter
                     // assignment together (coupled) and short-circuit the default conversion below — mirror
                     // of the reverse-RETURN optional-bridgeable arm.
                     // Call unconditionally so the out-vars are definitely assigned; class copy-out still wins.
-                    bool objcOptApplies = TryGetReceiverObjCPointerRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv);
+                    bool objcOptApplies = TryGetReceiverObjCPointerRead(property.SwiftTypeSpec, "valuePtr", "value", out var objcOptMarshal, out var objcOptConv, isParameter: false);
                     bool isObjCOptRead = classCopyOut == null && objcOptApplies;
 
                     // Check if the property type needs conversion (e.g., SwiftOptional<SwiftString> → string?)
@@ -1035,7 +1035,7 @@ public partial class ProtocolProxyEmitter
                     // class copy-out arm above, matching the property setter's precedence.
                     else if (TryGetReceiverObjCPointerRead(
                         subscript.ReturnTypeSpec, "valuePtr", "rawValue",
-                        out var subscriptObjCOptMarshal, out var subscriptObjCOptConv))
+                        out var subscriptObjCOptMarshal, out var subscriptObjCOptConv, isParameter: false))
                     {
                         writer.WriteLine($"var rawValue = {subscriptObjCOptMarshal};");
                         writer.WriteLine($"var value = {subscriptObjCOptConv};");
@@ -2256,25 +2256,27 @@ public partial class ProtocolProxyEmitter
     /// marshal type and the conversion are returned together so they can never drift. Swift-class and
     /// ObjC-rooted Optionals keep the class copy-out path. A container of Objective-C-bridgeable
     /// elements, optional or not, also arrives as one pointer word, to the collection it bridges to,
-    /// handed over at +1 and adopted by the read (<see cref="AdoptedObjCContainerRead"/>). Every other
-    /// shape returns false.
+    /// borrowed for the call and copied by the read (<see cref="BorrowedObjCContainerRead"/>). Every
+    /// other shape returns false.
     /// </summary>
-    private bool TryGetReceiverObjCPointerRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr)
+    private bool TryGetReceiverObjCPointerRead(TypeSpec? typeSpec, string slotExpr, string varName, out string marshalExpr, out string convExpr, bool isParameter = true)
     {
         marshalExpr = "";
         convExpr = "";
         if (typeSpec == null)
             return false;
-        var projection = ProjectReceiverType(typeSpec, isParameter: true);
-        if (AdoptedObjCContainerRead(projection, varName) is string container)
+        // A property's or subscript's new value is read as the member's own type (isParameter:
+        // false), whose nested collections are the read-only shapes the setter takes.
+        var projection = ProjectReceiverType(typeSpec, isParameter);
+        if (BorrowedObjCContainerRead(projection, varName) is string container)
         {
-            // A container of Objective-C-bridgeable elements: the thunk hands over the collection
-            // it bridges to at +1, which the read adopts (EveryProtocolEmitter.TryBuildObjCPointerInput).
+            // A container of Objective-C-bridgeable elements: the thunk lends the collection it
+            // bridges to for the call (EveryProtocolEmitter.TryBuildObjCPointerInput), which the read copies.
             marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
             convExpr = container;
             return true;
         }
-        if (projection is OptionalProjection { InnerProjection: var inner } && AdoptedObjCContainerRead(inner, varName) is string optionalContainer)
+        if (projection is OptionalProjection { InnerProjection: var inner } && BorrowedObjCContainerRead(inner, varName) is string optionalContainer)
         {
             marshalExpr = $"MarshalFromSwift<IntPtr>({slotExpr})";
             convExpr = $"({varName} == global::System.IntPtr.Zero ? null : {optionalContainer})";
@@ -2294,18 +2296,17 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// The read of a +1 Objective-C collection handle <paramref name="varName"/> into the managed
-    /// collection <paramref name="projection"/> names, adopting the handle as the read of the same
-    /// container returned by a Swift function does; <c>null</c> when the projection is not a
-    /// container that crosses as an Objective-C collection. A dictionary reads into its concrete
-    /// type, which satisfies both the parameter's <c>IDictionary</c> and a setter's
-    /// <c>IReadOnlyDictionary</c>.
+    /// The read of a borrowed Objective-C collection handle <paramref name="varName"/> into the
+    /// managed collection <paramref name="projection"/> names, as an element of an enclosing
+    /// collection is read; <c>null</c> when the projection is not a container that crosses as an
+    /// Objective-C collection. A dictionary reads into its concrete type, which satisfies both the
+    /// parameter's <c>IDictionary</c> and a setter's <c>IReadOnlyDictionary</c>.
     /// </summary>
-    private static string? AdoptedObjCContainerRead(ITypeProjection? projection, string varName) => projection switch
+    private static string? BorrowedObjCContainerRead(ITypeProjection? projection, string varName) => projection switch
     {
-        ArrayProjection { UsesObjCContainerBridge: true } array => array.GetReturnContainerConversion(varName),
-        SetProjection { UsesObjCContainerBridge: true } set => set.GetReturnContainerConversion(varName),
-        DictionaryProjection { UsesObjCContainerBridge: true } dictionary => dictionary.GetAdoptedObjCBridgeReadExpression(varName),
+        ArrayProjection { UsesObjCContainerBridge: true } array => array.GetReturnElementConversion($"ObjCRuntime.Runtime.GetNSObject({varName})!"),
+        SetProjection { UsesObjCContainerBridge: true } set => set.GetReturnElementConversion(varName),
+        DictionaryProjection { UsesObjCContainerBridge: true } dictionary => dictionary.GetBorrowedObjCBridgeReadExpression(varName),
         _ => null,
     };
 

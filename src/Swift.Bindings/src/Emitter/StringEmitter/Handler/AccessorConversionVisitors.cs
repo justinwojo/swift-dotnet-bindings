@@ -292,6 +292,9 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     internal static (string?, bool) DictSetterConversion(DictionaryProjection dict, string valueExpr)
     {
         // ObjC bridge: create NSDictionary and dispose after use. PropertyHandler extracts .Handle.
+        // A dictionary keyed by a Swift class is built from its keys' own objects, adopted at +1.
+        if (dict.KeyHandlesDictionary(valueExpr) is { } keyHandles)
+            return (keyHandles, true);
         if (dict.UsesObjCContainerBridge)
         {
             var keyToNS = DictionaryProjection.ToNSObject(dict.KeyProjection, "kvp.Key");

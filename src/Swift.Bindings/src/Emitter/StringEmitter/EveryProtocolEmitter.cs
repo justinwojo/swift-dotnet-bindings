@@ -6644,12 +6644,11 @@ public class EveryProtocolEmitter
     /// whose elements bridge to Objective-C (<c>[URL]</c>, <c>Set&lt;URL&gt;</c>, <c>[K: URL]</c>,
     /// nested or optional) crosses as the collection it bridges to, the way it crosses in every other
     /// direction: the receiver has no reader for Swift's native storage of such a container, whose
-    /// elements are Swift values, not the object pointers it would take them for. The collection is
-    /// handed over at +1 (<c>passRetained</c>) and the receiver adopts it, as the C# side adopts a
-    /// bridged container a Swift function returns, so the freshly bridged collection lives until the
-    /// receiver lets go of it. An optional container is its nil-pointer-optimized word (nil = 0x0).
-    /// A scalar bridgeable value (<c>URL</c>, <c>URL?</c>) is borrowed at +0, as the receiver's scalar
-    /// read expects. <paramref name="name"/> names the locals; the call passes <c>&amp;{name}Ref</c>.
+    /// elements are Swift values, not the object pointers it would take them for. Every one of these is
+    /// borrowed at +0: the bridged object lives in the thunk's <c>{name}NS</c> local for the call, and
+    /// the receiver copies what it reads, so a call the receiver drops (its implementation collected)
+    /// leaves nothing to release. An optional is its nil-pointer-optimized word (nil = 0x0).
+    /// <paramref name="name"/> names the locals; the call passes <c>&amp;{name}Ref</c>.
     /// </summary>
     private bool TryBuildObjCPointerInput(TypeSpec? typeSpec, string name, string sourceExpr, out string[] lines)
     {
@@ -6673,12 +6672,20 @@ public class EveryProtocolEmitter
         }
         if (typeSpec is not null && CdeclParamMapper.IsObjCBridgeableContainer(typeSpec, _typeDatabase))
         {
-            lines = new[] { $"var {name}Ref = Swift.Unmanaged.passRetained({sourceExpr} as Swift.AnyObject).toOpaque()" };
+            lines = new[]
+            {
+                $"let {name}NS = {sourceExpr} as Swift.AnyObject",
+                $"var {name}Ref = Swift.Unmanaged.passUnretained({name}NS).toOpaque()",
+            };
             return true;
         }
         if (typeSpec is not null && CdeclParamMapper.IsOptionalObjCBridgeableContainer(typeSpec, _typeDatabase))
         {
-            lines = new[] { $"var {name}Ref = {sourceExpr}.map {{ Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }}" };
+            lines = new[]
+            {
+                $"let {name}NS = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
+                $"var {name}Ref = {name}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
+            };
             return true;
         }
         lines = Array.Empty<string>();

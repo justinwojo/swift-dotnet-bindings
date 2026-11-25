@@ -36,6 +36,8 @@ public class BridgedContainerShapesTests : TestBase
     {
         public IReadOnlyList<NSUrl> StoredURLs { get; set; } = Array.Empty<NSUrl>();
 
+        public IReadOnlyDictionary<string, IReadOnlyList<NSUrl>> StoredGroups { get; set; } = new Dictionary<string, IReadOnlyList<NSUrl>>();
+
         public nint this[IEnumerable<NSUrl> count] => count.Count(u => u.AbsoluteString!.StartsWith("https://example.com/", StringComparison.Ordinal));
 
         public string DescribeArray(IEnumerable<NSUrl> urls) => Names(urls);
@@ -69,6 +71,9 @@ public class BridgedContainerShapesTests : TestBase
 
         public IReadOnlyList<NSUrl>? MakeOptionalArray(bool present) => present ? new[] { NSUrlOf("a"), NSUrlOf("c") } : null;
     }
+
+    public void TestAConformerStoresTheNestedGroupsSwiftSetsAndHandsThemBack()
+        => AssertEqual("ab:a,b;c:c", TestLibFunctions.UrlSinkStoreAndReadGroups(new UrlSink()), "the groups Swift set, read back");
 
     public void TestAConformerReadsEveryURLOfAnArraySwiftHandsIt()
         => AssertEqual("a,b", TestLibFunctions.UrlSinkDescribeArray(new UrlSink()), "both URLs, in order");
@@ -168,6 +173,29 @@ public class BridgedContainerShapesTests : TestBase
         AssertEqual(Url(0), TestLibFunctions.SwiftKeyNodeURLLookUp(index, "a"), "Swift finds a node it made itself");
         AssertEqual(Url(1), TestLibFunctions.SwiftKeyNodeURLLookUp(index, "b"), "and the other one");
         AssertEqual(null, TestLibFunctions.SwiftKeyNodeURLLookUp(index, "c"), "and misses an absent one");
+    }
+
+    public void TestCSharpSetsAPropertyKeyedBySwiftClassValuedByURLs()
+    {
+        var holder = new SwiftKeyNodeURLHolder();
+        holder.Index = NodeIndex("a", "b");
+        AssertEqual(Url(1), holder.Url("b"), "Swift finds a node C# set with one it made itself");
+        AssertEqual(null, holder.Url("c"), "and misses an absent one");
+        AssertTrue(holder.Index.TryGetValue(new SwiftKeyNode("a"), out var a) && a.AbsoluteString == Url(0), "the property reads back");
+    }
+
+    public void TestCSharpReadsADictionaryKeyedBySwiftClassNestedInAnother()
+    {
+        var nested = TestLibFunctions.SwiftKeyNodeNestedURLIndex("g", new[] { "a", "b" });
+        AssertTrue(nested.TryGetValue(new SwiftKeyNode("g"), out var inner), "a fresh, equal node finds the inner dictionary");
+        AssertTrue(inner!.TryGetValue(new SwiftKeyNode("b"), out var b) && b.AbsoluteString == Url(1), "and its URL");
+    }
+
+    public void TestSwiftLooksUpADictionaryKeyedBySwiftClassNestedInAnotherCSharpBuilt()
+    {
+        var index = new Dictionary<SwiftKeyNode, IDictionary<SwiftKeyNode, NSUrl>> { [new SwiftKeyNode("g")] = NodeIndex("a", "b") };
+        AssertEqual(Url(1), TestLibFunctions.SwiftKeyNodeNestedURLLookUp(index, "g", "b"), "Swift finds both nodes");
+        AssertEqual(null, TestLibFunctions.SwiftKeyNodeNestedURLLookUp(index, "h", "b"), "and misses an absent outer node");
     }
 
     public void TestCSharpReadsDictionariesKeyedBySwiftClassNestedInAnArray()
@@ -321,6 +349,14 @@ public class BridgedContainerShapesTests : TestBase
         var index = TestLibFunctions.CanonicalStringURLIndex(new[] { Precomposed, "plain" });
         AssertTrue(index.TryGetValue(Decomposed, out var url) && url.AbsoluteString == Url(0), "the decomposed spelling finds its URL");
         AssertTrue(index.ContainsKey("plain"), "an ASCII key finds itself");
+    }
+
+    public void TestANestedBridgedStringKeyedCopyFindsACanonicallyEqualKey()
+    {
+        var groups = TestLibFunctions.CanonicalStringNestedURLIndex(new[] { "x", Precomposed }, new[] { Precomposed, "plain" });
+        AssertTrue(groups.TryGetValue(Decomposed, out var group), "the decomposed spelling finds the outer key");
+        AssertTrue(group!.TryGetValue(Decomposed, out var url) && url.AbsoluteString == Url(0), "and the inner one");
+        AssertTrue(groups["x"].ContainsKey("plain"), "an ASCII key finds itself");
     }
 
     sealed class StringSink : ICanonicalStringSink

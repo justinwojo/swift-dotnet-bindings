@@ -934,6 +934,8 @@ public class ObjectKeyCollectionProjectionTests
             string.Join("\n", parameter.BuildObjCBridgeOwner("index", sourceIsNullable: true).Setup.Select(Render)),
             parameter.GetParameterElementConversion("index")!,
             parameter.GetReverseReceiverObjCBridgeConversion("index"),
+            // A settable property of the type builds the same dictionary.
+            AccessorSetterConversionVisitor.DictSetterConversion(parameter, "index").Item1!,
         };
         foreach (var write in writes)
         {
@@ -952,7 +954,7 @@ public class ObjectKeyCollectionProjectionTests
             string.Join("\n", result.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render)),
             result.GetReturnContainerConversion("d")!,
             result.GetReturnElementConversion("e")!,
-            result.GetAdoptedObjCBridgeReadExpression("d"),
+            result.GetBorrowedObjCBridgeReadExpression("d"),
         };
         foreach (var read in reads)
         {
@@ -964,6 +966,28 @@ public class ObjectKeyCollectionProjectionTests
         // A returned or adopted dictionary is owned; one nested in another collection is borrowed.
         Assert.Contains("GetINativeObject<Foundation.NSDictionary>(result, true)", reads[0]);
         Assert.Contains("GetNSObject<Foundation.NSDictionary>(e.Handle)", reads[2]);
+    }
+
+    [Fact]
+    public async Task NestedBridgedDictionaries_NameEachLevelsLocalsApart()
+    {
+        // A bridged dictionary nested in another one's values builds and reads inside its parent's
+        // lambdas and loop, so each level names its own (a repeated name is CS0136).
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var node = new NamedTypeSpec("TestModule.Node");
+        var url = new NamedTypeSpec("Foundation.URL");
+        var nodes = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(node, Dictionary(node, url)), Context(typeDatabase, new ModuleEmissionContext())));
+        var write = nodes.GetParameterElementConversion("index")!;
+        Assert.Contains("Create(index, k2 => ", write);
+        Assert.Contains(", k => ", write);
+
+        var strings = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(new NamedTypeSpec("Swift.String"), Dictionary(new NamedTypeSpec("Swift.String"), url)),
+            Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var read = string.Join("\n", strings.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render));
+        Assert.Contains("foreach (var _nsKey2 in", read);
+        Assert.Contains("foreach (var _nsKey in", read);
     }
 
     [Fact]

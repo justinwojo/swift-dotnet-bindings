@@ -4526,8 +4526,8 @@ public class EveryProtocolEmitterTests
     public void EmitProtocolExtension_ObjCBridgeableContainerParam_HandsTheConformerTheBridgedCollection(string shape, bool optional)
     {
         // A container whose elements bridge to Objective-C crosses to the C# conformer as the
-        // collection it bridges to, handed over at +1 (the receiver adopts it, as a forward return
-        // does), never as the native Swift storage the receiver cannot read.
+        // collection it bridges to, lent at +0 for the call (so a dropped call leaks nothing), never
+        // as the native Swift storage the receiver cannot read.
         RegisterBridgeableURL();
         var container = BridgedContainer(shape);
         var protocol = CreateSimpleProtocol("URLContainerSink");
@@ -4537,8 +4537,12 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         Assert.Contains(optional
-            ? "var urlsRef = urls.map { Swift.Unmanaged.passRetained($0 as Swift.AnyObject).toOpaque() }"
-            : "var urlsRef = Swift.Unmanaged.passRetained(urls as Swift.AnyObject).toOpaque()", output);
+            ? "let urlsNS = urls.map { $0 as Swift.AnyObject }"
+            : "let urlsNS = urls as Swift.AnyObject", output);
+        Assert.Contains(optional
+            ? "var urlsRef = urlsNS.map { Swift.Unmanaged.passUnretained($0).toOpaque() }"
+            : "var urlsRef = Swift.Unmanaged.passUnretained(urlsNS).toOpaque()", output);
+        Assert.DoesNotContain("passRetained(urls", output);
         Assert.Contains("&urlsRef", output);
         Assert.DoesNotContain("urlsCopy", output);
     }

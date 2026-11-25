@@ -20,6 +20,7 @@ public protocol URLContainerSink: AnyObject {
     func describeGroups(_ groups: [String: [URL]]) -> String
     func describeRows(_ rows: [[URL]]) -> String
     var storedURLs: [URL] { get set }
+    var storedGroups: [String: [URL]] { get set }
     subscript(count urls: [URL]) -> Int { get }
     func makeGroups() -> [String: [URL]]
     func makeOptionalArray(_ present: Bool) -> [URL]?
@@ -66,6 +67,16 @@ public func urlSinkDescribeRows(_ sink: URLContainerSink) -> String {
 public func urlSinkStoreAndRead(_ sink: URLContainerSink) -> String {
     sink.storedURLs = [sinkURL("c"), sinkURL("a")]
     return sink.storedURLs.map(\.absoluteString).joined(separator: ",")
+}
+
+/// Sets the conformer's `storedGroups` to `["ab": [a, b], "c": [c]]` and reads them back, as
+/// `name:url,url` sorted by name and joined by `;`.
+public func urlSinkStoreAndReadGroups(_ sink: URLContainerSink) -> String {
+    sink.storedGroups = ["ab": [sinkURL("a"), sinkURL("b")], "c": [sinkURL("c")]]
+    let groups = sink.storedGroups
+    return groups.keys.sorted()
+        .map { "\($0):" + groups[$0]!.map(\.lastPathComponent).joined(separator: ",") }
+        .joined(separator: ";")
 }
 
 /// The conformer's subscript at `[a, b, c]`.
@@ -122,6 +133,26 @@ public func swiftKeyNodeURLIndexList(_ names: [String]) -> [[SwiftKeyNode: URL]]
 /// `swiftKeyNodeURLIndex(names)`, or nil when `names` is nil.
 public func swiftKeyNodeURLIndexOrNil(_ names: [String]?) -> [SwiftKeyNode: URL]? {
     names.map(swiftKeyNodeURLIndex)
+}
+
+/// A dictionary keyed by nodes and valued by URLs that C# sets.
+public final class SwiftKeyNodeURLHolder {
+    public var index: [SwiftKeyNode: URL] = [:]
+
+    public init() {}
+
+    /// The URL stored under the node named `name`, looked up with a node Swift makes.
+    public func url(of name: String) -> String? { index[SwiftKeyNode(name: name)]?.absoluteString }
+}
+
+/// `swiftKeyNodeURLIndex(inner)` under the node named `outer`.
+public func swiftKeyNodeNestedURLIndex(outer: String, inner: [String]) -> [SwiftKeyNode: [SwiftKeyNode: URL]] {
+    [SwiftKeyNode(name: outer): swiftKeyNodeURLIndex(inner)]
+}
+
+/// The URL stored under the nodes named `outer` and `inner`, looked up with nodes Swift makes.
+public func swiftKeyNodeNestedURLLookUp(_ index: [SwiftKeyNode: [SwiftKeyNode: URL]], outer: String, inner: String) -> String? {
+    index[SwiftKeyNode(name: outer)]?[SwiftKeyNode(name: inner)]?.absoluteString
 }
 
 /// The strong retain count of a node C# hands over. Only differences between two reads mean anything.
@@ -188,6 +219,11 @@ public func canonicalStringURLIndex(_ keys: [String]) -> [String: URL] {
     var result: [String: URL] = [:]
     for (position, key) in keys.enumerated() { result[key] = URL(string: "https://example.com/\(position)")! }
     return result
+}
+
+/// `canonicalStringURLIndex(keys)` under each of `groups`.
+public func canonicalStringNestedURLIndex(groups: [String], keys: [String]) -> [String: [String: URL]] {
+    Dictionary(uniqueKeysWithValues: groups.map { ($0, canonicalStringURLIndex(keys)) })
 }
 
 /// `count` dictionaries of `width` entries each, the keys mixing ASCII and non-ASCII spellings.
