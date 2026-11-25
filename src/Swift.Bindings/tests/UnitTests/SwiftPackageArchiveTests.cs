@@ -114,6 +114,8 @@ public class SwiftPackageArchiveTests : IDisposable
     [InlineData("let manifest = PackageDescription.Package(name: \"P\")", "manifest")]
     [InlineData("/*\nlet wrong = Package(name: \"P\")\n*/\nlet package = Package(name: \"P\")", "package")]
     [InlineData("// let wrong = Package(name: \"P\")\nlet pkg: Package = .init(name: \"P\")", "pkg")]
+    [InlineData("let opening = \"/*\"\nlet manifest = Package(name: \"P\")\n/* note */", "manifest")]
+    [InlineData("let manifest = Package(name: \"P\")\nfunc helper() {\n    let package = Package(name: \"Q\")\n}", "manifest")]
     public void PackageVariableName_ReadsTheBindingOutsideComments(string manifest, string expected)
         => Assert.Equal(expected, SwiftPackageArchive.PackageVariableName(manifest));
 

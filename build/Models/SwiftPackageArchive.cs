@@ -72,17 +72,20 @@ public static class SwiftPackageArchive
 
     /// <summary>
     /// The top-level variable a manifest binds its <c>Package</c> to (<c>let package = Package(</c>,
-    /// by convention), read with comments removed, or <c>package</c> when no binding reads as one;
-    /// a wrong guess fails <c>dump-package</c>, loudly.
+    /// by convention), read from unindented declarations only, so a helper's local binding is not
+    /// one: <c>package</c> when no binding reads as one or when it is among several (a
+    /// commented-out example), otherwise the one binding found. A wrong guess fails
+    /// <c>dump-package</c>, loudly.
     /// </summary>
     public static string PackageVariableName(string manifest)
     {
-        var code = Regex.Replace(manifest, @"/\*.*?\*/", " ", RegexOptions.Singleline);
-        code = Regex.Replace(code, @"//[^\n]*", "");
-        var match = Regex.Match(code,
-            @"^\s*(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*(?:PackageDescription\.)?Package\s*)?=\s*(?:(?:PackageDescription\.)?Package|\.init)\s*\(",
-            RegexOptions.Multiline);
-        return match.Success ? match.Groups[1].Value : "package";
+        var names = Regex.Matches(manifest,
+                @"^(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*(?:PackageDescription\.)?Package\s*)?=\s*(?:(?:PackageDescription\.)?Package|\.init)\s*\(",
+                RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return names.Count == 0 || names.Contains("package") ? "package" : names[0];
     }
 
     /// <summary>

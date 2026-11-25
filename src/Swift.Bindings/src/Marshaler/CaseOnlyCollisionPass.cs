@@ -390,12 +390,16 @@ public static class CaseOnlyCollisionPass
         foreach (var adoptedName in immovableNames)
             takenNames.Add(adoptedName);
         // A type the nested-type pre-pass renamed (`outer` → `OuterInfo2`) cannot hold a member
-        // of its new name either (CS0542). A protocol projects as `I{Name}`, so it has no such name.
+        // of its new name either (CS0542). A type under its natural name keeps the shipped rule:
+        // the member takes the name and the enclosing-type rule then gives it `Value`. A protocol
+        // projects as `I{Name}`, so it has no such name.
         if (typeDecl is not ProtocolDecl
             && typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var ownRecord))
         {
             var ownName = ownRecord.CSharpTypeName.Name;
-            takenNames.Add(ownName[(ownName.LastIndexOf('.') + 1)..]);
+            var ownLeaf = ownName[(ownName.LastIndexOf('.') + 1)..];
+            if (ownLeaf != NameProvider.GetNaturalTypeLeafName(typeDecl))
+                takenNames.Add(ownLeaf);
         }
 
         foreach (var (projected, swiftNames) in groups)

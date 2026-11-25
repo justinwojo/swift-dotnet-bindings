@@ -193,6 +193,23 @@ public class NestedTypeEnclosingNameTests
             .Select(p => NameProvider.GetFinalMemberName(NameProvider.GetPropertyName(p, nested), renames)));
     }
 
+    [Fact]
+    public void CaseOnlyPropertyPairOfAnUnrenamedType_KeepsTheShippedStamp()
+    {
+        // `Outer2` declaring `outer` and `Outer`: the loser has always been stamped `Outer2`,
+        // which the enclosing-type rule then emits as `Outer2Value`. The renamed-type guard above
+        // must not move it.
+        var fixture = new Fixture("struct");
+        var meter = fixture.AddTopLevel("Outer2", "struct");
+        fixture.AddProperty(meter, "outer");
+        fixture.AddProperty(meter, "Outer");
+
+        NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+        CaseOnlyCollisionPass.Precompute(fixture.Module, fixture.Database);
+
+        Assert.Equal("Outer2", Assert.Single(meter.Properties.Select(p => p.CaseDisambiguatedName).OfType<string>()));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
