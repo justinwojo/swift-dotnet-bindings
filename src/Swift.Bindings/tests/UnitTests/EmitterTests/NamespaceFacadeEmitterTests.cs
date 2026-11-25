@@ -11,53 +11,62 @@ namespace BindingsGeneration.Tests;
 /// Tests for <see cref="NamespaceFacadeEmitter.Emit"/>.
 ///
 /// The detector tests (<see cref="NamespaceFacadeDetectorTests"/>) lock the
-/// predicate that gates whether a type takes the namespace-lift path. These
-/// tests lock the *emitted output* — that a facade-shaped declaration emits
-/// a `namespace {Name} { ... }` block (not `static partial class`) and that
-/// nested types are passed to the supplied recurse callback. Emission-context
-/// nesting-stack behavior is not asserted here.
+/// predicate that gates whether a type takes the facade path. These tests
+/// lock the *emitted output*: a facade-shaped struct emits a
+/// <c>public static partial class</c> that hosts its nested types, never a
+/// C# namespace, and its nested types are passed to the recurse callback.
 ///
-/// Downstream consumers write `using Module.Facade;` against this shape, so a regression
-/// to `static partial class` would silently break their compile.
+/// The class form is what keeps the nested types' CLR names stable across
+/// SDK copies: a namespace would put them at <c>Module.Facade.Inner</c>, and
+/// the first member a newer SDK gives the struct would move them to
+/// <c>Module.Facade+Inner</c>, a different type to every compiled consumer.
 /// </summary>
 public class NamespaceFacadeEmitterTests
 {
     #region Positive — emitted shape
 
     [Fact]
-    public void Emit_StructFacade_WritesNamespaceBlock()
+    public void Emit_StructFacade_WritesStaticClassNotNamespace()
     {
         var nested = CreateNestedStruct("Inner");
         var facade = CreateStruct("DocScanSDK", nestedTypes: new[] { nested });
 
         var output = EmitToString(facade);
 
-        Assert.Contains("namespace DocScanSDK", output);
-        Assert.DoesNotContain("static partial class DocScanSDK", output);
-        Assert.DoesNotContain("partial class DocScanSDK", output);
+        Assert.Contains("public static partial class DocScanSDK", output);
+        Assert.DoesNotContain("namespace DocScanSDK", output);
     }
 
     [Fact]
-    public void Emit_EnumFacade_WritesNamespaceBlock()
+    public void Emit_StructFacade_CarriesAvailabilityAndDocComment()
     {
-        // Caseless enum with nested types is the canonical Swift
-        // "uninhabited enum as namespace" idiom (e.g. HPKE, AES, Insecure in CryptoKit).
-        // Emit as a real C# namespace, never `static partial class`.
+        // A class, unlike a namespace, can carry the facade's own doc comment and availability,
+        // which the namespace form had to drop (CS0116).
         var nested = CreateNestedStruct("Inner");
-        var facade = CreateEnum("HPKE", nestedTypes: new[] { nested });
+        var facade = CreateStruct("Gated", nestedTypes: new[] { nested }) with
+        {
+            AvailabilityAnnotations = new List<AvailabilityAnnotation>
+            {
+                new("iOS", "26.0", null, null, false, false, null, null),
+            },
+        };
+        facade.Documentation = new DocComment { Summary = "Scopes the gated types." };
 
         var output = EmitToString(facade);
 
-        Assert.Contains("namespace HPKE", output);
-        Assert.DoesNotContain("static partial class HPKE", output);
-        Assert.DoesNotContain("partial class HPKE", output);
+        Assert.Contains("Scopes the gated types.", output);
+        Assert.Contains("SupportedOSPlatform(\"ios26.0\")", output);
+        Assert.True(
+            output.IndexOf("SupportedOSPlatform", StringComparison.Ordinal)
+                < output.IndexOf("public static partial class Gated", StringComparison.Ordinal),
+            output);
     }
 
     [Fact]
     public void Emit_OpensAndClosesBraces()
     {
         var nested = CreateNestedStruct("Inner");
-        var facade = CreateEnum("Constants", nestedTypes: new[] { nested });
+        var facade = CreateStruct("Constants", nestedTypes: new[] { nested });
 
         var output = EmitToString(facade);
 
@@ -72,7 +81,7 @@ public class NamespaceFacadeEmitterTests
     {
         var inner1 = CreateNestedStruct("Inner1");
         var inner2 = CreateNestedStruct("Inner2");
-        var facade = CreateEnum("Facade", nestedTypes: new[] { inner1, inner2 });
+        var facade = CreateStruct("Facade", nestedTypes: new[] { inner1, inner2 });
 
         var recursedDecls = new List<BaseDecl>();
         EmitToString(facade, recurseCapture: (decls, _) => recursedDecls.AddRange(decls));

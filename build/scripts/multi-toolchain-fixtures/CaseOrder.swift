@@ -6,8 +6,9 @@
 // cases below marked "inserted": a newer build inserts cases ahead of existing ones, as an Apple SDK
 // does between releases (RealityFoundation 27.2 adds VisualizationMode.baseColorTexture before
 // textureCoordinates), and gives a caseless namespace enum its first static member (RealityFoundation
-// 27.2 does so to Audio). The enums are resilient (built with library evolution) and not @frozen, so
-// both are compatible changes for Swift clients.
+// 27.2 does so to Audio), and gives a member-less struct used the same way its first initializer. The
+// enums are resilient (built with library evolution) and not @frozen, so all are compatible changes for
+// Swift clients.
 
 /// A no-payload enum with a String raw value: projected as a class with a nested CaseTag.
 public enum Shade: String {
@@ -52,6 +53,21 @@ public enum Studio {
         public init() {}
 
         public var label: String { "easel" }
+    }
+}
+
+/// A member-less struct used as a namespace: projected as a static class while it has no member, and as
+/// an ordinary struct type once the newer build gives it an initializer, so its nested type keeps one CLR
+/// name in both copies.
+public struct Workshop {
+#if compiler(>=6.4)
+    public init() {}
+#endif
+
+    public final class Bench {
+        public init() {}
+
+        public var label: String { "bench" }
     }
 }
 

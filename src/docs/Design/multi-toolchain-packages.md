@@ -207,21 +207,31 @@ chance in 2^31 per added case). A probing rule ("the next free value") would let
 hashes next to a group member shift it. The merge's compiled-in value check (SWIFTBIND138) refuses a
 copy whose constant moved and names the cause, so a residual collision never reaches a consumer.
 
-### Namespace enums
+### Namespace enums and struct facades
 
-A caseless Swift enum used as a namespace is always emitted as a C# static class, members or not
-(`NamespaceFacadeDetector` lifts only member-less structs to a C# namespace). A newer SDK may add a
-static member to the enum, and a lifted namespace would then become a type: every nested type's CLR
-name changes (`Outer.Inner` becomes `Outer+Inner`), so the merge refuses the copy as a removed type and
-a library compiled against the older copy fails to load the nested type under the newer one. As a
-static class the nested types keep one CLR name in every copy. A caseless enum with neither members
-nor nested types (an uninhabited marker) stays an empty C# enum, which a generic argument accepts.
+A Swift type used only to scope nested types is emitted as a C# static class, never as a C# namespace:
+a caseless enum members or not, and a member-less struct with nested types (`NamespaceFacadeDetector`,
+`NamespaceFacadeEmitter`). A newer SDK may give such a type a member, and a lifted namespace would then
+become a type: every nested type's CLR name changes (`Outer.Inner` becomes `Outer+Inner`), so the merge
+refuses the copy as a removed type and a library compiled against the older copy fails to load the
+nested type under the newer one. As a class the nested types are `Outer+Inner` in every copy. A struct
+facade that gains an initializer or an instance member is emitted as an ordinary struct class, whose
+nested types keep the same `Outer+Inner` names; the older copy's static class declares no member the
+newer class lacks, so the copies merge. Consumers import the nested types with
+`using static Module.Outer;`. A caseless enum with neither members nor nested types (an uninhabited
+marker) stays an empty C# enum, which a generic argument accepts.
+
+Members a newer SDK adds rename none of a caseless enum's nested types: a static property named like
+its nested type (`static var easel: Easel`) takes the member-side `Value` suffix instead of renaming the
+type to `EaselInfo`, which ordinary types still do. A struct that gains such a property stops being a
+facade and takes the ordinary rule, so the merge refuses that copy (SWIFTBIND138).
 
 The same holds for the case-only collision rule (`CaseOnlyCollisionPass`): a top-level type whose name
 case-folds onto a container's is renamed, and a caseless enum with nested types counts as a container
-whatever members it has, so a member a newer SDK adds renames no sibling. A struct facade outranks it
-(a namespace and a type of one name cannot coexist), and of two such enums the one whose Swift name
-sorts first keeps the name.
+whatever members it has, so a member a newer SDK adds renames no sibling. A struct facade outranks it,
+and of two such enums the one whose Swift name sorts first keeps the name. The renamed type's suffix
+steps over its own members' names (CS0542), and an `@_spi` type, which is not emitted, neither reserves
+a suffix nor takes one.
 
 ## The gate
 
@@ -234,10 +244,10 @@ Apple-framework fixtures with its explicit TFMs: ProximityReader (iOS and Mac Ca
 SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in the 26.0 copy,
 WeatherKit (macOS and tvOS), and CaseOrder (iOS), a first-party Swift library
 (`build/scripts/multi-toolchain-fixtures/CaseOrder.swift`) each pairing builds with its own Xcode,
-whose Swift 6.4 build inserts enum cases ahead of existing ones and gives a caseless namespace enum
-its first static member, as an Apple SDK does between releases. Its copies merge only because their
-`CaseTag` and plain enum constants do not follow case order and the namespace enum is a static class
-in both. Matter
+whose Swift 6.4 build inserts enum cases ahead of existing ones, gives a caseless namespace enum
+its first static member and a member-less namespace struct its first initializer, as an Apple SDK does
+between releases. Its copies merge only because their `CaseTag` and plain enum constants do not follow
+case order and the nested types of the namespace enum and struct keep their CLR names in both. Matter
 (iOS) is the pure Objective-C fixture: its copies ship no natives, declare so, and bind none of the
 API its headers mark provisional (unavailable). The gate merges them with `SwiftBindingsMergePackages` and checks the
 layout, each copy's bytes against its contribution, the nuspec groups, the path budget and SWIFTBIND133.
