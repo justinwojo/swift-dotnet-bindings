@@ -612,12 +612,17 @@ namespace BindingsGeneration
             // record every such element the bound surface spells from the same predicates.
             var boundGenerics = new BoundGenericsHandler(typeDatabase);
             var floors = new ObjectKeyFloors();
+            // The scan reads every member, bound or not. One that names an internal type is not bound,
+            // and the wrapper, a separate module, cannot spell that type in an accessor.
+            var internalTypeNames = moduleDecl.InternalTypeNames;
             _onCollectionArgument = (element, hashed) =>
             {
+                if (internalTypeNames is { Count: > 0 } && InternalTypeReferenceWalker.Reaches(element, internalTypeNames, moduleName))
+                    return;
                 if (hashed && boundGenerics.HashedSwiftClassArgument(element) is { } hashedClass)
                 {
                     emissionCtx.RecordHashedSwiftClass(hashedClass);
-                    floors.Add(hashedClass.Identity.IdentityClassName, OwnerAvailability(_scanOwner));
+                    floors.Add(hashedClass.Identity.SwiftTypeName, OwnerAvailability(_scanOwner));
                     return;
                 }
                 var identity = boundGenerics.IsObjectPointerContainerArgument(element)
@@ -656,7 +661,7 @@ namespace BindingsGeneration
             {
                 var identity = hashedClass.Identity;
                 MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
-                    identity.AccessorSymbol(moduleName), emissionCtx, availability: floors.Floor(identity.IdentityClassName));
+                    identity.AccessorSymbol(moduleName), emissionCtx, availability: floors.Floor(identity.SwiftTypeName));
             }
         }
 
@@ -916,7 +921,7 @@ namespace BindingsGeneration
             // Swift class keys and set elements: each wrapper gets its class's Hashable witness table,
             // read from the Set<Class> metadata the wrapper exports.
             foreach (var hashedClass in hashedSwiftClasses)
-                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<{hashedClass.WrapperType}>({ObjectKeyIdentity.HolderClassName}.{hashedClass.Identity.AccessorMethodName}()); }} catch {{ }}");
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<{hashedClass.WrapperType}>({ObjectKeyIdentity.HolderClassName}.{hashedClass.AccessorMethodName(moduleName)}()); }} catch {{ }}");
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
             // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
@@ -1032,7 +1037,7 @@ namespace BindingsGeneration
                 {
                     var identity = hashedClass.Identity;
                     csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{identity.AccessorSymbol(moduleName)}\")]");
-                    csWriter.WriteLines($"    internal static extern IntPtr {identity.AccessorMethodName}();");
+                    csWriter.WriteLines($"    internal static extern IntPtr {hashedClass.AccessorMethodName(moduleName)}();");
                 }
                 csWriter.WriteLines("""
                     }

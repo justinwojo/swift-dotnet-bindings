@@ -301,15 +301,19 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Fact]
-    public void RecordHashedSwiftClass_DedupesOneClassAndRefusesTwoClassesSharingAName()
+    public void RecordHashedSwiftClass_DedupesOneClassAndKeepsTwoClassesWhoseNamesFlattenAlike()
     {
         var emission = new ModuleEmissionContext();
         emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Node"), "TestModule.Node")!);
         emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Node"), "global::TestModule.Node")!);
         Assert.Single(emission.HashedSwiftClasses);
-        // Identity names flatten dots to underscores: two Swift types can collide on one name.
-        Assert.Throws<InvalidOperationException>(() => emission.RecordHashedSwiftClass(
-            new HashedSwiftClass(new ObjectKeyIdentity("TestModule_Node"), "global::TestModule_Node")));
+
+        // TestModule.Outer.Key and TestModule.Outer_Key flatten to one identity name: both are
+        // registered, each through its own accessor import.
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer.Key"), "TestModule.Outer.Key")!);
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer_Key"), "TestModule.Outer_Key")!);
+        Assert.Equal(3, emission.HashedSwiftClasses.Count);
+        Assert.Equal(3, emission.HashedSwiftClasses.Select(c => c.AccessorMethodName("TestModule")).Distinct().Count());
     }
 
     private static TypeDatabase NodeDatabase(TypeDatabase? typeDatabase = null)

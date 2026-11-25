@@ -1264,7 +1264,7 @@ public class ModuleHandlerTests
         Assert.Contains("Swift.Set<TestModule.Node>.self", swiftOutput);
         Assert.Contains($"EntryPoint = \"{symbol}\"", csOutput);
         Assert.Contains(
-            "global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(__SwiftObjectKeys.__GetSetMetadata_TestModule_Node())",
+            $"global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(__SwiftObjectKeys.{symbol}())",
             csOutput);
         Assert.DoesNotContain("ISwiftObjectKeyIdentity", csOutput);
         var diagnostics = CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
@@ -1303,6 +1303,35 @@ public class ModuleHandlerTests
         Assert.Contains("if #available(iOS 16.0, macCatalyst 16.0, *) {", accessor);
         Assert.Contains("Swift.Set<TestModule.Node>.self", accessor);
         Assert.Contains("SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_SetOfAnInternalClass_ExportsNoAccessor()
+    {
+        // The scan reads members the module does not bind. One naming an internal class must not
+        // put that class in a wrapper accessor: the wrapper cannot spell it.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.InternalTypeNames = new HashSet<string> { "Hidden", "TestModule.Hidden" };
+                moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "inlinableTake",
+                    new NamedTypeSpec("Swift.Set", new NamedTypeSpec("TestModule.Hidden"))));
+            },
+            registerModuleTypes: module =>
+            {
+                var hiddenName = SwiftTypeName.FromModuleQualifiedName("TestModule.Hidden");
+                module.RegisterType(hiddenName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Hidden"),
+                    SwiftTypeName = hiddenName,
+                    MetadataAccessor = "$s10TestModule6HiddenCMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+            });
+
+        Assert.DoesNotContain("TestModule.Hidden", swiftOutput);
+        Assert.DoesNotContain("RegisterHashableClass", csOutput);
     }
 
     [Fact]

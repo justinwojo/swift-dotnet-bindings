@@ -17,6 +17,12 @@ namespace BindingsGeneration;
 public sealed record HashedSwiftClass(ObjectKeyIdentity Identity, string WrapperType)
 {
     /// <summary>
+    /// The C# import of the exported <c>Set</c> accessor: its symbol, which hashes the Swift name, so
+    /// two classes whose names flatten alike (<c>Outer.Key</c>, <c>Outer_Key</c>) keep two imports.
+    /// </summary>
+    public string AccessorMethodName(string moduleName) => Identity.AccessorSymbol(moduleName);
+
+    /// <summary>
     /// The hashed class <paramref name="typeSpec"/> names, carried as <paramref name="wrapperType"/>,
     /// or <c>null</c> when some part of its Swift name is not module-qualified (the wrapper cannot
     /// spell it; the wrapper type's own conformance lookup then applies).

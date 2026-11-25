@@ -1708,24 +1708,13 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// The Swift classes the module's collections hold as keys or set elements, whose <c>Hashable</c>
-    /// witness tables its initializer registers (<see cref="HashedSwiftClass"/>). Ordered by identity name.
+    /// witness tables its initializer registers (<see cref="HashedSwiftClass"/>). Ordered by Swift name.
     /// </summary>
     public IReadOnlyCollection<HashedSwiftClass> HashedSwiftClasses => _hashedSwiftClasses.Values;
 
-    /// <summary>Records a Swift class a collection of this module holds as a key or set element.</summary>
-    /// <exception cref="InvalidOperationException">Two Swift types map to one identity name.</exception>
+    /// <summary>Records a Swift class a collection of this module holds as a key or set element, once per Swift type.</summary>
     public void RecordHashedSwiftClass(HashedSwiftClass hashedClass)
-    {
-        var name = hashedClass.Identity.IdentityClassName;
-        if (_hashedSwiftClasses.TryGetValue(name, out var existing))
-        {
-            if (existing.Identity.SwiftTypeName != hashedClass.Identity.SwiftTypeName)
-                throw new InvalidOperationException(
-                    $"The hashed class types '{existing.Identity.SwiftTypeName}' and '{hashedClass.Identity.SwiftTypeName}' share the identity name '{name}'.");
-            return;
-        }
-        _hashedSwiftClasses.Add(name, hashedClass);
-    }
+        => _hashedSwiftClasses.TryAdd(hashedClass.Identity.SwiftTypeName, hashedClass);
 
     private readonly List<(string CSharpTypeName, string ProtocolInterface, string ConformanceSymbol, string LibraryName)> _simpleEnumConformanceRegistrations = new();
     private readonly HashSet<(string, string)> _simpleEnumConformanceKeys = new();
