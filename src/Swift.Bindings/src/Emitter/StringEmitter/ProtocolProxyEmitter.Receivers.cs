@@ -1903,7 +1903,7 @@ public partial class ProtocolProxyEmitter
         // even though RowAdapterProxy : IRowAdapter, because Dictionary is invariant.
         var valPubType = dict.ValueProjection.PublicType;
         var keyPubType = dict.KeyProjection.PublicType;
-        return DictionaryProjection.Materialize(rawArgName, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", dict.HasOptionalKey);
+        return DictionaryProjection.Materialize(rawArgName, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", dict.KeyProjection);
     }
 
     /// <summary>
@@ -2611,7 +2611,7 @@ public partial class ProtocolProxyEmitter
             var valConv = dictExist.GetOwnedReturnElementConversion("kvp.Value");
             var keyConv = dictProj.KeyProjection.GetOwnedReturnElementConversion("kvp.Key");
             var keyExpr = keyConv ?? "kvp.Key";
-            return DictionaryProjection.Materialize(varName, $"kvp => {keyExpr}", $"kvp => ({publicType}){valConv}", dictProj.HasOptionalKey);
+            return DictionaryProjection.Materialize(varName, $"kvp => {keyExpr}", $"kvp => ({publicType}){valConv}", dictProj.KeyProjection);
         }
 
         return null;

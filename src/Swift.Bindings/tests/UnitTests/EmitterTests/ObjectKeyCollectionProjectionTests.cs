@@ -771,6 +771,95 @@ public class ObjectKeyCollectionProjectionTests
         Assert.StartsWith("global::System.Linq.Enumerable.ToDictionary(d, ", plain.GetReturnElementConversion("d"));
     }
 
+    public static TheoryData<TypeSpec> SwiftClassKeys => new()
+    {
+        new NamedTypeSpec("TestModule.Node"),
+        Optional(new NamedTypeSpec("TestModule.Node")),
+        Optional(new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("Swift.String"))),
+    };
+
+    [Theory]
+    [MemberData(nameof(SwiftClassKeys))]
+    public async Task SwiftClassKeyedCopy_ComparesKeysAsSwiftDoes(TypeSpec key)
+    {
+        // [[Box<String>?: Int]] read into .NET: each inner dictionary is a copy, and a Swift class's
+        // wrapper need not compare as Swift's conformance does (Box's is conditional on its argument,
+        // so the wrapper compares by identity). The copy takes a comparer that asks Swift, so a
+        // fresh, equal key finds the entry.
+        var typeDatabase = ClassDatabase(await LoadAppleDatabaseAsync(), "TestModule.Box", "TestModule.Node");
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Swift.Int")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var keyType = dictionary.KeyProjection.PublicType;
+        var carrier = dictionary.KeyProjection.SwiftContainerGenericType;
+
+        foreach (var read in new[] { dictionary.GetReturnElementConversion("d"), dictionary.GetOwnedReturnElementConversion("d") })
+        {
+            Assert.NotNull(read);
+            Assert.Contains($"global::Swift.Runtime.SwiftKeyComparer.Create<{keyType}, {carrier}>(comparerKey => ", read);
+            Assert.EndsWith("))", read);
+        }
+
+        // A set of the class is read as the Swift set itself, and a set of its optional as a view
+        // over the Swift set: both look up through Swift, and neither copies.
+        var set = Assert.IsType<SetProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Set", key), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var setRead = set.GetReturnElementConversion("s");
+        if (set.ElementProjection is OptionalProjection)
+            Assert.Contains(".AsProjected<", setRead);
+        else
+            Assert.Null(setRead);
+        Assert.DoesNotContain("ToHashSet", setRead ?? "");
+    }
+
+    [Theory]
+    [InlineData("Swift.String", false)]
+    [InlineData("Swift.Int", true)]
+    [InlineData("Swift.String", true)]
+    [InlineData("Foundation.NSUUID", false)]
+    [InlineData("Foundation.NSUUID", true)]
+    public async Task ValueAndObjCKeyedCopy_ComparesKeysByTheirOwnEquality(string keyType, bool optional)
+    {
+        // A value key's managed equality is Swift's, and an Objective-C object's is -isEqual:, which
+        // is what Swift's NSObject Hashable calls: no comparer.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        TypeSpec key = optional ? Optional(new NamedTypeSpec(keyType)) : new NamedTypeSpec(keyType);
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Swift.Int")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+
+        Assert.Null(DictionaryProjection.SwiftKeyComparer(dictionary.KeyProjection));
+        Assert.DoesNotContain("SwiftKeyComparer", dictionary.GetReturnElementConversion("d"));
+    }
+
+    [Fact]
+    public async Task ObjCBridgedDictionary_CarriesTheNilKeyAsNSNull()
+    {
+        // [NSUUID?: URL] crosses as an NSDictionary (its URL value bridges). Swift spells a nil key
+        // there as NSNull: a nil key is written as NSNull and NSNull is read back as nil, into a
+        // dictionary that can hold it.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var key = Optional(new NamedTypeSpec("Foundation.NSUUID"));
+        var parameter = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext())));
+        Assert.True(parameter.UsesObjCContainerBridge);
+        Assert.True(parameter.HasOptionalKey);
+
+        var owner = parameter.BuildObjCBridgeOwner("index", sourceIsNullable: false);
+        var write = string.Join("\n", owner.Setup.Select(Render));
+        Assert.Contains(": Foundation.NSNull.Null)", write);
+        Assert.Contains(": Foundation.NSNull.Null)", parameter.GetReverseReceiverObjCBridgeConversion("index"));
+        Assert.Contains(": Foundation.NSNull.Null)", parameter.GetParameterElementConversion("index"));
+
+        var result = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var read = string.Join("\n", result.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render));
+        Assert.Contains("_nsKey is Foundation.NSNull ? (", read);
+        Assert.Contains("new global::Swift.NilKeyDictionary<", read);
+        Assert.DoesNotContain("new System.Collections.Generic.Dictionary<", read);
+        var inline = result.GetReturnContainerConversion("d");
+        Assert.Contains("_nsKey is Foundation.NSNull ? (", inline);
+        Assert.Contains("new global::Swift.NilKeyDictionary<", inline);
+    }
+
     private static string AccessorSetterConversion(ITypeProjection projection, string valueExpr)
         => projection.Accept(new AccessorSetterConversionVisitor(valueExpr)).Item1 ?? "";
 }

@@ -25,6 +25,13 @@ namespace Swift.Runtime
             IntPtr equatableProtocolWitnessTable);
 
         /// <summary>
+        /// Swift's <c>==</c> between two values of the type <paramref name="metadata"/> describes,
+        /// each already in Swift memory (borrowed: neither is consumed).
+        /// </summary>
+        internal static bool EqualsRaw(IntPtr lhs, IntPtr rhs, TypeMetadata metadata, ProtocolWitnessTable equatable)
+            => PInvoke_SwiftEquals(lhs, rhs, metadata.Handle, equatable.Handle) != 0;
+
+        /// <summary>
         /// Compares two objects using Swift's Equatable protocol.
         /// </summary>
         /// <typeparam name="T">Type that implements ISwiftEquatable</typeparam>
