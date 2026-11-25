@@ -1306,6 +1306,49 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_HashedClassWhoseWrapperIsSkipped_IsNotRegistered()
+    {
+        // A class the run skips has no C# wrapper: registering a witness for it would not compile.
+        string csOutput, swiftOutput;
+        try
+        {
+            (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                m =>
+                {
+                    ReportCollector.Start(m);
+                    ReportCollector.RecordTypeSkipped(new ClassDecl
+                    {
+                        Name = "Skipped",
+                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Skipped"),
+                        MangledName = "$s10TestModule7SkippedC",
+                        Properties = new List<PropertyDecl>(),
+                        Methods = new List<MethodDecl>(),
+                        Types = new List<TypeDecl>(),
+                        Operators = new List<OperatorDecl>(),
+                        Subscripts = new List<SubscriptDecl>(),
+                        GenericParameters = new List<GenericArgumentDecl>(),
+                        Conformances = new List<TypeConformance>(),
+                        ParentDecl = m,
+                        ModuleDecl = m,
+                    }, SkipReason.UnsupportedType, "test");
+                },
+                preEmitHook: ctx =>
+                {
+                    ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Skipped"), "global::TestModule.Skipped"));
+                    ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Node"), "global::TestModule.Node"));
+                });
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.Contains("RegisterHashableClass<global::TestModule.Node>", csOutput);
+        Assert.DoesNotContain("TestModule.Skipped", csOutput);
+        Assert.DoesNotContain("Swift.Set<TestModule.Skipped>", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_SetOfAnInternalClass_ExportsNoAccessor()
     {
         // The scan reads members the module does not bind. One naming an internal class must not

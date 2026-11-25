@@ -657,7 +657,7 @@ namespace BindingsGeneration
             }
             // A Swift class key or set element: its Set<Class> metadata, which holds the class's
             // Hashable witness table as the compiler resolves it.
-            foreach (var hashedClass in emissionCtx.HashedSwiftClasses)
+            foreach (var hashedClass in DeclaredHashedSwiftClasses(emissionCtx))
             {
                 var identity = hashedClass.Identity;
                 MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
@@ -678,6 +678,15 @@ namespace BindingsGeneration
         /// floor of the declarations that name it. Per platform that is the lowest floor any of them
         /// declares, and no floor when one of them declares none on the platform (or none at all).
         /// </summary>
+        /// <summary>
+        /// The hashed Swift classes whose wrappers this run declares. A class the run skips (or one
+        /// nested in a skipped type) has no C# type to register a witness for, and no bound member
+        /// reaches it: the accessor scan reads every member, bound or not.
+        /// </summary>
+        private static IReadOnlyList<HashedSwiftClass> DeclaredHashedSwiftClasses(ModuleEmissionContext? emissionCtx)
+            => emissionCtx?.HashedSwiftClasses.Where(c => !ReportCollector.IsTypeSkipped(c.Identity.SwiftTypeName)).ToList()
+                ?? (IReadOnlyList<HashedSwiftClass>)Array.Empty<HashedSwiftClass>();
+
         internal sealed class ObjectKeyFloors
         {
             // A null entry: some declaration names the key with no floor, so the key is referenced unguarded.
@@ -750,8 +759,7 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string, string)>();
             var objectKeyIdentities = emissionCtx?.ObjectKeyIdentities
                 ?? Array.Empty<ObjectKeyIdentity>();
-            var hashedSwiftClasses = emissionCtx?.HashedSwiftClasses
-                ?? Array.Empty<HashedSwiftClass>();
+            var hashedSwiftClasses = DeclaredHashedSwiftClasses(emissionCtx);
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
