@@ -51,10 +51,32 @@ internal static class HashableConformanceRegistry
                 return ProtocolWitnessTable.GetProtocolWitnessTable(conformance, metadata);
             }
 
+            // Optional<Wrapped> is Hashable only through the standard library's conditional
+            // conformance (where Wrapped: Hashable), whose witness table must be instantiated for
+            // the wrapped type: the Swift runtime's own conformance lookup resolves the condition
+            // and instantiates it, as Swift does for [Int?: V] or Set<String?>.
+            if (type.IsGenericType && type.GetGenericTypeDefinition() == typeof(SwiftOptional<>))
+                return OptionalHashableWitnessTable<T>();
+
             // For all other types (including ISwiftObject types), use the standard resolution path.
             // On NativeAOT, ISwiftObject types are resolved via GetOrThrowDirect (no reflection).
             // On Mono JIT, MakeGenericType works for all types.
             return ProtocolWitnessTable.GetOrThrow<T, ISwiftHashable>();
         });
     }
+
+    private static ProtocolWitnessTable OptionalHashableWitnessTable<T>()
+    {
+        var metadata = TypeMetadata.GetTypeMetadataOrThrow<T>();
+        var hashable = ProtocolDescriptor.LoadFromSymbol(KnownLibraries.SwiftCore, HashableProtocolSymbol);
+        if (!SwiftConformance.TryGetWitnessTable(metadata, hashable, out var witnessTable) || witnessTable is null)
+        {
+            throw new SwiftRuntimeException(
+                $"{typeof(T)} is not Hashable: its wrapped type has no Hashable conformance the Swift runtime can find.");
+        }
+        return witnessTable.Value;
+    }
+
+    // Swift.Hashable's protocol descriptor.
+    private const string HashableProtocolSymbol = "$sSHMp";
 }

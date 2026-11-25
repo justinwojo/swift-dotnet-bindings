@@ -29,6 +29,9 @@ public readonly struct ProtocolDescriptor : IEquatable<ProtocolDescriptor>
     /// </summary>
     public bool IsValid => _handle != IntPtr.Zero;
 
+    /// <summary>The descriptor's address.</summary>
+    internal IntPtr Handle => _handle;
+
     /// <inheritdoc/>
     public bool Equals(ProtocolDescriptor other)
     {

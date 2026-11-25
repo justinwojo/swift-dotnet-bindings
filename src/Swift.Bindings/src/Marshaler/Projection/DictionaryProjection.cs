@@ -410,7 +410,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", HasOptionalKey);
+        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", _keyProjection);
     }
 
     /// <summary>
@@ -429,7 +429,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", HasOptionalKey);
+        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", _keyProjection);
     }
 
     /// <summary>
@@ -442,12 +442,53 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// The concrete dictionary a Swift dictionary's entries are read into, from <paramref name="source"/>
     /// through the two selectors: a <c>Dictionary</c>, or for an optional key type a
     /// <c>Swift.NilKeyDictionary</c>, which holds the <c>nil</c> key as Swift's does. Both implement
-    /// <c>IDictionary</c> and <c>IReadOnlyDictionary</c>.
+    /// <c>IDictionary</c> and <c>IReadOnlyDictionary</c>. A key that Swift alone can compare
+    /// (<see cref="SwiftKeyComparer"/>) gets a comparer that compares it as Swift does.
     /// </summary>
-    internal static string Materialize(string source, string keySelector, string valueSelector, bool optionalKey)
-        => optionalKey
-            ? $"global::Swift.NilKeyDictionary.From({source}, {keySelector}, {valueSelector})"
-            : $"global::System.Linq.Enumerable.ToDictionary({source}, {keySelector}, {valueSelector})";
+    internal static string Materialize(string source, string keySelector, string valueSelector, ITypeProjection keyProjection)
+        => Materialize(source, keySelector, valueSelector, keyProjection is OptionalProjection, SwiftKeyComparer(keyProjection));
+
+    /// <summary>
+    /// <see cref="Materialize(string, string, string, ITypeProjection)"/> for a caller that knows only
+    /// whether the key type is optional: its keys are compared by their own equality.
+    /// </summary>
+    internal static string Materialize(string source, string keySelector, string valueSelector, bool optionalKey, string? comparer = null)
+    {
+        var comparerArgument = comparer is null ? "" : $", {comparer}";
+        return optionalKey
+            ? $"global::Swift.NilKeyDictionary.From({source}, {keySelector}, {valueSelector}{comparerArgument})"
+            : $"global::System.Linq.Enumerable.ToDictionary({source}, {keySelector}, {valueSelector}{comparerArgument})";
+    }
+
+    /// <summary>
+    /// A comparer expression for a managed collection of keys (or set elements) of
+    /// <paramref name="keyProjection"/> that compares and hashes each as Swift does, through the
+    /// <c>Hashable</c> conformance of the Swift type it crosses as, or <c>null</c> when the key's own
+    /// managed equality is Swift's. A Swift class key, optional or not, needs one: Swift hashes it by
+    /// the conformance its collection was built with, which the class's wrapper need not share (a
+    /// conformance conditional on the class's generic arguments, or declared outside its module,
+    /// leaves the wrapper comparing by identity), so a fresh, equal object would miss the entry
+    /// Swift holds under it. A copy that compares as Swift does finds it, as a lookup on the Swift
+    /// dictionary itself does.
+    /// </summary>
+    internal static string? SwiftKeyComparer(ITypeProjection keyProjection)
+    {
+        var swiftClassKey = keyProjection switch
+        {
+            ClassProjection or ObjCRootedClassProjection => keyProjection.SwiftContainerGenericType == keyProjection.PublicType,
+            OptionalProjection { ObjectCarrier: not null, InnerProjection: ClassProjection or ObjCRootedClassProjection } => true,
+            _ => false,
+        };
+        if (!swiftClassKey)
+            return null;
+        var carrier = keyProjection.SwiftContainerGenericType;
+        // A class slot's carrier is the wrapper itself; an optional's is its object carrier, made
+        // from a non-null key (the comparer never converts a null one).
+        var toCarrier = carrier == keyProjection.PublicType
+            ? "comparerKey"
+            : keyProjection.GetParameterElementConversion("comparerKey") ?? "comparerKey";
+        return $"global::Swift.Runtime.SwiftKeyComparer.Create<{keyProjection.PublicType}, {carrier}>(comparerKey => {toCarrier})";
+    }
 
     public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
 
@@ -465,6 +506,13 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     internal static string ToNSObject(ITypeProjection projection, string elementVar)
     {
+        // An optional key or element (`[NSUUID?: URL]`) holds nil like any other value. Swift spells
+        // nil inside an Objective-C collection as NSNull, and reads NSNull back as nil.
+        if (projection is OptionalProjection optional)
+        {
+            var some = NonNilName(elementVar);
+            return $"({elementVar} is {{ }} {some} ? (Foundation.NSObject){ToNSObject(optional.InnerProjection, some)} : Foundation.NSNull.Null)";
+        }
         // An Apple typed-enum element projects as a C# enum, not an NSObject — convert it to the
         // NSString constant it bridges as before it can go into the dictionary.
         if (projection.TypedEnumAdapter is { } toAdapter)
@@ -496,6 +544,44 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         return $"(Foundation.NSObject){elementVar}";
     }
 
+    /// <summary>A pattern variable for the non-nil value of <paramref name="elementVar"/>.</summary>
+    private static string NonNilName(string elementVar)
+        => "nonNil" + new string(elementVar.Where(char.IsLetterOrDigit).ToArray());
+
+    /// <summary>
+    /// The concrete dictionary type an Objective-C bridged dictionary is read into: one that can
+    /// hold the nil key of an optional key type (<see cref="Materialize(string, string, string, ITypeProjection)"/>).
+    /// </summary>
+    private string ObjCBridgeReadDictionaryType
+        => HasOptionalKey
+            ? $"global::Swift.NilKeyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>"
+            : $"System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>";
+
+    /// <summary>
+    /// The keys of <paramref name="nsDictionary"/> to read entries by. The platform binding hands
+    /// back an NSNull key (Swift's nil key) as <see langword="null"/>, which neither converts nor
+    /// looks its value up, so an optional key's NSNull is put back: it reads as nil, and finds its
+    /// value, as the NSNull singleton is equal to itself.
+    /// </summary>
+    private string ObjCBridgeReadKeys(string nsDictionary)
+        => HasOptionalKey
+            ? $"global::System.Linq.Enumerable.Select({nsDictionary}.Keys, _key => (Foundation.NSObject?)_key ?? Foundation.NSNull.Null)"
+            : $"{nsDictionary}.Keys";
+
+    /// <summary>
+    /// A new, empty <see cref="ObjCBridgeReadDictionaryType"/> sized for <paramref name="nsDictionary"/>,
+    /// comparing its keys as Swift does where the key's managed equality is not Swift's
+    /// (<see cref="SwiftKeyComparer(ITypeProjection)"/>), as a natively read copy does.
+    /// </summary>
+    private string NewObjCBridgeReadDictionary(string nsDictionary)
+    {
+        var comparer = SwiftKeyComparer(_keyProjection);
+        var arguments = HasOptionalKey
+            ? comparer ?? ""
+            : comparer is null ? $"(int){nsDictionary}.Count" : $"(int){nsDictionary}.Count, {comparer}";
+        return $"new {ObjCBridgeReadDictionaryType}({arguments})";
+    }
+
     /// <summary>
     /// Converts an NSObject from NSDictionary to the C# typed element.
     /// Numeric keys/values are stored as boxed NSNumber instances and require explicit
@@ -504,6 +590,9 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     private static string FromNSObject(ITypeProjection projection, string nsObjectVar)
     {
+        // NSNull is Swift's nil inside an Objective-C collection (see ToNSObject).
+        if (projection is OptionalProjection optional)
+            return $"({nsObjectVar} is Foundation.NSNull ? ({optional.PublicType})null : ({optional.PublicType}){FromNSObject(optional.InnerProjection, nsObjectVar)})";
         // An Apple typed-enum element travels as its NSString carrier; read the carrier, then
         // convert back to the projected C# enum through the platform binding's {Enum}Extensions.
         if (projection.TypedEnumAdapter is { } fromAdapter)
@@ -677,9 +766,9 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
                 new MarshalStatement.Line(
                     $"var {resultName}NSDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({resultName}, true)!;"),
                 new MarshalStatement.Line(
-                    $"var {resultName}Dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int){resultName}NSDict.Count);"),
+                    $"var {resultName}Dict = {NewObjCBridgeReadDictionary($"{resultName}NSDict")};"),
                 new MarshalStatement.Line(
-                    $"foreach (var _nsKey in {resultName}NSDict.Keys) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
+                    $"foreach (var _nsKey in {ObjCBridgeReadKeys($"{resultName}NSDict")}) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
             },
             PInvokeExpression = $"{resultName}Dict"
         };
@@ -697,8 +786,8 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         // Inline dictionary construction using LINQ
         return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
                $"var _nsDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!; " +
-               $"var _dict = new System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>((int)_nsDict.Count); " +
-               $"foreach (var _nsKey in _nsDict.Keys) _dict[{keyConv}] = {valConv}; " +
+               $"var _dict = {NewObjCBridgeReadDictionary("_nsDict")}; " +
+               $"foreach (var _nsKey in {ObjCBridgeReadKeys("_nsDict")}) _dict[{keyConv}] = {valConv}; " +
                $"return _dict; }}))()";
     }
 }
