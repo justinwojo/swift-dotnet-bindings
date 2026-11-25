@@ -167,7 +167,8 @@ annotations and tuple element names included, and neither is part of the CLR sig
 the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
 with `Load(string)`, an indexer's `this[string?]` with `this[string]`). A value type's `T?` folds into
 the same shape, so the spelling cannot tell which of them is the older member's: the name moved unless
-every one of them keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
+every one of them keeps its declaration. That errs toward refusing: a copy that only respells a member
+beside an added overload of another declaration whose key has the same shape is refused too. A simple enum's extension members (`<Enum>Extensions`) and a
 protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
 no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy

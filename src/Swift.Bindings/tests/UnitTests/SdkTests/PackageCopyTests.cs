@@ -637,6 +637,18 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Contains("as Kit.IIndexed.this[string]", problem);
     }
 
+    [Fact]
+    public void Merge_AKeyWhoseBracketsDoNotClose_IsComparedAsSpelled()
+    {
+        const string api = "public interface IIndexed { string this[string key] { get; } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)"), ("IIndexed.this][", "subscript Kit.Indexed.subscript(b:)")])]);
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
     [Theory]
     [InlineData("Kit.Load(string,string?)", "Kit.Load(string,string)")]
     [InlineData("Kit.Load(string,(int, System.Collections.Generic.IReadOnlyList<string?> b))", "Kit.Load(string,(int a, System.Collections.Generic.IReadOnlyList<string> b))")]

@@ -681,7 +681,7 @@ public static class SwiftBindingPackageMerge
     internal static string ClrShape(string key)
     {
         var open = key.IndexOfAny(new[] { '(', '[' });
-        var close = open < 0 ? -1 : key[open] == '(' ? MatchingParen(key, open) : key.LastIndexOf(']');
+        var close = open < 0 ? -1 : Matching(key, open, key[open], key[open] == '(' ? ')' : ']');
         if (open < 0 || close < 0)
             return key;
         return key[..(open + 1)] + WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal) + key[close..];
@@ -691,7 +691,7 @@ public static class SwiftBindingPackageMerge
             var text = new System.Text.StringBuilder(types.Length);
             for (var i = 0; i < types.Length; i++)
             {
-                var end = types[i] == '(' ? MatchingParen(types, i) : -1;
+                var end = types[i] == '(' ? Matching(types, i, '(', ')') : -1;
                 if (end < 0)
                 {
                     text.Append(types[i]);
@@ -733,13 +733,13 @@ public static class SwiftBindingPackageMerge
             return element;
         }
 
-        static int MatchingParen(string text, int open)
+        static int Matching(string text, int open, char opening, char closing)
         {
             var depth = 0;
             for (var i = open; i < text.Length; i++)
             {
-                if (text[i] == '(') depth++;
-                else if (text[i] == ')' && --depth == 0) return i;
+                if (text[i] == opening) depth++;
+                else if (text[i] == closing && --depth == 0) return i;
             }
             return -1;
         }
