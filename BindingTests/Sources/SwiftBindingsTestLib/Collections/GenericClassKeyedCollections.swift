@@ -112,7 +112,7 @@ public func swiftLabelMakeSet(_ names: [String]) -> Set<SwiftKeyLabel<Int>> {
 public protocol SwiftKeyBoxSource: AnyObject {
     func boxes() -> Set<SwiftKeyBox<String>>
     func position(in boxes: Set<SwiftKeyBox<String>>, of value: String) -> Int
-    func position(inOptional boxes: Set<SwiftKeyBox<String>>?, of value: String) -> Int
+    func optionalPosition(in boxes: Set<SwiftKeyBox<String>>?, of value: String) -> Int
 }
 
 /// Whether the set the conformer returns holds a box of `value`.
@@ -127,7 +127,7 @@ public func swiftBoxAskSource(_ source: SwiftKeyBoxSource, values: [String], val
 
 /// Hands the conformer an optional set Swift built (nil when `values` is nil) and returns its answer for `value`.
 public func swiftBoxAskSourceOptional(_ source: SwiftKeyBoxSource, values: [String]?, value: String) -> Int {
-    source.position(inOptional: values.map(swiftBoxMakeSet), of: value)
+    source.optionalPosition(in: values.map(swiftBoxMakeSet), of: value)
 }
 
 // MARK: Ownership

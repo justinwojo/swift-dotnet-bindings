@@ -158,7 +158,7 @@ public class GenericClassKeyedCollectionsTests : TestBase
         public nint Position(SwiftSet<SwiftKeyBox<SwiftString>> boxes, string value)
             => boxes.Contains(Box(value)) ? boxes.Count : -1;
 
-        public nint Position(SwiftOptional<SwiftSet<SwiftKeyBox<SwiftString>>> boxes, string value)
+        public nint OptionalPosition(SwiftOptional<SwiftSet<SwiftKeyBox<SwiftString>>> boxes, string value)
         {
             if (!boxes.HasValue)
                 return -2;
