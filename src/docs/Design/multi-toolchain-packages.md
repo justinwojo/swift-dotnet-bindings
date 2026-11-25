@@ -165,7 +165,9 @@ its `ref` parameters, so overloads that differ only by an `inout` parameter, and
 member has one, have keys of their own. A key spells each parameter as the member declares it, nullable
 annotations and tuple element names included, and neither is part of the CLR signature, so an older key
 the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
-with `Load(string)`): the name moved unless one of them keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
+with `Load(string)`, an indexer's `this[string?]` with `this[string]`). A value type's `T?` folds into
+the same shape, so the spelling cannot tell which of them is the older member's: the name moved unless
+every one of them keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
 protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
 no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy

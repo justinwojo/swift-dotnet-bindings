@@ -643,18 +643,20 @@ public static class SwiftBindingPackageMerge
             // element names included, and neither is part of the CLR signature a library binds:
             // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
             // member whose key the newer copy lacks is compared with the newer copy's own keys of the
-            // same CLR shape (ClrShape, which also folds a value type's `T?` into `T`, so a shape can
-            // name several signatures), and the name moved unless one of them keeps its declaration.
-            // An older signature the newer copy lost outright is refused by the public API comparison.
+            // same CLR shape (ClrShape). The shape also folds a value type's `T?` into `T`, so it can name
+            // several signatures and the spelling cannot tell which one is the older member's: the name
+            // moved unless every one of them keeps its declaration. An older signature the newer copy
+            // lost outright is refused by the public API comparison.
             var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
                 var candidates = newerOnly[ClrShape(olderKey)].OrderBy(k => k, StringComparer.Ordinal).ToList();
-                if (candidates.Count == 0 || candidates.Any(k => string.Equals(after.Members[k], was, StringComparison.Ordinal)))
+                var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
+                if (others.Count == 0)
                     continue;
                 moved.Add($"the C# member {before.Module}.{olderKey} is Swift `{was}` in {older.Tfm} but Swift "
-                          + string.Join(" or ", candidates.Select(k => $"`{after.Members[k]}`")) + $" in {newer.Tfm}, as "
-                          + string.Join(" or ", candidates.Select(k => $"{before.Module}.{k}")));
+                          + string.Join(" or ", others.Select(k => $"`{after.Members[k]}`")) + $" in {newer.Tfm}, as "
+                          + string.Join(" or ", others.Select(k => $"{before.Module}.{k}")));
             }
             notes.Add($"  Swift declarations {file}: {older.Tfm} -> {newer.Tfm}, {before.Types.Count + before.Members.Count} names, {moved.Count} moved");
             if (moved.Count == 0)
@@ -671,15 +673,16 @@ public static class SwiftBindingPackageMerge
     }
 
     /// <summary>
-    /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix) without what its
-    /// parameter spelling carries beyond the CLR signature: nullable annotations and tuple element names.
-    /// A value type's <c>T?</c> is a signature of its own, so the shape can name several signatures.
+    /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix, or an indexer's
+    /// <c>Parent.this[T1]</c>) without what its parameter spelling carries beyond the CLR signature:
+    /// nullable annotations and tuple element names. A value type's <c>T?</c> is a signature of its own,
+    /// so the shape can name several signatures. A property key has no parameter list and stays as it is.
     /// </summary>
     internal static string ClrShape(string key)
     {
-        var open = key.IndexOf('(');
-        var close = open < 0 ? -1 : MatchingParen(key, open);
-        if (close < 0)
+        var open = key.IndexOfAny(new[] { '(', '[' });
+        var close = open < 0 ? -1 : key[open] == '(' ? MatchingParen(key, open) : key.LastIndexOf(']');
+        if (open < 0 || close < 0)
             return key;
         return key[..(open + 1)] + WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal) + key[close..];
 

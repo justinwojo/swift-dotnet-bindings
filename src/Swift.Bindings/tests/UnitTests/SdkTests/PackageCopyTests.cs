@@ -604,10 +604,44 @@ public sealed class PackageCopyTests : IDisposable
         Assert.Contains("as Kit.Kit.Load(string,(int x, int y))", problem);
     }
 
+    [Fact]
+    public void Merge_ATakeoverBesideAnAddedOverloadThatKeepsTheOlderDeclaration_IsRefused()
+    {
+        // `Load(string?, int?)` is `load(a:b:)`. The newer copy's `Load(string, int?)`, the same CLR
+        // signature, is another declaration, and an added `Load(string, int)` keeps `load(a:b:)`: a
+        // candidate of the same shape that keeps the declaration does not clear the one that moved.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "public static class Kit { public static void Load(string a, int? b) { } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string?,int?)", "static func Kit.Kit.load(a:b:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "public static class Kit { public static void Load(string a, int? b) { } public static void Load(string a, int b) { } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,int?)", "static func Kit.Kit.load(c:d:)"), ("Kit.Load(string,int)", "static func Kit.Kit.load(a:b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(string?,int?) is Swift `static func Kit.Kit.load(a:b:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(c:d:)` in net10.0-ios27.2, as Kit.Kit.Load(string,int?)", problem);
+    }
+
+    [Fact]
+    public void Merge_AnIndexerANewerSubscriptTakesWithOtherNullableAnnotations_IsRefused()
+    {
+        const string api = "public interface IIndexed { string this[string key] { get; } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string?]", "subscript Kit.Indexed.subscript(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("IIndexed", "protocol Kit.Indexed")], members: [("IIndexed.this[string]", "subscript Kit.Indexed.subscript(b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("as Kit.IIndexed.this[string]", problem);
+    }
+
     [Theory]
     [InlineData("Kit.Load(string,string?)", "Kit.Load(string,string)")]
     [InlineData("Kit.Load(string,(int, System.Collections.Generic.IReadOnlyList<string?> b))", "Kit.Load(string,(int a, System.Collections.Generic.IReadOnlyList<string> b))")]
-    [InlineData("Kit.Load(ref nint,int?)`1", "Kit.Load(ref nint,int)`1")]
+    [InlineData("Kit.Load(ref string?,int)`1", "Kit.Load(ref string,int)`1")]
+    [InlineData("IIndexed.this[string?]", "IIndexed.this[string]")]
     public void Merge_AnnotationsAndTupleNamesAloneDoNotMoveAName(string olderKey, string newerKey)
     {
         // The same declaration spelled with other annotations or element names is no move.
