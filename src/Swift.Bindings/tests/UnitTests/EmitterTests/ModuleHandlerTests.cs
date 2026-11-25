@@ -1306,9 +1306,11 @@ public class ModuleHandlerTests
     }
 
     [Fact]
-    public void Emit_HashedClassWhoseWrapperIsSkipped_IsNotRegistered()
+    public void Emit_HashedClassWhoseWrapperIsNotDeclared_IsNotRegistered()
     {
-        // A class the run skips has no C# wrapper: registering a witness for it would not compile.
+        // Registering a witness for a class with no C# wrapper would not compile: one the run skipped,
+        // and one it never declared (nested in a suppressed type, which records only the parent).
+        // A declared class and another module's class are registered.
         string csOutput, swiftOutput;
         try
         {
@@ -1316,26 +1318,13 @@ public class ModuleHandlerTests
                 m =>
                 {
                     ReportCollector.Start(m);
-                    ReportCollector.RecordTypeSkipped(new ClassDecl
-                    {
-                        Name = "Skipped",
-                        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Skipped"),
-                        MangledName = "$s10TestModule7SkippedC",
-                        Properties = new List<PropertyDecl>(),
-                        Methods = new List<MethodDecl>(),
-                        Types = new List<TypeDecl>(),
-                        Operators = new List<OperatorDecl>(),
-                        Subscripts = new List<SubscriptDecl>(),
-                        GenericParameters = new List<GenericArgumentDecl>(),
-                        Conformances = new List<TypeConformance>(),
-                        ParentDecl = m,
-                        ModuleDecl = m,
-                    }, SkipReason.UnsupportedType, "test");
+                    ReportCollector.RecordTypeSkipped(TestClassDecl(m, "TestModule.Skipped"), SkipReason.UnsupportedType, "test");
+                    ReportCollector.RecordTypeEmitted(TestClassDecl(m, "TestModule.Node"));
                 },
                 preEmitHook: ctx =>
                 {
-                    ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Skipped"), "global::TestModule.Skipped"));
-                    ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Node"), "global::TestModule.Node"));
+                    foreach (var name in new[] { "TestModule.Skipped", "TestModule.Node", "TestModule._Hidden.Key", "OtherModule.Node" })
+                        ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity(name), "global::" + name));
                 });
         }
         finally
@@ -1344,9 +1333,28 @@ public class ModuleHandlerTests
         }
 
         Assert.Contains("RegisterHashableClass<global::TestModule.Node>", csOutput);
+        Assert.Contains("RegisterHashableClass<global::OtherModule.Node>", csOutput);
         Assert.DoesNotContain("TestModule.Skipped", csOutput);
+        Assert.DoesNotContain("TestModule._Hidden.Key", csOutput);
         Assert.DoesNotContain("Swift.Set<TestModule.Skipped>", swiftOutput);
+        Assert.DoesNotContain("Swift.Set<TestModule._Hidden.Key>", swiftOutput);
     }
+
+    private static ClassDecl TestClassDecl(ModuleDecl m, string moduleQualifiedName) => new()
+    {
+        Name = moduleQualifiedName.Substring(moduleQualifiedName.LastIndexOf('.') + 1),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+        MangledName = "$s10TestModule1XC",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        GenericParameters = new List<GenericArgumentDecl>(),
+        Conformances = new List<TypeConformance>(),
+        ParentDecl = m,
+        ModuleDecl = m,
+    };
 
     [Fact]
     public void Emit_SetOfAnInternalClass_ExportsNoAccessor()
