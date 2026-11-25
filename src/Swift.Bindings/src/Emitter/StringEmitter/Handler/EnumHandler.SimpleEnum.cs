@@ -427,6 +427,7 @@ namespace BindingsGeneration
             var swiftScalarType = GetSwiftScalarType(csUnderlyingType);
             _wrapperLibName = typeDatabase.AsyncLibraryName ?? typeDatabase.GetLibraryPath(moduleDecl.Name);
             _simpleEnumEmissionContext = context.GetEmissionContext();
+            _simpleEnumExtensionsClassName = extensionsClassName ?? $"{enumName}Extensions";
 
             // Buffer extensions content — only emit class if at least one member was emitted
             var bufferSw = new System.IO.StringWriter();
@@ -1055,6 +1056,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
+            RecordExtensionMember(methodDecl, methodPascalName, csParams, typeDatabase);
             ReportCollector.RecordMemberEmitted(methodDecl);
         }
 
@@ -1428,6 +1430,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
+            RecordExtensionMember(propertyDecl, $"Get{propertyPascalName}", [$"this {enumName} self"], typeDatabase);
             ReportCollector.RecordMemberEmitted(propertyDecl);
         }
 
@@ -1537,6 +1540,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
+            RecordExtensionMember(methodDecl, methodPascalName, csParams, typeDatabase);
             ReportCollector.RecordMemberEmitted(methodDecl);
         }
 
@@ -1653,6 +1657,7 @@ namespace BindingsGeneration
                 csWriter.WriteLine();
             }
 
+            RecordExtensionMember(propertyDecl, propertyPascalName, null, typeDatabase);
             ReportCollector.RecordMemberEmitted(propertyDecl);
         }
 
@@ -2072,6 +2077,27 @@ namespace BindingsGeneration
         // the wrapper-symbol contract without threading the context through every
         // signature.
         private ModuleEmissionContext? _simpleEnumEmissionContext;
+
+        /// <summary>The extensions class the members of the enum being emitted are declared in.</summary>
+        private string? _simpleEnumExtensionsClassName;
+
+        /// <summary>
+        /// Records which Swift declaration an emitted extensions-class member stands for. These
+        /// members carry no API-manifest entry, but their names are shaped like every other member's
+        /// (a case-only rename gives <c>Value</c> to a newly added <c>Value</c> and moves the old
+        /// <c>value</c> to <c>Value2</c>), so the package merge compares them as well. Parameters are
+        /// written as declared (<c>this Choice self</c>) and keyed by their types alone.
+        /// </summary>
+        private void RecordExtensionMember(BaseDecl declaration, string csharpName, IEnumerable<string>? parameters,
+            ITypeDatabase typeDatabase)
+        {
+            if (_simpleEnumEmissionContext is null || _simpleEnumExtensionsClassName is null)
+                return;
+            var key = $"{_simpleEnumExtensionsClassName}.{csharpName}";
+            if (parameters is not null)
+                key += ModuleEmissionContext.FormatParameterPortion(parameters.Select(p => p[..p.LastIndexOf(' ')]));
+            _simpleEnumEmissionContext.RecordSwiftDeclaration(key, declaration, typeDatabase);
+        }
 
         private bool _freePInvokeEmittedInExtensions;
 

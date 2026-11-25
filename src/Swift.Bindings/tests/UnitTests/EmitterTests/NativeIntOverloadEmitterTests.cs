@@ -27,16 +27,21 @@ public class NativeIntOverloadEmitterTests
         Assert.Contains("Skip(int count) => Skip((nint)count);", output);
     }
 
-    [Fact]
-    public void TryEmitOverload_Constructor_RecordsTheForwarderAsTheForwarderItIs()
+    [Theory]
+    [InlineData(false, "TestClass.TestClass(int)")]
+    [InlineData(true, "TestClass.TryCreate(int,out TestClass)")]
+    public void TryEmitOverload_Constructor_RecordsTheForwarderAsTheForwarderItIs(bool failable, string key)
     {
         // `TestClass(int)` forwards to `init(count: Int)`; a newer SDK's `init(count: Int32)` would
         // take that C# signature with the same labels, so the Swift declaration record must tell the
-        // forwarder from a declaration the package merge would otherwise read as unchanged.
+        // forwarder from a declaration the package merge would otherwise read as unchanged. It is
+        // keyed as the member it declares (a failable factory's with its `out` result, as the primary
+        // factory records it) and names the C# parameter list it calls.
         var method = CreateMethod("init", MethodType.Instance,
             returnType: TupleTypeSpec.Empty,
             ("count", "Swift.Int"));
         method.IsConstructor = true;
+        method.IsFailable = failable;
         var context = new ModuleEmissionContext();
 
         var output = EmitMethodOverload(method, env =>
@@ -45,10 +50,10 @@ public class NativeIntOverloadEmitterTests
             env.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
         });
 
-        Assert.Contains("public TestClass(int count) : this((nint)count) { }", output);
-        var (key, swift) = Assert.Single(context.SwiftMemberDeclarations);
-        Assert.Equal("TestClass.TestClass(int)", key);
-        Assert.Equal("init TestModule.TestClass.init(count:)" + SwiftDeclarationMapEmitter.NarrowedForwarderMarker, swift);
+        Assert.Contains(failable ? "public static bool TryCreate(int count, out TestClass result)" : "public TestClass(int count) : this((nint)count) { }", output);
+        var (recorded, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.Equal(key, recorded);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder("init TestModule.TestClass.init(count:)", "(nint)"), swift);
         Assert.NotEqual(SwiftDeclarationMapEmitter.Describe(method), swift);
     }
 

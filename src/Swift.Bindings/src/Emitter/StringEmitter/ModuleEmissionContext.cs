@@ -2497,19 +2497,19 @@ public sealed class ModuleEmissionContext
     /// <summary>
     /// Records that the emitted member keyed <paramref name="memberSignature"/> (an API-manifest key)
     /// stands for the Swift <paramref name="declaration"/>, and every type containing it for itself.
-    /// <paramref name="narrowedForwarder"/> marks a native-width convenience overload (an <c>int</c>
-    /// forwarder to an <c>nint</c> member): a newer SDK that adds a Swift overload taking the narrow
-    /// type takes over the forwarder's C# signature, and only a record that tells the forwarder from
-    /// the declaration it forwards to sees that move.
+    /// <paramref name="forwardsTo"/> marks a native-width convenience overload (an <c>int</c> forwarder
+    /// to an <c>nint</c> member) with the C# parameter list of the member it calls: a newer SDK that
+    /// adds a Swift overload taking the narrow type, or another forwarder, takes over the forwarder's
+    /// C# signature, and only a record that tells the forwarder and its target apart sees that move.
     /// </summary>
     public void RecordSwiftDeclaration(string memberSignature, BaseDecl declaration, ITypeDatabase? typeDatabase,
-        bool narrowedForwarder = false)
+        string? forwardsTo = null)
     {
         if (SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
             return;
-        _swiftMemberDeclarations[memberSignature] = narrowedForwarder
-            ? described + SwiftDeclarationMapEmitter.NarrowedForwarderMarker
-            : described;
+        _swiftMemberDeclarations[memberSignature] = forwardsTo is null
+            ? described
+            : SwiftDeclarationMapEmitter.DescribeForwarder(described, forwardsTo);
         for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
             RecordSwiftTypeDeclaration(type, typeDatabase);
     }
@@ -2591,12 +2591,12 @@ public sealed class ModuleEmissionContext
     /// when it has neither.
     /// </summary>
     public void RecordSubscriptApiManifestEntry(SubscriptDecl subscriptDecl,
-        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null, bool narrowedForwarder = false)
+        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null, string? forwardsTo = null)
     {
         string symbol = BuildAccessorEntrySymbol(subscriptDecl.Accessors) ?? subscriptDecl.MangledName;
         var key = BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase);
         RecordApiManifestEntry(key, symbol);
-        RecordSwiftDeclaration(key, subscriptDecl, typeDatabase, narrowedForwarder);
+        RecordSwiftDeclaration(key, subscriptDecl, typeDatabase, forwardsTo);
     }
 
     /// <summary>

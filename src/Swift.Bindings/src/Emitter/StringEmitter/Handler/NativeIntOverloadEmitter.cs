@@ -260,9 +260,15 @@ internal static class NativeIntOverloadEmitter
             // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
             // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
             // forwarder it is for the package merge to compare.
+            // A failable factory's key carries its trailing `out` result, as the primary factory's does.
+            var emittedShape = isConstructorOverload && ctorShape.Kind == ConstructorEmissionKind.FailableFactory
+                ? new ModuleEmissionContext.EmittedApiShape(constructorName, ModuleEmissionContext.FormatParameterPortion(
+                    ParameterTypes(overloadKey).Append($"out {FactoryTypeName(methodDecl, methodEnv)}")))
+                : default;
             methodEnv.EmissionContext?.RecordSwiftDeclaration(
-                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase),
-                methodDecl, methodEnv.TypeDatabase, narrowedForwarder: true);
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase, emittedShape),
+                methodDecl, methodEnv.TypeDatabase,
+                forwardsTo: ModuleEmissionContext.FormatParameterPortion(ParameterTypes(BuildOverloadKey(methodEnv, conversions, keyName, targetTypes: true))));
         }
 
         // The primary member's own static decision, so a module-level free function (MethodType.Instance,
@@ -296,9 +302,7 @@ internal static class NativeIntOverloadEmitter
         {
             // The recovered lanes emit as static factories, so the forwarder delegates in an
             // expression body the way a method's does rather than chaining with `: this(...)`.
-            var factoryTypeName = NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase);
-            if (methodDecl.ParentDecl is TypeDecl factoryParent && factoryParent.IsGeneric)
-                factoryTypeName += GenericTypeEmitter.GetGenericParameterList(factoryParent);
+            var factoryTypeName = FactoryTypeName(methodDecl, methodEnv);
 
             if (ctorShape.Kind == ConstructorEmissionKind.InitFactory)
             {
@@ -612,7 +616,7 @@ internal static class NativeIntOverloadEmitter
                 var conv = conversions.Find(c => c.index == i);
                 return conv != default ? conv.convType : p.typeName;
             }),
-            typeDatabase, narrowedForwarder: true);
+            typeDatabase, forwardsTo: $"[{string.Join(",", paramInfos.Select(p => p.typeName))}]");
 
         if (getterPoisoned)
         {
@@ -877,10 +881,50 @@ internal static class NativeIntOverloadEmitter
         return false;
     }
 
+    /// <summary>The type a recovered constructor factory returns or hands back, generic arguments included.</summary>
+    private static string FactoryTypeName(MethodDecl methodDecl, MethodEnvironment methodEnv)
+    {
+        var name = NameProvider.GetEmittedParentTypeName(methodDecl.ParentDecl!, methodEnv.TypeDatabase);
+        return methodDecl.ParentDecl is TypeDecl { IsGeneric: true } parent
+            ? name + GenericTypeEmitter.GetGenericParameterList(parent)
+            : name;
+    }
+
+    /// <summary>The parameter types of a key <see cref="BuildOverloadKey"/> built.</summary>
+    private static IEnumerable<string> ParameterTypes(string overloadKey)
+    {
+        var open = overloadKey.IndexOf('(');
+        var list = overloadKey[(open + 1)..^1];
+        return list.Length == 0 ? [] : SplitTopLevel(list);
+    }
+
+    private static IEnumerable<string> SplitTopLevel(string list)
+    {
+        int depth = 0, start = 0;
+        for (int i = 0; i < list.Length; i++)
+        {
+            switch (list[i])
+            {
+                case '<' or '(' or '[': depth++; break;
+                case '>' or ')' or ']': depth--; break;
+                case ',' when depth == 0:
+                    yield return list[start..i];
+                    start = i + 1;
+                    break;
+            }
+        }
+        yield return list[start..];
+    }
+
+    /// <summary>
+    /// The overload's projected key: its name and the C# parameter types it declares, or, with
+    /// <paramref name="targetTypes"/>, the native-width types of the member it forwards to.
+    /// </summary>
     private static string BuildOverloadKey(
         MethodEnvironment methodEnv,
         List<(int index, string nativeType, string convType, bool isOptional)> conversions,
-        string? nameOverride = null)
+        string? nameOverride = null,
+        bool targetTypes = false)
     {
         var methodDecl = methodEnv.MethodDecl;
         var methodName = nameOverride ?? methodEnv.CSharpMethodName;
@@ -900,7 +944,8 @@ internal static class NativeIntOverloadEmitter
             var conv = conversions.Find(c => c.index == i);
             if (conv != default)
             {
-                paramTypes.Add(conv.isOptional ? $"{conv.convType}?" : conv.convType);
+                var type = targetTypes ? conv.nativeType : conv.convType;
+                paramTypes.Add(conv.isOptional ? $"{type}?" : type);
             }
             else
             {

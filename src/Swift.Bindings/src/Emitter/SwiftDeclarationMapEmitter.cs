@@ -61,12 +61,14 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Appended to the declaration of a native-width convenience overload (an <c>int</c> forwarder
-        /// to the <c>nint</c> member a Swift <c>Int</c> projects to), which is the same Swift declaration
-        /// reached another way: a newer SDK's overload taking <c>Int32</c> claims that C# signature
-        /// with the same labels, and only this marker tells the two apart.
+        /// The declaration of a native-width convenience overload (an <c>int</c> forwarder to the
+        /// <c>nint</c> member a Swift <c>Int</c> projects to): the Swift declaration it reaches and the
+        /// C# parameter list of the member it calls (<c>(nint,int)</c>, <c>[nint]</c>). A newer SDK's
+        /// <c>Int32</c> overload with the same labels, or a forwarder of another overload, can claim
+        /// the forwarder's C# signature, and only the target tells them apart.
         /// </summary>
-        public const string NarrowedForwarderMarker = " (native-width forwarder)";
+        public static string DescribeForwarder(string described, string targetParameters) =>
+            $"{described} (native-width forwarder to {targetParameters})";
 
         /// <summary>
         /// Records every type of <paramref name="module"/> the binding emitted, members or not: a type

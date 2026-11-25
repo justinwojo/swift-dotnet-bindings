@@ -151,8 +151,9 @@ copy carries a record per generated module, `buildTransitive/<T>/<ns>.swift-decl
 signature to its Swift declaration (kind, static or not, module-qualified path, argument labels; not its
 types, which another SDK may spell differently for the same declaration). Every emitted type is recorded,
 with members or without, and a native-width convenience overload (an `int` forwarder to the `nint` a Swift
-`Int` projects to) is recorded as a forwarder of its declaration, since a newer SDK's `Int32` overload with
-the same labels takes over its C# signature. The merge refuses a name whose declaration differs, naming the
+`Int` projects to) is recorded as a forwarder of its declaration naming the C# parameter list it calls,
+since a newer SDK's `Int32` overload with the same labels, or another overload's forwarder, can take over
+its C# signature. A simple enum's extension members (`<Enum>Extensions`) are recorded like any other. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy
 records that another copy does not, and a record that is incomplete (no module, a missing map or an empty
 declaration). The naming rule itself stays
