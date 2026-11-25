@@ -2490,12 +2490,33 @@ public sealed class ModuleEmissionContext
         BaseDecl? declaration = null, ITypeDatabase? typeDatabase = null)
     {
         _apiManifest[memberSignature] = entrySymbol;
-        if (declaration is null || SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
-            return;
-        _swiftMemberDeclarations[memberSignature] = described;
-        for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
-            _swiftTypeDeclarations[BuildParentPath(type, typeDatabase)] = SwiftDeclarationMapEmitter.Describe(type)!;
+        if (declaration is not null)
+            RecordSwiftDeclaration(memberSignature, declaration, typeDatabase);
     }
+
+    /// <summary>
+    /// Records that the emitted member keyed <paramref name="memberSignature"/> (an API-manifest key)
+    /// stands for the Swift <paramref name="declaration"/>, and every type containing it for itself.
+    /// <paramref name="narrowedForwarder"/> marks a native-width convenience overload (an <c>int</c>
+    /// forwarder to an <c>nint</c> member): a newer SDK that adds a Swift overload taking the narrow
+    /// type takes over the forwarder's C# signature, and only a record that tells the forwarder from
+    /// the declaration it forwards to sees that move.
+    /// </summary>
+    public void RecordSwiftDeclaration(string memberSignature, BaseDecl declaration, ITypeDatabase? typeDatabase,
+        bool narrowedForwarder = false)
+    {
+        if (SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
+            return;
+        _swiftMemberDeclarations[memberSignature] = narrowedForwarder
+            ? described + SwiftDeclarationMapEmitter.NarrowedForwarderMarker
+            : described;
+        for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
+            RecordSwiftTypeDeclaration(type, typeDatabase);
+    }
+
+    /// <summary>Records that the emitted type <paramref name="type"/>'s C# path stands for it.</summary>
+    public void RecordSwiftTypeDeclaration(TypeDecl type, ITypeDatabase? typeDatabase) =>
+        _swiftTypeDeclarations[BuildParentPath(type, typeDatabase)] = SwiftDeclarationMapEmitter.Describe(type)!;
 
     private readonly SortedDictionary<string, string> _swiftMemberDeclarations = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, string> _swiftTypeDeclarations = new(StringComparer.Ordinal);
@@ -2570,12 +2591,12 @@ public sealed class ModuleEmissionContext
     /// when it has neither.
     /// </summary>
     public void RecordSubscriptApiManifestEntry(SubscriptDecl subscriptDecl,
-        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null)
+        IEnumerable<string> indexTypes, ITypeDatabase? typeDatabase = null, bool narrowedForwarder = false)
     {
         string symbol = BuildAccessorEntrySymbol(subscriptDecl.Accessors) ?? subscriptDecl.MangledName;
-        RecordApiManifestEntry(
-            BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase),
-            symbol, subscriptDecl, typeDatabase);
+        var key = BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase);
+        RecordApiManifestEntry(key, symbol);
+        RecordSwiftDeclaration(key, subscriptDecl, typeDatabase, narrowedForwarder);
     }
 
     /// <summary>

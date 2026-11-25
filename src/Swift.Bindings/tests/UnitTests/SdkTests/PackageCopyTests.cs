@@ -561,6 +561,14 @@ public sealed class PackageCopyTests : IDisposable
         var unrecorded = Contribution("y27", ["net10.0-ios27.2"]);
         var refused = Merge([older, unrecorded], "net10.0-ios26.0", "net10.0-ios27.2");
         Assert.Contains("buildTransitive/net10.0-ios27.2/ lacks Kit.swift-declarations.json", Assert.Single(refused.Problems));
+        // Nor may the older copy be the one without it.
+        Assert.Contains("buildTransitive/net10.0-ios26.0/ lacks Kit.swift-declarations.json",
+            Assert.Single(Merge([Contribution("y26", ["net10.0-ios26.0"]), newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems));
+
+        // A record without its member map would compare as nothing moved.
+        var incomplete = Contribution("z27", ["net10.0-ios27.2"], extra: [($"buildTransitive/net10.0-ios27.2/{SwiftDeclarationRecordFormat.FileName("Kit")}",
+            Encoding.UTF8.GetBytes($"{{\"schema_version\": {SwiftDeclarationRecordFormat.SchemaVersion}, \"module\": \"Kit\", \"types\": {{}}}}"))]);
+        Assert.Contains("is not a complete Swift declaration record", Assert.Single(Merge([older, incomplete], "net10.0-ios26.0", "net10.0-ios27.2").Problems));
     }
 
     [Fact]

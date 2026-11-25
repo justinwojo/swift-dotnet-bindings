@@ -342,6 +342,7 @@ namespace BindingsGeneration
 
                 // The Swift declaration each of those members and their types stands for, which the
                 // package merge compares across a package's copies ({namespace}.swift-declarations.json).
+                SwiftDeclarationMapEmitter.RecordTypes(moduleDecl, emissionContext, _typeDatabase);
                 SwiftDeclarationMapEmitter.Emit(moduleDecl.Name, @namespace, emissionContext, _outputDirectory, _logger);
 
                 // Emit the human-readable member table ({namespace}.api-surface.md) from the SAME

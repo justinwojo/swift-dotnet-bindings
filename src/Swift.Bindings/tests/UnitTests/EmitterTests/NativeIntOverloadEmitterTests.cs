@@ -28,6 +28,31 @@ public class NativeIntOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_Constructor_RecordsTheForwarderAsTheForwarderItIs()
+    {
+        // `TestClass(int)` forwards to `init(count: Int)`; a newer SDK's `init(count: Int32)` would
+        // take that C# signature with the same labels, so the Swift declaration record must tell the
+        // forwarder from a declaration the package merge would otherwise read as unchanged.
+        var method = CreateMethod("init", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("count", "Swift.Int"));
+        method.IsConstructor = true;
+        var context = new ModuleEmissionContext();
+
+        var output = EmitMethodOverload(method, env =>
+        {
+            env.EmissionContext = context;
+            env.EmittedProjectedSignatures = new HashSet<string>(StringComparer.Ordinal);
+        });
+
+        Assert.Contains("public TestClass(int count) : this((nint)count) { }", output);
+        var (key, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.Equal("TestClass.TestClass(int)", key);
+        Assert.Equal("init TestModule.TestClass.init(count:)" + SwiftDeclarationMapEmitter.NarrowedForwarderMarker, swift);
+        Assert.NotEqual(SwiftDeclarationMapEmitter.Describe(method), swift);
+    }
+
+    [Fact]
     public void TryEmitOverload_SingleNuintParam_EmitsUintOverload()
     {
         var method = CreateMethod("index", MethodType.Instance,

@@ -60,6 +60,34 @@ namespace BindingsGeneration
             }
         }
 
+        /// <summary>
+        /// Appended to the declaration of a native-width convenience overload (an <c>int</c> forwarder
+        /// to the <c>nint</c> member a Swift <c>Int</c> projects to), which is the same Swift declaration
+        /// reached another way: a newer SDK's overload taking <c>Int32</c> claims that C# signature
+        /// with the same labels, and only this marker tells the two apart.
+        /// </summary>
+        public const string NarrowedForwarderMarker = " (native-width forwarder)";
+
+        /// <summary>
+        /// Records every type of <paramref name="module"/> the binding emitted, members or not: a type
+        /// with no recorded member (an empty nested enum) still has a C# name a newer SDK can move.
+        /// </summary>
+        public static void RecordTypes(ModuleDecl module, ModuleEmissionContext emissionCtx, ITypeDatabase typeDatabase)
+        {
+            var pending = new Stack<TypeDecl>(module.Types);
+            while (pending.Count > 0)
+            {
+                var type = pending.Pop();
+                foreach (var nested in type.Types)
+                    pending.Push(nested);
+                if (type.IsModuleInternal || type.IsSpiProtected
+                    || !typeDatabase.TryGetTypeRecord(type.SwiftTypeName, out _)
+                    || ReportCollector.IsTypeEmitted(type.SwiftTypeName.ModuleQualifiedName) == false)
+                    continue;
+                emissionCtx.RecordSwiftTypeDeclaration(type, typeDatabase);
+            }
+        }
+
         private static string Labels(IEnumerable<string> labels)
         {
             var builder = new StringBuilder();

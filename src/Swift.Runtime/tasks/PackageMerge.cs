@@ -595,23 +595,32 @@ public static class SwiftBindingPackageMerge
     /// signature, and a rename depends on the declaration's siblings: a newer SDK that adds one can give
     /// an existing C# name to another Swift declaration, with every C# signature and export unchanged.
     /// A library compiled against the older copy would then call the other declaration in an app that
-    /// runs the newer one. A module the older copy records and the newer does not is refused too, since
-    /// its names cannot be checked; a copy packed before the records has none and is not compared.
+    /// runs the newer one. A module one copy records and the other does not is refused too, since its
+    /// names cannot be checked.
     /// </summary>
     private static IEnumerable<string> SameSwiftDeclarations(Copy older, Copy newer, List<string> notes)
     {
         var problems = new List<string>();
-        var prefix = $"buildTransitive/{older.Tfm}/";
-        foreach (var (name, bytes) in older.From.Files.Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal)
-                     && f.Key.EndsWith(BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix, StringComparison.Ordinal) && f.Key.IndexOf('/', prefix.Length) < 0))
+        static Dictionary<string, byte[]> Records(Copy copy)
         {
-            var file = name[prefix.Length..];
-            if (!newer.From.Files.TryGetValue($"buildTransitive/{newer.Tfm}/{file}", out var newerBytes))
-            {
-                problems.Add($"buildTransitive/{newer.Tfm}/ lacks {file}, the record of which Swift declaration each C# name stands for that the older copy {older.Tfm} carries, "
-                             + "so the copies' names cannot be checked against each other. Pack every copy with the same SwiftBindings SDK from the same source.");
+            var prefix = $"buildTransitive/{copy.Tfm}/";
+            return copy.From.Files
+                .Where(f => f.Key.StartsWith(prefix, StringComparison.Ordinal) && f.Key.IndexOf('/', prefix.Length) < 0
+                            && f.Key.EndsWith(BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix, StringComparison.Ordinal))
+                .ToDictionary(f => f.Key[prefix.Length..], f => f.Value, StringComparer.Ordinal);
+        }
+        var olderRecords = Records(older);
+        var newerRecords = Records(newer);
+        // Either side lacking a record the other carries leaves that module's names unchecked.
+        foreach (var (lacking, carrying, file) in olderRecords.Keys.Where(f => !newerRecords.ContainsKey(f)).Select(f => (newer, older, f))
+                     .Concat(newerRecords.Keys.Where(f => !olderRecords.ContainsKey(f)).Select(f => (older, newer, f)))
+                     .OrderBy(m => m.f, StringComparer.Ordinal))
+            problems.Add($"buildTransitive/{lacking.Tfm}/ lacks {file}, the record of which Swift declaration each C# name stands for that the copy {carrying.Tfm} carries, "
+                         + "so the copies' names cannot be checked against each other. Pack every copy with the same SwiftBindings SDK from the same source.");
+        foreach (var (file, bytes) in olderRecords.OrderBy(r => r.Key, StringComparer.Ordinal))
+        {
+            if (!newerRecords.TryGetValue(file, out var newerBytes))
                 continue;
-            }
             if (ReadSwiftDeclarations(bytes, out var problem) is not { } before)
             {
                 problems.Add($"buildTransitive/{older.Tfm}/{file} {problem}");
@@ -656,16 +665,28 @@ public static class SwiftBindingPackageMerge
                 problem = $"is not a Swift declaration record of schema {BindingsGeneration.SwiftDeclarationRecordFormat.SchemaVersion}; pack it with the current SwiftBindings SDK.";
                 return null;
             }
-            static Dictionary<string, string> Map(System.Text.Json.JsonElement root, string property)
+            // A record missing a map, or holding a value that is not a declaration, would compare as
+            // "nothing moved", so it is refused rather than read as empty.
+            static Dictionary<string, string>? Map(System.Text.Json.JsonElement root, string property)
             {
+                if (!root.TryGetProperty(property, out var element) || element.ValueKind != System.Text.Json.JsonValueKind.Object)
+                    return null;
                 var map = new Dictionary<string, string>(StringComparer.Ordinal);
-                if (root.TryGetProperty(property, out var element) && element.ValueKind == System.Text.Json.JsonValueKind.Object)
-                    foreach (var entry in element.EnumerateObject())
-                        map[entry.Name] = entry.Value.GetString() ?? "";
+                foreach (var entry in element.EnumerateObject())
+                {
+                    if (entry.Value.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrEmpty(entry.Value.GetString()))
+                        return null;
+                    map[entry.Name] = entry.Value.GetString()!;
+                }
                 return map;
             }
-            var module = root.TryGetProperty("module", out var m) && m.ValueKind == System.Text.Json.JsonValueKind.String ? m.GetString() ?? "" : "";
-            return new SwiftDeclarations(module, Map(root, "types"), Map(root, "members"));
+            if (!root.TryGetProperty("module", out var m) || m.ValueKind != System.Text.Json.JsonValueKind.String || string.IsNullOrEmpty(m.GetString())
+                || Map(root, "types") is not { } types || Map(root, "members") is not { } members)
+            {
+                problem = "is not a complete Swift declaration record (a module name and a map of types and of members, each naming a Swift declaration); pack it with the current SwiftBindings SDK.";
+                return null;
+            }
+            return new SwiftDeclarations(m.GetString()!, types, members);
         }
         catch (Exception ex) when (ex is System.Text.Json.JsonException or InvalidOperationException or FormatException)
         {

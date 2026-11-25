@@ -255,7 +255,15 @@ internal static class NativeIntOverloadEmitter
             return;
 
         if (overloadKey != null)
+        {
             methodEnv.EmittedProjectedSignatures!.Add(overloadKey);
+            // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
+            // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
+            // forwarder it is for the package merge to compare.
+            methodEnv.EmissionContext?.RecordSwiftDeclaration(
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase),
+                methodDecl, methodEnv.TypeDatabase, narrowedForwarder: true);
+        }
 
         // The primary member's own static decision, so a module-level free function (MethodType.Instance,
         // parent is the module) gets a static overload a consumer calling through the type name can reach.
@@ -604,7 +612,7 @@ internal static class NativeIntOverloadEmitter
                 var conv = conversions.Find(c => c.index == i);
                 return conv != default ? conv.convType : p.typeName;
             }),
-            typeDatabase);
+            typeDatabase, narrowedForwarder: true);
 
         if (getterPoisoned)
         {

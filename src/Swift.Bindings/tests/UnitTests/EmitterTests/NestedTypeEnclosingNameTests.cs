@@ -244,19 +244,19 @@ public class NestedTypeEnclosingNameTests
             var fixture = new Fixture("struct");
             var nested = fixture.AddNested("outer", "class");
             fixture.AddProperty(nested, "ping");
+            // The sibling has no member: only the walk over every emitted type records it.
             if (newer)
-            {
-                var sibling = fixture.AddNested("outerInfo", "class");
-                fixture.AddProperty(sibling, "ping");
-            }
+                fixture.AddNested("outerInfo", "class");
             NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
             var context = new ModuleEmissionContext();
             foreach (var type in fixture.Container.Types)
             {
-                var ping = type.Properties.Single(p => p.Name == "ping");
+                if (type.Properties.SingleOrDefault(p => p.Name == "ping") is not { } ping)
+                    continue;
                 context.RecordApiManifestEntry(
                     ModuleEmissionContext.BuildPropertyApiManifestKey(type, "Ping", fixture.Database), "sym", ping, fixture.Database);
             }
+            SwiftDeclarationMapEmitter.RecordTypes(fixture.Module, context, fixture.Database);
             context.SwiftMemberDeclarations.TryGetValue(csharpPath + ".Ping", out member);
             return context.SwiftTypeDeclarations.GetValueOrDefault(csharpPath);
         }
@@ -264,8 +264,9 @@ public class NestedTypeEnclosingNameTests
         Assert.Equal("type TestModule.Outer.outer", Behind(newer: false, "Outer.OuterInfo", out var olderPing));
         Assert.Equal("var TestModule.Outer.outer.ping", olderPing);
         Assert.Equal("type TestModule.Outer.outerInfo", Behind(newer: true, "Outer.OuterInfo", out var newerPing));
-        Assert.Equal("var TestModule.Outer.outerInfo.ping", newerPing);
-        Assert.Equal("type TestModule.Outer.outer", Behind(newer: true, "Outer.OuterInfo2", out _));
+        Assert.Null(newerPing);
+        Assert.Equal("type TestModule.Outer.outer", Behind(newer: true, "Outer.OuterInfo2", out var movedPing));
+        Assert.Equal("var TestModule.Outer.outer.ping", movedPing);
         Assert.Equal("type TestModule.Outer", Behind(newer: true, "Outer", out _));
     }
 
