@@ -546,6 +546,43 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ASignatureANewerDeclarationTakesWithOtherNullableAnnotations_IsRefused()
+    {
+        // Xcode 26: `Load(string, string?)` forwards `load(url: URL, name: String?)`. Xcode 27 adds
+        // `load(url: String, name: String)`, which declares `Load(string, string)`: one CLR signature,
+        // since a reference type's `?` is only an annotation, so its keys differ while a library compiled
+        // against the older copy binds the newer declaration.
+        const string api = "public static class Kit { public static void Load(string url, string name) { } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,string?)", "static func Kit.Kit.load(url:name:) (url-string forwarder to (Foundation.NSUrl,string?))")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("Kit", "type Kit.Kit")],
+            members: [("Kit.Load(string,string)", "static func Kit.Kit.load(url:name:)")])]);
+
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("the C# member Kit.Kit.Load(string,string?) is Swift `static func Kit.Kit.load(url:name:) (url-string forwarder to (Foundation.NSUrl,string?))` "
+            + "in net10.0-ios26.0 but Swift `static func Kit.Kit.load(url:name:)` in net10.0-ios27.2", problem);
+        Assert.Contains("Kit.Load(string,string)", problem);
+    }
+
+    [Fact]
+    public void Merge_NullableAnnotationsAloneDoNotMoveAName()
+    {
+        // The same declaration with another annotation, or a removed `T?` beside an added `T` of the
+        // same Swift declaration, is no move.
+        const string api = "public static class Kit { public static void Load(string url, string name) { } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")], members: [("Kit.Load(string,string?)", "static func Kit.Kit.load(url:name:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Declarations("net10.0-ios27.2",
+            types: [("Kit", "type Kit.Kit")], members: [("Kit.Load(string,string)", "static func Kit.Kit.load(url:name:)")])]);
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
+    [Fact]
     public void Merge_CopiesWhoseNamesKeepTheirSwiftDeclarations_Merge_AndANewerCopyWithoutTheRecord_IsRefused()
     {
         var older = Contribution("x26", ["net10.0-ios26.0"], extra: [Declarations("net10.0-ios26.0",

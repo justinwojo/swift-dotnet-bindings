@@ -639,6 +639,24 @@ public static class SwiftBindingPackageMerge
                 foreach (var (key, was) in olderMap.OrderBy(kv => kv.Key, StringComparer.Ordinal))
                     if (newerMap.TryGetValue(key, out var now) && !string.Equals(was, now, StringComparison.Ordinal))
                         moved.Add($"the C# {kind} {before.Module}.{key} is Swift `{was}` in {older.Tfm} but Swift `{now}` in {newer.Tfm}");
+            // A key spells its parameters as the member declares them, nullable annotations included,
+            // but a reference type's `?` is no part of the CLR signature a library binds: `Load(string?)`
+            // in one copy and `Load(string)` in the other are one signature. A member each copy records
+            // under its own spelling is paired by the key without annotations. Pairing is skipped when
+            // either side has more than one candidate; that only happens for `T?` of a value type, a CLR
+            // signature of its own, whose loss the public API comparison refuses.
+            static string Unannotated(string key) => key.Replace("?", "", StringComparison.Ordinal);
+            var olderOnly = before.Members.Keys.Where(k => !after.Members.ContainsKey(k)).ToLookup(Unannotated, StringComparer.Ordinal);
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(Unannotated, StringComparer.Ordinal);
+            foreach (var group in olderOnly.OrderBy(g => g.Key, StringComparer.Ordinal))
+            {
+                if (group.Count() != 1 || newerOnly[group.Key].Count() != 1)
+                    continue;
+                var (olderKey, newerKey) = (group.Single(), newerOnly[group.Key].Single());
+                var (was, now) = (before.Members[olderKey], after.Members[newerKey]);
+                if (!string.Equals(was, now, StringComparison.Ordinal))
+                    moved.Add($"the C# member {before.Module}.{olderKey} is Swift `{was}` in {older.Tfm} but Swift `{now}` in {newer.Tfm}, as {before.Module}.{newerKey}");
+            }
             notes.Add($"  Swift declarations {file}: {older.Tfm} -> {newer.Tfm}, {before.Types.Count + before.Members.Count} names, {moved.Count} moved");
             if (moved.Count == 0)
                 continue;

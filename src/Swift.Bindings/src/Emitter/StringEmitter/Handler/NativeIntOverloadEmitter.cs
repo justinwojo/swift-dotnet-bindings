@@ -675,21 +675,6 @@ internal static class NativeIntOverloadEmitter
     /// as MethodHandler (TypeProjectionFactory → TypeDatabase → ToString fallback),
     /// with generic type parameter substitution.
     /// </summary>
-    /// <summary>
-    /// The primary member's parameter types by parameter name, spelled as its API-manifest key spells
-    /// them (modifier and type, no name). A convenience overload records its key with these for every
-    /// parameter it passes through, so its key and that of a newer SDK's primary member declaring the
-    /// same C# signature are spelled alike.
-    /// </summary>
-    internal static Dictionary<string, string> PrimaryApiSurfaceTypes(MethodEnvironment methodEnv)
-    {
-        var types = new Dictionary<string, string>(StringComparer.Ordinal);
-        foreach (var parameter in new SignatureHandler(methodEnv).GetWrapperSignature().Parameters)
-            types.TryAdd(parameter.Name, string.IsNullOrWhiteSpace(parameter.modifier)
-                ? parameter.TypeString() : $"{parameter.modifier.Trim()} {parameter.TypeString()}");
-        return types;
-    }
-
     internal static string ResolveType(TypeSpec typeSpec, MethodEnvironment methodEnv, bool isParameter)
     {
         // Handle generic type parameters via GenericTypeMapping

@@ -100,7 +100,6 @@ internal static class UrlStringConvenienceOverloadEmitter
         var callArgs = new List<string>();
         var targetTypes = new List<string>();
         var declaredTypes = new List<string>();
-        var primaryTypes = NativeIntOverloadEmitter.PrimaryApiSurfaceTypes(methodEnv);
         for (int i = 1; i < csSignature.Count; i++)
         {
             var arg = csSignature[i];
@@ -121,13 +120,13 @@ internal static class UrlStringConvenienceOverloadEmitter
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
                 targetTypes.Add(typeName);
-                declaredTypes.Add(primaryTypes.TryGetValue(paramName, out var primaryType) ? primaryType : typeName);
+                declaredTypes.Add(typeName);
             }
         }
 
         // The `string` forwarder's C# signature is one a newer SDK's Swift overload taking a `String`
         // path would take over, so it is recorded as the forwarder it is for the package merge to
-        // compare, keyed by the parameter types it declares as that primary would record its own.
+        // compare, keyed by the parameter types it declares.
         methodEnv.EmissionContext?.RecordSwiftDeclaration(
             ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodName,
                 BuildOverloadKey(methodEnv, urlParamIndices), methodEnv.TypeDatabase,
