@@ -51,7 +51,7 @@ partial class Build
                 continue;
             }
 
-            if (!Force && IsCached(lib.Name, version)
+            if (!Force && IsCached(lib, version)
                 && !BehaviorTierArtifactMissing(lib)
                 && !PlatformSetMissing(lib))
             {
@@ -116,18 +116,36 @@ partial class Build
                 $"Library '{lib.Name}' (mode: {lib.Mode}) is missing required 'version' field");
     }
 
-    bool IsCached(string name, string version)
+    // A library built from source is cached under the version it was built from AND the Xcode
+    // build that built it: a profile's (or the checkout's) Xcode can change while the library's
+    // version stays fixed, and a framework an older Xcode built is not the one this Xcode builds.
+    // A binary or manual library is not built here, so its version alone keys it.
+    bool IsCached(ValidationLibrary lib, string version)
     {
-        var versionFile = LibrariesDir / name / ".version";
+        var versionFile = LibrariesDir / lib.Name / ".version";
         if (!File.Exists(versionFile)) return false;
-        return File.ReadAllText(versionFile).Trim() == version;
+        return File.ReadAllText(versionFile).Trim() == CacheKey(lib, version);
     }
 
-    void WriteCache(string name, string version)
+    void WriteCache(ValidationLibrary lib, string version)
     {
-        (LibrariesDir / name).CreateDirectory();
-        File.WriteAllText(LibrariesDir / name / ".version", version);
+        (LibrariesDir / lib.Name).CreateDirectory();
+        File.WriteAllText(LibrariesDir / lib.Name / ".version", CacheKey(lib, version));
     }
+
+    string CacheKey(ValidationLibrary lib, string version)
+        => lib.Mode == "source" ? $"{version}\nxcode {FetchXcodeBuild.Value}" : version;
+
+    // The selected Xcode's build (`xcodebuild -version`'s "Build version" line, e.g. 17C529):
+    // DEVELOPER_DIR under a toolchain profile, xcode-select otherwise.
+    static readonly Lazy<string> FetchXcodeBuild = new(() =>
+    {
+        var output = RunAppleCapture("xcodebuild", "-version");
+        var line = output.Split('\n').Select(l => l.Trim())
+            .FirstOrDefault(l => l.StartsWith("Build version ", StringComparison.Ordinal));
+        return line?.Substring("Build version ".Length).Trim()
+            ?? throw new InvalidOperationException($"xcodebuild -version reported no build version: {output}");
+    });
 
     // Behavior-tier libraries need an extra macOS xcframework that older `.version`
     // caches don't account for. If the flag is set but the slice is missing on
@@ -321,30 +339,41 @@ partial class Build
         }
 
         buildDir.DeleteDirectory();
-        WriteCache(lib.Name, lib.Version!);
+        WriteCache(lib, lib.Version!);
     }
 
     /// <summary>
-    /// Declares a package's library product dynamic in every root manifest that names it, so
-    /// xcodebuild archives it as a framework (<see cref="SwiftPackageArchive"/>). The scheme of a
-    /// package library is its product's name. Fails when no manifest declares that product.
+    /// Declares a package's library product dynamic, so xcodebuild archives it as a framework
+    /// (<see cref="SwiftPackageArchive"/>). The scheme of a package library is its product's name.
+    /// Every root manifest gets the appended declaration (SwiftPM evaluates the one its tools
+    /// version selects), and <c>swift package dump-package</c>, run by the toolchain that then
+    /// archives the package, must report the product dynamic: a manifest that does not declare it,
+    /// or that the appended statement does not fit, fails the fetch here.
     /// </summary>
     static void DeclareSwiftPackageProductDynamic(AbsolutePath sourceDir, string product)
     {
-        var declaredIn = new List<string>();
-        foreach (var manifest in SwiftPackageArchive.Manifests(sourceDir))
-        {
-            var text = File.ReadAllText(manifest);
-            var patched = SwiftPackageArchive.DeclareProductDynamic(text, product, out var declared);
-            if (!declared) continue;
-            File.WriteAllText(manifest, patched);
-            declaredIn.Add(Path.GetFileName(manifest));
-        }
-        if (declaredIn.Count == 0)
+        var manifests = SwiftPackageArchive.Manifests(sourceDir);
+        foreach (var manifest in manifests)
+            File.WriteAllText(manifest,
+                SwiftPackageArchive.AppendDynamicProductDeclaration(File.ReadAllText(manifest), product));
+
+        var dump = ProcessTasks.StartProcess(
+                "xcrun", "swift package dump-package",
+                workingDirectory: sourceDir,
+                logOutput: false)
+            .AssertWaitForExit();
+        if (dump.ExitCode != 0)
             throw new InvalidOperationException(
-                $"No root manifest in {sourceDir} declares the library product '{product}' the scheme names, " +
-                "so it cannot be archived as a dynamic framework.");
-        Log.Information("  Declared package product {Product} dynamic in {Manifests}", product, string.Join(", ", declaredIn));
+                $"swift package dump-package failed in {sourceDir} after declaring '{product}' dynamic: "
+                + dump.Output.Where(o => o.Type == OutputType.Err).Select(o => o.Text).Aggregate("", (a, b) => a + "\n" + b));
+        var libraryType = SwiftPackageArchive.LibraryTypeOf(dump.Output.StdToText(), product);
+        if (libraryType != "dynamic")
+            throw new InvalidOperationException(libraryType is null
+                ? $"The package in {sourceDir} declares no library product '{product}' the scheme names, " +
+                  "so it cannot be archived as a dynamic framework."
+                : $"The package in {sourceDir} still declares '{product}' {libraryType} after the dynamic declaration.");
+        Log.Information("  Declared package product {Product} dynamic in {Manifests} (dump-package: dynamic)",
+            product, string.Join(", ", manifests.Select(Path.GetFileName)));
     }
 
     static AbsolutePath ResolveFrameworkInArchive(AbsolutePath archivePath, string framework, string label)
@@ -789,7 +818,7 @@ partial class Build
         }
 
         buildDir.DeleteDirectory();
-        WriteCache(lib.Name, lib.Version!);
+        WriteCache(lib, lib.Version!);
     }
 
     void CheckManual(ValidationLibrary lib)
@@ -814,7 +843,7 @@ partial class Build
         }
 
         if (allPresent)
-            WriteCache(lib.Name, "manual");
+            WriteCache(lib, "manual");
     }
 
     void ShowLibraryStatus(IReadOnlyList<ValidationLibrary> libraries)
@@ -830,7 +859,7 @@ partial class Build
             else
                 publicCount++;
 
-            if (IsCached(lib.Name, version))
+            if (IsCached(lib, version))
             {
                 Log.Information("  {Name}: cached ({Version})", lib.Name, version);
             }

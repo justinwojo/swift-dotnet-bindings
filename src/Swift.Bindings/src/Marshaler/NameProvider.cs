@@ -355,8 +355,8 @@ public static class NameProvider
 
     /// <summary>
     /// Names a type-side rename of <paramref name="typeDecl"/> must not give it: the C# names its
-    /// own members project to (CS0542, a member named like its enclosing type), and the emitted
-    /// leaves of its emitted nested types. A member keeps its name when its type is renamed (the
+    /// own members project to (CS0542, a member named like its enclosing type), and the natural and
+    /// emitted leaves of its emitted nested types (a nested type renamed off the type's own name). A member keeps its name when its type is renamed (the
     /// member-side enclosing-type rule reads the natural leaf), so the rename has to step around
     /// it. Deliberately a superset: a method contributes its PascalCase base name whether or not
     /// the name shaping later prefixes it, and an unemittable member still counts. Reserving a
@@ -372,7 +372,10 @@ public static class NameProvider
         foreach (var nested in typeDecl.Types)
         {
             if (!nested.IsSpiProtected)
+            {
                 names.Add(GetNaturalTypeLeafName(nested));
+                names.Add(GetRegisteredNestedTypeLeafName(nested, typeDatabase));
+            }
         }
         foreach (var property in typeDecl.Properties)
         {
@@ -420,6 +423,25 @@ public static class NameProvider
         ProtocolDecl protocolDecl => protocolDecl.Name,
         _ => GetNaturalTypeLeafName(containingType),
     };
+
+    /// <summary>
+    /// The leaf C# declares <paramref name="nestedType"/> under inside its container's C# type,
+    /// after every type rename so far: its registered leaf when its record places it directly
+    /// inside the container's record, otherwise (no record, or a nested type the projection lifts
+    /// out of its container) its natural leaf.
+    /// </summary>
+    internal static string GetRegisteredNestedTypeLeafName(TypeDecl nestedType, ITypeDatabase? typeDatabase)
+    {
+        if (typeDatabase == null || nestedType.ParentDecl is not TypeDecl container
+            || !typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var record)
+            || !typeDatabase.TryGetTypeRecord(container.SwiftTypeName, out var containerRecord))
+            return GetNaturalTypeLeafName(nestedType);
+        var name = record.CSharpTypeName.Name;
+        var prefix = containerRecord.CSharpTypeName.Name + ".";
+        return name.StartsWith(prefix, StringComparison.Ordinal) && name.IndexOf('.', prefix.Length) < 0
+            ? name.Substring(prefix.Length)
+            : GetNaturalTypeLeafName(nestedType);
+    }
 
     /// <summary>
     /// Returns the emitted C# leaf name of a nested type for member-collision detection — the
@@ -1610,10 +1632,17 @@ public static class NameProvider
     /// C# PascalCase identifiers. Swift is case-sensitive (M vs m are distinct), but C# is not —
     /// both become "M" via ToPascalCase. This method detects such collisions and appends numeric
     /// suffixes to later occurrences (e.g., M → "M", m → "M2").
+    /// <para>Public cases claim their names first, in declaration order, and <c>@_spi</c> cases
+    /// then take what is left. A simple enum (a C# <c>enum</c>) does not emit an <c>@_spi</c> case
+    /// at all, and an enum projected as a class emits it after the public cases have their names,
+    /// so a public case's C# name is a function of the public cases alone: an <c>@_spi</c> case a
+    /// newer SDK inserts ahead of it cannot move it, nor, through the type-rename exclusions, a
+    /// sibling type named after it.</para>
     /// Returns null if no collisions exist (caller can use ToPascalCase directly).
     /// </summary>
-    public static Dictionary<string, string>? ComputeCaseNameMap(IReadOnlyList<EnumCaseDecl> cases)
+    public static Dictionary<string, string>? ComputeCaseNameMap(IReadOnlyList<EnumCaseDecl> declaredCases)
     {
+        var cases = declaredCases.Where(c => !c.IsSpiProtected).Concat(declaredCases.Where(c => c.IsSpiProtected));
         // First pass: detect if any collisions exist (fast path — most enums have none)
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         bool hasCollision = false;
@@ -1789,7 +1818,11 @@ public static class NameProvider
             memberNames = memberNames.Concat(caseNames);
         }
 
-        var nestedTypeNames = typeDecl.Types.Select(GetNaturalTypeLeafName);
+        // A nested type renamed off its natural leaf (by the pre-pass's enclosing-type rule, or the
+        // property rule) holds its new leaf too, so a member projecting onto it yields to it.
+        var nestedTypeNames = typeDecl.Types.Select(GetNaturalTypeLeafName)
+            .Concat(typeDecl.Types.Select(t => GetRegisteredNestedTypeLeafName(t, typeDatabase)))
+            .Distinct(StringComparer.Ordinal);
 
         // Check which nested types were already renamed by the PrecomputeNestedTypeRenames pre-pass.
         // These don't need property renames — the type rename resolves the collision.
@@ -1871,6 +1904,7 @@ public static class NameProvider
     {
         // Apply renames for this type's nested type collisions
         ApplyNestedTypeRenames(typeDecl, typeDatabase);
+        ApplyEnclosingTypeNestedRenames(typeDecl, typeDatabase);
 
         // Recurse into nested types
         foreach (var nestedType in typeDecl.Types)
@@ -2000,6 +2034,76 @@ public static class NameProvider
                         @namespace, typeDatabase);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Renames a nested type whose emitted C# leaf equals its container's (<c>struct Outer {
+    /// final class outer {} }</c> → <c>Outer.Outer</c>): C# forbids a member named like its
+    /// enclosing type (CS0542), and every container that holds a nested type projects as a C#
+    /// class (a struct or class, an enum projected as a class, a caseless enum and a member-less
+    /// struct facade, both static classes), so the shape would otherwise not compile. The nested
+    /// type takes the kind-aware suffix (<c>OuterInfo</c>, <c>OuterKind</c>); the container keeps
+    /// its name, since every other type nested in it and every cross-module reference is spelled
+    /// under it.
+    /// <para>The rule is stable across SDK copies: the new leaf depends only on the container's
+    /// leaf, the nested type's kind, the emitted leaves of its sibling nested types and its own
+    /// members and nested types (CS0542 again). The container's members are not consulted: one
+    /// that projects onto the new leaf yields to it (<see cref="ComputePropertyRenames"/>, the
+    /// method namer's emitted nested leaves), so a member a newer SDK adds cannot move the type.
+    /// An <c>@_spi</c> nested type is not emitted, so it neither moves nor reserves a leaf. A
+    /// protocol's nested types are skipped: the protocol projects as <c>I{Name}</c>.</para>
+    /// </summary>
+    private static void ApplyEnclosingTypeNestedRenames(TypeDecl typeDecl, ITypeDatabase typeDatabase)
+    {
+        if (typeDecl.Types.Count == 0 || typeDecl is ProtocolDecl
+            || !typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var containerRecord))
+            return;
+        var containerLeaf = LeafOf(containerRecord.CSharpTypeName.Name);
+
+        foreach (var nestedType in typeDecl.Types)
+        {
+            if (nestedType.IsSpiProtected
+                || !typeDatabase.TryGetTypeRecord(nestedType.SwiftTypeName, out var nestedRecord))
+                continue;
+            var oldCSharpName = nestedRecord.CSharpTypeName.Name;
+            // Read off the registered names, not the Swift ones: only a nested type C# declares
+            // inside the container under the container's own leaf is the CS0542. A nested type
+            // the projection lifts out of its container (`Outer.Outer` registered as `OuterOuter`)
+            // or one an earlier rename already moved does not collide.
+            var lastDot = oldCSharpName.LastIndexOf('.');
+            if (lastDot < 0 || oldCSharpName.Substring(lastDot + 1) != containerLeaf
+                || LeafOf(oldCSharpName.Substring(0, lastDot)) != containerLeaf)
+                continue;
+
+            var siblingLeaves = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var sibling in typeDecl.Types)
+            {
+                if (!ReferenceEquals(sibling, nestedType) && !sibling.IsSpiProtected)
+                {
+                    siblingLeaves.Add(GetNaturalTypeLeafName(sibling));
+                    siblingLeaves.Add(GetRegisteredNestedTypeLeafName(sibling, typeDatabase));
+                }
+            }
+            var ownNames = GetTypeRenameExclusions(nestedType, typeDatabase);
+            var newLeaf = NameCollisionPolicy.ResolveTypeSideName(
+                containerLeaf,
+                NameCollisionPolicy.TypeSuffixFor(nestedType),
+                n => n == containerLeaf || siblingLeaves.Contains(n) || ownNames.Contains(n));
+
+            var @namespace = nestedRecord.CSharpTypeName.Namespace;
+            var newCSharpName = oldCSharpName.Substring(0, lastDot + 1) + newLeaf;
+            typeDatabase.ApplyEmissionResult(nestedType.SwiftTypeName, new TypeEmissionResult
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName(@namespace, newCSharpName),
+            });
+            CascadeTypeRename(nestedType, oldCSharpName, newCSharpName, @namespace, typeDatabase);
+        }
+
+        static string LeafOf(string name)
+        {
+            var dot = name.LastIndexOf('.');
+            return dot >= 0 ? name.Substring(dot + 1) : name;
         }
     }
 

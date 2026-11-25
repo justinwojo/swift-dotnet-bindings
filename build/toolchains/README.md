@@ -180,7 +180,10 @@ The checkout carries no ignored files, so it has no `.libraries/` of its own. Th
 links `workspace/.libraries` to the profile's `libraries/` directory, which a checkout
 refresh keeps. `fetch` under a profile fills it with that profile's Xcode, and `validate`
 under the profile reads it. A manual-mode library (a proprietary SDK) is placed there by
-hand, as in a checkout's `.libraries/`. The owner checkout's `.libraries/` is never read.
+hand, as in a checkout's `.libraries/`. The owner checkout's `.libraries/` is never read. A
+source library's cache entry (`<library>/.version`) records the library version and the
+Xcode build that built it, so a profile whose Xcode build changes rebuilds its source
+libraries on the next `fetch` instead of reusing frameworks an older Xcode built.
 
 Qualification runs compare canonical baselines but cannot seed, promote or
 automatically update them, with one exception: `net11-xcode27` seeds its own .NET 11

@@ -366,6 +366,23 @@ public class NameProviderSanitizationTests
         Assert.Equal("Foo3", map["FOO"]);
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ComputeCaseNameMap_SpiCaseDeclaredFirst_PublicCasesClaimTheirNamesFirst(bool spiFirst)
+    {
+        // `@_spi case AudioKind` ahead of public `case audioKind`: the public case keeps the name it
+        // has without the SPI case, whatever the declaration order, and the SPI case takes the next.
+        var spi = new EnumCaseDecl { Name = "AudioKind", MangledName = "$s_spi", ParentDecl = null, ModuleDecl = null, IsSpiProtected = true };
+        var cases = MakeCases("audioKind", "off");
+        cases.Insert(spiFirst ? 0 : cases.Count, spi);
+        var map = NameProvider.ComputeCaseNameMap(cases);
+        Assert.NotNull(map);
+        Assert.Equal("AudioKind", map["audioKind"]);
+        Assert.Equal("AudioKind2", map["AudioKind"]);
+        Assert.Equal("Off", NameProvider.GetCaseName("off", map));
+    }
+
     [Fact]
     public void ComputeCaseNameMap_SVGPathSegmentPattern_AllCasesUnique()
     {
