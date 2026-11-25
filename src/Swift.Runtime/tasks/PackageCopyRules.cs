@@ -8,12 +8,60 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Xml;
 using System.Xml.Linq;
+using BindingsGeneration;
+using SwiftBindings.TransitionGate;
 
 namespace SwiftBindings.Tasks;
 
 /// <summary>The pack-time and merge-time rules of a package copy, free of MSBuild.</summary>
 public static class PackageCopyRules
 {
+    /// <summary>
+    /// The SDK a copy is labelled and declared by, from its assembly <paramref name="image"/>: the SDK
+    /// its wrapper identities record it was generated from, else the SDK the SDK's build recorded it
+    /// was built against (<see cref="SwiftWrapperIdentityFormat.PlatformSdkAttributeKey"/>), else
+    /// <paramref name="selected"/>, the SDK selected at pack time. A pack run without a build
+    /// (<c>--no-build</c>) after another Xcode was selected therefore still labels the copy by the SDK
+    /// its surface came from. <paramref name="errors"/> holds why the assembly's records cannot name
+    /// one SDK; <paramref name="message"/> notes a recorded SDK that differs from the selected one.
+    /// </summary>
+    public static string CopySdk(byte[] image, string selected, out List<string> errors, out string? message)
+    {
+        errors = new List<string>();
+        message = null;
+        const string rebuild = "Rebuild the binding clean (delete its bin/ and obj/) and pack again.";
+        var read = SwiftWrapperIdentityCheck.Read(image);
+        foreach (var problem in read.Problems)
+            errors.Add($"the binding's record of the SDK it was generated from does not read: {problem}. {rebuild}");
+        var generated = read.Identities.Select(i => i.Sdk).Distinct(StringComparer.Ordinal).Order(StringComparer.Ordinal).ToList();
+        if (generated.Count > 1)
+            errors.Add($"the binding's modules were generated from different SDKs ({string.Join(", ", generated)}), so the copy has no one SDK to be labelled by. {rebuild}");
+        string recorded;
+        string how;
+        if (generated.Count == 1)
+        {
+            recorded = generated[0];
+            how = "generated from";
+        }
+        else if (generated.Count == 0 && SwiftWrapperIdentityCheck.ReadPlatformSdks(image) is { Length: > 0 } built)
+        {
+            if (built.Length > 1)
+            {
+                errors.Add($"the binding records that it was built against different SDKs ({string.Join(", ", built)}), so the copy has no one SDK to be labelled by. {rebuild}");
+                return selected;
+            }
+            recorded = built[0];
+            how = "built against";
+        }
+        else
+            return selected;
+        if (recorded != selected.Trim())
+            message = $"the binding was {how} the {recorded} SDK; the SDK selected now is {(selected.Trim().Length > 0 ? selected.Trim() : "unknown")}. "
+                      + $"The copy is labelled and declared by the SDK it was {how}.";
+        return recorded;
+    }
+
+
     /// <summary>
     /// SWIFTBIND137: the copy <paramref name="packTfm"/> of an Apple-framework binding must be labelled
     /// with the platform SDK it was generated from: the same major version, and no newer. A label below

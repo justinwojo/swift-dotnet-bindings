@@ -287,15 +287,17 @@ public static class HungProcessSampler
     /// stays running until lldb has read every image off the phone, so a batch of commands reaches
     /// <c>thread backtrace all</c> while the process still runs; the batch then ends on that error,
     /// before its detach. One session waits for the stop and takes both samples, which also reads
-    /// the images once rather than once per sample.
+    /// the images once rather than once per sample. <paramref name="symbolFiles"/> runs only when there
+    /// is a process to attach to: with no pid nothing is sampled, so a search for the app's unstripped
+    /// images (bounded, but up to tens of seconds) would only delay the kill.
     /// </summary>
     public static HungProcessStacks CaptureDevice(string target, string script, string udid, int? pid,
-        IReadOnlyList<string>? symbolFiles = null, Func<Command, TimeSpan, CommandRun>? run = null)
+        Func<IReadOnlyList<string>>? symbolFiles = null, Func<Command, TimeSpan, CommandRun>? run = null)
     {
         if (pid is not int id)
             return Capture(target, null, _ => [], DeviceSessionBound, SampleGap);
         run ??= RunBounded;
-        var command = DeviceSession(script, udid, id, symbolFiles);
+        var command = DeviceSession(script, udid, id, symbolFiles?.Invoke());
         var started = DateTimeOffset.Now;
         var clock = Stopwatch.StartNew();
         CommandRun result;

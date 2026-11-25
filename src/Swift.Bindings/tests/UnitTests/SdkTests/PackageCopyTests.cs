@@ -522,6 +522,48 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ACSharpNameANewerSdkMovesToAnotherSwiftDeclaration_IsRefused_NamingBoth()
+    {
+        // Xcode 26: `Outer.outer` is `Outer.OuterInfo`. Xcode 27 adds the sibling `Outer.outerInfo`,
+        // which takes `OuterInfo`, and `outer` moves to `OuterInfo2`. Every older signature and export
+        // is still there, so only the record of which Swift declaration a name stands for tells them apart.
+        const string olderApi = "public sealed class Outer { public sealed class OuterInfo { public int Ping => 1; } }";
+        const string newerApi = "public sealed class Outer { public sealed class OuterInfo { public int Ping => 1; } public sealed class OuterInfo2 { public int Ping => 1; } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi, extra: [Declarations("net10.0-ios26.0",
+            types: [("Outer", "type Kit.Outer"), ("Outer.OuterInfo", "type Kit.Outer.outer")],
+            members: [("Outer.OuterInfo.Ping", "var Kit.Outer.outer.ping")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi, extra: [Declarations("net10.0-ios27.2",
+            types: [("Outer", "type Kit.Outer"), ("Outer.OuterInfo", "type Kit.Outer.outerInfo"), ("Outer.OuterInfo2", "type Kit.Outer.outer")],
+            members: [("Outer.OuterInfo.Ping", "var Kit.Outer.outerInfo.ping"), ("Outer.OuterInfo2.Ping", "var Kit.Outer.outer.ping")])]);
+
+        var result = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        var problem = Assert.Single(result.Problems);
+        Assert.Contains("2 C# name(s) stand for a different Swift declaration in the copy net10.0-ios27.2 than in the older copy net10.0-ios26.0", problem);
+        Assert.Contains("the C# type Kit.Outer.OuterInfo is Swift `type Kit.Outer.outer` in net10.0-ios26.0 but Swift `type Kit.Outer.outerInfo` in net10.0-ios27.2", problem);
+        Assert.Contains("the C# member Kit.Outer.OuterInfo.Ping is Swift `var Kit.Outer.outer.ping`", problem);
+        Assert.Null(result.Package);
+    }
+
+    [Fact]
+    public void Merge_CopiesWhoseNamesKeepTheirSwiftDeclarations_Merge_AndANewerCopyWithoutTheRecord_IsRefused()
+    {
+        var older = Contribution("x26", ["net10.0-ios26.0"], extra: [Declarations("net10.0-ios26.0",
+            types: [("Kit", "type Kit.Kit")], members: [("Kit.A()", "static func Kit.Kit.a()")])]);
+        // The newer copy adds a member and a type; every name the older copy has keeps its declaration.
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: "public static class Kit { public static int A() => 1; public static int B() => 2; }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit"), ("Extra", "type Kit.Extra")],
+                members: [("Kit.A()", "static func Kit.Kit.a()"), ("Kit.B()", "static func Kit.Kit.b()")])]);
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+        Assert.Contains(merged.Notes, n => n.Contains("Swift declarations Kit.swift-declarations.json: net10.0-ios26.0 -> net10.0-ios27.2, 2 names, 0 moved", StringComparison.Ordinal));
+
+        var unrecorded = Contribution("y27", ["net10.0-ios27.2"]);
+        var refused = Merge([older, unrecorded], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains("buildTransitive/net10.0-ios27.2/ lacks Kit.swift-declarations.json", Assert.Single(refused.Problems));
+    }
+
+    [Fact]
     public void Merge_CopiesOfDifferentPlatforms_AreNotComparedForApi()
     {
         var ios = Contribution("ios", ["net10.0-ios26.0"], api: "public static class Kit { public static int A() => 1; public static int B() => 2; }");
@@ -906,6 +948,15 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     // ---- fixtures -------------------------------------------------------------------------------
+
+    private static (string Path, byte[] Data) Declarations(string tfm, (string Name, string Swift)[] types, (string Name, string Swift)[] members) =>
+        ($"buildTransitive/{tfm}/{SwiftDeclarationRecordFormat.FileName("Kit")}", Encoding.UTF8.GetBytes(SwiftDeclarationMapEmitter.Serialize(new SwiftDeclarationMapDocument
+        {
+            SchemaVersion = SwiftDeclarationRecordFormat.SchemaVersion,
+            Module = "Kit",
+            Types = new(types.ToDictionary(t => t.Name, t => t.Swift), StringComparer.Ordinal),
+            Members = new(members.ToDictionary(m => m.Name, m => m.Swift), StringComparer.Ordinal),
+        })));
 
     private PackageMergeResult Merge(string[] contributions, params string[] matrix) =>
         SwiftBindingPackageMerge.Merge(contributions, matrix, Path.Combine(tempDir, "out-" + Guid.NewGuid().ToString("N")[..8]));

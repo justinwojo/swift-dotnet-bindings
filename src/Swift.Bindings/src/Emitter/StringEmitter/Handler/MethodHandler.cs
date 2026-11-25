@@ -2298,7 +2298,7 @@ namespace BindingsGeneration
             methodEnv.EmissionContext?.RecordApiManifestEntry(
                 ModuleEmissionContext.BuildApiManifestKey(
                     methodDecl.ParentDecl, asyncMethodName, overloadKey, methodEnv.TypeDatabase),
-                methodEnv.EmissionSymbol);
+                methodEnv.EmissionSymbol, methodDecl, methodEnv.TypeDatabase);
 
             callArgs.Add(lambdaBody);
             var callArgsString = string.Join(", ", callArgs);

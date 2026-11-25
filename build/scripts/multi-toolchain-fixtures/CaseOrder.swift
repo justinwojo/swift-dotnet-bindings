@@ -8,7 +8,10 @@
 // textureCoordinates), and gives a caseless namespace enum its first static member (RealityFoundation
 // 27.2 does so to Audio), and gives a member-less struct used the same way its first initializer. The
 // enums are resilient (built with library evolution) and not @frozen, so all are compatible changes for
-// Swift clients.
+// Swift clients. The newer build also gives an Objective-C class used as an array element its first
+// use as a set element, which adds the set's metadata export to the wrapper without removing any.
+
+import Foundation
 
 /// A no-payload enum with a String raw value: projected as a class with a nested CaseTag.
 public enum Shade: String {
@@ -108,4 +111,17 @@ public final class Palette {
         default: return "other"
         }
     }
+}
+
+/// Hands Objective-C objects across in collections. The older build uses `NSUUID` only as an array
+/// element; the newer build adds a member that uses it as a set element, a hashed position, whose
+/// metadata export the wrapper adds beside the element's own.
+public final class Ledger {
+    public init() {}
+
+    public func ids() -> [NSUUID] { [NSUUID(), NSUUID()] }
+
+#if compiler(>=6.4)
+    public func uniqueIds() -> Set<NSUUID> { [NSUUID()] }
+#endif
 }

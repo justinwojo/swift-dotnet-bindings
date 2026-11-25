@@ -2478,12 +2478,36 @@ public sealed class ModuleEmissionContext
     /// Records one emitted public member's C# signature key → native entry symbol
     /// into the API manifest. Called from the overload-disambiguation chokepoints once
     /// the post-collision C# name is known.
+    /// <para>
+    /// <paramref name="declaration"/> is the Swift declaration the member stands for. It is recorded
+    /// under the same key, with every type that contains it under its C# path, in the module's Swift
+    /// declaration record (<see cref="SwiftDeclarationMapEmitter"/>), which the package merge compares
+    /// across a package's copies: a C# name that a newer SDK's added sibling moves to another Swift
+    /// declaration must not merge.
+    /// </para>
     /// </summary>
-    public void RecordApiManifestEntry(string memberSignature, string entrySymbol) =>
+    public void RecordApiManifestEntry(string memberSignature, string entrySymbol,
+        BaseDecl? declaration = null, ITypeDatabase? typeDatabase = null)
+    {
         _apiManifest[memberSignature] = entrySymbol;
+        if (declaration is null || SwiftDeclarationMapEmitter.Describe(declaration) is not { } described)
+            return;
+        _swiftMemberDeclarations[memberSignature] = described;
+        for (var parent = declaration.ParentDecl; parent is TypeDecl type; parent = type.ParentDecl)
+            _swiftTypeDeclarations[BuildParentPath(type, typeDatabase)] = SwiftDeclarationMapEmitter.Describe(type)!;
+    }
+
+    private readonly SortedDictionary<string, string> _swiftMemberDeclarations = new(StringComparer.Ordinal);
+    private readonly SortedDictionary<string, string> _swiftTypeDeclarations = new(StringComparer.Ordinal);
 
     /// <summary>The accumulated C# signature → entry symbol map, Ordinal-sorted.</summary>
     public IReadOnlyDictionary<string, string> ApiManifestEntries => _apiManifest;
+
+    /// <summary>The recorded member C# signature → Swift declaration map (see <see cref="RecordApiManifestEntry"/>).</summary>
+    public IReadOnlyDictionary<string, string> SwiftMemberDeclarations => _swiftMemberDeclarations;
+
+    /// <summary>The recorded type C# path → Swift declaration map (see <see cref="RecordApiManifestEntry"/>).</summary>
+    public IReadOnlyDictionary<string, string> SwiftTypeDeclarations => _swiftTypeDeclarations;
 
     /// <summary>
     /// Builds the API-manifest signature key for an emitted member: the parent-type path
@@ -2551,7 +2575,7 @@ public sealed class ModuleEmissionContext
         string symbol = BuildAccessorEntrySymbol(subscriptDecl.Accessors) ?? subscriptDecl.MangledName;
         RecordApiManifestEntry(
             BuildSubscriptApiManifestKey(subscriptDecl.ParentDecl, indexTypes, typeDatabase),
-            symbol);
+            symbol, subscriptDecl, typeDatabase);
     }
 
     /// <summary>

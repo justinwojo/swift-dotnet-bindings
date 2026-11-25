@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using SwiftBindings.Tasks;
 using SwiftBindings.TransitionGate;
 using Xunit;
 using static BindingsGeneration.Tests.SwiftTransitionManifestTests;
@@ -241,6 +242,46 @@ public sealed class WrapperIdentityTests : IDisposable
         Assert.Contains(duplicated.Problems, p => p.Contains("more than one wrapper identity for Kit", StringComparison.Ordinal));
         var unreadable = SwiftWrapperIdentityCheck.Read(Compile("Kit", Attribute("schema=9") + PrimitiveOnly));
         Assert.Contains(unreadable.Problems, p => p.Contains("has schema 9", StringComparison.Ordinal) || p.Contains("does not have the fields", StringComparison.Ordinal));
+    }
+
+    // ---- the SDK a copy is labelled by (SWIFTBIND137) ---------------------------------------------
+
+    private static string PlatformSdk(string sdk) =>
+        $"[assembly: global::System.Reflection.AssemblyMetadataAttribute(\"{SwiftWrapperIdentityFormat.PlatformSdkAttributeKey}\", \"{sdk}\")]\n";
+
+    [Fact]
+    public void CopySdk_APureObjCBindingBuiltOnXcode27_IsLabelledBy27_WhenPackedWithXcode26Selected()
+    {
+        // `dotnet pack --no-build` after switching to Xcode 26.3: the assembly carries no wrapper
+        // identity, so only its build-time record names the SDK its surface came from.
+        var image = Compile("Kit", PlatformSdk("27.2") + PrimitiveOnly);
+        Assert.Equal("27.2", Assert.Single(SwiftWrapperIdentityCheck.ReadPlatformSdks(image)));
+        var sdk = PackageCopyRules.CopySdk(image, "26.2", out var errors, out var message);
+        Assert.Equal("27.2", sdk);
+        Assert.Empty(errors);
+        Assert.Contains("built against the 27.2 SDK; the SDK selected now is 26.2", message);
+        Assert.NotNull(PackageCopyRules.CheckLabel("Acme.Kit", "net10.0-ios26.0", "AppleFramework", sdk));
+    }
+
+    [Fact]
+    public void CopySdk_TheWrapperIdentityWins_AndAnAssemblyWithNoRecordTakesTheSelectedSdk()
+    {
+        var stamped = Compile("Kit", Attribute(Identity("net10.0-ios27.2", "27.2").Value) + PlatformSdk("26.2") + PrimitiveOnly);
+        Assert.Equal("27.2", PackageCopyRules.CopySdk(stamped, "26.2", out var errors, out _));
+        Assert.Empty(errors);
+
+        var unrecorded = Compile("Kit", PrimitiveOnly);
+        Assert.Equal("26.2", PackageCopyRules.CopySdk(unrecorded, "26.2", out errors, out var message));
+        Assert.Empty(errors);
+        Assert.Null(message);
+    }
+
+    [Fact]
+    public void CopySdk_TwoBuildRecords_AreRefused()
+    {
+        var image = Compile("Kit", PlatformSdk("26.2") + PlatformSdk("27.2") + PrimitiveOnly);
+        PackageCopyRules.CopySdk(image, "27.2", out var errors, out _);
+        Assert.Contains("built against different SDKs (26.2, 27.2)", Assert.Single(errors));
     }
 
     // ---- helpers --------------------------------------------------------------------------------

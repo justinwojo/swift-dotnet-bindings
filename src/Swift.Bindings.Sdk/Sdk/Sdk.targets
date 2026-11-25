@@ -4521,6 +4521,49 @@ TARGETSEOF"
   </Target>
 
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!-- Record the platform SDK the binding is built against                   -->
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
+  <!--
+    Stamps the platform SDK version selected when the assembly compiles on the assembly itself
+    (AssemblyMetadata SwiftBindings.PlatformSdk, SwiftWrapperIdentityFormat.PlatformSdkAttributeKey).
+    A Swift or mixed binding's wrapper identity already records the SDK its surface was generated
+    from; a pure Objective-C binding has no wrapper, so without this record the pack's label check
+    (SWIFTBIND137) could only judge the SDK selected when it packs, and a pack without a build
+    run after switching Xcode would label an Xcode 27 copy as an Xcode 26 one. The file is rewritten
+    only when the SDK changes, which recompiles the assembly; with no SDK to read, no stale record
+    is left behind.
+  -->
+  <Target Name="_RecordSwiftBindingPlatformSdk"
+          BeforeTargets="_GenerateCompileDependencyCache;CoreCompile"
+          Condition="'$(_SwiftBindingPlatform)' != '' AND '$(TargetFramework)' != ''">
+    <PropertyGroup>
+      <_SwiftBindingBuildXcrunSdk>macosx</_SwiftBindingBuildXcrunSdk>
+      <_SwiftBindingBuildXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'ios'">iphoneos</_SwiftBindingBuildXcrunSdk>
+      <_SwiftBindingBuildXcrunSdk Condition="'$(_SwiftBindingPlatform)' == 'tvos'">appletvos</_SwiftBindingBuildXcrunSdk>
+      <_SwiftBindingPlatformSdkFile>$(IntermediateOutputPath)$(MSBuildProjectName).SwiftBindingsPlatformSdk.g.cs</_SwiftBindingPlatformSdkFile>
+      <_SwiftBindingBuildSdkVersion />
+    </PropertyGroup>
+    <Exec Command="xcrun --sdk $(_SwiftBindingBuildXcrunSdk) --show-sdk-version 2&gt;/dev/null"
+          ConsoleToMSBuild="true" StandardOutputImportance="low" IgnoreExitCode="true">
+      <Output TaskParameter="ConsoleOutput" PropertyName="_SwiftBindingBuildSdkVersion" />
+    </Exec>
+    <PropertyGroup>
+      <_SwiftBindingBuildSdkVersion>$(_SwiftBindingBuildSdkVersion.Trim())</_SwiftBindingBuildSdkVersion>
+      <_SwiftBindingBuildSdkVersion Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_SwiftBindingBuildSdkVersion)', '^\d+(\.\d+)*$'))" />
+    </PropertyGroup>
+    <WriteLinesToFile Condition="'$(_SwiftBindingBuildSdkVersion)' != ''"
+                      File="$(_SwiftBindingPlatformSdkFile)"
+                      Lines="// &lt;auto-generated&gt; The platform SDK this binding was built against, written by SwiftBindings.Sdk. Do not edit. &lt;/auto-generated&gt;;[assembly: global::System.Reflection.AssemblyMetadataAttribute(&quot;SwiftBindings.PlatformSdk&quot;, &quot;$(_SwiftBindingBuildSdkVersion)&quot;)]"
+                      Overwrite="true" WriteOnlyWhenDifferent="true" />
+    <Delete Condition="'$(_SwiftBindingBuildSdkVersion)' == ''" Files="$(_SwiftBindingPlatformSdkFile)" />
+    <ItemGroup Condition="'$(_SwiftBindingBuildSdkVersion)' != ''">
+      <Compile Remove="$(_SwiftBindingPlatformSdkFile)" />
+      <Compile Include="$(_SwiftBindingPlatformSdkFile)" />
+      <FileWrites Include="$(_SwiftBindingPlatformSdkFile)" />
+    </ItemGroup>
+  </Target>
+
+  <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!-- Target 7c: Configure NuGet pack layout                                 -->
   <!-- ═══════════════════════════════════════════════════════════════════════ -->
   <!--
@@ -4634,6 +4677,12 @@ TARGETSEOF"
       <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml"
             PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/"
             Condition="Exists('$(_SwiftBindingIntermediateDir)ILLink.Descriptors.xml')" />
+      <!-- Which Swift declaration each C# name of the copy stands for, one record per generated
+           module (SwiftDeclarationMapEmitter). Nothing reads it at consumer build time: the package
+           merge (SWIFTBIND138) compares the records of a package's copies and refuses a C# name that
+           a newer SDK moved to another Swift declaration. -->
+      <TfmSpecificPackageFile Include="$(_SwiftBindingIntermediateDir)*.swift-declarations.json"
+            PackagePath="buildTransitive/$(_SwiftBindingPackTfm)/" />
       <!-- Source xcframework, sliced down to slices the current RID can consume.
            Wrapper/bridge xcframeworks are already per-TFM (no duplication problem)
            and are packed raw below. _SliceSourceXcframework runs BeforeTargets this

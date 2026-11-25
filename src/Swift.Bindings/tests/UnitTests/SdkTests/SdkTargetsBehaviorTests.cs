@@ -1210,6 +1210,40 @@ namespace BindingsGeneration.Tests
             }
         }
 
+        [Fact]
+        public void RecordPlatformSdk_StampsTheSelectedSdkOnTheAssembly_AsACompileItem()
+        {
+            SkipUnless(MsbuildAvailable.Value, "dotnet msbuild not available");
+            SkipUnless(OperatingSystem.IsMacOS(), "xcrun is macOS-only");
+            var expected = RunProcess("xcrun", "--sdk iphoneos --show-sdk-version");
+            SkipUnless(expected.ExitCode == 0 && expected.StdOut.Trim().Length > 0, "no iOS SDK");
+            var sdkTargetsPath = Path.Combine(FindRepoRoot(), "src", "Swift.Bindings.Sdk", "Sdk", "Sdk.targets");
+            // The platform is set directly so the plain .NET SDK evaluates the project without the iOS
+            // workload; the target under test reads only it and the intermediate path.
+            WriteTestProject($"""
+                <Project>
+                  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+                  <PropertyGroup>
+                    <TargetFramework>net10.0</TargetFramework>
+                    <_SwiftBindingPlatform>ios</_SwiftBindingPlatform>
+                  </PropertyGroup>
+                  <Import Project="{sdkTargetsPath}" />
+                  <Target Name="TestDump" DependsOnTargets="_RecordSwiftBindingPlatformSdk">
+                    <Message Importance="high" Text="COMPILE=@(Compile->'%(Filename)%(Extension)')" />
+                  </Target>
+                </Project>
+                """);
+
+            var result = RunDotnet($"msbuild \"{Path.Combine(_tempDir, "Test.csproj")}\" -t:TestDump -nologo -v:n");
+
+            Assert.True(result.ExitCode == 0, result.StdOut + result.StdErr);
+            Assert.Contains("Test.SwiftBindingsPlatformSdk.g.cs", result.StdOut);
+            var record = Directory.GetFiles(_tempDir, "Test.SwiftBindingsPlatformSdk.g.cs", SearchOption.AllDirectories).Single();
+            Assert.Contains($"AssemblyMetadataAttribute(\"SwiftBindings.PlatformSdk\", \"{expected.StdOut.Trim()}\")", File.ReadAllText(record));
+            var image = SwiftTransitionManifestTests.Compile("Kit", File.ReadAllText(record) + "\npublic static class Kit { }");
+            Assert.Equal(expected.StdOut.Trim(), Assert.Single(SwiftBindings.TransitionGate.SwiftWrapperIdentityCheck.ReadPlatformSdks(image)));
+        }
+
         // ── SWIFTBIND005: the empty-DLL trap (issue #43) ──
         // A project that carries an @(ObjcBindingApiDefinition) item but omits
         // <IsBindingProject>true</IsBindingProject> ships an empty (0-type) binding

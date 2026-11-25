@@ -840,7 +840,7 @@ namespace BindingsGeneration
                             emissionCtx.RecordApiManifestEntry(
                                 ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, env.CSharpMethodName, projectedKey, env.TypeDatabase,
                                     emissionCtx.GetEmittedApiShape(methodDecl)),
-                                env.EmissionSymbol);
+                                env.EmissionSymbol, methodDecl, env.TypeDatabase);
                             // A trimmed form of a refused member reached the output, so the full
                             // member's skip row is recovered, not lost. Keyed by the refused
                             // declaration's own identity: a same-named sibling the rescue declined

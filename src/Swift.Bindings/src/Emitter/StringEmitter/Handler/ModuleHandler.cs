@@ -381,7 +381,7 @@ namespace BindingsGeneration
                                 freeFnCtx.RecordApiManifestEntry(
                                     ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodEnv.CSharpMethodName, projectedKey, env.TypeDatabase,
                                         freeFnCtx.GetEmittedApiShape(methodDecl)),
-                                    methodEnv.EmissionSymbol);
+                                    methodEnv.EmissionSymbol, methodDecl, env.TypeDatabase);
                         }
                         else
                         {
@@ -648,13 +648,20 @@ namespace BindingsGeneration
             // weak-imported. The accessor is guarded by the floor every declaration that names the type
             // is available at. An identity only a projection recorded has no such declaration and stays
             // unguarded, as the member's own wrapper references the type unguarded too.
+            // The type's own metadata accessor is exported for every identity, hashed or not. A newer
+            // SDK that adds a hashed use (`Set<NSUUID>`) of a type an older copy only held as an
+            // element (`[NSUUID]`) is an additive change, so it must stay one in the wrapper's
+            // exports: an older copy's assembly, which a library compiled against and the app then
+            // runs with the newer copy's wrapper, still binds the value accessor, and the package
+            // merge requires each newer copy to export every symbol an older one did.
             foreach (var identity in emissionCtx.ObjectKeyIdentities)
             {
-                var hashed = emissionCtx.IsHashedObjectKey(identity);
-                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName,
-                    hashed ? identity.SwiftSetTypeName : identity.SwiftTypeName,
-                    hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName),
-                    emissionCtx, availability: floors.Floor(identity.IdentityClassName));
+                var availability = floors.Floor(identity.IdentityClassName);
+                if (emissionCtx.IsHashedObjectKey(identity))
+                    MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
+                        identity.AccessorSymbol(moduleName), emissionCtx, availability: availability);
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftTypeName,
+                    identity.ValueAccessorSymbol(moduleName), emissionCtx, availability: availability);
             }
             // A Swift class key or set element: its Set<Class> metadata, which holds the class's
             // Hashable witness table as the compiler resolves it.

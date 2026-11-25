@@ -58,7 +58,10 @@ FIXTURES = {"ProximityReader": ("ios", "maccatalyst"), "WeatherKit": ("macos", "
 # Fixtures bound as pure Objective-C Apple frameworks: no wrapper, and copies with no native payload.
 OBJC_FIXTURES = {"Matter"}
 # Fixtures bound as a library (<SwiftFramework>) from a framework each pairing builds from this Swift source.
-LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift"}
+LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift",
+                    "NestedMove": "multi-toolchain-fixtures/NestedMove.swift"}
+# Library fixtures built and packed only by a control, never merged into a package or consumed.
+CONTROL_FIXTURES = {"NestedMove": ("ios",)}
 PACKAGE_PREFIX = "MtpFixture."
 VERSION = "27.2.0"
 # What an app on each platform runs on, and the RID it builds for.
@@ -430,7 +433,7 @@ class Gate:
         """parts: [(nupkg, [tfms])]. Runs on .NET 10 + Xcode 26.3 from the binding's own project."""
         profile = PAIRINGS[0][0]
         project = self.write_binding(profile, framework)
-        oldest = [tfm(PAIRINGS[0][1], p, PAIRINGS[0][2]) for p in FIXTURES[framework]]
+        oldest = [tfm(PAIRINGS[0][1], p, PAIRINGS[0][2]) for p in {**FIXTURES, **CONTROL_FIXTURES}[framework]]
         Path(out).mkdir(parents=True, exist_ok=True)
         args = ["msbuild", "-restore", str(project), "-t:SwiftBindingsMergePackages", "-nodeReuse:false",
                 f"-p:MtpTargetFrameworks=\"{';'.join(oldest)}\"", f"-p:Version={version}",
@@ -865,6 +868,7 @@ class Gate:
         code, text = self.merge(fw, [(m26, mt26), (lying, mt27)], VERSION, out, "control-m8.log")
         self.control("SWIFTBIND138 M8 a copy's declaration and natives disagree", code if not list(out.glob("*.nupkg")) else 0, text,
                      [r"error SWIFTBIND138: .*declares its net10\.0-ios27\.2 copy's natives under native/net10\.0-ios27\.2/, but carries no native/net10\.0-ios27\.2/"])
+        self.moved_name_control()
         # SWIFTBIND136 on a pure Objective-C package: buildTransitive/<27.2>/ dropped, so NuGet takes the
         # 26.0 declaration beside the 27.2 lib.
         variant(self.merged(fw), self.work / "controls", f"{VERSION}-objc136", drops=["buildTransitive/net10.0-ios27.2/"])
@@ -874,6 +878,31 @@ class Gate:
         code, text = self.dotnet(x27, ["build", str(project), "-c", "Debug", "-nodeReuse:false"], directory, "control-objc136.log")
         self.control("SWIFTBIND136 (pure Objective-C copy, buildTransitive copy dropped)", code, text,
                      [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
+
+    def moved_name_control(self):
+        """M9: a C# name the newer SDK's build gives to another Swift declaration. The NestedMove library's
+        Xcode 27 build adds a sibling that takes the renamed nested type's C# name, so both copies carry
+        the same API and exports and only their Swift declaration records tell them apart."""
+        fw = "NestedMove"
+        parts = []
+        for profile, net, label in PAIRINGS[:2]:
+            tfms = [tfm(net, p, label) for p in CONTROL_FIXTURES[fw]]
+            if not self.library_xcframework(profile, fw).exists() and not self.step(
+                    f"control M9 setup: {profile} builds the {fw} framework", self.build_library(profile, fw),
+                    f"see framework-{profile}-{fw}.log"):
+                return
+            out = self.work / "control-contributions" / profile
+            code, text = self.pack(profile, fw, tfms, VERSION, out, f"control-m9-pack-{profile}.log")
+            nupkg = out / f"{package_id(fw)}.{VERSION}.nupkg"
+            if not self.step(f"control M9 setup: {profile} packs {fw}", code == 0 and nupkg.exists(),
+                             f"exit {code}; {first_errors(text)}" if code else ", ".join(tfms)):
+                return
+            parts.append((nupkg, tfms))
+        out = self.work / "merge-controls" / "M9"
+        code, text = self.merge(fw, parts, VERSION, out, "control-m9.log")
+        self.control("SWIFTBIND138 M9 a newer copy gives a C# name to another Swift declaration", code if not list(out.glob("*.nupkg")) else 0, text,
+                     [r"error SWIFTBIND138: .*stand for a different Swift declaration in the copy net10\.0-ios27\.2 than in the older copy net10\.0-ios26\.0",
+                      r"the C# type NestedMove\.Outer\.OuterInfo is Swift `type NestedMove\.Outer\.outer` in net10\.0-ios26\.0 but Swift `type NestedMove\.Outer\.outerInfo` in net10\.0-ios27\.2"])
 
     # ---- 5. runs -------------------------------------------------------------------------------
 

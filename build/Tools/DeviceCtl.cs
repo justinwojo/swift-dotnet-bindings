@@ -150,7 +150,7 @@ public static class DeviceCtl
                 bundleId, pids.Count > 0 ? string.Join(",", pids) : "?");
             hungStacks = HungProcessSampler.CaptureDevice($"{bundleId} on device {udid}",
                 NukeBuild.RootDirectory / "build" / "scripts" / "device-hung-stacks.py", udid,
-                pids.Count > 0 ? pids[0] : null, SymbolFilesOrNone(symbolFiles));
+                pids.Count > 0 ? pids[0] : null, () => SymbolFilesOrNone(symbolFiles));
             Log.Warning("Hung-app stacks: {Outcomes}",
                 string.Join(", ", hungStacks.Samples.Select(s => $"#{s.Index} {s.Outcome}")));
         }

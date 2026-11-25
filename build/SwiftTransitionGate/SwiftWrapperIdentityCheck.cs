@@ -69,6 +69,40 @@ public static class SwiftWrapperIdentityCheck
     }
 
     /// <summary>
+    /// The platform SDK versions <paramref name="image"/> records it was built against
+    /// (<see cref="SwiftWrapperIdentityFormat.PlatformSdkAttributeKey"/>), distinct and ordered; empty
+    /// for an assembly built before the record or outside the SwiftBindings SDK.
+    /// </summary>
+    public static ImmutableArray<string> ReadPlatformSdks(byte[] image)
+    {
+        var sdks = new SortedSet<string>(StringComparer.Ordinal);
+        try
+        {
+            using var pe = new PEReader(new MemoryStream(image, writable: false));
+            if (!pe.HasMetadata)
+                return [];
+            var md = pe.GetMetadataReader();
+            if (!md.IsAssembly)
+                return [];
+            foreach (var handle in md.GetAssemblyDefinition().GetCustomAttributes())
+            {
+                var attribute = md.GetCustomAttribute(handle);
+                if (SwiftTransitionManifestReader.AttributeTypeName(md, attribute) != SwiftTransitionManifestReader.MetadataAttribute)
+                    continue;
+                var value = attribute.DecodeValue(SwiftTransitionScanner.AttributeTypeProvider.Instance);
+                if (value.FixedArguments.Length == 2 && value.FixedArguments[0].Value as string == SwiftWrapperIdentityFormat.PlatformSdkAttributeKey
+                    && value.FixedArguments[1].Value is string sdk)
+                    sdks.Add(sdk.Trim());
+            }
+        }
+        catch (BadImageFormatException)
+        {
+            return [];
+        }
+        return sdks.ToImmutableArray();
+    }
+
+    /// <summary>
     /// The problems of <paramref name="natives"/> against the identities <paramref name="assembly"/>
     /// declares, and the wrapper libraries no image of which was found to check.
     /// </summary>

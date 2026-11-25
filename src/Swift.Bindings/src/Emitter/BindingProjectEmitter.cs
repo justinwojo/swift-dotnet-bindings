@@ -659,6 +659,10 @@ namespace BindingsGeneration
                          it no-ops when the module emitted no open generics (no descriptor). -->
                     <None Include="{TrimmerDescriptorEmitter.FileName}" Pack="true"
                           Condition="Exists('{TrimmerDescriptorEmitter.FileName}')"
+                          PackagePath="{pi.GetBuildTransitivePath()}" />
+                    <!-- Which Swift declaration each C# name stands for, per module; the package merge
+                         compares the copies' records (SWIFTBIND138). -->
+                    <None Include="*{SwiftDeclarationRecordFormat.FileSuffix}" Pack="true"
                           PackagePath="{pi.GetBuildTransitivePath()}" />{(emitSourceXcfw ? $"""
 
                     <None Include="{packSourceXcfwRelative}/**" Pack="true"
