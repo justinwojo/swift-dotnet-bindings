@@ -20,7 +20,7 @@ public class NestedTypeNamedLikeContainerTests : TestBase
     public void TestStructContainer_NestedClassTakesTheInfoSuffix()
     {
         using var inner = new NestedNameOuter.NestedNameOuterInfo();
-        AssertEqual(41, inner.Ping(), "the renamed nested class must call into Swift");
+        AssertEqual(41, inner.GetPing(), "the renamed nested class must call into Swift");
 
         var outer = new NestedNameOuter(5);
         AssertEqual(5, outer.Value, "the container keeps its name and members");
