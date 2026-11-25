@@ -2271,8 +2271,10 @@ public partial class ProtocolProxyEmitter
     /// Classifies how a receiver parameter's borrowed ABI slot must be read, from the top-level
     /// projection kind. An unprojectable Swift collection (<c>Set&lt;Box&lt;String&gt;&gt;</c>, whose bound
     /// generic element has no projection) is still its raw <c>SwiftSet</c>/<c>SwiftArray</c>/
-    /// <c>SwiftDictionary</c> wrapper, read like a projected one; any other unprojectable type falls
-    /// back to the local raw read, which is what the receiver emitted before any classification existed.
+    /// <c>SwiftDictionary</c> wrapper, read like a projected one, and an unprojectable Optional of one
+    /// is its raw <c>SwiftOptional</c> wrapper, copied out like a projected Optional; any other
+    /// unprojectable type falls back to the local raw read, which is what the receiver emitted before
+    /// any classification existed.
     /// </summary>
     private ReceiverSlotReadKind GetReceiverSlotReadKind(TypeSpec? typeSpec)
     {
@@ -2280,9 +2282,25 @@ public partial class ProtocolProxyEmitter
         var projection = ProjectReceiverType(typeSpec, isParameter: true);
         if (projection != null)
             return projection.Accept(new ReceiverSlotReadKindVisitor());
-        return MarshallingHelpers.IsSwiftArray(typeSpec) || MarshallingHelpers.IsSwiftSet(typeSpec) || MarshallingHelpers.IsSwiftDictionary(typeSpec)
-            ? ReceiverSlotReadKind.ObjectMarshal
-            : ReceiverSlotReadKind.RawRead;
+        return IsUnprojectedSwiftCollectionCarrier(typeSpec) switch
+        {
+            true when MarshallingHelpers.IsSwiftOptional(typeSpec) => ReceiverSlotReadKind.CopiedValue,
+            true => ReceiverSlotReadKind.ObjectMarshal,
+            false => ReceiverSlotReadKind.RawRead,
+        };
+    }
+
+    /// <summary>
+    /// Whether an unprojectable type's raw carrier is a managed Swift collection wrapper, bare or
+    /// inside any number of Optionals.
+    /// </summary>
+    private static bool IsUnprojectedSwiftCollectionCarrier(TypeSpec typeSpec)
+    {
+        if (MarshallingHelpers.IsSwiftArray(typeSpec) || MarshallingHelpers.IsSwiftSet(typeSpec) || MarshallingHelpers.IsSwiftDictionary(typeSpec))
+            return true;
+        return MarshallingHelpers.IsSwiftOptional(typeSpec)
+            && typeSpec is NamedTypeSpec { GenericParameters: [var wrapped] }
+            && IsUnprojectedSwiftCollectionCarrier(wrapped);
     }
 
     /// <summary>

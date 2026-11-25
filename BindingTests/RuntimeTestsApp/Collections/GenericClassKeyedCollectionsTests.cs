@@ -157,6 +157,14 @@ public class GenericClassKeyedCollectionsTests : TestBase
 
         public nint Position(SwiftSet<SwiftKeyBox<SwiftString>> boxes, string value)
             => boxes.Contains(Box(value)) ? boxes.Count : -1;
+
+        public nint Position(SwiftOptional<SwiftSet<SwiftKeyBox<SwiftString>>> boxes, string value)
+        {
+            if (!boxes.HasValue)
+                return -2;
+            using var set = boxes.Value!;
+            return set.Contains(Box(value)) ? set.Count : -1;
+        }
     }
 
     public void TestBoxReverseDispatchBothDirections()
@@ -167,6 +175,10 @@ public class GenericClassKeyedCollectionsTests : TestBase
         AssertEqual((nint)3, TestLibFunctions.SwiftBoxAskSource(source, new[] { "alpha", "beta", "gamma" }, "gamma"),
             "C# finds a box of the set Swift handed it");
         AssertEqual((nint)(-1), TestLibFunctions.SwiftBoxAskSource(source, new[] { "alpha" }, "gamma"), "and misses an absent one");
+        AssertEqual((nint)2, TestLibFunctions.SwiftBoxAskSourceOptional(source, new[] { "alpha", "beta" }, "beta"),
+            "C# finds a box of the optional set Swift handed it");
+        AssertEqual((nint)(-1), TestLibFunctions.SwiftBoxAskSourceOptional(source, new[] { "alpha" }, "beta"), "and misses an absent one");
+        AssertEqual((nint)(-2), TestLibFunctions.SwiftBoxAskSourceOptional(source, null, "beta"), "and reads Swift's nil set as nil");
     }
 
     // ── Ownership ───────────────────────────────────────────────────────────────────────────
