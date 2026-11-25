@@ -1348,6 +1348,48 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_BoundGenericHashedClass_IsRegisteredOnlyWhenEveryTypeItNamesIsDeclared()
+    {
+        // Box<Item> and Box<Skipped> are classes of their own, each registered for its instantiation.
+        // The wrapper spelling names the argument too, so an instantiation over a class the run
+        // skipped would not compile and is left out.
+        string csOutput, swiftOutput;
+        try
+        {
+            (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                m =>
+                {
+                    ReportCollector.Start(m);
+                    foreach (var name in new[] { "TestModule.Box", "TestModule.Item" })
+                    {
+                        m.Types.Add(TestClassDecl(m, name));
+                        ReportCollector.RecordTypeEmitted(m.Types[^1]);
+                    }
+                    var skipped = TestClassDecl(m, "TestModule.Skipped");
+                    m.Types.Add(skipped);
+                    ReportCollector.RecordTypeSkipped(skipped, SkipReason.UnsupportedType, "test");
+                },
+                preEmitHook: ctx =>
+                {
+                    foreach (var argument in new[] { "Item", "Skipped" })
+                    {
+                        var spec = new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("TestModule." + argument));
+                        ctx.RecordHashedSwiftClass(HashedSwiftClass.For(spec, $"global::TestModule.Box<global::TestModule.{argument}>")!);
+                    }
+                });
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.Contains("RegisterHashableClass<global::TestModule.Box<global::TestModule.Item>>", csOutput);
+        Assert.Contains("Swift.Set<TestModule.Box<TestModule.Item>>.self", swiftOutput);
+        Assert.DoesNotContain("TestModule.Skipped", csOutput);
+        Assert.DoesNotContain("Swift.Set<TestModule.Box<TestModule.Skipped>>", swiftOutput);
+    }
+
+    [Fact]
     public void Emit_HashedClassSpelledUnderItsUmbrellaModule_IsJudgedByItsDeclaringModule()
     {
         // The type spec names a re-exported class by its umbrella module, while the run records

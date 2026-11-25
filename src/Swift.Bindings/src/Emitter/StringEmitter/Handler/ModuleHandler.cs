@@ -685,12 +685,17 @@ namespace BindingsGeneration
             var result = new List<HashedSwiftClass>();
             foreach (var hashedClass in emissionCtx.HashedSwiftClasses)
             {
-                var names = SpellingsOf(hashedClass.Identity.SwiftTypeName);
-                if (names.Any(ReportCollector.IsTypeSkipped))
-                    continue;
-                if (names.Any(declaredTypeNames.Contains) && !names.Any(n => ReportCollector.IsTypeEmitted(n) != false))
-                    continue;
-                result.Add(hashedClass);
+                // A bound generic class (Box<Arg>) is registered for its closed wrapper, which names
+                // the class and each argument: every one of them must have a wrapper.
+                var hasWrappers = hashedClass.ReferencedTypeNames.All(typeName =>
+                {
+                    var names = SpellingsOf(typeName);
+                    if (names.Any(ReportCollector.IsTypeSkipped))
+                        return false;
+                    return !names.Any(declaredTypeNames.Contains) || names.Any(n => ReportCollector.IsTypeEmitted(n) != false);
+                });
+                if (hasWrappers)
+                    result.Add(hashedClass);
             }
             return result;
 

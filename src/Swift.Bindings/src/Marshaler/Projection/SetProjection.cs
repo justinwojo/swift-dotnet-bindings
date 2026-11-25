@@ -14,7 +14,8 @@ namespace BindingsGeneration;
 ///   API boundary. Callers wanting a quick conversion can use `.ToHashSet()` on any
 ///   IEnumerable. Using IReadOnlySet communicates the Swift Set uniqueness invariant; passing
 ///   a List or array would silently dedupe inside the Swift wrapper.
-/// Return direction: MarshalFromSwift + ToHashSet with element conversion lambda.
+/// Return direction: MarshalFromSwift + ToHashSet with element conversion lambda, or a live view of
+/// the Swift set for object-reference optional elements (see ReadSet).
 /// </summary>
 public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 {
@@ -169,9 +170,30 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
-            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({containerVar}, e => {elemConversion}))";
+            return ReadSet(containerVar, elemConversion);
         // SwiftSet<T> already implements IReadOnlySet<T>, no conversion needed
         return null;
+    }
+
+    /// <summary>
+    /// The public set a Swift set reads as, its elements converted by <paramref name="elemConversion"/>.
+    /// The source is a <see cref="Swift.SwiftSet{Element}"/> wrapper, which owns its copy of the Swift
+    /// storage whether it was returned, read out of a container or handed to a receiver, so a view of
+    /// it outlives nothing it depends on. A set of object-reference optionals (<c>Set&lt;C?&gt;</c>, each
+    /// slot the optional type's carrier) reads as a live view whose lookups go back to the Swift set:
+    /// Swift hashes the element by the conformance it was built with, which a wrapper's managed
+    /// equality need not share (a conformance declared outside the class's module, or one
+    /// conditional on its generic arguments, leaves the wrapper comparing by identity), so a managed
+    /// copy would miss an element Swift holds. Every other set is copied into a
+    /// <see cref="System.Collections.Generic.HashSet{T}"/>, its element types' managed equality
+    /// being the one Swift uses.
+    /// </summary>
+    private string ReadSet(string sourceExpr, string elemConversion)
+    {
+        if (_elementProjection is OptionalProjection { ObjectCarrier: not null } optional
+            && optional.GetParameterElementConversion("p") is { } reverse)
+            return $"{sourceExpr}.AsProjected<{optional.PublicType}>(e => {elemConversion}, p => {reverse})";
+        return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({sourceExpr}, e => {elemConversion}))";
     }
 
     /// <summary>
@@ -202,7 +224,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         // If element conversion is needed (e.g., SwiftString→string), materialize via ToHashSet
         string Converted(string marshalExpr) => elemConversion != null
-            ? $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({marshalExpr}, e => {elemConversion}))"
+            ? ReadSet(marshalExpr, elemConversion)
             : marshalExpr;
 
         return strategy switch
@@ -269,7 +291,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         if (elemConversion != null)
-            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
+            return ReadSet(elementVar, elemConversion);
         return null;
     }
 
@@ -286,7 +308,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
 
         var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
-            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({elementVar}, e => {elemConversion}))";
+            return ReadSet(elementVar, elemConversion);
         return null;
     }
 

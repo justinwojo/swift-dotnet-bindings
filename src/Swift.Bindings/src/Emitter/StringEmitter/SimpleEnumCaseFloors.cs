@@ -233,7 +233,11 @@ internal static class SimpleEnumCaseFloors
             case Container.Dictionary:
             {
                 var pair = $"{baseName}FloorPair{depth}";
-                rebuilt = $"{Linq}.ToDictionary({expression}, {pair} => {PartSnapshot($"{pair}.Key", typeSpec.GenericParameters[0])}, {pair} => {PartSnapshot($"{pair}.Value", typeSpec.GenericParameters[1])})";
+                // An optional key type holds nil as a key, which a .NET Dictionary refuses.
+                rebuilt = DictionaryProjection.Materialize(expression,
+                    $"{pair} => {PartSnapshot($"{pair}.Key", typeSpec.GenericParameters[0])}",
+                    $"{pair} => {PartSnapshot($"{pair}.Value", typeSpec.GenericParameters[1])}",
+                    optionalKey: typeSpec.GenericParameters[0] is NamedTypeSpec { Name: "Swift.Optional" });
                 break;
             }
             default:

@@ -1214,7 +1214,7 @@ public partial class ProtocolProxyEmitter
                     // PRODUCE container conversion; if an element's proxy was suppressed (its
                     // EveryProtocol conformance was not emitted) it throws here, during pure string
                     // projection — before any getter body is written.
-                    var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr");
+                    var marshalExpr = GetCollectionMarshalExpression(property.SwiftTypeSpec, "resultPtr", csharpTypeName);
                     // ObjC-bridgeable containers return a +1 NS* collection pointer with no free
                     // function; the bridge read (GetINativeObject owns: true) adopts the +1, so the
                     // getter reads it directly with no finally-free — same shape as the class-return
@@ -3056,10 +3056,12 @@ public partial class ProtocolProxyEmitter
     }
 
     /// <summary>
-    /// Gets the C# marshal expression for a collection return type using the TypeProjectionFactory.
-    /// Composes MarshalFromSwift&lt;ContainerType&gt;(ptr) with the container conversion suffix.
+    /// Gets the C# marshal expression for a collection return type using the TypeProjectionFactory:
+    /// MarshalFromSwift&lt;ContainerType&gt;(ptr), read through the projection's container conversion.
+    /// A collection with no projection (one of bound generic Swift classes, <c>Set&lt;Box&lt;String&gt;&gt;</c>)
+    /// is public as its raw container type, <paramref name="rawTypeName"/>, which is what is read.
     /// </summary>
-    private string GetCollectionMarshalExpression(TypeSpec returnTypeSpec, string ptrVar)
+    private string GetCollectionMarshalExpression(TypeSpec returnTypeSpec, string ptrVar, string rawTypeName)
     {
         var factory = new TypeProjectionFactory();
         var projection = factory.Project(returnTypeSpec, new ProjectionContext
@@ -3075,7 +3077,7 @@ public partial class ProtocolProxyEmitter
             EmissionContext = _emissionContext
         });
         if (projection == null)
-            return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<object>({ptrVar})";
+            return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{rawTypeName}>({ptrVar})";
 
         // ObjC-bridgeable containers cross the boundary as a whole NS* collection pointer (the Swift
         // wrapper returns Unmanaged.passRetained(result as AnyObject).toOpaque()), NOT a native Swift
@@ -3089,10 +3091,10 @@ public partial class ProtocolProxyEmitter
                 return bridgeConversion;
         }
 
-        var containerType = projection.ContainerTypeName;
-        // Pass empty containerVar to get just the conversion suffix (e.g., ".AsProjected(e => ...)")
-        var suffix = projection.GetReturnContainerConversion("");
-        return $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{containerType}>({ptrVar}){suffix}";
+        // The conversion wraps the read container (a Set's ToHashSet, a Dictionary's AsProjected), so it
+        // is given the whole read expression rather than composed as a suffix.
+        var read = $"Swift.Runtime.InteropServices.SwiftMarshal.MarshalFromSwift<{projection.ContainerTypeName}>({ptrVar})";
+        return projection.GetReturnContainerConversion(read) ?? read;
     }
 
     /// <summary>
@@ -3118,7 +3120,7 @@ public partial class ProtocolProxyEmitter
             // container conversion; if an element's proxy was suppressed (its EveryProtocol conformance
             // was not emitted) it throws here, during pure string projection — before EmitHeapPointerMethodBody
             // writes any body.
-            resultExpression = GetCollectionMarshalExpression(returnType, bodyScope.Mint("resultPtr"));
+            resultExpression = GetCollectionMarshalExpression(returnType, bodyScope.Mint("resultPtr"), returnTypeName);
         }
         catch (SuppressedProxyReferenceException)
         {

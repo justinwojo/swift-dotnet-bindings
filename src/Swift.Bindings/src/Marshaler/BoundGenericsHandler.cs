@@ -1719,7 +1719,7 @@ public class BoundGenericsHandler
     /// <summary>
     /// The identity an optional collection slot argument (<c>Swift.Optional&lt;T&gt;</c>) carries, or
     /// <c>null</c> when <c>T</c> is not one object reference: an Objective-C object
-    /// (<see cref="IsObjectPointerContainerArgument"/>) or a Swift class (NSObject-rooted or not), in
+    /// (<see cref="IsObjectPointerContainerArgument"/>) or a Swift class (NSObject-rooted or not, bound generic or not), in
     /// any slot. In a hashed slot the carrier is registered from <c>Set&lt;Optional&lt;T&gt;&gt;</c>, whose
     /// metadata holds <c>Optional&lt;T&gt;</c>'s <c>Hashable</c> conformance. TypeProjectionFactory's
     /// collection slots apply the same rule.
@@ -1740,15 +1740,50 @@ public class BoundGenericsHandler
     /// registers its <c>Hashable</c> witness table for the wrapper (<see cref="HashedSwiftClass"/>).
     /// </summary>
     internal HashedSwiftClass? HashedSwiftClassArgument(NamedTypeSpec typeSpec)
-        => IsSwiftClassSlotArgument(typeSpec) && _typeDatabase.TryGetTypeRecord(typeSpec, out var record)
-            ? HashedSwiftClass.For(typeSpec, record.CSharpTypeName.FullyQualifiedName)
+        => IsSwiftClassSlotArgument(typeSpec) && SwiftClassWrapperSpelling(typeSpec) is { } wrapperType
+            ? HashedSwiftClass.For(typeSpec, wrapperType)
             : null;
 
+    /// <summary>
+    /// A Swift class (NSObject-rooted or not) as a collection slot argument: a non-generic class, or a
+    /// bound generic one (<c>Box&lt;Swift.String&gt;</c>) whose every argument has a module-qualified
+    /// Swift name and a C# spelling. A bound generic class is a type of its own: its metadata and its
+    /// <c>Hashable</c> conformance (a conditional one included) are those of the instantiation, which
+    /// the wrapper spells as Swift does and the binding spells as the raw translator does.
+    /// </summary>
     private bool IsSwiftClassSlotArgument(NamedTypeSpec typeSpec)
-        => !typeSpec.ContainsGenericParameters && typeSpec.HasModule()
+        => typeSpec.HasModule() && typeSpec.InnerType == null
+            && (!typeSpec.ContainsGenericParameters
+                || (!s_stdlibGenerics.Contains(typeSpec.Name) && ObjectKeyIdentity.For(typeSpec) is not null
+                    && SwiftClassWrapperSpelling(typeSpec) is not null))
             && _typeDatabase.TryGetTypeRecord(typeSpec, out var record)
             && record.Kind == TypeRecordKind.Class && record.NativeTypeName == null
             && !record.Flags.HasFlag(TypeRecordFlags.ObjCBridged);
+
+    /// <summary>
+    /// The C# wrapper a Swift class slot argument is carried as: the class's wrapper, closed over its
+    /// arguments as the raw translator spells them for a bound generic class
+    /// (<c>Module.Box&lt;Swift.SwiftString&gt;</c>), or <c>null</c> when an argument has no C# spelling.
+    /// </summary>
+    private string? SwiftClassWrapperSpelling(NamedTypeSpec typeSpec)
+    {
+        if (!_typeDatabase.TryGetTypeRecord(typeSpec, out var record))
+            return null;
+        if (!typeSpec.ContainsGenericParameters)
+            return record.CSharpTypeName.FullyQualifiedName;
+        string spelled;
+        try
+        {
+            spelled = TranslateBoundGenericTypeToCSharp(typeSpec, GenericContext.Empty);
+        }
+        catch (NotSupportedException)
+        {
+            return null;
+        }
+        return spelled.Contains(TypeDatabaseExtensions.AnyType.CSharpTypeName.FullyQualifiedName, StringComparison.Ordinal)
+            ? null
+            : spelled;
+    }
 
     /// <summary>True for the hashed type argument of a stdlib container: a Dictionary's key, a Set's element.</summary>
     internal static bool IsHashedContainerSlot(string containerName, int genericIndex)

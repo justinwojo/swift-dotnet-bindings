@@ -26,8 +26,16 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
     /// </summary>
     public const string HolderClassName = "__SwiftObjectKeys";
 
-    /// <summary>The identity class's name, unique per Swift type.</summary>
-    public string IdentityClassName { get; } = SafeName(SwiftTypeName);
+    /// <summary>
+    /// The identity class's name, unique per Swift type: the spelling with every character other
+    /// than a letter or digit flattened to <c>_</c>. Flattening is one-to-one only for a plain dotted
+    /// name with no underscore of its own (<c>Foundation.NSUUID</c> → <c>Foundation_NSUUID</c>, each
+    /// <c>_</c> a dot). Any other spelling, a generic one (<c>Swift.Optional&lt;M.Outer.Key&gt;</c>) or
+    /// one whose names hold an underscore (<c>M.Outer_Key</c>, which would otherwise meet
+    /// <c>M.Outer.Key</c>), also carries <c>__</c> and a hash of the spelling, a form no plain name
+    /// produces, since a plain name never flattens to two adjacent underscores.
+    /// </summary>
+    public string IdentityClassName { get; } = UniqueName(SwiftTypeName);
 
     /// <summary>The identity as referenced from the module's generated code.</summary>
     public string IdentityType => $"{HolderClassName}.{IdentityClassName}";
@@ -77,6 +85,13 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
             arguments.Add(spelled);
         }
         return $"{named.Name}<{string.Join(", ", arguments)}>";
+    }
+
+    private static string UniqueName(string swiftTypeName)
+    {
+        var flattened = SafeName(swiftTypeName);
+        var plain = swiftTypeName.All(c => char.IsAsciiLetterOrDigit(c) || c == '.');
+        return plain ? flattened : $"{flattened}__{EmitterUtility.DeterministicHash8(swiftTypeName)}";
     }
 
     private static string SafeName(string swiftTypeName)

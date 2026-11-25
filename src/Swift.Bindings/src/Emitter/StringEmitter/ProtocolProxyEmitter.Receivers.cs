@@ -1903,7 +1903,7 @@ public partial class ProtocolProxyEmitter
         // even though RowAdapterProxy : IRowAdapter, because Dictionary is invariant.
         var valPubType = dict.ValueProjection.PublicType;
         var keyPubType = dict.KeyProjection.PublicType;
-        return $"global::System.Linq.Enumerable.ToDictionary({rawArgName}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return DictionaryProjection.Materialize(rawArgName, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", dict.HasOptionalKey);
     }
 
     /// <summary>
@@ -2587,7 +2587,7 @@ public partial class ProtocolProxyEmitter
             var valConv = dictExist.GetOwnedReturnElementConversion("kvp.Value");
             var keyConv = dictProj.KeyProjection.GetOwnedReturnElementConversion("kvp.Key");
             var keyExpr = keyConv ?? "kvp.Key";
-            return $"global::System.Linq.Enumerable.ToDictionary({varName}, kvp => {keyExpr}, kvp => ({publicType}){valConv})";
+            return DictionaryProjection.Materialize(varName, $"kvp => {keyExpr}", $"kvp => ({publicType}){valConv}", dictProj.HasOptionalKey);
         }
 
         return null;
@@ -3231,7 +3231,8 @@ public partial class ProtocolProxyEmitter
                 expression = $"new global::System.Collections.Generic.HashSet<{set.ElementProjection.PublicType}>()";
                 return true;
             case DictionaryProjection dictionary:
-                expression = "new global::System.Collections.Generic.Dictionary<"
+                // An optional key type's dictionary is the one that can hold nil (DictionaryProjection.Materialize).
+                expression = (dictionary.HasOptionalKey ? "new global::Swift.NilKeyDictionary<" : "new global::System.Collections.Generic.Dictionary<")
                     + $"{dictionary.KeyProjection.PublicType}, {dictionary.ValueProjection.PublicType}>()";
                 return true;
             // Optional<T> degrades to nil for every inner shape whose getter conversion has a NewNone arm

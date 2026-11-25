@@ -12,10 +12,25 @@ namespace BindingsGeneration;
 /// the module initializer registers the table for the wrapper type
 /// (<c>SwiftObjectKeys.RegisterHashableClass</c>).
 /// </summary>
+/// <remarks>
+/// A bound generic class (<c>Box&lt;Swift.String&gt;</c>) is one such class per instantiation: its
+/// identity is spelled with its arguments, its wrapper is closed over them, and its witness table is
+/// the instantiation's (a conditional conformance included, which the compiler instantiates for the
+/// <c>Set</c>).
+/// </remarks>
 /// <param name="Identity">The class's Swift type, which names the exported <c>Set</c> accessor.</param>
 /// <param name="WrapperType">The C# wrapper type, fully qualified with <c>global::</c>.</param>
-public sealed record HashedSwiftClass(ObjectKeyIdentity Identity, string WrapperType)
+/// <param name="ReferencedTypeNames">The module-qualified Swift names of the class and, for a bound
+/// generic class, of every type its arguments name: each must have a wrapper for the registration to
+/// compile.</param>
+public sealed record HashedSwiftClass(ObjectKeyIdentity Identity, string WrapperType, IReadOnlyList<string> ReferencedTypeNames)
 {
+    /// <summary>A non-generic class, which names no type but itself.</summary>
+    public HashedSwiftClass(ObjectKeyIdentity identity, string wrapperType)
+        : this(identity, wrapperType, new[] { identity.SwiftTypeName })
+    {
+    }
+
     /// <summary>
     /// The C# import of the exported <c>Set</c> accessor: its symbol, which hashes the Swift name, so
     /// two classes whose names flatten alike (<c>Outer.Key</c>, <c>Outer_Key</c>) keep two imports.
@@ -29,6 +44,24 @@ public sealed record HashedSwiftClass(ObjectKeyIdentity Identity, string Wrapper
     /// </summary>
     public static HashedSwiftClass? For(NamedTypeSpec typeSpec, string wrapperType)
         => ObjectKeyIdentity.For(typeSpec) is { } identity
-            ? new HashedSwiftClass(identity, wrapperType.StartsWith("global::", StringComparison.Ordinal) ? wrapperType : "global::" + wrapperType)
+            ? new HashedSwiftClass(identity, wrapperType.StartsWith("global::", StringComparison.Ordinal) ? wrapperType : "global::" + wrapperType,
+                ReferencedNames(typeSpec))
             : null;
+
+    private static IReadOnlyList<string> ReferencedNames(NamedTypeSpec typeSpec)
+    {
+        var names = new List<string>();
+        Collect(typeSpec);
+        return names;
+
+        void Collect(TypeSpec spec)
+        {
+            if (spec is not NamedTypeSpec named)
+                return;
+            if (!names.Contains(named.Name))
+                names.Add(named.Name);
+            foreach (var argument in named.GenericParameters)
+                Collect(argument);
+        }
+    }
 }
