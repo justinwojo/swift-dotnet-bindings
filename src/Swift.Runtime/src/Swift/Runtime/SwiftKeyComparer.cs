@@ -45,10 +45,10 @@ public static class SwiftKeyComparer
 
         public bool Equals(TKey? x, TKey? y)
         {
+            // No identity shortcut: Swift's `==` decides even for one object (a key Swift calls
+            // unequal to itself is never found by Swift, so it must not be found here either).
             if (x is null || y is null)
                 return x is null && y is null;
-            if (ReferenceEquals(x, y))
-                return true;
             try
             {
                 return SwiftKeyComparerCore.CarriersEqual(_toCarrier(x), _toCarrier(y));
