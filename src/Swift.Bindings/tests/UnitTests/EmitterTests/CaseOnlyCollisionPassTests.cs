@@ -733,6 +733,33 @@ public class CaseOnlyCollisionPassTests
     }
 
     [Fact]
+    public void TypeArm_SuffixLandingOnACaseOnlyDisambiguatedCase_StepsOverIt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `Audio` loses the tie to `AUDIO`, and its cases `audioKind` and `AudioKind` emit as
+        // `AudioKind` and `AudioKind2` (case-only disambiguation), so neither may name the class.
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lowerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var lower = CreateEnumDecl("Audio", lowerSwiftName, moduleDecl);
+        foreach (var caseName in new[] { "audioKind", "AudioKind" })
+            lower.Cases.Add(new EnumCaseDecl { Name = caseName, MangledName = "$sN", ParentDecl = lower, ModuleDecl = moduleDecl });
+        RegisterType(module, lowerSwiftName, "Audio", TypeRecordKind.Enum);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lowerSwiftName, out var renamed));
+        var caseNames = NameProvider.ComputeCaseNameMap(lower.Cases)!.Values;
+        Assert.DoesNotContain(renamed!.CSharpTypeName.Name, caseNames);
+        Assert.StartsWith($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed.CSharpTypeName.Name);
+    }
+
+    [Fact]
     public void TypeArm_SpiTypeHoldingTheSuffix_DoesNotPushThePublicTypeOffIt()
     {
         var typeDatabase = new TypeDatabase();

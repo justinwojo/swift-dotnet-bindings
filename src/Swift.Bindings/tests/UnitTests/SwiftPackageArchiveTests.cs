@@ -46,6 +46,8 @@ public class SwiftPackageArchiveTests : IDisposable
     [Theory]
     [InlineData(".static")]
     [InlineData(".dynamic")]
+    [InlineData("nil")]
+    [InlineData("Product.Library.LibraryType.static")]
     public void DeclareProductDynamic_ExplicitType_BecomesDynamicOnce(string type)
     {
         var manifest = $".library(name: \"Player\", type: {type}, targets: [\"Player\"])";

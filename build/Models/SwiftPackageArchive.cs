@@ -48,15 +48,15 @@ public static class SwiftPackageArchive
 
     /// <summary>
     /// Declares the library product <paramref name="product"/> dynamic in a manifest's text. A
-    /// product with no <c>type:</c> gains <c>type: .dynamic</c>; a <c>.static</c> one becomes
-    /// <c>.dynamic</c>. Returns the text unchanged when the manifest declares no such library
+    /// product with no <c>type:</c> gains <c>type: .dynamic</c>; any other type argument
+    /// (<c>.static</c>, <c>nil</c>, a qualified <c>LibraryType</c>) is replaced by it. Returns the text unchanged when the manifest declares no such library
     /// product, so the caller can require that at least one manifest did.
     /// </summary>
     public static string DeclareProductDynamic(string manifest, string product, out bool declared)
     {
         var count = 0;
         var pattern = new Regex(
-            @"(\.library\s*\(\s*name\s*:\s*""" + Regex.Escape(product) + @"""\s*,)(\s*type\s*:\s*\.(?:static|dynamic)\s*,)?",
+            @"(\.library\s*\(\s*name\s*:\s*""" + Regex.Escape(product) + @"""\s*,)(\s*type\s*:[^,()]*,)?",
             RegexOptions.CultureInvariant);
         var result = pattern.Replace(manifest, m =>
         {

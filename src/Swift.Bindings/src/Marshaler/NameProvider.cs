@@ -384,10 +384,13 @@ public static class NameProvider
         }
         if (typeDecl is EnumDecl enumDecl)
         {
+            // A case emits under its case-only-disambiguated name (`AudioKind2`), not its plain
+            // PascalCase, so the exclusion must hold the name the case actually takes.
+            var caseNameMap = ComputeCaseNameMap(enumDecl.Cases);
             foreach (var enumCase in enumDecl.Cases)
             {
                 if (!enumCase.IsSpiProtected)
-                    names.Add(ToPascalCase(enumCase.Name));
+                    names.Add(GetCaseName(enumCase.Name, caseNameMap));
             }
         }
         return names;

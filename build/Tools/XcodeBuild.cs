@@ -142,14 +142,9 @@ public class ArchiveBuildSettings
         _buildSettings["BUILD_LIBRARY_FOR_DISTRIBUTION"] = "YES";
         _buildSettings["SKIP_INSTALL"] = "NO";
         if (swiftPackage)
-        {
-            _buildSettings.Remove("MACH_O_TYPE");
             _buildSettings["OTHER_SWIFT_FLAGS"] = "$(inherited) -no-verify-emitted-module-interface";
-        }
         else
-        {
             _buildSettings["MACH_O_TYPE"] = "mh_dylib";
-        }
         return this;
     }
 
