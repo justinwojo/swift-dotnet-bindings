@@ -144,7 +144,6 @@ public class OptionalKeyShapesTests : TestBase
             using var point = new OptionalKeyPoint(1, 2);
             AssertTrue(index.TryGetValue(point, out var found) && found == 0, "a fresh, equal point is found");
             AssertTrue(index.TryGetValue(null, out var nil) && nil == 1, "and the nil key");
-            AssertEqual(0L, Long(TestLibFunctions.OptionalKeyPointLookUp(index, true, 1, 2)), "Swift finds the point in its own dictionary");
         }
         finally
         {

@@ -799,6 +799,15 @@ public class ObjectKeyCollectionProjectionTests
             Assert.EndsWith("))", read);
         }
 
+        // A bridged value ([K: URL]) reads the dictionary out of an NSDictionary instead: that copy
+        // takes the same comparer.
+        var bridged = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(key, new NamedTypeSpec("Foundation.URL")), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        Assert.True(bridged.UsesObjCContainerBridge);
+        var bridgedComparer = $"global::Swift.Runtime.SwiftKeyComparer.Create<{bridged.KeyProjection.PublicType}, {bridged.KeyProjection.SwiftContainerGenericType}>(comparerKey => ";
+        Assert.Contains(bridgedComparer, string.Join("\n", bridged.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render)));
+        Assert.Contains(bridgedComparer, bridged.GetReturnContainerConversion("d"));
+
         // A set of the class is read as the Swift set itself, and a set of its optional as a view
         // over the Swift set: both look up through Swift, and neither copies.
         var set = Assert.IsType<SetProjection>(_factory.Project(

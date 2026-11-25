@@ -558,6 +558,20 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             : $"System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>";
 
     /// <summary>
+    /// A new, empty <see cref="ObjCBridgeReadDictionaryType"/> sized for <paramref name="nsDictionary"/>,
+    /// comparing its keys as Swift does where the key's managed equality is not Swift's
+    /// (<see cref="SwiftKeyComparer(ITypeProjection)"/>), as a natively read copy does.
+    /// </summary>
+    private string NewObjCBridgeReadDictionary(string nsDictionary)
+    {
+        var comparer = SwiftKeyComparer(_keyProjection);
+        var arguments = HasOptionalKey
+            ? comparer ?? ""
+            : comparer is null ? $"(int){nsDictionary}.Count" : $"(int){nsDictionary}.Count, {comparer}";
+        return $"new {ObjCBridgeReadDictionaryType}({arguments})";
+    }
+
+    /// <summary>
     /// Converts an NSObject from NSDictionary to the C# typed element.
     /// Numeric keys/values are stored as boxed NSNumber instances and require explicit
     /// unboxing through the matching NSNumber accessor (e.g. <c>NIntValue</c> for
@@ -741,7 +755,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
                 new MarshalStatement.Line(
                     $"var {resultName}NSDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({resultName}, true)!;"),
                 new MarshalStatement.Line(
-                    $"var {resultName}Dict = new {ObjCBridgeReadDictionaryType}({(HasOptionalKey ? "" : $"(int){resultName}NSDict.Count")});"),
+                    $"var {resultName}Dict = {NewObjCBridgeReadDictionary($"{resultName}NSDict")};"),
                 new MarshalStatement.Line(
                     $"foreach (var _nsKey in {resultName}NSDict.Keys) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
             },
@@ -761,7 +775,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         // Inline dictionary construction using LINQ
         return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
                $"var _nsDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!; " +
-               $"var _dict = new {ObjCBridgeReadDictionaryType}({(HasOptionalKey ? "" : "(int)_nsDict.Count")}); " +
+               $"var _dict = {NewObjCBridgeReadDictionary("_nsDict")}; " +
                $"foreach (var _nsKey in _nsDict.Keys) _dict[{keyConv}] = {valConv}; " +
                $"return _dict; }}))()";
     }
