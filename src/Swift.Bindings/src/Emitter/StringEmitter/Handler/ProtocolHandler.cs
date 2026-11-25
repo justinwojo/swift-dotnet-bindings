@@ -520,7 +520,7 @@ namespace BindingsGeneration
                         staticAbstractMethodKeys.Add(staticMethodKey);
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(methodDecl);
-                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase, emittedCSharpPropertyNames);
                     }
                     continue;
                 }
@@ -655,7 +655,7 @@ namespace BindingsGeneration
                     {
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(methodDecl);
-                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase, emittedCSharpPropertyNames);
                     }
                     else
                     {
@@ -683,7 +683,7 @@ namespace BindingsGeneration
                 }
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(methodDecl);
-                RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
+                RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase, emittedCSharpPropertyNames);
 
                 // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
@@ -895,10 +895,12 @@ namespace BindingsGeneration
         /// Records which Swift declaration an emitted interface member stands for. Interface members
         /// carry no API-manifest entry, but their names are shaped like every other member's (a
         /// case-only rename gives <c>Url</c> to a newly added <c>URL</c> and moves the old <c>url</c>
-        /// to <c>Url2</c>), so the package merge compares them as well.
+        /// to <c>Url2</c>), so the package merge compares them as well. A method is keyed under the
+        /// name the interface declares it by, which the protocol's emitted property names shape
+        /// (<c>UpdateMethod</c> beside an <c>Update</c> property), so pass the same set.
         /// </summary>
         private static void RecordInterfaceMemberDeclaration(ModuleEmissionContext? emissionCtx, ProtocolDecl protocolDecl,
-            BaseDecl member, ITypeDatabase typeDatabase)
+            BaseDecl member, ITypeDatabase typeDatabase, IReadOnlySet<string>? emittedPropertyNames = null)
         {
             if (emissionCtx is null)
                 return;
@@ -907,7 +909,7 @@ namespace BindingsGeneration
                 key = ModuleEmissionContext.BuildPropertyApiManifestKey(protocolDecl, NameProvider.GetPropertyName(property), typeDatabase);
             else if (member is MethodDecl method)
             {
-                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, propertyNames: null);
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, emittedPropertyNames);
                 var paren = projectedKey.IndexOf('(');
                 key = ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase);
             }

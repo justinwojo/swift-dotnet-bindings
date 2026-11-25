@@ -3461,6 +3461,24 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_InterfaceMethodRenamedBesideProperty_RecordsItUnderTheDeclaredName()
+    {
+        // A method named like a property is declared as `SettingMethod`; the record must key it under that
+        // name, or the row guards a signature the interface never declares.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateStaggeredSetterProtocol(moduleDecl);
+        protocol.Methods.Add(CreateMethodDeclWithParam("setting", "Swift.Int", moduleDecl));
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("SettingMethod(nint input)", csOutput);
+        var (key, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains('('));
+        Assert.EndsWith(".SettingMethod(nint)", key);
+        Assert.Equal("func setting(input:)", swift);
+    }
+
+    [Fact]
     public void Emit_SetterIntroducedAfterProperty_InterfaceProxyAndPInvokeAgreeOnTheSetterFloor()
     {
         var (csOutput, _) = EmitProtocol(
