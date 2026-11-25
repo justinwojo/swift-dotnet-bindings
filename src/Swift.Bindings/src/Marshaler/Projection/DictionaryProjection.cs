@@ -558,6 +558,17 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             : $"System.Collections.Generic.Dictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>";
 
     /// <summary>
+    /// The keys of <paramref name="nsDictionary"/> to read entries by. The platform binding hands
+    /// back an NSNull key (Swift's nil key) as <see langword="null"/>, which neither converts nor
+    /// looks its value up, so an optional key's NSNull is put back: it reads as nil, and finds its
+    /// value, as the NSNull singleton is equal to itself.
+    /// </summary>
+    private string ObjCBridgeReadKeys(string nsDictionary)
+        => HasOptionalKey
+            ? $"global::System.Linq.Enumerable.Select({nsDictionary}.Keys, _key => (Foundation.NSObject?)_key ?? Foundation.NSNull.Null)"
+            : $"{nsDictionary}.Keys";
+
+    /// <summary>
     /// A new, empty <see cref="ObjCBridgeReadDictionaryType"/> sized for <paramref name="nsDictionary"/>,
     /// comparing its keys as Swift does where the key's managed equality is not Swift's
     /// (<see cref="SwiftKeyComparer(ITypeProjection)"/>), as a natively read copy does.
@@ -757,7 +768,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
                 new MarshalStatement.Line(
                     $"var {resultName}Dict = {NewObjCBridgeReadDictionary($"{resultName}NSDict")};"),
                 new MarshalStatement.Line(
-                    $"foreach (var _nsKey in {resultName}NSDict.Keys) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
+                    $"foreach (var _nsKey in {ObjCBridgeReadKeys($"{resultName}NSDict")}) {resultName}Dict[{FromNSObject(_keyProjection, "_nsKey")}] = {FromNSObject(_valueProjection, $"{resultName}NSDict.ObjectForKey(_nsKey)!")};")
             },
             PInvokeExpression = $"{resultName}Dict"
         };
@@ -776,7 +787,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
                $"var _nsDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!; " +
                $"var _dict = {NewObjCBridgeReadDictionary("_nsDict")}; " +
-               $"foreach (var _nsKey in _nsDict.Keys) _dict[{keyConv}] = {valConv}; " +
+               $"foreach (var _nsKey in {ObjCBridgeReadKeys("_nsDict")}) _dict[{keyConv}] = {valConv}; " +
                $"return _dict; }}))()";
     }
 }

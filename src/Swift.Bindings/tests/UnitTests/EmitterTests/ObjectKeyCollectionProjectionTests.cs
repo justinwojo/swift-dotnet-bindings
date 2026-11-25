@@ -867,6 +867,12 @@ public class ObjectKeyCollectionProjectionTests
         var inline = result.GetReturnContainerConversion("d");
         Assert.Contains("_nsKey is Foundation.NSNull ? (", inline);
         Assert.Contains("new global::Swift.NilKeyDictionary<", inline);
+
+        // The platform binding hands NSDictionary's NSNull key back as null: both reads put the
+        // NSNull back before converting the key and looking its value up.
+        const string nilKeyRestored = "?? Foundation.NSNull.Null)";
+        Assert.Contains(nilKeyRestored, read);
+        Assert.Contains(nilKeyRestored, inline);
     }
 
     private static string AccessorSetterConversion(ITypeProjection projection, string valueExpr)
