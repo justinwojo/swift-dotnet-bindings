@@ -294,9 +294,17 @@ namespace BindingsGeneration
                 // sibling that declares that signature, or one a call site binds as well, keeps it
                 // whatever the declaration order; otherwise the signature is claimed here, so a later
                 // producer sees it taken.
-                if (!TryReserveSignature(methodDecl, markerParamIndex, swiftType, env))
+                if (!TryReserveSignature(methodDecl, markerParamIndex, swiftType, env, out var reservedKey))
                     continue;
                 emittedAny = true;
+                // The overload's C# signature is one a newer SDK's Swift overload taking the conformer
+                // itself would take over, so it is recorded as the overload it is for the package
+                // merge to compare.
+                env.EmissionContext?.RecordSwiftDeclaration(
+                    ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, csMethodName,
+                        ModuleEmissionContext.WithRefParameters(reservedKey, methodDecl), env.TypeDatabase),
+                    methodDecl, env.TypeDatabase,
+                    forwardsTo: swiftType, forwarderKind: SwiftDeclarationMapEmitter.MarkerConformerOverload);
 
                 // Wrapper names. The raw MangledName is used here only as a unique-name
                 // SEED: this emitter writes its own @_silgen_name Swift wrapper under
@@ -397,7 +405,8 @@ namespace BindingsGeneration
         /// declaration owns it (the same signature, CS0111, or one a call site cannot tell apart,
         /// CS0121) or an earlier producer already claimed it.
         /// </summary>
-        private static bool TryReserveSignature(MethodDecl methodDecl, int markerParamIndex, string conformerSwiftType, MethodEnvironment env)
+        private static bool TryReserveSignature(MethodDecl methodDecl, int markerParamIndex, string conformerSwiftType, MethodEnvironment env,
+            out string key)
         {
             var signature = new List<ArgumentDecl>(methodDecl.CSSignature);
             signature[markerParamIndex] = signature[markerParamIndex] with { SwiftTypeSpec = new NamedTypeSpec(conformerSwiftType) };
@@ -406,7 +415,7 @@ namespace BindingsGeneration
                 MangledName = $"{methodDecl.MangledName}_MP_{conformerSwiftType}",
                 CSSignature = signature,
             };
-            var key = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
+            key = DefaultParameterOverloadEmitter.GetProjectedOverloadKey(
                 overload, env.TypeDatabase, env.SiblingPropertyNames, env.DisambiguatedNameInput);
             // An override that adopted its ancestor slot's name emits under it (CSharpMethodName), so
             // it reserves under it too.

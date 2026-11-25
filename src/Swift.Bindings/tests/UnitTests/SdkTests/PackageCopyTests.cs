@@ -572,6 +572,56 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ARecordNoCopyCarries_IsRefused_AndOneFromAnotherGeneration_IsRefused()
+    {
+        // Each assembly names its module's record and the record's hash. A pack that loses the record
+        // (`--no-build` after obj/ was cleaned, a hand-assembled package) loses it from every copy, which
+        // the pairwise comparison cannot see: the module's names would merge unchecked.
+        var record = Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")], members: [("Kit.A()", "static func Kit.Kit.a()")]).Data;
+        var api = Witnessed(record) + "public static class Kit { public static int A() => 1; }";
+        (string, byte[]) Record(string tfm, byte[] data) => ($"buildTransitive/{tfm}/{SwiftDeclarationRecordFormat.FileName("Kit")}", data);
+
+        var carried = Merge([Contribution("x26", ["net10.0-ios26.0"], api: api, extra: [Record("net10.0-ios26.0", record)]),
+            Contribution("x27", ["net10.0-ios27.2"], api: api, extra: [Record("net10.0-ios27.2", record)])], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.True(carried.Problems.IsEmpty, string.Join("\n", carried.Problems));
+
+        var lost = Merge([Contribution("y26", ["net10.0-ios26.0"], api: api), Contribution("y27", ["net10.0-ios27.2"], api: api)],
+            "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Equal(2, lost.Problems.Length);
+        Assert.All(lost.Problems, p => Assert.Contains("was generated with the Swift declaration record Kit.swift-declarations.json of the module Kit", p));
+        Assert.Contains(lost.Problems, p => p.Contains("the copy net10.0-ios26.0 does not carry it", StringComparison.Ordinal));
+        Assert.Null(lost.Package);
+
+        // A record of another generation passes the pairwise comparison against itself, but describes
+        // names the assembly may not declare.
+        var other = Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")], members: [("Kit.B()", "static func Kit.Kit.b()")]).Data;
+        var stale = Merge([Contribution("z26", ["net10.0-ios26.0"], api: api, extra: [Record("net10.0-ios26.0", other)]),
+            Contribution("z27", ["net10.0-ios27.2"], api: api, extra: [Record("net10.0-ios27.2", record)])], "net10.0-ios26.0", "net10.0-ios27.2");
+        Assert.Contains("buildTransitive/net10.0-ios26.0/Kit.swift-declarations.json is not the Swift declaration record lib/net10.0-ios26.0/Acme.Kit.dll was generated with",
+            Assert.Single(stale.Problems));
+    }
+
+    [Fact]
+    public void Merge_AModuleWithAWrapperButNoRecordWitness_IsRefused()
+    {
+        // A generator that records no declarations names no record, so neither copy carries one and
+        // nothing names it missing; the module's wrapper identity says a record is owed.
+        string Api(string tfm) =>
+            $"[assembly: System.Reflection.AssemblyMetadata(\"{SwiftWrapperIdentityFormat.AttributeKey}\", \"{new SwiftWrapperIdentity("Kit", "AcmeKitSwiftBindings", tfm, "26.2", Generator, SwiftWrapperIdentityFormat.SourceDigest("x")).Value}\")]\n"
+            + "public static class Kit { public static int A() => 1; }";
+
+        var result = Merge([Contribution("x26", ["net10.0-ios26.0"], api: Api("net10.0-ios26.0")),
+            Contribution("x27", ["net10.0-ios27.2"], api: Api("net10.0-ios27.2"))], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        Assert.Contains(result.Problems, p => p.Contains("lib/net10.0-ios26.0/Acme.Kit.dll declares the wrapper of the Swift module Kit but names no Swift declaration record for it", StringComparison.Ordinal));
+        Assert.Contains(result.Problems, p => p.Contains("lib/net10.0-ios27.2/Acme.Kit.dll declares the wrapper of the Swift module Kit but names no Swift declaration record for it", StringComparison.Ordinal));
+        Assert.Null(result.Package);
+    }
+
+    private static string Witnessed(byte[] record) =>
+        $"[assembly: System.Reflection.AssemblyMetadata(\"{SwiftDeclarationRecordFormat.AttributeKey}\", \"{SwiftDeclarationRecordFormat.Witness("Kit", SwiftDeclarationRecordFormat.FileName("Kit"), SwiftDeclarationRecordFormat.Hash(record))}\")]\n";
+
+    [Fact]
     public void Merge_CopiesOfDifferentPlatforms_AreNotComparedForApi()
     {
         var ios = Contribution("ios", ["net10.0-ios26.0"], api: "public static class Kit { public static int A() => 1; public static int B() => 2; }");

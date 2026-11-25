@@ -98,6 +98,7 @@ internal static class UrlStringConvenienceOverloadEmitter
         // Build the parameter list and forwarding call arguments.
         var paramParts = new List<string>();
         var callArgs = new List<string>();
+        var targetTypes = new List<string>();
         for (int i = 1; i < csSignature.Count; i++)
         {
             var arg = csSignature[i];
@@ -109,14 +110,25 @@ internal static class UrlStringConvenienceOverloadEmitter
             {
                 paramParts.Add($"string {paramName}");
                 callArgs.Add($"new global::Foundation.NSUrl({paramName})");
+                targetTypes.Add(NSUrlPublicType);
             }
             else
             {
                 var typeName = NativeIntOverloadEmitter.ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
+                targetTypes.Add(typeName);
             }
         }
+
+        // The `string` forwarder's C# signature is one a newer SDK's Swift overload taking a `String`
+        // path would take over, so it is recorded as the forwarder it is for the package merge to compare.
+        methodEnv.EmissionContext?.RecordSwiftDeclaration(
+            ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodName,
+                BuildOverloadKey(methodEnv, urlParamIndices), methodEnv.TypeDatabase),
+            methodDecl, methodEnv.TypeDatabase,
+            forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),
+            forwarderKind: SwiftDeclarationMapEmitter.UrlStringForwarder);
 
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);

@@ -969,14 +969,12 @@ partial class Build
             }
             catch { return null; }
         }
-        // Nuke rewrites its own parameter schema at startup whenever the build's parameters changed since
-        // the committed copy, so it is an output of running the build, not a source the run read. Untracked
-        // files count whatever the user's status.showUntrackedFiles says.
-        const string ExceptNukeSchema = "-- . :(exclude).nuke/build.schema.json";
+        // Untracked files count whatever the user's status.showUntrackedFiles says. Nuke's parameter
+        // schema, which it rewrites at every startup, is ignored rather than tracked, so it never counts.
         var commit = Git("rev-parse HEAD")?.Trim();
-        var porcelain = Git($"status --porcelain --untracked-files=all {ExceptNukeSchema}");
+        var porcelain = Git("status --porcelain --untracked-files=all");
         // An unreadable status is never clean.
-        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git($"diff HEAD {ExceptNukeSchema}") ?? "");
+        return new SurfaceSourceState(commit, porcelain ?? "git status unavailable", Git("diff HEAD") ?? "");
     }
 
     // ============================================================

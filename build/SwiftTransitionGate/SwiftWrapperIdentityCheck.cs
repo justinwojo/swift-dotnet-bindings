@@ -73,9 +73,24 @@ public static class SwiftWrapperIdentityCheck
     /// (<see cref="SwiftWrapperIdentityFormat.PlatformSdkAttributeKey"/>), distinct and ordered; empty
     /// for an assembly built before the record or outside the SwiftBindings SDK.
     /// </summary>
-    public static ImmutableArray<string> ReadPlatformSdks(byte[] image)
+    public static ImmutableArray<string> ReadPlatformSdks(byte[] image) =>
+        ReadMetadata(image, SwiftWrapperIdentityFormat.PlatformSdkAttributeKey);
+
+    /// <summary>
+    /// The toolchains <paramref name="image"/> records it was built on
+    /// (<see cref="SwiftWrapperIdentityFormat.ToolchainAttributeKey"/>), distinct and ordered; empty for
+    /// an assembly built before the record or outside the SwiftBindings SDK.
+    /// </summary>
+    public static ImmutableArray<string> ReadToolchains(byte[] image) =>
+        ReadMetadata(image, SwiftWrapperIdentityFormat.ToolchainAttributeKey);
+
+    /// <summary>
+    /// The values of every <c>AssemblyMetadataAttribute</c> of <paramref name="image"/> keyed
+    /// <paramref name="key"/>, trimmed, distinct and ordered; empty for an image with no metadata.
+    /// </summary>
+    public static ImmutableArray<string> ReadMetadata(byte[] image, string key)
     {
-        var sdks = new SortedSet<string>(StringComparer.Ordinal);
+        var values = new SortedSet<string>(StringComparer.Ordinal);
         try
         {
             using var pe = new PEReader(new MemoryStream(image, writable: false));
@@ -90,16 +105,16 @@ public static class SwiftWrapperIdentityCheck
                 if (SwiftTransitionManifestReader.AttributeTypeName(md, attribute) != SwiftTransitionManifestReader.MetadataAttribute)
                     continue;
                 var value = attribute.DecodeValue(SwiftTransitionScanner.AttributeTypeProvider.Instance);
-                if (value.FixedArguments.Length == 2 && value.FixedArguments[0].Value as string == SwiftWrapperIdentityFormat.PlatformSdkAttributeKey
-                    && value.FixedArguments[1].Value is string sdk)
-                    sdks.Add(sdk.Trim());
+                if (value.FixedArguments.Length == 2 && value.FixedArguments[0].Value as string == key
+                    && value.FixedArguments[1].Value is string text)
+                    values.Add(text.Trim());
             }
         }
         catch (BadImageFormatException)
         {
             return [];
         }
-        return sdks.ToImmutableArray();
+        return values.ToImmutableArray();
     }
 
     /// <summary>

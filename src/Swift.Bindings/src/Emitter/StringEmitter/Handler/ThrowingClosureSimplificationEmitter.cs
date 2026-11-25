@@ -100,6 +100,7 @@ internal static class ThrowingClosureSimplificationEmitter
         var paramParts = new List<string>();
         var wrapperSetup = new List<string>();
         var callArgs = new List<string>();
+        var targetTypes = new List<string>();
         var closureHandler = methodEnv.ClosureHandler;
 
         for (int i = 1; i < csSignature.Count; i++)
@@ -129,17 +130,30 @@ internal static class ThrowingClosureSimplificationEmitter
                 var wrapperBody = BuildWrapperLambda(throwingClosure, closureHandler, paramName);
                 wrapperSetup.Add($"{originalType} {wrapperName} = {wrapperBody};");
                 callArgs.Add(wrapperName);
+                targetTypes.Add(originalType);
             }
             else
             {
                 var typeName = NativeIntOverloadEmitter.ResolveType(arg.SwiftTypeSpec, methodEnv, isParameter: true);
                 paramParts.Add($"{typeName} {paramName}");
                 callArgs.Add(paramName);
+                targetTypes.Add(typeName);
             }
         }
 
         var paramStr = string.Join(", ", paramParts);
         var argsStr = string.Join(", ", callArgs);
+
+        // The simplified overload's C# signature is the one a newer SDK's Swift overload taking a
+        // non-throwing closure projects to, so it is recorded as the forwarder it is for the package
+        // merge to compare.
+        methodEnv.EmissionContext?.RecordSwiftDeclaration(
+            ModuleEmissionContext.BuildApiManifestKey(methodEnv.MethodDecl.ParentDecl, methodName,
+                ModuleEmissionContext.WithRefParameters(BuildOverloadKey(methodEnv, throwingClosures), methodEnv.MethodDecl),
+                methodEnv.TypeDatabase),
+            methodEnv.MethodDecl, methodEnv.TypeDatabase,
+            forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes),
+            forwarderKind: SwiftDeclarationMapEmitter.NonThrowingClosureForwarder);
 
         // Determine the effective return type for the overload
         string effectiveReturnType;

@@ -183,6 +183,32 @@ public class UrlStringConvenienceOverloadEmitterTests
     }
 
     [Fact]
+    public void TryEmitOverload_RecordsTheForwarderAsTheForwarderItIs()
+    {
+        // `Load(string, string)` forwards to `load(url:name:)`. A newer SDK's `load(url: String, name:
+        // String)` declares that C# signature itself, so the Swift declaration record must tell the
+        // forwarder from the declaration, or the package merge reads the moved signature as unchanged.
+        var method = CreateMethod("load", MethodType.Instance,
+            returnType: TupleTypeSpec.Empty,
+            ("url", "Foundation.URL"), ("name", "Swift.String"));
+        var context = new ModuleEmissionContext();
+        var writer = new StringWriter();
+        var env = new MethodEnvironment(method, CreateTypeDatabase())
+        {
+            EmissionContext = context,
+            EmittedProjectedSignatures = new HashSet<string>(System.StringComparer.Ordinal),
+        };
+
+        UrlStringConvenienceOverloadEmitter.TryEmitOverload(new CSharpWriter(writer), env);
+
+        Assert.Contains("Load(string url, string name)", writer.ToString());
+        var (key, swift) = Assert.Single(context.SwiftMemberDeclarations);
+        Assert.EndsWith(".Load(string,string)", key);
+        Assert.Equal(SwiftDeclarationMapEmitter.DescribeForwarder(SwiftDeclarationMapEmitter.Describe(method)!,
+            "(Foundation.NSUrl,string)", SwiftDeclarationMapEmitter.UrlStringForwarder), swift);
+    }
+
+    [Fact]
     public void TryEmitOverload_DuplicateSignature_SkipsSecond()
     {
         var method1 = CreateMethod("open", MethodType.Instance,

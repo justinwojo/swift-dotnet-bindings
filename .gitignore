@@ -246,6 +246,10 @@ tools/SwiftInterfaceParser/.build/
 
 # Nuke build temp artifacts
 .nuke/temp/
+# Nuke rewrites its parameter schema at every startup from the build's [Parameter]s, so it is a
+# product of running the build, not a source: tracked, any run of a build whose parameters changed
+# since the last commit of it dirtied the tree and every fingerprint over tracked files.
+.nuke/build.schema.json
 
 # Claude Code local settings, worktrees, and runtime state
 .claude/settings.local.json

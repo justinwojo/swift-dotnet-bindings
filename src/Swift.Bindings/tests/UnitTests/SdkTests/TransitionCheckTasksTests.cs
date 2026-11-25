@@ -607,6 +607,34 @@ public sealed class TransitionCheckTasksTests : IDisposable
             Assert.Contains(expected, output);
     }
 
+    [Fact]
+    public void Prepare_ACopyPackedAfterAnotherXcodeWasSelected_IsDeclaredBuiltOnTheToolchainItsLabelCameFrom()
+    {
+        // A pure Objective-C binding built on Xcode 27.2, packed with `--no-build` after Xcode 26.3 was
+        // selected: its build record labels the copy 27.2, so the toolchain its declaration names (and
+        // the merge's log repeats) must be the one that read that SDK, not the one selected now.
+        var assembly = Path.Combine(tempDir, "Acme.Kit.dll");
+        File.WriteAllBytes(assembly, Compile("Acme.Kit",
+            WrapperIdentityTests.PlatformSdk("27.2") + WrapperIdentityTests.Toolchain(".NET 10.0.300 + Xcode 27.2") + PrimitiveOnly));
+        var declaration = Path.Combine(tempDir, "pack", "Acme.Kit.props");
+        var project = Path.Combine(tempDir, "toolchain.proj");
+        File.WriteAllText(project, $"""
+            <Project>
+              <UsingTask TaskName="SwiftBindings.Tasks.PrepareSwiftBindingPackageCopy" AssemblyFile="{SecurityElement.Escape(TasksDll)}" />
+              <Target Name="Declare">
+                <PrepareSwiftBindingPackageCopy PackageId="Acme.Kit" PackTfm="net10.0-ios27.2" TargetKind="AppleFramework"
+                    PlatformSdkVersion="26.2" Assembly="{SecurityElement.Escape(assembly)}" NativePayload="none"
+                    Toolchain=".NET 10.0.300 + Xcode 26.3" Generator="0.21.0" DeclarationFile="{SecurityElement.Escape(declaration)}" />
+              </Target>
+            </Project>
+            """);
+        var (code, output) = MSBuild(project, "Declare", "minimal");
+        Assert.True(code == 0, output);
+        var declared = File.ReadAllText(declaration);
+        Assert.Contains("<PlatformSdkVersion>27.2</PlatformSdkVersion>", declared);
+        Assert.Contains("<Toolchain>.NET 10.0.300 + Xcode 27.2</Toolchain>", declared);
+    }
+
     [Theory]
     // A pure Objective-C binding of an Apple framework: consumer targets with no natives.
     [InlineData("none", "<Project />", 0, "<NativePayload>none</NativePayload>")]

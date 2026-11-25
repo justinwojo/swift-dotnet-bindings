@@ -107,6 +107,33 @@ public sealed class WrapperIdentityTests : IDisposable
         }
     }
 
+    [Fact]
+    public void Emission_NamesTheModulesDeclarationRecordBesideItsIdentity()
+    {
+        // The identity file is what every arrival path compiles for a module with a wrapper, so the
+        // record's witness rides in it: the merge reads it back from the assembly and refuses a copy
+        // that lost the record or carries another generation's.
+        var saved = WrapperIdentityEmission.Current;
+        try
+        {
+            WrapperIdentityEmission.Current = new WrapperIdentityContext("net10.0-ios27.2", "27.2", "0.21.0");
+            var witness = SwiftDeclarationRecordFormat.Witness("Kit", SwiftDeclarationRecordFormat.FileName("Acme.Kit"),
+                SwiftDeclarationRecordFormat.Hash("{}"u8.ToArray()));
+            var attribute = WrapperIdentityEmission.Write(tempDir, "Acme.Kit", "Kit", "AcmeKitSwiftBindings", "public func f() {}", witness);
+
+            var image = Compile("Kit", attribute + PrimitiveOnly);
+            Assert.Equal(witness, Assert.Single(SwiftWrapperIdentityCheck.ReadMetadata(image, SwiftDeclarationRecordFormat.AttributeKey)));
+            Assert.Single(SwiftWrapperIdentityCheck.Read(image).Identities);
+            Assert.True(SwiftDeclarationRecordFormat.TryParseWitness(witness, out var module, out var record, out var hash));
+            Assert.Equal(("Kit", "Acme.Kit.swift-declarations.json"), (module, record));
+            Assert.StartsWith("sha256:", hash);
+        }
+        finally
+        {
+            WrapperIdentityEmission.Current = saved;
+        }
+    }
+
     [Theory]
     [InlineData(0, "26.2\n", "26.2")]
     [InlineData(0, "", null)]
@@ -246,7 +273,7 @@ public sealed class WrapperIdentityTests : IDisposable
 
     // ---- the SDK a copy is labelled by (SWIFTBIND137) ---------------------------------------------
 
-    private static string PlatformSdk(string sdk) =>
+    internal static string PlatformSdk(string sdk) =>
         $"[assembly: global::System.Reflection.AssemblyMetadataAttribute(\"{SwiftWrapperIdentityFormat.PlatformSdkAttributeKey}\", \"{sdk}\")]\n";
 
     [Fact]
@@ -274,6 +301,24 @@ public sealed class WrapperIdentityTests : IDisposable
         Assert.Equal("26.2", PackageCopyRules.CopySdk(unrecorded, "26.2", out errors, out var message));
         Assert.Empty(errors);
         Assert.Null(message);
+    }
+
+    internal static string Toolchain(string toolchain) =>
+        $"[assembly: global::System.Reflection.AssemblyMetadataAttribute(\"{SwiftWrapperIdentityFormat.ToolchainAttributeKey}\", \"{toolchain}\")]\n";
+
+    [Theory]
+    // The build that read the label's SDK recorded its toolchain.
+    [InlineData(true, "27.2", "27.2", "26.2", ".NET 10 + Xcode 27.2")]
+    // Nothing recorded, and the toolchain selected now has the label's SDK.
+    [InlineData(false, null, "27.2", "27.2", ".NET 10 + Xcode 26.3")]
+    // Nothing recorded for the label's SDK (a wrapper identity labels it) and another is selected now.
+    [InlineData(false, null, "27.2", "26.2", "an unrecorded toolchain with the 27.2 SDK (packed on .NET 10 + Xcode 26.3)")]
+    // A toolchain recorded by a build that read another SDK than the label's is not the label's.
+    [InlineData(true, "26.2", "27.2", "26.2", "an unrecorded toolchain with the 27.2 SDK (packed on .NET 10 + Xcode 26.3)")]
+    public void CopyToolchain_NamesOnlyAToolchainThatReadTheLabelsSdk(bool recorded, string? builtSdk, string labelSdk, string selectedSdk, string expected)
+    {
+        var image = Compile("Kit", (builtSdk is null ? "" : PlatformSdk(builtSdk)) + (recorded ? Toolchain(".NET 10 + Xcode 27.2") : "") + PrimitiveOnly);
+        Assert.Equal(expected, PackageCopyRules.CopyToolchain(image, labelSdk, selectedSdk, ".NET 10 + Xcode 26.3"));
     }
 
     [Fact]

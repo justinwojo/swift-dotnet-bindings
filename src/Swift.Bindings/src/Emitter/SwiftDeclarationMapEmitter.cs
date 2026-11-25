@@ -61,14 +61,29 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// The declaration of a native-width convenience overload (an <c>int</c> forwarder to the
-        /// <c>nint</c> member a Swift <c>Int</c> projects to): the Swift declaration it reaches and the
+        /// The declaration of a convenience overload: the Swift declaration it reaches, what kind of
+        /// overload it is and what it reaches it through. A native-width forwarder (an <c>int</c>
+        /// forwarder to the <c>nint</c> member a Swift <c>Int</c> projects to, the default) names the
         /// C# parameter list of the member it calls (<c>(nint,int)</c>, <c>[nint]</c>). A newer SDK's
-        /// <c>Int32</c> overload with the same labels, or a forwarder of another overload, can claim
-        /// the forwarder's C# signature, and only the target tells them apart.
+        /// Swift overload with the same labels (an <c>Int32</c> one, one taking a <c>String</c> path or
+        /// a non-throwing closure), or a convenience overload of another declaration, can claim the
+        /// overload's C# signature, and only this description tells them apart.
         /// </summary>
-        public static string DescribeForwarder(string described, string targetParameters) =>
-            $"{described} (native-width forwarder to {targetParameters})";
+        public static string DescribeForwarder(string described, string targetParameters,
+            string kind = NativeWidthForwarder) =>
+            $"{described} ({kind} {targetParameters})";
+
+        /// <summary>An <c>int</c> forwarder to the member taking the Swift <c>Int</c> as <c>nint</c>.</summary>
+        public const string NativeWidthForwarder = "native-width forwarder to";
+
+        /// <summary>A <c>string</c> forwarder to the member taking a Swift <c>URL</c> as <c>NSUrl</c>.</summary>
+        public const string UrlStringForwarder = "string-path forwarder to";
+
+        /// <summary>A non-throwing delegate forwarder to the member taking a throwing Swift closure.</summary>
+        public const string NonThrowingClosureForwarder = "non-throwing-closure forwarder to";
+
+        /// <summary>An overload with its own wrapper that passes one conformer as a marker existential.</summary>
+        public const string MarkerConformerOverload = "marker-conformer overload taking";
 
         /// <summary>
         /// Records every type of <paramref name="module"/> the binding emitted, members or not: a type

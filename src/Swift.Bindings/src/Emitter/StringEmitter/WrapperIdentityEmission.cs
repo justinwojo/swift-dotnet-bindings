@@ -34,9 +34,13 @@ public static class WrapperIdentityEmission
     /// Writes the identity of <paramref name="module"/>'s wrapper generated from
     /// <paramref name="wrapperSource"/> under <paramref name="namespace"/> in <paramref name="directory"/>,
     /// and returns the C# attribute file's text; or removes both files and returns null when there is
-    /// no context, no wrapper library or no wrapper source.
+    /// no context, no wrapper library or no wrapper source. The attribute file also carries
+    /// <paramref name="declarationWitness"/>, the witness of the module's Swift declaration record
+    /// (<see cref="SwiftDeclarationRecordFormat.Witness"/>), when there is one: every module with a
+    /// wrapper identity then names its record, so the merge can refuse a copy that lost it.
     /// </summary>
-    public static string? Write(string directory, string @namespace, string module, string? library, string wrapperSource)
+    public static string? Write(string directory, string @namespace, string module, string? library, string wrapperSource,
+        string? declarationWitness = null)
     {
         var assemblyPath = Path.Combine(directory, SwiftWrapperIdentityFormat.AssemblyFileName(@namespace));
         var attributePath = Path.Combine(directory, SwiftWrapperIdentityFormat.AttributeFileName(@namespace));
@@ -51,7 +55,8 @@ public static class WrapperIdentityEmission
         var value = new SwiftWrapperIdentity(module, library, context.Copy, context.Sdk, context.Generator,
             SwiftWrapperIdentityFormat.SourceDigest(wrapperSource)).Value;
         var assembly = SwiftWrapperIdentityFormat.NativeAssembly(module, value);
-        var attribute = SwiftWrapperIdentityFormat.AttributeSource(value);
+        var attribute = SwiftWrapperIdentityFormat.AttributeSource(value)
+                        + (declarationWitness is null ? "" : SwiftDeclarationRecordFormat.AttributeSource(declarationWitness));
         if (!File.Exists(assemblyPath) || File.ReadAllText(assemblyPath) != assembly)
             File.WriteAllText(assemblyPath, assembly);
         if (!File.Exists(attributePath) || File.ReadAllText(attributePath) != attribute)

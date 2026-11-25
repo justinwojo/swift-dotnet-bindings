@@ -272,7 +272,8 @@ internal static class NativeIntOverloadEmitter
             // The forwarder's C# signature is one a newer SDK's narrow-typed Swift overload would
             // take over (`init(count: Int32)` beside `init(count: Int)`), so it is recorded as the
             // forwarder it is for the package merge to compare.
-            // A method is keyed by its projected key, as the primary method is. Every constructor
+            // A method is keyed by its projected key with its `ref` parameters spelled, as the primary
+            // method is, so two forwarders differing only by an `inout` stay apart. Every constructor
             // shape records the parameter types it declares, `ref` included, as the primary
             // constructor or factory records its own; a failable factory adds its trailing `out` result.
             var emittedShape = !isConstructorOverload
@@ -282,7 +283,9 @@ internal static class NativeIntOverloadEmitter
                         ? declaredTypes.Append($"out {FactoryTypeName(methodDecl, methodEnv)}")
                         : declaredTypes));
             methodEnv.EmissionContext?.RecordSwiftDeclaration(
-                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName, overloadKey, methodEnv.TypeDatabase, emittedShape),
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, constructorName ?? methodName,
+                    isConstructorOverload ? overloadKey : ModuleEmissionContext.WithRefParameters(overloadKey, methodDecl),
+                    methodEnv.TypeDatabase, emittedShape),
                 methodDecl, methodEnv.TypeDatabase,
                 forwardsTo: ModuleEmissionContext.FormatParameterPortion(targetTypes));
         }
