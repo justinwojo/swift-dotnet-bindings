@@ -235,6 +235,71 @@ public class NestedTypeRenameTests
     }
 
     [Fact]
+    public void PrecomputeNestedTypeRenames_NamespaceEnumGainingAStaticPropertyOfItsNestedType_RenamesThePropertyNotTheType()
+    {
+        // `enum Studio { struct Easel {} }` in one SDK; the next adds `static var easel: Easel`.
+        // A caseless enum is a static class in every copy, so its nested types keep one CLR name
+        // whatever members an SDK adds: the newly added property yields (`EaselValue`), not the
+        // `Studio+Easel` every older copy's consumer was compiled against.
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = new ModuleDecl
+        {
+            Name = "TestModule",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Dependencies = new List<string>(),
+            Protocols = new List<ProtocolDecl>(),
+            ParentDecl = null,
+            ModuleDecl = null
+        };
+
+        var studioName = SwiftTypeName.FromModuleQualifiedName("TestModule.Studio");
+        var easelName = SwiftTypeName.FromModuleQualifiedName("TestModule.Studio.Easel");
+        foreach (var (swiftName, csharpName, kind) in new[]
+                 {
+                     (studioName, "Studio", TypeRecordKind.Enum),
+                     (easelName, "Studio.Easel", TypeRecordKind.Struct),
+                 })
+        {
+            module.RegisterType(swiftName, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", csharpName),
+                SwiftTypeName = swiftName,
+                MetadataAccessor = "$sMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = kind
+            });
+        }
+        typeDatabase.AddModuleDatabase(module);
+
+        var studio = CreateEnumDecl("Studio", studioName, moduleDecl);
+        studio.ParentDecl = moduleDecl;
+        var easel = CreateStructDecl("Easel", easelName, moduleDecl);
+        easel.ParentDecl = studio;
+        studio.Types.Add(easel);
+        studio.Properties.Add(new PropertyDecl
+        {
+            Name = "easel",
+            SwiftTypeSpec = new NamedTypeSpec("TestModule.Studio.Easel"),
+            IsStatic = true,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = studio,
+            ModuleDecl = moduleDecl
+        });
+        moduleDecl.Types.Add(studio);
+
+        NameProvider.PrecomputeNestedTypeRenames(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(easelName, out var easelRecord));
+        Assert.Equal("Studio.Easel", easelRecord!.CSharpTypeName.Name);
+        var propertyRenames = NameProvider.ComputePropertyRenames(studio, typeDatabase);
+        Assert.Equal($"Easel{NameCollisionPolicy.MemberValueSuffix}", propertyRenames["Easel"]);
+    }
+
+    [Fact]
     public void PrecomputeNestedTypeRenames_StructParentWithTypeSuffixChild_UsesInfoSuffixWithoutNumericBump()
     {
         // Reproduces a struct where a stored property name collides with a sibling nested type,

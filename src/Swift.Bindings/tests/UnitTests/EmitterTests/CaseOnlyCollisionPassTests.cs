@@ -666,6 +666,129 @@ public class CaseOnlyCollisionPassTests
     }
 
     [Fact]
+    public void TypeArm_SuffixLandingOnTheMovedTypesOwnStaticMember_StepsOverIt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `Audio` loses the tie to `AUDIO` and would become `AudioKind`, but it declares a static
+        // `audioKind`, whose C# name `AudioKind` cannot sit inside a class of that name (CS0542).
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lower = CreateContainerEnum(module, moduleDecl, "Audio", "Audio", "Track");
+        var audioKind = CreateProperty("audioKind");
+        audioKind.IsStatic = true;
+        lower.Properties.Add(audioKind);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lower.SwiftTypeName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}2", renamed!.CSharpTypeName.Name);
+        Assert.NotEqual(NameProvider.GetPropertyName(audioKind, lower), renamed.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(upper.SwiftTypeName, out var untouched));
+        Assert.Equal("Audio", untouched!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_SuffixLandingOnTheMovedTypesOwnMethod_StepsOverIt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lower = CreateContainerEnum(module, moduleDecl, "Audio", "Audio", "Track");
+        lower.Methods.Add(new MethodDecl
+        {
+            Name = "audioKind",
+            MangledName = "$sN",
+            MethodType = MethodType.Static,
+            IsConstructor = false,
+            CSSignature = new List<ArgumentDecl>
+            {
+                new()
+                {
+                    SwiftTypeSpec = new NamedTypeSpec("Swift.Int32"),
+                    Name = string.Empty, PrivateName = string.Empty, IsInOut = false, IsGeneric = false,
+                    ParentDecl = null, ModuleDecl = moduleDecl,
+                },
+            },
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = lower,
+            ModuleDecl = moduleDecl,
+        });
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lower.SwiftTypeName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}2", renamed!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_SpiTypeHoldingTheSuffix_DoesNotPushThePublicTypeOffIt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // A newer SDK adds `@_spi(Internal) public enum AudioKind {}`. It is never emitted, so the
+        // public `Audio` keeps the `AudioKind` it shipped with in the older copy.
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lower = CreateContainerEnum(module, moduleDecl, "Audio", "Audio", "Track");
+        var spiSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.AudioKind");
+        var spi = CreateEnumDecl("AudioKind", spiSwiftName, moduleDecl);
+        spi.IsSpiProtected = true;
+        RegisterType(module, spiSwiftName, "AudioKind", TypeRecordKind.Enum);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        moduleDecl.Types.Add(spi);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lower.SwiftTypeName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_SpiTypeOnTheContainersLeaf_IsNotMovedOntoAPublicTypesSuffix()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `AUDIO` holds the leaf. An SPI `audio` declared first would be moved to `AudioInfo` and
+        // reserve it, pushing the public struct `AUDIo` declared after it to `AudioInfo2`.
+        var holder = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var spiSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.audio");
+        var spi = CreateStructDecl("audio", spiSwiftName, moduleDecl);
+        spi.IsSpiProtected = true;
+        spi.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, spiSwiftName, "Audio", TypeRecordKind.Struct);
+        var publicSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.AUDIo");
+        var publicSibling = CreateStructDecl("AUDIo", publicSwiftName, moduleDecl);
+        publicSibling.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, publicSwiftName, "Audio", TypeRecordKind.Struct);
+        moduleDecl.Types.Add(holder);
+        moduleDecl.Types.Add(spi);
+        moduleDecl.Types.Add(publicSibling);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(publicSwiftName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.AggregateTypeSuffix}", renamed!.CSharpTypeName.Name);
+    }
+
+    [Fact]
     public void TypeArm_NoFacadeInTheModule_RenamesNothing()
     {
         var typeDatabase = new TypeDatabase();
@@ -919,6 +1042,20 @@ public class CaseOnlyCollisionPassTests
         typeDatabase.AddModuleDatabase(module);
 
         return (moduleDecl, typeDatabase, protocolDecl, conformer);
+    }
+
+    /// <summary>A caseless enum with one nested type, registered under <paramref name="csharpName"/>.</summary>
+    private static EnumDecl CreateContainerEnum(
+        ModuleTypeDatabase module, ModuleDecl moduleDecl, string swiftName, string csharpName, string nestedName)
+    {
+        var qualified = SwiftTypeName.FromModuleQualifiedName($"TestModule.{swiftName}");
+        var container = CreateEnumDecl(swiftName, qualified, moduleDecl);
+        var nested = CreateStructDecl(nestedName,
+            SwiftTypeName.FromModuleQualifiedName($"TestModule.{swiftName}.{nestedName}"), moduleDecl);
+        nested.ParentDecl = container;
+        container.Types.Add(nested);
+        RegisterType(module, qualified, csharpName, TypeRecordKind.Enum);
+        return container;
     }
 
     private static void RegisterType(

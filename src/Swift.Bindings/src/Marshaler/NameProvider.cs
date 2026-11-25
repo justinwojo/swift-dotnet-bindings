@@ -354,6 +354,46 @@ public static class NameProvider
         => ToPascalCaseForTypeName(SwiftDeclSpelling.SwiftSpelledName(typeDecl));
 
     /// <summary>
+    /// Names a type-side rename of <paramref name="typeDecl"/> must not give it: the C# names its
+    /// own members project to (CS0542, a member named like its enclosing type), and the emitted
+    /// leaves of its emitted nested types. A member keeps its name when its type is renamed (the
+    /// member-side enclosing-type rule reads the natural leaf), so the rename has to step around
+    /// it. Deliberately a superset: a method contributes its PascalCase base name whether or not
+    /// the name shaping later prefixes it, and an unemittable member still counts. Reserving a
+    /// name nothing emits only costs the rename a numeric step; missing one is a CS0542.
+    /// <c>@_spi</c> declarations are excluded: they are not emitted, so they cannot collide, and
+    /// one a newer SDK adds must not move a name an older copy shipped.
+    /// </summary>
+    public static HashSet<string> GetTypeRenameExclusions(TypeDecl typeDecl)
+    {
+        var names = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var nested in typeDecl.Types)
+        {
+            if (!nested.IsSpiProtected)
+                names.Add(GetNaturalTypeLeafName(nested));
+        }
+        foreach (var property in typeDecl.Properties)
+        {
+            if (!property.IsSpiProtected)
+                names.Add(GetPropertyName(property, typeDecl));
+        }
+        foreach (var method in typeDecl.Methods)
+        {
+            if (!method.IsSpiProtected && !method.IsConstructor && method.Name.Length > 0)
+                names.Add(ToPascalCase(method.Name));
+        }
+        if (typeDecl is EnumDecl enumDecl)
+        {
+            foreach (var enumCase in enumDecl.Cases)
+            {
+                if (!enumCase.IsSpiProtected)
+                    names.Add(ToPascalCase(enumCase.Name));
+            }
+        }
+        return names;
+    }
+
+    /// <summary>
     /// The name a member of <paramref name="containingType"/> must not take (CS0542, a member named
     /// like its enclosing type): the type's natural C# leaf (<see cref="GetNaturalTypeLeafName"/>).
     /// A protocol keeps its stored name: it projects as <c>I{Name}</c>, so its members cannot
@@ -1833,8 +1873,18 @@ public static class NameProvider
         if (typeDecl.Types.Count == 0 || typeDecl.Properties.Count == 0)
             return;
 
+        // A caseless enum is a static class in every copy of a binding, whatever members an SDK
+        // gives it, so its nested types must keep one CLR name too. A newer SDK adding
+        // `static var easel: Easel` would otherwise move `Studio+Easel` to `Studio+EaselInfo`,
+        // a type every consumer of the older copy no longer finds, and the merge would refuse the
+        // package. The added property yields instead (`EaselValue`, ComputePropertyRenames). A
+        // struct facade has no properties, so it never reaches this pass as a facade.
+        if (typeDecl is EnumDecl { IsNamespaceEnum: true })
+            return;
+
+        // An @_spi property is not emitted, so it cannot force a public nested type to move.
         var emittableProperties = typeDecl.Properties
-            .Where(p => !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
+            .Where(p => !p.IsSpiProtected && !MemberEmissionValidator.HasUnsupportedPropertyType(p, typeDatabase))
             .ToList();
 
         // Deliberately the stored Swift names: this pass renames a TYPE, and a nested type whose
@@ -1853,7 +1903,7 @@ public static class NameProvider
         //   - Pascal-cased property/member names
         // Updated as we apply renames so a later rename can detect collisions with an
         // earlier rename's chosen name.
-        var takenNames = new HashSet<string>(typeDecl.Types.Select(GetNaturalTypeLeafName));
+        var takenNames = new HashSet<string>(typeDecl.Types.Where(t => !t.IsSpiProtected).Select(GetNaturalTypeLeafName));
         foreach (var prop in emittableProperties)
             takenNames.Add(GetPropertyName(prop, typeDecl));
 
@@ -1888,7 +1938,9 @@ public static class NameProvider
                     // `WalletInfo` while it already contains a nested type `WalletInfo` (or a
                     // lowercase `walletInfo`, which emits as `WalletInfo`). PascalCase the child
                     // names so the guard compares against the emitted C# leaf, not the raw Swift name.
-                    var ownChildNames = new HashSet<string>(nestedType.Types.Select(GetNaturalTypeLeafName));
+                    // The renamed type's own members guard the same CS0542 (a `walletInfo` property
+                    // inside a type renamed `WalletInfo`), so GetTypeRenameExclusions holds both.
+                    var ownChildNames = GetTypeRenameExclusions(nestedType);
                     // Disambiguate the nested type from the colliding property with a kind-aware
                     // semantic suffix: an enum is a closed case-set → "Kind" (idiomatic .NET:
                     // SyntaxKind, DateTimeKind); a struct/class is a data aggregate → "Info"

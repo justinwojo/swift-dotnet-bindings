@@ -10,7 +10,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Pre-emission pass for the two case-only collision shapes in
 /// <see cref="NameCollisionPolicy"/>: a type whose emitted name differs only by case from a
-/// sibling Swift container (a C# namespace, or a caseless enum's static class), and two sibling members whose Swift
+/// sibling Swift container (a namespace facade struct or a caseless enum, both static classes), and two sibling members whose Swift
 /// names differ only by case and therefore collapse onto one C# identifier.
 ///
 /// <para>Swift identifiers are case-sensitive and its libraries use that freely (<c>url</c>
@@ -127,16 +127,18 @@ public static class CaseOnlyCollisionPass
     /// <summary>
     /// Type arm — a top-level type whose emitted leaf matches a sibling container's leaf
     /// case-insensitively is renamed with the same kind-aware suffix the nested-type scheme uses.
-    /// A container is a namespace facade (a C# namespace) or a caseless enum with nested types (a
-    /// static class). The CONTAINER keeps its name: every type declared inside it and every
+    /// A container is a namespace facade struct or a caseless enum with nested types, both emitted
+    /// as static classes. The CONTAINER keeps its name: every type declared inside it and every
     /// cross-module reference is spelled under it, so renaming it would cascade over the whole
     /// subtree to fix a collision that only involves one sibling. A caseless enum counts whatever
     /// members it has, so a static member a newer SDK gives it does not change which sibling
-    /// moves. When a facade and a caseless enum container collide, the enum moves: a namespace
-    /// and a type of one name cannot coexist, and the facade is the one its subtree is spelled
-    /// under as a namespace. When two caseless enum containers collide, the one whose Swift name
-    /// sorts first (ordinal) keeps the name, a rule neither enum's members can change. Facades
-    /// never move: two namespaces of one name are one namespace.
+    /// moves. When a facade and a caseless enum container collide, the enum moves, the rule the
+    /// facade's earlier namespace form fixed. When two caseless enum containers collide, the one
+    /// whose Swift name sorts first (ordinal) keeps the name, a rule neither enum's members can
+    /// change. Facades never move: two facades differ by case (one name would be one type), and
+    /// C# tells two such classes apart. The new leaf steps over the moved type's own members and
+    /// nested types (CS0542). An <c>@_spi</c> type is not emitted, so it neither reserves a leaf
+    /// nor moves onto one.
     /// </summary>
     private static void ApplyNamespaceFacadeCaseRenames(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
     {
@@ -161,13 +163,18 @@ public static class CaseOnlyCollisionPass
 
         // Case-insensitive so the replacement leaf cannot itself land on a sibling that differs
         // only by case — resolving one case collision by creating another would be no fix at all.
+        // An @_spi type is not emitted: it neither reserves a name nor moves onto one, so one a
+        // newer SDK adds cannot push a public type off the suffix an older copy shipped with.
         var takenNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var typeDecl in moduleDecl.Types)
-            takenNames.Add(GetEmittedLeaf(typeDecl, typeDatabase));
+        {
+            if (!typeDecl.IsSpiProtected)
+                takenNames.Add(GetEmittedLeaf(typeDecl, typeDatabase));
+        }
 
         foreach (var typeDecl in moduleDecl.Types)
         {
-            if (ContainerRank(typeDecl) == FacadeRank)
+            if (typeDecl.IsSpiProtected || ContainerRank(typeDecl) == FacadeRank)
                 continue;
             var leaf = GetEmittedLeaf(typeDecl, typeDatabase);
             if (!holders.TryGetValue(leaf, out var holder) || ReferenceEquals(holder.Type, typeDecl))
@@ -175,13 +182,13 @@ public static class CaseOnlyCollisionPass
             if (!typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
                 continue;
 
-            var ownChildNames = new HashSet<string>(
-                typeDecl.Types.Select(NameProvider.GetNaturalTypeLeafName),
-                StringComparer.OrdinalIgnoreCase);
+            // Its own nested types and members: a static `audioKind` inside a type renamed
+            // `AudioKind` is CS0542, and the member keeps its name when the type moves.
+            var ownNames = NameProvider.GetTypeRenameExclusions(typeDecl);
             var newLeaf = NameCollisionPolicy.ResolveTypeSideName(
                 leaf,
                 NameCollisionPolicy.TypeSuffixFor(typeDecl),
-                n => takenNames.Contains(n) || ownChildNames.Contains(n));
+                n => takenNames.Contains(n) || ownNames.Contains(n, StringComparer.OrdinalIgnoreCase));
 
             var oldCSharpName = record.CSharpTypeName.Name;
             var @namespace = record.CSharpTypeName.Namespace;
