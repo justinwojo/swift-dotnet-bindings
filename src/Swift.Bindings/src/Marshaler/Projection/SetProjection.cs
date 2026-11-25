@@ -188,13 +188,23 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// <see cref="System.Collections.Generic.HashSet{T}"/>, its element types' managed equality
     /// being the one Swift uses.
     /// </summary>
-    private string ReadSet(string sourceExpr, string elemConversion)
+    internal string ReadSet(string sourceExpr, string elemConversion)
     {
-        if (_elementProjection is OptionalProjection { ObjectCarrier: not null } optional
-            && optional.GetParameterElementConversion("p") is { } reverse)
-            return $"{sourceExpr}.AsProjected<{optional.PublicType}>(e => {elemConversion}, p => {reverse})";
+        if (ViewReverseConversion() is { } reverse)
+            return $"{sourceExpr}.AsProjected<{_elementProjection.PublicType}>(e => {elemConversion}, p => {reverse})";
         return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({sourceExpr}, e => {elemConversion}))";
     }
+
+    /// <summary>
+    /// True when <see cref="ReadSet"/> reads the set as a live view, which keeps the source set: a
+    /// caller that disposes its source after converting must not dispose it then.
+    /// </summary>
+    internal bool ReadsAsView => ViewReverseConversion() != null;
+
+    private string? ViewReverseConversion()
+        => _elementProjection is OptionalProjection { ObjectCarrier: not null } optional
+            ? optional.GetParameterElementConversion("p")
+            : null;
 
     /// <summary>
     /// Element conversion for the OWNED-return directions only. SwiftSet's iterator moves

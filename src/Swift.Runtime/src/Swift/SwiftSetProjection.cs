@@ -4,7 +4,6 @@
 using System;
 using System.Collections;
 using System.Collections.Generic;
-using System.Linq;
 
 namespace Swift;
 
@@ -37,7 +36,7 @@ internal sealed class SwiftSetProjection<TSource, TResult> : IReadOnlySet<TResul
         // The source element borrows from the item, which stays alive across the lookup.
         var element = _reverseSelector(item);
         try { return _source.Contains(element); }
-        finally { (element as IDisposable)?.Dispose(); GC.KeepAlive(item); }
+        finally { GC.KeepAlive(item); }
     }
 
     public IEnumerator<TResult> GetEnumerator()
@@ -60,24 +59,25 @@ internal sealed class SwiftSetProjection<TSource, TResult> : IReadOnlySet<TResul
 
     public bool SetEquals(IEnumerable<TResult> other) => Compare(other, (source, elements) => source.SetEquals(elements));
 
-    /// <summary>Compares the Swift set with <paramref name="other"/>'s elements, each mapped back to a source element.</summary>
+    /// <summary>
+    /// Compares the Swift set with <paramref name="other"/>'s elements, each mapped back to a source
+    /// element as the comparison reaches it, so a comparison that stops early stops reading there too.
+    /// </summary>
     private bool Compare(IEnumerable<TResult> other, Func<SwiftSet<TSource>, IEnumerable<TSource>, bool> comparison)
     {
         ArgumentNullException.ThrowIfNull(other);
-        // The items are held for the whole comparison: each source element borrows from its item.
-        var items = other.ToList();
-        var elements = new List<TSource>(items.Count);
-        try
+        // The items read are held for the whole comparison: each source element borrows from its item.
+        var items = new List<TResult>();
+        try { return comparison(_source, MapBack(other, items)); }
+        finally { GC.KeepAlive(items); }
+    }
+
+    private IEnumerable<TSource> MapBack(IEnumerable<TResult> other, List<TResult> items)
+    {
+        foreach (var item in other)
         {
-            foreach (var item in items)
-                elements.Add(_reverseSelector(item));
-            return comparison(_source, elements);
-        }
-        finally
-        {
-            foreach (var element in elements)
-                (element as IDisposable)?.Dispose();
-            GC.KeepAlive(items);
+            items.Add(item);
+            yield return _reverseSelector(item);
         }
     }
 

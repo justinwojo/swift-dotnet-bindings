@@ -69,11 +69,7 @@ public class NilKeyDictionaryTests
     [Fact]
     public void Entries_CopyAndEnumerateEveryKeyIncludingNil()
     {
-        var dictionary = new NilKeyDictionary<string?, int>(new[]
-        {
-            new KeyValuePair<string?, int>("a", 1),
-            new KeyValuePair<string?, int>(null, 0),
-        });
+        var dictionary = new NilKeyDictionary<string?, int> { ["a"] = 1, [null] = 0 };
         var copy = new KeyValuePair<string?, int>[3];
         dictionary.CopyTo(copy, 1);
         Assert.Equal(new int[] { 0, 1 }, copy.Skip(1).Select(e => e.Value).OrderBy(v => v));
@@ -82,14 +78,5 @@ public class NilKeyDictionaryTests
         IReadOnlyDictionary<string?, int> readOnly = dictionary;
         Assert.Equal(2, readOnly.Keys.Count());
         Assert.Equal(new int[] { 0, 1 }, readOnly.Select(e => e.Value).OrderBy(v => v));
-    }
-
-    [Fact]
-    public void Comparer_AppliesToEveryKeyButNil()
-    {
-        var dictionary = new NilKeyDictionary<string?, int>(StringComparer.OrdinalIgnoreCase) { ["Key"] = 1, [null] = 2 };
-        Assert.Equal(1, dictionary["KEY"]);
-        Assert.Equal(2, dictionary[null]);
-        Assert.Throws<ArgumentException>(() => dictionary.Add("key", 3));
     }
 }

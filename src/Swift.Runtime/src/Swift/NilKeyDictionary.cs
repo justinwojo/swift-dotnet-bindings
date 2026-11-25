@@ -38,7 +38,7 @@ public static class NilKeyDictionary
 /// </summary>
 /// <remarks>
 /// Every key other than <see langword="null"/> is held in a <see cref="Dictionary{TKey, TValue}"/>
-/// with the given comparer (the key type's own equality by default).
+/// by the key type's own equality.
 /// </remarks>
 /// <typeparam name="TKey">The key type, a nullable type.</typeparam>
 /// <typeparam name="TValue">The value type.</typeparam>
@@ -50,23 +50,7 @@ public sealed class NilKeyDictionary<TKey, TValue> : IDictionary<TKey, TValue>, 
 
     /// <summary>An empty dictionary that compares keys by their own equality.</summary>
     public NilKeyDictionary()
-        : this(comparer: null)
-    {
-    }
-
-    /// <summary>An empty dictionary that compares keys other than <see langword="null"/> with <paramref name="comparer"/>.</summary>
-    public NilKeyDictionary(IEqualityComparer<TKey>? comparer)
-        => _entries = new Dictionary<NonNullKey, TValue>(new NonNullKeyComparer(comparer ?? EqualityComparer<TKey>.Default));
-
-    /// <summary>A dictionary of the given entries, a <see langword="null"/> key among them.</summary>
-    /// <exception cref="ArgumentException">Two entries have equal keys.</exception>
-    public NilKeyDictionary(IEnumerable<KeyValuePair<TKey, TValue>> entries)
-        : this()
-    {
-        ArgumentNullException.ThrowIfNull(entries);
-        foreach (var entry in entries)
-            Add(entry.Key, entry.Value);
-    }
+        => _entries = new Dictionary<NonNullKey, TValue>(new NonNullKeyComparer(EqualityComparer<TKey>.Default));
 
     /// <inheritdoc/>
     public int Count => _entries.Count + (_hasNil ? 1 : 0);

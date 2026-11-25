@@ -27,13 +27,14 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
     public const string HolderClassName = "__SwiftObjectKeys";
 
     /// <summary>
-    /// The identity class's name, unique per Swift type: the spelling with every character other
-    /// than a letter or digit flattened to <c>_</c>. Flattening is one-to-one only for a plain dotted
-    /// name with no underscore of its own (<c>Foundation.NSUUID</c> → <c>Foundation_NSUUID</c>, each
-    /// <c>_</c> a dot). Any other spelling, a generic one (<c>Swift.Optional&lt;M.Outer.Key&gt;</c>) or
-    /// one whose names hold an underscore (<c>M.Outer_Key</c>, which would otherwise meet
-    /// <c>M.Outer.Key</c>), also carries <c>__</c> and a hash of the spelling, a form no plain name
-    /// produces, since a plain name never flattens to two adjacent underscores.
+    /// The identity class's name, one per Swift type and never shared by two: the spelling with every
+    /// character other than a letter or digit flattened to <c>_</c>. Flattening alone is one-to-one only
+    /// for a plain dotted name (<c>Foundation.NSUUID</c> → <c>Foundation_NSUUID</c>, each <c>_</c> a
+    /// dot). Any other spelling, a generic one (<c>Swift.Optional&lt;M.Outer.Key&gt;</c>) or one whose
+    /// names hold an underscore (<c>M.Outer_Key</c>, which would otherwise meet <c>M.Outer.Key</c>), is
+    /// followed by <c>__</c> and a code for each flattened character in order, from which the spelling
+    /// can be read back: a plain name never flattens to two adjacent underscores, and the codes hold no
+    /// underscore, so no two spellings share a name.
     /// </summary>
     public string IdentityClassName { get; } = UniqueName(SwiftTypeName);
 
@@ -90,9 +91,51 @@ public sealed record ObjectKeyIdentity(string SwiftTypeName)
     private static string UniqueName(string swiftTypeName)
     {
         var flattened = SafeName(swiftTypeName);
-        var plain = swiftTypeName.All(c => char.IsAsciiLetterOrDigit(c) || c == '.');
-        return plain ? flattened : $"{flattened}__{EmitterUtility.DeterministicHash8(swiftTypeName)}";
+        if (IsPlainDottedName(swiftTypeName))
+            return flattened;
+        var codes = new StringBuilder();
+        foreach (var c in swiftTypeName)
+        {
+            if (!char.IsAsciiLetterOrDigit(c))
+                codes.Append(FlattenedCharacterCode(c));
+        }
+        return $"{flattened}__{codes}";
     }
+
+    // Letters and digits separated by single dots, the one spelling flattening keeps one-to-one.
+    private static bool IsPlainDottedName(string swiftTypeName)
+    {
+        if (swiftTypeName.Length == 0 || swiftTypeName[0] == '.' || swiftTypeName[^1] == '.')
+            return false;
+        for (var i = 0; i < swiftTypeName.Length; i++)
+        {
+            var c = swiftTypeName[i];
+            if (c == '.' ? swiftTypeName[i - 1] == '.' : !char.IsAsciiLetterOrDigit(c))
+                return false;
+        }
+        return true;
+    }
+
+    // A prefix-free code of letters and digits: one letter for a character a Swift spelling uses,
+    // otherwise 'x' and the UTF-16 unit in four hex digits.
+    private static string FlattenedCharacterCode(char c) => c switch
+    {
+        '.' => "d",
+        '_' => "u",
+        '<' => "l",
+        '>' => "g",
+        ',' => "c",
+        ' ' => "s",
+        '?' => "q",
+        '&' => "a",
+        ':' => "k",
+        '(' => "p",
+        ')' => "r",
+        '[' => "b",
+        ']' => "e",
+        '-' => "m",
+        _ => $"x{(int)c:X4}",
+    };
 
     private static string SafeName(string swiftTypeName)
     {

@@ -68,6 +68,35 @@ public class SwiftSetProjectionTests
         Assert.False(view.Overlaps(new[] { new Label(9) }));
     }
 
+    private static IEnumerable<Label> ThenThrow(params nint[] values)
+    {
+        foreach (var value in values)
+            yield return new Label(value);
+        throw new InvalidOperationException("read past the answer");
+    }
+
+    [Fact]
+    public void SetComparisons_StopReadingWhereSwiftsAnswerIsKnown()
+    {
+        var view = View(Set(1, 2));
+
+        Assert.True(view.Overlaps(ThenThrow(2)));
+        Assert.False(view.IsSupersetOf(ThenThrow(9)));
+    }
+
+    [Fact]
+    public void Lookups_LeaveTheElementTheReverseSelectorReturnsUndisposed()
+    {
+        var probe = new SwiftString("beta");
+        var set = new SwiftSet<SwiftString>();
+        set.Add(new SwiftString("beta"));
+        var view = set.AsProjected(e => e, p => p);
+
+        Assert.True(view.Contains(probe));
+        Assert.True(view.Overlaps(new[] { probe }));
+        Assert.Equal("beta", probe.ToString());
+    }
+
     [Fact]
     public void View_IsLiveAndDisposingItDisposesTheSet()
     {

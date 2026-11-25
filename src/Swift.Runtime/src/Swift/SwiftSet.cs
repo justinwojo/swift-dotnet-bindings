@@ -863,7 +863,9 @@ public class SwiftSet<Element> : ISwiftObject, ISwiftStruct, ICollection<Element
     /// A live view of this set whose elements are read through <paramref name="selector"/>, and whose
     /// lookups and set comparisons map each item back through <paramref name="reverseSelector"/> and
     /// ask this set: membership is Swift's, by the element type's <c>Hashable</c> conformance, whatever
-    /// equality the projected type has. Disposing the view disposes this set.
+    /// equality the projected type has. The view does not dispose what <paramref name="reverseSelector"/>
+    /// returns: an element that borrows from its item (as an object-key carrier does) needs nothing
+    /// disposed. Disposing the view disposes this set.
     /// </summary>
     /// <typeparam name="TResult">The projected element type.</typeparam>
     /// <param name="selector">Reads an element as the projected type.</param>

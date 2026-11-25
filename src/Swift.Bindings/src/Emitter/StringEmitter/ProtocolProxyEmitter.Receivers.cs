@@ -2269,14 +2269,20 @@ public partial class ProtocolProxyEmitter
 
     /// <summary>
     /// Classifies how a receiver parameter's borrowed ABI slot must be read, from the top-level
-    /// projection kind. An unprojectable type falls back to the local raw read, which is what the
-    /// receiver emitted before any classification existed.
+    /// projection kind. An unprojectable Swift collection (<c>Set&lt;Box&lt;String&gt;&gt;</c>, whose bound
+    /// generic element has no projection) is still its raw <c>SwiftSet</c>/<c>SwiftArray</c>/
+    /// <c>SwiftDictionary</c> wrapper, read like a projected one; any other unprojectable type falls
+    /// back to the local raw read, which is what the receiver emitted before any classification existed.
     /// </summary>
     private ReceiverSlotReadKind GetReceiverSlotReadKind(TypeSpec? typeSpec)
     {
         if (typeSpec == null) return ReceiverSlotReadKind.RawRead;
         var projection = ProjectReceiverType(typeSpec, isParameter: true);
-        return projection?.Accept(new ReceiverSlotReadKindVisitor()) ?? ReceiverSlotReadKind.RawRead;
+        if (projection != null)
+            return projection.Accept(new ReceiverSlotReadKindVisitor());
+        return MarshallingHelpers.IsSwiftArray(typeSpec) || MarshallingHelpers.IsSwiftSet(typeSpec) || MarshallingHelpers.IsSwiftDictionary(typeSpec)
+            ? ReceiverSlotReadKind.ObjectMarshal
+            : ReceiverSlotReadKind.RawRead;
     }
 
     /// <summary>
@@ -2382,7 +2388,7 @@ public partial class ProtocolProxyEmitter
         // falls back to the non-owning form for the Hashable scalar leaves a Set can actually hold.)
         var elemConv = set.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
-            return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({varName}, e => {elemConv}))";
+            return set.ReadSet(varName, elemConv);
         return null;  // SwiftSet<T> IS IReadOnlySet<T> — no conversion needed
     }
 

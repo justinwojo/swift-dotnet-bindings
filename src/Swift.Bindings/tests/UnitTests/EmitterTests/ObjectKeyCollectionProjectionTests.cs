@@ -415,20 +415,12 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Fact]
-    public void RecordObjectKey_DedupesOneTypeAndRefusesTwoTypesSharingAName()
+    public void RecordObjectKey_DedupesOneType()
     {
         var emission = new ModuleEmissionContext();
         emission.RecordObjectKey(new ObjectKeyIdentity("Foundation.NSUUID"));
         emission.RecordObjectKey(new ObjectKeyIdentity("Foundation.NSUUID"));
         Assert.Single(emission.ObjectKeyIdentities);
-
-        // Two spellings whose names flatten alike and whose spelling hashes collide (an FNV-1a pair)
-        // would share an identity name: the module refuses them rather than carry one as the other.
-        var first = new ObjectKeyIdentity("M.A_B_C_D_E.F_G_H_I.J.K_L_M_N_O_P.Q.R.S");
-        var second = new ObjectKeyIdentity("M.A_B_C.D_E_F.G.H_I_J_K.L.M.N.O.P.Q_R.S");
-        Assert.Equal(first.IdentityClassName, second.IdentityClassName);
-        emission.RecordObjectKey(first);
-        Assert.Throws<InvalidOperationException>(() => emission.RecordObjectKey(second));
     }
 
     [Theory]
@@ -440,6 +432,12 @@ public class ObjectKeyCollectionProjectionTests
     [InlineData("M.A.M.B<M.C>", "M.A<M.B.M.C>")]
     // A plain name and one whose own name holds the underscore a dot flattens to.
     [InlineData("Foundation.NSUUID", "Foundation_NSUUID")]
+    // Spellings that flatten alike and whose FNV-1a hashes collide, bare and optional.
+    [InlineData("M.A_B_C_D_E.F_G_H_I.J.K_L_M_N_O_P.Q.R.S", "M.A_B_C.D_E_F.G.H_I_J_K.L.M.N.O.P.Q_R.S")]
+    [InlineData("Swift.Optional<M.A.B_C_D.E.F.G_H.I_J_K.L_M_N_O.P.Q.R.S.T>", "Swift.Optional<M.A_B_C_D.E_F_G.H_I.J.K.L.M.N_O.P_Q.R.S.T>")]
+    // A dot that is not a separator, and a non-ASCII name.
+    [InlineData("M..A", "M._A")]
+    [InlineData("M.Ä", "M.x00C4")]
     public void ObjectKeyIdentity_TypesThatFlattenAlikeKeepDistinctNames(string first, string second)
     {
         var a = new ObjectKeyIdentity(first);
@@ -469,7 +467,7 @@ public class ObjectKeyCollectionProjectionTests
     {
         var optional = ObjectKeyIdentity.For(Optional(new NamedTypeSpec("Foundation.NSUUID")));
         Assert.Equal("Swift.Optional<Foundation.NSUUID>", optional?.SwiftTypeName);
-        Assert.Matches("^Swift_Optional_Foundation_NSUUID___[0-9A-F]{8}$", optional?.IdentityClassName);
+        Assert.Equal("Swift_Optional_Foundation_NSUUID___dldg", optional?.IdentityClassName);
 
         var cache = ObjectKeyIdentity.For(new NamedTypeSpec("Foundation.NSCache",
             new NamedTypeSpec("Foundation.NSString"), new NamedTypeSpec("Foundation.NSUUID")));
@@ -719,12 +717,16 @@ public class ObjectKeyCollectionProjectionTests
             var element = Assert.IsType<OptionalProjection>(set.ElementProjection);
             var carrier = element.ObjectCarrier!.CarrierType;
 
+            // A property getter reads the view too, and keeps the set it views.
+            var (getter, getterDisposesSource) = set.Accept(new AccessorGetterConversionVisitor("s"));
+            Assert.False(getterDisposesSource);
             var reads = new[]
             {
                 set.GetReturnPlan("result", ReturnStrategy.IndirectResult).PInvokeExpression,
                 set.GetReturnContainerConversion("s"),
                 set.GetReturnElementConversion("s"),
                 set.GetOwnedReturnElementConversion("s"),
+                getter,
             };
             foreach (var read in reads)
             {
