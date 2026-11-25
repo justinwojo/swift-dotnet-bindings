@@ -151,17 +151,28 @@ namespace BindingsGeneration
             if (carriesUnknownCases && !enumDecl.CrossesAsCaseTag)
             {
                 csWriter.WriteLine("/// <remarks>");
+                if (enumDecl.HasNameKeyedCaseValues)
+                    WriteNameKeyedValueRemarks(csWriter);
                 WriteUnknownCaseRemarks(csWriter);
                 csWriter.WriteLine("/// </remarks>");
             }
             if (enumDecl.CrossesAsCaseTag)
             {
-                // The member values are case indices, not the Swift raw values (EnumDecl.CrossesAsCaseTag):
+                // The member values are case identities, not the Swift raw values (EnumDecl.CrossesAsCaseTag):
                 // say so where a consumer casting `(long)E.Member` reads it.
                 csWriter.WriteLine("/// <remarks>");
-                csWriter.WriteLine("/// The member values are the Swift cases' declaration-order indices, not their Swift raw values:");
-                csWriter.WriteLine("/// a Swift module interface does not publish the raw values of a non-<c>@objc</c> enum. Every");
-                csWriter.WriteLine("/// member maps to its own Swift case wherever the binding passes it.");
+                if (enumDecl.HasNameKeyedCaseValues)
+                {
+                    WriteNameKeyedValueRemarks(csWriter);
+                    csWriter.WriteLine("/// They are not the Swift raw values either: a Swift module interface does not publish the raw values");
+                    csWriter.WriteLine("/// of a non-<c>@objc</c> enum.");
+                }
+                else
+                {
+                    csWriter.WriteLine("/// The member values are the Swift cases' declaration-order indices, not their Swift raw values:");
+                    csWriter.WriteLine("/// a Swift module interface does not publish the raw values of a non-<c>@objc</c> enum. Every");
+                    csWriter.WriteLine("/// member maps to its own Swift case wherever the binding passes it.");
+                }
                 if (rawValueHelpersAskSwift)
                 {
                     var helperNames = GetRawValueHelperNames(enumDecl);
@@ -189,7 +200,8 @@ namespace BindingsGeneration
 
                 // The emitted C# member value is the SAME scalar the @_cdecl wrapper marshals
                 // this case as (GetCaseMarshalScalar): the real Swift source raw value for
-                // integral RawRepresentable enums, the declaration-order tag otherwise. The
+                // integral RawRepresentable enums, a name-keyed identity for a non-frozen
+                // case-identity enum, the declaration-order tag otherwise. The
                 // two must agree, so both read this one helper. String-raw-value enums keep
                 // their tag here and expose the string via ToRawValue/FromRawValue extensions.
                 long memberValue = enumDecl.GetCaseMarshalScalar(caseDecl);
@@ -822,6 +834,14 @@ namespace BindingsGeneration
         /// <c>@_spi</c> case, which has no C# member): report that no member has the raw value.
         /// </summary>
         private const string FromRawValueUnnamedCase = "found.pointee = 0; return 0";
+
+        /// <summary>The remark on an enum whose member values are keyed by case name (<see cref="EnumDecl.HasNameKeyedCaseValues"/>).</summary>
+        private static void WriteNameKeyedValueRemarks(CSharpWriter csWriter)
+        {
+            csWriter.WriteLine("/// <para>Each member value identifies its Swift case by name and is the same in every binding of the");
+            csWriter.WriteLine("/// enum, whichever SDK it was generated from; it is not the case's position, and <c>default</c> is no case.");
+            csWriter.WriteLine("/// Every member maps to its own Swift case wherever the binding passes it.</para>");
+        }
 
         /// <summary>What a case the binding does not name becomes in C# (see <see cref="SimpleEnumCrossing"/>).</summary>
         private static void WriteUnknownCaseRemarks(CSharpWriter csWriter)

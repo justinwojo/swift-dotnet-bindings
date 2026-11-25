@@ -265,6 +265,53 @@ namespace BindingsGeneration.Tests
         }
 
         [Fact]
+        public async Task Emit_SimpleEnum_PreservesThatItsCrossingConstantsAreNameKeyed()
+        {
+            // A dependent module's wrapper keeps the unnamed values of unknown cases above the
+            // dependency's constants; name-keyed constants are 31-bit, so the bound must survive too.
+            var dir = CreateTempDir();
+            try
+            {
+                var module = new ModuleTypeDatabase("MyLib", "/fake/MyLib.dylib");
+                var swiftName = SwiftTypeName.FromModuleQualifiedName("MyLib.Mode");
+                module.RegisterType(swiftName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Mode"),
+                    SwiftTypeName = swiftName,
+                    MetadataAccessor = "$s5MyLib4ModeO",
+                    Flags = TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    CrossingCases = new[] { new SimpleEnumCrossingCase("on", 1_200_000_000, null) },
+                    CrossingSlotCount = 1,
+                    CrossingNameKeyed = true,
+                });
+                var legacyName = SwiftTypeName.FromModuleQualifiedName("MyLib.Legacy");
+                module.RegisterType(legacyName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("MyLib", "Legacy"),
+                    SwiftTypeName = legacyName,
+                    MetadataAccessor = "$s5MyLib6LegacyO",
+                    Flags = TypeRecordFlags.SimpleEnum,
+                    Kind = TypeRecordKind.Enum,
+                    CrossingCases = new[] { new SimpleEnumCrossingCase("on", 0, null) },
+                    CrossingSlotCount = 1,
+                });
+
+                var path = ModuleDatabaseEmitter.Emit(module, dir, NullLogger.Instance);
+                var typeDatabase = new TypeDatabase();
+                await typeDatabase.LoadModuleDatabaseFromFile(path!);
+
+                Assert.True(typeDatabase.TryGetTypeRecord(swiftName, out var loaded));
+                Assert.True(loaded!.CrossingNameKeyed);
+                Assert.Equal(1L << 31, SimpleEnumCrossing.GetCaseMap(loaded)!.ConstantBound);
+                Assert.True(typeDatabase.TryGetTypeRecord(legacyName, out var legacy));
+                Assert.False(legacy!.CrossingNameKeyed);
+                Assert.Equal(1L, SimpleEnumCrossing.GetCaseMap(legacy)!.ConstantBound);
+            }
+            finally { Directory.Delete(dir, true); }
+        }
+
+        [Fact]
         public async Task Emit_OptionSetEnum_PreservesOptionSetFlag()
         {
             // An OptionSet (bridged NS_OPTIONS) SimpleEnum must round-trip its OptionSet flag through

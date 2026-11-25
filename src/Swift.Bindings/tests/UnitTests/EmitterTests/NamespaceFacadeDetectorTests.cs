@@ -31,12 +31,15 @@ public class NamespaceFacadeDetectorTests
     }
 
     [Fact]
-    public void IsNamespaceFacade_True_CaselessEnumWithOnlyNestedTypes()
+    public void IsNamespaceFacade_False_CaselessEnumWithOnlyNestedTypes()
     {
+        // A caseless enum always projects as a static class: a newer SDK that gives it a member
+        // would otherwise move every nested type from a namespace into a class, and a library
+        // compiled against one copy of a package could not run with another.
         var nested = CreateNestedStruct("Holder");
         var facade = CreateEnum("Constants", nestedTypes: new[] { nested });
 
-        Assert.True(NamespaceFacadeDetector.IsNamespaceFacade(facade));
+        Assert.False(NamespaceFacadeDetector.IsNamespaceFacade(facade));
     }
 
     #endregion

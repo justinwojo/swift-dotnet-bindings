@@ -4,8 +4,10 @@
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Detects Swift "namespace facade" types — public <c>struct</c>/<c>enum</c>
+    /// Detects Swift "namespace facade" types — public <c>struct</c>
     /// declarations whose only purpose is to scope a family of nested types.
+    /// (A caseless <c>enum</c> used the same way is not lifted; see
+    /// <see cref="IsNamespaceFacade(TypeDecl)"/>.)
     /// In Swift these look like:
     /// <code>
     /// public struct OuterFacade {           // outer namespace facade
@@ -15,8 +17,7 @@ namespace BindingsGeneration
     /// }
     /// </code>
     /// C# has a real <c>namespace</c> primitive. Emitting the facade as a
-    /// <c>partial class</c> (or, for caseless enums, a <c>static partial class</c>)
-    /// is structurally correct but forces consumers to either fully-qualify every
+    /// <c>partial class</c> is structurally correct but forces consumers to either fully-qualify every
     /// nested type or reach for <c>using static</c>, which conventionally signals
     /// member access not nested-type access. A faithful translation lifts the
     /// nested types into a real C# namespace under the parent module's namespace
@@ -28,11 +29,12 @@ namespace BindingsGeneration
     {
         /// <summary>
         /// Returns <c>true</c> when <paramref name="typeDecl"/> matches the
-        /// strict namespace-facade shape: a non-generic <c>StructDecl</c> or
-        /// <c>EnumDecl</c> with zero properties, zero methods (instance,
+        /// strict namespace-facade shape: a non-generic <c>StructDecl</c> with zero properties, zero methods (instance,
         /// static, or constructor), zero operators, zero subscripts, zero
-        /// non-marker protocol conformances, zero enum cases, and at least
-        /// one nested type. Stdlib marker conformances (<c>Swift.Copyable</c>,
+        /// non-marker protocol conformances, and at least one nested type.
+        /// A caseless <c>EnumDecl</c> never qualifies: it projects as a static
+        /// class whether or not it has members, so a member a newer SDK adds
+        /// does not move it from a namespace to a type. Stdlib marker conformances (<c>Swift.Copyable</c>,
         /// <c>Swift.Escapable</c>, <c>Swift.Sendable</c>, <c>Swift.SendableMetatype</c>,
         /// <c>Swift.BitwiseCopyable</c>) are filtered out before the count
         /// check — every Swift struct/enum has Copyable + Escapable implicitly,
@@ -103,17 +105,16 @@ namespace BindingsGeneration
             if (typeDecl is StructDecl structDecl && HasNonMarkerConformance(structDecl.Conformances))
                 return false;
 
-            // For enum: must be uninhabited (zero cases). A populated enum is
-            // a real value type and routes through EnumHandler's normal/simple-enum
-            // emission path. Same marker-filtered conformance rule as struct —
-            // a real Swift.Equatable / app-protocol conformance disqualifies.
-            if (typeDecl is EnumDecl enumDecl)
-            {
-                if (enumDecl.Cases.Count > 0)
-                    return false;
-                if (HasNonMarkerConformance(enumDecl.Conformances))
-                    return false;
-            }
+            // A caseless enum is never lifted: it always projects as a static class
+            // (EnumHandler.EmitNamespaceEnum), members or not. A newer SDK may give a
+            // namespace enum its first static member (RealityFoundation's `Audio`
+            // between Xcode 26.3 and 27.2), and a lifted namespace would then become a
+            // type: every nested type's CLR name changes (`Audio.X` to `Audio+X`), so a
+            // library compiled against one copy of a package cannot run with another
+            // copy, and the merge refuses the package. A static class keeps the same
+            // shape whichever members an SDK adds.
+            if (typeDecl is EnumDecl)
+                return false;
 
             return true;
         }

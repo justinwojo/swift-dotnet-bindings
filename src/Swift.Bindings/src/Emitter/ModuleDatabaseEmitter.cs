@@ -394,6 +394,8 @@ namespace BindingsGeneration
             {
                 writer.WriteStartElement("crossingCases");
                 writer.WriteAttributeString("slots", record.CrossingSlotCount.ToString(System.Globalization.CultureInfo.InvariantCulture));
+                if (record.CrossingNameKeyed)
+                    writer.WriteAttributeString("nameKeyed", "true");
                 foreach (var crossingCase in crossingCases)
                 {
                     writer.WriteStartElement("case");

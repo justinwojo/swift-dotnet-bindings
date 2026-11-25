@@ -175,8 +175,8 @@ clients read each case's tag from the case's exported "enum case" global (its ma
 `WC` suffix) when they build or test the case. A binding that numbered its `CaseTag` constants by
 declaration order would read and build other cases on an OS other than its SDK's, and its copies
 would disagree on the constants a library compiled against the oldest one holds. So the `CaseTag`
-constant of a non-frozen enum's case is derived from the case's name alone (31-bit FNV-1a, the next
-free value on a collision; `EnumDecl.GetCaseId`), the same in every copy, and the binding translates
+constant of a non-frozen enum's case is derived from the case's name alone (31-bit FNV-1a of its
+UTF-8 bytes; `EnumDecl.GetCaseId`), the same in every copy, and the binding translates
 between those identities and the running library's tags through `Swift.Runtime.SwiftEnumCaseMap`,
 which reads the case globals: the case discriminator maps the value witness tag to an identity (a
 case the binding does not name reads as `SwiftEnumCaseMap.UnknownCase`), and a no-payload case
@@ -185,13 +185,43 @@ library lacks. When the library loads but no case global resolves, the module wa
 library evolution and the declaration-order tags are the tags. A library the map cannot load by name
 (a binding whose calls resolve through another resolver) is searched for among the process's loaded
 images; with no case global there either, the map refuses (`DllNotFoundException`) rather than read
-declaration order. Two case names whose hashes collide
-take the next free value in name order, so a newer SDK adding a case whose hash collides with an
-existing case's can move the later name's constant: the merge's value check refuses that copy, so the
-collision cannot reach a consumer, and its fix is the generator's, not the package's. A `@frozen` enum's tag order is its ABI, so its constants stay
-its tags. Simple enums projected as C# enums keep their declaration-order constants: their crossings
-already go through the wrapper's case switch, and a constant that moves between copies is refused by
-the merge's value check.
+declaration order.
+
+Plain C# enums projected from non-frozen simple enums (no payloads, no raw value or an integral one
+the interface does not print, a C# underlying type of 32 bits or more) take the same name-keyed
+values (`EnumDecl.HasNameKeyedCaseValues`). Their crossings already go through the wrapper's case
+switch, which names every case, so that switch is the translation: only the constants change, and an
+inserted case renumbers none of them. A value the switch does not name still crosses as an unnamed
+value counted down from the top of the width, above every name-keyed constant (2^31). These enums
+keep their position: an `@frozen` enum (its order is its ABI), an `@objc` enum or one whose interface
+prints its raw values (the raw value is the constant), and one whose underlying type is narrower than
+32 bits (a byte cannot hold a name hash; a newer copy that renumbers it is refused by the merge).
+
+Two case names whose hashes collide form a collision group. A name whose hash no other case shares
+keeps its hash; each member of a collision group, in ordinal order of name and mangled name, takes
+the first salted hash of its own name (`name + "\0" + k`, k = 1, 2, …) that is no case's unsalted hash
+and no value already taken (`EnumDecl.AssignNameKeyedIds`). The rule reads only the colliding names,
+never case order, so a case a newer SDK adds moves an existing constant only if the new name's hash
+equals the existing name's (the two join a group) or equals a salted value already taken (about one
+chance in 2^31 per added case). A probing rule ("the next free value") would let any new name that
+hashes next to a group member shift it. The merge's compiled-in value check (SWIFTBIND138) refuses a
+copy whose constant moved and names the cause, so a residual collision never reaches a consumer.
+
+### Namespace enums
+
+A caseless Swift enum used as a namespace is always emitted as a C# static class, members or not
+(`NamespaceFacadeDetector` lifts only member-less structs to a C# namespace). A newer SDK may add a
+static member to the enum, and a lifted namespace would then become a type: every nested type's CLR
+name changes (`Outer.Inner` becomes `Outer+Inner`), so the merge refuses the copy as a removed type and
+a library compiled against the older copy fails to load the nested type under the newer one. As a
+static class the nested types keep one CLR name in every copy. A caseless enum with neither members
+nor nested types (an uninhabited marker) stays an empty C# enum, which a generic argument accepts.
+
+The same holds for the case-only collision rule (`CaseOnlyCollisionPass`): a top-level type whose name
+case-folds onto a container's is renamed, and a caseless enum with nested types counts as a container
+whatever members it has, so a member a newer SDK adds renames no sibling. A struct facade outranks it
+(a namespace and a type of one name cannot coexist), and of two such enums the one whose Swift name
+sorts first keeps the name.
 
 ## The gate
 
@@ -204,8 +234,10 @@ Apple-framework fixtures with its explicit TFMs: ProximityReader (iOS and Mac Ca
 SDK adds `Element.Name`, so a member is present in the 27.2 copies and absent in the 26.0 copy,
 WeatherKit (macOS and tvOS), and CaseOrder (iOS), a first-party Swift library
 (`build/scripts/multi-toolchain-fixtures/CaseOrder.swift`) each pairing builds with its own Xcode,
-whose Swift 6.4 build inserts enum cases ahead of existing ones, as an Apple SDK does between
-releases. Its copies merge only because their `CaseTag` constants do not follow case order. Matter
+whose Swift 6.4 build inserts enum cases ahead of existing ones and gives a caseless namespace enum
+its first static member, as an Apple SDK does between releases. Its copies merge only because their
+`CaseTag` and plain enum constants do not follow case order and the namespace enum is a static class
+in both. Matter
 (iOS) is the pure Objective-C fixture: its copies ship no natives, declare so, and bind none of the
 API its headers mark provisional (unavailable). The gate merges them with `SwiftBindingsMergePackages` and checks the
 layout, each copy's bytes against its contribution, the nuspec groups, the path budget and SWIFTBIND133.
@@ -215,9 +247,11 @@ a `ProjectReference`), checks each one's copy line, `project.assets.json` paths,
 identity and SDK, and SWIFTBIND132 verdict, and runs the apps. The versionless library also compiles
 calls into CaseOrder, case-tag comparisons included, against its oldest copy, and the app runs them
 against its own copy and that copy's library: each Swift-built case must read as its own `CaseTag`,
-and each managed-built case must reach Swift as itself. Controls that must fail with their own
-code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older
-copy), 137, 138 (M1–M8; M7 renumbers one CaseOrder `CaseTag` constant in the 27.2 copy, M8 makes a
-Matter copy declare natives it does not ship), 139 and 140.
+and each managed-built case must reach Swift as itself. The oldest pairing's library app runs a
+second time with only its `CaseOrder.framework` binary replaced by the Xcode 27 build (signed again),
+so the 26.0 copy's binding and wrapper meet the newest library. Controls that must fail with their own
+code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M8; M7 renumbers
+one CaseOrder `CaseTag` constant in the 27.2 copy, M8 makes a Matter copy declare natives it does
+not ship), 139 and 140.
 Receipts land in `artifacts/multi-toolchain-package/receipts/`.
 

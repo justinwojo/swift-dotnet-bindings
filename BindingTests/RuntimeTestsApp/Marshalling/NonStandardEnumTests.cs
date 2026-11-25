@@ -35,9 +35,10 @@ public class NonStandardEnumTests : TestBase
 
     public void TestFeatureFlagCaseValues()
     {
-        AssertEqual(FeatureFlag.Disabled, (FeatureFlag)(long)0, "Disabled is 0");
-        AssertEqual(FeatureFlag.Enabled, (FeatureFlag)(long)1, "Enabled is 1");
-        AssertEqual(FeatureFlag.Experimental, (FeatureFlag)(long)2, "Experimental is 2");
+        // Non-frozen and 64 bits wide: the constants are keyed by case name, not position.
+        AssertEqual(FeatureFlag.Disabled, (FeatureFlag)(long)NameKeyedCase.Of("disabled"), "Disabled is keyed by its name");
+        AssertEqual(FeatureFlag.Enabled, (FeatureFlag)(long)NameKeyedCase.Of("enabled"), "Enabled is keyed by its name");
+        AssertEqual(FeatureFlag.Experimental, (FeatureFlag)(long)NameKeyedCase.Of("experimental"), "Experimental is keyed by its name");
         TestLogger.Info("FeatureFlag case values passed");
     }
 
@@ -50,12 +51,12 @@ public class NonStandardEnumTests : TestBase
 
     /// <summary>
     /// Swift declares none=0, read=1, write=2, execute=4. A non-@objc enum's interface prints no
-    /// raw values, so the members are the case indices (execute is 3) and the raw value comes from
-    /// Swift through <c>ToRawValue</c>/<c>FromRawValue</c>.
+    /// raw values, so the members are keyed by case name and the raw value comes from Swift
+    /// through <c>ToRawValue</c>/<c>FromRawValue</c>.
     /// </summary>
     public void TestPermissionCaseValues()
     {
-        AssertEqual(Permission.Execute, (Permission)(uint)3, "Execute is case 3");
+        AssertEqual(Permission.Execute, (Permission)(uint)NameKeyedCase.Of("execute"), "Execute is keyed by its name");
         AssertEqual(0u, Permission.None.ToRawValue(), "None raw value is 0");
         AssertEqual(1u, Permission.Read.ToRawValue(), "Read raw value is 1");
         AssertEqual(2u, Permission.Write.ToRawValue(), "Write raw value is 2");

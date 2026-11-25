@@ -425,23 +425,8 @@ namespace BindingsGeneration
                 }
                 else if (baseDecl is EnumDecl enumDecl)
                 {
-                    // Namespace-facade short-circuit: a caseless public enum
-                    // with no member surface beyond nested types is the
-                    // canonical Swift "uninhabited enum as namespace" idiom
-                    // (e.g., `public enum Constants { struct Foo { … } }`).
-                    // Emit as a real C# nested namespace instead of the
-                    // default `static partial class` so consumers see a
-                    // first-class namespace rather than a member-access
-                    // container — a namespace facade must emit as a namespace, not a class.
-                    if (NamespaceFacadeDetector.IsNamespaceFacade(enumDecl))
-                    {
-                        NamespaceFacadeEmitter.Emit(
-                            csWriter, swiftWriter, enumDecl, conductor, typeDatabase, context,
-                            (decls, ctx) => HandleBaseDecl(csWriter, swiftWriter, decls, conductor, typeDatabase, ctx));
-                        RecordTopLevelSpan(enumDecl, spanStart);
-                        continue;
-                    }
-
+                    // A caseless enum is never lifted to a C# namespace (NamespaceFacadeDetector):
+                    // EnumHandler projects it as a static class, members or not.
                     if (conductor.TryGetTypeHandler(enumDecl, out var handler))
                     {
                         // Containment seam: an exception anywhere under this type's lowering

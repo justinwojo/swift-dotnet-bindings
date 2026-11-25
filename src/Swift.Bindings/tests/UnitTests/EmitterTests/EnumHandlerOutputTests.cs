@@ -460,8 +460,9 @@ public class EnumHandlerOutputTests
         var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.Contains("public enum Status : int", csOutput);
-        Assert.Contains("Active = 0,", csOutput);
-        Assert.Contains("Inactive = 1,", csOutput);
+        // Not @frozen: the constants are keyed by case name (EnumDecl.HasNameKeyedCaseValues).
+        Assert.Contains($"Active = {EnumDecl.NameKeyedCaseId("active")},", csOutput);
+        Assert.Contains($"Inactive = {EnumDecl.NameKeyedCaseId("inactive")},", csOutput);
         Assert.DoesNotMatch(@"class Status\b", csOutput);
         Assert.DoesNotContain("SwiftSafeHandle", csOutput);
     }
@@ -621,6 +622,152 @@ public class EnumHandlerOutputTests
         unsymbolled.Cases[1].MangledName = "";
         Assert.False(unsymbolled.HasNameKeyedCaseIds);
         Assert.Equal((uint)unsymbolled.GetCaseTag(unsymbolled.Cases[2]), unsymbolled.GetCaseId(unsymbolled.Cases[2]));
+    }
+
+    // Case names whose 31-bit FNV-1a values collide (711086688), and one whose value is the next
+    // integer: the earlier rule took the next free value in name order, so adding `atfef` beside the
+    // colliding pair moved `yicrz` from 711086689 to 711086690.
+    private static readonly string[] CollidingCaseNames = ["gtbxl", "yicrz"];
+    private const string NameHashingToTheProbedValue = "atfef";
+
+    private static EnumDecl CasesEnum(bool isFrozen, params string[] names)
+    {
+        var enumDecl = CreateEnumDecl("Mode", CreateModuleDecl("TestModule"), isFrozen);
+        foreach (var name in names)
+        {
+            var c = CreateCase(name);
+            c.MangledName = $"$s10TestModule4ModeO{name.Length}{name}yA2CmF";
+            enumDecl.Cases.Add(c);
+        }
+        return enumDecl;
+    }
+
+    private static Dictionary<string, uint> NameKeyedIds(EnumDecl enumDecl)
+        => enumDecl.Cases.ToDictionary(c => c.Name, c => enumDecl.GetCaseId(c));
+
+    [Fact]
+    public void CaseIds_ACaseAddedBesideACollisionKeepsEveryExistingValue()
+    {
+        Assert.Equal(EnumDecl.NameKeyedCaseId(CollidingCaseNames[0]), EnumDecl.NameKeyedCaseId(CollidingCaseNames[1]));
+        Assert.Equal(EnumDecl.NameKeyedCaseId(CollidingCaseNames[0]) + 1, EnumDecl.NameKeyedCaseId(NameHashingToTheProbedValue));
+
+        // A payload case makes the enum class-projected (CaseTag); the rule is the same for plain enums.
+        var older = CasesEnum(false, "plain", CollidingCaseNames[0], CollidingCaseNames[1]);
+        older.Cases[0].AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        var newer = CasesEnum(false, "plain", NameHashingToTheProbedValue, CollidingCaseNames[0], CollidingCaseNames[1]);
+        newer.Cases[0].AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        Assert.True(older.HasNameKeyedCaseIds);
+
+        var before = NameKeyedIds(older);
+        var after = NameKeyedIds(newer);
+        foreach (var (name, id) in before)
+            Assert.Equal(id, after[name]);
+        Assert.Equal(EnumDecl.NameKeyedCaseId(NameHashingToTheProbedValue), after[NameHashingToTheProbedValue]);
+        Assert.Equal(after.Count, after.Values.Distinct().Count());
+    }
+
+    [Fact]
+    public void CaseIds_ANameHashingToZeroTakesAnotherValue_SoDefaultNamesNoCase()
+    {
+        const string hashesToZero = "rdklaij";
+        Assert.Equal(0u, EnumDecl.NameKeyedCaseId(hashesToZero));
+
+        var ids = NameKeyedIds(CasesEnum(false, hashesToZero, "plain"));
+        Assert.NotEqual(0u, ids[hashesToZero]);
+        Assert.Equal(EnumDecl.NameKeyedCaseId("plain"), ids["plain"]);
+        Assert.Equal(ids, NameKeyedIds(CasesEnum(false, "plain", "added", hashesToZero)).Where(p => p.Key != "added").ToDictionary());
+    }
+
+    [Fact]
+    public void CaseIds_CollidingNamesTakeValuesNoCaseNameHashesTo_WhateverTheCaseOrder()
+    {
+        var a = CasesEnum(false, CollidingCaseNames[0], "plain", CollidingCaseNames[1]);
+        var b = CasesEnum(false, CollidingCaseNames[1], CollidingCaseNames[0], "plain");
+        var ids = NameKeyedIds(a);
+        Assert.Equal(ids, NameKeyedIds(b));
+        var bases = a.Cases.Select(c => EnumDecl.NameKeyedCaseId(c.Name)).ToHashSet();
+        foreach (var name in CollidingCaseNames)
+        {
+            Assert.DoesNotContain(ids[name], bases);
+            Assert.True(ids[name] <= 0x7FFF_FFFFu);
+        }
+        Assert.NotEqual(ids[CollidingCaseNames[0]], ids[CollidingCaseNames[1]]);
+        // A name nothing collides with keeps its own hash.
+        Assert.Equal(EnumDecl.NameKeyedCaseId("plain"), ids["plain"]);
+    }
+
+    private static Dictionary<string, long> SimpleEnumValues(string csOutput, string enumName)
+    {
+        var body = Regex.Match(csOutput, $@"public enum {enumName} : \w+\s*\{{(?<body>[^}}]*)\}}").Groups["body"].Value;
+        return Regex.Matches(body, @"(?<name>\w+) = (?<value>-?\d+),")
+            .ToDictionary(m => m.Groups["name"].Value, m => long.Parse(m.Groups["value"].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    [Fact]
+    public void Emit_NonFrozenSimpleEnum_ValuesAreKeyedByCaseName_AndTheWrapperSwitchUsesThem()
+    {
+        // A newer SDK inserts a case before `late`: a library compiled against the older copy holds
+        // Mode.Late as a literal, so its value must not depend on the cases around it.
+        var older = SimpleEnumValues(EmitEnum(CasesEnum(false, "first", "late"), CreateTypeDatabase()).Item1, "Mode");
+        var (csOutput, swiftOutput) = EmitEnum(CasesEnum(false, "first", "inserted", "late"), CreateTypeDatabase());
+        var newer = SimpleEnumValues(csOutput, "Mode");
+        Assert.Equal(["First", "Late"], older.Keys.Order(StringComparer.Ordinal));
+        foreach (var (name, value) in older)
+            Assert.Equal(value, newer[name]);
+        Assert.Equal(EnumDecl.NameKeyedCaseId("late"), (uint)newer["Late"]);
+        Assert.Equal(EnumDecl.NameKeyedCaseId("inserted"), (uint)newer["Inserted"]);
+        Assert.Contains("identifies its Swift case by name", csOutput);
+
+        // The wrapper maps each constant to its case and back by name, and keeps the unnamed values of
+        // unknown cases above every 31-bit constant.
+        Assert.Contains($"case {EnumDecl.NameKeyedCaseId("late")}: return .late as", swiftOutput);
+        Assert.Contains($"case .late: return {EnumDecl.NameKeyedCaseId("late")}", swiftOutput);
+        Assert.Contains("slots: 2147483648", swiftOutput);
+        Assert.DoesNotContain("slots: 3,", swiftOutput);
+    }
+
+    [Theory]
+    [InlineData(true, null, false)]   // @frozen: the case order is the ABI
+    [InlineData(false, "UInt8", false)] // 8-bit: a name-derived value does not fit
+    [InlineData(false, "Int16", false)] // 16-bit
+    [InlineData(false, "Int", false)]   // @objc Int: crosses as its raw value
+    [InlineData(false, "UInt32", true)]
+    [InlineData(false, "Int", true)]    // non-@objc Int: crosses by case identity
+    [InlineData(false, null, true)]
+    public void SimpleEnum_NameKeyedValues_OnlyForNonFrozenCaseIdentityEnumsOfAtLeast32Bits(bool isFrozen, string? rawType, bool expected)
+    {
+        var enumDecl = CasesEnum(isFrozen, "first", "second", "third");
+        enumDecl.RawValueTypeName = rawType;
+        // The @objc row is the only one whose raw type is "Int" and that expects declaration order.
+        enumDecl.IsObjC = rawType == "Int" && !expected;
+        Assert.Equal(expected, enumDecl.HasNameKeyedCaseValues);
+        var values = enumDecl.Cases.Select(enumDecl.GetCaseMarshalScalar).ToList();
+        if (expected)
+            Assert.Equal(enumDecl.Cases.Select(c => (long)EnumDecl.NameKeyedCaseId(c.Name)), values);
+        else
+            Assert.Equal([0L, 1L, 2L], values);
+    }
+
+    [Fact]
+    public void Emit_CaselessEnumWithOnlyNestedTypes_IsAStaticClass()
+    {
+        // RealityFoundation's `Audio` holds only nested types in one SDK and gains a static member in
+        // the next, which has always made it a static class: the member-less copy must be one too, so
+        // both copies give the nested types the same CLR name (`Audio+Mode`).
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var audio = CreateEnumDecl("Audio", moduleDecl, isFrozen: false);
+        var mode = CreateEnumDecl("Mode", moduleDecl, isFrozen: false);
+        mode.SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio.Mode");
+        mode.ParentDecl = audio;
+        mode.Cases.Add(CreateCase("spatial"));
+        mode.Cases.Add(CreateCase("ambient"));
+        audio.Types.Add(mode);
+
+        var (csOutput, _) = EmitEnum(audio, CreateTypeDatabase());
+        Assert.Contains("public static partial class Audio", csOutput);
+        Assert.DoesNotContain("namespace Audio", csOutput);
+        var classStart = csOutput.IndexOf("public static partial class Audio", StringComparison.Ordinal);
+        Assert.True(csOutput.IndexOf("public enum Mode", StringComparison.Ordinal) > classStart, csOutput);
     }
 
     [Fact]
@@ -7577,7 +7724,8 @@ public class EnumHandlerOutputTests
         var (csOutput, swiftOutput) = EmitEnum(enumDecl, typeDatabase);
 
         Assert.DoesNotContain("Hidden", csOutput);
-        Assert.Matches(@"Dark\s*=\s*2", csOutput);
+        // Not @frozen: Dark's constant is keyed by its name, so the hidden case before it moves nothing.
+        Assert.Matches($@"Dark\s*=\s*{EnumDecl.NameKeyedCaseId("dark")}", csOutput);
         var fromRaw = swiftOutput[swiftOutput.IndexOf("@_cdecl(\"SBW_TestModule_Shade_FromRawValue\")", StringComparison.Ordinal)..];
         Assert.Matches(@"return Swift\.Int64\(truncatingIfNeeded: __sbIndexOf_TestModule_Shade_[0-9A-F]+\(result\)\)", fromRaw);
         Assert.DoesNotContain(".hidden", fromRaw);

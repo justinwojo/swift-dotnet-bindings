@@ -22,6 +22,8 @@ public sealed record SimpleEnumCrossingCase(string SwiftName, long Value, string
 /// list, whose values then cross as the in-memory tag (<see cref="LegacyTagCount"/>) as they always did.
 /// <see cref="SwiftTypeName"/> is the enum's module-qualified Swift name, which the helpers are spelled
 /// with whatever a call site calls the type (an unqualified name can be ambiguous in the wrapper).
+/// <see cref="NameKeyed"/> says the constants are keyed by case name (<see cref="EnumDecl.HasNameKeyedCaseValues"/>)
+/// rather than declaration indices below <see cref="SlotCount"/>.
 /// </summary>
 public sealed record SimpleEnumCaseMap(
     IReadOnlyList<SimpleEnumCrossingCase>? Cases,
@@ -30,7 +32,16 @@ public sealed record SimpleEnumCaseMap(
     IReadOnlyList<AvailabilityAnnotation>? Availability,
     int WidthBits,
     int LegacyTagCount,
-    string? SwiftTypeName = null);
+    string? SwiftTypeName = null,
+    bool NameKeyed = false)
+{
+    /// <summary>
+    /// The bound every published constant lies below, which the unnamed values of cases the binding
+    /// does not know stay at or above: the slot count of declaration-index constants, and 2^31 for
+    /// name-keyed ones (31-bit values, <see cref="EnumDecl.AssignNameKeyedIds"/>).
+    /// </summary>
+    public long ConstantBound => NameKeyed ? 1L << 31 : SlotCount;
+}
 
 /// <summary>
 /// The one mapping between a simple enum's C# constant and its Swift case, shared by every site
@@ -45,8 +56,10 @@ public sealed record SimpleEnumCaseMap(
 /// enum, including a plain Swift <c>enum E: Int</c> whose raw values its interface does not print.
 /// </para>
 /// <para>
-/// <b>Case identity.</b> The C# constant of a case is its declaration-order index in the interface
-/// the binding was generated from. Swift's in-memory tag of the same case agrees with it only when
+/// <b>Case identity.</b> The C# constant of a case is derived from its name for an enum that is not
+/// <c>@frozen</c> (<see cref="EnumDecl.HasNameKeyedCaseValues"/>), so every copy of a package built
+/// from a different SDK gives it the same value, and is its declaration-order index in the interface
+/// the binding was generated from otherwise (a <c>@frozen</c> enum, or one narrower than 32 bits). Swift's in-memory tag of the same case agrees with it only when
 /// the binary has exactly those cases in that order, which a library-evolution module does not
 /// promise: an <c>@_spi</c> or otherwise hidden case shifts every later tag, and a newer OS release
 /// may insert a case. So the wrapper never loads a constant as enum bytes. Each enum gets one helper
@@ -61,8 +74,8 @@ public sealed record SimpleEnumCaseMap(
 /// becomes a known case. It reaches C# as an unnamed value that round-trips: the bit pattern
 /// <c>mask - 1 - rank</c> at the width of the C# enum's underlying type (<c>mask</c> all ones),
 /// where <c>rank</c> counts the running binary's unknown cases below it in tag order. The codes
-/// count down from the top of the unsigned range and the published constants up from zero, so the
-/// two never meet while any unused pattern is left; <c>Enum.IsDefined</c> is false for such a value.
+/// count down from the top of the unsigned range and the published constants lie below
+/// <see cref="SimpleEnumCaseMap.ConstantBound"/>, so the two never meet while any unused pattern is left; <c>Enum.IsDefined</c> is false for such a value.
 /// Passed back into Swift, it becomes the same case again: the helper reads the enum's runtime
 /// metadata (no payload cases, its empty-case count), walks the binary's tags to the unknown case
 /// of that rank, and refuses anything else the way the site refuses an invalid constant. The value
@@ -151,7 +164,8 @@ internal static class SimpleEnumCrossing
             record.AvailabilityAnnotations,
             UnderlyingWidthBits(EnumHandler.GetCSharpEnumUnderlyingType(record.RawValueTypeName)),
             record.CaseTagCount,
-            record.SwiftTypeName.ModuleQualifiedName);
+            record.SwiftTypeName.ModuleQualifiedName,
+            record.CrossingNameKeyed);
     }
 
     /// <summary>
@@ -169,7 +183,8 @@ internal static class SimpleEnumCrossing
             AvailabilityHelpers.MergeAvailabilityFromAncestors(null, enumDecl),
             UnderlyingWidthBits(EnumHandler.GetCSharpEnumUnderlyingType(enumDecl.RawValueTypeName)),
             enumDecl.Cases.Count,
-            enumDecl.SwiftTypeName.ModuleQualifiedName);
+            enumDecl.SwiftTypeName.ModuleQualifiedName,
+            enumDecl.HasNameKeyedCaseValues);
     }
 
     /// <summary>The bit width of a C# enum underlying type name.</summary>
@@ -383,7 +398,7 @@ internal static class SimpleEnumCrossing
                 ? $"    case {c.Value}: return {caseRef}\n"
                 : $"    case {c.Value}: if #available({c.AvailableClause}) {{ return {caseRef} }} else {{ return nil }}\n");
         }
-        sb.Append($"    default: return {SharedHelpersToken}(value, slots: {map.SlotCount}, mask: {maskLiteral}, as: {LocalEnumAlias}.self, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
+        sb.Append($"    default: return {SharedHelpersToken}(value, slots: {map.ConstantBound}, mask: {maskLiteral}, as: {LocalEnumAlias}.self, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
         sb.Append("    }\n");
         sb.Append("}\n\n");
 
@@ -406,7 +421,7 @@ internal static class SimpleEnumCrossing
         sb.Append(availability);
         sb.Append($"fileprivate func {IndexOfPrefix}{id}(_ value: {swiftEnumType}) -> Swift.Int64 {{\n");
         sb.Append($"    if let index = {KnownIndexOfPrefix}{id}(value) {{ return index }}\n");
-        sb.Append($"    return {SharedHelpersToken}Code(value, slots: {map.SlotCount}, mask: {maskLiteral}, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
+        sb.Append($"    return {SharedHelpersToken}Code(value, slots: {map.ConstantBound}, mask: {maskLiteral}, knownIndexOf: {KnownIndexOfPrefix}{id})\n");
         sb.Append("}\n\n");
         return sb.ToString();
     }

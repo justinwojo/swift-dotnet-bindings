@@ -22,12 +22,14 @@ public class CaseIdentityEnumTests : TestBase
 
     #region A hidden case before the visible ones
 
-    public void TestTheConstantsCountOnlyTheCasesTheInterfacePublishes()
+    public void TestTheConstantsAreKeyedByCaseNameNotPosition()
     {
-        // The public interface omits the @_spi case, so the binary's tags (first = 1, second = 2)
-        // are not the binding's constants: a crossing by tag would read First as the hidden case.
-        AssertEqual(0, (int)CaseShift.First, "CaseShift.First is the first published case");
-        AssertEqual(1, (int)CaseShift.Second, "CaseShift.Second is the second published case");
+        // CaseShift is not @frozen, so a newer SDK may insert a case anywhere: each constant is
+        // derived from its case's name, never from a position. The binary's tags (hidden = 0,
+        // first = 1, second = 2) are not the constants either, so a crossing by tag would read
+        // First as the hidden case.
+        AssertEqual(NameKeyedCase.Of("first"), (int)CaseShift.First, "CaseShift.First is keyed by its name");
+        AssertEqual(NameKeyedCase.Of("second"), (int)CaseShift.Second, "CaseShift.Second is keyed by its name");
     }
 
     public void TestVisibleCasesCrossAsThemselves()
@@ -63,11 +65,11 @@ public class CaseIdentityEnumTests : TestBase
     public void TestAnOptionalArgumentThatNamesNoCaseIsRefused()
     {
         // The Optional is built in Swift's own layout through the enum's case codec, which names
-        // the case a value means; a value that names none (past the published cases, or one whose
-        // low byte would alias a case) is refused before Swift.
-        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)2), "the nil byte");
-        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)254), "the hidden code's low byte");
-        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)257), "Second's low byte");
+        // the case a value means; a value that names none (a small value such as Swift's nil tag,
+        // or one whose low byte matches a case's constant) is refused before Swift.
+        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)2), "a small value that names no case");
+        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)(NameKeyedCase.Of("first") ^ 0x100)), "First's low byte");
+        AssertThrows<ArgumentOutOfRangeException>(() => Functions.CaseShiftNameOrNone((CaseShift)(NameKeyedCase.Of("second") ^ 0x100)), "Second's low byte");
     }
 
     public void TestTheEnumsOwnMembers()
@@ -141,7 +143,7 @@ public class CaseIdentityEnumTests : TestBase
         foreach (var index in new[] { 0, 1, 127, 128, 255, 256, 257, 299 })
         {
             var value = Functions.WideCase(index);
-            AssertEqual(index, (int)value, $"case {index} returns as constant {index}");
+            AssertEqual(NameKeyedCase.Of($"c{index}"), (int)value, $"case {index} returns as the constant its name keys");
             AssertEqual((nint)index, Functions.WideIndex(value), $"constant {index} reaches Swift as case {index}");
         }
         AssertEqual((nint)299, Functions.WideIndex(WideCases.C299), "the last case");

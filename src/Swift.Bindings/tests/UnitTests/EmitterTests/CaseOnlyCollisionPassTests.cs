@@ -402,13 +402,14 @@ public class CaseOnlyCollisionPassTests
     // ---- Type arm ----------------------------------------------------------------------------
 
     [Fact]
-    public void TypeArm_TypeCollidingWithANamespaceFacadeByCase_RenamesTheTypeNotTheFacade()
+    public void TypeArm_TypeCollidingWithACaselessEnumContainerByCase_RenamesTheTypeNotTheContainer()
     {
         var typeDatabase = new TypeDatabase();
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         var moduleDecl = CreateModuleDecl();
 
-        // Facade: member-free enum with a nested type → emits as a C# namespace.
+        // Container: a caseless enum with a nested type. It is a static class, and every nested
+        // type and cross-module reference is spelled under its name.
         var facadeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit");
         var facade = CreateEnumDecl("ScanKit", facadeSwiftName, moduleDecl);
         var facadeNested = CreateStructDecl("Region",
@@ -448,6 +449,220 @@ public class CaseOnlyCollisionPassTests
         Assert.True(typeDatabase.TryGetTypeRecord(siblingNested.SwiftTypeName, out var cascaded));
         Assert.Equal($"SCANKit{NameCollisionPolicy.AggregateTypeSuffix}.Detail",
             cascaded!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_TypeCollidingWithAStructFacadeByCase_RenamesTheTypeNotTheFacade()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // A member-free struct with a nested type is lifted to a C# namespace.
+        var facadeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit");
+        var facade = CreateStructDecl("ScanKit", facadeSwiftName, moduleDecl);
+        var facadeNested = CreateStructDecl("Region",
+            SwiftTypeName.FromModuleQualifiedName("TestModule.ScanKit.Region"), moduleDecl);
+        facadeNested.ParentDecl = facade;
+        facade.Types.Add(facadeNested);
+        RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Struct);
+
+        var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.SCANKit");
+        var sibling = CreateStructDecl("SCANKit", siblingSwiftName, moduleDecl);
+        sibling.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, siblingSwiftName, "SCANKit", TypeRecordKind.Struct);
+
+        moduleDecl.Types.Add(facade);
+        moduleDecl.Types.Add(sibling);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(siblingSwiftName, out var renamed));
+        Assert.Equal($"SCANKit{NameCollisionPolicy.AggregateTypeSuffix}", renamed!.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(facadeSwiftName, out var untouched));
+        Assert.Equal("ScanKit", untouched!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_CaselessEnumWithAStaticMember_StillKeepsItsNameOverASiblingOfTheSameCSharpName()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // A namespace enum that a newer SDK gave a static member: the sibling it collides with
+        // is renamed the same way in every copy, member or not.
+        var containerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var container = CreateEnumDecl("Audio", containerSwiftName, moduleDecl);
+        var revision = CreateProperty("revision");
+        revision.IsStatic = true;
+        container.Properties.Add(revision);
+        var nested = CreateStructDecl("Mixer",
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Audio.Mixer"), moduleDecl);
+        nested.ParentDecl = container;
+        container.Types.Add(nested);
+        RegisterType(module, containerSwiftName, "Audio", TypeRecordKind.Enum);
+
+        // `audio` projects to the same C# leaf `Audio`; two types of one name would not compile.
+        var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.audio");
+        var sibling = CreateStructDecl("audio", siblingSwiftName, moduleDecl);
+        sibling.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, siblingSwiftName, "Audio", TypeRecordKind.Struct);
+
+        moduleDecl.Types.Add(container);
+        moduleDecl.Types.Add(sibling);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(siblingSwiftName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.AggregateTypeSuffix}", renamed!.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(containerSwiftName, out var untouched));
+        Assert.Equal("Audio", untouched!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_CaselessEnumContainerCollidingWithAStructFacade_IsTheOneThatMoves()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `struct Audio` is lifted to a C# namespace; `enum audio` is a static class `Audio`. A
+        // namespace and a type of one name cannot coexist, so the enum moves.
+        var facadeSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var facade = CreateStructDecl("Audio", facadeSwiftName, moduleDecl);
+        var facadeNested = CreateStructDecl("Mixer",
+            SwiftTypeName.FromModuleQualifiedName("TestModule.Audio.Mixer"), moduleDecl);
+        facadeNested.ParentDecl = facade;
+        facade.Types.Add(facadeNested);
+        RegisterType(module, facadeSwiftName, "Audio", TypeRecordKind.Struct);
+
+        var containerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.audio");
+        var container = CreateEnumDecl("audio", containerSwiftName, moduleDecl);
+        var revision = CreateProperty("revision");
+        revision.IsStatic = true;
+        container.Properties.Add(revision);
+        var containerNested = CreateStructDecl("Track",
+            SwiftTypeName.FromModuleQualifiedName("TestModule.audio.Track"), moduleDecl);
+        containerNested.ParentDecl = container;
+        container.Types.Add(containerNested);
+        RegisterType(module, containerSwiftName, "Audio", TypeRecordKind.Enum);
+
+        moduleDecl.Types.Add(facade);
+        moduleDecl.Types.Add(container);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(containerSwiftName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(facadeSwiftName, out var untouched));
+        Assert.Equal("Audio", untouched!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_UninhabitedMarkerEnum_DisplacesNoSibling()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `enum TOKEN {}` is an empty C# enum with nothing spelled under it; C# tells it apart
+        // from `Token`, so a newer SDK adding it renames nothing that shipped.
+        var markerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.TOKEN");
+        var marker = CreateEnumDecl("TOKEN", markerSwiftName, moduleDecl);
+        RegisterType(module, markerSwiftName, "TOKEN", TypeRecordKind.Enum);
+
+        var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Token");
+        var sibling = CreateStructDecl("Token", siblingSwiftName, moduleDecl);
+        sibling.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, siblingSwiftName, "Token", TypeRecordKind.Struct);
+
+        moduleDecl.Types.Add(marker);
+        moduleDecl.Types.Add(sibling);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(siblingSwiftName, out var siblingRecord));
+        Assert.Equal("Token", siblingRecord!.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(markerSwiftName, out var markerRecord));
+        Assert.Equal("TOKEN", markerRecord!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_TwoCaselessEnumContainers_TheOrdinallyFirstSwiftNameKeepsTheName()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        EnumDecl Container(string name, bool withStaticMember)
+        {
+            var swiftName = SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}");
+            var container = CreateEnumDecl(name, swiftName, moduleDecl);
+            if (withStaticMember)
+            {
+                var revision = CreateProperty("revision");
+                revision.IsStatic = true;
+                container.Properties.Add(revision);
+            }
+            var nested = CreateStructDecl("Mode",
+                SwiftTypeName.FromModuleQualifiedName($"TestModule.{name}.Mode"), moduleDecl);
+            nested.ParentDecl = container;
+            container.Types.Add(nested);
+            RegisterType(module, swiftName, "Audio", TypeRecordKind.Enum);
+            return container;
+        }
+
+        // Declared second and member-less, `Audio` still holds the name: the rule reads the Swift
+        // names, not declaration order or members, so an SDK adding a member moves nothing.
+        var lower = Container("audio", withStaticMember: true);
+        var upper = Container("Audio", withStaticMember: false);
+        moduleDecl.Types.Add(lower);
+        moduleDecl.Types.Add(upper);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lower.SwiftTypeName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+        Assert.True(typeDatabase.TryGetTypeRecord(upper.SwiftTypeName, out var untouched));
+        Assert.Equal("Audio", untouched!.CSharpTypeName.Name);
+    }
+
+    [Fact]
+    public void TypeArm_SpiCaselessEnumContainer_DisplacesNoPublicSibling()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // An @_spi type is not emitted, so it cannot take a public type's name from it.
+        var spiSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.TOKEN");
+        var spi = CreateEnumDecl("TOKEN", spiSwiftName, moduleDecl);
+        spi.IsSpiProtected = true;
+        var nested = CreateStructDecl("Part",
+            SwiftTypeName.FromModuleQualifiedName("TestModule.TOKEN.Part"), moduleDecl);
+        nested.ParentDecl = spi;
+        spi.Types.Add(nested);
+        RegisterType(module, spiSwiftName, "TOKEN", TypeRecordKind.Enum);
+
+        var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Token");
+        var sibling = CreateStructDecl("Token", siblingSwiftName, moduleDecl);
+        sibling.Properties.Add(CreateProperty("identifier"));
+        RegisterType(module, siblingSwiftName, "Token", TypeRecordKind.Struct);
+
+        moduleDecl.Types.Add(spi);
+        moduleDecl.Types.Add(sibling);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(siblingSwiftName, out var siblingRecord));
+        Assert.Equal("Token", siblingRecord!.CSharpTypeName.Name);
     }
 
     [Fact]
@@ -496,7 +711,7 @@ public class CaseOnlyCollisionPassTests
         facade.Types.Add(facadeNested);
         RegisterType(module, facadeSwiftName, "ScanKit", TypeRecordKind.Enum);
 
-        // A populated enum is a real value type, not a facade — and it is an enum, so the
+        // A populated enum is a real value type, not a container — and it is an enum, so the
         // kind-aware suffix is Kind.
         var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.SCANKit");
         var sibling = CreateEnumDecl("SCANKit", siblingSwiftName, moduleDecl);

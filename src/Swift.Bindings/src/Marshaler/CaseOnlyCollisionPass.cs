@@ -10,7 +10,7 @@ namespace BindingsGeneration;
 /// <summary>
 /// Pre-emission pass for the two case-only collision shapes in
 /// <see cref="NameCollisionPolicy"/>: a type whose emitted name differs only by case from a
-/// sibling Swift container that emits as a C# NAMESPACE, and two sibling members whose Swift
+/// sibling Swift container (a C# namespace, or a caseless enum's static class), and two sibling members whose Swift
 /// names differ only by case and therefore collapse onto one C# identifier.
 ///
 /// <para>Swift identifiers are case-sensitive and its libraries use that freely (<c>url</c>
@@ -125,27 +125,38 @@ public static class CaseOnlyCollisionPass
     }
 
     /// <summary>
-    /// Type arm — a top-level type whose emitted leaf matches a sibling namespace facade's leaf
+    /// Type arm — a top-level type whose emitted leaf matches a sibling container's leaf
     /// case-insensitively is renamed with the same kind-aware suffix the nested-type scheme uses.
-    /// The FACADE keeps its name: it is a namespace segment for every type declared inside it and
-    /// is spelled that way in every cross-module reference, so renaming it would cascade over the
-    /// whole subtree to fix a collision that only involves one sibling.
+    /// A container is a namespace facade (a C# namespace) or a caseless enum with nested types (a
+    /// static class). The CONTAINER keeps its name: every type declared inside it and every
+    /// cross-module reference is spelled under it, so renaming it would cascade over the whole
+    /// subtree to fix a collision that only involves one sibling. A caseless enum counts whatever
+    /// members it has, so a static member a newer SDK gives it does not change which sibling
+    /// moves. When a facade and a caseless enum container collide, the enum moves: a namespace
+    /// and a type of one name cannot coexist, and the facade is the one its subtree is spelled
+    /// under as a namespace. When two caseless enum containers collide, the one whose Swift name
+    /// sorts first (ordinal) keeps the name, a rule neither enum's members can change. Facades
+    /// never move: two namespaces of one name are one namespace.
     /// </summary>
     private static void ApplyNamespaceFacadeCaseRenames(ModuleDecl moduleDecl, ITypeDatabase typeDatabase)
     {
-        // Facades are top-level by construction (NamespaceFacadeDetector rejects nested ones), so
-        // the collision is between module-scope siblings and this arm never needs to recurse.
-        var facadeLeaves = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var candidates = new List<TypeDecl>();
+        // Facades are top-level by construction (NamespaceFacadeDetector rejects nested ones), and
+        // the arm compares module-scope siblings only, caseless enums included, so it never recurses.
+        // Each leaf records the container that holds it: the highest rank, then the ordinally
+        // first Swift name. Every other non-facade type on that leaf moves.
+        var holders = new Dictionary<string, (TypeDecl Type, int Rank)>(StringComparer.OrdinalIgnoreCase);
         foreach (var typeDecl in moduleDecl.Types)
         {
-            if (NamespaceFacadeDetector.IsNamespaceFacade(typeDecl))
-                facadeLeaves.Add(GetEmittedLeaf(typeDecl, typeDatabase));
-            else
-                candidates.Add(typeDecl);
+            var rank = ContainerRank(typeDecl);
+            if (rank == 0)
+                continue;
+            var leaf = GetEmittedLeaf(typeDecl, typeDatabase);
+            if (!holders.TryGetValue(leaf, out var held) || rank > held.Rank
+                || rank == held.Rank && string.CompareOrdinal(typeDecl.Name, held.Type.Name) < 0)
+                holders[leaf] = (typeDecl, rank);
         }
 
-        if (facadeLeaves.Count == 0 || candidates.Count == 0)
+        if (holders.Count == 0)
             return;
 
         // Case-insensitive so the replacement leaf cannot itself land on a sibling that differs
@@ -154,10 +165,12 @@ public static class CaseOnlyCollisionPass
         foreach (var typeDecl in moduleDecl.Types)
             takenNames.Add(GetEmittedLeaf(typeDecl, typeDatabase));
 
-        foreach (var typeDecl in candidates)
+        foreach (var typeDecl in moduleDecl.Types)
         {
+            if (ContainerRank(typeDecl) == FacadeRank)
+                continue;
             var leaf = GetEmittedLeaf(typeDecl, typeDatabase);
-            if (!facadeLeaves.Contains(leaf))
+            if (!holders.TryGetValue(leaf, out var holder) || ReferenceEquals(holder.Type, typeDecl))
                 continue;
             if (!typeDatabase.TryGetTypeRecord(typeDecl.SwiftTypeName, out var record))
                 continue;
@@ -188,6 +201,24 @@ public static class CaseOnlyCollisionPass
             NameProvider.CascadeTypeRename(typeDecl, oldCSharpName, newCSharpName, @namespace, typeDatabase);
         }
     }
+
+    private const int FacadeRank = 2;
+    private const int EnumContainerRank = 1;
+
+    /// <summary>
+    /// How strongly a top-level type holds its name against a sibling that case-folds onto it:
+    /// a namespace facade most, then a caseless enum with nested types (members or not), then
+    /// nothing. A caseless enum without nested types has no subtree spelled under its name, and an
+    /// uninhabited marker is an empty C# enum, so neither displaces a sibling; nor does an
+    /// <c>@_spi</c> type, which is not emitted.
+    /// </summary>
+    private static int ContainerRank(TypeDecl typeDecl) => typeDecl switch
+    {
+        { IsSpiProtected: true } => 0,
+        _ when NamespaceFacadeDetector.IsNamespaceFacade(typeDecl) => FacadeRank,
+        EnumDecl { Cases.Count: 0 } enumDecl when enumDecl.Types.Count > 0 => EnumContainerRank,
+        _ => 0,
+    };
 
     private static string GetEmittedLeaf(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
