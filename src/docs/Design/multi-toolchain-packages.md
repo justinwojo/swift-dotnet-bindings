@@ -233,6 +233,14 @@ and of two such enums the one whose Swift name sorts first keeps the name. The r
 steps over its own members' names (CS0542), and an `@_spi` type, which is not emitted, neither reserves
 a suffix nor takes one.
 
+A nested type named like its container (`Outer.Outer`, or `Outer.outer`, whose C# leaf is `Outer`) is
+CS0542 in every container, so it takes the kind-aware suffix (`Outer.OuterInfo`, `Outer.OuterKind`).
+The new name reads only the container's name, the nested type's kind, its sibling nested types and
+its own members: a container member a newer SDK adds on that name yields with `Value` instead of
+moving the type. Enum case names are stable against `@_spi` cases the same way: public cases take
+their C# names first, so an `@_spi` case a newer SDK inserts ahead of a public one moves neither that
+case nor a sibling type renamed around it.
+
 ## The gate
 
 `nuke binding-tests --multi-toolchain-package` (`Build.BindingTests.MultiToolchainPackage.cs`, driver

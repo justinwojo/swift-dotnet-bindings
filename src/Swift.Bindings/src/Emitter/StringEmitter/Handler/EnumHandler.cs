@@ -832,6 +832,10 @@ namespace BindingsGeneration
             var propertyNames = new HashSet<string>(enumDecl.Properties.Where(p => p.IsStatic).Select(p =>
                 NameProvider.GetFinalMemberName(
                     NameProvider.GetPropertyName(p, enumDecl), propertyRenames)));
+            // A static method and a nested type of one name are CS0102 here too: reserve the
+            // nested type's EMITTED leaf, as the struct, class and case-bearing enum paths do.
+            foreach (var nestedType in enumDecl.Types)
+                propertyNames.Add(NameProvider.GetEmittedNestedTypeLeafName(nestedType, typeDatabase));
             // The native-width companions the property pass just placed are properties too.
             NameProvider.AddNativeWidthCompanionNames(enumDecl, propertyNames);
             base.HandleBaseDecl(csWriter, swiftWriter, enumDecl.Methods.Where(m => !m.IsConstructor && m.MethodType == MethodType.Static).ToList(), conductor, typeDatabase, childContext, propertyNames);

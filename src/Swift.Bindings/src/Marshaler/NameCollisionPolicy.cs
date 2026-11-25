@@ -15,9 +15,11 @@ namespace BindingsGeneration;
 public enum NameCollisionScheme
 {
     /// <summary>
-    /// A nested type collides (CS0102) with a sibling property whose type IS that nested type.
+    /// A nested type collides (CS0102) with a sibling property whose type IS that nested type,
+    /// or is named like its enclosing type (CS0542, <c>Outer.Outer</c>).
     /// The <b>type</b> is renamed with a kind-aware semantic suffix — enum → <c>Kind</c>,
-    /// struct/class → <c>Info</c> — so the consumer-facing property keeps its natural name.
+    /// struct/class → <c>Info</c> — so the consumer-facing property, or the container, keeps its
+    /// natural name.
     /// </summary>
     NestedTypeKindSuffix,
 

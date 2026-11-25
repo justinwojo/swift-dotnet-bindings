@@ -47,23 +47,85 @@ public static class SwiftPackageArchive
             .ToList();
 
     /// <summary>
-    /// Declares the library product <paramref name="product"/> dynamic in a manifest's text. A
-    /// product with no <c>type:</c> gains <c>type: .dynamic</c>; any other type argument
-    /// (<c>.static</c>, <c>nil</c>, a qualified <c>LibraryType</c>) is replaced by it. Returns the text unchanged when the manifest declares no such library
-    /// product, so the caller can require that at least one manifest did.
+    /// Declares the library product <paramref name="product"/> dynamic by appending a top-level
+    /// statement to the manifest rather than editing its <c>.library(...)</c> call: the package's
+    /// <c>products</c> are mapped so the product named <paramref name="product"/>, when it is a
+    /// library, becomes <c>.library(name:type: .dynamic, targets:)</c> over the same targets.
+    /// Swift evaluates it after the package is built, so it sees the product however the manifest
+    /// spells it (a computed <c>type:</c>, a name held in a constant, a product list built in a
+    /// helper) and nothing a comment holds. The statement names the variable the manifest binds
+    /// its <c>Package</c> to (<see cref="PackageVariableName"/>); the caller proves the result
+    /// with <c>swift package dump-package</c> (<see cref="LibraryTypeOf"/>).
     /// </summary>
-    public static string DeclareProductDynamic(string manifest, string product, out bool declared)
+    public static string AppendDynamicProductDeclaration(string manifest, string product)
     {
-        var count = 0;
-        var pattern = new Regex(
-            @"(\.library\s*\(\s*name\s*:\s*""" + Regex.Escape(product) + @"""\s*,)(\s*type\s*:[^,()]*,)?",
-            RegexOptions.CultureInvariant);
-        var result = pattern.Replace(manifest, m =>
+        var literal = SwiftStringLiteral(product);
+        var package = PackageVariableName(manifest);
+        var separator = manifest.EndsWith('\n') ? "\n" : "\n\n";
+        return manifest + separator
+            + $"// Appended by nuke fetch: archive the library product {literal} as a dynamic framework.\n"
+            + $"{package}.products = {package}.products.map {{ product in\n"
+            + $"    guard product.name == {literal}, let library = product as? Product.Library else {{ return product }}\n"
+            + "    return .library(name: library.name, type: .dynamic, targets: library.targets)\n"
+            + "}\n";
+    }
+
+    /// <summary>
+    /// The top-level variable a manifest binds its <c>Package</c> to (<c>let package = Package(</c>,
+    /// by convention), read from unindented declarations only, so a helper's local binding is not
+    /// one: <c>package</c> when no binding reads as one or when it is among several (a
+    /// commented-out example), otherwise the one binding found. A wrong guess fails
+    /// <c>dump-package</c>, loudly.
+    /// </summary>
+    public static string PackageVariableName(string manifest)
+    {
+        var names = Regex.Matches(manifest,
+                @"^(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*(?:PackageDescription\.)?Package\s*)?=\s*(?:(?:PackageDescription\.)?Package|\.init)\s*\(",
+                RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        return names.Count == 0 || names.Contains("package") ? "package" : names[0];
+    }
+
+    /// <summary>
+    /// The library type <c>swift package dump-package</c> reports for <paramref name="product"/>
+    /// (<c>dynamic</c>, <c>static</c>, <c>automatic</c>), or null when the package declares no
+    /// library product of that name.
+    /// </summary>
+    public static string? LibraryTypeOf(string dumpPackageJson, string product)
+    {
+        using var document = System.Text.Json.JsonDocument.Parse(dumpPackageJson);
+        if (!document.RootElement.TryGetProperty("products", out var products))
+            return null;
+        foreach (var entry in products.EnumerateArray())
         {
-            count++;
-            return m.Groups[1].Value + " type: .dynamic,";
-        });
-        declared = count > 0;
-        return result;
+            if (entry.GetProperty("name").GetString() != product)
+                continue;
+            if (entry.TryGetProperty("type", out var type)
+                && type.TryGetProperty("library", out var library)
+                && library.ValueKind == System.Text.Json.JsonValueKind.Array
+                && library.GetArrayLength() > 0)
+                return library[0].GetString();
+        }
+        return null;
+    }
+
+    static string SwiftStringLiteral(string value)
+    {
+        var escaped = new System.Text.StringBuilder("\"");
+        foreach (var c in value)
+        {
+            escaped.Append(c switch
+            {
+                '\\' => "\\\\",
+                '"' => "\\\"",
+                '\n' => "\\n",
+                '\r' => "\\r",
+                '\t' => "\\t",
+                _ => c.ToString(),
+            });
+        }
+        return escaped.Append('"').ToString();
     }
 }

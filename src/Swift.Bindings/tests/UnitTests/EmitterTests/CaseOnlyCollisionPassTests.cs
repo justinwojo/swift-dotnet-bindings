@@ -766,8 +766,8 @@ public class CaseOnlyCollisionPassTests
         var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
         var moduleDecl = CreateModuleDecl();
 
-        // An SPI payload case still emits its factory, under its case-map name: the SPI
-        // `audioKind(Int)` takes `AudioKind` and the public `AudioKind(Int)` takes `AudioKind2`,
+        // An SPI payload case still emits its factory, under its case-map name: the public
+        // `AudioKind(Int)` claims `AudioKind` first and the SPI `audioKind(Int)` takes `AudioKind2`,
         // so the renamed class may take neither.
         var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
         var lowerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
@@ -817,6 +817,48 @@ public class CaseOnlyCollisionPassTests
 
         Assert.True(typeDatabase.TryGetTypeRecord(lowerSwiftName, out var renamed));
         Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void TypeArm_SpiCaseInsertedBeforeAPublicCase_MovesNeitherTheCaseNorTheType(bool withSpiCase, bool simpleEnum)
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // `Audio` loses the tie to `AUDIO`, its public `case audioKind` emits as `AudioKind` and a
+        // sibling type holds `AudioKind2`, so the class becomes `AudioKind3`. A newer SDK inserting
+        // `@_spi(Internal) case AudioKind` ahead of the public case must move neither the public
+        // case's name nor, through the rename exclusions, the class's.
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var siblingSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.AudioKind2");
+        var sibling = CreateStructDecl("AudioKind2", siblingSwiftName, moduleDecl);
+        RegisterType(module, siblingSwiftName, "AudioKind2", TypeRecordKind.Struct);
+        var lowerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var lower = CreateEnumDecl("Audio", lowerSwiftName, moduleDecl);
+        var cases = new List<(string, bool)>();
+        if (withSpiCase)
+            cases.Add(("AudioKind", true));
+        cases.Add(("audioKind", false));
+        cases.Add(("off", false));
+        foreach (var (caseName, spi) in cases)
+            lower.Cases.Add(new EnumCaseDecl { Name = caseName, MangledName = "$sN", ParentDecl = lower, ModuleDecl = moduleDecl, IsSpiProtected = spi });
+        RegisterType(module, lowerSwiftName, "Audio", TypeRecordKind.Enum,
+            simpleEnum ? TypeRecordFlags.SimpleEnum : TypeRecordFlags.None);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(sibling);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.Equal("AudioKind", NameProvider.GetCaseName("audioKind", NameProvider.ComputeCaseNameMap(lower.Cases)));
+        Assert.True(typeDatabase.TryGetTypeRecord(lowerSwiftName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}3", renamed!.CSharpTypeName.Name);
     }
 
     [Fact]
