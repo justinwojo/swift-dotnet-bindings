@@ -62,6 +62,9 @@ public class BridgedContainerShapesTests : TestBase
 
         public string DescribeRows(IEnumerable<IEnumerable<NSUrl>> rows) => string.Join("|", rows.Select(Names));
 
+        public string DescribeTagged(IEnumerable<NSUrl> urls, string urlsNS, NSUrl url, nint urlNS)
+            => $"{Names(urls)}|{urlsNS}|{url.LastPathComponent}|{urlNS}";
+
         public IReadOnlyDictionary<string, IReadOnlyList<NSUrl>> MakeGroups()
             => new Dictionary<string, IReadOnlyList<NSUrl>>
             {
@@ -74,6 +77,9 @@ public class BridgedContainerShapesTests : TestBase
 
     public void TestAConformerStoresTheNestedGroupsSwiftSetsAndHandsThemBack()
         => AssertEqual("ab:a,b;c:c", TestLibFunctions.UrlSinkStoreAndReadGroups(new UrlSink()), "the groups Swift set, read back");
+
+    public void TestAConformerReadsEachArgumentBesideSiblingsNamedLikeTheBridgedLocals()
+        => AssertEqual("a,b|tag|c|7", TestLibFunctions.UrlSinkDescribeTagged(new UrlSink()), "every argument as Swift passed it");
 
     public void TestAConformerReadsEveryURLOfAnArraySwiftHandsIt()
         => AssertEqual("a,b", TestLibFunctions.UrlSinkDescribeArray(new UrlSink()), "both URLs, in order");

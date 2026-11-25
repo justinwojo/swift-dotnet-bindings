@@ -3422,8 +3422,8 @@ public class EveryProtocolEmitter
         {
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue as Swift.AnyObject
-                var newValueRef = Swift.Unmanaged.passUnretained(newValueNS).toOpaque()
+                let __newValueBridged = newValue as Swift.AnyObject
+                var newValueRef = Swift.Unmanaged.passUnretained(__newValueBridged).toOpaque()
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
@@ -3431,14 +3431,14 @@ public class EveryProtocolEmitter
         {
             // Optional ObjC-bridgeable VALUE setter (URL?): pass a single optional ObjC POINTER word
             // (nil = 0x0), borrowing (+0) the bridged NSObject — the write mirror of the reverse-RETURN
-            // optional-bridgeable arm. `newValueNS` (Optional<AnyObject>) holds the bridged object alive
+            // optional-bridgeable arm. `__newValueBridged` (Optional<AnyObject>) holds the bridged object alive
             // across the call; `newValueRef` (Optional<UnsafeMutableRawPointer>) is the one nil-optimized
             // word the C# receiver reads as a bare IntPtr. The plain-value `else` arm below would pass the
             // multi-word Optional<URL> bytes, which the receiver then misreads as one word → layout mismatch.
             writer.WriteLines($$"""
                 var selfProto: {{protoName}} = self
-                let newValueNS = newValue.map { $0 as Swift.AnyObject }
-                var newValueRef = newValueNS.map { Swift.Unmanaged.passUnretained($0).toOpaque() }
+                let __newValueBridged = newValue.map { $0 as Swift.AnyObject }
+                var newValueRef = __newValueBridged.map { Swift.Unmanaged.passUnretained($0).toOpaque() }
                 {{fnExpr}}({{branchVtableExpr}}, &selfProto, &newValueRef)
                 """);
         }
@@ -4710,8 +4710,8 @@ public class EveryProtocolEmitter
             {
                 // Bridge Swift value type → ObjC object, pass pointer to the opaque reference.
                 // C# MarshalFromSwift<IntPtr> reads the 8-byte pointer, then GetNSObject<T> resolves it.
-                argPassList.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
-                argPassList.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                argPassList.Add($"let __{paramName}Bridged = {escapedParam} as Swift.AnyObject");
+                argPassList.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained(__{paramName}Bridged).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Copy");
             }
@@ -4720,12 +4720,12 @@ public class EveryProtocolEmitter
                 // Optional ObjC-bridgeable VALUE param (URL?): pass a single optional ObjC POINTER word
                 // (nil = 0x0), borrowing (+0) the bridged NSObject — the Optional.map wrapper of the
                 // non-optional arm above so .none passes a nil (0x0) word. The C# receiver reads a bare
-                // IntPtr and +0-bridges the live NSObject. `{p}NS` (Optional<AnyObject>) holds it alive
+                // IntPtr and +0-bridges the live NSObject. `__{p}Bridged` (Optional<AnyObject>) holds it alive
                 // across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized word.
                 // The plain `&{p}Copy` else arm would pass the multi-word Optional<URL> bytes → receiver
                 // misreads one word → layout mismatch.
-                argPassList.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
-                argPassList.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                argPassList.Add($"let __{paramName}Bridged = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                argPassList.Add($"var {paramName}Ref = __{paramName}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
                 argRefList.Add($"&{paramName}Ref");
                 argWritebackSources.Add($"{paramName}Ref");
             }
@@ -5311,21 +5311,21 @@ public class EveryProtocolEmitter
                 // URL): URL is NSURL-backed, so its first word IS the bridged pointer and the buggy
                 // `&urlCopy` path accidentally survives; Decimal's first word is mantissa data, so
                 // the buggy path reads it as an ObjC pointer and crashes — a genuine guard.
-                passLines.Add($"let {paramName}NS = {escapedParam} as Swift.AnyObject");
-                passLines.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained({paramName}NS).toOpaque()");
+                passLines.Add($"let __{paramName}Bridged = {escapedParam} as Swift.AnyObject");
+                passLines.Add($"var {paramName}Ref = Swift.Unmanaged.passUnretained(__{paramName}Bridged).toOpaque()");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (GetOptionalObjCBridgeableValueInnerName(param.SwiftTypeSpec) is not null)
             {
                 // Optional ObjC-bridgeable VALUE param (URL?) alongside a dispatchable closure: the same
                 // single optional ObjC POINTER word (nil = 0x0) as the non-closure method fan-out's
-                // optional arm, borrowing (+0) the bridged NSObject. `{p}NS` (Optional<AnyObject>) holds it
+                // optional arm, borrowing (+0) the bridged NSObject. `__{p}Bridged` (Optional<AnyObject>) holds it
                 // alive across the call; `{p}Ref` (Optional<UnsafeMutableRawPointer>) is the nil-optimized
                 // word the receiver reads as a bare IntPtr. No writeback entry (this path rejects inout).
                 // The plain `&{p}Copy` else would pass the multi-word Optional<URL> bytes → receiver misreads
                 // one word → layout mismatch.
-                passLines.Add($"let {paramName}NS = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
-                passLines.Add($"var {paramName}Ref = {paramName}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
+                passLines.Add($"let __{paramName}Bridged = {escapedParam}.map {{ $0 as Swift.AnyObject }}");
+                passLines.Add($"var {paramName}Ref = __{paramName}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}");
                 argRefList.Add($"&{paramName}Ref");
             }
             else if (IsObjCBridgedContainerInput(param.SwiftTypeSpec)
@@ -6645,7 +6645,7 @@ public class EveryProtocolEmitter
     /// nested or optional) crosses as the collection it bridges to, the way it crosses in every other
     /// direction: the receiver has no reader for Swift's native storage of such a container, whose
     /// elements are Swift values, not the object pointers it would take them for. Every one of these is
-    /// borrowed at +0: the bridged object lives in the thunk's <c>{name}NS</c> local for the call, and
+    /// borrowed at +0: the bridged object lives in the thunk's <c>__{name}Bridged</c> local for the call, and
     /// the receiver copies what it reads, so a call the receiver drops (its implementation collected)
     /// leaves nothing to release. An optional is its nil-pointer-optimized word (nil = 0x0).
     /// <paramref name="name"/> names the locals; the call passes <c>&amp;{name}Ref</c>.
@@ -6656,8 +6656,8 @@ public class EveryProtocolEmitter
         {
             lines = new[]
             {
-                $"let {name}NS = {sourceExpr} as Swift.AnyObject",
-                $"var {name}Ref = Swift.Unmanaged.passUnretained({name}NS).toOpaque()",
+                $"let __{name}Bridged = {sourceExpr} as Swift.AnyObject",
+                $"var {name}Ref = Swift.Unmanaged.passUnretained(__{name}Bridged).toOpaque()",
             };
             return true;
         }
@@ -6665,8 +6665,8 @@ public class EveryProtocolEmitter
         {
             lines = new[]
             {
-                $"let {name}NS = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
-                $"var {name}Ref = {name}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
+                $"let __{name}Bridged = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
+                $"var {name}Ref = __{name}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
             };
             return true;
         }
@@ -6674,8 +6674,8 @@ public class EveryProtocolEmitter
         {
             lines = new[]
             {
-                $"let {name}NS = {sourceExpr} as Swift.AnyObject",
-                $"var {name}Ref = Swift.Unmanaged.passUnretained({name}NS).toOpaque()",
+                $"let __{name}Bridged = {sourceExpr} as Swift.AnyObject",
+                $"var {name}Ref = Swift.Unmanaged.passUnretained(__{name}Bridged).toOpaque()",
             };
             return true;
         }
@@ -6683,8 +6683,8 @@ public class EveryProtocolEmitter
         {
             lines = new[]
             {
-                $"let {name}NS = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
-                $"var {name}Ref = {name}NS.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
+                $"let __{name}Bridged = {sourceExpr}.map {{ $0 as Swift.AnyObject }}",
+                $"var {name}Ref = __{name}Bridged.map {{ Swift.Unmanaged.passUnretained($0).toOpaque() }}",
             };
             return true;
         }

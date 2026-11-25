@@ -4476,8 +4476,8 @@ public class EveryProtocolEmitterTests
 
         // Dispatched (not rejected) and bridged through the ObjC arm, not the raw-bytes path.
         Assert.DoesNotContain("closure method 'process' cannot be dispatched", output);
-        Assert.Contains("let amountNS = amount as Swift.AnyObject", output);
-        Assert.Contains("Unmanaged.passUnretained(amountNS).toOpaque()", output);
+        Assert.Contains("let __amountBridged = amount as Swift.AnyObject", output);
+        Assert.Contains("Unmanaged.passUnretained(__amountBridged).toOpaque()", output);
         Assert.DoesNotContain("var amountCopy = amount", output);
     }
 
@@ -4537,11 +4537,11 @@ public class EveryProtocolEmitterTests
         var output = EmitProtocolExtension(protocol);
 
         Assert.Contains(optional
-            ? "let urlsNS = urls.map { $0 as Swift.AnyObject }"
-            : "let urlsNS = urls as Swift.AnyObject", output);
+            ? "let __urlsBridged = urls.map { $0 as Swift.AnyObject }"
+            : "let __urlsBridged = urls as Swift.AnyObject", output);
         Assert.Contains(optional
-            ? "var urlsRef = urlsNS.map { Swift.Unmanaged.passUnretained($0).toOpaque() }"
-            : "var urlsRef = Swift.Unmanaged.passUnretained(urlsNS).toOpaque()", output);
+            ? "var urlsRef = __urlsBridged.map { Swift.Unmanaged.passUnretained($0).toOpaque() }"
+            : "var urlsRef = Swift.Unmanaged.passUnretained(__urlsBridged).toOpaque()", output);
         Assert.DoesNotContain("passRetained(urls", output);
         Assert.Contains("&urlsRef", output);
         Assert.DoesNotContain("urlsCopy", output);
@@ -4644,7 +4644,7 @@ public class EveryProtocolEmitterTests
     {
         // An inout Optional<ObjC-bridgeable VALUE> param (inout Decimal?) has the same limitation as
         // the non-optional inout case: the mutated value cannot be bridged back across the ObjC bridge.
-        // The param-in optional arm binds `var amountRef = amountNS.map { passUnretained($0).toOpaque() }`
+        // The param-in optional arm binds `var amountRef = __amountBridged.map { passUnretained($0).toOpaque() }`
         // (an Optional<UnsafeMutableRawPointer>) as its writeback source, so a dispatched body would emit
         // `amount = amountRef` — assigning UnsafeMutableRawPointer? to Decimal? → the generated wrapper
         // fails to compile. The method must route to the SAME fatalError trap stub as the non-optional
@@ -4671,7 +4671,7 @@ public class EveryProtocolEmitterTests
         Assert.Contains("inout parameter that cannot be written back cannot be dispatched", output);
         Assert.Contains("amount: inout", output);
         Assert.DoesNotContain("amountRef", output);
-        Assert.DoesNotContain("amountNS", output);
+        Assert.DoesNotContain("__amountBridged", output);
     }
 
     [Fact]
