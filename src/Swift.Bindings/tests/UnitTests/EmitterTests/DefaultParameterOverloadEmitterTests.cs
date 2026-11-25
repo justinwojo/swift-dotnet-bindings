@@ -1140,6 +1140,74 @@ public class DefaultParameterOverloadEmitterTests
         Assert.Equal(expectMainActor, preamble.Contains("@MainActor", StringComparison.Ordinal));
     }
 
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(false, false)]
+    public void TryEmitOverloads_NonisolatedMemberOfMainActorType_ShimOptsOutOfTheIsolation(
+        bool isConstructor, bool memberNonisolated)
+    {
+        // `nonisolated init(name: Int, token: Int = 0)` (or a nonisolated method) on a
+        // `@MainActor` type: the shim's extension inherits the type's isolation, while the
+        // overload's own @_cdecl wrapper follows the member and is nonisolated, so the shim must
+        // say `nonisolated` itself or swiftc refuses the wrapper's synchronous call to it. A
+        // member that keeps the type's isolation keeps it on the shim too.
+        var (moduleDecl, typeDb) = CreateTestEnvironment("Player");
+        var parentDecl = new StructDecl
+        {
+            Name = "Player",
+            SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Player"),
+            MangledName = "$s10TestModule6PlayerVN",
+            Properties = new List<PropertyDecl>(),
+            Methods = new List<MethodDecl>(),
+            Types = new List<TypeDecl>(),
+            Operators = new List<OperatorDecl>(),
+            Subscripts = new List<SubscriptDecl>(),
+            GenericParameters = new List<GenericArgumentDecl>(),
+            Conformances = new List<TypeConformance>(),
+            ParentDecl = moduleDecl,
+            ModuleDecl = moduleDecl,
+            IsFrozen = true,
+            IsMainActorIsolated = true,
+            MetadataAccessor = "$s10TestModule6PlayerVMa",
+        };
+
+        var method = new MethodDecl
+        {
+            Name = isConstructor ? "init" : "open",
+            MangledName = isConstructor
+                ? "$s10TestModule6PlayerV4name5tokenACSi_SitcfC"
+                : "$s10TestModule6PlayerV4open4name5tokenySi_SitF",
+            MethodType = isConstructor ? MethodType.Static : MethodType.Instance,
+            IsConstructor = isConstructor,
+            CSSignature = new List<ArgumentDecl>
+            {
+                CreateReturnArg(moduleDecl),
+                CreateArg("name", hasDefault: false),
+                CreateArg("token", hasDefault: true)
+            },
+            GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = parentDecl,
+            ModuleDecl = moduleDecl,
+            Throws = false,
+            IsAsync = false,
+            IsSynthesizedAccessor = false,
+            IsNonisolated = memberNonisolated,
+        };
+        parentDecl.Methods.Add(method);
+
+        var (_, swiftOutput) = EmitOverloads(method, typeDb);
+
+        var silgen = swiftOutput.IndexOf("@_silgen_name(", StringComparison.Ordinal);
+        Assert.True(silgen >= 0, swiftOutput);
+        var extensionStart = swiftOutput.LastIndexOf("extension ", silgen, StringComparison.Ordinal);
+        var shimLineEnd = swiftOutput.IndexOf('\n', swiftOutput.IndexOf("func ", silgen, StringComparison.Ordinal));
+        var shim = swiftOutput.Substring(extensionStart, shimLineEnd - extensionStart);
+        Assert.Equal(memberNonisolated, shim.Contains("nonisolated public ", StringComparison.Ordinal));
+        Assert.Equal(!memberNonisolated, shim.Contains("@MainActor", StringComparison.Ordinal));
+    }
+
     [Fact]
     public void TryEmitOverloads_MethodOnAvailableType_EmitsAvailabilityOnExtension()
     {
