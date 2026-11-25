@@ -105,6 +105,7 @@ public class RuntimeContractTests
     [InlineData("0.16.0-preview.1", 16)] // a pre-release suffix on the patch doesn't change the minor
     [InlineData("1.0.0", 1000)] // a real 1.0 is epoch 1000, clear of the dev sentinel
     [InlineData("1.15.0", 1015)] // distinct from 0.15 (epoch 15)
+    [InlineData("11.0.0", 11000)] // the 11.0 compatibility reset
     [InlineData("garbage", 0)] // unparseable degrades to the always-compatible sentinel
     [InlineData("x.8.0", 0)] // non-integer major fails closed to the sentinel
     public void ParseEpoch_MapsVersionToEpoch(string version, int expected)
@@ -122,5 +123,16 @@ public class RuntimeContractTests
         if (RuntimeContract.Version != 0)
             Assert.True(RuntimeContract.MinimumSupportedGeneratedVersion <= RuntimeContract.Version,
                 "A released runtime must support at least its own epoch; raise nothing above Version.");
+    }
+
+    [Theory]
+    [InlineData(20)] // 0.20, the last 0.x release
+    [InlineData(16)] // the previous floor
+    public void Floor_Rejects0xBindings_On11Runtime(int generatedAgainst)
+    {
+        Assert.False(RuntimeContract.IsGeneratedVersionSupported(
+            generatedAgainst, runtimeVersion: 11000, RuntimeContract.MinimumSupportedGeneratedVersion));
+        Assert.True(RuntimeContract.IsGeneratedVersionSupported(
+            11000, runtimeVersion: 11000, RuntimeContract.MinimumSupportedGeneratedVersion));
     }
 }

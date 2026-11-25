@@ -75,11 +75,13 @@ public static partial class RuntimeContract
     /// epoch below this floor were generated before the current dispatch contract was established
     /// and cannot be dispatched correctly, so they are rejected at module load. This is a
     /// deliberate semantic value: raise it to the current minor only when a minor introduces a real
-    /// dispatch-contract break (see the bump discipline above). Epoch 16 = <c>0.16</c>, the minor
-    /// the payload-construction-semantics dispatch contract was established in; every binding
-    /// shipped before it (<c>0.15</c> and earlier) predates the contract and is correctly rejected.
+    /// dispatch-contract break (see the bump discipline above). Epoch 11000 = <c>11.0</c>, a
+    /// compatibility reset: 11.0 bindings register their Swift classes' <c>Hashable</c> witnesses
+    /// at module init, carry object keys, elements and values as <c>SwiftObjectKey</c> carriers and
+    /// key enum case tags by name, so every 0.x binding predates the contract and is rejected at
+    /// load rather than misread at use.
     /// </summary>
-    public const int MinimumSupportedGeneratedVersion = 16;
+    public const int MinimumSupportedGeneratedVersion = 11000;
 
     /// <summary>
     /// Asserts that a generated binding built against <paramref name="generatedAgainstVersion"/>
