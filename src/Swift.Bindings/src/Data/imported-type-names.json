@@ -159,6 +159,7 @@
       "SwiftHandleGuard",
       "SwiftHashable",
       "SwiftInheritanceChain",
+      "SwiftKeyComparer",
       "SwiftLeakCensus",
       "SwiftLeakCensusReport",
       "SwiftLoadContextConflictException",
