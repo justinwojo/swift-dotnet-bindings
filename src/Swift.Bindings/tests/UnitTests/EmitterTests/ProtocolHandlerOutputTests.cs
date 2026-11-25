@@ -3446,6 +3446,21 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_InterfaceProperty_RecordsTheSwiftDeclarationBehindItsName()
+    {
+        // Interface members carry no API-manifest entry, but a case-only rename can give their names
+        // to another requirement in a newer SDK, so the Swift declaration record names each one.
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(CreateStaggeredSetterProtocol(CreateModuleDecl("TestModule")), CreateTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        Assert.Contains("public interface IStaggeredSetter", csOutput);
+        var (_, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.EndsWith(".Setting", StringComparison.Ordinal));
+        // The fixture's property has no parent declaration, so its path is its name alone.
+        Assert.Equal("var setting", swift);
+    }
+
+    [Fact]
     public void Emit_SetterIntroducedAfterProperty_InterfaceProxyAndPInvokeAgreeOnTheSetterFloor()
     {
         var (csOutput, _) = EmitProtocol(

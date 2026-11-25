@@ -178,6 +178,7 @@ namespace BindingsGeneration
                         staticAbstractPropertyNames.Add(propertyDecl.Name);
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(propertyDecl);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, propertyDecl, env.TypeDatabase);
                     }
                     continue;
                 }
@@ -284,6 +285,7 @@ namespace BindingsGeneration
                     {
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(propertyDecl);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, propertyDecl, env.TypeDatabase);
                     }
                     else
                     {
@@ -303,6 +305,7 @@ namespace BindingsGeneration
                 {
                     emittedInterfaceMemberCount++;
                     ReportCollector.RecordMemberEmitted(propertyDecl);
+                    RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, propertyDecl, env.TypeDatabase);
                 }
                 else
                 {
@@ -517,6 +520,7 @@ namespace BindingsGeneration
                         staticAbstractMethodKeys.Add(staticMethodKey);
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(methodDecl);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
                     }
                     continue;
                 }
@@ -651,6 +655,7 @@ namespace BindingsGeneration
                     {
                         emittedInterfaceMemberCount++;
                         ReportCollector.RecordMemberEmitted(methodDecl);
+                        RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
                     }
                     else
                     {
@@ -678,6 +683,7 @@ namespace BindingsGeneration
                 }
                 emittedInterfaceMemberCount++;
                 ReportCollector.RecordMemberEmitted(methodDecl);
+                RecordInterfaceMemberDeclaration(emissionCtx, protocolDecl, methodDecl, env.TypeDatabase);
 
                 // F1: Emit DIM (Default Interface Method) overload with narrowed nint→int params.
                 // Proxy classes inherit DIMs automatically — no changes needed in ProtocolProxyEmitter.
@@ -885,6 +891,31 @@ namespace BindingsGeneration
         /// Emits a proxy class that enables C# code to implement this protocol.
         /// The proxy wraps either a C# implementation or a Swift existential container.
         /// </summary>
+        /// <summary>
+        /// Records which Swift declaration an emitted interface member stands for. Interface members
+        /// carry no API-manifest entry, but their names are shaped like every other member's (a
+        /// case-only rename gives <c>Url</c> to a newly added <c>URL</c> and moves the old <c>url</c>
+        /// to <c>Url2</c>), so the package merge compares them as well.
+        /// </summary>
+        private static void RecordInterfaceMemberDeclaration(ModuleEmissionContext? emissionCtx, ProtocolDecl protocolDecl,
+            BaseDecl member, ITypeDatabase typeDatabase)
+        {
+            if (emissionCtx is null)
+                return;
+            string key;
+            if (member is PropertyDecl property)
+                key = ModuleEmissionContext.BuildPropertyApiManifestKey(protocolDecl, NameProvider.GetPropertyName(property), typeDatabase);
+            else if (member is MethodDecl method)
+            {
+                var projectedKey = ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, propertyNames: null);
+                var paren = projectedKey.IndexOf('(');
+                key = ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase);
+            }
+            else
+                return;
+            emissionCtx.RecordSwiftDeclaration(key, member, typeDatabase);
+        }
+
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
             HashSet<string> closureSkippedMethodKeys, HashSet<string> closureSkippedPropertyNames,
