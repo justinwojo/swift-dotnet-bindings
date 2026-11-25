@@ -174,6 +174,25 @@ public class NestedTypeEnclosingNameTests
         Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
     }
 
+    [Fact]
+    public void CaseOnlyPropertyPairOfTheRenamedType_StepsOverItsNewName()
+    {
+        // `Outer.outer` declaring `outerInfo` and `OuterInfo` takes `OuterInfo2`; the case-only
+        // loser of its two properties may not be stamped `OuterInfo2` inside it (CS0542).
+        var fixture = new Fixture("struct");
+        var nested = fixture.AddNested("outer", "struct");
+        fixture.AddProperty(nested, "outerInfo");
+        fixture.AddProperty(nested, "OuterInfo");
+
+        NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+        CaseOnlyCollisionPass.Precompute(fixture.Module, fixture.Database);
+
+        Assert.Equal("Outer.OuterInfo2", fixture.CSharpName(nested));
+        var renames = NameProvider.ComputePropertyRenames(nested, fixture.Database);
+        Assert.DoesNotContain("OuterInfo2", nested.Properties
+            .Select(p => NameProvider.GetFinalMemberName(NameProvider.GetPropertyName(p, nested), renames)));
+    }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]

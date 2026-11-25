@@ -72,13 +72,15 @@ public static class SwiftPackageArchive
 
     /// <summary>
     /// The top-level variable a manifest binds its <c>Package</c> to (<c>let package = Package(</c>,
-    /// by convention), or <c>package</c> when no binding reads as one; a wrong guess fails
-    /// <c>dump-package</c>, loudly.
+    /// by convention), read with comments removed, or <c>package</c> when no binding reads as one;
+    /// a wrong guess fails <c>dump-package</c>, loudly.
     /// </summary>
     public static string PackageVariableName(string manifest)
     {
-        var match = Regex.Match(manifest,
-            @"^(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*Package\s*)?=\s*(?:Package|\.init)\s*\(",
+        var code = Regex.Replace(manifest, @"/\*.*?\*/", " ", RegexOptions.Singleline);
+        code = Regex.Replace(code, @"//[^\n]*", "");
+        var match = Regex.Match(code,
+            @"^\s*(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*(?:PackageDescription\.)?Package\s*)?=\s*(?:(?:PackageDescription\.)?Package|\.init)\s*\(",
             RegexOptions.Multiline);
         return match.Success ? match.Groups[1].Value : "package";
     }

@@ -110,6 +110,13 @@ public class SwiftPackageArchiveTests : IDisposable
         Assert.Null(SwiftPackageArchive.LibraryTypeOf("""{"products":[{"name":"Player","type":{"executable":null}}]}""", "Player"));
     }
 
+    [Theory]
+    [InlineData("let manifest = PackageDescription.Package(name: \"P\")", "manifest")]
+    [InlineData("/*\nlet wrong = Package(name: \"P\")\n*/\nlet package = Package(name: \"P\")", "package")]
+    [InlineData("// let wrong = Package(name: \"P\")\nlet pkg: Package = .init(name: \"P\")", "pkg")]
+    public void PackageVariableName_ReadsTheBindingOutsideComments(string manifest, string expected)
+        => Assert.Equal(expected, SwiftPackageArchive.PackageVariableName(manifest));
+
     [Fact]
     public void AppendDynamicProductDeclaration_EscapesTheProductName()
     {
