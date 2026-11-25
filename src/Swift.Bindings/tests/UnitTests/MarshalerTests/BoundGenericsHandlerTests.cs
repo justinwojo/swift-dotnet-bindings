@@ -1401,6 +1401,30 @@ public class BoundGenericsHandlerTests
         Assert.False(_handler.HasNonSwiftObjectGenericArg(outer));
     }
 
+    // A container admitted for its Objective-C argument still answers for every other argument:
+    // [UIImage: Result<Int, E>] as a parameter would compile, then marshal a C#-only Result.
+    public static TheoryData<TypeSpec, bool, bool> ObjCContainerSiblings => new()
+    {
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"), ResultOfInt()), true, true },
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"), ResultOfInt()), false, false },
+        { new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"), ResultOfInt())), true, true },
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"),
+            new NamedTypeSpec("Swift.Array", ResultOfInt())), true, true },
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"),
+            new NamedTypeSpec("TestModule.Future", new NamedTypeSpec("UIKit.UIView"))), false, true },
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"), new NamedTypeSpec("Swift.Int")), true, false },
+        { new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("UIKit.UIImage"),
+            new NamedTypeSpec("Swift.Array", new NamedTypeSpec("UIKit.UIColor"))), true, false },
+    };
+
+    private static NamedTypeSpec ResultOfInt()
+        => new("Swift.Result", new NamedTypeSpec("Swift.Int"), new NamedTypeSpec("TestModule.E"));
+
+    [Theory]
+    [MemberData(nameof(ObjCContainerSiblings))]
+    public void HasNonSwiftObjectGenericArg_ObjCContainer_JudgesEverySiblingArgument(TypeSpec container, bool isParameterPosition, bool refused)
+        => Assert.Equal(refused, _handler.HasNonSwiftObjectGenericArg(container, isParameterPosition));
+
     [Fact]
     public void HasNonSwiftObjectGenericArg_WithNamedVoidInNonOptional_ReturnsTrue()
     {

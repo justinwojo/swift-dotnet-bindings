@@ -1250,6 +1250,188 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_RecordedHashedSwiftClass_ExportsItsSetMetadataAndRegistersItsHashableWitness()
+    {
+        // A Swift class key or set element crosses as its wrapper; the collection hashes it through
+        // the class's Hashable witness, which the initializer reads from the Set<Class> metadata the
+        // wrapper exports. No carrier identity class is emitted for it.
+        var hashedClass = new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Node"), "global::TestModule.Node");
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordHashedSwiftClass(hashedClass));
+
+        var symbol = hashedClass.Identity.AccessorSymbol("TestModule");
+        Assert.Contains($"@_cdecl(\"{symbol}\")", swiftOutput);
+        Assert.Contains("Swift.Set<TestModule.Node>.self", swiftOutput);
+        Assert.Contains($"EntryPoint = \"{symbol}\"", csOutput);
+        Assert.Contains(
+            $"global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(__SwiftObjectKeys.{symbol}())",
+            csOutput);
+        Assert.DoesNotContain("ISwiftObjectKeyIdentity", csOutput);
+        var diagnostics = CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Emit_SwiftClassSetOnlyInAClosureParameter_RegistersTheClassHashable()
+    {
+        // A closure parameter's set is translated raw, outside any projection: the module still
+        // records the Swift class its hashed slot names, guarded by the member's floor.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl => moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "withNodes",
+                new ClosureTypeSpec(new TupleTypeSpec(new TypeSpec[]
+                {
+                    new NamedTypeSpec("Swift.Set", new NamedTypeSpec("TestModule.Node")),
+                }), new NamedTypeSpec("Swift.Void")),
+                Introduced("iOS", "16.0"))),
+            registerModuleTypes: module =>
+            {
+                var nodeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Node");
+                module.RegisterType(nodeName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Node"),
+                    SwiftTypeName = nodeName,
+                    MetadataAccessor = "$s10TestModule4NodeCMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+            });
+
+        var symbol = new ObjectKeyIdentity("TestModule.Node").AccessorSymbol("TestModule");
+        var start = swiftOutput.IndexOf($"@_cdecl(\"{symbol}\")", StringComparison.Ordinal);
+        Assert.True(start >= 0, "no Set metadata accessor for TestModule.Node");
+        var accessor = swiftOutput.Substring(start, swiftOutput.IndexOf("\n}", start, StringComparison.Ordinal) - start);
+        Assert.Contains("if #available(iOS 16.0, macCatalyst 16.0, *) {", accessor);
+        Assert.Contains("Swift.Set<TestModule.Node>.self", accessor);
+        Assert.Contains("SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(", csOutput);
+    }
+
+    [Fact]
+    public void Emit_HashedClassWhoseWrapperIsNotDeclared_IsNotRegistered()
+    {
+        // Registering a witness for a class with no C# wrapper would not compile: one the run skipped,
+        // and one it never declared (nested in an underscore-suppressed type, which records only the
+        // parent). A declared class the run emitted and another module's class are registered.
+        string csOutput, swiftOutput;
+        try
+        {
+            (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+                m =>
+                {
+                    ReportCollector.Start(m);
+                    var hidden = TestClassDecl(m, "TestModule._Hidden");
+                    hidden.Types.Add(TestClassDecl(m, "TestModule._Hidden.Key", parent: hidden));
+                    m.Types.Add(hidden);
+                    var skipped = TestClassDecl(m, "TestModule.Skipped");
+                    m.Types.Add(skipped);
+                    ReportCollector.RecordTypeSkipped(skipped, SkipReason.UnsupportedType, "test");
+                    m.Types.Add(TestClassDecl(m, "TestModule.Node"));
+                    ReportCollector.RecordTypeEmitted(m.Types[^1]);
+                },
+                preEmitHook: ctx =>
+                {
+                    ctx.SetUnderscoreSuppressedNames(new HashSet<string> { "TestModule._Hidden" });
+                    foreach (var name in new[] { "TestModule.Skipped", "TestModule.Node", "TestModule._Hidden.Key", "OtherModule.Node" })
+                        ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity(name), "global::" + name));
+                });
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.Contains("RegisterHashableClass<global::TestModule.Node>", csOutput);
+        Assert.Contains("RegisterHashableClass<global::OtherModule.Node>", csOutput);
+        Assert.DoesNotContain("TestModule.Skipped", csOutput);
+        Assert.DoesNotContain("TestModule._Hidden.Key", csOutput);
+        Assert.DoesNotContain("Swift.Set<TestModule.Skipped>", swiftOutput);
+        Assert.DoesNotContain("Swift.Set<TestModule._Hidden.Key>", swiftOutput);
+    }
+
+    [Fact]
+    public void Emit_HashedClassSpelledUnderItsUmbrellaModule_IsJudgedByItsDeclaringModule()
+    {
+        // The type spec names a re-exported class by its umbrella module, while the run records
+        // skips and emissions under the declaring module.
+        string csOutput;
+        try
+        {
+            (csOutput, _) = EmitModuleWithDependencies("RealityKit", new List<string>(),
+                m =>
+                {
+                    ReportCollector.Start(m);
+                    var skipped = TestClassDecl(m, "RealityFoundation.Withdrawn");
+                    m.Types.Add(skipped);
+                    ReportCollector.RecordTypeSkipped(skipped, SkipReason.UnsupportedType, "test");
+                    var hidden = TestClassDecl(m, "RealityFoundation._Hidden");
+                    hidden.Types.Add(TestClassDecl(m, "RealityFoundation._Hidden.Key", parent: hidden));
+                    m.Types.Add(hidden);
+                    m.Types.Add(TestClassDecl(m, "RealityFoundation.Kept"));
+                    ReportCollector.RecordTypeEmitted(m.Types[^1]);
+                },
+                preEmitHook: ctx =>
+                {
+                    ctx.SetUnderscoreSuppressedNames(new HashSet<string> { "RealityFoundation._Hidden" });
+                    foreach (var name in new[] { "Withdrawn", "_Hidden.Key", "Kept" })
+                        ctx.RecordHashedSwiftClass(new HashedSwiftClass(
+                            new ObjectKeyIdentity("RealityKit." + name), "global::RealityFoundation." + name));
+                });
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.Contains("RegisterHashableClass<global::RealityFoundation.Kept>", csOutput);
+        Assert.DoesNotContain("RegisterHashableClass<global::RealityFoundation.Withdrawn>", csOutput);
+        Assert.DoesNotContain("RegisterHashableClass<global::RealityFoundation._Hidden.Key>", csOutput);
+    }
+
+    private static ClassDecl TestClassDecl(ModuleDecl m, string moduleQualifiedName, BaseDecl parent = null) => new()
+    {
+        Name = moduleQualifiedName.Substring(moduleQualifiedName.LastIndexOf('.') + 1),
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
+        MangledName = "$s10TestModule1XC",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        GenericParameters = new List<GenericArgumentDecl>(),
+        Conformances = new List<TypeConformance>(),
+        ParentDecl = parent ?? m,
+        ModuleDecl = m,
+    };
+
+    [Fact]
+    public void Emit_SetOfAnInternalClass_ExportsNoAccessor()
+    {
+        // The scan reads members the module does not bind. One naming an internal class must not
+        // put that class in a wrapper accessor: the wrapper cannot spell it.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl =>
+            {
+                moduleDecl.InternalTypeNames = new HashSet<string> { "Hidden", "TestModule.Hidden" };
+                moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "inlinableTake",
+                    new NamedTypeSpec("Swift.Set", new NamedTypeSpec("TestModule.Hidden"))));
+            },
+            registerModuleTypes: module =>
+            {
+                var hiddenName = SwiftTypeName.FromModuleQualifiedName("TestModule.Hidden");
+                module.RegisterType(hiddenName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Hidden"),
+                    SwiftTypeName = hiddenName,
+                    MetadataAccessor = "$s10TestModule6HiddenCMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+            });
+
+        Assert.DoesNotContain("TestModule.Hidden", swiftOutput);
+        Assert.DoesNotContain("RegisterHashableClass", csOutput);
+    }
+
+    [Fact]
     public void Emit_ObjectValueNamedOnlyByAGatedMember_GuardsItsAccessor()
     {
         // The element accessor takes the same floor as a key's: a member floored at iOS 16 that is the

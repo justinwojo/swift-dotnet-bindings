@@ -314,6 +314,19 @@ public static class ReportCollector
         Session.Value = null;
     }
 
+    /// <summary>
+    /// Whether this run declared the type (<see cref="RecordTypeEmitted"/>), keyed like
+    /// <see cref="IsTypeSkipped(string)"/>; <c>null</c> when no session is active.
+    /// </summary>
+    public static bool? IsTypeEmitted(string moduleQualifiedTypeName)
+    {
+        var session = Current;
+        if (session == null)
+            return null;
+        lock (session.Sync)
+            return session.EmittedTypeKeys.Contains(moduleQualifiedTypeName);
+    }
+
     public static void RecordTypeEmitted(TypeDecl typeDecl)
     {
         var session = Current;

@@ -11,21 +11,24 @@ namespace BindingsGeneration;
 public class ObjCRootedClassProjection : ITypeProjection
 {
     private readonly string _typeName;
-    private readonly bool _isCollectionValue;
+    private readonly bool _isCollectionSlot;
 
     public ObjCRootedClassProjection(string typeName)
-        : this(typeName, isCollectionValue: false)
+        : this(typeName, isCollectionSlot: false)
     {
     }
 
-    private ObjCRootedClassProjection(string typeName, bool isCollectionValue)
+    private ObjCRootedClassProjection(string typeName, bool isCollectionSlot)
     {
         _typeName = typeName;
-        _isCollectionValue = isCollectionValue;
+        _isCollectionSlot = isCollectionSlot;
     }
 
-    /// <summary>The same projection as an array element or dictionary value (see <see cref="SwiftContainerGenericType"/>).</summary>
-    public ObjCRootedClassProjection AsCollectionValue() => new(_typeName, isCollectionValue: true);
+    /// <summary>
+    /// The same projection as a collection's element, key or value (see
+    /// <see cref="SwiftContainerGenericType"/>).
+    /// </summary>
+    public ObjCRootedClassProjection AsCollectionSlot() => new(_typeName, isCollectionSlot: true);
 
     public string PublicType => _typeName;
     public string PInvokeType => "IntPtr";
@@ -33,11 +36,12 @@ public class ObjCRootedClassProjection : ITypeProjection
     public string MarshalFromSwiftType => _typeName;
 
     /// <summary>
-    /// As an array element or dictionary value the element is the class itself, as for a pure Swift class
+    /// In a collection the element is the class itself, as for a pure Swift class
     /// (<see cref="ClassProjection.SwiftContainerGenericType"/>): copied in through the class's value
-    /// witness (+1), so the storage is the class's own and holds a reference on every element.
+    /// witness (+1), so the storage is the class's own and holds a reference on every element, and a
+    /// key or set element is hashed through the class's own <c>Hashable</c> witness table.
     /// </summary>
-    public string SwiftContainerGenericType => _isCollectionValue ? _typeName : PInvokeType;
+    public string SwiftContainerGenericType => _isCollectionSlot ? _typeName : PInvokeType;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {

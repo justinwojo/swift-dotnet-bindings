@@ -486,10 +486,10 @@ namespace BindingsGeneration
             // Every member is emitted by now, so the object-pointer types the module's collections
             // hold are all recorded: export each one's metadata (a key's through its Set) from the wrapper.
             var objectKeyLibName = env.TypeDatabase.AsyncLibraryName ?? env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
+            var hashedSwiftClasses = EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
             // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
-            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext(), objectKeyLibName);
+            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext(), objectKeyLibName, hashedSwiftClasses);
 
             // File-per-type split: everything from the namespace body start to here that is
             // NOT inside a recorded top-level-type span (free functions, foreign-type
@@ -600,10 +600,11 @@ namespace BindingsGeneration
         /// held only as an array element or dictionary value needs no conformance, and its own
         /// metadata is exported.
         /// </summary>
-        private void EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
+        /// <returns>The hashed Swift classes whose Hashable witness the module initializer registers.</returns>
+        private IReadOnlyList<HashedSwiftClass> EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
         {
             if (emissionCtx == null)
-                return;
+                return Array.Empty<HashedSwiftClass>();
             var moduleName = moduleDecl.Name;
 
             // The type projections recorded the element types of every collection they marshal. A
@@ -612,11 +613,22 @@ namespace BindingsGeneration
             // record every such element the bound surface spells from the same predicates.
             var boundGenerics = new BoundGenericsHandler(typeDatabase);
             var floors = new ObjectKeyFloors();
+            // The scan reads every member, bound or not. One that names an internal type is not bound,
+            // and the wrapper, a separate module, cannot spell that type in an accessor.
+            var internalTypeNames = moduleDecl.InternalTypeNames;
             _onCollectionArgument = (element, hashed) =>
             {
+                if (internalTypeNames is { Count: > 0 } && InternalTypeReferenceWalker.Reaches(element, internalTypeNames, moduleName))
+                    return;
+                if (hashed && boundGenerics.HashedSwiftClassArgument(element) is { } hashedClass)
+                {
+                    emissionCtx.RecordHashedSwiftClass(hashedClass);
+                    floors.Add(hashedClass.Identity.SwiftTypeName, OwnerAvailability(_scanOwner));
+                    return;
+                }
                 var identity = boundGenerics.IsObjectPointerContainerArgument(element)
                     ? ObjectKeyIdentity.For(element)
-                    : boundGenerics.OptionalObjectCarrierIdentity(element, hashed);
+                    : boundGenerics.OptionalObjectCarrierIdentity(element);
                 if (identity == null)
                     return;
                 emissionCtx.RecordObjectKey(identity, hashed);
@@ -643,6 +655,64 @@ namespace BindingsGeneration
                     hashed ? identity.SwiftSetTypeName : identity.SwiftTypeName,
                     hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName),
                     emissionCtx, availability: floors.Floor(identity.IdentityClassName));
+            }
+            // A Swift class key or set element: its Set<Class> metadata, which holds the class's
+            // Hashable witness table as the compiler resolves it.
+            var hashedSwiftClasses = DeclaredHashedSwiftClasses(emissionCtx, moduleDecl);
+            foreach (var hashedClass in hashedSwiftClasses)
+            {
+                var identity = hashedClass.Identity;
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
+                    identity.AccessorSymbol(moduleName), emissionCtx, availability: floors.Floor(identity.SwiftTypeName));
+            }
+            return hashedSwiftClasses;
+        }
+
+        /// <summary>
+        /// The hashed Swift classes whose wrappers exist: the classes this module declares that the run
+        /// emitted (every type is emitted before the accessors), and other modules' classes, declared by
+        /// their own bindings. A class of this module the run did not emit, whatever skipped or
+        /// suppressed it, has no C# type to register a witness for, and no bound member reaches it: the
+        /// accessor scan reads every member, bound or not. A class spelled under an umbrella module is
+        /// matched under each module it re-exports, as the skip records name the declaring module.
+        /// </summary>
+        private static IReadOnlyList<HashedSwiftClass> DeclaredHashedSwiftClasses(ModuleEmissionContext emissionCtx, ModuleDecl moduleDecl)
+        {
+            if (emissionCtx.HashedSwiftClasses.Count == 0)
+                return Array.Empty<HashedSwiftClass>();
+            var declaredTypeNames = new HashSet<string>(StringComparer.Ordinal);
+            CollectDeclaredTypeNames(moduleDecl.Types, declaredTypeNames);
+            var result = new List<HashedSwiftClass>();
+            foreach (var hashedClass in emissionCtx.HashedSwiftClasses)
+            {
+                var names = SpellingsOf(hashedClass.Identity.SwiftTypeName);
+                if (names.Any(ReportCollector.IsTypeSkipped))
+                    continue;
+                if (names.Any(declaredTypeNames.Contains) && !names.Any(n => ReportCollector.IsTypeEmitted(n) != false))
+                    continue;
+                result.Add(hashedClass);
+            }
+            return result;
+
+            static void CollectDeclaredTypeNames(IEnumerable<TypeDecl>? types, HashSet<string> into)
+            {
+                foreach (var type in types ?? Enumerable.Empty<TypeDecl>())
+                {
+                    into.Add(type.SwiftTypeName.ModuleQualifiedName);
+                    CollectDeclaredTypeNames(type.Types, into);
+                }
+            }
+
+            static List<string> SpellingsOf(string moduleQualifiedName)
+            {
+                var names = new List<string> { moduleQualifiedName };
+                var dot = moduleQualifiedName.IndexOf('.');
+                if (dot <= 0)
+                    return names;
+                var suffix = moduleQualifiedName.Substring(dot + 1);
+                foreach (var sourceModule in AppleFrameworkRegistry.GetCompileImportSourceModules(moduleQualifiedName.Substring(0, dot)))
+                    names.Add($"{sourceModule}.{suffix}");
+                return names;
             }
         }
 
@@ -713,7 +783,8 @@ namespace BindingsGeneration
             }
         }
 
-        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName)
+        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName,
+            IReadOnlyList<HashedSwiftClass> hashedSwiftClasses)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
             var payloadSemantics = emissionCtx?.PayloadSemantics
@@ -897,6 +968,10 @@ namespace BindingsGeneration
                 else
                     csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterValue<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.ValueAccessorMethodName}()); }} catch {{ }}");
             }
+            // Swift class keys and set elements: each wrapper gets its class's Hashable witness table,
+            // read from the Set<Class> metadata the wrapper exports.
+            foreach (var hashedClass in hashedSwiftClasses)
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<{hashedClass.WrapperType}>({ObjectKeyIdentity.HolderClassName}.{hashedClass.AccessorMethodName(moduleName)}()); }} catch {{ }}");
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
             // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
@@ -989,7 +1064,7 @@ namespace BindingsGeneration
                 }
                 """);
 
-            if (objectKeyIdentities.Count > 0)
+            if (objectKeyIdentities.Count > 0 || hashedSwiftClasses.Count > 0)
             {
                 // The identities of the module's object-pointer collection elements, and the wrapper
                 // accessors of their metadata. Referenced unqualified from the module's code.
@@ -1007,6 +1082,12 @@ namespace BindingsGeneration
                     csWriter.WriteLines($"    public sealed class {identity.IdentityClassName} : global::Swift.Runtime.ISwiftObjectKeyIdentity {{ private {identity.IdentityClassName}() {{ }} }}");
                     csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{(hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName))}\")]");
                     csWriter.WriteLines($"    internal static extern IntPtr {(hashed ? identity.AccessorMethodName : identity.ValueAccessorMethodName)}();");
+                }
+                foreach (var hashedClass in hashedSwiftClasses)
+                {
+                    var identity = hashedClass.Identity;
+                    csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{identity.AccessorSymbol(moduleName)}\")]");
+                    csWriter.WriteLines($"    internal static extern IntPtr {hashedClass.AccessorMethodName(moduleName)}();");
                 }
                 csWriter.WriteLines("""
                     }

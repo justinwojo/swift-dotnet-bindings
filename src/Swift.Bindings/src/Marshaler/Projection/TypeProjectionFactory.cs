@@ -770,18 +770,30 @@ public class TypeProjectionFactory
     /// Gives an object-pointer key (a dictionary key or set element that projects as an
     /// Objective-C object) the identity of its Swift key type, so the collection C# builds or reads
     /// is one over that type rather than over <c>Swift.Int</c>; see <see cref="ObjectKeyIdentity"/>.
-    /// The identity is recorded for the module's initializer and wrapper. Every other key passes
+    /// A Swift class key is carried as its wrapper, as an array element is, and its <c>Hashable</c>
+    /// witness table is recorded for the module's initializer (<see cref="HashedSwiftClass"/>).
+    /// The identities are recorded for the module's initializer and wrapper. Every other key passes
     /// through unchanged.
     /// </summary>
     private static ITypeProjection AsHashedKey(ITypeProjection keyProjection, TypeSpec keyTypeSpec, ProjectionContext context)
     {
-        // An optional Objective-C object is Hashable as Optional<T> is: carried as that type, its
-        // collection hashes and retains as Swift's does. The rule is the raw translator's
+        if (keyProjection is ClassProjection or ObjCRootedClassProjection)
+        {
+            if (keyTypeSpec is NamedTypeSpec classKeySpec && HashedSwiftClass.For(classKeySpec, keyProjection.PublicType) is { } hashedClass)
+                context.EmissionContext?.RecordHashedSwiftClass(hashedClass);
+            return keyProjection is ClassProjection swiftClass
+                ? swiftClass.AsCollectionSlot()
+                : ((ObjCRootedClassProjection)keyProjection).AsCollectionSlot();
+        }
+
+        // An optional object (an Objective-C object, or a Swift class NSObject-rooted or not) is
+        // Hashable as Optional<T> is: carried as that type, its collection hashes and retains as
+        // Swift's does. The rule is the raw translator's
         // (BoundGenericsHandler.OptionalObjectCarrierIdentity), so an accessor's raw and projected
         // types agree.
-        if (keyProjection is OptionalProjection { IsObjectReference: true, ObjectCarrier: null, InnerProjection: ObjCBridgedProjection } optionalKey
+        if (keyProjection is OptionalProjection { IsObjectReference: true, ObjectCarrier: null } optionalKey
             && keyTypeSpec is NamedTypeSpec optionalKeySpec
-            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalKeySpec, hashed: true) is { } optionalIdentity)
+            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalKeySpec) is { } optionalIdentity)
         {
             context.EmissionContext?.RecordObjectKey(optionalIdentity);
             return optionalKey.AsObjectCarrier(optionalIdentity);
@@ -805,16 +817,16 @@ public class TypeProjectionFactory
     {
         // A Swift class (NSObject-rooted or not) is carried as its own wrapper.
         if (valueProjection is ClassProjection swiftClass)
-            return swiftClass.AsCollectionValue();
+            return swiftClass.AsCollectionSlot();
         if (valueProjection is ObjCRootedClassProjection objcRooted)
-            return objcRooted.AsCollectionValue();
+            return objcRooted.AsCollectionSlot();
 
         // An optional object reference is one pointer, null for nil, and Swift's storage retains it
         // like any element: carried as the optional type, not as a bare pointer (a Swift.Int), by
         // the raw translator's rule (BoundGenericsHandler.OptionalObjectCarrierIdentity).
         if (valueProjection is OptionalProjection { IsObjectReference: true, ObjectCarrier: null } optional
             && valueTypeSpec is NamedTypeSpec optionalValueSpec
-            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalValueSpec, hashed: false) is { } optionalIdentity)
+            && new BoundGenericsHandler(context.TypeDatabase).OptionalObjectCarrierIdentity(optionalValueSpec) is { } optionalIdentity)
         {
             context.EmissionContext?.RecordObjectKey(optionalIdentity, hashed: false);
             return optional.AsObjectCarrier(optionalIdentity);

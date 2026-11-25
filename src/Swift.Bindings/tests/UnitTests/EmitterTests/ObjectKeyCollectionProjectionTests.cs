@@ -210,7 +210,7 @@ public class ObjectKeyCollectionProjectionTests
     {
         // A Swift class element is carried as its wrapper, copied in through the class's value
         // witness, not as a handle in an array of Swift.Int. Hashed positions are untouched.
-        var element = new ClassProjection("Lib.Tracked").AsCollectionValue();
+        var element = new ClassProjection("Lib.Tracked").AsCollectionSlot();
         var array = new ArrayProjection(element, isParameter: true);
         Assert.Equal("SwiftArray<Lib.Tracked>", array.SwiftContainerGenericType);
         var setup = string.Join("\n", array.GetParameterPlan("items").SetupStatements.Select(Render));
@@ -218,7 +218,7 @@ public class ObjectKeyCollectionProjectionTests
         Assert.DoesNotContain("GetLiveHandle", setup);
 
         Assert.Equal("IntPtr", new ClassProjection("Lib.Tracked").SwiftContainerGenericType);
-        Assert.Equal("Lib.Rooted", new ObjCRootedClassProjection("Lib.Rooted").AsCollectionValue().SwiftContainerGenericType);
+        Assert.Equal("Lib.Rooted", new ObjCRootedClassProjection("Lib.Rooted").AsCollectionSlot().SwiftContainerGenericType);
         Assert.Equal("IntPtr", new ObjCRootedClassProjection("Lib.Rooted").SwiftContainerGenericType);
 
         // The factory applies it to an array element and a dictionary value, never to a key.
@@ -229,7 +229,108 @@ public class ObjectKeyCollectionProjectionTests
         var classDictionary = Assert.IsType<DictionaryProjection>(_factory.Project(Dictionary(new NamedTypeSpec("Swift.String"), entity), Context(new TypeDatabase(), new ModuleEmissionContext())));
         Assert.DoesNotContain("IntPtr", classDictionary.SwiftContainerGenericType);
         var classSet = Assert.IsType<SetProjection>(_factory.Project(new NamedTypeSpec("Swift.Set", entity), Context(new TypeDatabase(), new ModuleEmissionContext())));
-        Assert.Equal("SwiftSet<IntPtr>", classSet.SwiftContainerGenericType);
+        Assert.Equal("SwiftSet<RealityFoundation.Entity>", classSet.SwiftContainerGenericType);
+    }
+
+    [Fact]
+    public async Task SwiftClassSetElementAndDictionaryKey_CarryTheWrapperAndRecordItsHashableConformance()
+    {
+        // A set over the bare handle is a Set<Int>: hashed by address, its elements unretained. The
+        // element is carried as its wrapper, whose Hashable witness the module initializer
+        // registers, so Swift's storage hashes it the class's way and retains it.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var emission = new ModuleEmissionContext();
+        var node = new NamedTypeSpec("TestModule.Node");
+
+        var set = Assert.IsType<SetProjection>(_factory.Project(new NamedTypeSpec("Swift.Set", node), Context(typeDatabase, emission)));
+        Assert.Equal("SwiftSet<TestModule.Node>", set.SwiftContainerGenericType);
+        var setup = string.Join("\n", set.GetParameterPlan("nodes").SetupStatements.Select(Render));
+        Assert.DoesNotContain("GetLiveHandle", setup);
+        Assert.DoesNotContain("SwiftSet<global::System.IntPtr>", setup);
+
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(node, new NamedTypeSpec("Swift.Int")), Context(typeDatabase, emission, isParameter: false)));
+        Assert.Equal("SwiftDictionary<TestModule.Node, nint>", dictionary.SwiftContainerGenericType);
+
+        var hashed = Assert.Single(emission.HashedSwiftClasses);
+        Assert.Equal("TestModule.Node", hashed.Identity.SwiftTypeName);
+        Assert.Equal("global::TestModule.Node", hashed.WrapperType);
+        Assert.Empty(emission.ObjectKeyIdentities);
+
+        // An array element or dictionary value is not hashed: nothing to register.
+        var unhashed = new ModuleEmissionContext();
+        _factory.Project(new NamedTypeSpec("Swift.Array", node), Context(typeDatabase, unhashed));
+        _factory.Project(Dictionary(new NamedTypeSpec("Swift.String"), node), Context(typeDatabase, unhashed));
+        Assert.Empty(unhashed.HashedSwiftClasses);
+    }
+
+    [Fact]
+    public async Task OptionalSwiftClassKey_IsHashedAsTheOptionalType()
+    {
+        // Set<Node?>: Optional<Node>'s Hashable conformance is the one Swift hashes by, read from
+        // Set<Optional<Node>>'s metadata, in the projection and the raw translation alike.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var emission = new ModuleEmissionContext();
+        var optionalNode = Optional(new NamedTypeSpec("TestModule.Node"));
+        const string carrier = "global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.Swift_Optional_TestModule_Node_>";
+
+        var set = Assert.IsType<SetProjection>(_factory.Project(new NamedTypeSpec("Swift.Set", optionalNode), Context(typeDatabase, emission)));
+        Assert.Equal($"SwiftSet<{carrier}>", set.SwiftContainerGenericType);
+        Assert.True(emission.IsHashedObjectKey(Assert.Single(emission.ObjectKeyIdentities)));
+
+        var handler = new BoundGenericsHandler(typeDatabase);
+        Assert.EndsWith($"SwiftSet<{carrier}>", handler.TranslateBoundGenericTypeToCSharp(
+            new NamedTypeSpec("Swift.Set", optionalNode), GenericContext.Empty));
+    }
+
+    [Fact]
+    public async Task RawTranslation_SwiftClassSetElementIsTheWrapperAndNamesItsHashableClass()
+    {
+        // A closure parameter's set is spelled by the raw translator: the element is the wrapper, and
+        // the handler names the class the module initializer registers a Hashable witness for.
+        var handler = new BoundGenericsHandler(NodeDatabase(await LoadAppleDatabaseAsync()));
+        var node = new NamedTypeSpec("TestModule.Node");
+        var translated = handler.TranslateBoundGenericTypeToCSharp(new NamedTypeSpec("Swift.Set", node), GenericContext.Empty);
+        Assert.EndsWith("TestModule.Node>", translated);
+        Assert.DoesNotContain("IntPtr", translated);
+
+        var hashed = handler.HashedSwiftClassArgument(node);
+        Assert.NotNull(hashed);
+        Assert.Equal("global::TestModule.Node", hashed!.WrapperType);
+        Assert.Null(handler.HashedSwiftClassArgument(new NamedTypeSpec("Swift.Int")));
+    }
+
+    [Fact]
+    public void RecordHashedSwiftClass_DedupesOneClassAndKeepsTwoClassesWhoseNamesFlattenAlike()
+    {
+        var emission = new ModuleEmissionContext();
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Node"), "TestModule.Node")!);
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Node"), "global::TestModule.Node")!);
+        Assert.Single(emission.HashedSwiftClasses);
+
+        // TestModule.Outer.Key and TestModule.Outer_Key flatten to one identity name: both are
+        // registered, each through its own accessor import.
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer.Key"), "TestModule.Outer.Key")!);
+        emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer_Key"), "TestModule.Outer_Key")!);
+        Assert.Equal(3, emission.HashedSwiftClasses.Count);
+        Assert.Equal(3, emission.HashedSwiftClasses.Select(c => c.AccessorMethodName("TestModule")).Distinct().Count());
+    }
+
+    private static TypeDatabase NodeDatabase(TypeDatabase? typeDatabase = null)
+    {
+        typeDatabase ??= new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        var nodeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Node");
+        module.RegisterType(nodeName, new TypeRecord
+        {
+            CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Node"),
+            SwiftTypeName = nodeName,
+            MetadataAccessor = "$s10TestModule4NodeCMa",
+            Flags = TypeRecordFlags.RequiresMemoryManagement,
+            Kind = TypeRecordKind.Class,
+        });
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
     }
 
     [Fact]
