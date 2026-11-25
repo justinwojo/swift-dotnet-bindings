@@ -48,6 +48,7 @@
     <Compile Include="../../../../build/Tools/ArgumentEscaper.cs" Link="Tools/ArgumentEscaper.cs" />
     <Compile Include="../../../../build/Models/ToolchainProfileContext.cs" Link="Models/ToolchainProfileContext.cs" />
     <Compile Include="../../../../build/Models/ToolchainTargets.cs" Link="Models/ToolchainTargets.cs" />
+    <Compile Include="../../../../build/Models/SwiftPackageArchive.cs" Link="Models/SwiftPackageArchive.cs" />
     <Compile Include="../../../../build/Helpers/ArtifactParityGate.cs" Link="Parity/ArtifactParityGate.cs" />
     <Compile Include="../../../../build/Models/BlastRadiusGolden.cs" Link="Models/BlastRadiusGolden.cs" />
     <!-- Link-compile the build-side Mach-O reader so the appstore-hygiene gate's install_name reader
