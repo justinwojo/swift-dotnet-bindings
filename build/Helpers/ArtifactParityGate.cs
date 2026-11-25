@@ -263,6 +263,22 @@ public static class ArtifactParityGate
            || symbol.StartsWith("SBSW_", StringComparison.Ordinal)
            || symbol.StartsWith("Get_SwiftBindingsTestLib", StringComparison.Ordinal);
 
+    private const string ObjectKeyValueAccessorPrefix = "SBW_GetObjectValueMetadata_";
+    private const string ObjectKeySetAccessorPrefix = "SBW_GetObjectKeySetMetadata_";
+
+    /// <summary>
+    /// For an object key's value-metadata accessor, the Set-metadata accessor of the same identity
+    /// (the two share their suffix, <c>ObjectKeyIdentity.ValueAccessorSymbol</c> and
+    /// <c>AccessorSymbol</c>); null for any other symbol. The wrapper exports a hashed object key's
+    /// value accessor beside the Set accessor its binding calls, so that a newer copy of a package
+    /// keeps every export an older copy, which held the type only as a value, bound. The value
+    /// accessor counts as referenced when its Set accessor is.
+    /// </summary>
+    public static string? ObjectKeySetAccessorOf(string symbol)
+        => symbol.StartsWith(ObjectKeyValueAccessorPrefix, StringComparison.Ordinal)
+            ? ObjectKeySetAccessorPrefix + symbol[ObjectKeyValueAccessorPrefix.Length..]
+            : null;
+
     // The reverse-conformance getters and vtable setters carry the SBW_ prefix, so the prefix test
     // above already admits them; this narrower shape picks the witness-table getters out of an nm dump.
     private static readonly Regex WitnessTableSymbol = new(@"^SBW_Get_Every[A-Za-z0-9_]*Protocol_[A-Za-z0-9_]+_WitnessTable$", RegexOptions.Compiled);
@@ -649,7 +665,8 @@ public static class ArtifactParityGate
             }
         }
         var orphans = wrapperAuthoredSymbols
-            .Where(s => !referenced.Contains(s))
+            .Where(s => !referenced.Contains(s)
+                && !(ObjectKeySetAccessorOf(s) is { } setAccessor && referenced.Contains(setAccessor)))
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToList();
 
