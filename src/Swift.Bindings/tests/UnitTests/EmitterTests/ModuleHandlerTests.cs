@@ -1250,6 +1250,62 @@ public class ModuleHandlerTests
     }
 
     [Fact]
+    public void Emit_RecordedHashedSwiftClass_ExportsItsSetMetadataAndRegistersItsHashableWitness()
+    {
+        // A Swift class key or set element crosses as its wrapper; the collection hashes it through
+        // the class's Hashable witness, which the initializer reads from the Set<Class> metadata the
+        // wrapper exports. No carrier identity class is emitted for it.
+        var hashedClass = new HashedSwiftClass(new ObjectKeyIdentity("TestModule.Node"), "global::TestModule.Node");
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            preEmitHook: ctx => ctx.RecordHashedSwiftClass(hashedClass));
+
+        var symbol = hashedClass.Identity.AccessorSymbol("TestModule");
+        Assert.Contains($"@_cdecl(\"{symbol}\")", swiftOutput);
+        Assert.Contains("Swift.Set<TestModule.Node>.self", swiftOutput);
+        Assert.Contains($"EntryPoint = \"{symbol}\"", csOutput);
+        Assert.Contains(
+            "global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(__SwiftObjectKeys.__GetSetMetadata_TestModule_Node())",
+            csOutput);
+        Assert.DoesNotContain("ISwiftObjectKeyIdentity", csOutput);
+        var diagnostics = CSharpSyntaxTree.ParseText(csOutput).GetDiagnostics().Where(d => d.Severity == DiagnosticSeverity.Error);
+        Assert.Empty(diagnostics);
+    }
+
+    [Fact]
+    public void Emit_SwiftClassSetOnlyInAClosureParameter_RegistersTheClassHashable()
+    {
+        // A closure parameter's set is translated raw, outside any projection: the module still
+        // records the Swift class its hashed slot names, guarded by the member's floor.
+        var (csOutput, swiftOutput) = EmitModuleWithDependencies("TestModule", new List<string>(),
+            moduleDecl => moduleDecl.Methods.Add(ObjectKeyMethod(moduleDecl, "withNodes",
+                new ClosureTypeSpec(new TupleTypeSpec(new TypeSpec[]
+                {
+                    new NamedTypeSpec("Swift.Set", new NamedTypeSpec("TestModule.Node")),
+                }), new NamedTypeSpec("Swift.Void")),
+                Introduced("iOS", "16.0"))),
+            registerModuleTypes: module =>
+            {
+                var nodeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Node");
+                module.RegisterType(nodeName, new TypeRecord
+                {
+                    CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Node"),
+                    SwiftTypeName = nodeName,
+                    MetadataAccessor = "$s10TestModule4NodeCMa",
+                    Flags = TypeRecordFlags.RequiresMemoryManagement,
+                    Kind = TypeRecordKind.Class,
+                });
+            });
+
+        var symbol = new ObjectKeyIdentity("TestModule.Node").AccessorSymbol("TestModule");
+        var start = swiftOutput.IndexOf($"@_cdecl(\"{symbol}\")", StringComparison.Ordinal);
+        Assert.True(start >= 0, "no Set metadata accessor for TestModule.Node");
+        var accessor = swiftOutput.Substring(start, swiftOutput.IndexOf("\n}", start, StringComparison.Ordinal) - start);
+        Assert.Contains("if #available(iOS 16.0, macCatalyst 16.0, *) {", accessor);
+        Assert.Contains("Swift.Set<TestModule.Node>.self", accessor);
+        Assert.Contains("SwiftObjectKeys.RegisterHashableClass<global::TestModule.Node>(", csOutput);
+    }
+
+    [Fact]
     public void Emit_ObjectValueNamedOnlyByAGatedMember_GuardsItsAccessor()
     {
         // The element accessor takes the same floor as a key's: a member floored at iOS 16 that is the

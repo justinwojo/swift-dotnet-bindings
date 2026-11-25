@@ -745,9 +745,11 @@ public class BoundGenericsHandler
         // bypass the ISwiftObject check. SwiftArray/SwiftDictionary/SwiftSet have no ISwiftObject
         // constraint on their type parameters, and the projection system handles element-to-IntPtr
         // mapping. This is separate from IsObjCBridgeableContainer which also changes the @_cdecl
-        // marshalling strategy — this bypass only relaxes the constraint check.
+        // marshalling strategy — this bypass only relaxes the constraint check. It relaxes it for
+        // the Objective-C arguments alone: every sibling argument still answers to this gate, so a
+        // `[UIImage: Result<Int, E>]` parameter is refused like any other Result parameter.
         if (IsUnconstrainedContainerWithProjectableElements(namedTypeSpec))
-            return false;
+            return HasNonSwiftObjectSiblingArg(namedTypeSpec, isParameterPosition);
 
         // Measurement<UnitType> — non-frozen generic struct with ObjC-bridged unit args.
         // The C# Measurement<T> class has no ISwiftObject constraint on T (it uses VWT-backed
@@ -981,7 +983,7 @@ public class BoundGenericsHandler
             if (isStdlibContainer &&
                 IsObjectCarrierSlot(namedTypeSpec.Name, genericIndex) &&
                 genericParameter is NamedTypeSpec optionalSlotArgument &&
-                OptionalObjectCarrierIdentity(optionalSlotArgument, IsHashedContainerSlot(namedTypeSpec.Name, genericIndex)) is { } optionalIdentity)
+                OptionalObjectCarrierIdentity(optionalSlotArgument) is { } optionalIdentity)
             {
                 translatedGenericParameters.Add(optionalIdentity.CarrierType);
                 continue;
@@ -1717,18 +1719,30 @@ public class BoundGenericsHandler
     /// <summary>
     /// The identity an optional collection slot argument (<c>Swift.Optional&lt;T&gt;</c>) carries, or
     /// <c>null</c> when <c>T</c> is not one object reference: an Objective-C object
-    /// (<see cref="IsObjectPointerContainerArgument"/>) in any slot, or, in an unhashed slot, a Swift
-    /// class (NSObject-rooted or not). TypeProjectionFactory's collection slots apply the same rule.
+    /// (<see cref="IsObjectPointerContainerArgument"/>) or a Swift class (NSObject-rooted or not), in
+    /// any slot. In a hashed slot the carrier is registered from <c>Set&lt;Optional&lt;T&gt;&gt;</c>, whose
+    /// metadata holds <c>Optional&lt;T&gt;</c>'s <c>Hashable</c> conformance. TypeProjectionFactory's
+    /// collection slots apply the same rule.
     /// </summary>
-    internal ObjectKeyIdentity? OptionalObjectCarrierIdentity(NamedTypeSpec argument, bool hashed)
+    internal ObjectKeyIdentity? OptionalObjectCarrierIdentity(NamedTypeSpec argument)
     {
         if (argument is not { Name: "Swift.Optional", GenericParameters.Count: 1, InnerType: null } ||
             argument.GenericParameters[0] is not NamedTypeSpec inner)
             return null;
-        if (!IsObjectPointerContainerArgument(inner) && (hashed || !IsSwiftClassSlotArgument(inner)))
+        if (!IsObjectPointerContainerArgument(inner) && !IsSwiftClassSlotArgument(inner))
             return null;
         return ObjectKeyIdentity.For(argument);
     }
+
+    /// <summary>
+    /// The Swift class (NSObject-rooted or not) a hashed slot argument names, as the raw translator
+    /// spells it (its wrapper), or <c>null</c> for any other argument. The module initializer
+    /// registers its <c>Hashable</c> witness table for the wrapper (<see cref="HashedSwiftClass"/>).
+    /// </summary>
+    internal HashedSwiftClass? HashedSwiftClassArgument(NamedTypeSpec typeSpec)
+        => IsSwiftClassSlotArgument(typeSpec) && _typeDatabase.TryGetTypeRecord(typeSpec, out var record)
+            ? HashedSwiftClass.For(typeSpec, record.CSharpTypeName.FullyQualifiedName)
+            : null;
 
     private bool IsSwiftClassSlotArgument(NamedTypeSpec typeSpec)
         => !typeSpec.ContainsGenericParameters && typeSpec.HasModule()
@@ -1796,6 +1810,39 @@ public class BoundGenericsHandler
             }
         }
 
+        return false;
+    }
+
+    /// <summary>
+    /// For a container <see cref="IsUnconstrainedContainerWithProjectableElements"/> admits: true when
+    /// an argument other than the Objective-C ones it admits the container for (an Objective-C class,
+    /// the optional of a bound generic Objective-C class, an unconstrained <c>Any</c>) is refused by
+    /// <see cref="HasNonSwiftObjectGenericArg(TypeSpec, bool)"/>. The bypass exists for those
+    /// arguments; every other argument is projected by its own rules and must be bindable on its own.
+    /// </summary>
+    private bool HasNonSwiftObjectSiblingArg(NamedTypeSpec typeSpec, bool isParameterPosition)
+    {
+        var target = typeSpec;
+        if (target.Name == "Swift.Optional" && target.GenericParameters.Count == 1 &&
+            target.GenericParameters[0] is NamedTypeSpec inner)
+            target = inner;
+
+        foreach (var param in target.GenericParameters)
+        {
+            if (param is ProtocolListTypeSpec { IsOpaque: false } protocolList && protocolList.Protocols.Count == 0)
+                continue;
+            if (param is NamedTypeSpec namedParam)
+            {
+                if (IsObjCBridgedType(namedParam) && !IsNonSwiftObjectMappedType(namedParam))
+                    continue;
+                if (namedParam is { Name: "Swift.Optional", GenericParameters.Count: 1 }
+                    && namedParam.GenericParameters[0] is NamedTypeSpec wrapped
+                    && IsBoundGenericObjCClass(wrapped) && IsObjectPointerContainerArgument(wrapped))
+                    continue;
+            }
+            if (HasNonSwiftObjectGenericArg(param, isParameterPosition))
+                return true;
+        }
         return false;
     }
 

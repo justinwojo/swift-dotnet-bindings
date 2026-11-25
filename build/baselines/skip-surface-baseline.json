@@ -1108,6 +1108,12 @@
     {
       "source": "BindingTests/output/SwiftBindingsTestLib.cs",
       "marker": "Unsupported",
+      "reason": "method \u0027swiftKeyResultValueSum\u0027 \u2014 generic constraint could not be satisfied (Bound generic contains type argument that cannot satisfy C# ISwiftObject constraint.)",
+      "count": 1
+    },
+    {
+      "source": "BindingTests/output/SwiftBindingsTestLib.cs",
+      "marker": "Unsupported",
       "reason": "method \u0027typeName\u0027 \u2014 parameter or return type not yet supported (unsupported placeholder type)",
       "count": 1
     },

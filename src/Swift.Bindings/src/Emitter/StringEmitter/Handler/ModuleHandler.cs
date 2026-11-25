@@ -614,9 +614,15 @@ namespace BindingsGeneration
             var floors = new ObjectKeyFloors();
             _onCollectionArgument = (element, hashed) =>
             {
+                if (hashed && boundGenerics.HashedSwiftClassArgument(element) is { } hashedClass)
+                {
+                    emissionCtx.RecordHashedSwiftClass(hashedClass);
+                    floors.Add(hashedClass.Identity.IdentityClassName, OwnerAvailability(_scanOwner));
+                    return;
+                }
                 var identity = boundGenerics.IsObjectPointerContainerArgument(element)
                     ? ObjectKeyIdentity.For(element)
-                    : boundGenerics.OptionalObjectCarrierIdentity(element, hashed);
+                    : boundGenerics.OptionalObjectCarrierIdentity(element);
                 if (identity == null)
                     return;
                 emissionCtx.RecordObjectKey(identity, hashed);
@@ -643,6 +649,14 @@ namespace BindingsGeneration
                     hashed ? identity.SwiftSetTypeName : identity.SwiftTypeName,
                     hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName),
                     emissionCtx, availability: floors.Floor(identity.IdentityClassName));
+            }
+            // A Swift class key or set element: its Set<Class> metadata, which holds the class's
+            // Hashable witness table as the compiler resolves it.
+            foreach (var hashedClass in emissionCtx.HashedSwiftClasses)
+            {
+                var identity = hashedClass.Identity;
+                MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
+                    identity.AccessorSymbol(moduleName), emissionCtx, availability: floors.Floor(identity.IdentityClassName));
             }
         }
 
@@ -731,6 +745,8 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string, string)>();
             var objectKeyIdentities = emissionCtx?.ObjectKeyIdentities
                 ?? Array.Empty<ObjectKeyIdentity>();
+            var hashedSwiftClasses = emissionCtx?.HashedSwiftClasses
+                ?? Array.Empty<HashedSwiftClass>();
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
@@ -897,6 +913,10 @@ namespace BindingsGeneration
                 else
                     csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterValue<{identity.IdentityType}>({ObjectKeyIdentity.HolderClassName}.{identity.ValueAccessorMethodName}()); }} catch {{ }}");
             }
+            // Swift class keys and set elements: each wrapper gets its class's Hashable witness table,
+            // read from the Set<Class> metadata the wrapper exports.
+            foreach (var hashedClass in hashedSwiftClasses)
+                csWriter.WriteLines($"        try {{ global::Swift.Runtime.SwiftObjectKeys.RegisterHashableClass<{hashedClass.WrapperType}>({ObjectKeyIdentity.HolderClassName}.{hashedClass.Identity.AccessorMethodName}()); }} catch {{ }}");
             // Declare each simple enum's protocol-conformance descriptor symbols. The two
             // conformance loops above are constrained to ISwiftObject on both the runtime API and
             // the static-virtual dispatch they perform, which a C# enum can never satisfy — so
@@ -989,7 +1009,7 @@ namespace BindingsGeneration
                 }
                 """);
 
-            if (objectKeyIdentities.Count > 0)
+            if (objectKeyIdentities.Count > 0 || hashedSwiftClasses.Count > 0)
             {
                 // The identities of the module's object-pointer collection elements, and the wrapper
                 // accessors of their metadata. Referenced unqualified from the module's code.
@@ -1007,6 +1027,12 @@ namespace BindingsGeneration
                     csWriter.WriteLines($"    public sealed class {identity.IdentityClassName} : global::Swift.Runtime.ISwiftObjectKeyIdentity {{ private {identity.IdentityClassName}() {{ }} }}");
                     csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{(hashed ? identity.AccessorSymbol(moduleName) : identity.ValueAccessorSymbol(moduleName))}\")]");
                     csWriter.WriteLines($"    internal static extern IntPtr {(hashed ? identity.AccessorMethodName : identity.ValueAccessorMethodName)}();");
+                }
+                foreach (var hashedClass in hashedSwiftClasses)
+                {
+                    var identity = hashedClass.Identity;
+                    csWriter.WriteLines($"    [global::System.Runtime.InteropServices.DllImport(\"{objectKeyLibName}\", CallingConvention = global::System.Runtime.InteropServices.CallingConvention.Cdecl, EntryPoint = \"{identity.AccessorSymbol(moduleName)}\")]");
+                    csWriter.WriteLines($"    internal static extern IntPtr {identity.AccessorMethodName}();");
                 }
                 csWriter.WriteLines("""
                     }

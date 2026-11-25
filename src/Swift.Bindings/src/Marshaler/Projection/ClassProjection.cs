@@ -12,21 +12,24 @@ namespace BindingsGeneration;
 public class ClassProjection : ITypeProjection
 {
     private readonly string _typeName;
-    private readonly bool _isCollectionValue;
+    private readonly bool _isCollectionSlot;
 
     public ClassProjection(string typeName)
-        : this(typeName, isCollectionValue: false)
+        : this(typeName, isCollectionSlot: false)
     {
     }
 
-    private ClassProjection(string typeName, bool isCollectionValue)
+    private ClassProjection(string typeName, bool isCollectionSlot)
     {
         _typeName = typeName;
-        _isCollectionValue = isCollectionValue;
+        _isCollectionSlot = isCollectionSlot;
     }
 
-    /// <summary>The same projection as an array element or dictionary value (see <see cref="SwiftContainerGenericType"/>).</summary>
-    public ClassProjection AsCollectionValue() => new(_typeName, isCollectionValue: true);
+    /// <summary>
+    /// The same projection as a collection's element, key or value: an array element, a dictionary
+    /// key or value, or a set element (see <see cref="SwiftContainerGenericType"/>).
+    /// </summary>
+    public ClassProjection AsCollectionSlot() => new(_typeName, isCollectionSlot: true);
 
     public string PublicType => _typeName;
     public string PInvokeType => "IntPtr";
@@ -39,13 +42,16 @@ public class ClassProjection : ITypeProjection
     public string MarshalFromSwiftType => _typeName;
 
     /// <summary>
-    /// As an array element or dictionary value the element is the class itself, not its bare
-    /// pointer: a <c>SwiftArray&lt;IntPtr&gt;</c> is an array of <c>Swift.Int</c>, whose storage holds no
-    /// reference on its elements while Swift, reading it as the class's array, releases what it
-    /// replaces or destroys. Carried as the wrapper, each element is copied in through the class's
-    /// value witness (+1). A hashed position (a dictionary key, a set element) keeps the bare pointer.
+    /// In a collection the element is the class itself, not its bare pointer: a
+    /// <c>SwiftArray&lt;IntPtr&gt;</c> is an array of <c>Swift.Int</c>, whose storage holds no reference on
+    /// its elements while Swift, reading it as the class's array, releases what it replaces or
+    /// destroys; a <c>SwiftSet&lt;IntPtr&gt;</c> or a dictionary keyed by <c>IntPtr</c> also hashes and
+    /// compares by address where Swift uses the class's own <c>Hashable</c> conformance. Carried as the
+    /// wrapper, each element is copied in through the class's value witness (+1), and a key or set
+    /// element is hashed through the class's <c>Hashable</c> witness table, which the module
+    /// initializer registers for the wrapper (<see cref="HashedSwiftClass"/>).
     /// </summary>
-    public string SwiftContainerGenericType => _isCollectionValue ? _typeName : PInvokeType;
+    public string SwiftContainerGenericType => _isCollectionSlot ? _typeName : PInvokeType;
 
     public MarshalPlan GetParameterPlan(string paramName)
     {

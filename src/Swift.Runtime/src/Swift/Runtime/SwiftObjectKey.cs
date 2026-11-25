@@ -163,6 +163,38 @@ public static class SwiftObjectKeys
     }
 
     /// <summary>
+    /// Registers the <c>Hashable</c> conformance a Swift class's wrapper <typeparamref name="T"/> is
+    /// hashed by as a dictionary key or a set element, from the metadata of <c>Set&lt;Class&gt;</c> the
+    /// binding's wrapper returns. The conformance may be the class's own, inherited from a superclass
+    /// or <c>NSObject</c>'s, so the binding cannot name its descriptor; <c>Set&lt;Class&gt;</c>'s metadata
+    /// holds the one the compiler resolved, as its generic argument's witness table.
+    /// </summary>
+    /// <param name="hashableSetMetadata">The metadata of <c>Swift.Set&lt;Class&gt;</c>.</param>
+    /// <exception cref="SwiftRuntimeException">The pointer is not <c>Set</c> metadata over
+    /// <typeparamref name="T"/>'s class and a <c>Hashable</c> witness table.</exception>
+    public static unsafe void RegisterHashableClass<T>(IntPtr hashableSetMetadata)
+        where T : class, ISwiftObject
+    {
+        if (hashableSetMetadata == IntPtr.Zero)
+            throw new SwiftRuntimeException($"No Set metadata for {typeof(T).FullName}.");
+
+        // Struct metadata: [kind][nominal type descriptor][Element][Element: Hashable].
+        var words = (IntPtr*)hashableSetMetadata;
+        var elementMetadata = TypeMetadata.FromHandle(words[2]);
+        var hashable = ProtocolWitnessTable.FromHandle(words[3]);
+        if (!elementMetadata.IsValid || !hashable.IsValid)
+            throw new SwiftRuntimeException($"The Set metadata for {typeof(T).FullName} does not hold an element type and its Hashable conformance.");
+        if (elementMetadata.Handle != T.GetTypeMetadata().Handle)
+            throw new SwiftRuntimeException($"The Set metadata for {typeof(T).FullName} is not over its class.");
+
+        var rebuilt = SwiftSetPInvokes.PInvoke_getMetadata(TypeMetadataRequest.Complete, elementMetadata, hashable);
+        if (rebuilt.Handle != hashableSetMetadata)
+            throw new SwiftRuntimeException($"The Set metadata for {typeof(T).FullName} did not round-trip through its class and Hashable conformance.");
+
+        WitnessTableDispatcher.Register(typeof(T), typeof(ISwiftHashable), hashable);
+    }
+
+    /// <summary>
     /// Registers the type <typeparamref name="TIdentity"/> names for positions that do not hash it
     /// (an array element, a dictionary value), from the type's own metadata, which the binding's
     /// wrapper returns. A type that is also a key or set element is registered through
