@@ -360,6 +360,8 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         // container, cf. ToNSObject). Mirror BuildObjCBridgeParameterPlan as a single expression.
         if (UsesObjCContainerBridge)
         {
+            if (CrossesByKeyHandles)
+                return AdoptNSDictionary(CreateFromKeyHandles(elementVar));
             var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
             var valToNS = ToNSObject(_valueProjection, "kvp.Value");
             return $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, kvp => {keyToNS})))";
@@ -404,6 +406,9 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     public string? GetReturnElementConversion(string elementVar)
     {
+        // An element of an Objective-C collection (`[[String: URL]]`): the NSDictionary itself.
+        if (UsesObjCContainerBridge)
+            return BorrowedObjCBridgeRead(elementVar);
         var keyConv = _keyProjection.GetReturnElementConversion("kvp.Key");
         var valConv = _valueProjection.GetReturnElementConversion("kvp.Value");
         var keyExpr = keyConv ?? "kvp.Key";
@@ -423,6 +428,8 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     public string? GetOwnedReturnElementConversion(string elementVar)
     {
+        if (UsesObjCContainerBridge)
+            return BorrowedObjCBridgeRead(elementVar);
         var keyConv = OwnedReturnKeyConversion("kvp.Key");
         var valConv = OwnedReturnValueConversion("kvp.Value");
         var keyExpr = keyConv ?? "kvp.Key";
@@ -473,6 +480,8 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     internal static string? SwiftKeyComparer(ITypeProjection keyProjection)
     {
+        if (StringKeyComparer(keyProjection) is { } stringComparer)
+            return stringComparer;
         var swiftClassKey = keyProjection switch
         {
             ClassProjection or ObjCRootedClassProjection => keyProjection.SwiftContainerGenericType == keyProjection.PublicType,
@@ -489,6 +498,17 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             : keyProjection.GetParameterElementConversion("comparerKey") ?? "comparerKey";
         return $"global::Swift.Runtime.SwiftKeyComparer.Create<{keyProjection.PublicType}, {carrier}>(comparerKey => {toCarrier})";
     }
+
+    /// <summary>
+    /// The comparer of a managed collection of Swift <c>String</c> keys or set elements, optional or
+    /// not: Swift compares strings by canonical equivalence, where .NET's string equality is ordinal
+    /// (and normalizing in .NET is a no-op in an app built with invariant globalization), so the
+    /// collection compares through Swift. <c>null</c> for any other key.
+    /// </summary>
+    internal static string? StringKeyComparer(ITypeProjection keyProjection)
+        => keyProjection is StringProjection or OptionalProjection { InnerProjection: StringProjection }
+            ? "global::Swift.Runtime.SwiftKeyComparer.StringKeys"
+            : null;
 
     public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
 
@@ -607,6 +627,14 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return $"{nsObjectVar}.ToString()!";
         if (projection is DataProjection)
             return $"((Foundation.NSData){nsObjectVar}).ToArray()";
+        // A nested container that crosses as an Objective-C collection is that collection, borrowed
+        // from this one: read its elements without adopting it.
+        if (projection is ArrayProjection { UsesObjCContainerBridge: true } array)
+            return array.GetReturnElementConversion(nsObjectVar)!;
+        if (projection is SetProjection { UsesObjCContainerBridge: true } set)
+            return set.GetReturnElementConversion($"{nsObjectVar}.Handle")!;
+        if (projection is DictionaryProjection { UsesObjCContainerBridge: true } dictionary)
+            return dictionary.BorrowedObjCBridgeRead(nsObjectVar);
         // BoolProjection is its own class (not BlittableProjection), but Swift.Bool also
         // bridges to NSNumber inside an NSDictionary, so it needs the same unbox path.
         if (projection is BlittableProjection or BoolProjection)
@@ -685,6 +713,9 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
     public string GetReverseReceiverObjCBridgeConversion(string varName)
     {
+        // A dictionary built from key handles is already the +1 Swift takes.
+        if (CrossesByKeyHandles)
+            return CreateFromKeyHandles(varName);
         var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
         var valToNS = ToNSObject(_valueProjection, "kvp.Value");
         var nsDict = $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {keyToNS})))";
@@ -693,6 +724,18 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
 
     public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
     {
+        if (CrossesByKeyHandles)
+        {
+            return new ObjCContainerBridgeOwner(
+                new List<MarshalStatement>
+                {
+                    ObjCContainerBridgeOwner.Declare(
+                        "Foundation.NSDictionary", $"{paramName}NSDict",
+                        AdoptNSDictionary(CreateFromKeyHandles(paramName)),
+                        paramName, sourceIsNullable)
+                },
+                $"{paramName}NSDict");
+        }
         var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
         var valToNS = ToNSObject(_valueProjection, "kvp.Value");
         var ownerName = $"{paramName}NSDict";
@@ -759,6 +802,17 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// </summary>
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName, ReturnStrategy strategy)
     {
+        if (CrossesByKeyHandles)
+        {
+            return new MarshalPlan
+            {
+                SetupStatements = new List<MarshalStatement>
+                {
+                    new MarshalStatement.Line($"var {resultName}Dict = {GetAdoptedObjCBridgeReadExpression(resultName)};")
+                },
+                PInvokeExpression = $"{resultName}Dict"
+            };
+        }
         return new MarshalPlan
         {
             SetupStatements = new List<MarshalStatement>
@@ -780,14 +834,124 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper.
     /// </summary>
     private string BuildObjCBridgeReturnExpression(string containerVar)
+        => BuildObjCBridgeReadExpression(
+            $"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!",
+            $"IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>");
+
+    /// <summary>
+    /// Reads the +1 NSDictionary handle <paramref name="containerVar"/> into a new managed
+    /// dictionary of its concrete type, adopting the handle as <see cref="BuildObjCBridgeReturnExpression"/>
+    /// does. A reverse-dispatch receiver reads a bridged dictionary Swift hands its conformer this
+    /// way: the concrete type satisfies both a parameter's <c>IDictionary</c> and a property
+    /// setter's <c>IReadOnlyDictionary</c>.
+    /// </summary>
+    public string GetAdoptedObjCBridgeReadExpression(string containerVar)
+        => BuildObjCBridgeReadExpression(
+            $"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!",
+            ObjCBridgeReadDictionaryType);
+
+    /// <summary>
+    /// The entries of the NSDictionary <paramref name="nsDictionaryExpr"/> read into a new
+    /// <see cref="ObjCBridgeReadDictionaryType"/>, typed as <paramref name="resultType"/>. Each
+    /// nesting level names its locals by its own depth, so a bridged dictionary inside another one
+    /// does not redeclare its parent's.
+    /// </summary>
+    private string BuildObjCBridgeReadExpression(string nsDictionaryExpr, string resultType)
     {
-        var keyConv = FromNSObject(_keyProjection, "_nsKey");
-        var valConv = FromNSObject(_valueProjection, $"_nsDict.ObjectForKey(_nsKey)!");
+        var depth = ObjCDictionaryNestingDepth(this);
+        var nsDict = depth == 1 ? "_nsDict" : $"_nsDict{depth}";
+        var nsKey = depth == 1 ? "_nsKey" : $"_nsKey{depth}";
+        var dict = depth == 1 ? "_dict" : $"_dict{depth}";
+        if (CrossesByKeyHandles)
+        {
+            // Each key is a Swift object: read the entries by handle (CrossesByKeyHandles).
+            var entry = depth == 1 ? "_entry" : $"_entry{depth}";
+            var nsValue = depth == 1 ? "_nsValue" : $"_nsValue{depth}";
+            return $"((Func<{resultType}>)(() => {{ " +
+                   $"var {nsDict} = {nsDictionaryExpr}; " +
+                   $"var {dict} = {NewObjCBridgeReadDictionary(nsDict)}; " +
+                   $"foreach (var {entry} in global::Swift.Runtime.ObjCDictionaryHandles.Entries({nsDict}.Handle)) {{ " +
+                   $"var {nsValue} = ObjCRuntime.Runtime.GetNSObject({entry}.Value)!; " +
+                   $"{dict}[{KeyFromHandle(_keyProjection, $"{entry}.Key")}] = {FromNSObject(_valueProjection, nsValue)}; }} " +
+                   $"GC.KeepAlive({nsDict}); " +
+                   $"return {dict}; }}))()";
+        }
+        var keyConv = FromNSObject(_keyProjection, nsKey);
+        var valConv = FromNSObject(_valueProjection, $"{nsDict}.ObjectForKey({nsKey})!");
         // Inline dictionary construction using LINQ
-        return $"((Func<IReadOnlyDictionary<{_keyProjection.PublicType}, {_valueProjection.PublicType}>>)(() => {{ " +
-               $"var _nsDict = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({containerVar}, true)!; " +
-               $"var _dict = {NewObjCBridgeReadDictionary("_nsDict")}; " +
-               $"foreach (var _nsKey in {ObjCBridgeReadKeys("_nsDict")}) _dict[{keyConv}] = {valConv}; " +
-               $"return _dict; }}))()";
+        return $"((Func<{resultType}>)(() => {{ " +
+               $"var {nsDict} = {nsDictionaryExpr}; " +
+               $"var {dict} = {NewObjCBridgeReadDictionary(nsDict)}; " +
+               $"foreach (var {nsKey} in {ObjCBridgeReadKeys(nsDict)}) {dict}[{keyConv}] = {valConv}; " +
+               $"return {dict}; }}))()";
     }
+
+    /// <summary>
+    /// Reads the NSDictionary <paramref name="nsObjectExpr"/>, an element or value of an enclosing
+    /// Objective-C collection that keeps it alive, into a new managed dictionary without adopting it.
+    /// </summary>
+    private string BorrowedObjCBridgeRead(string nsObjectExpr)
+        => BuildObjCBridgeReadExpression(
+            $"ObjCRuntime.Runtime.GetNSObject<Foundation.NSDictionary>({nsObjectExpr}.Handle)!",
+            ObjCBridgeReadDictionaryType);
+
+    /// <summary>
+    /// Whether this dictionary crosses by its keys' own objects: its key is a Swift class, pure Swift
+    /// or <c>NSObject</c>-rooted, optional or not. Built, it is made from the keys' handles
+    /// (<see cref="CreateFromKeyHandles"/>): Foundation copies the keys of a dictionary it builds,
+    /// a Swift class is not <c>NSCopying</c>, and a pure Swift object is no <c>NSObject</c> at all;
+    /// the dictionary retains them instead, as Swift's own bridge does. Read, its entries are read by
+    /// handle and each key through the class's own marshalling, which finds an <c>NSObject</c>-rooted
+    /// key's managed peer and wraps a pure Swift one.
+    /// </summary>
+    private bool CrossesByKeyHandles
+        => UsesObjCContainerBridge && Unwrapped(_keyProjection) is ClassProjection or ObjCRootedClassProjection;
+
+    private static ITypeProjection Unwrapped(ITypeProjection projection)
+        => projection is OptionalProjection optional ? optional.InnerProjection : projection;
+
+    /// <summary>
+    /// A new NSDictionary handle at +1 holding the entries of <paramref name="sourceExpr"/>, keyed by
+    /// the keys' own objects (an <c>NSNull</c> for a nil key) and valued by the objects the values
+    /// bridge to.
+    /// </summary>
+    private string CreateFromKeyHandles(string sourceExpr)
+    {
+        var inner = Unwrapped(_keyProjection);
+        var handle = inner.GetParameterElementConversion("k")!;
+        var keyHandle = _keyProjection is OptionalProjection
+            ? $"(k is null ? Foundation.NSNull.Null.Handle : {handle})"
+            : handle;
+        var valueObject = ToNSObject(_valueProjection, "v");
+        return $"global::Swift.Runtime.ObjCDictionaryHandles.Create({sourceExpr}, k => {keyHandle}, v => (Foundation.NSObject){valueObject}, o => o.Handle)";
+    }
+
+    /// <summary>The NSDictionary at +1 <paramref name="handleExpr"/>, adopted by a managed wrapper.</summary>
+    private static string AdoptNSDictionary(string handleExpr)
+        => $"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSDictionary>({handleExpr}, true)!";
+
+    /// <summary>
+    /// The key a Swift class key's object <paramref name="handleExpr"/>, borrowed from the
+    /// dictionary, is: a new reference to the object, or nil for an <c>NSNull</c>.
+    /// </summary>
+    private static string KeyFromHandle(ITypeProjection keyProjection, string handleExpr)
+    {
+        var inner = Unwrapped(keyProjection);
+        var read = $"SwiftMarshal.MarshalBorrowedClassFromSwift<{inner.PublicType}>({handleExpr})";
+        return keyProjection is OptionalProjection optional
+            ? $"({handleExpr} == Foundation.NSNull.Null.Handle ? ({optional.PublicType})null : {read})"
+            : read;
+    }
+
+    /// <summary>How many bridged dictionaries enclose this one's entries, itself included.</summary>
+    private static int ObjCDictionaryNestingDepth(ITypeProjection projection) => projection switch
+    {
+        DictionaryProjection dictionary => 1 + Math.Max(
+            ObjCDictionaryNestingDepth(dictionary.KeyProjection),
+            ObjCDictionaryNestingDepth(dictionary.ValueProjection)),
+        ArrayProjection array => ObjCDictionaryNestingDepth(array.ElementProjection),
+        SetProjection set => ObjCDictionaryNestingDepth(set.ElementProjection),
+        OptionalProjection optional => ObjCDictionaryNestingDepth(optional.InnerProjection),
+        _ => 0
+    };
 }

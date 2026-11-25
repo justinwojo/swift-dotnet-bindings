@@ -186,13 +186,15 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// conditional on its generic arguments, leaves the wrapper comparing by identity), so a managed
     /// copy would miss an element Swift holds. Every other set is copied into a
     /// <see cref="System.Collections.Generic.HashSet{T}"/>, its element types' managed equality
-    /// being the one Swift uses.
+    /// being the one Swift uses, except a set of strings, which compares through Swift.
     /// </summary>
     internal string ReadSet(string sourceExpr, string elemConversion)
     {
         if (ViewReverseConversion() is { } reverse)
             return $"{sourceExpr}.AsProjected<{_elementProjection.PublicType}>(e => {elemConversion}, p => {reverse})";
-        return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({sourceExpr}, e => {elemConversion}))";
+        // A set of Swift strings compares its elements as Swift does (DictionaryProjection.StringKeyComparer).
+        var comparer = DictionaryProjection.StringKeyComparer(_elementProjection) is { } stringComparer ? $", {stringComparer}" : "";
+        return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({sourceExpr}, e => {elemConversion}){comparer})";
     }
 
     /// <summary>

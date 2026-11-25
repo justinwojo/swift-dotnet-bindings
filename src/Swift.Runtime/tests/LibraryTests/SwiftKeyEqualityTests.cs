@@ -108,4 +108,63 @@ public class SwiftKeyEqualityTests
         Assert.Equal(2, dictionary[null]);
         Assert.Throws<ArgumentException>(() => dictionary.Add("café", 3));
     }
+
+    [Theory]
+    [InlineData("\u00E9t\u00E9", "e\u0301te\u0301")] // precomposed and decomposed é
+    [InlineData("K", "\u212A")]                          // KELVIN SIGN is canonically K
+    [InlineData(";", "\u037E")]                          // GREEK QUESTION MARK is canonically ;
+    [InlineData("\u00C5", "\u212B")]                    // ANGSTROM SIGN is canonically Å
+    [InlineData("caf\u00E9", "caf\u00E9")]
+    public void StringKeys_CanonicallyEqualStringsAreOneKey(string first, string second)
+    {
+        var comparer = SwiftKeyComparer.StringKeys;
+
+        Assert.True(comparer.Equals(first, second));
+        Assert.True(comparer.Equals(second, first));
+        Assert.Equal(comparer.GetHashCode(first), comparer.GetHashCode(second));
+
+        var dictionary = new Dictionary<string, int>(comparer) { [first] = 1 };
+        Assert.True(dictionary.TryGetValue(second, out var found));
+        Assert.Equal(1, found);
+        Assert.Contains(second, new HashSet<string>(new[] { first }, comparer));
+    }
+
+    [Theory]
+    [InlineData("e", "\u00E9")]
+    [InlineData("k", "\u212A")]
+    [InlineData("ete", "\u00E9t\u00E9")]
+    [InlineData("alpha", "Alpha")]
+    [InlineData("alpha", "beta")]
+    public void StringKeys_DistinctStringsAreDistinctKeys(string first, string second)
+    {
+        var comparer = SwiftKeyComparer.StringKeys;
+
+        Assert.False(comparer.Equals(first, second));
+        var dictionary = new Dictionary<string, int>(comparer) { [first] = 1, [second] = 2 };
+        Assert.Equal(2, dictionary.Count);
+    }
+
+    [Fact]
+    public void StringKeys_NullEqualsOnlyNull()
+    {
+        var comparer = SwiftKeyComparer.StringKeys;
+
+        Assert.True(comparer.Equals(null, null));
+        Assert.False(comparer.Equals(null, ""));
+        Assert.False(comparer.Equals("", null));
+        Assert.Equal(0, comparer.GetHashCode(null!));
+        Assert.True(comparer.Equals("", ""));
+    }
+
+    [Fact]
+    public void StringKeys_NilKeyDictionaryHoldsNilBesideCanonicallyEqualKeys()
+    {
+        var source = new[] { ("\u00E9", 1), ((string?)null, 2) };
+
+        var dictionary = NilKeyDictionary.From(source, p => p.Item1, p => p.Item2, SwiftKeyComparer.StringKeys);
+
+        Assert.Equal(1, dictionary["e\u0301"]);
+        Assert.Equal(2, dictionary[null]);
+        Assert.Throws<ArgumentException>(() => dictionary.Add("e\u0301", 3));
+    }
 }

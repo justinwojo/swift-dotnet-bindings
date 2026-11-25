@@ -340,6 +340,20 @@ public class OptionalKeyShapesTests : TestBase
     sealed class UrlSource : ISwiftUUIDURLSource
     {
         public IReadOnlyDictionary<Foundation.NSUuid?, Foundation.NSUrl> GetUrls() => UrlIndex(new Foundation.NSUuid(First));
+
+        public string Url(IDictionary<Foundation.NSUuid?, Foundation.NSUrl> index, string? uuid)
+        {
+            var key = uuid is null ? null : new Foundation.NSUuid(uuid);
+            return index.TryGetValue(key, out var url) ? $"{index.Count}:{url.AbsoluteString}" : $"{index.Count}:missing";
+        }
+    }
+
+    public void TestAConformerReadsTheNilKeyOfABridgedDictionarySwiftHandsIt()
+    {
+        var source = new UrlSource();
+        AssertEqual($"2:{Url(1)}", TestLibFunctions.SwiftUUIDAskURLSource(source, new[] { First, null }, null), "the conformer finds the nil key");
+        AssertEqual($"2:{Url(0)}", TestLibFunctions.SwiftUUIDAskURLSource(source, new[] { First, null }, First), "and a fresh, equal UUID");
+        AssertEqual("2:missing", TestLibFunctions.SwiftUUIDAskURLSource(source, new[] { First, null }, Second), "and misses an absent one");
     }
 
     public void TestAConformerReturnsTheNilKeyOfABridgedDictionary()

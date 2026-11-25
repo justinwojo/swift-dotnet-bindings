@@ -37,6 +37,35 @@ public static class SwiftKeyComparer
         return new HashedKeyComparer<TKey, TCarrier>(toCarrier);
     }
 
+    /// <summary>
+    /// A comparer of strings that compares and hashes them as Swift's <c>String</c> does: two
+    /// strings are equal when they are canonically equivalent (<c>"\u00E9"</c> and
+    /// <c>"e\u0301"</c> are one key), whatever globalization mode the app runs in. A
+    /// <see langword="null"/> string (an optional key's nil) equals only another <see langword="null"/>.
+    /// </summary>
+    public static IEqualityComparer<string?> StringKeys { get; } = new SwiftStringComparer();
+
+    private sealed class SwiftStringComparer : IEqualityComparer<string?>
+    {
+        public bool Equals(string? x, string? y)
+        {
+            if (x is null || y is null)
+                return x is null && y is null;
+            // Identical UTF-16 is one Swift string, and two different all-ASCII strings are never
+            // canonically equivalent; only the rest needs Swift's `==`.
+            if (string.Equals(x, y, StringComparison.Ordinal))
+                return true;
+            if (System.Text.Ascii.IsValid(x) && System.Text.Ascii.IsValid(y))
+                return false;
+            return SwiftKeyComparerCore.CarriersEqual(x, y);
+        }
+
+        // Always Swift's hash: a non-ASCII string can equal an ASCII one ("\u212A", the Kelvin
+        // sign, is "K"), so no hash of the UTF-16 alone agrees with the equality above.
+        public int GetHashCode(string? value)
+            => value is null ? 0 : SwiftKeyComparerCore.CarrierHash(value);
+    }
+
     private sealed class HashedKeyComparer<TKey, TCarrier> : IEqualityComparer<TKey>
     {
         private readonly Func<TKey, TCarrier> _toCarrier;
