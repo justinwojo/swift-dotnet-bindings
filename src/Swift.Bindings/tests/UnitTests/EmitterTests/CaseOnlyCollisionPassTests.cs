@@ -760,6 +760,36 @@ public class CaseOnlyCollisionPassTests
     }
 
     [Fact]
+    public void TypeArm_SuffixLandingOnAnSpiPayloadCase_StepsOverIt()
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // An SPI payload case still emits its factory, under its case-map name: the SPI
+        // `audioKind(Int)` takes `AudioKind` and the public `AudioKind(Int)` takes `AudioKind2`,
+        // so the renamed class may take neither.
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lowerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var lower = CreateEnumDecl("Audio", lowerSwiftName, moduleDecl);
+        foreach (var (caseName, spi) in new[] { ("audioKind", true), ("AudioKind", false) })
+            lower.Cases.Add(new EnumCaseDecl
+            {
+                Name = caseName, MangledName = "$sN", ParentDecl = lower, ModuleDecl = moduleDecl,
+                IsSpiProtected = spi, AssociatedValues = new List<TypeSpec> { new NamedTypeSpec("Swift.Int") },
+            });
+        RegisterType(module, lowerSwiftName, "Audio", TypeRecordKind.Enum);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lowerSwiftName, out var renamed));
+        Assert.DoesNotContain(renamed!.CSharpTypeName.Name, NameProvider.ComputeCaseNameMap(lower.Cases)!.Values);
+    }
+
+    [Fact]
     public void TypeArm_SpiTypeHoldingTheSuffix_DoesNotPushThePublicTypeOffIt()
     {
         var typeDatabase = new TypeDatabase();

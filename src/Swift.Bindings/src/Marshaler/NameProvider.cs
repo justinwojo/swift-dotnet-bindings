@@ -385,13 +385,12 @@ public static class NameProvider
         if (typeDecl is EnumDecl enumDecl)
         {
             // A case emits under its case-only-disambiguated name (`AudioKind2`), not its plain
-            // PascalCase, so the exclusion must hold the name the case actually takes.
+            // PascalCase, so the exclusion holds the name the case actually takes. Every case is
+            // reserved, SPI or not: a payload case's factory is emitted whatever its SPI, and a
+            // reserved name that goes unused only moves the suffix.
             var caseNameMap = ComputeCaseNameMap(enumDecl.Cases);
             foreach (var enumCase in enumDecl.Cases)
-            {
-                if (!enumCase.IsSpiProtected)
-                    names.Add(GetCaseName(enumCase.Name, caseNameMap));
-            }
+                names.Add(GetCaseName(enumCase.Name, caseNameMap));
         }
         return names;
     }
