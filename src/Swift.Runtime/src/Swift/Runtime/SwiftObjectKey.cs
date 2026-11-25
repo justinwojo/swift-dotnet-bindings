@@ -79,7 +79,11 @@ public readonly struct SwiftObjectKey<TIdentity> : ISwiftObjectKeyCarrier, IEqua
         _owner = owner;
     }
 
-    /// <summary>The object pointer.</summary>
+    /// <summary>
+    /// The object pointer. A carrier read out of a Swift collection keeps the object alive only while
+    /// the carrier itself is reachable, so keep it alive (<see cref="GC.KeepAlive"/>) for as
+    /// long as the pointer is used.
+    /// </summary>
     public IntPtr Handle => _handle;
 
     SwiftObjectReference? ISwiftObjectKeyCarrier.Owner => _owner;
