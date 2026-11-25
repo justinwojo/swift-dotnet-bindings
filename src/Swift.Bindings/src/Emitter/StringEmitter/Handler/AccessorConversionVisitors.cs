@@ -94,7 +94,7 @@ internal class AccessorGetterConversionVisitor : IProjectionVisitor<(string? con
         }
         var elemConv = set.ElementProjection.GetOwnedReturnElementConversion("e");
         if (elemConv != null)
-            return ($"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({resultExpr}, e => {elemConv}))", true);
+            return (set.ReadSet(resultExpr, elemConv), !set.ReadsAsView);
         return (null, false);
     }
 

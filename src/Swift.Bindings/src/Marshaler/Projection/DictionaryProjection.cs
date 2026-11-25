@@ -410,7 +410,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return $"global::System.Linq.Enumerable.ToDictionary({elementVar}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", HasOptionalKey);
     }
 
     /// <summary>
@@ -429,8 +429,25 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var valueExpr = valConv ?? "kvp.Value";
         var keyPubType = _keyProjection.PublicType;
         var valPubType = _valueProjection.PublicType;
-        return $"global::System.Linq.Enumerable.ToDictionary({elementVar}, kvp => ({keyPubType}){keyExpr}, kvp => ({valPubType}){valueExpr})";
+        return Materialize(elementVar, $"kvp => ({keyPubType}){keyExpr}", $"kvp => ({valPubType}){valueExpr}", HasOptionalKey);
     }
+
+    /// <summary>
+    /// True when the key type is an optional (<c>[Node?: V]</c>, <c>[Int?: V]</c>): <c>nil</c> is then a
+    /// key like any other, which a .NET <c>Dictionary</c> refuses.
+    /// </summary>
+    public bool HasOptionalKey => _keyProjection is OptionalProjection;
+
+    /// <summary>
+    /// The concrete dictionary a Swift dictionary's entries are read into, from <paramref name="source"/>
+    /// through the two selectors: a <c>Dictionary</c>, or for an optional key type a
+    /// <c>Swift.NilKeyDictionary</c>, which holds the <c>nil</c> key as Swift's does. Both implement
+    /// <c>IDictionary</c> and <c>IReadOnlyDictionary</c>.
+    /// </summary>
+    internal static string Materialize(string source, string keySelector, string valueSelector, bool optionalKey)
+        => optionalKey
+            ? $"global::Swift.NilKeyDictionary.From({source}, {keySelector}, {valueSelector})"
+            : $"global::System.Linq.Enumerable.ToDictionary({source}, {keySelector}, {valueSelector})";
 
     public bool ElementRequiresDisposal => !UsesObjCContainerBridge;
 

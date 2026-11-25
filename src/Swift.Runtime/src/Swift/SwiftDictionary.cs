@@ -1052,11 +1052,15 @@ public class SwiftDictionary<TKey, TValue> : ISwiftObject, ISwiftStruct, IReadOn
     /// <param name="keySelector">The function to apply to each key (forward: source → result).</param>
     /// <param name="reverseKeySelector">The function to convert result keys back to source keys for lookup.</param>
     /// <param name="valueSelector">The function to apply to each value.</param>
+    /// <remarks>
+    /// <typeparamref name="TResultKey"/> may be a nullable type: an optional-keyed Swift dictionary
+    /// (<c>[Node?: V]</c>) holds <c>nil</c> as a key, which <paramref name="keySelector"/> reads as
+    /// <see langword="null"/> and <paramref name="reverseKeySelector"/> maps back for a lookup.
+    /// </remarks>
     public IReadOnlyDictionary<TResultKey, TResultValue> AsProjected<TResultKey, TResultValue>(
         Func<TKey, TResultKey> keySelector,
         Func<TResultKey, TKey> reverseKeySelector,
         Func<TValue, TResultValue> valueSelector)
-        where TResultKey : notnull
     {
         ThrowIfDisposed();
         if (keySelector == null) throw new ArgumentNullException(nameof(keySelector));

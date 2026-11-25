@@ -27,6 +27,7 @@
       "ISwiftSendable",
       "ISwiftSendableMetatype",
       "KeyPath",
+      "NilKeyDictionary",
       "OpaqueSwiftTypeAttribute",
       "OriginalSwiftTypeAttribute",
       "PartialKeyPath",

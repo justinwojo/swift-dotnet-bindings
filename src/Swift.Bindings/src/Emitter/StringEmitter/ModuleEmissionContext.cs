@@ -1708,9 +1708,13 @@ public sealed class ModuleEmissionContext
 
     /// <summary>
     /// The Swift classes the module's collections hold as keys or set elements, whose <c>Hashable</c>
-    /// witness tables its initializer registers (<see cref="HashedSwiftClass"/>). Ordered by Swift name.
+    /// witness tables its initializer registers (<see cref="HashedSwiftClass"/>). Ordered by the length
+    /// of the Swift name, then by name, so an instantiation is registered before any instantiation that
+    /// takes it as an argument (<c>Box&lt;String&gt;</c> before <c>Box&lt;Set&lt;Box&lt;String&gt;&gt;&gt;</c>), whose
+    /// metadata may need its witness.
     /// </summary>
-    public IReadOnlyCollection<HashedSwiftClass> HashedSwiftClasses => _hashedSwiftClasses.Values;
+    public IReadOnlyCollection<HashedSwiftClass> HashedSwiftClasses
+        => _hashedSwiftClasses.Values.OrderBy(c => c.Identity.SwiftTypeName.Length).ToList();
 
     /// <summary>Records a Swift class a collection of this module holds as a key or set element, once per Swift type.</summary>
     public void RecordHashedSwiftClass(HashedSwiftClass hashedClass)

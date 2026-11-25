@@ -75,7 +75,6 @@ internal sealed class SwiftDictionaryValueProjection<TKey, TSource, TResult> : I
 /// <typeparam name="TResVal">The projected value type.</typeparam>
 internal sealed class SwiftDictionaryProjection<TSrcKey, TSrcVal, TResKey, TResVal> : IReadOnlyDictionary<TResKey, TResVal>, IDisposable
     where TSrcKey : notnull
-    where TResKey : notnull
 {
     private readonly SwiftDictionary<TSrcKey, TSrcVal> _source;
     private readonly Func<TSrcKey, TResKey> _keySelector;

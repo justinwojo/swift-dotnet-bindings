@@ -272,7 +272,7 @@ public class ObjectKeyCollectionProjectionTests
         var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
         var emission = new ModuleEmissionContext();
         var optionalNode = Optional(new NamedTypeSpec("TestModule.Node"));
-        const string carrier = "global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.Swift_Optional_TestModule_Node_>";
+        var carrier = OptionalNodeIdentity.CarrierType;
 
         var set = Assert.IsType<SetProjection>(_factory.Project(new NamedTypeSpec("Swift.Set", optionalNode), Context(typeDatabase, emission)));
         Assert.Equal($"SwiftSet<{carrier}>", set.SwiftContainerGenericType);
@@ -308,12 +308,13 @@ public class ObjectKeyCollectionProjectionTests
         emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Node"), "global::TestModule.Node")!);
         Assert.Single(emission.HashedSwiftClasses);
 
-        // TestModule.Outer.Key and TestModule.Outer_Key flatten to one identity name: both are
-        // registered, each through its own accessor import.
+        // TestModule.Outer.Key and TestModule.Outer_Key flatten alike: both are registered, each
+        // under its own identity name and through its own accessor import.
         emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer.Key"), "TestModule.Outer.Key")!);
         emission.RecordHashedSwiftClass(HashedSwiftClass.For(new NamedTypeSpec("TestModule.Outer_Key"), "TestModule.Outer_Key")!);
         Assert.Equal(3, emission.HashedSwiftClasses.Count);
         Assert.Equal(3, emission.HashedSwiftClasses.Select(c => c.AccessorMethodName("TestModule")).Distinct().Count());
+        Assert.Equal(3, emission.HashedSwiftClasses.Select(c => c.Identity.IdentityClassName).Distinct().Count());
     }
 
     private static TypeDatabase NodeDatabase(TypeDatabase? typeDatabase = null)
@@ -414,20 +415,50 @@ public class ObjectKeyCollectionProjectionTests
     }
 
     [Fact]
-    public void RecordObjectKey_DedupesOneTypeAndRefusesTwoTypesSharingAName()
+    public void RecordObjectKey_DedupesOneType()
     {
         var emission = new ModuleEmissionContext();
         emission.RecordObjectKey(new ObjectKeyIdentity("Foundation.NSUUID"));
         emission.RecordObjectKey(new ObjectKeyIdentity("Foundation.NSUUID"));
         Assert.Single(emission.ObjectKeyIdentities);
+    }
 
-        Assert.Throws<InvalidOperationException>(() => emission.RecordObjectKey(new ObjectKeyIdentity("Foundation_NSUUID")));
+    [Theory]
+    // A nested type and a type whose name holds an underscore.
+    [InlineData("TestModule.Outer.Key", "TestModule.Outer_Key")]
+    // Their optionals (each an Optional<T> carrier).
+    [InlineData("Swift.Optional<TestModule.Outer.Key>", "Swift.Optional<TestModule.Outer_Key>")]
+    // A generic argument list and a nesting that flatten to the same characters.
+    [InlineData("M.A.M.B<M.C>", "M.A<M.B.M.C>")]
+    // A plain name and one whose own name holds the underscore a dot flattens to.
+    [InlineData("Foundation.NSUUID", "Foundation_NSUUID")]
+    // Spellings that flatten alike and whose FNV-1a hashes collide, bare and optional.
+    [InlineData("M.A_B_C_D_E.F_G_H_I.J.K_L_M_N_O_P.Q.R.S", "M.A_B_C.D_E_F.G.H_I_J_K.L.M.N.O.P.Q_R.S")]
+    [InlineData("Swift.Optional<M.A.B_C_D.E.F.G_H.I_J_K.L_M_N_O.P.Q.R.S.T>", "Swift.Optional<M.A_B_C_D.E_F_G.H_I.J.K.L.M.N_O.P_Q.R.S.T>")]
+    // A dot that is not a separator, and a non-ASCII name.
+    [InlineData("M..A", "M._A")]
+    [InlineData("M.Ä", "M.x00C4")]
+    public void ObjectKeyIdentity_TypesThatFlattenAlikeKeepDistinctNames(string first, string second)
+    {
+        var a = new ObjectKeyIdentity(first);
+        var b = new ObjectKeyIdentity(second);
+        Assert.NotEqual(a.IdentityClassName, b.IdentityClassName);
+        Assert.NotEqual(a.AccessorSymbol("TestModule"), b.AccessorSymbol("TestModule"));
+        Assert.Matches("^[A-Za-z0-9_]+$", a.IdentityClassName);
+        Assert.Matches("^[A-Za-z0-9_]+$", b.IdentityClassName);
+
+        // A module recording both declares both.
+        var emission = new ModuleEmissionContext();
+        emission.RecordObjectKey(a);
+        emission.RecordObjectKey(b);
+        Assert.Equal(2, emission.ObjectKeyIdentities.Count);
     }
 
     // ── Optional object elements, bound generic Objective-C elements ──────────────────────────
 
-    private const string OptionalUuidCarrier =
-        "global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.Swift_Optional_Foundation_NSUUID_>";
+    private static readonly string OptionalUuidCarrier = new ObjectKeyIdentity("Swift.Optional<Foundation.NSUUID>").CarrierType;
+
+    private static readonly ObjectKeyIdentity OptionalNodeIdentity = new("Swift.Optional<TestModule.Node>");
 
     private static NamedTypeSpec Optional(TypeSpec inner) => new("Swift.Optional", inner);
 
@@ -436,7 +467,7 @@ public class ObjectKeyCollectionProjectionTests
     {
         var optional = ObjectKeyIdentity.For(Optional(new NamedTypeSpec("Foundation.NSUUID")));
         Assert.Equal("Swift.Optional<Foundation.NSUUID>", optional?.SwiftTypeName);
-        Assert.Equal("Swift_Optional_Foundation_NSUUID_", optional?.IdentityClassName);
+        Assert.Equal("Swift_Optional_Foundation_NSUUID___dldg", optional?.IdentityClassName);
 
         var cache = ObjectKeyIdentity.For(new NamedTypeSpec("Foundation.NSCache",
             new NamedTypeSpec("Foundation.NSString"), new NamedTypeSpec("Foundation.NSUUID")));
@@ -495,10 +526,10 @@ public class ObjectKeyCollectionProjectionTests
             Dictionary(new NamedTypeSpec("Swift.String"), Optional(new NamedTypeSpec("TestModule.Node"))),
             Context(typeDatabase, emission, isParameter: false)));
 
-        const string carrier = "global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.Swift_Optional_TestModule_Node_>";
+        var carrier = OptionalNodeIdentity.CarrierType;
         Assert.EndsWith($", {carrier}>", dictionary.SwiftContainerGenericType);
         var value = Assert.IsType<OptionalProjection>(dictionary.ValueProjection);
-        Assert.Contains("TakeSwiftObject<__SwiftObjectKeys.Swift_Optional_TestModule_Node_, ", value.GetReturnElementConversion("v"));
+        Assert.Contains($"TakeSwiftObject<{OptionalNodeIdentity.IdentityType}, ", value.GetReturnElementConversion("v"));
         Assert.Contains(".Payload", value.GetParameterElementConversion("v"));
     }
 
@@ -540,8 +571,7 @@ public class ObjectKeyCollectionProjectionTests
         // the projection and the raw translation alike.
         var typeDatabase = await LoadAppleDatabaseAsync();
         var cache = new NamedTypeSpec("Foundation.NSCache", new NamedTypeSpec("Foundation.NSString"), new NamedTypeSpec("Foundation.NSUUID"));
-        const string carrier =
-            "global::Swift.Runtime.SwiftObjectKey<__SwiftObjectKeys.Foundation_NSCache_Foundation_NSString__Foundation_NSUUID_>";
+        var carrier = new ObjectKeyIdentity("Foundation.NSCache<Foundation.NSString, Foundation.NSUUID>").CarrierType;
 
         var emission = new ModuleEmissionContext();
         var array = Assert.IsType<ArrayProjection>(_factory.Project(new NamedTypeSpec("Swift.Array", cache), Context(typeDatabase, emission)));
@@ -561,8 +591,7 @@ public class ObjectKeyCollectionProjectionTests
         var typeDatabase = await LoadAppleDatabaseAsync();
         var optionalCache = Optional(new NamedTypeSpec("Foundation.NSCache",
             new NamedTypeSpec("Foundation.NSString"), new NamedTypeSpec("Foundation.NSUUID")));
-        const string carrier = "global::Swift.Runtime.SwiftObjectKey<" +
-            "__SwiftObjectKeys.Swift_Optional_Foundation_NSCache_Foundation_NSString__Foundation_NSUUID__>";
+        var carrier = new ObjectKeyIdentity("Swift.Optional<Foundation.NSCache<Foundation.NSString, Foundation.NSUUID>>").CarrierType;
 
         var emission = new ModuleEmissionContext();
         var array = Assert.IsType<ArrayProjection>(_factory.Project(
@@ -609,6 +638,137 @@ public class ObjectKeyCollectionProjectionTests
         var plain = Assert.IsType<DictionaryProjection>(_factory.Project(
             Dictionary(new NamedTypeSpec("Swift.String"), Optional(new NamedTypeSpec("Swift.Int"))), Context(typeDatabase, new ModuleEmissionContext())));
         Assert.DoesNotContain("Consuming", AccessorSetterConversion(plain, "value"));
+    }
+
+    private static TypeDatabase ClassDatabase(TypeDatabase typeDatabase, params string[] names)
+    {
+        var module = new ModuleTypeDatabase("TestModule", "/fake/path");
+        foreach (var qualified in names)
+        {
+            var name = SwiftTypeName.FromModuleQualifiedName(qualified);
+            var simple = qualified.Substring(qualified.LastIndexOf('.') + 1);
+            module.RegisterType(name, new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", simple),
+                SwiftTypeName = name,
+                MetadataAccessor = $"$s10TestModule{simple.Length}{simple}CMa",
+                Flags = TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
+            });
+        }
+        typeDatabase.AddModuleDatabase(module);
+        return typeDatabase;
+    }
+
+    [Fact]
+    public async Task BoundGenericSwiftClassKey_IsHashedAsItsInstantiation()
+    {
+        // Set<Box<String>>: Box<String> is a class of its own, whose metadata and Hashable witness (a
+        // conditional conformance included) are the instantiation's. Each instantiation the module
+        // hashes is registered from its own Set metadata; its optional is carried as Optional<Box<String>>.
+        var typeDatabase = ClassDatabase(await LoadAppleDatabaseAsync(), "TestModule.Box", "TestModule.Node");
+        var handler = new BoundGenericsHandler(typeDatabase);
+        var boxOfString = new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("Swift.String"));
+        var boxOfNode = new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("TestModule.Node"));
+
+        var hashed = handler.HashedSwiftClassArgument(boxOfString);
+        Assert.NotNull(hashed);
+        Assert.Equal("Swift.Set<TestModule.Box<Swift.String>>", hashed!.Identity.SwiftSetTypeName);
+        Assert.Equal(new[] { "TestModule.Box", "Swift.String" }, hashed.ReferencedTypeNames);
+        var setOfBoxes = handler.TranslateBoundGenericTypeToCSharp(new NamedTypeSpec("Swift.Set", boxOfString), GenericContext.Empty);
+        Assert.DoesNotContain("IntPtr", setOfBoxes);
+        Assert.Contains("SwiftString", hashed.WrapperType);
+        // The set is over the very wrapper whose witness is registered.
+        var element = setOfBoxes[(setOfBoxes.IndexOf("SwiftSet<", StringComparison.Ordinal) + "SwiftSet<".Length)..^1];
+        Assert.Equal(hashed.WrapperType, element.StartsWith("global::", StringComparison.Ordinal) ? element : "global::" + element);
+
+        var hashedNodeBox = handler.HashedSwiftClassArgument(boxOfNode);
+        Assert.NotNull(hashedNodeBox);
+        Assert.NotEqual(hashed.Identity, hashedNodeBox!.Identity);
+        Assert.Equal(new[] { "TestModule.Box", "TestModule.Node" }, hashedNodeBox.ReferencedTypeNames);
+
+        // Its optional carries the optional type's identity, raw and projected alike.
+        var optional = Optional(boxOfString);
+        var identity = handler.OptionalObjectCarrierIdentity(optional);
+        Assert.Equal("Swift.Optional<TestModule.Box<Swift.String>>", identity?.SwiftTypeName);
+        Assert.EndsWith($"SwiftSet<{identity!.CarrierType}>", handler.TranslateBoundGenericTypeToCSharp(
+            new NamedTypeSpec("Swift.Set", optional), GenericContext.Empty));
+        var emission = new ModuleEmissionContext();
+        var set = Assert.IsType<SetProjection>(_factory.Project(new NamedTypeSpec("Swift.Set", optional), Context(typeDatabase, emission)));
+        Assert.Equal($"SwiftSet<{identity.CarrierType}>", set.SwiftContainerGenericType);
+        Assert.True(emission.IsHashedObjectKey(Assert.Single(emission.ObjectKeyIdentities)));
+
+        // A class over an unbound parameter has no instantiation to register.
+        Assert.Null(handler.HashedSwiftClassArgument(new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("T"))));
+        Assert.Null(handler.OptionalObjectCarrierIdentity(Optional(new NamedTypeSpec("TestModule.Box", new NamedTypeSpec("T")))));
+    }
+
+    [Fact]
+    public async Task ReadOptionalObjectSet_LooksUpThroughTheSwiftSet()
+    {
+        // Set<Node?> read out of Swift: a managed copy would compare by the wrapper's equality, which
+        // need not be the conformance Swift hashed by. Every read is a live view whose lookups map the
+        // item back to its carrier and ask the Swift set.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        foreach (var inner in new[] { new NamedTypeSpec("TestModule.Node"), new NamedTypeSpec("Foundation.NSUUID") })
+        {
+            var set = Assert.IsType<SetProjection>(_factory.Project(
+                new NamedTypeSpec("Swift.Set", Optional(inner)), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+            var element = Assert.IsType<OptionalProjection>(set.ElementProjection);
+            var carrier = element.ObjectCarrier!.CarrierType;
+
+            // A property getter reads the view too, and keeps the set it views.
+            var (getter, getterDisposesSource) = set.Accept(new AccessorGetterConversionVisitor("s"));
+            Assert.False(getterDisposesSource);
+            var reads = new[]
+            {
+                set.GetReturnPlan("result", ReturnStrategy.IndirectResult).PInvokeExpression,
+                set.GetReturnContainerConversion("s"),
+                set.GetReturnElementConversion("s"),
+                set.GetOwnedReturnElementConversion("s"),
+                getter,
+            };
+            foreach (var read in reads)
+            {
+                Assert.NotNull(read);
+                Assert.Contains($".AsProjected<{element.PublicType}>(e => ", read);
+                Assert.Contains($"p => new {carrier}(p is {{ }} ", read);
+                Assert.DoesNotContain("ToHashSet", read);
+            }
+        }
+
+        // A set of values copies: the element's managed equality is Swift's.
+        var strings = Assert.IsType<SetProjection>(_factory.Project(
+            new NamedTypeSpec("Swift.Set", Optional(new NamedTypeSpec("Swift.String"))), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        Assert.Contains("ToHashSet", strings.GetReturnPlan("result", ReturnStrategy.IndirectResult).PInvokeExpression);
+        Assert.DoesNotContain("AsProjected", strings.GetReturnElementConversion("s"));
+    }
+
+    [Theory]
+    [InlineData("TestModule.Node")]
+    [InlineData("Foundation.NSUUID")]
+    [InlineData("Swift.Int")]
+    public async Task OptionalKeyedDictionaryCopy_KeepsTheNilKey(string keyType)
+    {
+        // [K?: V] copied into .NET (a nested dictionary, a receiver's argument): Dictionary refuses a
+        // null key, so the copy is a NilKeyDictionary, where Swift's nil key is one entry.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var dictionary = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(Optional(new NamedTypeSpec(keyType)), new NamedTypeSpec("Swift.Int")),
+            Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+
+        Assert.True(dictionary.HasOptionalKey);
+        foreach (var read in new[] { dictionary.GetReturnElementConversion("d"), dictionary.GetOwnedReturnElementConversion("d") })
+        {
+            Assert.StartsWith("global::Swift.NilKeyDictionary.From(d, kvp => ", read);
+            Assert.DoesNotContain("ToDictionary", read);
+        }
+
+        var plain = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(new NamedTypeSpec("Swift.String"), new NamedTypeSpec("Swift.Int")),
+            Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        Assert.False(plain.HasOptionalKey);
+        Assert.StartsWith("global::System.Linq.Enumerable.ToDictionary(d, ", plain.GetReturnElementConversion("d"));
     }
 
     private static string AccessorSetterConversion(ITypeProjection projection, string valueExpr)
