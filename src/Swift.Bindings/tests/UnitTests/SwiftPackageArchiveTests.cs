@@ -73,6 +73,16 @@ public class SwiftPackageArchiveTests : IDisposable
                 targets: [.target(name: "Player"), .target(name: "PlayerExtras")]
             )
             """ },
+        { "bound to another name", """
+            let manifest = Package(
+                name: "Player",
+                products: [
+                    .library(name: "Player", targets: ["Player"]),
+                    .library(name: "PlayerExtras", targets: ["PlayerExtras"]),
+                ],
+                targets: [.target(name: "Player"), .target(name: "PlayerExtras")]
+            )
+            """ },
     };
 
     [Theory]
@@ -94,12 +104,8 @@ public class SwiftPackageArchiveTests : IDisposable
     }
 
     [Fact]
-    public void AppendDynamicProductDeclaration_IsIdempotentAndLeavesAnUndeclaredProductAbsent()
+    public void LibraryTypeOf_AnUndeclaredProductIsAbsent()
     {
-        const string manifest = "let package = Package(name: \"Player\")\n";
-        var once = SwiftPackageArchive.AppendDynamicProductDeclaration(manifest, "Player");
-        Assert.StartsWith(manifest, once);
-        Assert.Equal(once, SwiftPackageArchive.AppendDynamicProductDeclaration(once, "Player"));
         Assert.Null(SwiftPackageArchive.LibraryTypeOf("""{"products":[{"name":"Other","type":{"library":["automatic"]}}]}""", "Player"));
         Assert.Null(SwiftPackageArchive.LibraryTypeOf("""{"products":[{"name":"Player","type":{"executable":null}}]}""", "Player"));
     }

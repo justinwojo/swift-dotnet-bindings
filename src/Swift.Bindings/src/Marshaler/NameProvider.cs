@@ -1811,10 +1811,14 @@ public static class NameProvider
         // For enums, include collision-safe case names in the collision set.
         // Enum cases produce factory methods (e.g., case "pong" → static method "Pong()"),
         // which collide with nested types of the same PascalCase name (CS0102).
+        // An @_spi case the projection skips emits no member, so it must not push a public one.
         if (typeDecl is EnumDecl enumDecl)
         {
             var caseNameMap = ComputeCaseNameMap(enumDecl.Cases);
-            var caseNames = enumDecl.Cases.Select(c => GetCaseName(c.Name, caseNameMap));
+            var simpleEnum = IsSimpleEnumRecord(enumDecl, typeDatabase);
+            var caseNames = enumDecl.Cases
+                .Where(c => !c.IsSpiProtected || EmitsSpiCaseAsMember(enumDecl, c, simpleEnum))
+                .Select(c => GetCaseName(c.Name, caseNameMap));
             memberNames = memberNames.Concat(caseNames);
         }
 
@@ -1847,11 +1851,14 @@ public static class NameProvider
         // whose members may share its name, and never reaches this rename map for its cases.
         // Such a case was a CS0542 error, withdrawn, until this rename bound it, so it yields to
         // the case discriminator of a class named `Tag`, which has always shipped as `TagValue`.
+        // The enclosing name never yields: a nested type named like the enum was renamed off it
+        // (ApplyEnclosingTypeNestedRenames), so that type rename must not exempt the case.
         string[]? reservedNames = null;
+        string? enclosingMemberName = null;
         if (typeDecl is EnumDecl && !IsSimpleEnumRecord(typeDecl, typeDatabase)
             && GetEnclosingTypeCollisionName(typeDecl) is { } enclosingName)
         {
-            nestedTypeNames = nestedTypeNames.Append(enclosingName);
+            enclosingMemberName = enclosingName;
             if (enclosingName == CaseDiscriminatorName)
                 reservedNames = new[] { CaseDiscriminatorFallbackName };
         }
@@ -1861,9 +1868,11 @@ public static class NameProvider
         // They never yield, so a case or property projecting onto one of them (`case payload(Int)`
         // → factory `Payload`) takes the member-side Value rename, as a case named like the enum
         // does, even when a nested type of that name was renamed instead (`var payload: Payload`).
-        var synthesizedMemberNames = typeDecl is EnumDecl { IsNamespaceEnum: false } && !IsSimpleEnumRecord(typeDecl, typeDatabase)
+        IEnumerable<string>? synthesizedMemberNames = typeDecl is EnumDecl { IsNamespaceEnum: false } && !IsSimpleEnumRecord(typeDecl, typeDatabase)
             ? ClassEnumInfrastructureMemberNames
             : null;
+        if (enclosingMemberName != null)
+            synthesizedMemberNames = (synthesizedMemberNames ?? Array.Empty<string>()).Append(enclosingMemberName);
 
         return ComputePropertyRenamesForNestedTypeCollisions(memberNames, nestedTypeNames,
             typeRenameNames.Count > 0 ? typeRenameNames : null, reservedNames, synthesizedMemberNames);

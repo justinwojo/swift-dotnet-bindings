@@ -62,6 +62,10 @@ partial class Build
 
             Log.Information("{Name} ({Mode}, {Version})", lib.Name, lib.Mode, version);
             (LibrariesDir / lib.Name).CreateDirectory();
+            // A rebuild deletes the old frameworks before it can fail, so the old stamp goes first:
+            // left in place, it would claim a later fetch under the old key a cache hit.
+            if (lib.Mode is "source" or "binary")
+                File.Delete(LibrariesDir / lib.Name / ".version");
 
             try
             {

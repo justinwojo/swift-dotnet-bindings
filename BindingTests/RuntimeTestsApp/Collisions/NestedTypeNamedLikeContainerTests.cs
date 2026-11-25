@@ -37,7 +37,9 @@ public class NestedTypeNamedLikeContainerTests : TestBase
     {
         AssertEqual(20, NestedNameSpace.Describe(NestedNameSpace.NestedNameSpaceKind.Two),
             "the renamed nested enum must reach Swift as its own case");
-        AssertEqual(1, (int)NestedNameSpace.NestedNameSpaceKind.One, "the raw value survives the rename");
+        AssertEqual(1, NestedNameSpace.NestedNameSpaceKind.One.ToRawValue(), "the raw value survives the rename");
+        AssertEqual(12, NestedNameSpace.NestedNameSpaceKindMethod(5),
+            "a static method projecting onto the renamed enum's leaf yields to it");
     }
 
     public void TestClassContainer_NestedEnumTakesTheKindSuffix()
@@ -53,5 +55,7 @@ public class NestedTypeNamedLikeContainerTests : TestBase
         var tagged = payload.Tagged;
         AssertEqual(7, tagged.Tag, "the renamed nested struct must carry the payload's value");
         AssertEqual(9, new NestedNamePayload.NestedNamePayloadInfo(9).Tag, "the renamed nested struct constructs");
+        using var named = NestedNamePayload.NestedNamePayloadValue(4);
+        AssertEqual(8, named.Tagged.Tag, "the case named like the enum keeps its factory rename");
     }
 }

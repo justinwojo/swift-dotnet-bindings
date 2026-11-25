@@ -46,6 +46,11 @@ public enum NestedNameSpace {
     public static func describe(_ kind: nestedNameSpace) -> Int32 {
         return kind.rawValue * 10
     }
+
+    /// Projects onto the renamed enum's leaf, so it yields to the type.
+    public static func nestedNameSpaceKind(_ input: Int32) -> Int32 {
+        return input + 7
+    }
 }
 
 /// A class holding an enum of its own name.
@@ -62,10 +67,12 @@ public final class NestedNameBox {
     }
 }
 
-/// An enum with a payload (a C# class) holding a struct of its own name.
+/// An enum with a payload (a C# class) holding a struct of its own name, and a case of its own
+/// name, whose factory may not take the enum's name either.
 public enum NestedNamePayload {
     case value(Int32)
     case empty
+    case nestedNamePayload(Int32)
 
     public struct NestedNamePayload {
         public var tag: Int32
@@ -76,6 +83,7 @@ public enum NestedNamePayload {
         switch self {
         case .value(let v): return NestedNamePayload(tag: v)
         case .empty: return NestedNamePayload(tag: -1)
+        case .nestedNamePayload(let v): return NestedNamePayload(tag: v * 2)
         }
     }
 }

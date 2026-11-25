@@ -130,6 +130,72 @@ public class NestedTypeEnclosingNameTests
         Assert.Equal("OuterInfo2.OuterInfo", fixture.CSharpName(nested));
     }
 
+    [Fact]
+    public void CaseNamedLikeTheEnum_KeepsItsRenameWhenANestedTypeOfThatNameIsRenamed()
+    {
+        // `enum Outer { case outer(Int32); struct Outer }`: the nested type moves to `OuterInfo`,
+        // and the case's factory still may not be `Outer` inside class `Outer` (CS0542).
+        var fixture = new Fixture("payload");
+        fixture.AddCase((EnumDecl)fixture.Container, "outer", payload: true);
+        var nested = fixture.AddNested("Outer", "struct");
+
+        NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+
+        Assert.Equal("Outer.OuterInfo", fixture.CSharpName(nested));
+        Assert.Equal($"Outer{NameCollisionPolicy.MemberValueSuffix}",
+            NameProvider.ComputePropertyRenames(fixture.Container, fixture.Database)["Outer"]);
+    }
+
+    [Theory]
+    [InlineData(false, "Outer.OuterInfo")]
+    [InlineData(true, "Outer.OuterInfo2")]
+    public void CaseOnlyPropertyPair_OnTheRenamedLeaf_EveryNameStaysDistinct(bool withSibling, string expected)
+    {
+        // `outerInfo` and `OuterInfo` both project onto the leaf the nested `outer` takes. The
+        // type keeps it (container members yield), and the two properties land on two other names;
+        // with a sibling `outerInfo` type the nested type takes `OuterInfo2`, the name the
+        // case-only loser would otherwise be stamped with.
+        var fixture = new Fixture("struct");
+        var nested = fixture.AddNested("outer", "class");
+        if (withSibling)
+            fixture.AddNested("outerInfo", "struct");
+        fixture.AddProperty(fixture.Container, "outerInfo");
+        fixture.AddProperty(fixture.Container, "OuterInfo");
+
+        NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+        CaseOnlyCollisionPass.Precompute(fixture.Module, fixture.Database);
+
+        Assert.Equal(expected, fixture.CSharpName(nested));
+        var renames = NameProvider.ComputePropertyRenames(fixture.Container, fixture.Database);
+        var names = fixture.Container.Properties
+            .Select(p => NameProvider.GetFinalMemberName(NameProvider.GetPropertyName(p, fixture.Container), renames))
+            .Concat(fixture.Container.Types.Select(t => fixture.CSharpName(t)["Outer.".Length..]))
+            .ToList();
+        Assert.Equal(names.Count, names.Distinct(StringComparer.Ordinal).Count());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void SkippedSpiCase_DoesNotMoveAPublicCaseYieldingToTheRenamedNestedType(bool withSpiCase)
+    {
+        // A RawRepresentable enum's `@_spi` payload-free case emits no member, so a newer SDK
+        // adding `@_spi case outerKindValue` must not push the public `outerKind`, which yields to
+        // the nested `Outer` renamed `OuterKind`, off `OuterKindValue`.
+        var fixture = new Fixture("enum");
+        var container = (EnumDecl)fixture.Container;
+        container.RawValueTypeName = "Swift.Int32";
+        fixture.AddNested("Outer", "enum");
+        fixture.AddCase(container, "outerKind");
+        if (withSpiCase)
+            fixture.AddCase(container, "outerKindValue", spi: true);
+
+        NameProvider.PrecomputeNestedTypeRenames(fixture.Module, fixture.Database);
+
+        Assert.Equal($"OuterKind{NameCollisionPolicy.MemberValueSuffix}",
+            NameProvider.ComputePropertyRenames(fixture.Container, fixture.Database)["OuterKind"]);
+    }
+
     private sealed class Fixture
     {
         public TypeDatabase Database { get; } = new();
@@ -185,6 +251,13 @@ public class NestedTypeEnclosingNameTests
             ParentDecl = owner,
             ModuleDecl = Module,
         });
+
+        public void AddCase(EnumDecl owner, string name, bool payload = false, bool spi = false)
+            => owner.Cases.Add(new EnumCaseDecl
+            {
+                Name = name, MangledName = "$sN", ParentDecl = owner, ModuleDecl = Module, IsSpiProtected = spi,
+                AssociatedValues = payload ? new List<TypeSpec> { new NamedTypeSpec("Swift.Int32") } : new List<TypeSpec>(),
+            });
 
         public string CSharpName(TypeDecl decl)
         {

@@ -46,33 +46,41 @@ public static class SwiftPackageArchive
             .OrderBy(f => f, StringComparer.Ordinal)
             .ToList();
 
-    /// <summary>The comment that opens the block <see cref="AppendDynamicProductDeclaration"/> appends.</summary>
-    public const string AppendedBlockMarker = "// Appended by nuke fetch:";
-
     /// <summary>
     /// Declares the library product <paramref name="product"/> dynamic by appending a top-level
-    /// statement to the manifest rather than editing its <c>.library(...)</c> call:
-    /// <c>package.products</c> is mapped so the product named <paramref name="product"/>, when it
-    /// is a library, becomes <c>.library(name:type: .dynamic, targets:)</c> over the same targets.
+    /// statement to the manifest rather than editing its <c>.library(...)</c> call: the package's
+    /// <c>products</c> are mapped so the product named <paramref name="product"/>, when it is a
+    /// library, becomes <c>.library(name:type: .dynamic, targets:)</c> over the same targets.
     /// Swift evaluates it after the package is built, so it sees the product however the manifest
     /// spells it (a computed <c>type:</c>, a name held in a constant, a product list built in a
-    /// helper) and nothing a comment holds. A manifest that names its package something other than
-    /// <c>package</c> fails to evaluate, loudly; the caller proves the result with
-    /// <c>swift package dump-package</c> (<see cref="LibraryTypeOf"/>). Appending twice is a
-    /// no-op.
+    /// helper) and nothing a comment holds. The statement names the variable the manifest binds
+    /// its <c>Package</c> to (<see cref="PackageVariableName"/>); the caller proves the result
+    /// with <c>swift package dump-package</c> (<see cref="LibraryTypeOf"/>).
     /// </summary>
     public static string AppendDynamicProductDeclaration(string manifest, string product)
     {
         var literal = SwiftStringLiteral(product);
-        var marker = $"{AppendedBlockMarker} archive the library product {literal} as a dynamic framework.";
-        if (manifest.Contains(marker, StringComparison.Ordinal))
-            return manifest;
+        var package = PackageVariableName(manifest);
         var separator = manifest.EndsWith('\n') ? "\n" : "\n\n";
-        return manifest + separator + marker + "\n"
-            + "package.products = package.products.map { product in\n"
+        return manifest + separator
+            + $"// Appended by nuke fetch: archive the library product {literal} as a dynamic framework.\n"
+            + $"{package}.products = {package}.products.map {{ product in\n"
             + $"    guard product.name == {literal}, let library = product as? Product.Library else {{ return product }}\n"
             + "    return .library(name: library.name, type: .dynamic, targets: library.targets)\n"
             + "}\n";
+    }
+
+    /// <summary>
+    /// The top-level variable a manifest binds its <c>Package</c> to (<c>let package = Package(</c>,
+    /// by convention), or <c>package</c> when no binding reads as one; a wrong guess fails
+    /// <c>dump-package</c>, loudly.
+    /// </summary>
+    public static string PackageVariableName(string manifest)
+    {
+        var match = Regex.Match(manifest,
+            @"^(?:public\s+)?(?:let|var)\s+(\w+)\s*(?::\s*Package\s*)?=\s*(?:Package|\.init)\s*\(",
+            RegexOptions.Multiline);
+        return match.Success ? match.Groups[1].Value : "package";
     }
 
     /// <summary>
