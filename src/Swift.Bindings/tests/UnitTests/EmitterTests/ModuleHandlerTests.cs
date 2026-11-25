@@ -1309,8 +1309,8 @@ public class ModuleHandlerTests
     public void Emit_HashedClassWhoseWrapperIsNotDeclared_IsNotRegistered()
     {
         // Registering a witness for a class with no C# wrapper would not compile: one the run skipped,
-        // and one it never declared (nested in a suppressed type, which records only the parent).
-        // A declared class and another module's class are registered.
+        // and one it never declared (nested in an underscore-suppressed type, which records only the
+        // parent). A declared class the run emitted and another module's class are registered.
         string csOutput, swiftOutput;
         try
         {
@@ -1318,11 +1318,18 @@ public class ModuleHandlerTests
                 m =>
                 {
                     ReportCollector.Start(m);
-                    ReportCollector.RecordTypeSkipped(TestClassDecl(m, "TestModule.Skipped"), SkipReason.UnsupportedType, "test");
-                    ReportCollector.RecordTypeEmitted(TestClassDecl(m, "TestModule.Node"));
+                    var hidden = TestClassDecl(m, "TestModule._Hidden");
+                    hidden.Types.Add(TestClassDecl(m, "TestModule._Hidden.Key", parent: hidden));
+                    m.Types.Add(hidden);
+                    var skipped = TestClassDecl(m, "TestModule.Skipped");
+                    m.Types.Add(skipped);
+                    ReportCollector.RecordTypeSkipped(skipped, SkipReason.UnsupportedType, "test");
+                    m.Types.Add(TestClassDecl(m, "TestModule.Node"));
+                    ReportCollector.RecordTypeEmitted(m.Types[^1]);
                 },
                 preEmitHook: ctx =>
                 {
+                    ctx.SetUnderscoreSuppressedNames(new HashSet<string> { "TestModule._Hidden" });
                     foreach (var name in new[] { "TestModule.Skipped", "TestModule.Node", "TestModule._Hidden.Key", "OtherModule.Node" })
                         ctx.RecordHashedSwiftClass(new HashedSwiftClass(new ObjectKeyIdentity(name), "global::" + name));
                 });
@@ -1340,7 +1347,46 @@ public class ModuleHandlerTests
         Assert.DoesNotContain("Swift.Set<TestModule._Hidden.Key>", swiftOutput);
     }
 
-    private static ClassDecl TestClassDecl(ModuleDecl m, string moduleQualifiedName) => new()
+    [Fact]
+    public void Emit_HashedClassSpelledUnderItsUmbrellaModule_IsJudgedByItsDeclaringModule()
+    {
+        // The type spec names a re-exported class by its umbrella module, while the run records
+        // skips and emissions under the declaring module.
+        string csOutput;
+        try
+        {
+            (csOutput, _) = EmitModuleWithDependencies("RealityKit", new List<string>(),
+                m =>
+                {
+                    ReportCollector.Start(m);
+                    var skipped = TestClassDecl(m, "RealityFoundation.Withdrawn");
+                    m.Types.Add(skipped);
+                    ReportCollector.RecordTypeSkipped(skipped, SkipReason.UnsupportedType, "test");
+                    var hidden = TestClassDecl(m, "RealityFoundation._Hidden");
+                    hidden.Types.Add(TestClassDecl(m, "RealityFoundation._Hidden.Key", parent: hidden));
+                    m.Types.Add(hidden);
+                    m.Types.Add(TestClassDecl(m, "RealityFoundation.Kept"));
+                    ReportCollector.RecordTypeEmitted(m.Types[^1]);
+                },
+                preEmitHook: ctx =>
+                {
+                    ctx.SetUnderscoreSuppressedNames(new HashSet<string> { "RealityFoundation._Hidden" });
+                    foreach (var name in new[] { "Withdrawn", "_Hidden.Key", "Kept" })
+                        ctx.RecordHashedSwiftClass(new HashedSwiftClass(
+                            new ObjectKeyIdentity("RealityKit." + name), "global::RealityFoundation." + name));
+                });
+        }
+        finally
+        {
+            ReportCollector.Reset();
+        }
+
+        Assert.Contains("RegisterHashableClass<global::RealityFoundation.Kept>", csOutput);
+        Assert.DoesNotContain("RegisterHashableClass<global::RealityFoundation.Withdrawn>", csOutput);
+        Assert.DoesNotContain("RegisterHashableClass<global::RealityFoundation._Hidden.Key>", csOutput);
+    }
+
+    private static ClassDecl TestClassDecl(ModuleDecl m, string moduleQualifiedName, BaseDecl parent = null) => new()
     {
         Name = moduleQualifiedName.Substring(moduleQualifiedName.LastIndexOf('.') + 1),
         SwiftTypeName = SwiftTypeName.FromModuleQualifiedName(moduleQualifiedName),
@@ -1352,7 +1398,7 @@ public class ModuleHandlerTests
         Subscripts = new List<SubscriptDecl>(),
         GenericParameters = new List<GenericArgumentDecl>(),
         Conformances = new List<TypeConformance>(),
-        ParentDecl = m,
+        ParentDecl = parent ?? m,
         ModuleDecl = m,
     };
 

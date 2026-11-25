@@ -486,10 +486,10 @@ namespace BindingsGeneration
             // Every member is emitted by now, so the object-pointer types the module's collections
             // hold are all recorded: export each one's metadata (a key's through its Set) from the wrapper.
             var objectKeyLibName = env.TypeDatabase.AsyncLibraryName ?? env.TypeDatabase.GetLibraryPath(moduleDecl.Name);
-            EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
+            var hashedSwiftClasses = EmitObjectKeyAccessors(swiftWriter, moduleDecl, env.TypeDatabase, context.GetEmissionContext());
 
             // Emit DllImport framework resolver + NativeAOT factory registration with [ModuleInitializer]
-            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext(), objectKeyLibName);
+            EmitFrameworkResolver(csWriter, moduleDecl.Name, context.GetEmissionContext(), objectKeyLibName, hashedSwiftClasses);
 
             // File-per-type split: everything from the namespace body start to here that is
             // NOT inside a recorded top-level-type span (free functions, foreign-type
@@ -600,10 +600,11 @@ namespace BindingsGeneration
         /// held only as an array element or dictionary value needs no conformance, and its own
         /// metadata is exported.
         /// </summary>
-        private void EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
+        /// <returns>The hashed Swift classes whose Hashable witness the module initializer registers.</returns>
+        private IReadOnlyList<HashedSwiftClass> EmitObjectKeyAccessors(SwiftWriter swiftWriter, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx)
         {
             if (emissionCtx == null)
-                return;
+                return Array.Empty<HashedSwiftClass>();
             var moduleName = moduleDecl.Name;
 
             // The type projections recorded the element types of every collection they marshal. A
@@ -657,11 +658,61 @@ namespace BindingsGeneration
             }
             // A Swift class key or set element: its Set<Class> metadata, which holds the class's
             // Hashable witness table as the compiler resolves it.
-            foreach (var hashedClass in DeclaredHashedSwiftClasses(emissionCtx, moduleName))
+            var hashedSwiftClasses = DeclaredHashedSwiftClasses(emissionCtx, moduleDecl);
+            foreach (var hashedClass in hashedSwiftClasses)
             {
                 var identity = hashedClass.Identity;
                 MetadataWrapperEmitter.EmitIfNeeded(swiftWriter, moduleName, identity.SwiftSetTypeName,
                     identity.AccessorSymbol(moduleName), emissionCtx, availability: floors.Floor(identity.SwiftTypeName));
+            }
+            return hashedSwiftClasses;
+        }
+
+        /// <summary>
+        /// The hashed Swift classes whose wrappers exist: the classes this module declares that the run
+        /// emitted (every type is emitted before the accessors), and other modules' classes, declared by
+        /// their own bindings. A class of this module the run did not emit, whatever skipped or
+        /// suppressed it, has no C# type to register a witness for, and no bound member reaches it: the
+        /// accessor scan reads every member, bound or not. A class spelled under an umbrella module is
+        /// matched under each module it re-exports, as the skip records name the declaring module.
+        /// </summary>
+        private static IReadOnlyList<HashedSwiftClass> DeclaredHashedSwiftClasses(ModuleEmissionContext emissionCtx, ModuleDecl moduleDecl)
+        {
+            if (emissionCtx.HashedSwiftClasses.Count == 0)
+                return Array.Empty<HashedSwiftClass>();
+            var declaredTypeNames = new HashSet<string>(StringComparer.Ordinal);
+            CollectDeclaredTypeNames(moduleDecl.Types, declaredTypeNames);
+            var result = new List<HashedSwiftClass>();
+            foreach (var hashedClass in emissionCtx.HashedSwiftClasses)
+            {
+                var names = SpellingsOf(hashedClass.Identity.SwiftTypeName);
+                if (names.Any(ReportCollector.IsTypeSkipped))
+                    continue;
+                if (names.Any(declaredTypeNames.Contains) && !names.Any(n => ReportCollector.IsTypeEmitted(n) != false))
+                    continue;
+                result.Add(hashedClass);
+            }
+            return result;
+
+            static void CollectDeclaredTypeNames(IEnumerable<TypeDecl>? types, HashSet<string> into)
+            {
+                foreach (var type in types ?? Enumerable.Empty<TypeDecl>())
+                {
+                    into.Add(type.SwiftTypeName.ModuleQualifiedName);
+                    CollectDeclaredTypeNames(type.Types, into);
+                }
+            }
+
+            static List<string> SpellingsOf(string moduleQualifiedName)
+            {
+                var names = new List<string> { moduleQualifiedName };
+                var dot = moduleQualifiedName.IndexOf('.');
+                if (dot <= 0)
+                    return names;
+                var suffix = moduleQualifiedName.Substring(dot + 1);
+                foreach (var sourceModule in AppleFrameworkRegistry.GetCompileImportSourceModules(moduleQualifiedName.Substring(0, dot)))
+                    names.Add($"{sourceModule}.{suffix}");
+                return names;
             }
         }
 
@@ -678,21 +729,6 @@ namespace BindingsGeneration
         /// floor of the declarations that name it. Per platform that is the lowest floor any of them
         /// declares, and no floor when one of them declares none on the platform (or none at all).
         /// </summary>
-        /// <summary>
-        /// The hashed Swift classes whose wrappers exist: this module's classes the run declared
-        /// (every type is emitted before the accessors), and other modules' classes, declared by their
-        /// own bindings. A class the run did not declare, whatever skipped or suppressed it, has no C#
-        /// type to register a witness for and no bound member reaches it: the accessor scan reads every
-        /// member, bound or not.
-        /// </summary>
-        private static IReadOnlyList<HashedSwiftClass> DeclaredHashedSwiftClasses(ModuleEmissionContext? emissionCtx, string moduleName)
-            => emissionCtx?.HashedSwiftClasses.Where(c =>
-                    !ReportCollector.IsTypeSkipped(c.Identity.SwiftTypeName) &&
-                    (!c.Identity.SwiftTypeName.StartsWith(moduleName + ".", StringComparison.Ordinal) ||
-                     ReportCollector.IsTypeEmitted(c.Identity.SwiftTypeName) != false))
-                .ToList()
-                ?? (IReadOnlyList<HashedSwiftClass>)Array.Empty<HashedSwiftClass>();
-
         internal sealed class ObjectKeyFloors
         {
             // A null entry: some declaration names the key with no floor, so the key is referenced unguarded.
@@ -747,7 +783,8 @@ namespace BindingsGeneration
             }
         }
 
-        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName)
+        private static void EmitFrameworkResolver(CSharpWriter csWriter, string moduleName, ModuleEmissionContext? emissionCtx, string objectKeyLibName,
+            IReadOnlyList<HashedSwiftClass> hashedSwiftClasses)
         {
             var factoryTypes = emissionCtx?.EmittedSwiftObjectTypes ?? Array.Empty<string>();
             var payloadSemantics = emissionCtx?.PayloadSemantics
@@ -765,7 +802,6 @@ namespace BindingsGeneration
                 ?? Array.Empty<(string, string, string)>();
             var objectKeyIdentities = emissionCtx?.ObjectKeyIdentities
                 ?? Array.Empty<ObjectKeyIdentity>();
-            var hashedSwiftClasses = DeclaredHashedSwiftClasses(emissionCtx, moduleName);
 
             // Emit a single [ModuleInitializer] class that:
             // 1. Registers the DllImport framework resolver (must be first — metadata lookups P/Invoke into native libs)
