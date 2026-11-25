@@ -32,7 +32,10 @@ in a generated binding's module initializer. The epoch derives from `major * 100
 packaged bindings are accepted only within `[MinimumSupportedGeneratedVersion, Version]`; epoch 0
 is the development/in-tree bypass and is not packaged compatibility evidence.
 
-The current floor is **16**. Raise it only for a real module-initializer/runtime dispatch-contract
+The current floor is **11000** (11.0), a compatibility reset: 11.0 bindings register their Swift
+classes' `Hashable` witnesses at module init, carry object keys, elements and values as
+`SwiftObjectKey` carriers and key enum case tags by name, so every 0.x binding is rejected at load
+and must be regenerated. Raise it only for a real module-initializer/runtime dispatch-contract
 break; additive work leaves it unchanged. The floor is a release decision, not automatically raised
 on every minor. The load check is narrower than the NuGet policy: manually bypassing a dependency
 range may allow a binding to load while retaining old generated calls. Passing this handshake does

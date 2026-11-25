@@ -290,13 +290,18 @@ public class ObjectElementOwnershipTests : TestBase
     }
 
     // The carrier lives only in this frame, so no stale stack copy keeps its reference reachable once
-    // the frame is gone (Mono scans the stack conservatively).
+    // the frame is gone (Mono scans the stack conservatively). It is held until after the count: a
+    // precise collector (NativeAOT, CoreCLR) treats a carrier whose only later use is its Handle as
+    // no longer holding its owner, so the reference may be released before the count reads it.
     [MethodImpl(MethodImplOptions.NoInlining)]
     static (nint HeldCount, string Described) ReadRawSetElementPastItsSet(NSUuid uuid)
     {
         var key = ReadRawSetElementAndDropSet(uuid);
         CollectAll();
-        return (Count(uuid), Describe(key));
+        var held = Count(uuid);
+        var described = Describe(key);
+        GC.KeepAlive(key);
+        return (held, described);
     }
 
     [MethodImpl(MethodImplOptions.NoInlining)]
@@ -366,6 +371,8 @@ public class ObjectElementOwnershipTests : TestBase
         {
             CollectAll();
             seen.Add(Describe(key));
+            // Held past the read, as in ReadRawSetElementPastItsSet.
+            GC.KeepAlive(key);
         }
         seen.Sort(StringComparer.Ordinal);
         AssertEqual($"{UuidB},{UuidA}", string.Join(",", seen), "every element read after the set was collected names its object");
