@@ -362,9 +362,11 @@ public static class NameProvider
     /// the name shaping later prefixes it, and an unemittable member still counts. Reserving a
     /// name nothing emits only costs the rename a numeric step; missing one is a CS0542.
     /// <c>@_spi</c> declarations are excluded: they are not emitted, so they cannot collide, and
-    /// one a newer SDK adds must not move a name an older copy shipped.
+    /// one a newer SDK adds must not move a name an older copy shipped. The exception is an
+    /// <c>@_spi</c> enum case the enum's projection still emits as a member
+    /// (<see cref="EmitsSpiCaseAsMember"/>).
     /// </summary>
-    public static HashSet<string> GetTypeRenameExclusions(TypeDecl typeDecl)
+    public static HashSet<string> GetTypeRenameExclusions(TypeDecl typeDecl, ITypeDatabase typeDatabase)
     {
         var names = new HashSet<string>(StringComparer.Ordinal);
         foreach (var nested in typeDecl.Types)
@@ -385,15 +387,26 @@ public static class NameProvider
         if (typeDecl is EnumDecl enumDecl)
         {
             // A case emits under its case-only-disambiguated name (`AudioKind2`), not its plain
-            // PascalCase, so the exclusion holds the name the case actually takes. Every case is
-            // reserved, SPI or not: a payload case's factory is emitted whatever its SPI, and a
-            // reserved name that goes unused only moves the suffix.
+            // PascalCase, so the exclusion holds the name the case actually takes.
             var caseNameMap = ComputeCaseNameMap(enumDecl.Cases);
+            var simpleEnum = IsSimpleEnumRecord(enumDecl, typeDatabase);
             foreach (var enumCase in enumDecl.Cases)
-                names.Add(GetCaseName(enumCase.Name, caseNameMap));
+            {
+                if (!enumCase.IsSpiProtected || EmitsSpiCaseAsMember(enumDecl, enumCase, simpleEnum))
+                    names.Add(GetCaseName(enumCase.Name, caseNameMap));
+            }
         }
         return names;
     }
+
+    /// <summary>
+    /// Whether an <c>@_spi</c> case of <paramref name="enumDecl"/> still emits a member of the C#
+    /// type. A simple enum (a C# <c>enum</c>) skips it. An enum projected as a class emits every
+    /// payload case's factory, and a payload-free case unless the RawRepresentable surface, which
+    /// skips SPI cases, carries it; the enum-tag path emits every one.
+    /// </summary>
+    private static bool EmitsSpiCaseAsMember(EnumDecl enumDecl, EnumCaseDecl enumCase, bool simpleEnum)
+        => !simpleEnum && (enumCase.HasAssociatedValues || !enumDecl.IsRawRepresentable);
 
     /// <summary>
     /// The name a member of <paramref name="containingType"/> must not take (CS0542, a member named
@@ -1942,7 +1955,7 @@ public static class NameProvider
                     // names so the guard compares against the emitted C# leaf, not the raw Swift name.
                     // The renamed type's own members guard the same CS0542 (a `walletInfo` property
                     // inside a type renamed `WalletInfo`), so GetTypeRenameExclusions holds both.
-                    var ownChildNames = GetTypeRenameExclusions(nestedType);
+                    var ownChildNames = GetTypeRenameExclusions(nestedType, typeDatabase);
                     // Disambiguate the nested type from the colliding property with a kind-aware
                     // semantic suffix: an enum is a closed case-set → "Kind" (idiomatic .NET:
                     // SyntaxKind, DateTimeKind); a struct/class is a data aggregate → "Info"

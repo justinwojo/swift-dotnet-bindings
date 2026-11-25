@@ -184,7 +184,7 @@ public static class CaseOnlyCollisionPass
 
             // Its own nested types and members: a static `audioKind` inside a type renamed
             // `AudioKind` is CS0542, and the member keeps its name when the type moves.
-            var ownNames = NameProvider.GetTypeRenameExclusions(typeDecl);
+            var ownNames = NameProvider.GetTypeRenameExclusions(typeDecl, typeDatabase);
             var newLeaf = NameCollisionPolicy.ResolveTypeSideName(
                 leaf,
                 NameCollisionPolicy.TypeSuffixFor(typeDecl),

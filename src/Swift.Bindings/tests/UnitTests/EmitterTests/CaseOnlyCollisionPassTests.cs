@@ -789,6 +789,36 @@ public class CaseOnlyCollisionPassTests
         Assert.DoesNotContain(renamed!.CSharpTypeName.Name, NameProvider.ComputeCaseNameMap(lower.Cases)!.Values);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void TypeArm_SpiCaseASimpleEnumSkips_DoesNotMoveTheSuffix(bool withSpiCase)
+    {
+        var typeDatabase = new TypeDatabase();
+        var module = new ModuleTypeDatabase("TestModule", "/tmp/TestModule.dylib");
+        var moduleDecl = CreateModuleDecl();
+
+        // A simple enum (a C# `enum`) emits no SPI case, so a newer SDK adding
+        // `@_spi(Internal) case audioKind` must leave the renamed type where the older copy put it.
+        var upper = CreateContainerEnum(module, moduleDecl, "AUDIO", "Audio", "Mode");
+        var lowerSwiftName = SwiftTypeName.FromModuleQualifiedName("TestModule.Audio");
+        var lower = CreateEnumDecl("Audio", lowerSwiftName, moduleDecl);
+        var cases = new List<(string, bool)> { ("off", false), ("on", false) };
+        if (withSpiCase)
+            cases.Add(("audioKind", true));
+        foreach (var (caseName, spi) in cases)
+            lower.Cases.Add(new EnumCaseDecl { Name = caseName, MangledName = "$sN", ParentDecl = lower, ModuleDecl = moduleDecl, IsSpiProtected = spi });
+        RegisterType(module, lowerSwiftName, "Audio", TypeRecordKind.Enum, TypeRecordFlags.SimpleEnum);
+        moduleDecl.Types.Add(upper);
+        moduleDecl.Types.Add(lower);
+        typeDatabase.AddModuleDatabase(module);
+
+        CaseOnlyCollisionPass.Precompute(moduleDecl, typeDatabase);
+
+        Assert.True(typeDatabase.TryGetTypeRecord(lowerSwiftName, out var renamed));
+        Assert.Equal($"Audio{NameCollisionPolicy.EnumTypeSuffix}", renamed!.CSharpTypeName.Name);
+    }
+
     [Fact]
     public void TypeArm_SpiTypeHoldingTheSuffix_DoesNotPushThePublicTypeOffIt()
     {
@@ -1116,13 +1146,14 @@ public class CaseOnlyCollisionPassTests
     }
 
     private static void RegisterType(
-        ModuleTypeDatabase module, SwiftTypeName swiftName, string csharpName, TypeRecordKind kind)
+        ModuleTypeDatabase module, SwiftTypeName swiftName, string csharpName, TypeRecordKind kind,
+        TypeRecordFlags extraFlags = TypeRecordFlags.None)
         => module.RegisterType(swiftName, new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", csharpName),
             SwiftTypeName = swiftName,
             MetadataAccessor = "$sMa",
-            Flags = TypeRecordFlags.Frozen,
+            Flags = TypeRecordFlags.Frozen | extraFlags,
             Kind = kind,
         });
 
