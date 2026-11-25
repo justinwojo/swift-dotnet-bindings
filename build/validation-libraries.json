@@ -920,7 +920,7 @@
       "mode": "source",
       "products": [
         {
-          "scheme": "MBProgressHUD",
+          "scheme": "MBProgressHUD Framework",
           "framework": "MBProgressHUD",
           "verificationPlanes": []
         }

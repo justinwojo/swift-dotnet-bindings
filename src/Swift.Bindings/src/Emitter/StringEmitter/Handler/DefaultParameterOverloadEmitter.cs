@@ -1402,7 +1402,9 @@ public static class DefaultParameterOverloadEmitter
     /// The shim calls <paramref name="forwards"/> synchronously, so it takes the member's main-actor
     /// isolation (<see cref="WrapperEmitterHelpers.EmitMainActorIfNeeded"/>): an extension of an
     /// unisolated type inherits none, and Swift refuses a nonisolated shim's call to a member-level
-    /// <c>@MainActor</c> declaration.
+    /// <c>@MainActor</c> declaration. The reverse holds for a <c>nonisolated</c> member of a
+    /// main-actor type: the extension inherits the type's isolation, while the overload's own
+    /// wrapper follows the member and is nonisolated, so the shim opts out with the member.
     /// </remarks>
     private static void WriteShimDeclaration(
         SwiftWriter swiftWriter,
@@ -1416,6 +1418,10 @@ public static class DefaultParameterOverloadEmitter
     {
         WrapperEmitterHelpers.EmitMainActorIfNeeded(
             swiftWriter, forwards.ParentDecl, forwards.IsMainActorIsolated, forwards.IsNonisolated);
+        if (declaringType is not null && forwards.IsNonisolated)
+            declarationLines = declarationLines
+                .Select(line => line.StartsWith("public ", StringComparison.Ordinal) ? "nonisolated " + line : line)
+                .ToArray();
         foreach (var line in declarationLines)
             swiftWriter.WriteLine(line);
         emissionContext?.RegisterSyntheticSwiftDeclaration(

@@ -332,11 +332,10 @@ namespace BindingsGeneration
                     // Namespace-facade short-circuit: a top-level public struct
                     // with no member surface (no properties, methods, inits,
                     // operators, subscripts, conformances) and at least one
-                    // nested type is the canonical Swift "uninhabited type as
-                    // namespace" idiom. Emit it as a real C# nested namespace
-                    // so consumers can write `using Module.FacadeType;` instead
-                    // of `using static Module.FacadeType;` or fully-qualifying
-                    // every type — a namespace facade must emit as a namespace, not a class.
+                    // nested type is the Swift "type as namespace" idiom. It emits
+                    // as a static class holding its nested types, the shape a
+                    // caseless enum takes, so their CLR names (`Facade+Inner`) stay
+                    // the same in a copy whose SDK gives the struct a member.
                     if (NamespaceFacadeDetector.IsNamespaceFacade(structDecl))
                     {
                         NamespaceFacadeEmitter.Emit(

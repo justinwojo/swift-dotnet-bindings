@@ -45,13 +45,12 @@ public enum NameCollisionScheme
 
     /// <summary>
     /// A type's emitted C# name equals — case-insensitively but not ordinally — the name of a
-    /// sibling Swift container that emits as a C# <i>namespace</i> rather than a class (see
-    /// <c>NamespaceFacadeDetector</c>). C# accepts the pair, but a reader cannot tell the two
-    /// apart at a glance and case-normalizing tooling treats them as one identifier. The
-    /// <b>non-facade type</b> is renamed with the same kind-aware suffix as
-    /// <see cref="NestedTypeKindSuffix"/>; the facade keeps its name because it is a namespace
-    /// segment for every type nested inside it and is referenced under that spelling
-    /// cross-module.
+    /// sibling Swift container: a namespace facade struct or a caseless enum with nested types,
+    /// both emitted as C# static classes (see <c>NamespaceFacadeDetector</c>). C# accepts the
+    /// pair, but a reader cannot tell the two apart at a glance and case-normalizing tooling
+    /// treats them as one identifier. The <b>non-container type</b> is renamed with the same
+    /// kind-aware suffix as <see cref="NestedTypeKindSuffix"/>; the container keeps its name
+    /// because every type nested inside it is spelled under it, cross-module too.
     /// </summary>
     CaseOnlyNamespaceCollision,
 

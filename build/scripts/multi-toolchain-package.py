@@ -1021,6 +1021,10 @@ public static class LibUse
             // A namespace enum's nested type, which this library names by the oldest copy's CLR name.
             ("the namespace enum's nested class", new global::CaseOrder.Studio.Easel().Label, "easel"),
             ("the nested class's CLR name", typeof(global::CaseOrder.Studio.Easel).FullName, "CaseOrder.Studio+Easel"),
+            // A member-less struct's nested type: the oldest copy's struct is a static class, the newest an
+            // ordinary struct type with an initializer, and the nested type has the same CLR name in both.
+            ("the struct facade's nested class", new global::CaseOrder.Workshop.Bench().Label, "bench"),
+            ("the struct facade's nested CLR name", typeof(global::CaseOrder.Workshop.Bench).FullName, "CaseOrder.Workshop+Bench"),
         };
     }
 

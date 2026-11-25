@@ -417,6 +417,29 @@ def prepare_workspace(source, state, identity, inventory, arguments):
     return workspace
 
 
+def link_libraries(state, workspace):
+    """Point the workspace's .libraries at this profile's own fetched libraries.
+
+    The snapshot carries no ignored files, so `fetch` and `validate` would otherwise find no
+    libraries. The directory lives beside the workspace, so a source change that rebuilds the
+    workspace keeps it, and it is the profile's own: a source library fetched here is built with
+    this profile's Xcode, which is what a consumer on that Xcode links.
+    """
+    libraries = state / "libraries"
+    if libraries.is_symlink():
+        raise RuntimeError(f"Refusing a symlink libraries directory: {libraries}")
+    libraries.mkdir(exist_ok=True)
+    link = workspace / ".libraries"
+    if link.is_symlink():
+        if os.readlink(link) == str(libraries):
+            return libraries
+        link.unlink()
+    elif link.exists():
+        raise RuntimeError(f"Refusing to replace a workspace .libraries that is not this profile's link: {link}")
+    link.symlink_to(libraries, target_is_directory=True)
+    return libraries
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--profile", required=True, choices=("net10-xcode26", "net10-xcode27", "net11-xcode27"))
@@ -459,6 +482,7 @@ def main(argv=None):
                     "source": digest(inventory), "toolchain": digest(receipt),
                     "globalJson": global_json(profile)}
         workspace = prepare_workspace(source, state, identity, inventory, arguments)
+        libraries = link_libraries(state, workspace)
         write_json(state / "toolchain.json", receipt)
         write_json(state / "source.json", {"identity": identity, "files": inventory})
         env.update({"SWIFT_BINDINGS_TOOLCHAIN_PROFILE": options.profile,
@@ -466,6 +490,7 @@ def main(argv=None):
                     "SWIFT_BINDINGS_SOURCE_FINGERPRINT": identity["source"]})
         print(f"Profile {options.profile}: SDK {receipt['sdk']}; {receipt['xcode'].replace(chr(10), ', ')}", flush=True)
         print(f"Isolated workspace: {workspace}", flush=True)
+        print(f"Libraries (fetch, validate): {libraries}", flush=True)
         if options.prepare_only:
             return 0
         subprocess.run([env["DOTNET_HOST_PATH"], "tool", "restore"], cwd=workspace, env=env, check=True)

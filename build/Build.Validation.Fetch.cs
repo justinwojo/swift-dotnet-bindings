@@ -263,6 +263,9 @@ partial class Build
                 throw new InvalidOperationException(
                     $"Product {product.Framework} missing 'scheme' (required for source mode)");
 
+            if (SwiftPackageArchive.IsPackageBuild(buildDir / "source", product.Project))
+                DeclareSwiftPackageProductDynamic(buildDir / "source", product.Scheme);
+
             var sliceFrameworkPaths = new List<AbsolutePath>();
 
             if (platforms.Contains("ios"))
@@ -321,6 +324,29 @@ partial class Build
         WriteCache(lib.Name, lib.Version!);
     }
 
+    /// <summary>
+    /// Declares a package's library product dynamic in every root manifest that names it, so
+    /// xcodebuild archives it as a framework (<see cref="SwiftPackageArchive"/>). The scheme of a
+    /// package library is its product's name. Fails when no manifest declares that product.
+    /// </summary>
+    static void DeclareSwiftPackageProductDynamic(AbsolutePath sourceDir, string product)
+    {
+        var declaredIn = new List<string>();
+        foreach (var manifest in SwiftPackageArchive.Manifests(sourceDir))
+        {
+            var text = File.ReadAllText(manifest);
+            var patched = SwiftPackageArchive.DeclareProductDynamic(text, product, out var declared);
+            if (!declared) continue;
+            File.WriteAllText(manifest, patched);
+            declaredIn.Add(Path.GetFileName(manifest));
+        }
+        if (declaredIn.Count == 0)
+            throw new InvalidOperationException(
+                $"No root manifest in {sourceDir} declares the library product '{product}' the scheme names, " +
+                "so it cannot be archived as a dynamic framework.");
+        Log.Information("  Declared package product {Product} dynamic in {Manifests}", product, string.Join(", ", declaredIn));
+    }
+
     static AbsolutePath ResolveFrameworkInArchive(AbsolutePath archivePath, string framework, string label)
     {
         var productsDir = archivePath / "Products";
@@ -347,7 +373,7 @@ partial class Build
             .SetDestination("generic/platform=iOS")
             .SetArchivePath(archivesDir / $"{product.Framework}-ios-arm64")
             .SetDerivedDataPath(derivedData / "device")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .SetIosDeploymentTarget(lib.MinIOS)
             .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
             .SetQuiet()
@@ -370,7 +396,7 @@ partial class Build
             .SetDestination("generic/platform=iOS Simulator")
             .SetArchivePath(archivesDir / $"{product.Framework}-ios-simulator")
             .SetDerivedDataPath(derivedData / "simulator")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .SetIosDeploymentTarget(lib.MinIOS)
             .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
             .SetQuiet()
@@ -438,7 +464,7 @@ partial class Build
             .SetDestination("generic/platform=macOS,name=Any Mac")
             .SetArchivePath(archivesDir / $"{product.Framework}-macos-arm64")
             .SetDerivedDataPath(derivedData / "macos")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .AddBuildSetting("MACOSX_DEPLOYMENT_TARGET", lib.MinMacOS)
             // Pin to arm64 so the slice is produced for the host (CI is Apple Silicon).
             // x86_64 macs aren't a runtime target for the behavior tier.
@@ -555,7 +581,7 @@ partial class Build
             .SetDestination("generic/platform=tvOS")
             .SetArchivePath(archivesDir / $"{product.Framework}-tvos-arm64")
             .SetDerivedDataPath(derivedData / "tvos-device")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .SetTvosDeploymentTarget(lib.MinTvOS)
             .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
             .SetQuiet()
@@ -578,7 +604,7 @@ partial class Build
             .SetDestination("generic/platform=tvOS Simulator")
             .SetArchivePath(archivesDir / $"{product.Framework}-tvos-simulator")
             .SetDerivedDataPath(derivedData / "tvos-simulator")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .SetTvosDeploymentTarget(lib.MinTvOS)
             .AddBuildSetting("VALID_ARCHS", "$(ARCHS_STANDARD)")
             .SetQuiet()
@@ -657,7 +683,7 @@ partial class Build
             .SetDestination("generic/platform=macOS,name=Any Mac")
             .SetArchivePath(archivesDir / $"{product.Framework}-macos")
             .SetDerivedDataPath(derivedData / "macos-fat")
-            .SetLibraryDistributionDefaults()
+            .SetLibraryDistributionDefaults(SwiftPackageArchive.IsPackageBuild(sourceDir, product.Project))
             .SetMacosDeploymentTarget(lib.MinMacOS)
             .AddBuildSetting("ARCHS", "arm64 x86_64")
             .AddBuildSetting("ONLY_ACTIVE_ARCH", "NO")

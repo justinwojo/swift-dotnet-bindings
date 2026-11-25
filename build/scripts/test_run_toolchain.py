@@ -108,6 +108,35 @@ class ToolchainIsolationTests(unittest.TestCase):
             self.prepare()
         self.assertEqual((workspace / "keep.txt").read_text(), "valuable")
 
+    def test_workspace_libraries_are_the_profiles_own_and_survive_a_rebuild(self):
+        (self.source / ".gitignore").write_text("bin/\nartifacts/\n.build/\n.libraries\n")
+        (self.source / ".libraries/Owner").mkdir(parents=True)
+        (self.source / ".libraries/Owner/owner.txt").write_text("owner's fetch")
+        workspace = self.prepare()
+        libraries = profile.link_libraries(self.state, workspace)
+        self.assertEqual(libraries, self.state / "libraries")
+        self.assertEqual(os.readlink(workspace / ".libraries"), str(libraries))
+        self.assertFalse((libraries / "Owner").exists())
+        (workspace / ".libraries/Fetched").mkdir()
+        (self.source / "original.txt").write_text("changed source")
+        workspace = self.prepare()
+        self.assertFalse((workspace / ".libraries").exists())
+        profile.link_libraries(self.state, workspace)
+        self.assertTrue((workspace / ".libraries/Fetched").is_dir())
+        self.assertEqual(profile.link_libraries(self.state, workspace), libraries)
+        self.assertEqual((self.source / ".libraries/Owner/owner.txt").read_text(), "owner's fetch")
+
+    def test_workspace_libraries_never_replace_a_real_directory_or_follow_a_link(self):
+        workspace = self.prepare()
+        (workspace / ".libraries").mkdir()
+        with self.assertRaisesRegex(RuntimeError, "not this profile's link"):
+            profile.link_libraries(self.state, workspace)
+        (workspace / ".libraries").rmdir()
+        (self.state / "libraries").rmdir()
+        (self.state / "libraries").symlink_to(self.source, target_is_directory=True)
+        with self.assertRaisesRegex(RuntimeError, "symlink libraries"):
+            profile.link_libraries(self.state, workspace)
+
     def test_symlink_workspace_is_never_followed(self):
         (self.state / "workspace").symlink_to(self.source, target_is_directory=True)
         with self.assertRaisesRegex(RuntimeError, "symlink workspace"):

@@ -128,13 +128,23 @@ public class ArchiveBuildSettings
 
     /// <summary>
     /// Applies the standard build settings for library distribution:
-    /// BUILD_LIBRARY_FOR_DISTRIBUTION=YES, SKIP_INSTALL=NO, MACH_O_TYPE=mh_dylib.
+    /// BUILD_LIBRARY_FOR_DISTRIBUTION=YES, SKIP_INSTALL=NO, and for an Xcode project
+    /// MACH_O_TYPE=mh_dylib. A Swift package passes <paramref name="swiftPackage"/>: its product is
+    /// declared dynamic instead, because the override would turn the package's object-file target
+    /// into a dylib linked without libSystem (<see cref="SwiftPackageArchive"/>). A package's
+    /// product also verifies its emitted module interface, which a framework target does not, so
+    /// it opts out the same way (<c>-no-verify-emitted-module-interface</c>, as every framework
+    /// target's interface records): a public type named after its module, which Swift only
+    /// warns about, would otherwise fail the archive.
     /// </summary>
-    public ArchiveBuildSettings SetLibraryDistributionDefaults()
+    public ArchiveBuildSettings SetLibraryDistributionDefaults(bool swiftPackage = false)
     {
         _buildSettings["BUILD_LIBRARY_FOR_DISTRIBUTION"] = "YES";
         _buildSettings["SKIP_INSTALL"] = "NO";
-        _buildSettings["MACH_O_TYPE"] = "mh_dylib";
+        if (swiftPackage)
+            _buildSettings["OTHER_SWIFT_FLAGS"] = "$(inherited) -no-verify-emitted-module-interface";
+        else
+            _buildSettings["MACH_O_TYPE"] = "mh_dylib";
         return this;
     }
 

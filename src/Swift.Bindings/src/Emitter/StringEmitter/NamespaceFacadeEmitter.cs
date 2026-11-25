@@ -6,29 +6,29 @@ using System.CodeDom.Compiler;
 namespace BindingsGeneration
 {
     /// <summary>
-    /// Emits a Swift "namespace facade" type as a real C# nested namespace
-    /// instead of the default <c>partial class</c> / <c>static partial class</c>
-    /// emission. The outer module namespace is already open at the call site
-    /// (<c>namespace Module { … }</c>), so this emitter writes a
-    /// <c>namespace {Name} { … }</c> block at the current indent — the
-    /// resulting output compiles identically to <c>namespace Module.{Name}</c>.
+    /// Emits a Swift "namespace facade" struct as a <c>public static partial class</c> that hosts
+    /// its nested types, the same shape a caseless namespace enum takes
+    /// (<c>EnumHandler.EmitNamespaceEnum</c>). The facade has no member surface, so the class
+    /// carries nothing but the nested types, its doc comment and its availability.
     ///
-    /// The emitter recurses into <see cref="TypeDecl.Types"/> via
-    /// <see cref="IHandler.HandleBaseDecl"/> so nested struct/enum/class
-    /// declarations route through their normal handlers and emit at the
-    /// new namespace level (i.e. as top-level types in the lifted
-    /// namespace), while still benefiting from the standard
-    /// <c>PushTypeNesting</c>/<c>PopTypeNesting</c> bookkeeping the Swift
-    /// wrapper generator uses to build module-qualified Swift names.
+    /// <para>The facade used to be lifted to a C# namespace. That put its nested types at
+    /// <c>Module.Facade.Inner</c>, and the first member a newer SDK gave the struct sent it down
+    /// the struct handler and moved them to <c>Module.Facade+Inner</c>: a different CLR type to
+    /// every assembly compiled against the older copy, so the copies of a package built with two
+    /// SDKs could not merge. As a class the nested types are <c>Module.Facade+Inner</c> whichever
+    /// members an SDK declares. Consumers import them with <c>using static Module.Facade;</c>.</para>
     ///
-    /// See <see cref="NamespaceFacadeDetector.IsNamespaceFacade(TypeDecl)"/>
-    /// for the predicate gate. The canonical case is an outer struct containing
-    /// many nested types.
+    /// <para>The emitter recurses into <see cref="TypeDecl.Types"/> via
+    /// <see cref="IHandler.HandleBaseDecl"/> so nested declarations route through their normal
+    /// handlers, inside the standard <c>PushTypeNesting</c>/<c>PopTypeNesting</c> bookkeeping the
+    /// Swift wrapper generator uses to build module-qualified Swift names.</para>
+    ///
+    /// See <see cref="NamespaceFacadeDetector.IsNamespaceFacade(TypeDecl)"/> for the predicate gate.
     /// </summary>
     internal static class NamespaceFacadeEmitter
     {
         /// <summary>
-        /// Emits the namespace block. The caller must already be writing
+        /// Emits the static class. The caller must already be writing
         /// inside the module namespace; the emitter recurses via
         /// <paramref name="recurse"/> to drive nested-type emission through
         /// the normal handler dispatch path.
@@ -53,14 +53,11 @@ namespace BindingsGeneration
 
             var typeNameWithGenerics = GenericTypeEmitter.GetTypeNameWithGenerics(typeDecl, typeDatabase);
 
-            // Note: C# does not allow XML doc comments or attributes (e.g.
-            // `[SupportedOSPlatform]`) on namespace declarations — attaching
-            // them produces CS0116 ("namespace cannot directly contain
-            // members"). Availability annotations from the facade type are
-            // intentionally dropped at this scope; the same annotations
-            // re-attach to each nested type through its own handler, which
-            // is where consumers see them in IDE tooling anyway.
-            csWriter.WriteLine($"namespace {typeNameWithGenerics}");
+            XmlDocCommentEmitter.EmitDocComment(csWriter, typeDecl);
+            AvailabilityAttributeEmitter.EmitAvailabilityAttributes(csWriter, typeDecl, emitObsolete: true);
+            if (SwiftDeclSpelling.HasUnderscoreSwiftName(typeDecl))
+                csWriter.WriteLine("[global::System.ComponentModel.EditorBrowsable(global::System.ComponentModel.EditorBrowsableState.Never)]");
+            csWriter.WriteLine($"public static partial class {typeNameWithGenerics}");
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -78,6 +75,10 @@ namespace BindingsGeneration
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine();
+
+            // The extension classes its nested types queued (CS1109 keeps them at namespace
+            // scope) follow the facade inside its own file span, as after any outermost type.
+            NamespaceScopeEmission.DrainAfterOutermost(csWriter, typeDecl, context);
         }
     }
 }
