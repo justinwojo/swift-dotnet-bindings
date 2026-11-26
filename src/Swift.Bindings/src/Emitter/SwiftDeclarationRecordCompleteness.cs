@@ -77,12 +77,14 @@ namespace BindingsGeneration
             using var document = JsonDocument.Parse(record);
             var module = document.RootElement.TryGetProperty("module", out var moduleName) ? moduleName.GetString() : null;
             var recorded = new HashSet<Member>(ReferenceEqualityComparer.Instance);
+            var swiftTypes = new HashSet<string>(StringComparer.Ordinal);
             var unresolved = new List<string>();
             var respelled = new List<string>();
             if (document.RootElement.TryGetProperty("types", out var types))
             {
                 foreach (var type in types.EnumerateObject())
                 {
+                    swiftTypes.Add(type.Name);
                     if (index.Type(type.Name) is { } member)
                         recorded.Add(member);
                     else
@@ -96,7 +98,7 @@ namespace BindingsGeneration
                 foreach (var entry in members.EnumerateObject())
                 {
                     var key = SwiftDeclarationRecordKeys.Parse(entry.Name);
-                    var resolved = key is null ? Array.Empty<Member>() : index.Resolve(key, module);
+                    var resolved = key is null ? Array.Empty<Member>() : index.Resolve(key, module, swiftTypes);
                     var line = $"{entry.Name} => {entry.Value.GetString()}";
                     if (resolved.Count > 0)
                         candidates.Add(resolved);
@@ -271,8 +273,10 @@ namespace BindingsGeneration
             // collide with a runtime or System interface.
             foreach (var name in new[] { "I" + protocol, "ISwift" + protocol })
             {
-                if (type.Interfaces.Select(Leaf).Contains(name)
-                    && scope.Index.TypesNamed(name).FirstOrDefault(t => t.DeclaringKind == "interface" && !t.Path.StartsWith(type.ParentPath + ".", StringComparison.Ordinal)) is { } iface)
+                // The interface the proxy implements, found by its path: a nested and a top-level
+                // protocol of one name are two interfaces.
+                if (type.Interfaces.Where(i => Leaf(i) == name).Select(i => ModuleType(i, scope))
+                        .FirstOrDefault(t => t is { DeclaringKind: "interface" } && !t.Path.StartsWith(type.ParentPath + ".", StringComparison.Ordinal)) is { } iface)
                     return iface;
             }
             return null;
@@ -308,8 +312,7 @@ namespace BindingsGeneration
             {
                 if (IsForeignBindingInterface(parentName, scope))
                     return true;
-                var parents = scope.Index.TypesNamed(Leaf(parentName)).Where(t => t.DeclaringKind == "interface").ToList();
-                if (parents.Any(parent => InterfaceDeclares(parent, member, scope, seen)))
+                if (ModuleType(parentName, scope) is { DeclaringKind: "interface" } parent && InterfaceDeclares(parent, member, scope, seen))
                     return true;
             }
             return false;
@@ -326,6 +329,25 @@ namespace BindingsGeneration
                    && ns != "Swift" && !ns.StartsWith("Swift.", StringComparison.Ordinal);
         }
 
+        // The ISwiftObject members, by their runtime signatures: static GetTypeMetadata(), static
+        // NewFromPayload(IntPtr), static GetProtocolConformanceDescriptor<TProtocol>() and the instance
+        // MarshalToSwift(ref Span<byte>). A Swift member of one of these names takes Swift's parameters,
+        // so it does not match.
+        private static bool IsPlumbingMethod(Member m) => (m.Name, m.IsStatic, m.GenericArity, string.Join(",", m.Parameters)) is
+            ("GetTypeMetadata", true, 0, "") or ("NewFromPayload", true, 0, "IntPtr")
+            or ("GetProtocolConformanceDescriptor", true, 1, "") or ("MarshalToSwift", false, 0, "&Span<Byte>");
+
+        // A function holder as the module emitter writes it: no interfaces, and only static members
+        // besides its parameterless constructor. An unrecorded Swift class of a holder's name implements
+        // the runtime's interfaces, so it stays uncovered.
+        private static bool IsGeneratedFunctionHolder(string name, Scope scope) =>
+            scope.Index.FunctionHolders(scope.Module).Contains(name) && scope.Index.Type(name) is { Interfaces.IsEmpty: true }
+            && scope.Index.MembersOf(name).All(m => m.IsStatic && m.Kind != "type" || m.Kind == "ctor" && m.Parameters.IsEmpty);
+
+        // The module's type of a namespace-qualified name (`Module.Outer.IInner`), or null for another namespace's.
+        private static Member? ModuleType(string qualified, Scope scope) =>
+            qualified.StartsWith(scope.Namespace + ".", StringComparison.Ordinal) ? scope.Index.Type(qualified[(scope.Namespace.Length + 1)..]) : null;
+
         private static string Leaf(string qualified) => qualified[(qualified.LastIndexOf('.') + 1)..];
 
         private static string Qualify(string parent, string name) => parent.Length > 0 ? parent + "." + name : name;
@@ -340,13 +362,12 @@ namespace BindingsGeneration
                 "A C# operator's name is fixed by its symbol (op_Equality for ==), and its operands are its signature: two Swift declarations of one symbol and operand types are one Swift operator.",
                 (m, _) => m.Kind == "method" && (m.Traits & MemberTraits.SpecialName) != 0 && m.Name.StartsWith("op_", StringComparison.Ordinal)),
             new("runtime-handle-plumbing",
-                "The handle, payload, tag and metadata plumbing the runtime gives every projected type (each matched by name and runtime type: the _handle field and Payload property of a SwiftClassHandle or SwiftSafeHandle, PayloadBuffer, the CaseTag-typed Tag, PayloadConstructionSemantics, a Swift.Runtime type's IntPtr Handle; the ISwiftObject statics GetTypeMetadata, NewFromPayload, MarshalToSwift and GetProtocolConformanceDescriptor; constructors whose first parameter is a runtime type such as SwiftInheritanceChain, NativeHandle or an ExistentialContainer): fixed names and runtime types, which no Swift declaration projects to.",
+                "The handle, payload, tag and metadata plumbing the runtime gives every projected type (each matched by name and runtime type: the _handle field and Payload property of a SwiftClassHandle or SwiftSafeHandle, PayloadBuffer, the CaseTag-typed Tag, PayloadConstructionSemantics, a Swift.Runtime type's IntPtr Handle; the ISwiftObject members by their runtime signatures, static GetTypeMetadata(), NewFromPayload(IntPtr) and GetProtocolConformanceDescriptor<TProtocol>() and the instance MarshalToSwift(ref Span<byte>), on a type implementing a Swift.Runtime interface; constructors whose first parameter is a runtime type such as SwiftInheritanceChain, NativeHandle or an ExistentialContainer): fixed names and runtime types, which no Swift declaration projects to.",
                 (m, s) => m.Kind switch
                 {
                     "field" => m.Name is "_handle" && Generic(m.ValueType) == "SwiftClassHandle",
                     "property" => IsPlumbingProperty(m, s),
-                    "method" => m.Name is "GetTypeMetadata" or "NewFromPayload" or "MarshalToSwift" or "GetProtocolConformanceDescriptor"
-                                && ImplementsRuntimeInterface(m, s),
+                    "method" => IsPlumbingMethod(m) && ImplementsRuntimeInterface(m, s),
                     "ctor" => IsPlumbingConstructor(m),
                     _ => false,
                 }),
@@ -376,8 +397,8 @@ namespace BindingsGeneration
                           || m.Kind == "property" && m.IsStatic && m.Name == "AllCases"),
             new("module-function-holder",
                 "The class holding a module's module-level functions (Functions, or the other names the module emitter falls back to); each function is recorded under its own key, and the class's implicit constructor is the C# default.",
-                (m, s) => IsType(m) && m.ParentPath.Length == 0 && s.Index.FunctionHolders(s.Module).Contains(m.Name)
-                          || m.Kind == "ctor" && m.Parameters.Length == 0 && s.Index.FunctionHolders(s.Module).Contains(m.ParentPath)),
+                (m, s) => IsType(m) && m.ParentPath.Length == 0 && IsGeneratedFunctionHolder(m.Name, s)
+                          || m.Kind == "ctor" && m.Parameters.Length == 0 && IsGeneratedFunctionHolder(m.ParentPath, s)),
             new("foreign-type-hosts",
                 "A class this module declares under another module's Swift type name holds only the types this module's extensions of that type nest in it (each recorded under its own path), and its implicit constructor is the C# default: its name is the foreign type's, which names only that type.",
                 (m, s) => (IsType(m) ? m : m.Kind == "ctor" && m.Parameters.Length == 0 ? Declaring(m, s) : null) is { DeclaringKind: "class", IsStatic: false } host

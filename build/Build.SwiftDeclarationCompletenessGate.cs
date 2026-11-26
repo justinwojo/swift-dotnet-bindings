@@ -107,6 +107,7 @@ partial class Build
         // Control 1: remove the key of a member no rule would cover, so only the record names it.
         var index = SwiftDeclarationRecordKeys.Index(image, ns);
         var module = root["module"]?.GetValue<string>();
+        var swiftTypes = (root["types"]?.AsObject().Select(t => t.Key) ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
         // Every path counted as recorded, so a member is picked only if no rule or pending entry
         // could match it once its key is gone; no member is paired with a respelled key.
         var scope = new SwiftDeclarationRecordCompleteness.Scope(index, ns, module,
@@ -119,9 +120,9 @@ partial class Build
             var parsed = SwiftDeclarationRecordKeys.Parse(key);
             if (parsed is null)
                 continue;
-            var resolved = index.Resolve(parsed, module);
+            var resolved = index.Resolve(parsed, module, swiftTypes);
             if (resolved.Count == 1 && !SwiftDeclarationRecordCompleteness.Rules.Any(r => r.Matches(resolved[0], scope))
-                && members.Count(m => SwiftDeclarationRecordKeys.Parse(m.Key) is { } other && index.Resolve(other, module).Contains(resolved[0])) == 1)
+                && members.Count(m => SwiftDeclarationRecordKeys.Parse(m.Key) is { } other && index.Resolve(other, module, swiftTypes).Contains(resolved[0])) == 1)
             {
                 dropped = key;
                 droppedMember = resolved[0];
@@ -148,7 +149,7 @@ partial class Build
         // member of that name, kind and parameter count is left for it to stand for, is unresolved.
         var target = index.Members.FirstOrDefault(m => m.Kind == "method" && m.Parameters.Length > 0
             && index.MembersOf(m.ParentPath).Count(o => o.Kind == "method" && o.Name == m.Name && o.Parameters.Length == m.Parameters.Length) == 1
-            && members.Any(e => SwiftDeclarationRecordKeys.Parse(e.Key) is { } k && index.Resolve(k, module).Contains(m)));
+            && members.Any(e => SwiftDeclarationRecordKeys.Parse(e.Key) is { } k && index.Resolve(k, module, swiftTypes).Contains(m)));
         if (target is null)
         {
             yield return "negative control 3: no recorded method with parameters has a unique name and parameter count";

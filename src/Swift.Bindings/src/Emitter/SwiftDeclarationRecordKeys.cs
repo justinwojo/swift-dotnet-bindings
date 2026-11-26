@@ -397,23 +397,24 @@ namespace BindingsGeneration
         public sealed class AssemblyIndex
         {
             /// <summary>
-            /// The top-level classes of the namespace that hold the module <paramref name="module"/>'s
+            /// The top-level classes of the namespace that can hold the module <paramref name="module"/>'s
             /// module-level functions: a class named as the module emitter names its holder (the module's
             /// name, or, where the namespace already ends in it, <c>Functions</c>, <c>GlobalFunctions</c>,
-            /// <c>{module}Functions</c> or <c>Functions{N}</c>) that is shaped as the holder is: no
-            /// interfaces, and only static members besides its parameterless constructor. A Swift class
-            /// of one of those names implements the runtime's interfaces and is not taken for it.
+            /// <c>{module}Functions</c> or <c>Functions{N}</c>) that the record does not list as a Swift
+            /// type (<paramref name="swiftTypes"/>, the record's type keys). The emitter never gives the
+            /// holder a name a Swift type already has, and a binding project may add its own partial
+            /// declarations to the holder, so the holder is told from a Swift class by the record, not by
+            /// its shape.
             /// </summary>
-            public IEnumerable<string> FunctionHolders(string? module) =>
-                MembersOf("").Where(t => t.Kind == "type" && t.DeclaringKind == "class" && !t.IsStatic && t.Interfaces.IsEmpty
+            public IEnumerable<string> FunctionHolders(string? module, IReadOnlySet<string>? swiftTypes = null) =>
+                MembersOf("").Where(t => t.Kind == "type" && t.DeclaringKind == "class"
                     && (t.Name == module || t.Name is "Functions" or "GlobalFunctions" || t.Name == module + "Functions"
                         || t.Name.StartsWith("Functions", StringComparison.Ordinal) && t.Name.Length > 9 && t.Name[9..].All(char.IsAsciiDigit))
-                    && MembersOf(t.Name).All(m => m.IsStatic && m.Kind != "type" || m.Kind == "ctor" && m.Parameters.IsEmpty))
+                    && swiftTypes?.Contains(t.Name) != true)
                     .Select(t => t.Name);
 
             private readonly Dictionary<(string Parent, string Name), List<Member>> _byName = new();
             private readonly Dictionary<string, Member> _types = new(StringComparer.Ordinal);
-            private readonly Dictionary<string, List<Member>> _typesByName = new(StringComparer.Ordinal);
             private readonly List<Member> _members = new();
             private readonly Dictionary<string, List<Member>> _byParent = new(StringComparer.Ordinal);
 
@@ -426,9 +427,6 @@ namespace BindingsGeneration
             /// <summary>The type at the nested C# path <paramref name="path"/>, or null.</summary>
             public Member? Type(string path) => _types.TryGetValue(path, out var type) ? type : null;
 
-            /// <summary>The types whose own name (the last segment of the path) is <paramref name="name"/>.</summary>
-            public IReadOnlyList<Member> TypesNamed(string name) => _typesByName.TryGetValue(name, out var types) ? types : Array.Empty<Member>();
-
             /// <summary>The members declared directly in the type at <paramref name="path"/>.</summary>
             public IReadOnlyList<Member> MembersOf(string path) => _byParent.TryGetValue(path, out var members) ? members : Array.Empty<Member>();
 
@@ -439,12 +437,7 @@ namespace BindingsGeneration
                     _byParent[member.ParentPath] = siblings = new List<Member>();
                 siblings.Add(member);
                 if (member.Kind == "type")
-                {
                     _types[member.Path] = member;
-                    if (!_typesByName.TryGetValue(member.Name, out var named))
-                        _typesByName[member.Name] = named = new List<Member>();
-                    named.Add(member);
-                }
                 var id = (member.ParentPath, member.Name);
                 if (!_byName.TryGetValue(id, out var list))
                     _byName[id] = list = new List<Member>();
@@ -455,13 +448,14 @@ namespace BindingsGeneration
             /// The members <paramref name="key"/> can name: its declaring type and name, its parameter
             /// count and generic arity, and parameters it spells (<see cref="Spells"/>). A module-level
             /// function's key names no declaring type; it names a member of a class
-            /// <see cref="FunctionHolders"/> lists for <paramref name="module"/>.
+            /// <see cref="FunctionHolders"/> lists for <paramref name="module"/> and the record's Swift
+            /// types <paramref name="swiftTypes"/>.
             /// </summary>
-            public IReadOnlyList<Member> Resolve(Key key, string? module = null)
+            public IReadOnlyList<Member> Resolve(Key key, string? module = null, IReadOnlySet<string>? swiftTypes = null)
             {
                 IEnumerable<Member> named = key.ParentPath.Length > 0
                     ? _byName.TryGetValue((key.ParentPath, key.Name), out var list) ? list : Enumerable.Empty<Member>()
-                    : FunctionHolders(module).SelectMany(h => _byName.TryGetValue((h, key.Name), out var functions) ? functions : Enumerable.Empty<Member>());
+                    : FunctionHolders(module, swiftTypes).SelectMany(h => _byName.TryGetValue((h, key.Name), out var functions) ? functions : Enumerable.Empty<Member>());
                 if (key.Parameters is not { } parameters)
                     return named.Where(m => m.Kind is "property" or "field" or "event" or "type").ToList();
                 var kind = key.IsIndexer ? "indexer" : key.Name == ".ctor" ? "ctor" : "method";
@@ -526,8 +520,7 @@ namespace BindingsGeneration
             {
                 DeclaringKind = kind,
                 Interfaces = type.GetInterfaceImplementations()
-                    .Select(i => BaseTypeName(md, md.GetInterfaceImplementation(i).Interface))
-                    .Select(WithoutArity).ToImmutableArray(),
+                    .Select(i => NestedTypeName(md, md.GetInterfaceImplementation(i).Interface)).ToImmutableArray(),
                 Traits = CompilerGenerated(md, type.GetCustomAttributes()),
             });
             foreach (var nested in type.GetNestedTypes())
@@ -643,6 +636,33 @@ namespace BindingsGeneration
             HandleKind.TypeSpecification => BaseTypeName(md, GenericTypeOf(md, (TypeSpecificationHandle)handle)),
             _ => "",
         };
+
+        // A type's namespace-qualified name with its enclosing types (`Ns.Outer.IInner`), each segment
+        // without its generic arity, so two interfaces of one name nested in different types stay apart.
+        private static string NestedTypeName(MetadataReader md, EntityHandle handle)
+        {
+            switch (handle.Kind)
+            {
+                case HandleKind.TypeDefinition:
+                {
+                    var definition = md.GetTypeDefinition((TypeDefinitionHandle)handle);
+                    var declaring = definition.GetDeclaringType();
+                    var prefix = declaring.IsNil ? md.GetString(definition.Namespace) : NestedTypeName(md, declaring);
+                    return Qualified(prefix, WithoutArity(md.GetString(definition.Name)));
+                }
+                case HandleKind.TypeReference:
+                {
+                    var reference = md.GetTypeReference((TypeReferenceHandle)handle);
+                    var prefix = reference.ResolutionScope.Kind == HandleKind.TypeReference
+                        ? NestedTypeName(md, reference.ResolutionScope) : md.GetString(reference.Namespace);
+                    return Qualified(prefix, WithoutArity(md.GetString(reference.Name)));
+                }
+                case HandleKind.TypeSpecification:
+                    return NestedTypeName(md, GenericTypeOf(md, (TypeSpecificationHandle)handle));
+                default:
+                    return "";
+            }
+        }
 
         private static string Qualified(string @namespace, string name) => @namespace.Length > 0 ? @namespace + "." + name : name;
 

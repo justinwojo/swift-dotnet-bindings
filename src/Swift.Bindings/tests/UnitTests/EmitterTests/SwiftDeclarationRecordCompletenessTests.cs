@@ -243,4 +243,57 @@ public class SwiftDeclarationRecordCompletenessTests
         // Fixed-name rules come first; the pending list follows, so a pending entry never shadows a rule.
         Assert.Equal(rules.Count(r => !r.IsPending), rules.TakeWhile(r => !r.IsPending).Count());
     }
+
+    [Fact]
+    public void AProxy_IsCheckedAgainstTheInterfaceItImplements_NotANestedInterfaceOfItsName()
+    {
+        // AHost.IListener comes first in metadata; ListenerProxy implements the top-level IListener.
+        var image = SwiftTransitionManifestTests.Compile("Kit", """
+            namespace Kit
+            {
+                public sealed class AHost { private AHost() { } public interface IListener { void Heard(); } }
+                public interface IListener { void Spoke(); }
+            }
+            namespace Kit.SwiftInterop
+            {
+                public sealed class ListenerProxy : Kit.IListener
+                {
+                    public ListenerProxy(Kit.IListener impl) { }
+                    public void Spoke() { }
+                }
+            }
+            """);
+        var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes("""
+            {
+              "schema_version": 1, "module": "Kit",
+              "types": { "AHost": "type Kit.AHost", "AHost.IListener": "type Kit.AHost.Listener", "IListener": "type Kit.Listener" },
+              "members": { "AHost.IListener.Heard()": "func Kit.AHost.Listener.heard()", "IListener.Spoke()": "func Kit.Listener.spoke()" }
+            }
+            """));
+        Assert.True(report.Passed, string.Join("; ", report.Uncovered.Select(m => m.ToString()).Concat(report.UnresolvedKeys)));
+        Assert.True(report.ByRule["protocol-proxies"] >= 3);
+    }
+
+    [Fact]
+    public void ASwiftMethodNamedLikeAnISwiftObjectMember_IsNotCoveredByThePlumbingRule()
+    {
+        // Codec implements a runtime interface; only the members of the runtime's signatures are plumbing.
+        var image = SwiftTransitionManifestTests.Compile("Kit", """
+            namespace Swift.Runtime { public interface ISwiftObject { } }
+            namespace Kit
+            {
+                public sealed class Codec : Swift.Runtime.ISwiftObject
+                {
+                    private Codec() { }
+                    public static System.IntPtr NewFromPayload(System.IntPtr payload) => payload;
+                    public int MarshalToSwift(ref System.Span<byte> destination) => 0;
+                    public static void MarshalToSwift(int value) { }
+                }
+            }
+            """);
+        var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes("""
+            { "schema_version": 1, "module": "Kit", "types": { "Codec": "type Kit.Codec" }, "members": { } }
+            """));
+        Assert.Equal("Codec.MarshalToSwift(Int32)", Assert.Single(report.Uncovered).ToString());
+    }
 }

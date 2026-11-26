@@ -1,6 +1,7 @@
 // Copyright (c) 2026 Justin Wojciechowski.
 // Licensed under the MIT License.
 
+using System.Collections.Generic;
 using System.Linq;
 using Xunit;
 
@@ -113,5 +114,26 @@ public class SwiftDeclarationRecordKeysTests
         Assert.Contains("Box.Guarded()", members);
         Assert.DoesNotContain(members, m => m.Contains("Hidden"));
         Assert.Contains(Index().Types, t => t == "Box.Inner");
+    }
+
+    [Fact]
+    public void AModuleFunctionKey_ResolvesInAHolderTheBindingProjectExtends_NotInARecordedSwiftClassOfItsName()
+    {
+        // A binding project may give the generated holder an interface and an instance helper in its own
+        // partial declaration; a Swift class named like the holder is a type the record lists.
+        var index = SwiftDeclarationRecordKeys.Index(SwiftTransitionManifestTests.Compile("Kit", """
+            namespace Kit
+            {
+                public partial class Functions : System.IDisposable
+                {
+                    public static void Load(string path) { }
+                    public void Dispose() { }
+                    public int Helper() => 0;
+                }
+            }
+            """), "Kit");
+        var key = SwiftDeclarationRecordKeys.Parse("Load(string)")!;
+        Assert.Equal("Functions.Load(String~)", Assert.Single(index.Resolve(key, "Kit")).ToString());
+        Assert.Empty(index.Resolve(key, "Kit", new HashSet<string> { "Functions" }));
     }
 }
