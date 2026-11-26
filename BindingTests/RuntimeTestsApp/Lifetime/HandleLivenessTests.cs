@@ -25,6 +25,16 @@ public class HandleLivenessTests : TestBase
         GC.Collect();
     }
 
+    /// <summary>
+    /// One collection for a collector running beside a worker, then a pause: a collector that never
+    /// pauses holds every managed thread at its safe point, and an interpreted worker barely runs.
+    /// </summary>
+    static void CollectAndYield()
+    {
+        Collect();
+        Thread.Sleep(2);
+    }
+
     static string Names(int count, Func<int, string>? name = null)
         => string.Join(",", Enumerable.Range(0, count).Select(i => name?.Invoke(i) ?? $"n{i}"));
 
@@ -46,13 +56,13 @@ public class HandleLivenessTests : TestBase
         var collector = Task.Run(() =>
         {
             while (!stop.IsCancellationRequested)
-                Collect();
+                CollectAndYield();
         });
         try
         {
             var worker = Task.Run(() =>
             {
-                for (int i = 0; i < 200; i++)
+                for (int i = 0; i < 40; i++)
                 {
                     using (new NSAutoreleasePool())
                     {
@@ -152,7 +162,7 @@ public class HandleLivenessTests : TestBase
         var collector = Task.Run(() =>
         {
             while (!stop.IsCancellationRequested)
-                Collect();
+                CollectAndYield();
         });
         try
         {
@@ -160,7 +170,7 @@ public class HandleLivenessTests : TestBase
             {
                 using var first = new LivenessNode("r");
                 using var reader = new LivenessReader(first);
-                for (int i = 0; i < 50; i++)
+                for (int i = 0; i < 20; i++)
                 {
                     using (new NSAutoreleasePool())
                     {

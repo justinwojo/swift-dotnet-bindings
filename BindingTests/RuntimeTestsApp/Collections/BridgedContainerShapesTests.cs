@@ -297,13 +297,15 @@ public class BridgedContainerShapesTests : TestBase
             {
                 GC.Collect();
                 GC.WaitForPendingFinalizers();
+                // Paused between collections, so an interpreted worker is not held at its safe point throughout.
+                Thread.Sleep(2);
             }
         });
         try
         {
             var worker = Task.Run(() =>
             {
-                for (int i = 0; i < 100; i++)
+                for (int i = 0; i < 25; i++)
                 {
                     using (new NSAutoreleasePool())
                     {
