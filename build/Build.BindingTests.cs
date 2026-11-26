@@ -1450,6 +1450,13 @@ partial class Build
                 // Fail-closed and unconditional: policy, not baseline.
                 RunCallConvAttributeGate();
 
+                // Swift declaration record completeness gate: every public type and member of each
+                // BindingTests module in the compiled assembly is named by its module's record (which
+                // the package merge compares, SWIFTBIND138) or by a justified fixed-name rule, and every
+                // record key names a declared member. Negative controls included. Fail-closed and
+                // unconditional: policy, not baseline.
+                RunSwiftDeclarationCompletenessGate();
+
                 // Transition ledger cross-check: join the generator's per-module transition ledgers
                 // with the compiled assembly's IL transition sites and demand a bijection, kind by
                 // kind, with facts on every entry and agreeing primitive verdicts. A Swift transition

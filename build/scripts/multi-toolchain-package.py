@@ -61,9 +61,12 @@ OBJC_FIXTURES = {"Matter"}
 LIBRARY_FIXTURES = {"CaseOrder": "multi-toolchain-fixtures/CaseOrder.swift",
                     "NestedMove": "multi-toolchain-fixtures/NestedMove.swift",
                     "InterfaceMove": "multi-toolchain-fixtures/InterfaceMove.swift",
-                    "InOutMove": "multi-toolchain-fixtures/InOutMove.swift"}
+                    "InOutMove": "multi-toolchain-fixtures/InOutMove.swift",
+                    "NestedProtocolMove": "multi-toolchain-fixtures/NestedProtocolMove.swift",
+                    "OverloadRespell": "multi-toolchain-fixtures/OverloadRespell.swift"}
 # Library fixtures built and packed only by a control, never merged into a package or consumed.
-CONTROL_FIXTURES = {"NestedMove": ("ios",), "InterfaceMove": ("ios",), "InOutMove": ("ios",)}
+CONTROL_FIXTURES = {"NestedMove": ("ios",), "InterfaceMove": ("ios",), "InOutMove": ("ios",), "NestedProtocolMove": ("ios",),
+                    "OverloadRespell": ("ios",)}
 # The moved-name controls: a library whose Xcode 27 build gives an existing C# name to another Swift
 # declaration, so its two copies carry the same API and exports and only their Swift declaration
 # records tell them apart. Each merge must be refused, naming every moved name.
@@ -76,6 +79,16 @@ MOVED_NAME_CONTROLS = [
       r"ISkipping\.Skip\(int\)\S* is Swift `func InterfaceMove\.Skipping\.skip\(count:\) \(native-width forwarder to \(nint\)\)` in net10\.0-ios26\.0 but Swift `func InterfaceMove\.Skipping\.skip\(count:\)` in net10\.0-ios27\.2"]),
     ("M11", "InOutMove", "a newer copy gives an inout overload's C# name to another Swift declaration",
      [_MOVED, r"Stepper\.Step\(int,ref nint\) is Swift `func InOutMove\.Stepper\.step\(count:seed:\) \(native-width forwarder to \(nint,ref nint\)\)` in net10\.0-ios26\.0 but Swift `func InOutMove\.Stepper\.step\(count:seed:\)` in net10\.0-ios27\.2"]),
+    ("M12", "NestedProtocolMove", "a newer copy gives a nested interface member's C# name to another Swift declaration",
+     [_MOVED, r"the C# member NestedProtocolMove\.Outer\.IListener\.OnEvent\(int\)\S* is Swift `func NestedProtocolMove\.Outer\.Listener\.onEvent\(value:\) \(native-width forwarder to \(nint\)\)` in net10\.0-ios26\.0 but Swift `func NestedProtocolMove\.Outer\.Listener\.onEvent\(value:\)` in net10\.0-ios27\.2"]),
+]
+# The accepted controls: a valid pair of copies the merge must merge. A1 respells the newer copy's record
+# key of `load(a:b:)` (`Load(string?,int?)` -> `Load(string,int?)`, one CLR signature) beside the newer
+# build's added `load(c:d:)` (`Load(string,int)`, another signature of the same shape), and re-witnesses
+# the record in the copy's assembly; the merge must resolve the respelled key by its compiled signature.
+ACCEPTED_CONTROLS = [
+    ("A1", "OverloadRespell", "a respelled key beside an added overload of the same shape",
+     "Loader.Load(string?,int?)", "Loader.Load(string,int?)"),
 ]
 PACKAGE_PREFIX = "MtpFixture."
 VERSION = "27.2.0"
@@ -162,6 +175,23 @@ def name_keyed_case_id(name):
     for b in name.encode():
         value = ((value ^ b) * 16777619) & 0xFFFFFFFF
     return value & 0x7FFFFFFF
+
+
+def respell_record_key(source, copy_tfm, spelled, respelled, out_dir):
+    """A doctored copy of a package whose copy_tfm record spells the member key `spelled` as `respelled`,
+    re-witnessed: the assembly that names the record carries the doctored record's hash (controls only)."""
+    entries = read_entries(source)
+    records = [n for n in entries if n.startswith(f"buildTransitive/{copy_tfm}/") and n.endswith(".swift-declarations.json")]
+    old_key, new_key = json.dumps(spelled).encode(), json.dumps(respelled).encode()
+    hit = [n for n in records if old_key in entries[n]]
+    if len(hit) != 1:
+        raise ValueError(f"{len(hit)} record(s) of {copy_tfm} in {source.name} hold the key {spelled}")
+    record = entries[hit[0]]
+    doctored = record.replace(old_key, new_key)
+    def witness(data):
+        return ("sha256:" + hashlib.sha256(data).hexdigest()).encode()
+    return variant(source, out_dir, VERSION, patches=[(hit[0], old_key, new_key),
+                                                      (f"lib/{copy_tfm}/", witness(record), witness(doctored))])
 
 
 def variant(source, out_dir, version, drops=(), copies=(), patches=()):
@@ -894,29 +924,47 @@ class Gate:
         self.control("SWIFTBIND136 (pure Objective-C copy, buildTransitive copy dropped)", code, text,
                      [r"error SWIFTBIND136: .*lib/net10\.0-ios27\.2/', but NuGet chose the package's net10\.0-ios26\.0 consumer (targets|files)"])
 
+    def control_contributions(self, control, fw):
+        """Packs a control library on the two oldest pairings: [(nupkg, [tfms])], or None after a failed step."""
+        parts = []
+        for profile, net, label in PAIRINGS[:2]:
+            tfms = [tfm(net, p, label) for p in CONTROL_FIXTURES[fw]]
+            if not self.library_xcframework(profile, fw).exists() and not self.step(
+                    f"control {control} setup: {profile} builds the {fw} framework", self.build_library(profile, fw),
+                    f"see framework-{profile}-{fw}.log"):
+                return None
+            out = self.work / "control-contributions" / profile
+            code, text = self.pack(profile, fw, tfms, VERSION, out, f"control-{control.lower()}-pack-{profile}.log")
+            nupkg = out / f"{package_id(fw)}.{VERSION}.nupkg"
+            if not self.step(f"control {control} setup: {profile} packs {fw}", code == 0 and nupkg.exists(),
+                             f"exit {code}; {first_errors(text)}" if code else ", ".join(tfms)):
+                return None
+            parts.append((nupkg, tfms))
+        return parts
+
     def moved_name_controls(self):
-        """M9-M11 (MOVED_NAME_CONTROLS): a C# name the newer SDK's build gives to another Swift
+        """M9-M12 (MOVED_NAME_CONTROLS): a C# name the newer SDK's build gives to another Swift
         declaration. Each library's two oldest pairings are packed and merged, and the merge must name
-        every moved name."""
+        every moved name. A1 (ACCEPTED_CONTROLS): a valid pair the merge must merge."""
         for control, fw, title, expect in MOVED_NAME_CONTROLS:
-            parts = []
-            for profile, net, label in PAIRINGS[:2]:
-                tfms = [tfm(net, p, label) for p in CONTROL_FIXTURES[fw]]
-                if not self.library_xcframework(profile, fw).exists() and not self.step(
-                        f"control {control} setup: {profile} builds the {fw} framework", self.build_library(profile, fw),
-                        f"see framework-{profile}-{fw}.log"):
-                    break
-                out = self.work / "control-contributions" / profile
-                code, text = self.pack(profile, fw, tfms, VERSION, out, f"control-{control.lower()}-pack-{profile}.log")
-                nupkg = out / f"{package_id(fw)}.{VERSION}.nupkg"
-                if not self.step(f"control {control} setup: {profile} packs {fw}", code == 0 and nupkg.exists(),
-                                 f"exit {code}; {first_errors(text)}" if code else ", ".join(tfms)):
-                    break
-                parts.append((nupkg, tfms))
-            else:
+            if (parts := self.control_contributions(control, fw)) is not None:
                 out = self.work / "merge-controls" / control
                 code, text = self.merge(fw, parts, VERSION, out, f"control-{control.lower()}.log")
                 self.control(f"SWIFTBIND138 {control} {title}", code if not list(out.glob("*.nupkg")) else 0, text, expect)
+        for control, fw, title, spelled, respelled in ACCEPTED_CONTROLS:
+            if (parts := self.control_contributions(control, fw)) is None:
+                continue
+            (older, older_tfms), (newer, newer_tfms) = parts
+            try:
+                doctored = respell_record_key(newer, newer_tfms[0], spelled, respelled, self.work / "control-contributions" / "doctored" / control)
+            except ValueError as error:
+                self.step(f"control {control} setup: respell {spelled} in {newer.name}", False, str(error))
+                continue
+            out = self.work / "merge-controls" / control
+            code, text = self.merge(fw, [(older, older_tfms), (doctored, newer_tfms)], VERSION, out, f"control-{control.lower()}.log")
+            merged = list(out.glob("*.nupkg"))
+            self.step(f"control {control} {title} merges", code == 0 and len(merged) == 1,
+                      f"exit {code}; " + (merged[0].name if merged else first_errors(text)))
 
     # ---- 5. runs -------------------------------------------------------------------------------
 

@@ -644,13 +644,22 @@ public static class SwiftBindingPackageMerge
             // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
             // member whose key the newer copy lacks is compared with the newer copy's own keys of the
             // same CLR shape (ClrShape). The shape also folds a value type's `T?` into `T`, so it can name
-            // several signatures and the spelling cannot tell which one is the older member's: the name
-            // moved unless every one of them keeps its declaration. An older signature the newer copy
-            // lost outright is refused by the public API comparison.
+            // several signatures; which one is the older member's is read from the copies' assemblies
+            // (ClrSignatures): a candidate whose compiled signature differs from the older member's
+            // (`Load(string, int)` beside `Load(string, int?)`) is another member and is not compared. A
+            // key either assembly does not resolve to one signature stays a candidate, and the name moved
+            // unless every candidate keeps its declaration. An older signature the newer copy lost
+            // outright is refused by the public API comparison.
+            var @namespace = file[..^BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix.Length];
+            var olderSignatures = new ClrSignatures(older, @namespace);
+            var newerSignatures = new ClrSignatures(newer, @namespace);
             var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
-                var candidates = newerOnly[ClrShape(olderKey)].OrderBy(k => k, StringComparer.Ordinal).ToList();
+                var signature = olderSignatures.Of(olderKey);
+                var candidates = newerOnly[ClrShape(olderKey)]
+                    .Where(k => signature is null || newerSignatures.Of(k) is not { } candidate || candidate == signature)
+                    .OrderBy(k => k, StringComparer.Ordinal).ToList();
                 var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
                 if (others.Count == 0)
                     continue;
@@ -670,6 +679,52 @@ public static class SwiftBindingPackageMerge
             notes.AddRange(moved.Select(m => $"  moved name {file}: {m}"));
         }
         return problems;
+    }
+
+    /// <summary>
+    /// The compiled CLR signature of a record key in one copy: its parameter types as the copy's
+    /// <c>lib/&lt;tfm&gt;/</c> assemblies declare them, <c>Nullable&lt;T&gt;</c> told apart from a nullable
+    /// annotation (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys"/>). Null for a key that
+    /// does not resolve to exactly one signature (a property, a member no assembly of the copy
+    /// declares in the record's namespace), which the comparison then treats as any signature.
+    /// </summary>
+    private sealed class ClrSignatures(Copy copy, string @namespace)
+    {
+        private List<BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex>? _indexes;
+        private readonly Dictionary<string, string?> _resolved = new(StringComparer.Ordinal);
+
+        public string? Of(string key)
+        {
+            if (_resolved.TryGetValue(key, out var known))
+                return known;
+            _indexes ??= copy.From.Files
+                .Where(f => f.Key.StartsWith($"lib/{copy.Tfm}/", StringComparison.Ordinal) && f.Key.IndexOf('/', $"lib/{copy.Tfm}/".Length) < 0
+                            && f.Key.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
+                .OrderBy(f => f.Key, StringComparer.Ordinal)
+                .Select(f => Index(f.Value)).ToList();
+            string? signature = null;
+            if (BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: not null } parsed)
+            {
+                var signatures = _indexes.SelectMany(i => i.Resolve(parsed))
+                    .Select(m => BindingsGeneration.SwiftDeclarationRecordKeys.ClrSignature(m.Parameters))
+                    .Distinct(StringComparer.Ordinal).ToList();
+                signature = signatures.Count == 1 ? signatures[0] : null;
+            }
+            return _resolved[key] = signature;
+        }
+
+        private BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex Index(byte[] image)
+        {
+            try
+            {
+                return BindingsGeneration.SwiftDeclarationRecordKeys.Index(image, @namespace);
+            }
+            catch (BadImageFormatException)
+            {
+                // Not an assembly this check can read: its keys stay unresolved, so every candidate is compared.
+                return new BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex();
+            }
+        }
     }
 
     /// <summary>

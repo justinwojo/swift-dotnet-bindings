@@ -432,6 +432,9 @@ internal static class ConformerKeyPathInitFactoryEmitter
             if (mainActor)
                 TypeAnnotationHelper.EmitSwiftMainActorMemberAttribute(csWriter);
             csWriter.WriteLine($"public static {returnType} {methodName}({string.Join(", ", factoryParams)})");
+            emissionContext.RecordSwiftDeclarationAt(containerCsName, methodName,
+                factoryParams.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType), shape.Ctor, typeDatabase,
+                conformer.SwiftQualifiedName, SwiftDeclarationMapEmitter.KeyPathFactoryFor);
             csWriter.WriteLine("{");
             csWriter.Indent++;
             TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);

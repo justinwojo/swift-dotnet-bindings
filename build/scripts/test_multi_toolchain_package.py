@@ -125,6 +125,26 @@ class ReaderTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             mtp.variant(self.kit(), self.dir / "out", "1.0.0-x", patches=[("lib/net10.0-ios27.2/", b"absent", b"x")])
 
+    def test_respell_record_key_rewrites_the_key_and_rewitnesses_the_record(self):
+        import hashlib
+        record = json.dumps({"members": {"Loader.Load(string?,int?)": "func K.Loader.load(a:b:)"}}).encode()
+        def witness(data):
+            return ("sha256:" + hashlib.sha256(data).hexdigest()).encode()
+        source = package(self.dir, "Acme.Kit.1.0.0.nupkg", {
+            "Acme.Kit.nuspec": NUSPEC, "buildTransitive/net10.0-ios27.2/K.swift-declarations.json": record,
+            "buildTransitive/net10.0-ios26.0/K.swift-declarations.json": record,
+            "lib/net10.0-ios27.2/Kit.dll": b"MZ hash=" + witness(record), "lib/net10.0-ios26.0/Kit.dll": b"MZ hash=" + witness(record)})
+        out = mtp.respell_record_key(source, "net10.0-ios27.2", "Loader.Load(string?,int?)", "Loader.Load(string,int?)", self.dir / "out")
+        entries = mtp.read_entries(out)
+        doctored = entries["buildTransitive/net10.0-ios27.2/K.swift-declarations.json"]
+        self.assertIn(b'"Loader.Load(string,int?)"', doctored)
+        self.assertEqual(entries["lib/net10.0-ios27.2/Kit.dll"], b"MZ hash=" + witness(doctored))
+        # The other copy keeps its record and its witness.
+        self.assertEqual(entries["buildTransitive/net10.0-ios26.0/K.swift-declarations.json"], record)
+        self.assertEqual(entries["lib/net10.0-ios26.0/Kit.dll"], b"MZ hash=" + witness(record))
+        with self.assertRaises(ValueError):
+            mtp.respell_record_key(source, "net10.0-ios27.2", "Loader.Absent()", "Loader.Other()", self.dir / "out2")
+
     def test_name_keyed_case_id_matches_the_generator(self):
         # EnumDecl.NameKeyedCaseId: 31-bit FNV-1a of the UTF-8 case name (the CaseOrder binding's Paint.CaseTag.Solid).
         self.assertEqual(mtp.name_keyed_case_id("solid"), 826309364)

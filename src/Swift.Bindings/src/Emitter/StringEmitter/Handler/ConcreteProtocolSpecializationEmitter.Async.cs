@@ -75,6 +75,15 @@ public static partial class ConcreteProtocolSpecializationEmitter
         var wrapperEmitter = new WrapperEmitter(env, signatureHandler, null, emissionContext);
         wrapperEmitter.EmitMethod(csWriter, swiftWriter);
         PInvokeEmitter.EmitPInvoke(csWriter, env, signatureHandler);
+        // The specialization's C# member, keyed as the method handler keys the members it emits,
+        // described as the generic Swift method it specializes (see RecordSpecialization).
+        emissionContext.RecordSwiftDeclaration(
+            ModuleEmissionContext.BuildApiManifestKey(parentTypeDecl, env.CSharpMethodName,
+                BaseHandler.GetProjectedCSharpMethodKey(synthesized, typeDatabase), typeDatabase,
+                emissionContext.GetEmittedApiShape(synthesized)),
+            originalMethod, typeDatabase,
+            string.Join(", ", pairing.Select(p => p.Conformer.SwiftQualifiedName)),
+            SwiftDeclarationMapEmitter.ConcreteSpecialization);
 
         originalMethod.MarkEmitted();
         synthesized.MarkEmitted();

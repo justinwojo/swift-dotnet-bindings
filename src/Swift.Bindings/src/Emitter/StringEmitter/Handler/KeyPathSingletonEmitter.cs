@@ -411,6 +411,8 @@ internal static class KeyPathSingletonEmitter
             AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
                 csWriter, mergedAvailability, parentAnnotations: null);
             csWriter.WriteLine($"public static {fieldType} {pascalName}");
+            emissionContext.RecordSwiftDeclarationAt(containerCsName, pascalName, null, prop, typeDatabase,
+                conformer.SwiftQualifiedName, SwiftDeclarationMapEmitter.KeyPathRootedAt);
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
