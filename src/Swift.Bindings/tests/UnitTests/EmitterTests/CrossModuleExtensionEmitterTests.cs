@@ -247,6 +247,47 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Emit: object arguments outlive the call
+
+    // The trampoline is handed the bare pointers of the receiver and of each object argument; the
+    // wrappers that own them must stay reachable until the call returns, or a precise collector
+    // can finalize one, releasing its object, while Swift is still using it.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Emit_ObjectArgumentAndReceiver_AreHeldUntilTheCallReturns(bool objCRooted, bool throws)
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        classDecl.IsObjCRooted = objCRooted;
+        var method = CreateMethodDecl("adopt", "TestModule", classDecl);
+        method.Throws = throws;
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "other",
+            PrivateName = "other",
+            SwiftTypeSpec = new NamedTypeSpec("OrigModule.OrigType"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = method.ModuleDecl,
+        });
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        var body = result.Substring(result.IndexOf("Adopt(", StringComparison.Ordinal));
+        var call = body.IndexOf("NativeMethods.", StringComparison.Ordinal);
+        Assert.True(call >= 0, result);
+        Assert.True(body.IndexOf("global::System.GC.KeepAlive(other);", call, StringComparison.Ordinal) > call, result);
+        // A pure Swift receiver is pinned instead; an Objective-C-rooted one is held like an argument.
+        Assert.Equal(objCRooted, body.IndexOf("global::System.GC.KeepAlive(self);", call, StringComparison.Ordinal) > call);
+    }
+
+    #endregion
+
     #region Emit: calling convention
 
     [Fact]

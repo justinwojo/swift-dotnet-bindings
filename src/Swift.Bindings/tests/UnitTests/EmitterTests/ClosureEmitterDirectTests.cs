@@ -180,6 +180,85 @@ public class ClosureEmitterDirectTests
         Assert.DoesNotContain("DangerousGetHandle", result);
     }
 
+    [Theory]
+    [InlineData("TestModule.Loader", @"Arc\.Retain")]
+    [InlineData("Foundation.NSError", @"Arc\.UnknownObjectRetain")]
+    public void EmitEscapingClosureCallback_CdeclMode_ReferenceReturn_HandsOverOwnReference(
+        string returnType, string retain)
+    {
+        // The @_cdecl lane's managed callback used to return the wrapper's handle at +0, which kept
+        // the object alive only as long as a wrapper nothing references once the callback returns:
+        // a collection before Swift retained the result released it under Swift. (An Optional result
+        // is written into the result buffer by the carrier's own MarshalToSwift, which copies it.)
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec(returnType));
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitEscapingClosureCallback(
+            new CSharpWriter(output), "make", "callback", closureTypeSpec, closureHandler,
+            "$s10TestModule4makeyyF", useCdecl: true);
+
+        // The result is retained while its wrapper is still held, whether the handle is returned or
+        // written to the adapter's result buffer.
+        var callback = output.ToString();
+        Assert.Contains("CallConvCdecl", callback);
+        var retained = System.Text.RegularExpressions.Regex.Match(callback, retain + @"\((?<handle>_\w+Handle)\);");
+        Assert.True(retained.Success, callback);
+        var keepAlive = System.Text.RegularExpressions.Regex.Match(callback, @"GC\.KeepAlive\((?<owner>_\w+)\);");
+        Assert.True(keepAlive.Success && keepAlive.Index > retained.Index, callback);
+        Assert.Equal(keepAlive.Groups["owner"].Value + "Handle", retained.Groups["handle"].Value);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void EmitIndirectReturnCallback_ClassReturn_HoldsTheResultUntilRetained(bool useCdecl)
+    {
+        // A non-escaping closure's class result is retained into the result buffer from its
+        // wrapper's handle; past the handle read nothing else holds the wrapper, so its finalizer
+        // could release the object before the retain.
+        var closureHandler = new ClosureHandler(CreateTypeDatabaseWithReferenceTypes());
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, new NamedTypeSpec("TestModule.Loader"));
+
+        var output = new StringWriter();
+        ClosureEmitter.EmitIndirectReturnCallback(
+            new CSharpWriter(output), "make", "body", closureTypeSpec, closureHandler,
+            "$s10TestModule4makeyyF", useCdecl);
+
+        var callback = output.ToString();
+        var retain = callback.IndexOf("Arc.Retain(__ptr);", System.StringComparison.Ordinal);
+        Assert.True(retain >= 0, callback);
+        var keepAlive = callback.IndexOf("GC.KeepAlive(result);", retain, System.StringComparison.Ordinal);
+        Assert.True(keepAlive > retain, callback);
+    }
+
+    [Theory]
+    [InlineData("TestModule.Loader", false)]
+    [InlineData("Foundation.NSError", false)]
+    [InlineData("TestModule.Loader", true)]
+    [InlineData("Foundation.NSError", true)]
+    public void SwiftClosureAdapter_ReferenceReturn_TakesTheCallbacksReference(string returnType, bool optional)
+    {
+        // The adapter takes over the +1 the managed callback hands back; an unretained take would
+        // leak it.
+        var typeDatabase = CreateTypeDatabaseWithReferenceTypes();
+        var closureHandler = new ClosureHandler(typeDatabase);
+        TypeSpec result = new NamedTypeSpec(returnType);
+        if (optional)
+            result = new NamedTypeSpec("Swift.Optional", result);
+        var closureTypeSpec = new ClosureTypeSpec(TupleTypeSpec.Empty, result);
+        closureTypeSpec.Attributes.Add(new TypeSpecAttribute("escaping"));
+
+        var adapter = string.Join("\n", ClosureEmitter.GetSwiftClosureAdapterCode(
+            "make", closureTypeSpec, closureHandler, isOptional: false));
+
+        // Taken over from the result buffer by a move, or from the returned pointer retained;
+        // never an unretained take, which would leak the callback's reference.
+        Assert.True(adapter.Contains("takeRetainedValue()") || adapter.Contains(".move()"), adapter);
+        Assert.DoesNotContain("takeUnretainedValue()", adapter);
+    }
+
     [Fact]
     public void EmitEscapingClosureCallback_OptionalObjCParam_EmitsNullCheck()
     {

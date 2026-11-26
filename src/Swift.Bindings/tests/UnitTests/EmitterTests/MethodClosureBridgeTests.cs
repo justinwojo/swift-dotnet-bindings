@@ -622,6 +622,17 @@ public class MethodClosureBridgeTests
         Assert.Contains("GetLiveObjCArgumentHandle(presenter, \"presenter\")", cs);
         // The non-closure param should NOT use .Payload (SwiftSelf for 'self' is separate)
         Assert.DoesNotContain("presenter.Payload", cs);
+        // Its bare pointer is all Swift gets, so the object is held until the call returns.
+        AssertHeldAfterTheCall(cs, "presenter");
+    }
+
+    private static void AssertHeldAfterTheCall(string cs, string argument)
+    {
+        var read = cs.IndexOf($"ArgumentHandle({argument}, ", System.StringComparison.Ordinal);
+        Assert.True(read >= 0, cs);
+        var call = cs.IndexOf(");", read, System.StringComparison.Ordinal);
+        var keepAlive = cs.IndexOf($"GC.KeepAlive({argument});", read, System.StringComparison.Ordinal);
+        Assert.True(keepAlive > call, cs);
     }
 
     [Fact]
@@ -637,6 +648,7 @@ public class MethodClosureBridgeTests
         var cs = csOutput.ToString();
         // Swift-native class params read the payload handle, refusing a null or disposed one
         Assert.Contains("SwiftHandleGuard.GetLiveArgumentHandle(", cs);
+        AssertHeldAfterTheCall(cs, "other");
     }
 
     // ─── TryEmit: Static methods ──────────────────────────────────────

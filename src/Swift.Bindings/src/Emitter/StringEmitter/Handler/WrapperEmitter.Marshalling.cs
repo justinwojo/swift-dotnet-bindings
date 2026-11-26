@@ -1062,6 +1062,8 @@ namespace BindingsGeneration
                 }
 
             var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
+            if (LiveHandleExpressions.PassesBorrowedObjectPointer(projection))
+                _borrowedObjectArgumentNames.Add(csName);
 
             // B12: ObjC optional inner — extract Handle directly instead of using projection.
             //

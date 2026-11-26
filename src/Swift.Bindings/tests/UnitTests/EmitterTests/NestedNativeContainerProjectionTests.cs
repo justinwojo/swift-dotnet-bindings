@@ -147,6 +147,65 @@ public class NestedNativeContainerProjectionTests
         Assert.Contains(" ?? Foundation.NSNull.Null) is Foundation.NSNull ? (nint?)null : ", read);
     }
 
+    /// <summary>
+    /// A set of arrays or of sets reads into a managed set whose elements are lists or sets, which
+    /// compare by reference; Swift's <c>Hashable</c> compares them by their elements. Every read
+    /// hands the managed set a comparer that compares the contents.
+    /// </summary>
+    [Theory]
+    [InlineData("Set<[URL]>", "SwiftKeyComparer.Sequences<Foundation.NSUrl>(null)")]
+    [InlineData("Set<Set<URL>>", "SwiftKeyComparer.Sets<Foundation.NSUrl>(null)")]
+    [InlineData("Set<[String]>", "SwiftKeyComparer.Sequences<string>(global::Swift.Runtime.SwiftKeyComparer.StringKeys)")]
+    public async Task SetOfCollections_ComparesItsElementsByContents(string shape, string comparer)
+    {
+        var typeDatabase = await LoadDatabaseAsync();
+        TypeSpec spec = shape switch
+        {
+            "Set<[URL]>" => Set(Array(Url)),
+            "Set<Set<URL>>" => Set(Set(Url)),
+            _ => Set(Array(Str)),
+        };
+        var result = _factory.Project(spec, Context(typeDatabase, isParameter: false))!;
+
+        var reads = new[]
+        {
+            string.Join("\n", result.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render)),
+            result.GetReturnContainerConversion("d")!,
+            result.GetReturnElementConversion("e")!,
+        };
+
+        foreach (var read in reads.Where(r => r.Length > 0))
+            Assert.Contains(comparer, read);
+    }
+
+    /// <summary>
+    /// Every dictionary C# hands Swift as an Objective-C dictionary is enumerated once, so each key
+    /// keeps its own value: an IReadOnlyDictionary need not enumerate twice in the same order.
+    /// </summary>
+    [Fact]
+    public async Task NestedDictionaryWrite_EnumeratesTheDictionaryOnce()
+    {
+        var typeDatabase = await LoadDatabaseAsync();
+        var parameter = (DictionaryProjection)_factory.Project(Dictionary(Str, Url), Context(typeDatabase, isParameter: true))!;
+        var array = (ArrayProjection)_factory.Project(Array(Dictionary(Str, Url)), Context(typeDatabase, isParameter: true))!;
+
+        var writes = new[]
+        {
+            parameter.GetParameterElementConversion("index")!,
+            parameter.GetReverseReceiverObjCBridgeConversion("index"),
+            AccessorSetterConversionVisitor.DictSetterConversion(parameter, "index").Item1!,
+            string.Join("\n", array.GetParameterPlan("rows").SetupStatements.Select(Render)),
+        };
+
+        foreach (var write in writes)
+        {
+            // The keys and values come from one array of pairs, made in one pass.
+            Assert.Contains("Select(__pairs, __pair => __pair[1])", write);
+            Assert.Contains("Select(__pairs, __pair => __pair[0])", write);
+            Assert.DoesNotContain("kvp => (Foundation.NSObject)", write.Replace("new Foundation.NSObject[]", ""));
+        }
+    }
+
     [Fact]
     public void LambdaName_IsDistinctPerSourceAndAValidIdentifier()
     {

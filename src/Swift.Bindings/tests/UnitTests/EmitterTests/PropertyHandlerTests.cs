@@ -836,6 +836,37 @@ public class PropertyHandlerTests
         Assert.Contains("SwiftHandleGuard.GetLiveObjCArgumentHandle(", csOutput);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_URLPropertySetter_HoldsTheValueUntilTheAccessorReturns(bool optional)
+    {
+        // The setter reads the new value's pointer off its wrapper, the wrapper's last use: the
+        // value is held until the accessor (and the retain a consuming one takes) has returned.
+        var typeDatabase = CreateTypeDatabaseWithFoundationTypes();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("WebClient", moduleDecl);
+        TypeSpec urlType = new NamedTypeSpec("Foundation.URL");
+        if (optional)
+            urlType = new NamedTypeSpec("Swift.Optional", urlType);
+        var property = CreateEmittablePropertyDeclWithTypeSpec(classDecl, moduleDecl, "baseUrl", urlType, hasGetter: true, hasSetter: true);
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        // The property setter holds its value after the accessor call, or the accessor's consumed
+        // lease holds it (the lease's owner is the value).
+        if (optional)
+        {
+            var setter = System.Text.RegularExpressions.Regex.Match(csOutput, @"set \{[^\n]*\}");
+            Assert.True(setter.Success, csOutput);
+            Assert.True(setter.Value.IndexOf("GC.KeepAlive(value)", StringComparison.Ordinal) > setter.Value.IndexOf("BaseUrl_Set(", StringComparison.Ordinal), setter.Value);
+        }
+        else
+        {
+            Assert.Matches(@"OwnedArgument\.ObjectTransfer\([^;]*, value\);", csOutput);
+        }
+    }
+
     [Fact]
     public void Emit_OptionalUrlArrayGetter_UsesNullableObjCCollectionPointerCarrier()
     {

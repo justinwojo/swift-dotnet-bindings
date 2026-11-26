@@ -1195,6 +1195,37 @@ public class SubscriptWrapperEmitterTests
     }
 
     [Fact]
+    public void CdeclSetterWithStringIndexParamNamedLikeTheValueLocal_KeepsThemApart()
+    {
+        // An index parameter spelled `__val` shares the setter's scope with the converted value's
+        // local: the local moves aside rather than redeclaring the parameter (CS0136).
+        var sw = new StringWriter();
+        var csWriter = new CSharpWriter(sw);
+        var paramInfos = new List<(string typeName, string paramName, ITypeProjection? projection)>
+        {
+            ("string", "__val", new StringProjection())
+        };
+
+        SubscriptHandler.EmitCdeclSetterWithFixedBlock(
+            csWriter, "SetSubscript", "(IntPtr)____valPtr, ____valUtf8.Length",
+            setupLines: new List<string> { "var ____valUtf8 = System.Text.Encoding.UTF8.GetBytes(__val);" },
+            usingLines: new List<string>(),
+            paramInfos, hasStringIndexParam: true,
+            valueProjection: new StringProjection(), isStringValue: false);
+
+        var output = sw.ToString();
+        Assert.DoesNotContain("var __val =", output);
+        Assert.Contains("using var __val2 = new SwiftString(value)", output);
+    }
+
+    [Theory]
+    [InlineData("val", new string[0], "__val")]
+    [InlineData("val", new[] { "__val" }, "__val2")]
+    [InlineData("ret", new[] { "@__ret", "__ret2" }, "__ret3")]
+    public void AccessorScratchLocal_MovesAsideFromIndexParameters(string stem, string[] indexNames, string expected)
+        => Assert.Equal(expected, SubscriptHandler.AccessorScratchLocal(stem, indexNames));
+
+    [Fact]
     public void EmitProjectedReturn_NullProjection_EmitsRawReturn()
     {
         var sw = new StringWriter();

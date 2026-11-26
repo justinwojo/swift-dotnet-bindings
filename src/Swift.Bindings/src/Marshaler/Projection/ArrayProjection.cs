@@ -396,11 +396,16 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// value of a URL-keyed dictionary is an NSArray of NSNumbers once Swift bridges the dictionary,
     /// and each element is read as an element of an Objective-C collection. NSArray.ArrayFromHandle
     /// hands an NSNull element (Swift's nil, in an <c>[Int?]</c>) back as null; it is put back, so
-    /// the element reads as nil.
+    /// the element reads as nil. An array of Swift class instances is the Swift objects themselves,
+    /// read by handle.
     /// </summary>
     internal string ReadNativeElementsOfNSArray(string nsObjectExpr)
     {
         var e = DictionaryProjection.LambdaName("e", nsObjectExpr);
+        // A Swift class element is the Swift object itself, which has no NSObject peer: each is read
+        // by its handle through the class's own marshalling.
+        if (DictionaryProjection.IsSwiftObject(_elementProjection))
+            return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(global::Swift.Runtime.ObjCArrayHandles.Elements({nsObjectExpr}.Handle), {e} => {DictionaryProjection.SwiftObjectFromHandle(_elementProjection, e)}))";
         return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(Foundation.NSArray.ArrayFromHandle<Foundation.NSObject>({nsObjectExpr}.Handle)!, {e} => {DictionaryProjection.FromNSObject(_elementProjection, $"({e} ?? Foundation.NSNull.Null)")}))";
     }
 

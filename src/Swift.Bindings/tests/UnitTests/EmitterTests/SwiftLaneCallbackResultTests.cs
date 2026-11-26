@@ -13,8 +13,8 @@ namespace BindingsGeneration.Tests;
 /// hands its result back. Swift owns what a closure returns: a reference comes back in the return
 /// register at +1, an address-only value is written into the buffer Swift passes in its
 /// indirect-result register, and a loadable value is exploded across return registers. The
-/// <c>@_cdecl</c> lane is a different contract — its Swift adapter takes a returned reference
-/// unretained — so only the Swift lane retains.
+/// <c>@_cdecl</c> lane writes every non-primitive result into a buffer its Swift adapter
+/// <c>move()</c>s out of, so a reference written there is the adapter's own as well.
 /// </summary>
 public class SwiftLaneCallbackResultTests
 {
@@ -56,12 +56,17 @@ public class SwiftLaneCallbackResultTests
     }
 
     [Fact]
-    public void CdeclLane_ClassResult_StaysBorrowed()
+    public void CdeclLane_ClassResult_IsWrittenOwnedIntoTheMovedBuffer()
     {
-        // The @_cdecl adapter reads the pointer with takeUnretainedValue, so the callback must not retain.
+        // The @_cdecl adapter move()s the reference out of the result buffer, taking it at +1, so
+        // the callback retains before it writes and holds the wrapper until the retain is taken.
         var callback = EmitEscaping(new ClosureTypeSpec(TupleTypeSpec.Empty, Node), useCdecl: true);
 
-        Assert.DoesNotContain("Arc.Retain(", callback);
+        var retain = callback.IndexOf("Swift.Runtime.Arc.Retain(", System.StringComparison.Ordinal);
+        Assert.True(retain >= 0, callback);
+        var keepAlive = callback.IndexOf("GC.KeepAlive(", retain, System.StringComparison.Ordinal);
+        Assert.True(keepAlive > retain, callback);
+        Assert.True(callback.IndexOf("*(IntPtr*)(void*)", keepAlive, System.StringComparison.Ordinal) > keepAlive, callback);
     }
 
     [Fact]

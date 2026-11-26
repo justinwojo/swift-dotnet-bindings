@@ -1657,6 +1657,12 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                     var valArg = AccessorSetterConversionVisitor.HandleArgument(projection, "__val");
                     csWriter.WriteLine($"set {{ {(refusal is null ? "" : refusal + " ")}using var __val = {conv}; {methodName}({valArg}); }}");
                 }
+                else if (LiveHandleExpressions.PassesBorrowedObjectPointer(projection))
+                {
+                    // The conversion reads the new value's object pointer, its last use; the value is
+                    // held until the accessor (and the retain a consuming one takes) has returned.
+                    csWriter.WriteLine($"set {{ {(refusal is null ? "" : refusal + " ")}{methodName}({conv}); {LiveHandleExpressions.ArgumentKeepAlive("value")} }}");
+                }
                 else if (refusal != null)
                 {
                     csWriter.WriteLine($"set {{ {refusal} {methodName}({conv}); }}");

@@ -243,6 +243,170 @@ public class BridgedContainerShapesTests : TestBase
         AssertEqual("a,b|c", TestLibFunctions.UrlRowSetDescribe(rows), "every row as C# built it");
     }
 
+    // ── Swift objects inside a bridged container ──────────────────────────────────────────
+
+    static string Boxes(IEnumerable<KeyValuePair<NSUrl, URLValueBox>> index)
+        => string.Join(";", index.Select(e => $"{e.Key.LastPathComponent}={e.Value.Name}").OrderBy(n => n, StringComparer.Ordinal));
+
+    static string BoxRows(IEnumerable<KeyValuePair<NSUrl, IReadOnlyList<URLValueBox>>> rows)
+        => string.Join(";", rows.Select(e => $"{e.Key.LastPathComponent}:{string.Join(",", e.Value.Select(b => b.Name))}").OrderBy(n => n, StringComparer.Ordinal));
+
+    public void TestCSharpReadsSwiftObjectsValuedByURLs()
+    {
+        var index = TestLibFunctions.GetUrlBoxIndex();
+        AssertEqual("a=x;b=y", Boxes(index), "every Swift object comes back under its URL");
+        AssertTrue(index.TryGetValue(NSUrlOf("a"), out var a) && a.Name == "x", "a fresh, equal URL finds its object");
+    }
+
+    public void TestSwiftReadsSwiftObjectsValuedByURLsCSharpBuilt()
+    {
+        using var x = new URLValueBox("x");
+        using var y = new URLValueBox("y");
+        var index = new Dictionary<NSUrl, URLValueBox> { [NSUrlOf("a")] = x, [NSUrlOf("b")] = y };
+        AssertEqual("a=x;b=y", TestLibFunctions.UrlBoxIndexDescribe(index), "every object as C# built it");
+        var read = TestLibFunctions.GetUrlBoxIndex().ToDictionary(e => e.Key, e => e.Value);
+        AssertEqual("a=x;b=y", TestLibFunctions.UrlBoxIndexDescribe(read), "and what Swift returned, handed back");
+    }
+
+    public void TestCSharpReadsArraysOfSwiftObjectsValuedByURLs()
+    {
+        var rows = TestLibFunctions.GetUrlBoxRows();
+        AssertEqual("a:x,y;b:", BoxRows(rows), "every row of Swift objects, in order, and the empty one");
+    }
+
+    public void TestSwiftReadsArraysOfSwiftObjectsValuedByURLsCSharpBuilt()
+    {
+        using var x = new URLValueBox("x");
+        using var y = new URLValueBox("y");
+        var rows = new Dictionary<NSUrl, IEnumerable<URLValueBox>> { [NSUrlOf("a")] = new[] { x, y }, [NSUrlOf("b")] = Array.Empty<URLValueBox>() };
+        AssertEqual("a:x,y;b:", TestLibFunctions.UrlBoxRowsDescribe(rows), "every row as C# built it");
+        var read = TestLibFunctions.GetUrlBoxRows().ToDictionary(e => e.Key, e => (IEnumerable<URLValueBox>)e.Value);
+        AssertEqual("a:x,y;b:", TestLibFunctions.UrlBoxRowsDescribe(read), "and what Swift returned, handed back");
+    }
+
+    /// <summary>
+    /// Swift objects C# puts in a bridged dictionary, with no other owner, are read by Swift after a
+    /// collector has run beside the call.
+    /// </summary>
+    public void TestSwiftObjectsInABridgedDictionarySurviveACollectorRunningBeside()
+    {
+        using var stop = new CancellationTokenSource();
+        var collector = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+        });
+        try
+        {
+            var worker = Task.Run(() =>
+            {
+                for (int i = 0; i < 100; i++)
+                {
+                    using (new NSAutoreleasePool())
+                    {
+                        var index = new Dictionary<NSUrl, URLValueBox> { [NSUrlOf("a")] = new URLValueBox($"x{i}") };
+                        var described = TestLibFunctions.UrlBoxIndexDescribe(index);
+                        if (described != $"a=x{i}")
+                            return $"iteration {i}: {described}";
+                        var rows = new Dictionary<NSUrl, IEnumerable<URLValueBox>> { [NSUrlOf("a")] = new[] { new URLValueBox($"x{i}"), new URLValueBox($"y{i}") } };
+                        described = TestLibFunctions.UrlBoxRowsDescribe(rows);
+                        if (described != $"a:x{i},y{i}")
+                            return $"iteration {i}: {described}";
+                    }
+                }
+                return "ok";
+            });
+            AssertEqual("ok", worker.GetAwaiter().GetResult(), "every object Swift read is the one C# put in");
+        }
+        finally
+        {
+            stop.Cancel();
+            collector.GetAwaiter().GetResult();
+        }
+    }
+
+    // ── Sets of collections ───────────────────────────────────────────────────────────────
+
+    public void TestASetOfArraysOfURLsFindsAFreshEqualRow()
+    {
+        var rows = TestLibFunctions.GetUrlRowSet();
+        AssertTrue(rows.Contains(new[] { NSUrlOf("a"), NSUrlOf("b") }), "a fresh row with the same URLs in the same order is in the set, as Swift's == says");
+        AssertFalse(rows.Contains(new[] { NSUrlOf("b"), NSUrlOf("a") }), "the same URLs in another order are another row");
+        AssertFalse(rows.Contains(new[] { NSUrlOf("a") }), "a shorter row is another row");
+        AssertTrue(TestLibFunctions.UrlRowSetContains(rows.Select(r => (IEnumerable<NSUrl>)r).ToHashSet(), new[] { NSUrlOf("c") }), "Swift agrees on the set C# read");
+    }
+
+    public void TestASetOfSetsOfURLsFindsAFreshEqualGroup()
+    {
+        var groups = TestLibFunctions.GetUrlGroupSet();
+        AssertEqual(2, groups.Count, "both groups come back");
+        AssertTrue(groups.Contains(new HashSet<NSUrl> { NSUrlOf("b"), NSUrlOf("a") }), "a fresh group with the same URLs, in any order, is in the set");
+        AssertTrue(groups.Contains(new HashSet<NSUrl> { NSUrlOf("c") }), "and so is the other one");
+        AssertFalse(groups.Contains(new HashSet<NSUrl> { NSUrlOf("a") }), "a smaller group is another group");
+    }
+
+    // ── Dictionaries C# hands Swift, enumerated once ──────────────────────────────────────
+
+    /// <summary>
+    /// A dictionary whose every enumeration starts one entry later than the one before: a writer
+    /// that reads its keys and values in separate passes pairs each key with another key's value.
+    /// </summary>
+    sealed class ShiftingIndex : Dictionary<string, NSUrl>, IEnumerable<KeyValuePair<string, NSUrl>>
+    {
+        int _passes;
+
+        public ShiftingIndex(params string[] names)
+        {
+            foreach (var name in names)
+                this[name] = NSUrlOf(name);
+        }
+
+        IEnumerator<KeyValuePair<string, NSUrl>> IEnumerable<KeyValuePair<string, NSUrl>>.GetEnumerator()
+        {
+            var entries = new List<KeyValuePair<string, NSUrl>>();
+            foreach (var entry in (Dictionary<string, NSUrl>)this)
+                entries.Add(entry);
+            var shift = entries.Count == 0 ? 0 : _passes++ % entries.Count;
+            return entries.Skip(shift).Concat(entries.Take(shift)).GetEnumerator();
+        }
+    }
+
+    sealed class IndexSource : IURLIndexSource
+    {
+        public IReadOnlyDictionary<string, NSUrl> MakeIndex() => new ShiftingIndex("a", "b", "c");
+    }
+
+    public void TestSwiftReadsEachKeyWithItsOwnURL()
+    {
+        AssertEqual("a=a;b=b;c=c", TestLibFunctions.UrlIndexDescribe(new ShiftingIndex("a", "b", "c")), "an argument");
+        AssertEqual("a=a;b=b;c=c|x=x;y=y", TestLibFunctions.UrlIndexRowsDescribe(new IDictionary<string, NSUrl>[] { new ShiftingIndex("a", "b", "c"), new ShiftingIndex("x", "y") }), "a dictionary in an array");
+        using var holder = new URLIndexHolder();
+        holder.Index = new ShiftingIndex("a", "b", "c");
+        AssertEqual("a=a;b=b;c=c", holder.GetDescribe(), "a property's new value");
+        holder[(nint)0] = new ShiftingIndex("p", "q", "r");
+        AssertEqual("p=p;q=q;r=r", holder.GetDescribe(), "a subscript's new value");
+        AssertEqual("a=a;b=b;c=c", TestLibFunctions.UrlIndexSourceDescribe(new IndexSource()), "a dictionary a conformer makes");
+    }
+
+    public void TestASubscriptSetterReadsAnIndexNamedLikeItsLocals()
+    {
+        using var holder = new URLIndexHolder();
+        holder[(nint)0] = new Dictionary<string, NSUrl> { ["k"] = NSUrlOf("v") };
+        AssertEqual("k=v", holder.GetDescribe(), "the Int index named __val reaches Swift beside the new value");
+        AssertEqual("k=v", string.Join(";", holder[(nint)0].Select(e => $"{e.Key}={e.Value.LastPathComponent}")), "and reads back");
+        AssertEqual(0, holder[(nint)1].Count, "another index reads Swift's empty dictionary");
+        holder["urls"] = new[] { NSUrlOf("a"), NSUrlOf("b") };
+        AssertEqual("a,b", holder.GetDescribeURLs(), "the String index named __val reaches Swift beside the new value");
+        AssertEqual("a,b", Names(holder["urls"]!), "and reads back");
+        holder["other"] = new[] { NSUrlOf("c") };
+        AssertEqual("a,b", holder.GetDescribeURLs(), "another key leaves the URLs as they were");
+        holder["urls"] = null;
+        AssertEqual("nil", holder.GetDescribeURLs(), "a null new value reaches Swift as nil");
+    }
+
     sealed class NestedSink : INestedNativeContainerSink
     {
         public string DescribeCounts(IDictionary<NSUrl, IEnumerable<nint>> counts) => Counts(counts);

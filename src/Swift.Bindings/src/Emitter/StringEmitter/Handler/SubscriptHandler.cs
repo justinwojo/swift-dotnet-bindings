@@ -782,12 +782,13 @@ namespace BindingsGeneration
                 {
                     if (hasParamConversion || requiresDisposal)
                     {
-                        var (usingConv, _) = GetAccessorGetterConversion(retProjection, "__ret");
+                        var retLocal = AccessorScratchLocal("ret", paramInfos.Select(p => p.paramName));
+                        var (usingConv, _) = GetAccessorGetterConversion(retProjection, retLocal);
                         csWriter.Write("get { ");
                         foreach (var line in usingLines) csWriter.Write($"{line} ");
                         foreach (var line in setupLines) csWriter.Write($"{line} ");
                         if (requiresDisposal)
-                            csWriter.WriteLine($"using var __ret = {methodName}({args}); return {usingConv}; }}");
+                            csWriter.WriteLine($"using var {retLocal} = {methodName}({args}); return {usingConv}; }}");
                         else
                             csWriter.WriteLine($"return {conv}; }}");
                     }
@@ -860,6 +861,20 @@ namespace BindingsGeneration
             => NameProvider.ResolveMarshallingBaseName("value",
                 indexParameterNames.Select(NameProvider.StripVerbatimPrefix).ToList());
 
+        /// <summary>
+        /// The name of the accessor's own scratch local <c>__{stem}</c> (the converted setter value,
+        /// the getter's raw result), moved aside with a numeric suffix when an index parameter is
+        /// spelled like it: the index parameters share the accessor's scope.
+        /// </summary>
+        internal static string AccessorScratchLocal(string stem, IEnumerable<string> indexParameterNames)
+        {
+            var taken = indexParameterNames.Select(NameProvider.StripVerbatimPrefix).ToHashSet(StringComparer.Ordinal);
+            var name = "__" + stem;
+            for (var suffix = 2; taken.Contains(name); suffix++)
+                name = $"__{stem}{suffix}";
+            return name;
+        }
+
         private static void EmitIndexerSetterBody(
             CSharpWriter csWriter,
             SetAccessorDecl setter,
@@ -930,12 +945,16 @@ namespace BindingsGeneration
                     if (requiresDisposal)
                     {
                         // An ObjC container bridge passes the handle of the collection `__val` keeps alive.
-                        var valArg = AccessorSetterConversionVisitor.HandleArgument(retProjection, "__val");
-                        csWriter.WriteLine($"using var __val = {conv}; {methodName}({valArg}, {args}); }}");
+                        var valLocal = AccessorScratchLocal("val", paramInfos.Select(p => p.paramName));
+                        var valArg = AccessorSetterConversionVisitor.HandleArgument(retProjection, valLocal);
+                        csWriter.WriteLine($"using var {valLocal} = {conv}; {methodName}({valArg}, {args}); }}");
                     }
                     else
                     {
-                        csWriter.WriteLine($"{methodName}({conv}, {args}); }}");
+                        // A borrowed object pointer's owner is held until the accessor has returned.
+                        var keepAlive = LiveHandleExpressions.PassesBorrowedObjectPointer(retProjection)
+                            ? " " + LiveHandleExpressions.ArgumentKeepAlive("value") : "";
+                        csWriter.WriteLine($"{methodName}({conv}, {args});{keepAlive} }}");
                     }
                     return;
                 }
@@ -1053,7 +1072,8 @@ namespace BindingsGeneration
             else
             {
                 // Apply return projection if present (e.g. SwiftString→string, Data→byte[])
-                EmitProjectedReturn(csWriter, methodName, args, returnProjection);
+                EmitProjectedReturn(csWriter, methodName, args, returnProjection,
+                    AccessorScratchLocal("ret", paramInfos.Select(p => p.paramName)));
             }
 
             if (hasStringIndexParam)
@@ -1074,7 +1094,8 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a projected return statement, applying conversion if the return type needs it.
         /// </summary>
-        internal static void EmitProjectedReturn(CSharpWriter csWriter, string methodName, string args, ITypeProjection? projection)
+        internal static void EmitProjectedReturn(CSharpWriter csWriter, string methodName, string args, ITypeProjection? projection,
+            string retLocal = "__ret")
         {
             if (projection != null)
             {
@@ -1083,8 +1104,8 @@ namespace BindingsGeneration
                 {
                     if (requiresDisposal)
                     {
-                        var (usingConv, _) = GetAccessorGetterConversion(projection, "__ret");
-                        csWriter.WriteLine($"using var __ret = {methodName}({args}); return {usingConv};");
+                        var (usingConv, _) = GetAccessorGetterConversion(projection, retLocal);
+                        csWriter.WriteLine($"using var {retLocal} = {methodName}({args}); return {usingConv};");
                     }
                     else
                     {
@@ -1137,7 +1158,8 @@ namespace BindingsGeneration
                 }
                 else
                 {
-                    EmitProjectedSetterCall(csWriter, methodName, args, valueProjection);
+                    EmitProjectedSetterCall(csWriter, methodName, args, valueProjection,
+                        AccessorScratchLocal("val", paramInfos.Select(p => p.paramName)));
                 }
 
                 int closingBraces = fixedParams.Count + (isStringValue ? 1 : 0);
@@ -1150,7 +1172,8 @@ namespace BindingsGeneration
             }
             else
             {
-                EmitProjectedSetterCall(csWriter, methodName, args, valueProjection);
+                EmitProjectedSetterCall(csWriter, methodName, args, valueProjection,
+                        AccessorScratchLocal("val", paramInfos.Select(p => p.paramName)));
             }
 
             csWriter.Indent--;
@@ -1160,7 +1183,8 @@ namespace BindingsGeneration
         /// <summary>
         /// Emits a setter call, applying value projection conversion if present.
         /// </summary>
-        internal static void EmitProjectedSetterCall(CSharpWriter csWriter, string methodName, string args, ITypeProjection? valueProjection)
+        internal static void EmitProjectedSetterCall(CSharpWriter csWriter, string methodName, string args, ITypeProjection? valueProjection,
+            string valLocal = "__val")
         {
             if (valueProjection != null)
             {
@@ -1170,12 +1194,14 @@ namespace BindingsGeneration
                     if (requiresDisposal)
                     {
                         // An ObjC container bridge passes the handle of the collection `__val` keeps alive.
-                        var valArg = AccessorSetterConversionVisitor.HandleArgument(valueProjection, "__val");
-                        csWriter.WriteLine($"using var __val = {conv}; {methodName}({valArg}, {args});");
+                        var valArg = AccessorSetterConversionVisitor.HandleArgument(valueProjection, valLocal);
+                        csWriter.WriteLine($"using var {valLocal} = {conv}; {methodName}({valArg}, {args});");
                     }
                     else
                     {
                         csWriter.WriteLine($"{methodName}({conv}, {args});");
+                        if (LiveHandleExpressions.PassesBorrowedObjectPointer(valueProjection))
+                            csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("value"));
                     }
                     return;
                 }

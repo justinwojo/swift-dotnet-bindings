@@ -270,17 +270,26 @@ public static partial class CrossModuleExtensionEmitter
             $"NativeMethods.{pinvokeName}({string.Join(", ", resultBufferArg is null ? nativeArgs : nativeArgs.Prepend(resultBufferArg))})";
 
         // Receiver-pin guard: pure Swift class receivers go through DangerousAddRef
-        // so a concurrent dispose can't hand Swift a freed pointer mid-call. ObjC-rooted
-        // receivers manage their own lifetime via NSObject retain and skip the guard.
-        // Static methods have no instance receiver to pin.
-        if (isStatic || classDecl.IsObjCRooted)
+        // so a concurrent dispose can't hand Swift a freed pointer mid-call. Static methods have
+        // no instance receiver to pin. An Objective-C-rooted receiver and every object argument
+        // pass a bare pointer that only their wrappers own, so each is held until the call
+        // returns: under a precise collector a wrapper is collectable after its pointer is read,
+        // and its finalizer would release the object mid-call.
+        var pinsPayload = !isStatic && !classDecl.IsObjCRooted;
+        var held = (!isStatic && classDecl.IsObjCRooted ? new[] { receiverScope.ReceiverName } : Array.Empty<string>())
+            .Concat(parameters.Where(p => p.Kind is ClassTrampolineParamKind.ObjCClass or ClassTrampolineParamKind.SwiftClass).Select(p => p.Name))
+            .ToList();
+        if (!pinsPayload && held.Count == 0)
         {
             EmitClosureCallSiteReturnWithTransfer(csWriter, returnCategory.Value, BuildNativeCall, publicReturnType, closureParams, receiverScope.BodyScope);
         }
         else
         {
-            csWriter.WriteLine("bool __payloadPinned = false;");
-            csWriter.WriteLine($"{receiverScope.ReceiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
+            if (pinsPayload)
+            {
+                csWriter.WriteLine("bool __payloadPinned = false;");
+                csWriter.WriteLine($"{receiverScope.ReceiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
+            }
             csWriter.WriteLine("try");
             csWriter.WriteLine("{");
             csWriter.Indent++;
@@ -290,7 +299,9 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine("finally");
             csWriter.WriteLine("{");
             csWriter.Indent++;
-            csWriter.WriteLine($"if (__payloadPinned) {receiverScope.ReceiverName}.Payload.DangerousRelease();");
+            if (pinsPayload)
+                csWriter.WriteLine($"if (__payloadPinned) {receiverScope.ReceiverName}.Payload.DangerousRelease();");
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, held);
             csWriter.Indent--;
             csWriter.WriteLine("}");
         }
@@ -1251,6 +1262,10 @@ public static partial class CrossModuleExtensionEmitter
         // the GCHandle), so the transfer flag prevents the outer `finally`
         // from double-freeing.
         csWriter.WriteLine("__ctxTransferred = true;");
+        // The call borrowed the receiver's and each object argument's pointer: hold them until it returns.
+        LiveHandleExpressions.WriteArgumentKeepAlives(csWriter,
+            (classDecl.IsObjCRooted ? new[] { receiverScope.ReceiverName } : Array.Empty<string>())
+                .Concat(parameters.Where(p => PassesBorrowedHandle(p.Kind)).Select(p => p.Name)));
 
         if (!classDecl.IsObjCRooted)
         {

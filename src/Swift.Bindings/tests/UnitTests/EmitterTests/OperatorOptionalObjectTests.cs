@@ -247,6 +247,32 @@ public class OperatorOptionalObjectTests
     }
 
     /// <summary>
+    /// An object operand crosses as its bare pointer, read off a wrapper nothing else holds once the
+    /// read is done: under a precise collector its finalizer could release the object while Swift
+    /// borrows it. The operand is held until the call has returned.
+    /// </summary>
+    [Theory]
+    [InlineData(true, true)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    public async Task ObjectOperand_IsHeldUntilTheCallReturns(bool classParent, bool optional)
+    {
+        var database = await CreateDatabaseAsync();
+        var parent = Parent(classParent);
+        TypeSpec operand = optional ? Optional(ObjCClass) : new NamedTypeSpec(ObjCClass);
+
+        var (emitted, cs) = Emit(Operator("&", parent, new NamedTypeSpec("Swift.Int"), operand), database);
+
+        Assert.True(emitted, cs);
+        var body = Body(cs);
+        var call = body.IndexOf("PInvoke_op_BitwiseAnd(", StringComparison.Ordinal);
+        Assert.True(call >= 0, $"the operator calls Swift:\n{cs}");
+        var keepAlive = body.IndexOf("GC.KeepAlive(rhs)", StringComparison.Ordinal);
+        Assert.True(call >= 0, $"the operator calls Swift:\n{body}");
+        Assert.True(keepAlive > call, $"the operand is held after the call:\n{body}");
+    }
+
+    /// <summary>
     /// An equality operator's null guards answer for an operand C# null cannot reach Swift with. An
     /// Optional operand's null is nil, a value Swift compares, so it reaches the call: the guard is
     /// kept for the non-optional receiver only.

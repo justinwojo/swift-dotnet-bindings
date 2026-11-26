@@ -292,14 +292,12 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
     internal static (string?, bool) DictSetterConversion(DictionaryProjection dict, string valueExpr)
     {
         // ObjC bridge: create NSDictionary and dispose after use. PropertyHandler extracts .Handle.
-        // A dictionary keyed by a Swift class is built from its keys' own objects, adopted at +1.
-        if (dict.KeyHandlesDictionary(valueExpr) is { } keyHandles)
-            return (keyHandles, true);
+        // A dictionary holding Swift objects is built from their own handles, adopted at +1.
+        if (dict.HandlesDictionary(valueExpr) is { } byHandles)
+            return (byHandles, true);
         if (dict.UsesObjCContainerBridge)
         {
-            var keyToNS = DictionaryProjection.ToNSObject(dict.KeyProjection, "kvp.Key");
-            var valToNS = DictionaryProjection.ToNSObject(dict.ValueProjection, "kvp.Value");
-            return ($"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, kvp => {keyToNS})))", true);
+            return (dict.OnePassNSDictionary(valueExpr), true);
         }
 
         // Keys can never be existential (`any P` is not Hashable), so only the VALUE rides the owned

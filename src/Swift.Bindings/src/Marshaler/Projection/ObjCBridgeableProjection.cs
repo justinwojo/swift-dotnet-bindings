@@ -64,6 +64,9 @@ public class ObjCBridgeableProjection : ITypeProjection
     }
 
     public string PublicType => _typedEnum?.ProjectedType ?? _csharpTypeName;
+
+    /// <summary>True when the public value is an Apple typed enum (a C# enum), not a Foundation object.</summary>
+    public bool IsTypedEnum => _typedEnum is not null;
     public string PInvokeType => "IntPtr";
     public string? PInvokeAttribute => null;
 

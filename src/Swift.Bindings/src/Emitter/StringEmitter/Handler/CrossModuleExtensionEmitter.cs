@@ -628,7 +628,7 @@ public static partial class CrossModuleExtensionEmitter
             return false;
 
         // Build parameter list — skip methods with unsupported param types
-        var parameters = new List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec)>();
+        var parameters = new List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec, bool borrowsHandle)>();
         for (int i = 1; i < method.CSSignature.Count; i++)
         {
             var arg = method.CSSignature[i];
@@ -647,7 +647,7 @@ public static partial class CrossModuleExtensionEmitter
             if (paramCategory == ParamKind.SimpleEnum)
                 pinvokeExpr = SimpleEnumCaseFloors.RequireAvailable(
                     ExtensionMarshallingHelper.SimpleEnumCaseFloorGuard(arg.SwiftTypeSpec, typeDatabase), pinvokeExpr);
-            parameters.Add((paramName, csharpType, pinvokeExpr, arg.SwiftTypeSpec));
+            parameters.Add((paramName, csharpType, pinvokeExpr, arg.SwiftTypeSpec, PassesBorrowedHandle(paramCategory.Value)));
         }
 
         // Deduplicate — include static/instance to distinguish overload pairs
@@ -668,7 +668,7 @@ public static partial class CrossModuleExtensionEmitter
         // the receiver moves aside instead of duplicating it.
         var receiverScope = BuildReceiverScope(parameters.Select(p => p.name));
         var paramParts = new List<string> { $"this {origCSharpType} {receiverScope.ReceiverName}" };
-        foreach (var (name, csharpType, _, _) in parameters)
+        foreach (var (name, csharpType, _, _, _) in parameters)
         {
             if (MarshallingHelpers.IsBoolType(csharpType))
                 paramParts.Add($"bool {name}");
@@ -728,7 +728,7 @@ public static partial class CrossModuleExtensionEmitter
         CSharpWriter csWriter,
         MethodDecl method,
         string pInvokeName,
-        List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec)> parameters,
+        List<(string name, string csharpType, string pinvokeExpr, TypeSpec typeSpec, bool borrowsHandle)> parameters,
         ExtensionReceiverScope receiverScope,
         ReturnKind returnCategory,
         string csharpReturnType,
@@ -743,7 +743,7 @@ public static partial class CrossModuleExtensionEmitter
         // .NET runtime routes SwiftSelf to a fixed register regardless of position, but self stays
         // last to match the convention used elsewhere in the runtime (SwiftArrayPInvokes /
         // BlittableElementBuffer P/Invokes both put `self` last).
-        foreach (var (name, _, pinvokeExpr, _) in parameters)
+        foreach (var (name, _, pinvokeExpr, _, _) in parameters)
         {
             nativeArgs.Add(pinvokeExpr);
         }
@@ -756,7 +756,8 @@ public static partial class CrossModuleExtensionEmitter
         var nativeCall = $"NativeMethods.{nativeMethodName}({string.Join(", ", nativeArgs)})";
 
         EmitPayloadPinnedBody(csWriter, receiverScope.ReceiverName, isStatic, isObjCRooted,
-            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope, objCResultOwned: true));
+            () => EmitReturnValueMarshalling(csWriter, returnCategory, nativeCall, csharpReturnType, bodyScope, objCResultOwned: true),
+            parameters.Where(p => p.borrowsHandle).Select(p => p.name));
     }
 
     /// <summary>
@@ -766,21 +767,38 @@ public static partial class CrossModuleExtensionEmitter
     /// (a raw NSObject pointer with separate NSObject lifetime) and need no pinning;
     /// static extensions have no instance receiver to pin.
     /// </summary>
+    /// <summary>
+    /// Writes <paramref name="emitBody"/>, whose native call borrows the receiver's pointer and the
+    /// pointers of <paramref name="heldArguments"/>, so that each owner outlives the call: a Swift
+    /// receiver's payload is pinned, and an Objective-C-rooted receiver and every borrowed argument
+    /// are held until the call returns. Under a precise collector a wrapper is collectable after its
+    /// last use, which reading its pointer is, and its finalizer would release the object mid-call.
+    /// </summary>
     private static void EmitPayloadPinnedBody(
         CSharpWriter csWriter,
         string receiverName,
         bool isStatic,
         bool isObjCRooted,
-        Action emitBody)
+        Action emitBody,
+        IEnumerable<string>? heldArguments = null)
     {
-        if (isStatic || isObjCRooted)
+        var pinsPayload = !isStatic && !isObjCRooted;
+        var held = new List<string>();
+        if (!isStatic && isObjCRooted)
+            held.Add(receiverName);
+        if (heldArguments is not null)
+            held.AddRange(heldArguments);
+        if (!pinsPayload && held.Count == 0)
         {
             emitBody();
             return;
         }
 
-        csWriter.WriteLine("bool __payloadPinned = false;");
-        csWriter.WriteLine($"{receiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
+        if (pinsPayload)
+        {
+            csWriter.WriteLine("bool __payloadPinned = false;");
+            csWriter.WriteLine($"{receiverName}.Payload.DangerousAddRef(ref __payloadPinned);");
+        }
         csWriter.WriteLine("try");
         csWriter.WriteLine("{");
         csWriter.Indent++;
@@ -790,7 +808,9 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine("finally");
         csWriter.WriteLine("{");
         csWriter.Indent++;
-        csWriter.WriteLine($"if (__payloadPinned) {receiverName}.Payload.DangerousRelease();");
+        if (pinsPayload)
+            csWriter.WriteLine($"if (__payloadPinned) {receiverName}.Payload.DangerousRelease();");
+        LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, held);
         csWriter.Indent--;
         csWriter.WriteLine("}");
     }

@@ -715,7 +715,7 @@ public static partial class ClosureEmitter
             lines.AddRange(inOutWriteBackLines);
             lines.Add($"{indent}    let __resultObject = resultBuf.load(as: Swift.UnsafeMutableRawPointer?.self)");
             lines.Add($"{indent}    resultBuf.deallocate()");
-            lines.Add($"{indent}    return {GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__resultObject", closureHandler)}");
+            lines.Add($"{indent}    return {GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__resultObject", closureHandler, retained: true)}");
             lines.Add($"{indent}}}");
         }
         else if (isIndirectReturn)
@@ -758,7 +758,7 @@ public static partial class ClosureEmitter
                 lines.Add($"{indent}    if let error = errorPtr {{");
                 lines.Add($"{indent}        throw {SwiftErrorMintEmitter.TakeErrorExpression("error")}");
                 lines.Add($"{indent}    }}");
-                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__rawCdeclResult", closureHandler);
+                var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__rawCdeclResult", closureHandler, retained: true);
                 lines.Add($"{indent}    return {returnConversion}");
             }
             else
@@ -787,12 +787,12 @@ public static partial class ClosureEmitter
                     // held in a local rather than converted inline.
                     lines.Add($"{indent}    let __cdeclResult = {cdeclVarName}({cdeclArgsStr})");
                     lines.AddRange(inOutWriteBackLines);
-                    var hoistedConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__cdeclResult", closureHandler);
+                    var hoistedConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, "__cdeclResult", closureHandler, retained: true);
                     lines.Add($"{indent}    return {hoistedConversion}");
                 }
                 else
                 {
-                    var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler);
+                    var returnConversion = GetSwiftReturnConversion(closureTypeSpec.ReturnType, $"{cdeclVarName}({cdeclArgsStr})", closureHandler, retained: true);
                     lines.Add($"{indent}    return {returnConversion}");
                 }
             }
@@ -905,8 +905,15 @@ public static partial class ClosureEmitter
     /// Converts the raw Cdecl return value back to the Swift type.
     /// E.g., UInt8 → (rawResult != 0) for Bool, class pointer → Unmanaged.fromOpaque.
     /// </summary>
-    private static string GetSwiftReturnConversion(TypeSpec typeSpec, string expr, ClosureHandler? closureHandler = null)
+    /// <param name="retained">
+    /// True for a callback's result, which the managed callback hands back at +1 (a Swift class or an
+    /// Objective-C object, or its Optional), so the adapter takes that reference over. False for an
+    /// argument the managed side passes in (see <c>ClosureEmitter.InvokeThunk</c>), which stays
+    /// borrowed.
+    /// </param>
+    private static string GetSwiftReturnConversion(TypeSpec typeSpec, string expr, ClosureHandler? closureHandler = null, bool retained = false)
     {
+        var take = retained ? "takeRetainedValue" : "takeUnretainedValue";
         if (typeSpec is NamedTypeSpec named)
         {
             if (named.Name == "Swift.Bool")
@@ -923,14 +930,14 @@ public static partial class ClosureEmitter
                 if (closureHandler.IsClassType(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"Swift.Unmanaged<{swiftType}>.fromOpaque({expr}).takeUnretainedValue()";
+                    return $"Swift.Unmanaged<{swiftType}>.fromOpaque({expr}).{take}()";
                 }
 
                 // ObjC-bridged records: use AnyObject bridge for Unmanaged, then cast back
                 if (closureHandler.IsObjCBridgedClass(named))
                 {
                     var swiftType = ExistentialBypassEmitter.RenderSwiftTypeSpec(named);
-                    return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({expr}).takeUnretainedValue() as! {swiftType})";
+                    return $"(Swift.Unmanaged<Swift.AnyObject>.fromOpaque({expr}).{take}() as! {swiftType})";
                 }
 
                 // ObjC-bridgeable value (URL, URLRequest, …): the managed callback hands the
@@ -983,9 +990,9 @@ public static partial class ClosureEmitter
                         !closureHandler.IsClassType(innerNamed) &&
                         closureHandler.IsObjCBridgedClass(innerNamed))
                     {
-                        return $"({expr}).map {{ (Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).takeUnretainedValue() as! {innerType}) }}";
+                        return $"({expr}).map {{ (Swift.Unmanaged<Swift.AnyObject>.fromOpaque($0).{take}() as! {innerType}) }}";
                     }
-                    return $"({expr}).map {{ Swift.Unmanaged<{innerType}>.fromOpaque($0).takeUnretainedValue() }}";
+                    return $"({expr}).map {{ Swift.Unmanaged<{innerType}>.fromOpaque($0).{take}() }}";
                 }
 
                 // Non-primitive struct types (including String): the cdecl returns

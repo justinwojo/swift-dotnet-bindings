@@ -558,6 +558,13 @@ public static class ExtensionMarshallingHelper
     }
 
     /// <summary>
+    /// True when <see cref="GetPInvokeArgExpression"/> passes the bare pointer of an object the
+    /// caller owns, which the caller must then hold until the native call returns.
+    /// </summary>
+    public static bool PassesBorrowedHandle(ParamKind category)
+        => category is ParamKind.ObjCClass or ParamKind.SwiftClass;
+
+    /// <summary>
     /// Emits return value marshalling based on the return kind.
     /// Shared between ForeignType and CrossModule extension emitters.
     /// </summary>
