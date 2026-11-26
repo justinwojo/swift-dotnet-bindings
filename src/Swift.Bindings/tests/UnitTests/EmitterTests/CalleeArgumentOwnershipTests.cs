@@ -659,6 +659,31 @@ public class CalleeArgumentOwnershipTests
     }
 
     /// <summary>
+    /// An ordinary method borrows an Objective-C argument's bare handle, so the wrapper that owns it
+    /// is held until the call returns: under a precise collector it is otherwise collectable once
+    /// the handle is read, and its finalizer would release the object while Swift is using it.
+    /// </summary>
+    [Fact]
+    public void DirectMethod_ObjCBridgedArgument_IsHeldUntilTheCallReturns()
+    {
+        var typeDatabase = CreateEmissionTypeDatabase();
+        var moduleDecl = CreateEmissionModule();
+        var parentDecl = CreateEmissionStruct("Host", moduleDecl);
+        CreateEmissionClass("Bridged", moduleDecl, typeDatabase, TypeRecordFlags.ObjCBridged);
+
+        var (csOutput, _) = EmitMethod(
+            CreateEmissionMethod("inspect", parentDecl, moduleDecl, NestedFrozenArg(moduleDecl), ClassArg("bridged", moduleDecl, "Bridged")),
+            typeDatabase);
+
+        Assert.DoesNotContain("OwnedArgument.ObjectTransfer(", csOutput);
+        int read = csOutput.IndexOf("GetLiveObjCArgumentHandle(bridged", StringComparison.Ordinal);
+        int invocation = csOutput.IndexOf("PInvoke_", read < 0 ? 0 : read, StringComparison.Ordinal);
+        Assert.True(read >= 0, csOutput);
+        Assert.True(invocation > read, csOutput);
+        Assert.True(csOutput.IndexOf("global::System.GC.KeepAlive(bridged);", invocation, StringComparison.Ordinal) > invocation, csOutput);
+    }
+
+    /// <summary>
     /// An ObjC-bridged argument is read as a bare handle off a managed object that keeps owning it,
     /// so it needs the same transfer — retained isa-dispatched, because an NSObject-rooted payload
     /// needs <c>objc_retain</c> rather than <c>swift_retain</c>. Exactly one: the pass-through walk

@@ -1026,6 +1026,77 @@ public class ObjectKeyCollectionProjectionTests
         Assert.DoesNotContain("(TestModule.RootedNode)_nsKey", read);
     }
 
+    [Theory]
+    [MemberData(nameof(PureSwiftClassKeys))]
+    public async Task SwiftClassValuedBridgedDictionary_CrossesByTheValuesOwnObjects(TypeSpec value)
+    {
+        // [URL: Node]: the URL key sends the dictionary through NSDictionary, where each value is the
+        // Swift object itself, not an NSObject. It is built from the values' handles and read entry
+        // by entry, each value through the class's own marshalling; a cast between NSObject and the
+        // class does not compile.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        bool optional = value is NamedTypeSpec { Name: "Swift.Optional" };
+        var url = new NamedTypeSpec("Foundation.URL");
+
+        var parameter = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(url, value), Context(typeDatabase, new ModuleEmissionContext())));
+        Assert.True(parameter.UsesObjCContainerBridge);
+        var writes = new[]
+        {
+            string.Join("\n", parameter.BuildObjCBridgeOwner("index", sourceIsNullable: false).Setup.Select(Render)),
+            parameter.GetParameterElementConversion("index")!,
+            parameter.GetReverseReceiverObjCBridgeConversion("index"),
+            AccessorSetterConversionVisitor.DictSetterConversion(parameter, "index").Item1!,
+        };
+        foreach (var write in writes)
+        {
+            Assert.Contains("global::Swift.Runtime.ObjCDictionaryHandles.Create(index, k => (Foundation.NSObject)k, k => k.Handle, v => v, o => ", write);
+            Assert.DoesNotContain("(Foundation.NSObject)v", write);
+            Assert.DoesNotContain("FromObjectsAndKeys", write);
+            Assert.Equal(optional, write.Contains("o is null ? Foundation.NSNull.Null.Handle"));
+        }
+
+        var result = Assert.IsType<DictionaryProjection>(_factory.Project(
+            Dictionary(url, value), Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var reads = new[]
+        {
+            string.Join("\n", result.GetReturnPlan("result", ReturnStrategy.Direct).SetupStatements.Select(Render)),
+            result.GetReturnContainerConversion("d")!,
+            result.GetBorrowedObjCBridgeReadExpression("d"),
+        };
+        foreach (var read in reads)
+        {
+            Assert.Contains("global::Swift.Runtime.ObjCDictionaryHandles.Entries(", read);
+            Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.Node>(_entry.Value)", read);
+            Assert.Contains("ObjCRuntime.Runtime.GetNSObject(_entry.Key)", read);
+            Assert.DoesNotContain("(TestModule.Node)", read.Replace("(TestModule.Node?)null", ""));
+            Assert.Equal(optional, read.Contains("_entry.Value == Foundation.NSNull.Null.Handle ? (TestModule.Node?)null"));
+        }
+    }
+
+    [Fact]
+    public async Task SwiftClassArrayInABridgedDictionary_CrossesByItsElementsOwnObjects()
+    {
+        // [URL: [Node]]: Swift bridges the [Node] value with the dictionary, as an NSArray whose
+        // elements are the Swift objects themselves. It is built from the elements' handles and
+        // read element by element through the class's own marshalling.
+        var typeDatabase = NodeDatabase(await LoadAppleDatabaseAsync());
+        var shape = Dictionary(new NamedTypeSpec("Foundation.URL"), new NamedTypeSpec("Swift.Array", new NamedTypeSpec("TestModule.Node")));
+
+        var parameter = Assert.IsType<DictionaryProjection>(_factory.Project(shape, Context(typeDatabase, new ModuleEmissionContext())));
+        var write = parameter.GetParameterElementConversion("rows")!;
+        Assert.Contains("global::Swift.Runtime.ObjCArrayHandles.Create(", write);
+        Assert.DoesNotContain("(Foundation.NSObject)_e", write);
+
+        var result = Assert.IsType<DictionaryProjection>(_factory.Project(shape, Context(typeDatabase, new ModuleEmissionContext(), isParameter: false)));
+        var read = result.GetReturnContainerConversion("d")!;
+        Assert.Contains("global::Swift.Runtime.ObjCArrayHandles.Elements(", read);
+        Assert.Contains("SwiftMarshal.MarshalBorrowedClassFromSwift<TestModule.Node>(", read);
+        Assert.DoesNotContain("(TestModule.Node)", read);
+        // The dictionary holds the arrays its values are read from until the last is read.
+        Assert.Contains("GC.KeepAlive(_nsDict)", read);
+    }
+
     private static string AccessorSetterConversion(ITypeProjection projection, string valueExpr)
         => projection.Accept(new AccessorSetterConversionVisitor(valueExpr)).Item1 ?? "";
 }

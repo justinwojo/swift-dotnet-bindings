@@ -146,6 +146,11 @@ namespace BindingsGeneration
         // EmitBorrowedExistentialArgumentKeepAlive.
         private readonly List<string> _borrowedOptionalExistentialNames = new();
 
+        // Arguments whose object pointer the call borrows (LiveHandleExpressions.PassesBorrowedObjectPointer).
+        // Populated by TryEmitParameterConversionViaProjection, consumed by
+        // EmitBorrowedExistentialArgumentKeepAlive.
+        private readonly List<string> _borrowedObjectArgumentNames = new();
+
         // Counts currently-open raw-buffer `fixed (...)` blocks. Every call to
         // EmitRawBufferFixedStart increments by the number of UnsafeRawBufferPointer
         // parameters; the paired EmitRawBufferFixedEnd decrements by the same count.
@@ -1742,6 +1747,8 @@ namespace BindingsGeneration
                 csWriter.WriteLine($"global::System.GC.KeepAlive({parameter.Name});");
             foreach (var name in _borrowedOptionalExistentialNames)
                 csWriter.WriteLine($"global::System.GC.KeepAlive({name});");
+            foreach (var name in _borrowedObjectArgumentNames.Distinct())
+                csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive(name));
         }
 
         /// <summary>

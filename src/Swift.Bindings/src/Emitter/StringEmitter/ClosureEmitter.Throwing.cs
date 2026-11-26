@@ -171,7 +171,7 @@ public static partial class ClosureEmitter
             ? ""
             : swiftIndirectResult
                 ? BuildCallbackIndirectReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, bufferExpr: "indirectResult")
-                : BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType, ownedReference: !useCdecl);
+                : BuildCallbackReturnStatement(closureTypeSpec.ReturnType, "swiftResult.Success", closureHandler, returnType);
 
         // The delegate invocation AND the success marshalling run inside try/catch: a
         // managed exception (a non-cooperative throw from the user delegate, or a failure

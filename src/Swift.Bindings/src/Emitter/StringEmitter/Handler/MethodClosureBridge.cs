@@ -1727,16 +1727,20 @@ public static class MethodClosureBridge
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
 
-        // Non-closure passable params
+        // Non-closure passable params. An object argument crosses as its bare pointer, so it is
+        // held until the call returns (borrowedArguments).
+        var borrowedArguments = new List<string>();
         foreach (var (arg, csName, _, category) in passableNonClosureParams)
         {
             switch (category)
             {
                 case ParamAbiCategory.ObjCHandle:
                     callArgs.Add(LiveHandleExpressions.ObjCArgument(csName, csName));
+                    borrowedArguments.Add(csName);
                     break;
                 case ParamAbiCategory.PayloadHandle:
                     callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
+                    borrowedArguments.Add(csName);
                     break;
                 case ParamAbiCategory.Primitive:
                     callArgs.Add(csName);
@@ -1803,6 +1807,7 @@ public static class MethodClosureBridge
         {
             csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
             EmitClosureOwnershipTransferred(csWriter, closures);
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, borrowedArguments);
             csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
         }
         else if (!returnSpec.IsEmptyTuple)
@@ -1811,12 +1816,14 @@ public static class MethodClosureBridge
             // on a successful P/Invoke return.
             csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
             EmitClosureOwnershipTransferred(csWriter, closures);
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, borrowedArguments);
             csWriter.WriteLine("return __pinvokeResult;");
         }
         else
         {
             csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
             EmitClosureOwnershipTransferred(csWriter, closures);
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, borrowedArguments);
         }
 
         for (int i = 0; i < utf8SliceLocals.Count; i++)

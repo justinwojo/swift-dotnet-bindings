@@ -249,8 +249,7 @@ public static partial class ClosureEmitter
                 closureTypeSpec.ReturnType,
                 delegateCallExpr,
                 closureHandler,
-                returnType,
-                ownedReference: !useCdecl);
+                returnType);
         }
 
         var callConvType = useCdecl ? "typeof(global::System.Runtime.CompilerServices.CallConvCdecl)" : "typeof(global::System.Runtime.CompilerServices.CallConvSwift)";
@@ -509,17 +508,17 @@ public static partial class ClosureEmitter
     /// <param name="resultExpr">The expression that produces the result (e.g., "del(args)" or "swiftResult.Success").</param>
     /// <param name="closureHandler">The closure handler for type translation.</param>
     /// <param name="callbackReturnType">The callback's declared return type string (e.g., "void*", "byte").</param>
-    /// <param name="ownedReference">
-    /// True on the Swift lane: Swift owns a closure's result, so a returned reference must carry its
-    /// own +1. The <c>@_cdecl</c> adapter takes the pointer unretained, so that lane returns it at +0.
-    /// </param>
     /// <returns>One or more lines of C# code for the return statement.</returns>
+    /// <remarks>
+    /// A returned reference carries its own +1 on both lanes: Swift owns a closure's result, and the
+    /// <c>@_cdecl</c> adapter takes the pointer retained. A +0 handle would leave the object alive only
+    /// as long as the managed wrapper, which nothing references once the callback returns.
+    /// </remarks>
     internal static string BuildCallbackReturnStatement(
         TypeSpec returnType,
         string resultExpr,
         ClosureHandler closureHandler,
-        string callbackReturnType,
-        bool ownedReference = false)
+        string callbackReturnType)
     {
         if (MarshallingHelpers.IsBoolType(returnType))
             return $"return (byte)({resultExpr} ? 1 : 0);";
@@ -530,15 +529,9 @@ public static partial class ClosureEmitter
         if (callbackReturnType == "void*" && returnType is NamedTypeSpec retNamedType && TypeDatabaseExtensions.IsPointerType(retNamedType))
             return $"return (void*){resultExpr};";
 
-        if (callbackReturnType == "void*" && ownedReference &&
+        if (callbackReturnType == "void*" &&
             (closureHandler.IsReferenceType(returnType) || IsOptionalReferenceReturn(returnType, closureHandler)))
             return BuildOwnedReferenceReturn(returnType, resultExpr, closureHandler);
-
-        if (callbackReturnType == "void*" && closureHandler.IsClassType(returnType))
-            return $"return (void*){resultExpr}.Payload.DangerousGetHandle();";
-
-        if (callbackReturnType == "void*" && closureHandler.IsObjCBridgedClass(returnType))
-            return $"return (void*){resultExpr}.Handle;";
 
         // ObjC-bridgeable value (URL, URLRequest, …, or its Optional): hand the Foundation peer back
         // at +1 — the @_cdecl adapter consumes that reference and bridges the object back into the
@@ -551,21 +544,6 @@ public static partial class ClosureEmitter
                         {{BuildBridgedPeerHandOver("_bridgedPeer", "_bridgedHandle", closureHandler.IsOptionalObjCBridgeableValue(returnType))}}
                         return (void*)_bridgedHandle;
                 """;
-        }
-
-        if (callbackReturnType == "void*" && IsOptionalReferenceReturn(returnType, closureHandler))
-        {
-            var isClass = closureHandler.IsClassType(((NamedTypeSpec)returnType).GenericParameters[0]);
-            if (isClass)
-                return $$"""
-                    var _optResult = {{resultExpr}};
-                            return _optResult != null ? (void*)_optResult.Payload.DangerousGetHandle() : null;
-                    """;
-            else
-                return $$"""
-                    var _optResult = {{resultExpr}};
-                            return _optResult != null ? (void*)_optResult.Handle : null;
-                    """;
         }
 
         if (returnType is TupleTypeSpec retTuple &&
@@ -717,8 +695,7 @@ public static partial class ClosureEmitter
     }
 
     /// <summary>
-    /// Return statement for a reference result on the Swift lane: the handle Swift receives carries a
-    /// +1 of its own, taken while the managed wrapper is still alive. A Swift class is retained with
+    /// Return statement for a reference result: the handle Swift receives carries a +1 of its own, taken while the managed wrapper is still alive. A Swift class is retained with
     /// <c>swift_retain</c>, an Objective-C object with <c>swift_unknownObjectRetain</c>; a <c>null</c>
     /// Optional returns the null pointer that is Swift's empty case.
     /// </summary>
@@ -787,12 +764,16 @@ public static partial class ClosureEmitter
             return $"*({container}*)(void*){bufferExpr} = {existentialResult};";
         }
 
-        // Class type: write retained pointer to buffer
+        // Class type: the adapter moves the pointer out of the buffer, taking a +1, so the handle
+        // written there is retained while the wrapper is still alive.
         if (closureHandler.IsClassType(returnType))
         {
             return $$"""
                     var {{local}} = {{resultExpr}};
-                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}.Payload.DangerousGetHandle();
+                            var {{local}}Handle = {{local}}.Payload.DangerousGetHandle();
+                            global::Swift.Runtime.Arc.Retain({{local}}Handle);
+                            global::System.GC.KeepAlive({{local}});
+                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}Handle;
                 """;
         }
 
@@ -807,12 +788,15 @@ public static partial class ClosureEmitter
                 """;
         }
 
-        // ObjC-bridged class: write handle to buffer
+        // ObjC-bridged class: same +1 hand-over as a Swift class, through the unknown-object retain.
         if (closureHandler.IsObjCBridgedClass(returnType))
         {
             return $$"""
                     var {{local}} = {{resultExpr}};
-                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}.Handle;
+                            var {{local}}Handle = (global::System.IntPtr){{local}}.Handle;
+                            global::Swift.Runtime.Arc.UnknownObjectRetain({{local}}Handle);
+                            global::System.GC.KeepAlive({{local}});
+                            *(IntPtr*)(void*){{bufferExpr}} = {{local}}Handle;
                 """;
         }
 

@@ -19,6 +19,36 @@ internal static class LiveHandleExpressions
 {
     private const string Guard = "global::Swift.Runtime.SwiftHandleGuard";
 
+    /// <summary>
+    /// True when a parameter of this projection reaches native code as the bare pointer of an object
+    /// the caller owns: an Objective-C object (bridged, bridgeable or rooted), a Swift class, a key
+    /// path, a resilient struct's box, or an Optional of one. Reading the pointer is the object's last
+    /// use, so under a precise collector (NativeAOT, CoreCLR) its finalizer can release the object
+    /// while Swift still borrows it; the caller holds it with <see cref="ArgumentKeepAlive"/> after
+    /// the call returns.
+    /// </summary>
+    public static bool PassesBorrowedObjectPointer(ITypeProjection? projection) => projection switch
+    {
+        ObjCBridgeableProjection bridgeable => !bridgeable.IsTypedEnum,
+        ObjCBridgedProjection or ObjCRootedClassProjection or ClassProjection or KeyPathProjection or NonFrozenStructProjection => true,
+        OptionalProjection optional => PassesBorrowedObjectPointer(optional.InnerProjection),
+        _ => false,
+    };
+
+    /// <summary>The statement that holds a borrowed argument until the native call has returned.</summary>
+    public static string ArgumentKeepAlive(string argument)
+        => $"global::System.GC.KeepAlive({argument});";
+
+    /// <summary>
+    /// Writes <see cref="ArgumentKeepAlive"/> for each of <paramref name="arguments"/> once, after a
+    /// native call that borrowed their pointers.
+    /// </summary>
+    public static void WriteArgumentKeepAlives(CSharpWriter writer, IEnumerable<string> arguments)
+    {
+        foreach (var argument in arguments.Distinct(StringComparer.Ordinal))
+            writer.WriteLine(ArgumentKeepAlive(argument));
+    }
+
     /// <summary>Self of an Objective-C-rooted object (<paramref name="receiver"/> is an INativeObject).</summary>
     public static string ObjCSelf(string receiver = "this")
         => $"{Guard}.GetLiveObjCHandle({receiver})";

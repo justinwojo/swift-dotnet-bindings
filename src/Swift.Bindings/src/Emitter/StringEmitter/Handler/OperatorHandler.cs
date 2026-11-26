@@ -736,6 +736,46 @@ namespace BindingsGeneration
         /// </summary>
         private bool EmitOperatorPInvokeCall(CSharpWriter csWriter, string symbol, string pinvokeName, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
         {
+            // An Objective-C operand crosses as the bare pointer read off its wrapper, the wrapper's
+            // last use: the operand is held until the call has returned, whichever return the body
+            // takes, so its finalizer cannot release the object while Swift borrows it.
+            var borrowed = BorrowedObjectOperands(pInvokeSignature, methodEnv, marshalling);
+            if (borrowed.Count == 0)
+                return EmitOperatorPInvokeCallBody(csWriter, symbol, pinvokeName, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling);
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            if (!EmitOperatorPInvokeCallBody(csWriter, symbol, pinvokeName, returnType, pInvokeSignature, pinvokeHelperContext, requiresIndirectResult, methodEnv, callSite, marshalling))
+                return false;
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            foreach (var name in borrowed)
+                csWriter.WriteLine("    " + LiveHandleExpressions.ArgumentKeepAlive(name));
+            csWriter.WriteLine("}");
+            return true;
+        }
+
+        /// <summary>
+        /// The operands whose object pointer the operator's call borrows: each Objective-C object
+        /// operand, and each Optional object operand the ordinary member's projection converts.
+        /// </summary>
+        private static List<string> BorrowedObjectOperands(Signature pInvokeSignature, MethodEnvironment? methodEnv, OperatorMarshalling marshalling)
+        {
+            var names = pInvokeSignature.Parameters
+                .Where(p => p.Type is MarshalledType.ObjCBridged)
+                .Select(p => p.Name)
+                .ToList();
+            if (methodEnv != null)
+                names.AddRange(marshalling.ConvertedOperands
+                    .Where(operand => MarshallingHelpers.IsOptionalObjCBridged(operand.SwiftTypeSpec, methodEnv.TypeDatabase))
+                    .Select(NameProvider.GetMarshallingBaseName));
+            return names.Distinct(StringComparer.Ordinal).ToList();
+        }
+
+        private bool EmitOperatorPInvokeCallBody(CSharpWriter csWriter, string symbol, string pinvokeName, string returnType, Signature pInvokeSignature, PInvokeHelperContext? pinvokeHelperContext, bool requiresIndirectResult, MethodEnvironment? methodEnv, WrapperEmitter? callSite, OperatorMarshalling marshalling)
+        {
             var callArgs = pInvokeSignature.CallArgumentsString(methodEnv?.SyntheticLocals, methodEnv?.SyntheticLocals);
 
             // The ordinary body converts its parameters before the call-site preamble; so does this one.

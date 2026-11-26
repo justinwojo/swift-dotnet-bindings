@@ -410,12 +410,11 @@ public class ReceiverConversionVisitorTests
         var dict = new DictionaryProjection(
             new StringProjection(), new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(dict.UsesObjCContainerBridge);
-        // Value (URL) is already an NSObject → passed through; String key → new NSString(...).
-        AssertRetainsHeldCollection(
-            "Foundation.NSDictionary.FromObjectsAndKeys(" +
-            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => kvp.Value)), " +
-            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => new Foundation.NSString(kvp.Key))))",
-            dict.GetReverseReceiverObjCBridgeConversion("result"));
+        // One pass over the source: a dictionary that yields its entries differently on a second
+        // enumeration still pairs each key with its own value.
+        var conversion = dict.GetReverseReceiverObjCBridgeConversion("result");
+        AssertRetainsHeldCollection(dict.OnePassNSDictionary("result"), conversion);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(conversion, @"\bresult\b"));
     }
 
     [Fact]

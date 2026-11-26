@@ -361,3 +361,104 @@ public final class OptionalBridgedContainerHolder {
         return "\(a)|\(s)|\(i)|\(n)"
     }
 }
+
+// MARK: - Swift values inside a bridged container
+//
+// A URL key sends the whole dictionary through `NSDictionary`, and Swift bridges every value with
+// it: a Swift class value is the object itself, and so is each Swift class in an `[Box]` value.
+// (A Swift struct value is boxed in an object only Swift can open, and has no binding.)
+
+/// A Swift class held inside bridged containers.
+public final class URLValueBox {
+    public let name: String
+
+    public init(name: String) { self.name = name }
+}
+
+/// `[a: box "x", b: box "y"]`.
+public func urlBoxIndex() -> [URL: URLValueBox] {
+    [countsURL("a"): URLValueBox(name: "x"), countsURL("b"): URLValueBox(name: "y")]
+}
+
+/// `index` as `url=name` sorted and joined by `;`.
+public func urlBoxIndexDescribe(_ index: [URL: URLValueBox]) -> String {
+    index.map { "\($0.key.lastPathComponent)=\($0.value.name)" }.sorted().joined(separator: ";")
+}
+
+/// `[a: [box "x", box "y"], b: []]`.
+public func urlBoxRows() -> [URL: [URLValueBox]] {
+    [countsURL("a"): [URLValueBox(name: "x"), URLValueBox(name: "y")], countsURL("b"): []]
+}
+
+/// `rows` as `url:name,name` sorted and joined by `;`.
+public func urlBoxRowsDescribe(_ rows: [URL: [URLValueBox]]) -> String {
+    rows.map { "\($0.key.lastPathComponent):" + $0.value.map(\.name).joined(separator: ",") }.sorted().joined(separator: ";")
+}
+
+// MARK: - Sets of collections compared by their contents
+//
+// Swift's `Hashable` for `[URL]` and `Set<URL>` compares the elements, so a fresh, equal row finds
+// the row a set holds.
+
+/// Whether `rows` holds a row equal to `row`, as Swift compares rows.
+public func urlRowSetContains(_ rows: Set<[URL]>, _ row: [URL]) -> Bool {
+    rows.contains(row)
+}
+
+/// `{{a, b}, {c}}`.
+public func urlGroupSet() -> Set<Set<URL>> {
+    [[countsURL("a"), countsURL("b")], [countsURL("c")]]
+}
+
+// MARK: - Dictionaries C# builds in one pass
+//
+// A dictionary C# hands Swift is read once, so each key keeps its own value even when the
+// dictionary does not enumerate the same way twice.
+
+/// `index` as `key=url` sorted and joined by `;`.
+public func urlIndexDescribe(_ index: [String: URL]) -> String {
+    index.map { "\($0.key)=\($0.value.lastPathComponent)" }.sorted().joined(separator: ";")
+}
+
+/// Every dictionary of `rows` as `urlIndexDescribe` does, joined by `|`.
+public func urlIndexRowsDescribe(_ rows: [[String: URL]]) -> String {
+    rows.map(urlIndexDescribe).joined(separator: "|")
+}
+
+/// A dictionary of URLs C# sets, which Swift reads back.
+public final class URLIndexHolder {
+    public var index: [String: URL] = [:]
+
+    public init() {}
+
+    /// `index`, described as `urlIndexDescribe` does.
+    public func describe() -> String { urlIndexDescribe(index) }
+
+    /// Reads `subscript(__val:)` with `__val` as its index, for a setter whose locals must not take
+    /// the index's name.
+    public subscript(__val position: Int) -> [String: URL] {
+        get { position == 0 ? index : [:] }
+        set { if position == 0 { index = newValue } }
+    }
+
+    public var urls: [URL]? = nil
+
+    /// `urls` under the key "urls", for a setter with a String index spelled like its locals.
+    public subscript(__val key: String) -> [URL]? {
+        get { key == "urls" ? urls : nil }
+        set { if key == "urls" { urls = newValue } }
+    }
+
+    /// `urls` as names joined by `,`, or "nil".
+    public func describeURLs() -> String { urls.map { $0.map(\.lastPathComponent).joined(separator: ",") } ?? "nil" }
+}
+
+/// A conformer C# implements: Swift asks it for a dictionary of URLs.
+public protocol URLIndexSource: AnyObject {
+    func makeIndex() -> [String: URL]
+}
+
+/// The dictionary the conformer makes, described as `urlIndexDescribe` does.
+public func urlIndexSourceDescribe(_ source: URLIndexSource) -> String {
+    urlIndexDescribe(source.makeIndex())
+}

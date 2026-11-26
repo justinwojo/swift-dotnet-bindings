@@ -45,6 +45,84 @@ public static class SwiftKeyComparer
     /// </summary>
     public static IEqualityComparer<string?> StringKeys { get; } = new SwiftStringComparer();
 
+    /// <summary>
+    /// A comparer of sequences that compares them as Swift's <c>Array</c> does: two sequences are
+    /// equal when they have the same length and equal elements in the same order, by
+    /// <paramref name="elementComparer"/> (the element type's own equality when
+    /// <see langword="null"/>). A <see langword="null"/> sequence equals only another
+    /// <see langword="null"/>.
+    /// </summary>
+    /// <remarks>
+    /// A set of Swift arrays, or a dictionary keyed by them, is read into .NET as a collection of
+    /// lists, which compare by reference; with this comparer a lookup with a fresh, equal list finds
+    /// the element Swift holds.
+    /// </remarks>
+    public static IEqualityComparer<IEnumerable<T>> Sequences<T>(IEqualityComparer<T>? elementComparer)
+        => new SequenceComparer<T>(elementComparer ?? EqualityComparer<T>.Default);
+
+    /// <summary>
+    /// A comparer of sets that compares them as Swift's <c>Set</c> does: two sets are equal when
+    /// they hold the same elements, in any order, by <paramref name="elementComparer"/> (the element
+    /// type's own equality when <see langword="null"/>). A <see langword="null"/> set equals only
+    /// another <see langword="null"/>.
+    /// </summary>
+    public static IEqualityComparer<IEnumerable<T>> Sets<T>(IEqualityComparer<T>? elementComparer)
+        => new SetComparer<T>(elementComparer ?? EqualityComparer<T>.Default);
+
+    private sealed class SequenceComparer<T> : IEqualityComparer<IEnumerable<T>>
+    {
+        private readonly IEqualityComparer<T> _element;
+
+        public SequenceComparer(IEqualityComparer<T> element) => _element = element;
+
+        public bool Equals(IEnumerable<T>? x, IEnumerable<T>? y)
+        {
+            if (x is null || y is null)
+                return x is null && y is null;
+            if (ReferenceEquals(x, y))
+                return true;
+            return System.Linq.Enumerable.SequenceEqual(x, y, _element);
+        }
+
+        public int GetHashCode(IEnumerable<T>? value)
+        {
+            if (value is null)
+                return 0;
+            var hash = new HashCode();
+            foreach (var element in value)
+                hash.Add(element is null ? 0 : _element.GetHashCode(element));
+            return hash.ToHashCode();
+        }
+    }
+
+    private sealed class SetComparer<T> : IEqualityComparer<IEnumerable<T>>
+    {
+        private readonly IEqualityComparer<T> _element;
+
+        public SetComparer(IEqualityComparer<T> element) => _element = element;
+
+        public bool Equals(IEnumerable<T>? x, IEnumerable<T>? y)
+        {
+            if (x is null || y is null)
+                return x is null && y is null;
+            if (ReferenceEquals(x, y))
+                return true;
+            return new HashSet<T>(x, _element).SetEquals(y);
+        }
+
+        // Order-independent, as the elements of a set have no order: the sum of the distinct
+        // elements' hashes.
+        public int GetHashCode(IEnumerable<T>? value)
+        {
+            if (value is null)
+                return 0;
+            var hash = 0;
+            foreach (var element in new HashSet<T>(value, _element))
+                hash = unchecked(hash + (element is null ? 0 : _element.GetHashCode(element)));
+            return hash;
+        }
+    }
+
     private sealed class SwiftStringComparer : IEqualityComparer<string?>
     {
         public bool Equals(string? x, string? y)

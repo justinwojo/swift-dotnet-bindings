@@ -247,6 +247,47 @@ public class CrossModuleExtensionEmitterTests
 
     #endregion
 
+    #region Emit: object arguments outlive the call
+
+    // The trampoline is handed the bare pointers of the receiver and of each object argument; the
+    // wrappers that own them must stay reachable until the call returns, or a precise collector
+    // can finalize one, releasing its object, while Swift is still using it.
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void Emit_ObjectArgumentAndReceiver_AreHeldUntilTheCallReturns(bool objCRooted, bool throws)
+    {
+        var (csWriter, swiftWriter, csOutput, moduleDecl, classDecl, conductor, env) = CreateSetup();
+        classDecl.IsObjCRooted = objCRooted;
+        var method = CreateMethodDecl("adopt", "TestModule", classDecl);
+        method.Throws = throws;
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "other",
+            PrivateName = "other",
+            SwiftTypeSpec = new NamedTypeSpec("OrigModule.OrigType"),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = method.ModuleDecl,
+        });
+        classDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, classDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        var body = result.Substring(result.IndexOf("Adopt(", StringComparison.Ordinal));
+        var call = body.IndexOf("NativeMethods.", StringComparison.Ordinal);
+        Assert.True(call >= 0, result);
+        Assert.True(body.IndexOf("global::System.GC.KeepAlive(other);", call, StringComparison.Ordinal) > call, result);
+        // A pure Swift receiver is pinned instead; an Objective-C-rooted one is held like an argument.
+        Assert.Equal(objCRooted, body.IndexOf("global::System.GC.KeepAlive(self);", call, StringComparison.Ordinal) > call);
+    }
+
+    #endregion
+
     #region Emit: calling convention
 
     [Fact]
@@ -511,6 +552,51 @@ public class CrossModuleExtensionEmitterTests
         var swiftResult = swiftOutput.ToString();
         Assert.Contains("@_cdecl(\"SBW_TestModule_Ext_OrigPoint_doMath_", swiftResult);
         Assert.Contains("self_.assumingMemoryBound(to: OrigModule.OrigPoint.self).pointee", swiftResult);
+    }
+
+    /// <summary>
+    /// The struct-receiver trampoline is handed each object argument's bare pointer; the wrapper
+    /// that owns it must stay reachable until the call returns.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.NSString")]
+    [InlineData("OtherModule.OtherNode")]
+    public void EmitStruct_ObjectArgument_IsHeldUntilTheCallReturns(string argumentType)
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        var otherModule = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
+        otherModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OtherModule.OtherNode"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "OtherNode"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.OtherNode"),
+                MetadataAccessor = "$s11OtherModule9OtherNodeCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        ((TypeDatabase)env.TypeDatabase).AddModuleDatabase(otherModule);
+        var method = CreateMethodDecl("adopt", "TestModule", structDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "other",
+            PrivateName = "other",
+            SwiftTypeSpec = new NamedTypeSpec(argumentType),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = method.ModuleDecl,
+        });
+        structDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        var body = result.Substring(result.IndexOf("Adopt(", StringComparison.Ordinal));
+        var call = body.IndexOf("NativeMethods.", StringComparison.Ordinal);
+        Assert.True(call >= 0, result);
+        Assert.True(body.IndexOf("global::System.GC.KeepAlive(other);", call, StringComparison.Ordinal) > call, result);
     }
 
     /// <summary>

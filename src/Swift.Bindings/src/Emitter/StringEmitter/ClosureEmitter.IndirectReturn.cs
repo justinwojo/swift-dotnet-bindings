@@ -259,9 +259,11 @@ public static partial class ClosureEmitter
                 // Swift's wrapper will .move() this value and eventually passRetained it —
                 // the expression release consumes the original +1, so the buffer must carry
                 // its own +1 to prevent over-release when both the C# wrapper and the
-                // Swift-returned wrapper are finalized.
+                // Swift-returned wrapper are finalized. The wrapper is held until the retain is
+                // taken: past its last use its finalizer could release the object first.
                 var __ptr = result.Payload.DangerousGetHandle();
                 global::Swift.Runtime.Arc.Retain(__ptr);
+                global::System.GC.KeepAlive(result);
                 *(IntPtr*)indirectResult = __ptr;
                 """;
         }

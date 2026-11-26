@@ -288,6 +288,9 @@ namespace BindingsGeneration
             if (!handedOverToCallee)
             {
                 csWriter.WriteLine($"IntPtr {localName} = {handleExpression};");
+                // The callee borrows the pointer: its owner is held until the call returns.
+                if (owner is not null)
+                    _borrowedObjectArgumentNames.Add(owner);
                 return;
             }
             var leaseName = RegisterOwnedArgumentTransfer(leaseBaseName);
@@ -1062,6 +1065,8 @@ namespace BindingsGeneration
                 }
 
             var csName = NameProvider.GetMarshallingBaseName(argumentDecl);
+            if (LiveHandleExpressions.PassesBorrowedObjectPointer(projection))
+                _borrowedObjectArgumentNames.Add(csName);
 
             // B12: ObjC optional inner — extract Handle directly instead of using projection.
             //

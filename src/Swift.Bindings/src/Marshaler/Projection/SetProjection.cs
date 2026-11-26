@@ -184,8 +184,9 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     {
         if (ViewReverseConversion() is { } reverse)
             return $"{sourceExpr}.AsProjected<{_elementProjection.PublicType}>(e => {elemConversion}, p => {reverse})";
-        // A set of Swift strings compares its elements as Swift does (DictionaryProjection.StringKeyComparer).
-        var comparer = DictionaryProjection.StringKeyComparer(_elementProjection) is { } stringComparer ? $", {stringComparer}" : "";
+        // A set of Swift strings, arrays or sets compares its elements as Swift does
+        // (DictionaryProjection.SetElementComparer).
+        var comparer = DictionaryProjection.SetElementComparer(_elementProjection) is { } elementComparer ? $", {elementComparer}" : "";
         return $"global::System.Linq.Enumerable.ToHashSet(global::System.Linq.Enumerable.Select({sourceExpr}, e => {elemConversion}){comparer})";
     }
 
@@ -332,8 +333,8 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// The elements of the NSSet <paramref name="nsSetExpr"/> read into a new managed set. Each
     /// element is read as an element of an Objective-C collection (<see cref="DictionaryProjection.FromNSObject"/>):
     /// a URL or an Apple typed-enum carrier as itself, and a nested collection (<c>Set&lt;[URL]&gt;</c>,
-    /// an NSSet of NSArrays) as the collection it bridged to, not as a leaf. A set of Swift strings
-    /// compares its elements as Swift does (<see cref="DictionaryProjection.StringKeyComparer"/>).
+    /// an NSSet of NSArrays) as the collection it bridged to, not as a leaf. A set of Swift strings,
+    /// arrays or sets compares its elements as Swift does (<see cref="DictionaryProjection.SetElementComparer"/>).
     /// Each nesting level names its locals by its own depth, so a set read inside another one does
     /// not redeclare its parent's.
     /// </summary>
@@ -343,7 +344,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         var depth = ObjCSetNestingDepth(this);
         string Name(string stem) => depth == 1 ? stem : $"{stem}{depth}";
         var (nsSet, set, nsObj) = (Name("_nsSet"), Name("_set"), Name("_nsObj"));
-        var comparer = DictionaryProjection.StringKeyComparer(_elementProjection) ?? "";
+        var comparer = DictionaryProjection.SetElementComparer(_elementProjection) ?? "";
         return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
                $"var {nsSet} = {nsSetExpr}; " +
                $"var {set} = new System.Collections.Generic.HashSet<{elemPublicType}>({comparer}); " +

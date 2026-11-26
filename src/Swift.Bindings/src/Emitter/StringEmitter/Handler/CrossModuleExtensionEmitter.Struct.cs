@@ -431,8 +431,28 @@ public static partial class CrossModuleExtensionEmitter
         pinvokeCallArgs.Add($"(IntPtr)(&{receiverScope.ReceiverName})");
 
         var nativeCall = $"NativeMethods.{pinvokeName}({string.Join(", ", pinvokeCallArgs)})";
+        // An object argument crosses as a bare pointer only its wrapper owns: hold each wrapper until
+        // the call returns, or a precise collector can finalize it, releasing the object, mid-call.
+        var held = parameters.Where(p => PassesBorrowedHandle(p.Kind)).Select(p => p.Name).ToList();
+        if (held.Count > 0)
+        {
+            csWriter.WriteLine("try");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+        }
         EmitStructReturnMarshalling(csWriter, returnCategory.Value, nativeCall, publicReturnType, returnEnumLowering,
             receiverScope.BodyScope);
+        if (held.Count > 0)
+        {
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, held);
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
+        }
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
