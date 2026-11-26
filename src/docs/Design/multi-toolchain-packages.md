@@ -164,14 +164,27 @@ a throwing closure, and a marker-conformer overload naming the conformer it pass
 its `ref` parameters, so overloads that differ only by an `inout` parameter, and a forwarder whose
 member has one, have keys of their own. A key spells each parameter as the member declares it, nullable
 annotations and tuple element names included, and neither is part of the CLR signature, so an older key
-the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
-with `Load(string)`, an indexer's `this[string?]` with `this[string]`). A value type's `T?` folds into
-the same shape, so the spelling alone cannot tell which of them is the older member's. The merge reads it
-from the copies' `lib/<T>/` assemblies (`SwiftDeclarationRecordKeys`), where `Nullable<T>` is a type and
-an annotation is not: a candidate whose compiled signature differs from the older member's
-(`Load(string, int)` beside `Load(string, int?)`) is another member and is not compared. A key either
-assembly does not resolve to one signature stays a candidate, and the name moved unless every candidate
-keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
+the newer copy lacks is compared with the newer copy's keys of the same member name: its declaring type
+and name, without generic argument lists (`Load` for `Load(string?)`, `Load(global::System.String)` and
+`Load(T)`, `this` for an indexer). That is deliberately too coarse: every spelling of one CLR signature
+shares it, whatever it spells its parameter types and generic parameters as, and whether or not the
+rest of the key reads, and it also groups every overload. Which keys stand for the older
+member's signature is read from the copies' `lib/<T>/` assemblies (`SwiftDeclarationRecordKeys`), each
+key in its own copy: it names the members it spells, whatever their generic arity (a key's `` `N `` also
+counts generic parameters the C# member does not declare), and their parameter types are compared by full name
+(namespace, enclosing types, generic arity, `Nullable<T>` apart from an annotation). A candidate whose
+compiled signature differs from the older member's (`Load(string, int)` beside `Load(string, int?)`, or
+a binding's `Kit.Int32` beside `System.Int32`) is another member and is not compared. A key names each
+compiled type its spelling can mean, and a type keeps its own name however C# reaches it. A
+namespace-level type is reached only through namespaces: a keyword, tuple or `global::` name must be it,
+and any other name every such type whose name it ends, since the generator spells names further from
+`global::` after the key is taken. A nested type may also be reached through a type that inherits it
+(`Deps.Child.Value` for `Deps.Base.Value`), so any spelling of its name can name it, except a keyword or a
+tuple, which is always the core library's type, and a single-segment `global::` name. One reading is narrower: a first segment the member's own type
+declares as a nested type the generator emitted, and does not reach through a using directive, is that
+nested type (`System.String` in a type with a nested `System` is a type nested in it or inherited by
+it, never the core library's). A key either assembly does not resolve to one signature stays a
+candidate, and the name moved unless every candidate keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
 protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
 no API-manifest entry, are recorded like any other, and so are the members emitted outside their Swift
 parent's C# type: a protocol extension's concrete specializations (`*CsmExtensions` and the

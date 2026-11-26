@@ -44,5 +44,9 @@
     <Compile Include="../../Swift.Bindings/src/Emitter/PackageCopyDeclarationEmitter.cs" Link="Packaging/PackageCopyDeclarationEmitter.cs" />
     <Compile Include="../../Swift.Bindings/src/Emitter/SwiftDeclarationRecordFormat.cs" Link="Packaging/SwiftDeclarationRecordFormat.cs" />
     <Compile Include="../../Swift.Bindings/src/Emitter/SwiftDeclarationRecordKeys.cs" Link="Packaging/SwiftDeclarationRecordKeys.cs" />
+    <!-- The bare names the generator's C# qualifier may respell from global:: after a record key is
+         taken: the package merge reads a key's spelling as C# lookup would only where it cannot have. -->
+    <EmbeddedResource Include="../../Swift.Bindings/src/Data/imported-type-names.json" Link="Packaging/imported-type-names.json"
+                      LogicalName="SwiftBindings.Tasks.imported-type-names.json" />
   </ItemGroup>
 </Project>

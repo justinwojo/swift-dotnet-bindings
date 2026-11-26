@@ -642,27 +642,24 @@ public static class SwiftBindingPackageMerge
             // A key spells its parameters as the member declares them, nullable annotations and tuple
             // element names included, and neither is part of the CLR signature a library binds:
             // `Load(string?)` in one copy and `Load(string)` in the other are one signature. An older
-            // member whose key the newer copy lacks is compared with the newer copy's own keys of the
-            // same CLR shape (ClrShape). The shape also folds a value type's `T?` into `T`, so it can name
-            // several signatures; which one is the older member's is read from the copies' assemblies
-            // (ClrSignatures): a candidate whose compiled signature differs from the older member's
-            // (`Load(string, int)` beside `Load(string, int?)`) is another member and is not compared. A
-            // key either assembly does not resolve to one signature stays a candidate, and the name moved
-            // unless every candidate keeps its declaration. An older signature the newer copy lost
-            // outright is refused by the public API comparison.
+            // member whose key the newer copy lacks is compared with the newer copy's own keys of its
+            // member name (MemberName), which every spelling of one CLR signature shares whatever it
+            // spells its parameters as (a generic parameter's name included): it can only hold too many
+            // keys, never too few. Which of them stand for the older member's signature is read from the
+            // copies' assemblies (ClrSignatures), each key in its own copy: a candidate whose compiled
+            // signature differs from the older member's (`Load(string, int)` beside `Load(string, int?)`,
+            // or a binding's own `Int32` beside `System.Int32`) is another member and is not compared. A key either assembly does not
+            // resolve to one signature stays a candidate, and the name moved unless every candidate
+            // keeps its declaration. An older signature the newer copy lost outright is refused by the
+            // public API comparison.
             var @namespace = file[..^BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix.Length];
             var olderSignatures = new ClrSignatures(older, @namespace, before.Module, before.Types.Keys.ToHashSet(StringComparer.Ordinal));
             var newerSignatures = new ClrSignatures(newer, @namespace, after.Module, after.Types.Keys.ToHashSet(StringComparer.Ordinal));
-            // A bare `Int32` in a key is the binding's own type when its copy declares one where C#
-            // looks it up from the member's container; each copy's keys are read in that copy's scope.
-            var olderTypes = before.Types.Keys.ToHashSet(StringComparer.Ordinal);
-            var newerTypes = after.Types.Keys.ToHashSet(StringComparer.Ordinal);
-            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k))
-                .ToLookup(k => ClrShape(k, newerTypes), StringComparer.Ordinal);
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(MemberName, StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
                 var signature = olderSignatures.Of(olderKey);
-                var candidates = newerOnly[ClrShape(olderKey, olderTypes)]
+                var candidates = newerOnly[MemberName(olderKey)]
                     .Where(k => signature is null || newerSignatures.Of(k) is not { } candidate || candidate == signature)
                     .OrderBy(k => k, StringComparer.Ordinal).ToList();
                 var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
@@ -688,10 +685,16 @@ public static class SwiftBindingPackageMerge
 
     /// <summary>
     /// The compiled CLR signature of a record key in one copy: its parameter types as the copy's
-    /// <c>lib/&lt;tfm&gt;/</c> assemblies declare them, <c>Nullable&lt;T&gt;</c> told apart from a nullable
-    /// annotation (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys"/>). Null for a key that
-    /// does not resolve to exactly one signature (a property, a member no assembly of the copy
-    /// declares in the record's namespace), which the comparison then treats as any signature.
+    /// <c>lib/&lt;tfm&gt;/</c> assemblies declare them, each named in full (namespace, enclosing types,
+    /// generic arity; <see cref="BindingsGeneration.SwiftDeclarationRecordKeys.Member.QualifiedParameters"/>)
+    /// with <c>Nullable&lt;T&gt;</c> told apart from a nullable annotation, and the method's generic
+    /// arity. The key names the members it spells by simple names, whatever their generic arity
+    /// (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex.Spelled"/>: the key's
+    /// Swift arity also counts parameters the C# member does not declare, so it cannot tell which it is),
+    /// whose full parameter types its own qualification can name (<see cref="BindingsGeneration.SwiftDeclarationRecordKeys.CanName"/>).
+    /// Null for a key that does not resolve to exactly one signature (a property, a member no
+    /// assembly of the copy declares in the record's namespace), which the comparison then treats as
+    /// any signature.
     /// </summary>
     private sealed class ClrSignatures(Copy copy, string @namespace, string module, IReadOnlySet<string> swiftTypes)
     {
@@ -708,14 +711,32 @@ public static class SwiftBindingPackageMerge
                 .OrderBy(f => f.Key, StringComparer.Ordinal)
                 .Select(f => Index(f.Value)).ToList();
             string? signature = null;
-            if (BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: not null } parsed)
+            if (BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: not null, QualifiedParameters: { } spelled } parsed)
             {
-                var signatures = _indexes.SelectMany(i => i.Resolve(parsed, module, swiftTypes))
-                    .Select(m => BindingsGeneration.SwiftDeclarationRecordKeys.ClrSignature(m.Parameters))
+                var signatures = _indexes.SelectMany(index => index.Spelled(parsed, module, swiftTypes)
+                        .Where(m => m.QualifiedParameters.Length == spelled.Length
+                                    && spelled.Zip(m.QualifiedParameters).All(p => BindingsGeneration.SwiftDeclarationRecordKeys.CanName(
+                                        p.First, p.Second, m.QualifiedParent, head => OwnNestedType(index, m, head)))))
+                    .Select(m => string.Join(",", m.QualifiedParameters) + "`" + m.GenericArity)
                     .Distinct(StringComparer.Ordinal).ToList();
                 signature = signatures.Count == 1 ? signatures[0] : null;
             }
             return _resolved[key] = signature;
+        }
+
+        // Whether the emitted code reads a parameter type's first segment `head` (`Name` or `Name`N`)
+        // as the member's declaring type's own nested type: generation emitted that type (the record
+        // lists it), so the C# qualifier, which leaves alone a namespace root the module declares a
+        // type of, keeps the key's spelling, and C# finds a type's own nested types first. A name the
+        // qualifier may respell through a using directive, or as the module's namespace, is not
+        // read so.
+        private bool OwnNestedType(BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex index,
+            BindingsGeneration.SwiftDeclarationRecordKeys.Member member, string head)
+        {
+            var name = head.IndexOf('`') is var tick and >= 0 ? head[..tick] : head;
+            return Requalified is { } requalified && !requalified.Contains(name) && name != @namespace.Split('.')[0]
+                   && member.ParentPath.Length > 0 && swiftTypes.Contains(member.ParentPath + "." + name)
+                   && index.QualifiedTypes.Contains(member.QualifiedParent + "+" + head);
         }
 
         private BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex Index(byte[] image)
@@ -733,118 +754,60 @@ public static class SwiftBindingPackageMerge
     }
 
     /// <summary>
-    /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix, or an indexer's
-    /// <c>Parent.this[T1]</c>) without what its parameter spelling carries beyond the CLR signature:
-    /// nullable annotations, tuple element names and the spelling of a type with a C# keyword
-    /// (<c>global::System.String</c>, <c>System.String</c>, <c>String</c> and <c>string</c> are one type). A value
-    /// type's <c>T?</c> is a signature of its own, so the shape can name several signatures. Any other
-    /// qualification is kept: two types of one name in different namespaces are two shapes. A bare
-    /// CLR name is the binding's own type when <paramref name="declaredTypes"/> (a record's type keys,
-    /// <c>Outer.Inner</c>) holds one of that name where C# finds it from the member: nested in the
-    /// member's container or one of the container's containers, or at the top of the namespace. Only
-    /// its <c>System.</c> spelling is folded then. A property key has no parameter list and stays as it is.
+    /// The bare type names the generator's C# qualifier spells from <c>global::</c> after a record key
+    /// is taken, where the module does not declare one in scope (<c>imported-type-names.json</c>, the
+    /// table the qualifier reads); null when the table cannot be read, and then no key's spelling is
+    /// read narrower than its name.
     /// </summary>
-    internal static string ClrShape(string key, IReadOnlySet<string>? declaredTypes = null)
+    private static readonly IReadOnlySet<string>? Requalified = ReadRequalified();
+
+    private static IReadOnlySet<string>? ReadRequalified()
     {
-        var open = key.IndexOfAny(new[] { '(', '[' });
-        var close = open < 0 ? -1 : Matching(key, open, key[open], key[open] == '(' ? ')' : ']');
-        if (open < 0 || close < 0)
-            return key;
-        // `Outer.Inner.Name(` and `Outer.Inner.this[`: the member's container is `Outer.Inner`.
-        var container = key[..open];
-        container = container.LastIndexOf('.') is var dot and >= 0 ? container[..dot] : "";
-        return key[..(open + 1)] + WithoutAliases(WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal)) + key[close..];
-
-        string WithoutAliases(string types) =>
-            System.Text.RegularExpressions.Regex.Replace(
-                KeywordAlias.Replace(types, m => !m.Groups[2].Success && DeclaredInScope(m.Groups[3].Value)
-                    ? m.Value
-                    : Keywords[m.Groups[3].Value]),
-                @"(?<![\w.])global::", "");
-
-        bool DeclaredInScope(string name)
+        try
         {
-            if (declaredTypes is null)
-                return false;
-            for (var scope = container; ; scope = scope.LastIndexOf('.') is var at and >= 0 ? scope[..at] : "")
-            {
-                if (declaredTypes.Contains(scope.Length == 0 ? name : $"{scope}.{name}"))
-                    return true;
-                if (scope.Length == 0)
-                    return false;
-            }
+            using var stream = typeof(SwiftBindingPackageMerge).Assembly.GetManifestResourceStream("SwiftBindings.Tasks.imported-type-names.json");
+            if (stream is null)
+                return null;
+            using var document = System.Text.Json.JsonDocument.Parse(stream);
+            if (!document.RootElement.TryGetProperty("namespaces", out var namespaces) || namespaces.ValueKind != System.Text.Json.JsonValueKind.Object)
+                return null;
+            var names = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var ns in namespaces.EnumerateObject())
+                foreach (var name in ns.Value.EnumerateArray())
+                    if (name.GetString() is { } text)
+                        names.Add(text);
+            return names.Count > 0 ? names : null;
         }
-
-        static string WithoutTupleNames(string types)
+        catch (Exception e) when (e is System.Text.Json.JsonException or InvalidOperationException)
         {
-            var text = new System.Text.StringBuilder(types.Length);
-            for (var i = 0; i < types.Length; i++)
-            {
-                var end = types[i] == '(' ? Matching(types, i, '(', ')') : -1;
-                if (end < 0)
-                {
-                    text.Append(types[i]);
-                    continue;
-                }
-                var elements = TopLevelElements(types[(i + 1)..end]).Select(e => WithoutName(WithoutTupleNames(e.Trim())));
-                text.Append('(').Append(string.Join(", ", elements)).Append(')');
-                i = end;
-            }
-            return text.ToString();
-        }
-
-        static IEnumerable<string> TopLevelElements(string list)
-        {
-            var (depth, from) = (0, 0);
-            for (var i = 0; i < list.Length; i++)
-            {
-                if (list[i] is '(' or '<' or '[') depth++;
-                else if (list[i] is ')' or '>' or ']') depth--;
-                else if (list[i] == ',' && depth == 0)
-                {
-                    yield return list[from..i];
-                    from = i + 1;
-                }
-            }
-            yield return list[from..];
-        }
-
-        // `int x` -> `int`; a space inside a nested type's arguments is not a name.
-        static string WithoutName(string element)
-        {
-            var depth = 0;
-            for (var i = element.Length - 1; i >= 0; i--)
-            {
-                if (element[i] is ')' or '>' or ']') depth++;
-                else if (element[i] is '(' or '<' or '[') depth--;
-                else if (element[i] == ' ' && depth == 0) return element[..i];
-            }
-            return element;
-        }
-
-        static int Matching(string text, int open, char opening, char closing)
-        {
-            var depth = 0;
-            for (var i = open; i < text.Length; i++)
-            {
-                if (text[i] == opening) depth++;
-                else if (text[i] == closing && --depth == 0) return i;
-            }
-            return -1;
+            return null;
         }
     }
 
-    // A base class library type a C# keyword names, spelled by its CLR name, with or without its namespace.
-    private static readonly System.Text.RegularExpressions.Regex KeywordAlias = new(
-        @"(?<![\w.])(global::)?(System\.)?(Boolean|Byte|SByte|Char|Int16|UInt16|Int32|UInt32|Int64|UInt64|IntPtr|UIntPtr|Single|Double|Decimal|String|Object)(?![\w.])",
-        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
-
-    private static readonly Dictionary<string, string> Keywords = new(StringComparer.Ordinal)
+    /// <summary>
+    /// The C# member a key names, by its declaring type and name alone: the key's text ahead of its
+    /// parameter list (<c>Parent.Name</c>, an indexer's <c>Parent.this</c>, a property's whole key),
+    /// without generic argument lists. Every spelling of one CLR signature shares it, whatever it spells
+    /// its types as, and whether or not the rest of the key reads; which of the keys it buckets name
+    /// the same signature the copies' assemblies decide (<see cref="ClrSignatures"/>).
+    /// </summary>
+    internal static string MemberName(string key)
     {
-        ["Boolean"] = "bool", ["Byte"] = "byte", ["SByte"] = "sbyte", ["Char"] = "char", ["Int16"] = "short", ["UInt16"] = "ushort",
-        ["Int32"] = "int", ["UInt32"] = "uint", ["Int64"] = "long", ["UInt64"] = "ulong", ["IntPtr"] = "nint", ["UIntPtr"] = "nuint",
-        ["Single"] = "float", ["Double"] = "double", ["Decimal"] = "decimal", ["String"] = "string", ["Object"] = "object",
-    };
+        var name = new System.Text.StringBuilder();
+        var depth = 0;
+        foreach (var c in key)
+        {
+            if (depth == 0 && c is '(' or '[')
+                break;
+            if (c == '<')
+                depth++;
+            else if (c == '>')
+                depth = Math.Max(0, depth - 1);
+            else if (depth == 0)
+                name.Append(c);
+        }
+        return name.ToString();
+    }
 
     /// <summary>
     /// Every Swift declaration record a copy's assemblies name (<see cref="BindingsGeneration.SwiftDeclarationRecordFormat.AttributeKey"/>,
