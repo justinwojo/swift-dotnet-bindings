@@ -164,7 +164,8 @@ namespace BindingsGeneration
 
         /// <summary>
         /// One parameter of a key in the qualified form <see cref="Member.QualifiedParameters"/> uses, as far
-        /// as the key spells it: a C# keyword as its <c>global::System</c> type, a name with the
+        /// as the key spells it: a C# keyword or tuple as its core library type marked
+        /// <see cref="Language"/> (<c>int</c> → <c>#System.Int32</c>), a name with the
         /// qualification the key gives it (<c>global::</c> kept) and each name's own generic arity
         /// (<c>Outer&lt;T&gt;.Inner</c> → <c>Outer`1.Inner&lt;T&gt;</c>), each <c>?</c> kept. Null when it
         /// does not read as a C# type.
@@ -343,7 +344,7 @@ namespace BindingsGeneration
         /// The qualifier of a type C# names by its own syntax, a keyword or a tuple: always the core
         /// library's type, whatever a compilation declares. No C# spelling holds it, so no alias is read as it.
         /// </summary>
-        public const string Language = "#";
+        private const string Language = "#";
 
         /// <summary>
         /// A type name as spelled, without verbatim <c>@</c>s, with a lone C# keyword as its
@@ -365,8 +366,8 @@ namespace BindingsGeneration
         /// of a member of the type <paramref name="container"/> (its <see cref="Member.QualifiedParent"/>),
         /// for a pair <see cref="Resolve"/> already matched by simple names. A type keeps its own name
         /// however C# reaches it, so the last segments must agree. A namespace-level type is reached
-        /// only through namespaces: a name C# reads from the global namespace (a keyword, <c>global::</c>)
-        /// must be it, and any other must end it, since generation may qualify it further after the key
+        /// only through namespaces: a keyword or tuple (<see cref="Language"/>) and a <c>global::</c> name
+        /// must be it exactly, and any other must end it, since generation may qualify it further after the key
         /// is taken. A nested type may also be reached through a type that inherits it
         /// (<c>Deps.Child.Value</c> for <c>Deps.Base+Value</c>), so any spelling of its name can name it,
         /// except a single-segment <c>global::Value</c>, and a keyword or tuple (<see cref="Language"/>),
