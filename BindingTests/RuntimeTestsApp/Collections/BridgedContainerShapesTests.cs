@@ -34,6 +34,9 @@ public class BridgedContainerShapesTests : TestBase
 
     sealed class UrlSink : IURLContainerSink
     {
+        // A URL the conformer puts in what it makes, when set, so a caller can watch its retain count.
+        public NSUrl? Kept { get; set; }
+
         public IReadOnlyList<NSUrl> StoredURLs { get; set; } = Array.Empty<NSUrl>();
 
         public IReadOnlyDictionary<string, IReadOnlyList<NSUrl>> StoredGroups { get; set; } = new Dictionary<string, IReadOnlyList<NSUrl>>();
@@ -72,7 +75,7 @@ public class BridgedContainerShapesTests : TestBase
                 ["yz"] = new[] { NSUrlOf("b"), NSUrlOf("c") },
             };
 
-        public IReadOnlyList<NSUrl>? MakeOptionalArray(bool present) => present ? new[] { NSUrlOf("a"), NSUrlOf("c") } : null;
+        public IReadOnlyList<NSUrl>? MakeOptionalArray(bool present) => present ? new[] { Kept ?? NSUrlOf("a"), NSUrlOf("c") } : null;
     }
 
     public void TestAConformerStoresTheNestedGroupsSwiftSetsAndHandsThemBack()
@@ -152,6 +155,236 @@ public class BridgedContainerShapesTests : TestBase
             }
         }
         AssertEqual(baseline, kept.RetainCount, "25 crossings leave the kept URL's retain count where it was");
+    }
+
+    /// <summary>
+    /// A conformer's array goes back to Swift as an NSArray built for the call, which the binding
+    /// releases once Swift holds its own reference: a URL the conformer keeps returns to its retain
+    /// count after every crossing, as one explicit retain moves it by exactly one (the control). A
+    /// wrapper left to the finalizer instead holds the array, and the URL in it, until a collection runs.
+    /// </summary>
+    public void TestAContainerAConformerMakesLeavesAKeptURLsRetainCount()
+    {
+        var kept = NSUrlOf("a");
+        var sink = new UrlSink { Kept = kept };
+        nuint baseline = kept.RetainCount;
+
+        kept.DangerousRetain();
+        AssertEqual(baseline + 1, kept.RetainCount, "control: one retain adds one reference");
+        kept.DangerousRelease();
+        AssertEqual(baseline, kept.RetainCount, "control: releasing it takes that reference back");
+
+        for (int i = 0; i < 25; i++)
+        {
+            using (new NSAutoreleasePool())
+            {
+                AssertEqual($"{Url("a")},{Url("c")}", TestLibFunctions.UrlSinkReadOptionalArray(sink, true), "Swift reads the optional array");
+            }
+        }
+        AssertEqual(baseline, kept.RetainCount, "25 crossings leave the kept URL's retain count where it was");
+    }
+
+    // ── Native-only containers inside a bridged one ───────────────────────────────────────
+
+    static string Counts(IEnumerable<KeyValuePair<NSUrl, IEnumerable<nint>>> groups)
+        => string.Join(";", groups.Select(e => $"{e.Key.LastPathComponent}:{string.Join(",", e.Value)}").OrderBy(n => n, StringComparer.Ordinal));
+
+    static string Rows(IEnumerable<IEnumerable<NSUrl>> rows)
+        => string.Join("|", rows.Select(Names).OrderBy(n => n, StringComparer.Ordinal));
+
+    public void TestCSharpReadsArraysOfIntsInADictionaryKeyedByURLs()
+    {
+        var groups = TestLibFunctions.GetUrlCountGroups();
+        AssertEqual(2, groups.Count, "both entries come back");
+        AssertTrue(groups.TryGetValue(NSUrlOf("a"), out var a) && a.SequenceEqual(new nint[] { 1, 2 }), "a fresh, equal URL finds its counts, in order");
+        AssertEqual("3", string.Join(",", groups[NSUrlOf("b")]), "and the other entry's");
+    }
+
+    public void TestSwiftReadsArraysOfIntsInADictionaryKeyedByURLsCSharpBuilt()
+    {
+        var groups = new Dictionary<NSUrl, IEnumerable<nint>> { [NSUrlOf("a")] = new nint[] { 1, 2 }, [NSUrlOf("b")] = new nint[] { 3 } };
+        AssertEqual("a:1,2;b:3", TestLibFunctions.UrlCountGroupsDescribe(groups), "every count as C# built it");
+        var read = TestLibFunctions.GetUrlCountGroups().ToDictionary(e => e.Key, e => (IEnumerable<nint>)e.Value);
+        AssertEqual("a:1,2;b:3", TestLibFunctions.UrlCountGroupsDescribe(read), "and what Swift returned, handed back");
+    }
+
+    public void TestCSharpReadsArraysOfOptionalIntsInADictionaryKeyedByURLs()
+    {
+        var groups = TestLibFunctions.GetUrlOptionalCountGroups();
+        AssertTrue(groups.TryGetValue(NSUrlOf("a"), out var a) && a.SequenceEqual(new nint?[] { 1, null }), "the nil count comes back as null, in its place");
+        var built = new Dictionary<NSUrl, IEnumerable<nint?>> { [NSUrlOf("a")] = new nint?[] { 1, null } };
+        AssertEqual("a:1,nil", TestLibFunctions.UrlOptionalCountGroupsDescribe(built), "and a null C# count reaches Swift as nil");
+    }
+
+    public void TestCSharpReadsDictionariesOfIntsInADictionaryKeyedByURLs()
+    {
+        var tallies = TestLibFunctions.GetUrlTallies();
+        AssertTrue(tallies.TryGetValue(NSUrlOf("a"), out var a), "a fresh, equal URL finds its tallies");
+        AssertEqual(2, a!.Count, "both tallies come back");
+        AssertTrue(a.TryGetValue("x", out var x) && x == 1 && a["y"] == 2, "each under its key");
+    }
+
+    public void TestSwiftReadsDictionariesOfIntsInADictionaryKeyedByURLsCSharpBuilt()
+    {
+        var tallies = new Dictionary<NSUrl, IDictionary<string, nint>> { [NSUrlOf("a")] = new Dictionary<string, nint> { ["x"] = 1, ["y"] = 2 } };
+        AssertEqual("a:x=1,y=2", TestLibFunctions.UrlTalliesDescribe(tallies), "every tally as C# built it");
+    }
+
+    public void TestCSharpReadsASetOfArraysOfURLs()
+    {
+        var rows = TestLibFunctions.GetUrlRowSet();
+        AssertEqual(2, rows.Count, "both rows come back");
+        AssertEqual("a,b|c", Rows(rows), "every row, every URL, in order");
+    }
+
+    public void TestSwiftReadsASetOfArraysOfURLsCSharpBuilt()
+    {
+        var rows = new HashSet<IEnumerable<NSUrl>> { new[] { NSUrlOf("a"), NSUrlOf("b") }, new[] { NSUrlOf("c") } };
+        AssertEqual("a,b|c", TestLibFunctions.UrlRowSetDescribe(rows), "every row as C# built it");
+    }
+
+    sealed class NestedSink : INestedNativeContainerSink
+    {
+        public string DescribeCounts(IDictionary<NSUrl, IEnumerable<nint>> counts) => Counts(counts);
+
+        public string DescribeRowSet(IReadOnlySet<IEnumerable<NSUrl>> rows) => Rows(rows);
+
+        public IReadOnlyDictionary<NSUrl, IReadOnlyList<nint>> MakeCounts()
+            => new Dictionary<NSUrl, IReadOnlyList<nint>> { [NSUrlOf("x")] = new nint[] { 4, 5 }, [NSUrlOf("y")] = Array.Empty<nint>() };
+
+        public IReadOnlySet<IReadOnlyList<NSUrl>> MakeRowSet()
+            => new HashSet<IReadOnlyList<NSUrl>> { new[] { NSUrlOf("p"), NSUrlOf("q") }, new[] { NSUrlOf("r") } };
+
+        public string DescribeSelfNamed(IEnumerable<NSUrl> urls, nint selfProto) => $"{Names(urls)}|{selfProto}";
+    }
+
+    public void TestAConformerReadsArraysOfIntsInADictionaryKeyedByURLs()
+        => AssertEqual("a:1,2;b:3", TestLibFunctions.NestedSinkDescribeCounts(new NestedSink()), "every count Swift handed over");
+
+    public void TestAConformerReadsASetOfArraysOfURLs()
+        => AssertEqual("a,b|c", TestLibFunctions.NestedSinkDescribeRowSet(new NestedSink()), "every row Swift handed over");
+
+    public void TestSwiftReadsArraysOfIntsInADictionaryAConformerMakes()
+        => AssertEqual("x:4,5;y:", TestLibFunctions.NestedSinkReadCounts(new NestedSink()), "every count the conformer made");
+
+    public void TestSwiftReadsASetOfArraysOfURLsAConformerMakes()
+        => AssertEqual("p,q|r", TestLibFunctions.NestedSinkReadRowSet(new NestedSink()), "every row the conformer made");
+
+    public void TestAConformerReadsAnArgumentNamedLikeTheThunksOwnLocal()
+        => AssertEqual("a|41", TestLibFunctions.NestedSinkDescribeSelfNamed(new NestedSink()), "the argument Swift passed, not the conformer");
+
+    // ── Optional bridged containers C# sets ───────────────────────────────────────────────
+
+    static void SetEveryContainer(OptionalBridgedContainerHolder holder, NSUrl url, SwiftKeyNode node)
+    {
+        holder.Urls = new[] { url };
+        holder.UrlSet = new HashSet<NSUrl> { url };
+        holder.Index = new Dictionary<string, NSUrl> { ["k"] = url };
+        holder.NodeIndex = new Dictionary<SwiftKeyNode, NSUrl> { [node] = url };
+    }
+
+    static void ClearEveryContainer(OptionalBridgedContainerHolder holder)
+    {
+        holder.Urls = null;
+        holder.UrlSet = null;
+        holder.Index = null;
+        holder.NodeIndex = null;
+    }
+
+    public void TestSwiftReadsOptionalBridgedContainersCSharpSets()
+    {
+        using var holder = new OptionalBridgedContainerHolder();
+        using var node = new SwiftKeyNode("n");
+        AssertEqual("nil|nil|nil|nil", holder.GetDescribe(), "every container starts nil");
+        SetEveryContainer(holder, NSUrlOf("a"), node);
+        AssertEqual("a|a|k=a|n=a", holder.GetDescribe(), "every container Swift stored");
+        ClearEveryContainer(holder);
+        AssertEqual("nil|nil|nil|nil", holder.GetDescribe(), "and nil again");
+    }
+
+    /// <summary>
+    /// Setting an optional bridged container builds the collection Swift stores, which the setter
+    /// releases once Swift holds its own copy: after the containers are set and cleared, the URL and
+    /// the node key in them are back at their retain counts, as one explicit retain moves each by
+    /// exactly one (the control). A collection whose handle is read off a temporary wrapper is left
+    /// to that wrapper's finalizer, holding every element until a collection runs.
+    /// </summary>
+    public void TestSettingOptionalBridgedContainersLeavesTheirElementsRetainCounts()
+    {
+        using var holder = new OptionalBridgedContainerHolder();
+        using var node = new SwiftKeyNode("n");
+        var url = NSUrlOf("a");
+        nuint baseline = url.RetainCount;
+        nint nodeBaseline = TestLibFunctions.SwiftKeyNodeRetainCount(node);
+
+        url.DangerousRetain();
+        AssertEqual(baseline + 1, url.RetainCount, "control: one retain adds one reference");
+        url.DangerousRelease();
+        AssertEqual(baseline, url.RetainCount, "control: releasing it takes that reference back");
+        using (var control = new SwiftKeyNodeArrayStore())
+        {
+            control.Keep(new[] { node });
+            AssertEqual(nodeBaseline + 1, TestLibFunctions.SwiftKeyNodeRetainCount(node), "control: the array Swift keeps holds one reference");
+            control.Clear();
+            AssertEqual(nodeBaseline, TestLibFunctions.SwiftKeyNodeRetainCount(node), "control: clearing it releases that reference");
+        }
+
+        for (int i = 0; i < 25; i++)
+        {
+            using (new NSAutoreleasePool())
+            {
+                SetEveryContainer(holder, url, node);
+                AssertEqual("a|a|k=a|n=a", holder.GetDescribe(), "Swift stored every container");
+                ClearEveryContainer(holder);
+            }
+        }
+        AssertEqual(baseline, url.RetainCount, "25 sets leave the URL's retain count where it was");
+        AssertEqual(nodeBaseline, TestLibFunctions.SwiftKeyNodeRetainCount(node), "and the node key's");
+    }
+
+    /// <summary>
+    /// The collections a setter builds are read while a collector runs beside it, on a background
+    /// thread: every value Swift stores is the one C# set.
+    /// </summary>
+    public void TestOptionalBridgedContainersSurviveACollectorRunningBeside()
+    {
+        using var stop = new CancellationTokenSource();
+        var collector = Task.Run(() =>
+        {
+            while (!stop.IsCancellationRequested)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+            }
+        });
+        try
+        {
+            var worker = Task.Run(() =>
+            {
+                using var holder = new OptionalBridgedContainerHolder();
+                for (int i = 0; i < 200; i++)
+                {
+                    using (new NSAutoreleasePool())
+                    {
+                        var name = $"u{i}";
+                        holder.Urls = new[] { NSUrlOf(name) };
+                        holder.UrlSet = new HashSet<NSUrl> { NSUrlOf(name) };
+                        holder.Index = new Dictionary<string, NSUrl> { ["k"] = NSUrlOf(name) };
+                        holder.NodeIndex = new Dictionary<SwiftKeyNode, NSUrl> { [new SwiftKeyNode("n")] = NSUrlOf(name) };
+                        var described = holder.GetDescribe();
+                        if (described != $"{name}|{name}|k={name}|n={name}")
+                            return $"iteration {i}: {described}";
+                    }
+                }
+                return "ok";
+            });
+            AssertEqual("ok", worker.GetAwaiter().GetResult(), "every container Swift stored is the one C# set");
+        }
+        finally
+        {
+            stop.Cancel();
+            collector.GetAwaiter().GetResult();
+        }
     }
 
     // ── A Swift class key beside a bridged value ──────────────────────────────────────────

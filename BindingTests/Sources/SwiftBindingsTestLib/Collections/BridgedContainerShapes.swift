@@ -253,3 +253,111 @@ public func canonicalStringAskSink(_ sink: CanonicalStringSink, keys: [String], 
     for (position, k) in keys.enumerated() { index[k] = position }
     return sink.value(in: index, of: key)
 }
+
+// MARK: - Native-only containers inside a bridged one
+//
+// A URL key sends the whole dictionary through `NSDictionary`, and Swift bridges every value with
+// it: an `[Int]` value is an `NSArray` of `NSNumber`, a `[String: Int]` value an `NSDictionary`. A
+// `Set<[URL]>` is an `NSSet` of `NSArray`s. Each must be read and written as the collection it is.
+
+private func countsURL(_ name: String) -> URL { URL(string: "https://example.com/\(name)")! }
+
+/// `[a: [1, 2], b: [3]]`.
+public func urlCountGroups() -> [URL: [Int]] {
+    [countsURL("a"): [1, 2], countsURL("b"): [3]]
+}
+
+/// `groups` as `name:count,count` sorted by name and joined by `;`.
+public func urlCountGroupsDescribe(_ groups: [URL: [Int]]) -> String {
+    groups.map { "\($0.key.lastPathComponent):" + $0.value.map(String.init).joined(separator: ",") }
+        .sorted().joined(separator: ";")
+}
+
+/// `[a: [1, nil]]`: Swift stores the nil count as NSNull once it bridges the dictionary.
+public func urlOptionalCountGroups() -> [URL: [Int?]] {
+    [countsURL("a"): [1, nil]]
+}
+
+/// `groups` as `name:count,nil` sorted by name and joined by `;`.
+public func urlOptionalCountGroupsDescribe(_ groups: [URL: [Int?]]) -> String {
+    groups.map { "\($0.key.lastPathComponent):" + $0.value.map { $0.map(String.init) ?? "nil" }.joined(separator: ",") }
+        .sorted().joined(separator: ";")
+}
+
+/// `[a: ["x": 1, "y": 2]]`.
+public func urlTallies() -> [URL: [String: Int]] {
+    [countsURL("a"): ["x": 1, "y": 2]]
+}
+
+/// `tallies` as `name:key=count,key=count` sorted and joined by `;`.
+public func urlTalliesDescribe(_ tallies: [URL: [String: Int]]) -> String {
+    tallies.map { "\($0.key.lastPathComponent):" + $0.value.map { "\($0.key)=\($0.value)" }.sorted().joined(separator: ",") }
+        .sorted().joined(separator: ";")
+}
+
+/// `{[a, b], [c]}`.
+public func urlRowSet() -> Set<[URL]> {
+    [[countsURL("a"), countsURL("b")], [countsURL("c")]]
+}
+
+/// `rows` as `name,name` per row, sorted and joined by `|`.
+public func urlRowSetDescribe(_ rows: Set<[URL]>) -> String {
+    rows.map { $0.map(\.lastPathComponent).joined(separator: ",") }.sorted().joined(separator: "|")
+}
+
+/// A conformer C# implements: Swift hands it native-only containers inside bridged ones, and asks
+/// for them back.
+public protocol NestedNativeContainerSink: AnyObject {
+    func describeCounts(_ counts: [URL: [Int]]) -> String
+    func describeRowSet(_ rows: Set<[URL]>) -> String
+    func makeCounts() -> [URL: [Int]]
+    func makeRowSet() -> Set<[URL]>
+    // A parameter spelled like the thunk's own `selfProto` local.
+    func describeSelfNamed(_ urls: [URL], selfProto: Int) -> String
+}
+
+/// What the conformer says about `urlCountGroups()`.
+public func nestedSinkDescribeCounts(_ sink: NestedNativeContainerSink) -> String {
+    sink.describeCounts(urlCountGroups())
+}
+
+/// What the conformer says about `urlRowSet()`.
+public func nestedSinkDescribeRowSet(_ sink: NestedNativeContainerSink) -> String {
+    sink.describeRowSet(urlRowSet())
+}
+
+/// The counts the conformer makes, described as `urlCountGroupsDescribe` does.
+public func nestedSinkReadCounts(_ sink: NestedNativeContainerSink) -> String {
+    urlCountGroupsDescribe(sink.makeCounts())
+}
+
+/// The row set the conformer makes, described as `urlRowSetDescribe` does.
+public func nestedSinkReadRowSet(_ sink: NestedNativeContainerSink) -> String {
+    urlRowSetDescribe(sink.makeRowSet())
+}
+
+/// What the conformer says about `[a]` and 41.
+public func nestedSinkDescribeSelfNamed(_ sink: NestedNativeContainerSink) -> String {
+    sink.describeSelfNamed([countsURL("a")], selfProto: 41)
+}
+
+// MARK: - Optional bridged containers C# sets
+
+/// Optional bridged containers C# sets, which Swift reads back.
+public final class OptionalBridgedContainerHolder {
+    public var urls: [URL]? = nil
+    public var urlSet: Set<URL>? = nil
+    public var index: [String: URL]? = nil
+    public var nodeIndex: [SwiftKeyNode: URL]? = nil
+
+    public init() {}
+
+    /// Every container, described: `urls|set|index|nodes`, each "nil" when absent.
+    public func describe() -> String {
+        let a = urls.map { $0.map(\.lastPathComponent).joined(separator: ",") } ?? "nil"
+        let s = urlSet.map { $0.map(\.lastPathComponent).sorted().joined(separator: ",") } ?? "nil"
+        let i = index.map { $0.map { "\($0.key)=\($0.value.lastPathComponent)" }.sorted().joined(separator: ",") } ?? "nil"
+        let n = nodeIndex.map { $0.map { "\($0.key.name)=\($0.value.lastPathComponent)" }.sorted().joined(separator: ",") } ?? "nil"
+        return "\(a)|\(s)|\(i)|\(n)"
+    }
+}

@@ -1653,11 +1653,8 @@ public class PropertyHandler : BaseHandler, IPropertyHandler
                 // so no explicit cast needed in the projection path.
                 if (requiresDisposal)
                 {
-                    // ObjC container bridge: method expects IntPtr (.Handle), not the collection object
-                    var valArg = projection is ArrayProjection { UsesObjCContainerBridge: true }
-                        or SetProjection { UsesObjCContainerBridge: true }
-                        or DictionaryProjection { UsesObjCContainerBridge: true }
-                        ? "__val.Handle" : "__val";
+                    // An ObjC container bridge passes the handle of the collection `__val` keeps alive.
+                    var valArg = AccessorSetterConversionVisitor.HandleArgument(projection, "__val");
                     csWriter.WriteLine($"set {{ {(refusal is null ? "" : refusal + " ")}using var __val = {conv}; {methodName}({valArg}); }}");
                 }
                 else if (refusal != null)

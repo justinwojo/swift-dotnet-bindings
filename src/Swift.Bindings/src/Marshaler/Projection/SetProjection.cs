@@ -158,15 +158,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         // (Unmanaged.passRetained(_unwrapped as AnyObject).toOpaque()). Without
         // owns: true, the NSSet (and any retained inner elements) leak per call.
         if (UsesObjCContainerBridge)
-        {
-            var elemPublicType = _elementProjection.PublicType;
-            var elemConv = ObjCLeafElementRead("_nsObj.Handle");
-            return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
-                   $"var _nsSet = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({containerVar}, true)!; " +
-                   $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
-                   $"foreach (var _nsObj in _nsSet) _set.Add({elemConv}); " +
-                   $"return _set; }}))()";
-        }
+            return ReadObjCSet($"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({containerVar}, true)!");
 
         var elemConversion = OwnedReturnElementConversion("e");
         if (elemConversion != null)
@@ -274,9 +266,9 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             {
                 var innerConv = _elementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return $"new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, e => (Foundation.NSObject){innerConv})))";
+                    return ObjCContainerBridgeOwner.NewSet($"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, e => (Foundation.NSObject){innerConv}))");
             }
-            return $"new Foundation.NSSet({ObjCLeafElementArrayExpr(elementVar)})";
+            return ObjCContainerBridgeOwner.NewSet(ObjCLeafElementArrayExpr(elementVar));
         }
 
         var rawElem = ExistentialElementCarrier.CarrierType(_elementProjection, _elementProjection.SwiftContainerGenericType);
@@ -291,15 +283,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     public string? GetReturnElementConversion(string elementVar)
     {
         if (UsesObjCContainerBridge)
-        {
-            var elemPublicType = _elementProjection.PublicType;
-            var elemConv = ObjCLeafElementRead("_nsObj.Handle");
-            return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
-                   $"var _nsSet = ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({elementVar})!; " +
-                   $"var _set = new System.Collections.Generic.HashSet<{elemPublicType}>(); " +
-                   $"foreach (var _nsObj in _nsSet) _set.Add({elemConv}); " +
-                   $"return _set; }}))()";
-        }
+            return ReadObjCSet($"ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({elementVar})!");
 
         var elemConversion = _elementProjection.GetReturnElementConversion("e");
         if (elemConversion != null)
@@ -345,16 +329,39 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             : $"global::System.Linq.Enumerable.ToArray({varName})";
 
     /// <summary>
-    /// Reads one ObjC element out of a bridged set and projects it to the public element type.
-    /// Identity-shaped for elements that already project as their ObjC object; an Apple typed-enum
-    /// element travels as its NSString carrier and converts back through <c>{Enum}Extensions</c>.
+    /// The elements of the NSSet <paramref name="nsSetExpr"/> read into a new managed set. Each
+    /// element is read as an element of an Objective-C collection (<see cref="DictionaryProjection.FromNSObject"/>):
+    /// a URL or an Apple typed-enum carrier as itself, and a nested collection (<c>Set&lt;[URL]&gt;</c>,
+    /// an NSSet of NSArrays) as the collection it bridged to, not as a leaf. A set of Swift strings
+    /// compares its elements as Swift does (<see cref="DictionaryProjection.StringKeyComparer"/>).
+    /// Each nesting level names its locals by its own depth, so a set read inside another one does
+    /// not redeclare its parent's.
     /// </summary>
-    private string ObjCLeafElementRead(string nsObjHandleExpr)
-        => _elementProjection.TypedEnumAdapter is { } adapter
-            ? adapter.FromCarrier(
-                MarshallingHelpers.FormatObjCBridgeCall(adapter.CarrierType, nsObjHandleExpr, nonNull: true))
-            : MarshallingHelpers.FormatObjCBridgeCall(
-                _elementProjection.PublicType, nsObjHandleExpr, nonNull: true);
+    internal string ReadObjCSet(string nsSetExpr)
+    {
+        var elemPublicType = _elementProjection.PublicType;
+        var depth = ObjCSetNestingDepth(this);
+        string Name(string stem) => depth == 1 ? stem : $"{stem}{depth}";
+        var (nsSet, set, nsObj) = (Name("_nsSet"), Name("_set"), Name("_nsObj"));
+        var comparer = DictionaryProjection.StringKeyComparer(_elementProjection) ?? "";
+        return $"((Func<IReadOnlySet<{elemPublicType}>>)(() => {{ " +
+               $"var {nsSet} = {nsSetExpr}; " +
+               $"var {set} = new System.Collections.Generic.HashSet<{elemPublicType}>({comparer}); " +
+               $"foreach (var {nsObj} in {nsSet}) {set}.Add({DictionaryProjection.FromNSObject(_elementProjection, nsObj)}); " +
+               $"return {set}; }}))()";
+    }
+
+    /// <summary>How many sets enclose this one's elements, itself included.</summary>
+    private static int ObjCSetNestingDepth(ITypeProjection projection) => projection switch
+    {
+        SetProjection set => 1 + ObjCSetNestingDepth(set.ElementProjection),
+        ArrayProjection array => ObjCSetNestingDepth(array.ElementProjection),
+        DictionaryProjection dictionary => Math.Max(
+            ObjCSetNestingDepth(dictionary.KeyProjection),
+            ObjCSetNestingDepth(dictionary.ValueProjection)),
+        OptionalProjection optional => ObjCSetNestingDepth(optional.InnerProjection),
+        _ => 0
+    };
 
     public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
     {
@@ -381,7 +388,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
             {
                 ObjCContainerBridgeOwner.Declare(
                     "Foundation.NSSet", ownerName,
-                    $"new Foundation.NSSet({arrayExpr})", paramName, sourceIsNullable)
+                    ObjCContainerBridgeOwner.NewSet(arrayExpr), paramName, sourceIsNullable)
             },
             ownerName);
     }
@@ -409,7 +416,7 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// Builds the NSSet from the C# elements (recursively bridging nested ObjC containers) and
     /// transfers a +1 ARC retain via <c>Arc.UnknownObjectRetain</c> (dispatches to objc_retain).
     /// The transfer retain keeps the collection — and the elements it retains — alive after the
-    /// receiver frame returns, independent of the freshly-allocated managed wrapper's finalization;
+    /// receiver frame returns, after the new managed wrapper, held until the retain is taken, is released;
     /// the Swift thunk balances it with <c>takeRetainedValue()</c>. This is the reverse of the
     /// forward accessor's <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
     /// </summary>
@@ -429,25 +436,19 @@ public class SetProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             arrayExpr = ObjCLeafElementArrayExpr(varName);
         }
-        return $"global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet({arrayExpr}).Handle)";
+        return ObjCContainerBridgeOwner.RetainedHandle(ObjCContainerBridgeOwner.NewSet(arrayExpr));
     }
 
     private MarshalPlan BuildObjCBridgeReturnPlan(string resultName)
     {
-        var elemPublicType = _elementProjection.PublicType;
-        // NSSet received as ObjC pointer → HashSet<T>
-        // Use NSArray.ArrayFromHandle via intermediate (NSSet doesn't have typed extraction).
+        // NSSet received as ObjC pointer → HashSet<T>.
         // owns: true balances the +1 retain emitted by the Swift @_cdecl wrapper.
         return new MarshalPlan
         {
             SetupStatements = new List<MarshalStatement>
             {
                 new MarshalStatement.Line(
-                    $"var {resultName}NSSet = ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({resultName}, true)!;"),
-                new MarshalStatement.Line(
-                    $"var {resultName}Set = new System.Collections.Generic.HashSet<{elemPublicType}>();"),
-                new MarshalStatement.Line(
-                    $"foreach (var _nsObj in {resultName}NSSet) {resultName}Set.Add({ObjCLeafElementRead("_nsObj.Handle")});")
+                    $"var {resultName}Set = {ReadObjCSet($"ObjCRuntime.Runtime.GetINativeObject<Foundation.NSSet>({resultName}, true)!")};")
             },
             PInvokeExpression = $"{resultName}Set"
         };

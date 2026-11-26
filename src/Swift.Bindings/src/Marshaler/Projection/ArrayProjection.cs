@@ -382,13 +382,26 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         if (_elementProjection is ArrayProjection or DictionaryProjection or SetProjection
             && _elementProjection.UsesObjCContainerBridge)
         {
-            // Different nesting levels must not redeclare the same lambda parameter (CS0136).
+            // Different nesting levels must not redeclare the same lambda parameter (CS0136). Each
+            // element is the Objective-C collection it bridged to, read as an element of one.
             var elementVar = $"_arrayElement{ObjCArrayNestingDepth}";
-            var innerConv = _elementProjection.GetReturnElementConversion(elementVar);
-            if (innerConv != null)
-                return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({nonNullElements}, {elementVar} => {innerConv}))";
+            return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select({nonNullElements}, {elementVar} => {DictionaryProjection.FromNSObject(_elementProjection, elementVar)}))";
         }
         return nonNullElements;
+    }
+
+    /// <summary>
+    /// Reads the NSArray <paramref name="nsObjectExpr"/>, borrowed from the Objective-C collection
+    /// that holds it, as this array when its elements do not bridge on their own: an <c>[Int]</c>
+    /// value of a URL-keyed dictionary is an NSArray of NSNumbers once Swift bridges the dictionary,
+    /// and each element is read as an element of an Objective-C collection. NSArray.ArrayFromHandle
+    /// hands an NSNull element (Swift's nil, in an <c>[Int?]</c>) back as null; it is put back, so
+    /// the element reads as nil.
+    /// </summary>
+    internal string ReadNativeElementsOfNSArray(string nsObjectExpr)
+    {
+        var e = DictionaryProjection.LambdaName("e", nsObjectExpr);
+        return $"global::System.Linq.Enumerable.ToList(global::System.Linq.Enumerable.Select(Foundation.NSArray.ArrayFromHandle<Foundation.NSObject>({nsObjectExpr}.Handle)!, {e} => {DictionaryProjection.FromNSObject(_elementProjection, $"({e} ?? Foundation.NSNull.Null)")}))";
     }
 
     private int ObjCArrayNestingDepth => GetObjCArrayNestingDepth(this);
@@ -439,7 +452,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
     /// Builds the NSArray from the C# elements (recursively bridging nested ObjC containers) and
     /// transfers a +1 ARC retain via <c>Arc.UnknownObjectRetain</c> (dispatches to objc_retain).
     /// The transfer retain keeps the collection — and the elements it retains — alive after the
-    /// receiver frame returns, independent of the freshly-allocated managed wrapper's finalization;
+    /// receiver frame returns, after the new managed wrapper, held until the retain is taken, is released;
     /// the Swift thunk balances it with <c>takeRetainedValue()</c>. This is the reverse of the
     /// forward accessor's <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
     /// </summary>
@@ -459,7 +472,7 @@ public class ArrayProjection : ITypeProjection, IObjCContainerBridgeOwnerSource
         {
             arrayExpr = ObjCLeafElementArrayExpr(varName);
         }
-        return $"global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects({arrayExpr}).Handle)";
+        return ObjCContainerBridgeOwner.RetainedHandle($"Foundation.NSArray.FromNSObjects({arrayExpr})");
     }
 
     public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)

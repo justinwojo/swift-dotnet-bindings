@@ -6096,6 +6096,49 @@ public class EveryProtocolEmitterTests
         Assert.Contains($"&{sibling}2Copy", SingleLineContaining(output, "&urlsRef"));
     }
 
+    [Theory]
+    [InlineData("selfProto", "Swift.Void")]
+    [InlineData("resultPtr", "Swift.String")]
+    [InlineData("slice", "Swift.String")]
+    [InlineData("buffer", "Swift.String")]
+    [InlineData("resultObjPtr", "Foundation.URL")]
+    [InlineData("__result", "Swift.Int")]
+    [InlineData("fn", "Swift.Int")]
+    public void EmitProtocolExtension_ParameterSpelledAsAFixedBodyLocal_MovesAsideUnderItsLabel(string name, string returnType)
+    {
+        // The body binds `selfProto` (the conformer's self), `resultPtr` and the locals that read
+        // a result whatever the parameters are called. A parameter spelled that way would be
+        // shadowed by the local, or read before it is declared, and hand the conformer the wrong
+        // value; it moves aside under its label as a sibling's local does.
+        RegisterBridgeableURL();
+        var protocol = CreateSimpleProtocol("FixedLocalSink");
+        var method = CreateMethodReturning("inspect", returnType);
+        foreach (var (label, type) in new[]
+                 {
+                     ("urls", (TypeSpec)new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Foundation.URL"))),
+                     (name, new NamedTypeSpec("Swift.Int")),
+                 })
+        {
+            method.CSSignature.Add(new ArgumentDecl
+            {
+                Name = label,
+                SwiftTypeSpec = type,
+                PrivateName = "",
+                IsInOut = false,
+                IsGeneric = false,
+                ParentDecl = null,
+                ModuleDecl = null
+            });
+        }
+        protocol.Methods.Add(method);
+
+        var output = EmitProtocolExtension(protocol);
+
+        Assert.Contains($"{name} {name}2: Swift.Int", SingleLineContaining(output, "func inspect("));
+        Assert.Contains($"var {name}2Copy = {name}2", output);
+        Assert.DoesNotContain($"var {name}Copy", output);
+    }
+
     /// <summary>
     /// A protocol whose method repeats the external label `inSection`, with no private names —
     /// the shape the ABI JSON hands us for a declaration written `inSection source:` /

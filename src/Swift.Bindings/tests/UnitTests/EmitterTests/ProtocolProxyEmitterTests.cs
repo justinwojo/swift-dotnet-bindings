@@ -6020,7 +6020,7 @@ public class ProtocolProxyEmitterTests
         var body = ExtractMethodBody(output, "private static IntPtr Receive_make_0(");
 
         Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", body);
-        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", body);
+        Assert.Contains("global::System.GC.KeepAlive(__object); return __handle; }))(result)", body);
         Assert.Contains($"{csType.Replace("global::", "")} Make()", output);
     }
 
@@ -6109,7 +6109,7 @@ public class ProtocolProxyEmitterTests
         var setter = ExtractMethodBody(output, "private static void Receive_connection_set(");
 
         Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", getter);
-        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", getter);
+        Assert.Contains("global::System.GC.KeepAlive(__object); return __handle; }))(result)", getter);
         // The setter's slot holds the borrowed object pointer: bridge the live object.
         Assert.DoesNotContain($"MarshalFromSwift<{csType.Replace("global::", "")}>(", setter);
         Assert.DoesNotContain($"MarshalFromSwift<{csType}>(", setter);
@@ -6147,7 +6147,7 @@ public class ProtocolProxyEmitterTests
         var setter = ExtractMethodBody(output, "private static void Receive_subscript_0_set(");
 
         Assert.DoesNotContain("return MarshalToSwiftBuffer(result);", getter);
-        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(result.Handle)", getter);
+        Assert.Contains("global::System.GC.KeepAlive(__object); return __handle; }))(result)", getter);
         foreach (var body in new[] { getter, setter })
         {
             Assert.DoesNotContain($"MarshalFromSwift<{csType.Replace("global::", "")}>(", body);
@@ -6553,8 +6553,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_getURL_0", output);
-        // Must extract .Handle from the idiomatic NSUrl return value
-        Assert.Contains("result.Handle", output);
+        // Must take the handle of the idiomatic NSUrl return value while holding it
+        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(__object.Handle); global::System.GC.KeepAlive(__object);", output);
+        Assert.DoesNotContain("result.Handle", output);
         Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
     }
 
@@ -6588,8 +6589,9 @@ public class ProtocolProxyEmitterTests
         var output = EmitProxyClass(protocol);
 
         Assert.Contains("Receive_getSession_0", output);
-        // Must extract .Handle from the idiomatic NSUrlSession return value
-        Assert.Contains("result.Handle", output);
+        // Must take the handle of the idiomatic NSUrlSession return value while holding it
+        Assert.Contains("global::Swift.Runtime.Arc.UnknownObjectRetain(__object.Handle); global::System.GC.KeepAlive(__object);", output);
+        Assert.DoesNotContain("result.Handle", output);
         Assert.Contains("MarshalToSwiftBuffer(swiftResult)", output);
     }
 

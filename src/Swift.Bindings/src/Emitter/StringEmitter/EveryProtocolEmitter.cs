@@ -7216,7 +7216,7 @@ public class EveryProtocolEmitter
         // land on a parameter either; every rename removes one clash, so the loop ends.
         while (true)
         {
-            var derived = new HashSet<string>(names.SelectMany(BodyLocalsOf), StringComparer.Ordinal);
+            var derived = new HashSet<string>(names.SelectMany(BodyLocalsOf).Concat(FixedBodyLocals), StringComparer.Ordinal);
             int clash = names.FindIndex(derived.Contains);
             if (clash < 0)
                 break;
@@ -7232,6 +7232,23 @@ public class EveryProtocolEmitter
         }
         return names;
     }
+
+    /// <summary>
+    /// The locals a method thunk's body binds whatever its parameters are called: the conformer's
+    /// <c>selfProto</c>, the result pointer and the locals that read a string, object or value
+    /// result out of it, a fan-out branch's <c>fn</c>, an async witness's continuation, box and
+    /// callbacks, and a closure result's function and context words. A parameter spelled as one of
+    /// them would be shadowed by it (<c>selfProto</c> is bound before the arguments are copied, so
+    /// the copy would read the conformer instead), or read before it is declared, so
+    /// <see cref="BuildSwiftParameterNames"/> keeps parameters off them as it does a sibling's
+    /// <see cref="BodyLocalsOf"/>.
+    /// </summary>
+    internal static readonly IReadOnlyList<string> FixedBodyLocals = new[]
+    {
+        "selfProto", "resultPtr", "resultObjPtr", "slice", "buffer", "str", "__result", "fn",
+        "__cont", "__box", "__boxPtr", "__successFP", "__errorFP",
+        "fnPtrSlot", "ctxPtrSlot", "_fnPtr", "_cdecl", "_bytes",
+    };
 
     /// <summary>
     /// The locals a method thunk's body derives from the parameter named <paramref name="name"/>:
