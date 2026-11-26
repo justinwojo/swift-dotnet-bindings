@@ -42,6 +42,14 @@ namespace BindingsGeneration
                 case MethodDecl method:
                     {
                         var id = DeclIdFactory.ForMethod(method);
+                        // A protocol extension member emitted on a conformer calls the extension's
+                        // declaration, which a member of its name the conformer declares itself
+                        // shadows: the record names the protocol, so that takeover is a move. A
+                        // property default reached through a getter method is a property.
+                        if (method is { IsProtocolExtensionMethod: true, ExtendedProtocolName: { } protocol })
+                            return method.IsExtensionPropertyGetter
+                                ? $"var {id.QualifiedPath} ({ProtocolExtensionMemberOf} {protocol})"
+                                : $"func {id.QualifiedPath}({Labels(id.ParameterLabels.Skip(1))}) ({ProtocolExtensionMemberOf} {protocol})";
                         var kind = method.IsConstructor ? "init" : method.MethodType == MethodType.Static ? "static func" : "func";
                         // Index 0 of a method's signature is its result.
                         return $"{kind} {id.QualifiedPath}({Labels(id.ParameterLabels.Skip(1))})";
@@ -93,6 +101,15 @@ namespace BindingsGeneration
 
         /// <summary>An overload with its own wrapper that passes one conformer as a marker existential.</summary>
         public const string MarkerConformerOverload = "marker-conformer overload taking";
+
+        /// <summary>A protocol extension member emitted on a conformer, naming the protocol whose extension declares it.</summary>
+        public const string ProtocolExtensionMemberOf = "protocol extension member of";
+
+        /// <summary>A base-class method reached through a static trampoline on the subclass it names.</summary>
+        public const string BaseTrampolineOn = "base trampoline on";
+
+        /// <summary>A property's key-value observer, registering for the changes of the property it names.</summary>
+        public const string KeyValueObserverOf = "key-value observer of";
 
         /// <summary>
         /// Records every type of <paramref name="module"/> the binding emitted, members or not: a type

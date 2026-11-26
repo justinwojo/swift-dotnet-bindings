@@ -188,10 +188,13 @@ when a public or protected type or member is neither named by its module's recor
 named fixed-name rule, each of which says why no Swift declaration can move what it matches (runtime
 plumbing, operators, case constants and case members, generated container classes, protocol
 compositions, standard-library conformance members), and when a record key names nothing the assembly
-declares. A key that names a declared member's path but spells its parameters otherwise is listed as
-respelled. Members the record does not yet describe are named by the check's pending list
-(`pending:` entries: SwiftUI view sessions, a few extension-class lanes, base-call trampolines,
-closure-result overloads, the respelled keys), so a newly emitted kind still fails. Negative controls
+declares, including a key that spells a member's parameters otherwise than the member declares them
+(the member it was written for is then uncovered too). Each key is spelled with the parameter types the
+emitted member declares (`ISwiftObject` for an existential generic, the C# collection a Swift array
+projects to), and every emitter that writes a public member records it, the SwiftUI sessions and theme
+accessors, constrained-extension and KVO classes and base-call trampolines included, so the check has no
+list of members waiting to be recorded: a newly emitted kind fails until its emitter records it or a
+fixed-name rule is justified for it. Negative controls
 run every time: the record without one recorded member's key, with a key the assembly does not
 declare, and with a key respelling a recorded method's parameters must each fail. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy
@@ -336,13 +339,17 @@ against its own copy and that copy's library: each Swift-built case must read as
 and each managed-built case must reach Swift as itself. The oldest pairing's library app runs a
 second time with only its `CaseOrder.framework` binary replaced by the Xcode 27 build (signed again),
 so the 26.0 copy's binding and wrapper meet the newest library. Controls that must fail with their own
-code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M11; M7 renumbers
+code: NU1202, SWIFTBIND136 (on ProximityReader and on Matter), 132 and 133 (a wrapper from the older copy), 137, 138 (M1–M14; M7 renumbers
 one CaseOrder `CaseTag` constant in the 27.2 copy, M8 makes a Matter copy declare natives it does
 not ship, M9 merges two copies of the control library `NestedMove` whose Xcode 27 build gives the renamed
 nested type's C# name to an added sibling, M10 two copies of `InterfaceMove`, whose Xcode 27 build gives
 an interface indexer to another subscript and an `int` default-interface forwarder's signature to an
 `Int32` requirement, and M11 two copies of `InOutMove`, whose Xcode 27 build gives the `int` forwarder of
-an overload with an `inout` parameter to an `Int32` overload), 139 and 140. CaseOrder's Xcode 27 build also gives an
+an overload with an `inout` parameter to an `Int32` overload, M12 two copies of `NestedProtocolMove`,
+whose Xcode 27 build does the same to a nested interface's `int` forwarder, M13 M11's copies with the newer
+record's key spelled through a keyword alias (`System.Int32` for `int`), which the merge must still find,
+and M14 two copies of `ExtensionShadow`, whose Xcode 27 build gives a conformer its own member in place of
+the protocol extension member the older copy emits on it), 139 and 140. CaseOrder's Xcode 27 build also gives an
 Objective-C class used as an array element its first set use; the wrapper keeps the element's metadata
 export beside the set's, so its copies still merge.
 Receipts land in `artifacts/multi-toolchain-package/receipts/`.

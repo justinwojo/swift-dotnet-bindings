@@ -3483,6 +3483,31 @@ public class ProtocolHandlerOutputTests
     }
 
     [Fact]
+    public void Emit_InterfaceMethodTakingAnOptionalCollection_IsKeyedByTheParameterTypeTheInterfaceDeclares()
+    {
+        // An optional Swift array parameter is declared with its C# collection projection
+        // (IReadOnlyList<nint>?); a key spelling the projected key's view of it names a
+        // signature the interface does not have.
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var protocol = CreateStaggeredSetterProtocol(moduleDecl);
+        var method = CreateMethodDeclWithParam("tally", "Swift.Int", moduleDecl);
+        method.CSSignature[1] = CreateArgument("input",
+            new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("Swift.Array", new NamedTypeSpec("Swift.Int"))), moduleDecl);
+        protocol.Methods.Add(method);
+        var emissionContext = new ModuleEmissionContext();
+        var (csOutput, _) = EmitProtocol(protocol, CreateTypeDatabase(),
+            TypeHandlerContext.Empty with { EmissionContext = emissionContext });
+
+        var declared = System.Text.RegularExpressions.Regex.Match(csOutput, @"\s(?<type>[^\s(]+) Tally\((?<p>[^)]*)\);");
+        Assert.True(declared.Success, csOutput);
+        var parameterType = ConcreteProtocolSpecializationEmitter.DeclaredParameterType(declared.Groups["p"].Value).Replace("global::", "");
+        Assert.DoesNotContain("SwiftArray", parameterType);
+        var (key, swift) = Assert.Single(emissionContext.SwiftMemberDeclarations, kv => kv.Key.Contains(".Tally(", StringComparison.Ordinal));
+        Assert.EndsWith($".Tally({parameterType})", key);
+        Assert.Equal("func tally(input:)", swift);
+    }
+
+    [Fact]
     public void Emit_InterfaceSubscript_RecordsTheSwiftDeclarationBehindTheIndexer()
     {
         // A newer SDK can add a subscript whose index types project like an existing one's; the first

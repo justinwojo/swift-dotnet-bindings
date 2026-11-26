@@ -411,7 +411,7 @@ public static class ConstrainedExtensionEmitter
         // (e.g. `Box` for both `Mod.Box` and `Mod.Outer.Box`); without parent
         // qualification, two nested generic parents would produce duplicate
         // `BoxFooExtensions` classes (CS0102).
-        var className = $"{SanitizeParent(typeDecl)}_{SanitizeConcretization(concreteTypeName)}Extensions";
+        var className = ExtensionClassName(typeDecl, concreteTypeName);
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>");
@@ -673,6 +673,8 @@ public static class ConstrainedExtensionEmitter
         if (isStatic)
         {
             csWriter.WriteLine($"public static {csharpReturnType} {propertyName}");
+            emissionContext.RecordSwiftDeclarationAt(ExtensionClassName(parentTypeDecl, concreteTypeName), propertyName, null,
+                property, typeDatabase, via: qualifiedConcrete, viaKind: SwiftDeclarationMapEmitter.ConcreteSpecialization);
             csWriter.WriteLine("{");
             csWriter.Indent++;
             csWriter.WriteLine("get");
@@ -682,6 +684,8 @@ public static class ConstrainedExtensionEmitter
         else
         {
             csWriter.WriteLine($"public static {csharpReturnType} Get{propertyName}(this {closedGenericCsType} self)");
+            emissionContext.RecordSwiftDeclarationAt(ExtensionClassName(parentTypeDecl, concreteTypeName), $"Get{propertyName}", new[] { $"this {closedGenericCsType}" },
+                property, typeDatabase, via: qualifiedConcrete, viaKind: SwiftDeclarationMapEmitter.ConcreteSpecialization);
             csWriter.WriteLine("{");
             csWriter.Indent++;
             EmitConsumedSelfGuard(csWriter, parentTypeDecl);
@@ -1584,6 +1588,10 @@ public static class ConstrainedExtensionEmitter
         {
             csWriter.WriteLine($"public static {csharpReturnType} {methodPublicName}(this {closedGenericCsType} self)");
         }
+        // The extension member stands for the constrained-extension method, closed over the concrete type.
+        emissionContext.RecordSwiftDeclarationAt(ExtensionClassName(parentTypeDecl, concreteTypeName), methodPublicName,
+            isStatic ? Array.Empty<string>() : new[] { $"this {closedGenericCsType}" },
+            method, typeDatabase, via: qualifiedConcrete, viaKind: SwiftDeclarationMapEmitter.ConcreteSpecialization);
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -1939,6 +1947,10 @@ public static class ConstrainedExtensionEmitter
     // special char, so the encoding is uniquely length-decomposable. Used only
     // on the SBW_ symbol / className paths where the rendered string itself is
     // the dedup key in `_registeredWrapperSymbols`.
+    // The static class holding a generic type's members closed over one concrete type.
+    private static string ExtensionClassName(TypeDecl typeDecl, SwiftTypeName concreteTypeName) =>
+        $"{SanitizeParent(typeDecl)}_{SanitizeConcretization(concreteTypeName)}Extensions";
+
     private static string SanitizeForSymbol(string swiftQualifiedName)
     {
         var sb = new System.Text.StringBuilder(swiftQualifiedName.Length);

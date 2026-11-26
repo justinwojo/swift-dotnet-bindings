@@ -409,6 +409,14 @@ namespace BindingsGeneration
         public bool IsProtocolExtensionMethod { get; set; } = false;
 
         /// <summary>
+        /// For a method synthesized from a protocol extension member (<see cref="IsProtocolExtensionMethod"/>),
+        /// the module-qualified name of the protocol whose extension declares it. The member is emitted on
+        /// the conformer, but the Swift declaration it calls is the protocol extension's, which a member the
+        /// conformer declares itself under the same name would shadow.
+        /// </summary>
+        public string? ExtendedProtocolName { get; set; }
+
+        /// <summary>
         /// When true, this synthetic method actually wraps a read-only protocol-extension
         /// PROPERTY default surfaced as a zero-parameter getter method (see
         /// <c>ProtocolExtensionEmitter</c>). The Swift member is read as a property

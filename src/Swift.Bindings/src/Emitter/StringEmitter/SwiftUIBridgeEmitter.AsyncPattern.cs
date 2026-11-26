@@ -610,6 +610,62 @@ public static partial class SwiftUIBridgeEmitter
     }
 
     /// <summary>
+    /// The record's description of an async session's factory: the View initializer its Swift
+    /// Create calls. The call's argument labels (<see cref="BuildViewInitArgsFromChain"/>, each
+    /// argument written <c>label: value</c>, which a manifest's <c>viewInitArgs</c> supply themselves)
+    /// are matched against the View's initializers as Swift matches them: each parameter takes the
+    /// next argument when the label agrees, or else must supply its default. The one initializer that
+    /// takes the call with the fewest defaults is the one described, so a newer SDK that adds an
+    /// initializer the call now prefers moves the record. When no single initializer is known to take
+    /// the call, the call's own labels describe it.
+    /// </summary>
+    internal static string DescribeCalledViewInit(ViewBridgeInfo info, AsyncViewPattern pattern)
+    {
+        var labels = BuildViewInitArgsFromChain(info, pattern)
+            .Select(arg => arg[..arg.IndexOf(':')].Trim())
+            .ToList();
+
+        var candidates = info.Constructors
+            .Select(ctor => (ctor, defaults: DefaultsTakingCall(ctor, labels)))
+            .Where(candidate => candidate.defaults >= 0)
+            .ToList();
+        if (candidates.Count > 0)
+        {
+            int fewest = candidates.Min(candidate => candidate.defaults);
+            var best = candidates.Where(candidate => candidate.defaults == fewest).ToList();
+            if (best.Count == 1)
+                return DescribeSessionMember(info, SessionFactory, best[0].ctor);
+        }
+        return $"init {info.QualifiedViewName}.init({string.Concat(labels.Select(l => (l.Length > 0 ? l : "_") + ":"))}) ({SessionFactory})";
+    }
+
+    /// <summary>
+    /// How many of <paramref name="ctor"/>'s parameters supply their default when it is called with
+    /// arguments labelled <paramref name="labels"/>, or -1 when it cannot take that call.
+    /// </summary>
+    private static int DefaultsTakingCall(MethodDecl ctor, IReadOnlyList<string> labels)
+    {
+        int cursor = 0, defaults = 0;
+        // CSSignature[0] is the result; parameters start at index 1.
+        foreach (var param in ctor.CSSignature.Skip(1))
+        {
+            if (param.SwiftTypeSpec.IsEmptyTuple)
+                continue;
+            if (cursor < labels.Count
+                // The call-site label is written `label: `, or empty for an unlabeled argument.
+                && string.Equals(CdeclParamMapper.BuildSwiftCallArgLabel(param).TrimEnd(' ', ':'), labels[cursor], StringComparison.Ordinal))
+            {
+                cursor++;
+                continue;
+            }
+            if (!param.HasDefaultArg)
+                return -1;
+            defaults++;
+        }
+        return cursor == labels.Count ? defaults : -1;
+    }
+
+    /// <summary>
     /// Builds the View init argument list. If the pattern supplies an explicit
     /// ViewInitArgs override, uses that directly (needed for dictionary patterns
     /// where constructor metadata is unreliable or the chain variable name differs
@@ -1109,6 +1165,8 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Session class with CreateAsync factory
+        RecordSessionClass(emissionContext, info, $"{info.Identifier}Session");
+        RecordSessionHandleMembers(emissionContext, info);
         sb.AppendLine($"    public sealed class {info.Identifier}Session : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine("        private IntPtr _handle;");
@@ -1251,7 +1309,7 @@ public static partial class SwiftUIBridgeEmitter
             sb.AppendLine();
         }
 
-        EmitDataDrivenCreateAsyncFactory(sb, info, pattern);
+        EmitDataDrivenCreateAsyncFactory(sb, info, pattern, emissionContext);
 
         // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
         // SwiftUI consumer constructs a session and stores it on a struct View without
@@ -1300,7 +1358,8 @@ public static partial class SwiftUIBridgeEmitter
     /// Parameters and P/Invoke call are derived from the construction chain model.
     /// </summary>
     private static void EmitDataDrivenCreateAsyncFactory(
-        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern)
+        StringBuilder sb, ViewBridgeInfo info, AsyncViewPattern pattern,
+        ModuleEmissionContext? emissionContext = null)
     {
         // Factory parameter list (idiomatic C# types)
         // C# requires optional parameters after all required parameters.
@@ -1358,6 +1417,8 @@ public static partial class SwiftUIBridgeEmitter
         var resultPtrLocal = asyncFactoryScope.Reserve("resultPtr");
 
         EmitCreateAsyncDoc(sb, info, pattern, resultPayload);
+        RecordSessionMember(emissionContext, $"{info.Identifier}Session", "CreateAsync", requiredParams,
+            DescribeCalledViewInit(info, pattern));
         sb.AppendLine($"        public static async Task<{info.Identifier}Session> CreateAsync({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 

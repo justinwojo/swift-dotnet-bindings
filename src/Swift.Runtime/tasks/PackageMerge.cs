@@ -653,11 +653,16 @@ public static class SwiftBindingPackageMerge
             var @namespace = file[..^BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix.Length];
             var olderSignatures = new ClrSignatures(older, @namespace, before.Module, before.Types.Keys.ToHashSet(StringComparer.Ordinal));
             var newerSignatures = new ClrSignatures(newer, @namespace, after.Module, after.Types.Keys.ToHashSet(StringComparer.Ordinal));
-            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
+            // A bare `Int32` in a key is the binding's own type when its copy declares one where C#
+            // looks it up from the member's container; each copy's keys are read in that copy's scope.
+            var olderTypes = before.Types.Keys.ToHashSet(StringComparer.Ordinal);
+            var newerTypes = after.Types.Keys.ToHashSet(StringComparer.Ordinal);
+            var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k))
+                .ToLookup(k => ClrShape(k, newerTypes), StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
                 var signature = olderSignatures.Of(olderKey);
-                var candidates = newerOnly[ClrShape(olderKey)]
+                var candidates = newerOnly[ClrShape(olderKey, olderTypes)]
                     .Where(k => signature is null || newerSignatures.Of(k) is not { } candidate || candidate == signature)
                     .OrderBy(k => k, StringComparer.Ordinal).ToList();
                 var others = candidates.Where(k => !string.Equals(after.Members[k], was, StringComparison.Ordinal)).ToList();
@@ -730,16 +735,45 @@ public static class SwiftBindingPackageMerge
     /// <summary>
     /// A member key (<c>Parent.Name(T1,T2)</c> and an optional generic-arity suffix, or an indexer's
     /// <c>Parent.this[T1]</c>) without what its parameter spelling carries beyond the CLR signature:
-    /// nullable annotations and tuple element names. A value type's <c>T?</c> is a signature of its own,
-    /// so the shape can name several signatures. A property key has no parameter list and stays as it is.
+    /// nullable annotations, tuple element names and the spelling of a type with a C# keyword
+    /// (<c>global::System.String</c>, <c>System.String</c>, <c>String</c> and <c>string</c> are one type). A value
+    /// type's <c>T?</c> is a signature of its own, so the shape can name several signatures. Any other
+    /// qualification is kept: two types of one name in different namespaces are two shapes. A bare
+    /// CLR name is the binding's own type when <paramref name="declaredTypes"/> (a record's type keys,
+    /// <c>Outer.Inner</c>) holds one of that name where C# finds it from the member: nested in the
+    /// member's container or one of the container's containers, or at the top of the namespace. Only
+    /// its <c>System.</c> spelling is folded then. A property key has no parameter list and stays as it is.
     /// </summary>
-    internal static string ClrShape(string key)
+    internal static string ClrShape(string key, IReadOnlySet<string>? declaredTypes = null)
     {
         var open = key.IndexOfAny(new[] { '(', '[' });
         var close = open < 0 ? -1 : Matching(key, open, key[open], key[open] == '(' ? ')' : ']');
         if (open < 0 || close < 0)
             return key;
-        return key[..(open + 1)] + WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal) + key[close..];
+        // `Outer.Inner.Name(` and `Outer.Inner.this[`: the member's container is `Outer.Inner`.
+        var container = key[..open];
+        container = container.LastIndexOf('.') is var dot and >= 0 ? container[..dot] : "";
+        return key[..(open + 1)] + WithoutAliases(WithoutTupleNames(key[(open + 1)..close]).Replace("?", "", StringComparison.Ordinal)) + key[close..];
+
+        string WithoutAliases(string types) =>
+            System.Text.RegularExpressions.Regex.Replace(
+                KeywordAlias.Replace(types, m => !m.Groups[2].Success && DeclaredInScope(m.Groups[3].Value)
+                    ? m.Value
+                    : Keywords[m.Groups[3].Value]),
+                @"(?<![\w.])global::", "");
+
+        bool DeclaredInScope(string name)
+        {
+            if (declaredTypes is null)
+                return false;
+            for (var scope = container; ; scope = scope.LastIndexOf('.') is var at and >= 0 ? scope[..at] : "")
+            {
+                if (declaredTypes.Contains(scope.Length == 0 ? name : $"{scope}.{name}"))
+                    return true;
+                if (scope.Length == 0)
+                    return false;
+            }
+        }
 
         static string WithoutTupleNames(string types)
         {
@@ -799,6 +833,18 @@ public static class SwiftBindingPackageMerge
             return -1;
         }
     }
+
+    // A base class library type a C# keyword names, spelled by its CLR name, with or without its namespace.
+    private static readonly System.Text.RegularExpressions.Regex KeywordAlias = new(
+        @"(?<![\w.])(global::)?(System\.)?(Boolean|Byte|SByte|Char|Int16|UInt16|Int32|UInt32|Int64|UInt64|IntPtr|UIntPtr|Single|Double|Decimal|String|Object)(?![\w.])",
+        System.Text.RegularExpressions.RegexOptions.CultureInvariant);
+
+    private static readonly Dictionary<string, string> Keywords = new(StringComparer.Ordinal)
+    {
+        ["Boolean"] = "bool", ["Byte"] = "byte", ["SByte"] = "sbyte", ["Char"] = "char", ["Int16"] = "short", ["UInt16"] = "ushort",
+        ["Int32"] = "int", ["UInt32"] = "uint", ["Int64"] = "long", ["UInt64"] = "ulong", ["IntPtr"] = "nint", ["UIntPtr"] = "nuint",
+        ["Single"] = "float", ["Double"] = "double", ["Decimal"] = "decimal", ["String"] = "string", ["Object"] = "object",
+    };
 
     /// <summary>
     /// Every Swift declaration record a copy's assemblies name (<see cref="BindingsGeneration.SwiftDeclarationRecordFormat.AttributeKey"/>,

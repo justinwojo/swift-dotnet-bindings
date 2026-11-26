@@ -923,7 +923,7 @@ namespace BindingsGeneration
         /// name the interface declares it by, which the protocol's emitted property names shape
         /// (<c>UpdateMethod</c> beside an <c>Update</c> property), so pass the same set.
         /// </summary>
-        private static void RecordInterfaceMemberDeclaration(ModuleEmissionContext? emissionCtx, ProtocolDecl protocolDecl,
+        private void RecordInterfaceMemberDeclaration(ModuleEmissionContext? emissionCtx, ProtocolDecl protocolDecl,
             BaseDecl member, ITypeDatabase typeDatabase, IReadOnlySet<string>? emittedPropertyNames = null)
         {
             if (emissionCtx is null)
@@ -932,27 +932,36 @@ namespace BindingsGeneration
             if (member is PropertyDecl property)
                 key = ModuleEmissionContext.BuildPropertyApiManifestKey(protocolDecl, NameProvider.GetPropertyName(property), typeDatabase);
             else if (member is MethodDecl method)
-                key = InterfaceMethodRecordKey(method, protocolDecl, typeDatabase, emittedPropertyNames);
+                key = InterfaceMethodRecordKey(method, protocolDecl, typeDatabase, emittedPropertyNames,
+                    _interfaceParameterPortions.GetValueOrDefault(method));
             else
                 return;
             emissionCtx.RecordSwiftDeclaration(key, member, typeDatabase);
         }
 
         /// <summary>
-        /// The record key of an interface method: its projected key with each <c>inout</c> parameter
-        /// spelled <c>ref</c>, as the interface declares it. The projected key leaves <c>ref</c> out
-        /// (it is an overload-identity key, and the dedup keeps one of two Swift overloads that differ
-        /// only by <c>inout</c>), so without it <c>Bump(ref int)</c> and a newer SDK's <c>Bump(int)</c>,
-        /// two C# members, would be recorded under one key.
+        /// The record key of an interface method: its projected name and generic arity over the
+        /// parameter list the interface declares (<paramref name="emittedParameterPortion"/>, which
+        /// <see cref="EmitInterfaceMethod"/> records), with each <c>inout</c> parameter spelled
+        /// <c>ref</c>. The projected key spells a parameter by its Swift projection (a collection by
+        /// its Swift type, where the requirement takes <c>IReadOnlyList&lt;T&gt;</c>) and leaves
+        /// <c>ref</c> out (it is an overload-identity key, and the dedup keeps one of two Swift
+        /// overloads that differ only by <c>inout</c>), so without the declared list the key would
+        /// name no member, and <c>Bump(ref int)</c> and a newer SDK's <c>Bump(int)</c>, two C#
+        /// members, would be recorded under one key.
         /// </summary>
         internal static string InterfaceMethodRecordKey(MethodDecl method, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
-            IReadOnlySet<string>? emittedPropertyNames)
+            IReadOnlySet<string>? emittedPropertyNames, string? emittedParameterPortion = null)
         {
             var projectedKey = ModuleEmissionContext.WithRefParameters(
                 ProtocolMethodDisambiguator.EffectiveProjectedKey(method, protocolDecl, typeDatabase, emittedPropertyNames), method);
             var paren = projectedKey.IndexOf('(');
-            return ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase);
+            return ModuleEmissionContext.BuildApiManifestKey(protocolDecl, paren >= 0 ? projectedKey[..paren] : projectedKey, projectedKey, typeDatabase,
+                new ModuleEmissionContext.EmittedApiShape(null, emittedParameterPortion));
         }
+
+        /// <summary>The parameter list each interface method was declared with (see <see cref="InterfaceMethodRecordKey"/>).</summary>
+        private readonly Dictionary<MethodDecl, string> _interfaceParameterPortions = new(ReferenceEqualityComparer.Instance);
 
         private void EmitProtocolProxy(CSharpWriter csWriter, ProtocolDecl protocolDecl, ITypeDatabase typeDatabase,
             HashSet<string> skippedMethodKeys, HashSet<string> skippedPropertyNames, HashSet<int> skippedSubscriptIndices,
@@ -1435,6 +1444,8 @@ namespace BindingsGeneration
 
             // Build parameters (skip first which is return type)
             var parameters = new List<string>();
+            // The same parameters without their names, as the requirement's record key spells them.
+            var parameterTypes = new List<string>();
             var parameterNames = new List<string>();
             for (int i = 1; i < methodDecl.CSSignature.Count; i++)
             {
@@ -1451,6 +1462,7 @@ namespace BindingsGeneration
                 var argTypeName = GetCSharpTypeName(arg.SwiftTypeSpec, typeDatabase, boundGenericsHandler, protocolContext);
                 var argName = NameProvider.GetCSharpParameterName(arg);
                 parameters.Add($"{inoutModifier}{argTypeName} {argName}");
+                parameterTypes.Add(inoutModifier + argTypeName);
                 parameterNames.Add(argName);
             }
 
@@ -1474,7 +1486,10 @@ namespace BindingsGeneration
             if (methodDecl.IsAsync)
             {
                 parameters.Add($"global::System.Threading.CancellationToken {NameProvider.ResolveCancellationTokenName(methodDecl)} = default");
+                parameterTypes.Add("global::System.Threading.CancellationToken");
             }
+            _interfaceParameterPortions[methodDecl] = ModuleEmissionContext.FormatParameterPortion(
+                parameterTypes.Select(t => t.Replace("global::", "")));
 
             // Doc lines precede every attribute of the requirement (CS1587).
             XmlDocCommentEmitter.EmitMethodDocComment(csWriter, methodDecl, parameterNames,
@@ -2082,7 +2097,8 @@ namespace BindingsGeneration
             // forwarder it is, naming the requirement it calls by that requirement's own C# parameters.
             if (emissionCtx is not null && protocolContext is not null)
             {
-                var target = InterfaceMethodRecordKey(methodDecl, protocolContext, typeDatabase, propertyNames);
+                var target = InterfaceMethodRecordKey(methodDecl, protocolContext, typeDatabase, propertyNames,
+                    _interfaceParameterPortions.GetValueOrDefault(methodDecl));
                 var open = target.IndexOf('(');
                 var close = target.LastIndexOf(')');
                 emissionCtx.RecordSwiftDeclaration(

@@ -3070,6 +3070,7 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
+            ExtendedProtocolName = extMethod.ProtocolQualifiedName,
             // Read-only extension-default properties are surfaced through this synthetic-method
             // pipeline but must be READ, not called, in every wrapper body — including the CSM
             // path for generic conformers, which would otherwise emit `__self.name()` and fail
@@ -3206,6 +3207,7 @@ public static class ProtocolExtensionEmitter
             UsesFreeFunctionWrapper = true,
             UsesCdeclMethodWrapper = useCdecl,
             IsProtocolExtensionMethod = true,
+            ExtendedProtocolName = extMethod.ProtocolQualifiedName,
             // Read-only extension-default properties are surfaced through this synthetic-method
             // pipeline but must be READ, not called, in every wrapper body — including the CSM
             // path for generic conformers, which would otherwise emit `__self.name()` and fail

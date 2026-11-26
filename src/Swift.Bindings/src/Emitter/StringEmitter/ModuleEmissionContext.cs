@@ -169,6 +169,14 @@ public sealed class ModuleEmissionContext
     public int? RuntimeContractEpoch { get; set; }
 
     /// <summary>
+    /// Whether the target compiles the SwiftUI bridge's C# (<c>{ns}.SwiftUIBridge.cs</c>): every
+    /// platform but native macOS. The bridge's sessions and theme accessors sit under
+    /// <c>#if __IOS__ || __TVOS__ || __MACCATALYST__</c>, and the binding project leaves the file out
+    /// on macOS, so there the Swift declaration record must not name them.
+    /// </summary>
+    public bool TargetCompilesUIKitBridge { get; set; } = true;
+
+    /// <summary>
     /// The active <see cref="NamespacePatternResolver"/> for the current generation pass.
     /// Threaded through so emitters that need to qualify cross-module references (e.g. the
     /// sibling-property fallback receivers, which emit <c>global::&lt;ns&gt;.IFoo</c> for
@@ -2542,6 +2550,14 @@ public sealed class ModuleEmissionContext
     /// </summary>
     public void RecordSwiftDeclarationDescription(string memberSignature, string description) =>
         _swiftMemberDeclarations[memberSignature] = description;
+
+    /// <summary>
+    /// Records that the emitted type at the C# path <paramref name="path"/>, which stands for no
+    /// <see cref="TypeDecl"/> of its own (a SwiftUI view's session class), stands for the Swift
+    /// declaration <paramref name="description"/>.
+    /// </summary>
+    public void RecordSwiftTypeDeclarationDescription(string path, string description) =>
+        _swiftTypeDeclarations[path] = description;
 
     /// <summary>Records that the emitted type <paramref name="type"/>'s C# path stands for it.</summary>
     public void RecordSwiftTypeDeclaration(TypeDecl type, ITypeDatabase? typeDatabase)

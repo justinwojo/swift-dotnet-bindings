@@ -108,11 +108,8 @@ partial class Build
         var index = SwiftDeclarationRecordKeys.Index(image, ns);
         var module = root["module"]?.GetValue<string>();
         var swiftTypes = (root["types"]?.AsObject().Select(t => t.Key) ?? Enumerable.Empty<string>()).ToHashSet(StringComparer.Ordinal);
-        // Every path counted as recorded, so a member is picked only if no rule or pending entry
-        // could match it once its key is gone; no member is paired with a respelled key.
-        var scope = new SwiftDeclarationRecordCompleteness.Scope(index, ns, module,
-            new HashSet<SwiftDeclarationRecordKeys.Member>(ReferenceEqualityComparer.Instance),
-            index.Members.Select(m => m.Path).ToHashSet(StringComparer.Ordinal));
+        // A member is picked only if no rule could match it once its key is gone.
+        var scope = new SwiftDeclarationRecordCompleteness.Scope(index, ns, module) { Image = image };
         string? dropped = null;
         SwiftDeclarationRecordKeys.Member? droppedMember = null;
         foreach (var (key, _) in members)

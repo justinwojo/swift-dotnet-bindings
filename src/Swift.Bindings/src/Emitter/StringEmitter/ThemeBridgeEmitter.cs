@@ -41,7 +41,7 @@ public static class ThemeBridgeEmitter
     /// <summary>
     /// A settable property on a theme class that can be bridged.
     /// </summary>
-    public record ThemeProperty(string Name, ThemePropertyKind Kind);
+    public record ThemeProperty(string Name, ThemePropertyKind Kind, PropertyDecl? Declaration = null);
 
     /// <summary>
     /// The kind of theme property (determines ABI shape and Swift constructor).
@@ -123,7 +123,7 @@ public static class ThemeBridgeEmitter
 
             var kind = ClassifyPropertyType(property.SwiftTypeSpec);
             if (kind != null)
-                themeProperties.Add(new ThemeProperty(property.Name, kind.Value));
+                themeProperties.Add(new ThemeProperty(property.Name, kind.Value, property));
         }
 
         if (themeProperties.Count == 0)
@@ -218,11 +218,6 @@ public static class ThemeBridgeEmitter
         if (themeInfos.Count == 0)
             return;
 
-        var hasSwiftUIFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.Font));
-        var hasUIKitFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.UIKitFont));
-        var swiftContent = GenerateSwiftThemeBridge(moduleName, themeInfos, viewBridgeExists, hasSwiftUIFonts, hasUIKitFonts, emissionContext);
-        var csContent = GenerateCSharpThemeBridge(@namespace, moduleName, themeInfos, emissionContext);
-
         // Bridge files are a matched pair (Swift + C#). If either existing file is
         // user-maintained, skip BOTH to avoid emitting P/Invoke declarations for
         // symbols that were never written to the Swift side (or vice versa).
@@ -242,6 +237,13 @@ public static class ThemeBridgeEmitter
                 swiftPath, swiftIsAutoGen, csPath, csIsAutoGen);
             return;
         }
+
+        // Generated only once the pair is known to be written: generation records the accessors in
+        // the Swift declaration record, which must not name members a skipped bridge never declares.
+        var hasSwiftUIFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.Font));
+        var hasUIKitFonts = themeInfos.Any(t => t.Properties.Any(p => p.Kind == ThemePropertyKind.UIKitFont));
+        var swiftContent = GenerateSwiftThemeBridge(moduleName, themeInfos, viewBridgeExists, hasSwiftUIFonts, hasUIKitFonts, emissionContext);
+        var csContent = GenerateCSharpThemeBridge(@namespace, moduleName, themeInfos, emissionContext);
 
         // Apply module/type-name collision rewrite for parity with the main wrapper file
         // (Pattern 5 used to fix this on every .swift file at compile time).
@@ -625,6 +627,28 @@ public static class ThemeBridgeEmitter
         return sb.ToString();
     }
 
+    /// <summary>A theme class's static setter, standing for the instance property it sets on the singleton.</summary>
+    internal const string ThemeSetterOf = "SwiftUI theme setter";
+
+    /// <summary>A theme class's static getter, standing for the instance property it reads from the singleton.</summary>
+    internal const string ThemeGetterOf = "SwiftUI theme getter";
+
+    /// <summary>
+    /// Records a theme accessor in the Swift declaration record as the property it stands for.
+    /// Its name is formed from the property's, so a newer SDK can hand the name to another property.
+    /// </summary>
+    private static void RecordThemeAccessor(ModuleEmissionContext? emissionContext, ThemeBridgeInfo info,
+        ThemeProperty prop, string methodName, string? declaredParameter, string role)
+    {
+        if (emissionContext is not { TargetCompilesUIKitBridge: true })
+            return;
+        var described = prop.Declaration is not null ? SwiftDeclarationMapEmitter.Describe(prop.Declaration) : null;
+        var parameters = declaredParameter is null ? Array.Empty<string>() : new[] { ConcreteProtocolSpecializationEmitter.DeclaredParameterType(declaredParameter) };
+        emissionContext.RecordSwiftDeclarationDescription(
+            $"{info.ClassName}.{methodName}{ModuleEmissionContext.FormatParameterPortion(parameters)}",
+            $"{described ?? $"var {info.ModuleName}.{info.ClassName}.{prop.Name}"} ({role})");
+    }
+
     private static void EmitCSharpThemeClass(StringBuilder sb, string moduleName, string bridgeLib, ThemeBridgeInfo info, ModuleEmissionContext? emissionContext)
     {
         sb.AppendLine($"    /// <summary>");
@@ -639,6 +663,8 @@ public static class ThemeBridgeEmitter
         {
             var methodName = "Set" + char.ToUpperInvariant(prop.Name[0]) + prop.Name[1..];
             var funcName = $"SBW_{info.ClassName}_set_{prop.Name}";
+            RecordThemeAccessor(emissionContext, info, prop, methodName,
+                IsColorKind(prop.Kind) ? "Swift.SwiftColor value" : "Swift.SwiftFont value", ThemeSetterOf);
 
             if (IsColorKind(prop.Kind))
             {
@@ -672,6 +698,7 @@ public static class ThemeBridgeEmitter
         {
             var methodName = "Get" + char.ToUpperInvariant(prop.Name[0]) + prop.Name[1..];
             var funcName = $"SBW_{info.ClassName}_get_{prop.Name}";
+            RecordThemeAccessor(emissionContext, info, prop, methodName, null, ThemeGetterOf);
 
             sb.AppendLine($"        public static unsafe Swift.SwiftColor {methodName}()");
             sb.AppendLine("        {");

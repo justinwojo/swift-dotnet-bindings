@@ -264,6 +264,136 @@ public class SwiftUIBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitBridgeFiles_RecordsEveryPublicSessionMember_AsTheViewItStandsFor()
+    {
+        // A session's names come from the View's initializer and modifiers and from the session
+        // contract, and its class name is path-qualified once two Views share a leaf name, so a newer
+        // SDK can hand any of them to another declaration. The Swift declaration record names each.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+        var ctx = new ModuleEmissionContext();
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, emissionContext: ctx);
+
+        Assert.Equal($"type TestModule.TestView ({SwiftUIBridgeEmitter.SessionOf})", ctx.SwiftTypeDeclarations["TestViewSession"]);
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        var session = cs[cs.IndexOf("public sealed class TestViewSession", StringComparison.Ordinal)..];
+        var declared = Regex.Matches(session, @"^        public (?:static |unsafe |async )*[^\s(]+\s+(\w+)", RegexOptions.Multiline)
+            .Select(m => m.Groups[1].Value)
+            .Where(name => name != "Dispose") // IDisposable's, matched by the completeness check's lifecycle rule
+            .Distinct()
+            .ToList();
+        Assert.Contains("Create", declared);
+        Assert.Contains("SetFrame", declared);
+        Assert.Contains("PresentAsSheet", declared);
+        Assert.All(declared, name => Assert.Contains(ctx.SwiftMemberDeclarations.Keys,
+            key => key == $"TestViewSession.{name}" || key.StartsWith($"TestViewSession.{name}(", StringComparison.Ordinal)));
+        // Create stands for the initializer it calls, keyed by the parameters it declares.
+        Assert.Contains("Create(Action? retryAction", session);
+        var create = ctx.SwiftMemberDeclarations["TestViewSession.Create(Action?,Action?,Action?)"];
+        Assert.StartsWith("init ", create);
+        Assert.EndsWith($"({SwiftUIBridgeEmitter.SessionFactory})", create);
+        Assert.Equal($"type TestModule.TestView ({SwiftUIBridgeEmitter.SessionUniversalModifier})",
+            ctx.SwiftMemberDeclarations["TestViewSession.SetFrame(double?,double?)"]);
+    }
+
+    [Fact]
+    public void EmitBridgeFiles_ForNativeMacOS_RecordsNoSessionMember()
+    {
+        // Native macOS compiles the bridge's C# out, so its sessions are not in the assembly and the
+        // Swift declaration record must not name them.
+        var views = new List<TypeDecl> { CreateViewWithVoidClosureInit("TestView", "retryAction") };
+        var ctx = new ModuleEmissionContext { TargetCompilesUIKitBridge = false };
+
+        SwiftUIBridgeEmitter.EmitBridgeFiles(_tempDir, "TestModule", "TestModule", views,
+            NullLogger.Instance, emissionContext: ctx);
+
+        Assert.Contains("public sealed class TestViewSession", File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs")));
+        Assert.Empty(ctx.SwiftTypeDeclarations);
+        Assert.Empty(ctx.SwiftMemberDeclarations);
+    }
+
+    [Theory]
+    [InlineData("monitor")]
+    [InlineData("source")]
+    public void EmitAsyncCSharpBridge_ManifestPattern_RecordsCreateAsyncAsTheInitializerItsCreateCalls(string label)
+    {
+        // A manifest names the View initializer's arguments itself; the factory stands for the
+        // initializer the Swift Create calls, so a manifest that moves the call to another
+        // initializer changes the description.
+        var pattern = BuildPayloadPattern("PayloadView", ClassPayload, boolDefault: false) with
+        {
+            ViewInitArgs = new[] { new ConstructionArg(label, ConstructionArgKind.ChainReference, "monitor") },
+        };
+        var ctx = new ModuleEmissionContext();
+        var swift = new System.Text.StringBuilder();
+        SwiftUIBridgeEmitter.EmitAsyncSwiftBridge(swift, "TestModule", BuildPayloadViewInfo("PayloadView"), pattern, ctx);
+
+        SwiftUIBridgeEmitter.EmitAsyncCSharpBridge(new System.Text.StringBuilder(), "TestModule", BuildPayloadViewInfo("PayloadView"), pattern, ctx);
+
+        Assert.Contains($"PayloadView({label}: monitor)", swift.ToString());
+        var (_, description) = Assert.Single(ctx.SwiftMemberDeclarations, kv => kv.Key.StartsWith("PayloadViewSession.CreateAsync(", StringComparison.Ordinal));
+        Assert.Equal($"init TestModule.PayloadView.init({label}:) ({SwiftUIBridgeEmitter.SessionFactory})", description);
+    }
+
+    [Theory]
+    [InlineData(false, "init TestModule.PayloadView.init(source:style:)")]
+    [InlineData(true, "init TestModule.PayloadView.init(source:)")]
+    public void EmitAsyncCSharpBridge_ManifestCallLeavingADefaultOut_RecordsTheInitializerSwiftPicks(
+        bool newerSdkAddsShorterInit, string expected)
+    {
+        // A manifest call `PayloadView(source: monitor)` binds `init(source:style:)` through its
+        // defaulted `style` until a newer SDK adds `init(source:)`, which Swift then prefers. The
+        // call's labels are the same in both, so the factory is described by the initializer the
+        // call resolves to, or the two copies' records would agree across the move.
+        var view = CreateViewStructWithNoConstructor("PayloadView");
+        view.Methods.Add(PayloadViewInit(view, ("source", false), ("style", true)));
+        if (newerSdkAddsShorterInit)
+            view.Methods.Add(PayloadViewInit(view, ("source", false)));
+        var info = new ViewBridgeInfo("PayloadView", "TestModule", ViewInitClassification.AsyncDependency, null,
+            view.Methods.Where(m => m.IsConstructor).ToList());
+        var pattern = BuildPayloadPattern("PayloadView", ClassPayload, boolDefault: false) with
+        {
+            ViewInitArgs = new[] { new ConstructionArg("source", ConstructionArgKind.ChainReference, "monitor") },
+        };
+        var ctx = new ModuleEmissionContext();
+        SwiftUIBridgeEmitter.EmitAsyncSwiftBridge(new System.Text.StringBuilder(), "TestModule", info, pattern, ctx);
+
+        SwiftUIBridgeEmitter.EmitAsyncCSharpBridge(new System.Text.StringBuilder(), "TestModule", info, pattern, ctx);
+
+        var (_, description) = Assert.Single(ctx.SwiftMemberDeclarations, kv => kv.Key.StartsWith("PayloadViewSession.CreateAsync(", StringComparison.Ordinal));
+        Assert.Equal($"{expected} ({SwiftUIBridgeEmitter.SessionFactory})", description);
+    }
+
+    private static MethodDecl PayloadViewInit(StructDecl view, params (string Label, bool HasDefault)[] parameters)
+    {
+        var signature = new List<ArgumentDecl>
+        {
+            new() { Name = "", PrivateName = "", IsInOut = false, IsGeneric = false,
+                SwiftTypeSpec = new NamedTypeSpec("TestModule.PayloadView"), ParentDecl = null, ModuleDecl = null },
+        };
+        signature.AddRange(parameters.Select(p => new ArgumentDecl
+        {
+            Name = p.Label, PrivateName = p.Label, IsInOut = false, IsGeneric = false, HasDefaultArg = p.HasDefault,
+            SwiftTypeSpec = new NamedTypeSpec("Swift.Int"), ParentDecl = null, ModuleDecl = null,
+        }));
+        return new MethodDecl
+        {
+            Name = "init",
+            MangledName = $"$s10TestModule11PayloadViewV{string.Concat(parameters.Select(p => p.Label))}fC",
+            MethodType = MethodType.Static,
+            IsConstructor = true,
+            Throws = false,
+            IsAsync = false,
+            GenericParameters = new List<GenericArgumentDecl>(),
+            IsSynthesizedAccessor = false,
+            ParentDecl = view,
+            ModuleDecl = null,
+            CSSignature = signature,
+        };
+    }
+
+    [Fact]
     public void EmitBridgeFiles_NoCollisionContext_LeavesBridgeContentUnchanged()
     {
         // Sanity counterpart to EmitBridgeFiles_AppliesEmissionContextCollisionRewrite —

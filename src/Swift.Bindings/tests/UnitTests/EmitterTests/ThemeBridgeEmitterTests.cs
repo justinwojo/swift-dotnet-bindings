@@ -341,6 +341,54 @@ public class ThemeBridgeEmitterTests : IDisposable
     }
 
     [Fact]
+    public void EmitThemeBridge_RecordsEachStaticAccessor_AsThePropertyItReaches()
+    {
+        // Set{Property}/Get{Property} are named from the singleton's property, so a newer SDK can
+        // hand the name to another property: the Swift declaration record names the one each reaches.
+        var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
+        {
+            new("MyTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("accent", ThemeBridgeEmitter.ThemePropertyKind.Color),
+                new("titleFont", ThemeBridgeEmitter.ThemePropertyKind.Font),
+            })
+        };
+        var ctx = new ModuleEmissionContext();
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
+            viewBridgeExists: false, NullLogger.Instance, emissionContext: ctx);
+
+        var cs = File.ReadAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"));
+        Assert.Contains("public static void SetAccent(Swift.SwiftColor value)", cs);
+        Assert.Equal(new Dictionary<string, string>
+        {
+            ["MyTheme.SetAccent(Swift.SwiftColor)"] = $"var TestModule.MyTheme.accent ({ThemeBridgeEmitter.ThemeSetterOf})",
+            ["MyTheme.GetAccent()"] = $"var TestModule.MyTheme.accent ({ThemeBridgeEmitter.ThemeGetterOf})",
+            ["MyTheme.SetTitleFont(Swift.SwiftFont)"] = $"var TestModule.MyTheme.titleFont ({ThemeBridgeEmitter.ThemeSetterOf})",
+        }, ctx.SwiftMemberDeclarations.ToDictionary(e => e.Key, e => e.Value));
+    }
+
+    [Fact]
+    public void EmitThemeBridge_SkippedForAUserMaintainedBridge_RecordsNoAccessor()
+    {
+        // A skipped bridge declares no accessor, so the Swift declaration record must name none.
+        File.WriteAllText(Path.Combine(_tempDir, "TestModule.SwiftUIBridge.cs"), "// User-maintained bridge file\n");
+        var themeInfos = new List<ThemeBridgeEmitter.ThemeBridgeInfo>
+        {
+            new("MyTheme", "TestModule", "shared", new List<ThemeBridgeEmitter.ThemeProperty>
+            {
+                new("accent", ThemeBridgeEmitter.ThemePropertyKind.Color),
+            })
+        };
+        var ctx = new ModuleEmissionContext();
+
+        ThemeBridgeEmitter.EmitThemeBridge(_tempDir, "TestModule", "TestModule", themeInfos,
+            viewBridgeExists: false, NullLogger.Instance, emissionContext: ctx);
+
+        Assert.Empty(ctx.SwiftMemberDeclarations);
+    }
+
+    [Fact]
     public void EmitThemeBridge_NoCollisionContext_LeavesBridgeContentUnchanged()
     {
         // Sanity counterpart to EmitThemeBridge_AppliesEmissionContextCollisionRewrite —
