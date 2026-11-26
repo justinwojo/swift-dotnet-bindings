@@ -91,6 +91,60 @@ public class SwiftDeclarationRecordKeysTests
     }
 
     [Theory]
+    [InlineData("Box.Load(string?,int?)", "System.String,System.Int32?")]
+    [InlineData("Box.Take(ref string?,out int)", "&System.String,&System.Int32")]
+    [InlineData("Box.Pairs((int a, string? b),(int, int, int, int, int, int, int, int))",
+        "System.ValueTuple`2<System.Int32,System.String>,System.ValueTuple`8<System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32,System.Int32>")]
+    [InlineData("Box.Fill(System.Collections.Generic.IReadOnlyList<int?>?,Kit.Point?[],Point[]?)", "System.Collections.Generic.IReadOnlyList`1<System.Int32?>,Kit.Point?[],Kit.Point[]")]
+    [InlineData("Box.Echo(T?)`1", "!!0")]
+    [InlineData("Box.Raw(delegate* unmanaged<nint, int>,byte*)", "fnptr<System.IntPtr,System.Int32>,System.Byte*")]
+    [InlineData("NestUse.Hold(Kit.Nest<int>.Inner)", "Kit.Nest`1.Inner<System.Int32>")]
+    public void AMember_ListsItsParametersByFullName(string key, string parameters)
+    {
+        var member = Assert.Single(Index().Resolve(SwiftDeclarationRecordKeys.Parse(key)!));
+        Assert.Equal(parameters, string.Join(",", member.QualifiedParameters));
+        Assert.Equal("Kit." + member.ParentPath, member.QualifiedParent);
+    }
+
+    [Fact]
+    public void TheIndex_ListsEachTypeByFullName_WithItsOwnArity()
+    {
+        var types = Index().QualifiedTypes;
+        Assert.Contains("Kit.Box.Inner", types);
+        Assert.Contains("Kit.Nest`1.Inner", types);
+        Assert.DoesNotContain("Kit.Nest", types);
+    }
+
+    [Theory]
+    [InlineData("int?", "global::System.Int32?")]
+    [InlineData("global::System.String", "global::System.String")]
+    [InlineData("System.Collections.Generic.IReadOnlyList<string?>", "System.Collections.Generic.IReadOnlyList`1<global::System.String?>")]
+    [InlineData("Kit.Nest<int>.Inner", "Kit.Nest`1.Inner<global::System.Int32>")]
+    [InlineData("(int a, string b)", "global::System.ValueTuple`2<global::System.Int32,global::System.String>")]
+    [InlineData("ref Kit.@class", "&Kit.class")]
+    // A verbatim keyword is an identifier, not the keyword's type.
+    [InlineData("@int", "int")]
+    public void AKeyParameter_ReadsQualifiedAsItIsSpelled(string spelled, string qualified) =>
+        Assert.Equal(qualified, SwiftDeclarationRecordKeys.QualifiedParameter(spelled));
+
+    [Theory]
+    [InlineData("global::System.Int32", "System.Int32", "", true)]
+    [InlineData("global::System.Int32", "Kit.Kit.Int32", "", false)]
+    [InlineData("Int32", "Kit.Base.Int32", "", true)]
+    [InlineData("Int32", "System.Int32", "", true)]
+    [InlineData("Int32", "Kit.Int32`1", "", false)]
+    [InlineData("System.String", "System.String", "", true)]
+    [InlineData("System.String", "System.String", "System", false)]
+    [InlineData("System.String", "Kit.Kit.System.String", "System", true)]
+    [InlineData("Other.Value", "Other.Value", "", true)]
+    [InlineData("Other.Value", "Kit.Kit.Other.Value", "", true)]
+    [InlineData("System.Collections.Generic.IReadOnlyList`1<global::System.String>", "System.Collections.Generic.IReadOnlyList`1<Kit.Kit.String>", "", false)]
+    [InlineData("T", "!!0", "", true)]
+    public void AQualifiedSpelling_NamesEveryCompiledTypeItCanBeRead(string spelled, string compiled, string ownNested, bool names) =>
+        // A relative name can be any type its name ends, unless its first segment is the container's own nested type.
+        Assert.Equal(names, SwiftDeclarationRecordKeys.CanName(spelled, compiled, "Kit.Kit", head => ownNested.Split(',').Contains(head)));
+
+    [Theory]
     [InlineData("Box.Count")]
     [InlineData("Box.Inner")]
     public void APropertyOrTypeKey_ResolvesWithoutAParameterList(string key)
