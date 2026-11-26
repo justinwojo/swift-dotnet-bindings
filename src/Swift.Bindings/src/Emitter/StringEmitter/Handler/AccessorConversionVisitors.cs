@@ -332,10 +332,10 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             {
                 var innerConv = set.ElementProjection.GetParameterElementConversion("e");
                 if (innerConv != null)
-                    return ($"new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, e => (Foundation.NSObject){innerConv})))", true);
+                    return (ObjCContainerBridgeOwner.NewSet($"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({valueExpr}, e => (Foundation.NSObject){innerConv}))"), true);
             }
             // Same leaf rule as the array twin — see ArraySetterConversion.
-            return ($"new Foundation.NSSet({set.ObjCLeafElementArrayExpr(valueExpr)})", true);
+            return (ObjCContainerBridgeOwner.NewSet(set.ObjCLeafElementArrayExpr(valueExpr)), true);
         }
 
         // Existential elements ride the owned (+1) carrier; no-op for non-existential. Mirrors the
@@ -348,6 +348,22 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
             return ($"SwiftSet<{rawElem}>.FromEnumerable({CollectionElementSelect.Elements(valueExpr, "e => " + elemConv, set.ElementProjection)})", true);
         return ($"SwiftSet<{rawElem}>.FromEnumerable({valueExpr})", true);
     }
+
+    /// <summary>
+    /// The accessor argument for a setter conversion bound to the <c>using</c> local
+    /// <paramref name="ownerVar"/> (<c>requiresDisposal</c>): the handle of a bridged Objective-C
+    /// collection, read off the local that keeps the collection alive across the call (zero for an
+    /// optional one that is nil), or the local itself.
+    /// </summary>
+    internal static string HandleArgument(ITypeProjection projection, string ownerVar) => projection switch
+    {
+        ArrayProjection { UsesObjCContainerBridge: true }
+            or SetProjection { UsesObjCContainerBridge: true }
+            or DictionaryProjection { UsesObjCContainerBridge: true } => $"{ownerVar}.Handle",
+        OptionalProjection { InnerProjection: ArrayProjection or SetProjection or DictionaryProjection } optional
+            when optional.InnerProjection.UsesObjCContainerBridge => $"({ownerVar} is null ? IntPtr.Zero : {ownerVar}.Handle)",
+        _ => ownerVar,
+    };
 
     internal static (string?, bool) OptionalSetterConversion(OptionalProjection opt, string valueExpr)
     {
@@ -363,28 +379,22 @@ internal class AccessorSetterConversionVisitor : IProjectionVisitor<(string? con
 
         var optType = inner.MarshalFromSwiftType;
 
-        // ObjC bridge containers use nullable pointer ABI — no SwiftOptional wrapper needed.
-        // Setter conversions now return the collection object (requiresDisposal=true), so
-        // extract .Handle in the ternary for the IntPtr P/Invoke.
-        // Note: the optional path is inline single-expression (can't use 'using'), so these
-        // inner collections rely on GC/finalizer. This matches the pre-disposal behavior.
+        // ObjC bridge containers use nullable pointer ABI — no SwiftOptional wrapper needed. The
+        // conversion is the collection the setter owns, or null for nil (requiresDisposal=true): the
+        // caller binds it to a `using` local and passes its handle (HandleArgument), so the
+        // collection lives until the accessor has taken its own reference and is released then,
+        // rather than being left to a finalizer the moment its handle is read.
         if (inner.UsesObjCContainerBridge)
         {
-            if (inner is ArrayProjection arrBridge)
+            var (collection, _) = inner switch
             {
-                var (arrConv, _) = ArraySetterConversion(arrBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {arrConv}.Handle : IntPtr.Zero)", false);
-            }
-            if (inner is DictionaryProjection dictBridge)
-            {
-                var (dictConv, _) = DictSetterConversion(dictBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {dictConv}.Handle : IntPtr.Zero)", false);
-            }
-            if (inner is SetProjection setBridge)
-            {
-                var (setConv, _) = SetSetterConversion(setBridge, $"{valueExpr}Val");
-                return ($"({valueExpr} is {{}} {valueExpr}Val ? {setConv}.Handle : IntPtr.Zero)", false);
-            }
+                ArrayProjection arrBridge => ArraySetterConversion(arrBridge, $"{valueExpr}Val"),
+                DictionaryProjection dictBridge => DictSetterConversion(dictBridge, $"{valueExpr}Val"),
+                SetProjection setBridge => SetSetterConversion(setBridge, $"{valueExpr}Val"),
+                _ => (null, false),
+            };
+            if (collection != null)
+                return ($"({valueExpr} is {{}} {valueExpr}Val ? {collection} : null)", true);
         }
 
         // Container inner (Array, Dictionary, Set) — wrap with full container creation. The

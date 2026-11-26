@@ -74,25 +74,36 @@ public class ReceiverConversionVisitorTests
     // for the ObjCBridgeable value arm, move() for the ObjCBridged/ObjCRooted raw-buffer arm).
     // Symmetric with the whole-container path (ReverseObjCContainer_* below).
 
+    // The conformer's result is held until the retain is taken: reading `.Handle` off it inline
+    // leaves its wrapper collectable before Swift has its own reference.
+    private static void AssertRetainsHeldObject(string objectExpr, string conversion)
+    {
+        Assert.NotNull(conversion);
+        Assert.Contains("var __handle = global::Swift.Runtime.Arc.UnknownObjectRetain(__object.Handle);", conversion);
+        Assert.Contains("global::System.GC.KeepAlive(__object);", conversion);
+        Assert.EndsWith($"))({objectExpr})", conversion);
+        Assert.DoesNotContain($"{objectExpr}.Handle", conversion);
+    }
+
     [Fact]
     public void Getter_ObjCBridged_TransfersRetainedHandle()
     {
         var result = new ObjCBridgedProjection("Foundation.NSUrl").Accept(Getter("v"));
-        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
+        AssertRetainsHeldObject("v", result);
     }
 
     [Fact]
     public void Getter_ObjCBridgeable_TransfersRetainedHandle()
     {
         var result = new ObjCBridgeableProjection("Foundation.NSUrl").Accept(Getter("v"));
-        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
+        AssertRetainsHeldObject("v", result);
     }
 
     [Fact]
     public void Getter_ObjCRootedClass_TransfersRetainedHandle()
     {
         var result = new ObjCRootedClassProjection("MyNSObject").Accept(Getter("v"));
-        Assert.Equal("global::Swift.Runtime.Arc.UnknownObjectRetain(v.Handle)", result);
+        AssertRetainsHeldObject("v", result);
     }
 
     #endregion
@@ -361,13 +372,25 @@ public class ReceiverConversionVisitorTests
     // when UsesObjCContainerBridge; the helper wiring + Swift side are covered end-to-end by the
     // byte-identical generated-output bake, the compile gate, and the reverse BindingTest.
 
+    // The collection built for Swift is a fresh managed wrapper that nothing else references. Its
+    // handle is read only while a local holds the wrapper, and the wrapper is released once Swift's
+    // +1 is taken: reading `.Handle` off the temporary itself leaves the wrapper collectable before
+    // the retain (a precise GC finalizes it and releases the collection first), and an undisposed
+    // wrapper holds its own reference until a collection runs.
+    private static void AssertRetainsHeldCollection(string construct, string conversion)
+    {
+        Assert.Contains($"using var __collection = {construct};", conversion);
+        Assert.Contains("return global::Swift.Runtime.Arc.UnknownObjectRetain(__collection.Handle);", conversion);
+        Assert.DoesNotContain($"{construct}.Handle", conversion);
+    }
+
     [Fact]
     public void ReverseObjCContainer_Set_TransfersRetainedNSSet()
     {
         var set = new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(set.UsesObjCContainerBridge);
-        Assert.Equal(
-            "global::Swift.Runtime.Arc.UnknownObjectRetain(new Foundation.NSSet(global::System.Linq.Enumerable.ToArray(result)).Handle)",
+        AssertRetainsHeldCollection(
+            ObjCContainerBridgeOwner.NewSet("global::System.Linq.Enumerable.ToArray(result)"),
             set.GetReverseReceiverObjCBridgeConversion("result"));
     }
 
@@ -376,8 +399,8 @@ public class ReceiverConversionVisitorTests
     {
         var arr = new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(arr.UsesObjCContainerBridge);
-        Assert.Equal(
-            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(result)).Handle)",
+        AssertRetainsHeldCollection(
+            "Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(result))",
             arr.GetReverseReceiverObjCBridgeConversion("result"));
     }
 
@@ -388,10 +411,10 @@ public class ReceiverConversionVisitorTests
             new StringProjection(), new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
         Assert.True(dict.UsesObjCContainerBridge);
         // Value (URL) is already an NSObject → passed through; String key → new NSString(...).
-        Assert.Equal(
-            "global::Swift.Runtime.Arc.UnknownObjectRetain(Foundation.NSDictionary.FromObjectsAndKeys(" +
+        AssertRetainsHeldCollection(
+            "Foundation.NSDictionary.FromObjectsAndKeys(" +
             "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => kvp.Value)), " +
-            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => new Foundation.NSString(kvp.Key)))).Handle)",
+            "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(result, kvp => new Foundation.NSString(kvp.Key))))",
             dict.GetReverseReceiverObjCBridgeConversion("result"));
     }
 

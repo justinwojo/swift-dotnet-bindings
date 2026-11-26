@@ -41,9 +41,10 @@ public partial class ProtocolProxyEmitter
         // alive across the boundary; the Swift thunk balances it (takeRetainedValue for the
         // ObjCBridgeable value arm, move() for the ObjCBridged/ObjCRooted raw-buffer arm). Symmetric
         // with the whole-container bridge (see SetProjection.GetReverseReceiverObjCBridgeConversion).
-        public string? Visit(ObjCBridgedProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
-        public string? Visit(ObjCBridgeableProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({p.BridgeWriteExpression(_varName)}.Handle)";
-        public string? Visit(ObjCRootedClassProjection p) => $"global::Swift.Runtime.Arc.UnknownObjectRetain({_varName}.Handle)";
+        // The wrapper is held until the retain is taken (ObjCContainerBridgeOwner.RetainedObjectHandle).
+        public string? Visit(ObjCBridgedProjection p) => ObjCContainerBridgeOwner.RetainedObjectHandle(_varName);
+        public string? Visit(ObjCBridgeableProjection p) => ObjCContainerBridgeOwner.RetainedObjectHandle(p.BridgeWriteExpression(_varName));
+        public string? Visit(ObjCRootedClassProjection p) => ObjCContainerBridgeOwner.RetainedObjectHandle(_varName);
         public string? Visit(ArrayProjection arr) => _owner.GetReceiverArrayGetterConversion(arr, _varName);
         public string? Visit(DictionaryProjection dict) => _owner.GetReceiverDictGetterConversion(dict, _varName);
         public string? Visit(SetProjection set) => _owner.GetReceiverSetGetterConversion(set, _varName);

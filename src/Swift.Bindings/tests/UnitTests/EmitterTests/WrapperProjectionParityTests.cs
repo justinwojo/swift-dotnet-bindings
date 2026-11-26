@@ -429,6 +429,68 @@ public class WrapperProjectionParityTests
         Assert.False(disposal);
     }
 
+    public static TheoryData<string> OptionalBridgedContainers => new() { "array", "set", "dictionary" };
+
+    private static OptionalProjection OptionalBridgedContainer(string kind) => new(kind switch
+    {
+        "array" => new ArrayProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true),
+        "set" => new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true),
+        _ => new DictionaryProjection(new StringProjection(), new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true),
+    });
+
+    [Theory]
+    [MemberData(nameof(OptionalBridgedContainers))]
+    public void OptionalSetter_BridgedContainerInner_HandsTheCollectionToItsOwner(string kind)
+    {
+        // `var urls: [URL]?` crosses as a nullable NSArray handle. The setter's conversion is the
+        // collection itself (null for nil), owned by the caller: reading `.Handle` off the fresh
+        // wrapper inside the expression leaves nothing holding it across the call, so a precise GC
+        // can finalize it, releasing the collection before Swift retains it, and an uncollected one
+        // keeps every element retained until a finalizer runs.
+        var proj = OptionalBridgedContainer(kind);
+        Assert.True(proj.InnerProjection.UsesObjCContainerBridge);
+        var (conversion, disposal) = proj.Accept(new AccessorSetterConversionVisitor("value"));
+
+        Assert.NotNull(conversion);
+        Assert.True(disposal);
+        Assert.StartsWith("(value is {} valueVal ? ", conversion);
+        Assert.EndsWith(" : null)", conversion);
+        Assert.DoesNotContain(".Handle", conversion);
+        Assert.DoesNotContain("IntPtr.Zero", conversion);
+
+        // The accessor receives the handle read off the local that owns the collection.
+        Assert.Equal("(__val is null ? IntPtr.Zero : __val.Handle)", AccessorSetterConversionVisitor.HandleArgument(proj, "__val"));
+        Assert.Equal("__val.Handle", AccessorSetterConversionVisitor.HandleArgument(proj.InnerProjection, "__val"));
+        Assert.Equal("__val", AccessorSetterConversionVisitor.HandleArgument(new OptionalProjection(new StringProjection()), "__val"));
+    }
+
+    [Theory]
+    [InlineData("setter")]
+    [InlineData("optional setter")]
+    [InlineData("parameter")]
+    [InlineData("element")]
+    [InlineData("reverse return")]
+    public void BridgedSetWrite_StagesItsElementsInAnArrayItDisposes(string site)
+    {
+        // NSSet(NSObject[]) stages the elements in an NSArray it never disposes, so that array
+        // retains every element until a finalizer runs. Every NSSet a binding builds is built from
+        // a staging array the emitted code owns and disposes.
+        var set = new SetProjection(new ObjCBridgeableProjection("Foundation.NSUrl"), isParameter: true);
+        Assert.True(set.UsesObjCContainerBridge);
+        var write = site switch
+        {
+            "setter" => set.Accept(new AccessorSetterConversionVisitor("value")).Item1,
+            "optional setter" => new OptionalProjection(set).Accept(new AccessorSetterConversionVisitor("value")).Item1,
+            "parameter" => string.Join("\n", ((IObjCContainerBridgeOwnerSource)set).BuildObjCBridgeOwner("urls", sourceIsNullable: false).Setup.Select(s => s.ToString())),
+            "element" => set.GetParameterElementConversion("urls"),
+            _ => set.GetReverseReceiverObjCBridgeConversion("urls"),
+        };
+
+        Assert.NotNull(write);
+        Assert.Contains("using var __staged = Foundation.NSArray.FromNSObjects(__elements); return new Foundation.NSSet(__staged);", write);
+        Assert.DoesNotMatch(@"new Foundation\.NSSet\((?!__staged\))", write);
+    }
+
     #endregion
 
     #region ObjC bridge container reads must use owns: true

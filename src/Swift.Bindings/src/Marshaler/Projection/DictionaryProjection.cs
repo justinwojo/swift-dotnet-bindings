@@ -543,11 +543,14 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return $"new Foundation.NSString({elementVar})";
         if (projection is DataProjection)
             return $"Foundation.NSData.FromArray({elementVar})";
-        // Nested containers: convert inner collection to ObjC counterpart first
-        if ((projection is ArrayProjection or SetProjection or DictionaryProjection)
-            && projection.UsesObjCContainerBridge)
+        // A nested container is the Objective-C collection Swift bridges it to, whether its own
+        // elements bridge (`[String: [URL]]`) or not (`[URL: [Int]]`, whose `[Int]` Swift sends as an
+        // NSArray of NSNumbers once the URL key bridges the dictionary around it).
+        if (projection is ArrayProjection or SetProjection or DictionaryProjection)
         {
-            var innerConv = projection.GetParameterElementConversion(elementVar);
+            var innerConv = projection.UsesObjCContainerBridge
+                ? projection.GetParameterElementConversion(elementVar)
+                : NativeContainerToNSObject(projection, elementVar);
             if (innerConv != null)
                 return $"(Foundation.NSObject){innerConv}";
         }
@@ -563,6 +566,44 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         }
         return $"(Foundation.NSObject){elementVar}";
     }
+
+    /// <summary>
+    /// The Objective-C collection a container whose own elements do not bridge is, nested in one
+    /// that does: an NSArray, NSSet or NSDictionary whose elements are each converted as an element of
+    /// an Objective-C collection (<see cref="ToNSObject"/>). Lambda parameters are named after
+    /// <paramref name="elementVar"/>, so a nested one never redeclares its parent's.
+    /// </summary>
+    private static string NativeContainerToNSObject(ITypeProjection projection, string elementVar)
+    {
+        var e = LambdaName("e", elementVar);
+        switch (projection)
+        {
+            case ArrayProjection array:
+                return $"Foundation.NSArray.FromNSObjects(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, {e} => (Foundation.NSObject){ToNSObject(array.ElementProjection, e)})))";
+            case SetProjection set:
+                return ObjCContainerBridgeOwner.NewSet($"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, {e} => (Foundation.NSObject){ToNSObject(set.ElementProjection, e)}))");
+            case DictionaryProjection dictionary:
+                if (dictionary.KeyIsSwiftObject)
+                    return AdoptNSDictionary(dictionary.CreateFromKeyHandles(elementVar));
+                // One pass over the dictionary makes each key's pair with its value: a dictionary
+                // need not enumerate twice in the same order, so separate key and value passes
+                // could pair a key with another key's value.
+                var kvp = LambdaName("kvp", elementVar);
+                return "((global::System.Func<Foundation.NSObject[][], Foundation.NSDictionary>)(static __pairs => Foundation.NSDictionary.FromObjectsAndKeys(" +
+                       "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(__pairs, __pair => __pair[1])), " +
+                       "global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select(__pairs, __pair => __pair[0])))))(" +
+                       $"global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({elementVar}, {kvp} => new Foundation.NSObject[] {{ (Foundation.NSObject){ToNSObject(dictionary.KeyProjection, $"{kvp}.Key")}, (Foundation.NSObject){ToNSObject(dictionary.ValueProjection, $"{kvp}.Value")} }})))";
+            default:
+                throw new ArgumentException($"Not a container projection: {projection.GetType().Name}", nameof(projection));
+        }
+    }
+
+    /// <summary>
+    /// A lambda parameter name for the elements of <paramref name="sourceExpr"/>, unique to that
+    /// source: a lambda nested in it reads a longer source, so it gets a longer name.
+    /// </summary>
+    internal static string LambdaName(string stem, string sourceExpr)
+        => $"_{stem}" + new string(sourceExpr.Where(char.IsLetterOrDigit).ToArray());
 
     /// <summary>A pattern variable for the non-nil value of <paramref name="elementVar"/>.</summary>
     private static string NonNilName(string elementVar)
@@ -608,7 +649,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// unboxing through the matching NSNumber accessor (e.g. <c>NIntValue</c> for
     /// <c>Swift.Int</c>) rather than a plain cast — <c>(nint)NSObject</c> is invalid.
     /// </summary>
-    private static string FromNSObject(ITypeProjection projection, string nsObjectVar)
+    internal static string FromNSObject(ITypeProjection projection, string nsObjectVar)
     {
         // NSNull is Swift's nil inside an Objective-C collection (see ToNSObject).
         if (projection is OptionalProjection optional)
@@ -627,13 +668,17 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return $"{nsObjectVar}.ToString()!";
         if (projection is DataProjection)
             return $"((Foundation.NSData){nsObjectVar}).ToArray()";
-        // A nested container that crosses as an Objective-C collection is that collection, borrowed
-        // from this one: read its elements without adopting it.
-        if (projection is ArrayProjection { UsesObjCContainerBridge: true } array)
-            return array.GetReturnElementConversion(nsObjectVar)!;
-        if (projection is SetProjection { UsesObjCContainerBridge: true } set)
-            return set.GetReturnElementConversion($"{nsObjectVar}.Handle")!;
-        if (projection is DictionaryProjection { UsesObjCContainerBridge: true } dictionary)
+        // A nested container is the Objective-C collection Swift bridged it to, borrowed from this
+        // one: read its elements without adopting it. That holds whether its own elements bridge
+        // (`[String: [URL]]`) or not (`[URL: [Int]]`: Swift bridges the `[Int]` with the dictionary
+        // around it, as an NSArray of NSNumbers).
+        if (projection is ArrayProjection array)
+            return array.UsesObjCContainerBridge
+                ? array.GetReturnElementConversion(nsObjectVar)!
+                : array.ReadNativeElementsOfNSArray(nsObjectVar);
+        if (projection is SetProjection set)
+            return set.ReadObjCSet($"ObjCRuntime.Runtime.GetNSObject<Foundation.NSSet>({nsObjectVar}.Handle)!");
+        if (projection is DictionaryProjection dictionary)
             return dictionary.BorrowedObjCBridgeRead(nsObjectVar);
         // BoolProjection is its own class (not BlittableProjection), but Swift.Bool also
         // bridges to NSNumber inside an NSDictionary, so it needs the same unbox path.
@@ -708,7 +753,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// containers via <see cref="ToNSObject"/>) and transfers a +1 ARC retain via
     /// <c>Arc.UnknownObjectRetain</c> (dispatches to objc_retain). The transfer retain keeps the
     /// dictionary — and the keys/values it retains — alive after the receiver frame returns,
-    /// independent of the freshly-allocated managed wrapper's finalization; the Swift thunk balances
+    /// after the new managed wrapper, held until the retain is taken, is released; the Swift thunk balances
     /// it with <c>takeRetainedValue()</c>. This is the reverse of the forward accessor's
     /// <c>Unmanaged.passRetained</c>(+1) / C# <c>owns: true</c> adoption.
     public string GetReverseReceiverObjCBridgeConversion(string varName)
@@ -719,7 +764,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var keyToNS = ToNSObject(_keyProjection, "kvp.Key");
         var valToNS = ToNSObject(_valueProjection, "kvp.Value");
         var nsDict = $"Foundation.NSDictionary.FromObjectsAndKeys(global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {valToNS})), global::System.Linq.Enumerable.ToArray(global::System.Linq.Enumerable.Select({varName}, kvp => {keyToNS})))";
-        return $"global::Swift.Runtime.Arc.UnknownObjectRetain({nsDict}.Handle)";
+        return ObjCContainerBridgeOwner.RetainedHandle(nsDict);
     }
 
     public ObjCContainerBridgeOwner BuildObjCBridgeOwner(string paramName, bool sourceIsNullable)
@@ -874,7 +919,7 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         var nsDict = depth == 1 ? "_nsDict" : $"_nsDict{depth}";
         var nsKey = depth == 1 ? "_nsKey" : $"_nsKey{depth}";
         var dict = depth == 1 ? "_dict" : $"_dict{depth}";
-        if (CrossesByKeyHandles)
+        if (KeyIsSwiftObject)
         {
             // Each key is a Swift object: read the entries by handle (CrossesByKeyHandles).
             var entry = depth == 1 ? "_entry" : $"_entry{depth}";
@@ -917,7 +962,17 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// key's managed peer and wraps a pure Swift one.
     /// </summary>
     private bool CrossesByKeyHandles
-        => UsesObjCContainerBridge && Unwrapped(_keyProjection) is ClassProjection or ObjCRootedClassProjection;
+        => UsesObjCContainerBridge && KeyIsSwiftObject;
+
+    /// <summary>
+    /// Whether the key is a Swift class, pure Swift or <c>NSObject</c>-rooted, optional or not. Inside
+    /// an Objective-C dictionary each such key is the object itself, so the dictionary is read and
+    /// built by its keys' handles (<see cref="CrossesByKeyHandles"/>), including when the dictionary
+    /// is native (<c>[Node: Int]</c>) and only crosses as an NSDictionary because an enclosing
+    /// collection bridges.
+    /// </summary>
+    private bool KeyIsSwiftObject
+        => Unwrapped(_keyProjection) is ClassProjection or ObjCRootedClassProjection;
 
     private static ITypeProjection Unwrapped(ITypeProjection projection)
         => projection is OptionalProjection optional ? optional.InnerProjection : projection;

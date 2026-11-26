@@ -929,11 +929,8 @@ namespace BindingsGeneration
                     foreach (var line in setupLines) csWriter.Write($"{line} ");
                     if (requiresDisposal)
                     {
-                        // ObjC container bridge: method expects IntPtr (.Handle), not the collection object
-                        var valArg = retProjection is ArrayProjection { UsesObjCContainerBridge: true }
-                            or SetProjection { UsesObjCContainerBridge: true }
-                            or DictionaryProjection { UsesObjCContainerBridge: true }
-                            ? "__val.Handle" : "__val";
+                        // An ObjC container bridge passes the handle of the collection `__val` keeps alive.
+                        var valArg = AccessorSetterConversionVisitor.HandleArgument(retProjection, "__val");
                         csWriter.WriteLine($"using var __val = {conv}; {methodName}({valArg}, {args}); }}");
                     }
                     else
@@ -1172,11 +1169,8 @@ namespace BindingsGeneration
                 {
                     if (requiresDisposal)
                     {
-                        // ObjC container bridge: method expects IntPtr (.Handle), not the collection object
-                        var valArg = valueProjection is ArrayProjection { UsesObjCContainerBridge: true }
-                            or SetProjection { UsesObjCContainerBridge: true }
-                            or DictionaryProjection { UsesObjCContainerBridge: true }
-                            ? "__val.Handle" : "__val";
+                        // An ObjC container bridge passes the handle of the collection `__val` keeps alive.
+                        var valArg = AccessorSetterConversionVisitor.HandleArgument(valueProjection, "__val");
                         csWriter.WriteLine($"using var __val = {conv}; {methodName}({valArg}, {args});");
                     }
                     else
