@@ -29,12 +29,14 @@ namespace BindingsGeneration
         /// <summary>What a rule reads besides the member: the assembly's index, the module's namespace and the record's respelled keys.</summary>
         /// <param name="Index">The module's public and protected types and members.</param>
         /// <param name="Namespace">The module's namespace.</param>
-        /// <param name="RespelledPaths">
-        /// The <c>Parent.Name</c> paths of record keys that resolve nothing although the assembly declares a
-        /// member of that path and kind (the key spells a parameter differently from the compiled member).
+        /// <param name="Module">The module's Swift name, as its record states it.</param>
+        /// <param name="Respelled">
+        /// The members a respelled record key stands for: a key that resolves nothing although its
+        /// declaring type has members of its name, kind and parameter count, paired with the one such
+        /// member no other key names (the key spells a parameter differently from the compiled member).
         /// </param>
         /// <param name="RecordedPaths">The <c>Parent.Name</c> paths of the members the record names.</param>
-        public sealed record Scope(SwiftDeclarationRecordKeys.AssemblyIndex Index, string Namespace, IReadOnlySet<string> RespelledPaths,
+        public sealed record Scope(SwiftDeclarationRecordKeys.AssemblyIndex Index, string Namespace, string? Module, IReadOnlySet<Member> Respelled,
             IReadOnlySet<string> RecordedPaths);
 
         /// <summary>A fixed-name rule, or a named entry of the pending list.</summary>
@@ -73,10 +75,10 @@ namespace BindingsGeneration
             rules ??= Rules;
             var index = SwiftDeclarationRecordKeys.Index(image, @namespace);
             using var document = JsonDocument.Parse(record);
+            var module = document.RootElement.TryGetProperty("module", out var moduleName) ? moduleName.GetString() : null;
             var recorded = new HashSet<Member>(ReferenceEqualityComparer.Instance);
             var unresolved = new List<string>();
             var respelled = new List<string>();
-            var respelledPaths = new HashSet<string>(StringComparer.Ordinal);
             if (document.RootElement.TryGetProperty("types", out var types))
             {
                 foreach (var type in types.EnumerateObject())
@@ -87,32 +89,50 @@ namespace BindingsGeneration
                         unresolved.Add($"type {type.Name} => {type.Value.GetString()}");
                 }
             }
+            var candidates = new List<IReadOnlyList<Member>>();
+            var unmatched = new List<(SwiftDeclarationRecordKeys.Key Key, string Entry)>();
             if (document.RootElement.TryGetProperty("members", out var members))
             {
                 foreach (var entry in members.EnumerateObject())
                 {
                     var key = SwiftDeclarationRecordKeys.Parse(entry.Name);
-                    var resolved = key is null ? Array.Empty<Member>() : index.Resolve(key);
-                    if (resolved.Count == 0)
-                    {
-                        // A key of a declared member's path and kind whose parameters spell another
-                        // signature: the record describes the member, under a key the assembly does not have.
-                        if (key is { Parameters: not null } && index.MembersOf(key.ParentPath).Any(m => m.Name == key.Name && m.Kind == KindOf(key)))
-                        {
-                            respelled.Add($"{entry.Name} => {entry.Value.GetString()}");
-                            respelledPaths.Add(key.ParentPath + "." + key.Name);
-                        }
-                        else
-                        {
-                            unresolved.Add($"{entry.Name} => {entry.Value.GetString()}");
-                        }
-                    }
-                    foreach (var member in resolved)
-                        recorded.Add(member);
+                    var resolved = key is null ? Array.Empty<Member>() : index.Resolve(key, module);
+                    var line = $"{entry.Name} => {entry.Value.GetString()}";
+                    if (resolved.Count > 0)
+                        candidates.Add(resolved);
+                    else if (key is { Parameters: not null })
+                        unmatched.Add((key, line));
+                    else
+                        unresolved.Add(line);
+                }
+            }
+            // One key names one member. Keys that resolve to the same members (two parameter types that
+            // differ only by namespace, which a key does not spell) cover as many of them as there are
+            // keys: a maximum matching of keys to members credits each member at most one key.
+            foreach (var member in MatchKeys(candidates))
+                recorded.Add(member);
+
+            // A key that resolves nothing but whose declaring type has unrecorded members of its name,
+            // kind and parameter count: when such keys and such members are equal in number, each key
+            // stands for one of them under another spelling. Otherwise the keys are unresolved.
+            var paired = new HashSet<Member>(ReferenceEqualityComparer.Instance);
+            foreach (var group in unmatched.GroupBy(u => (u.Key.ParentPath, u.Key.Name, Kind: KindOf(u.Key), u.Key.Parameters!.Value.Length)))
+            {
+                var open = index.MembersOf(group.Key.ParentPath)
+                    .Where(m => m.Name == group.Key.Name && m.Kind == group.Key.Kind && m.Parameters.Length == group.Key.Length && !recorded.Contains(m))
+                    .ToList();
+                if (open.Count > 0 && open.Count == group.Count())
+                {
+                    respelled.AddRange(group.Select(u => u.Entry));
+                    paired.UnionWith(open);
+                }
+                else
+                {
+                    unresolved.AddRange(group.Select(u => u.Entry));
                 }
             }
 
-            var scope = new Scope(index, @namespace, respelledPaths,
+            var scope = new Scope(index, @namespace, module, paired,
                 recorded.Select(m => m.Path).ToHashSet(StringComparer.Ordinal));
             var byRule = rules.ToDictionary(r => r.Name, _ => 0, StringComparer.Ordinal);
             var uncovered = new List<Member>();
@@ -129,12 +149,38 @@ namespace BindingsGeneration
             return new Report(index.Members.Count, recorded.Count, byRule, uncovered, respelled, unresolved);
         }
 
+        // Kuhn's augmenting-path matching of keys (each a list of the members it resolves to) to
+        // members. Returns the matched members.
+        private static IEnumerable<Member> MatchKeys(IReadOnlyList<IReadOnlyList<Member>> keys)
+        {
+            var owner = new Dictionary<Member, int>(ReferenceEqualityComparer.Instance);
+            for (var k = 0; k < keys.Count; k++)
+                Augment(k, new HashSet<Member>(ReferenceEqualityComparer.Instance));
+            return owner.Keys;
+
+            bool Augment(int k, HashSet<Member> seen)
+            {
+                foreach (var member in keys[k])
+                {
+                    if (!seen.Add(member))
+                        continue;
+                    if (!owner.TryGetValue(member, out var other) || Augment(other, seen))
+                    {
+                        owner[member] = k;
+                        return true;
+                    }
+                }
+                return false;
+            }
+        }
+
         private static string KindOf(SwiftDeclarationRecordKeys.Key key) =>
             key.IsIndexer ? "indexer" : key.Name == ".ctor" ? "ctor" : "method";
 
+        // The runtime's own types a plumbing constructor takes. A Swift parameter never projects to one.
         private static readonly HashSet<string> RuntimeParameterTypes = new(StringComparer.Ordinal)
         {
-            "SwiftInheritanceChain", "NativeHandle", "IntPtr", "Boolean", "SwiftHandle", "SwiftObjectOwnership",
+            "SwiftInheritanceChain", "NativeHandle", "SwiftHandle", "SwiftObjectOwnership",
         };
 
         private static bool IsRuntimeType(string canonical)
@@ -143,7 +189,36 @@ namespace BindingsGeneration
             return RuntimeParameterTypes.Contains(name) || name.StartsWith("ExistentialContainer", StringComparison.Ordinal);
         }
 
+        // A plumbing constructor: a runtime type first, then runtime types or flags (a Boolean ownership
+        // flag after an existential container). A constructor of ordinary types (IntPtr, Boolean) is a
+        // Swift initializer's, which the record must name.
+        private static bool IsPlumbingConstructor(Member member) =>
+            member.Parameters.Length > 0 && IsRuntimeType(member.Parameters[0])
+            && member.Parameters.Skip(1).All(p => IsRuntimeType(p) || p == "Boolean");
+
+        private static string Generic(string canonical)
+        {
+            var name = canonical.TrimEnd('~', '?');
+            var angle = name.IndexOf('<');
+            return angle < 0 ? name : name[..angle];
+        }
+
+        // The runtime's handle, payload and tag members, by name and by the runtime type each has. A
+        // Swift property of one of these names has a Swift type, and is recorded under its own key.
+        private static bool IsPlumbingProperty(Member member, Scope scope) => member.Name switch
+        {
+            "Payload" => Generic(member.ValueType) is "SwiftSafeHandle" or "SwiftClassHandle",
+            "PayloadBuffer" => Generic(member.ValueType) == "PayloadBuffer",
+            "PayloadConstructionSemantics" => member.ValueType == "PayloadConstructionSemantics",
+            "Tag" => Generic(member.ValueType) == "CaseTag",
+            "Handle" => member.ValueType is "IntPtr" or "NativeHandle" && ImplementsRuntimeInterface(member, scope),
+            _ => false,
+        };
+
         private static Member? Declaring(Member member, Scope scope) => scope.Index.Type(member.ParentPath);
+
+        private static bool ImplementsRuntimeInterface(Member member, Scope scope) =>
+            DeclaredIn(member, scope, t => t.Interfaces.Any(i => i.StartsWith("Swift.Runtime.", StringComparison.Ordinal)));
 
         private static bool DeclaredIn(Member member, Scope scope, Func<Member, bool> type) =>
             Declaring(member, scope) is { } declaring && type(declaring);
@@ -171,8 +246,66 @@ namespace BindingsGeneration
         // The proxy of a composition interface: `{A}And{B}Proxy` implementing `I{A}And{B}`.
         private static bool IsCompositionProxy(Member? type, Scope scope) =>
             type is { Kind: "type", DeclaringKind: "class" } && type.Name.EndsWith("Proxy", StringComparison.Ordinal)
-            && type.Interfaces.Contains("I" + type.Name[..^"Proxy".Length])
+            && type.Interfaces.Select(Leaf).Contains("I" + type.Name[..^"Proxy".Length])
             && IsCompositionInterface(scope.Index.Type(Qualify(type.ParentPath, "I" + type.Name[..^"Proxy".Length])), scope);
+
+        // The interface a protocol proxy implements: `{Name}Proxy` in a namespace under the module's
+        // implements `I{Name}`, which the module declares.
+        private static Member? ProxiedInterface(Member? type, Scope scope) =>
+            type is { Kind: "type", DeclaringKind: "class" } && type.ParentPath.Length > 0 && scope.Index.Type(type.ParentPath) is null
+            && type.Name.EndsWith("Proxy", StringComparison.Ordinal) && type.Interfaces.Select(Leaf).Contains("I" + type.Name[..^"Proxy".Length])
+                ? scope.Index.TypesNamed("I" + type.Name[..^"Proxy".Length]).FirstOrDefault(t => t.DeclaringKind == "interface" && !t.Path.StartsWith(type.ParentPath + ".", StringComparison.Ordinal))
+                : null;
+
+        // A member of a protocol proxy that implements one of the interface's own members (by name and
+        // kind), or the proxy plumbing: constructors taking the interface (and an ownership mode) and the
+        // witness table handle.
+        private static bool IsProxyMember(Member member, Scope scope)
+        {
+            var proxy = Declaring(member, scope);
+            if (ProxiedInterface(proxy, scope) is not { } iface)
+                return false;
+            if (member.Kind == "ctor")
+                return member.Parameters.Length >= 1 && member.Parameters[0].TrimEnd('~') == iface.Name
+                       && member.Parameters.Skip(1).All(p => p == "ProxyImplOwnership");
+            if (member.Kind == "property" && member.Name == "ProtocolWitnessTableHandle")
+                return true;
+            return InterfaceDeclares(iface, member, scope, new HashSet<string>(StringComparer.Ordinal));
+        }
+
+        // Whether the interface, or an interface it extends, declares a member of the member's name and
+        // kind. An interface the module does not declare (a dependency's protocol the interface refines)
+        // is recorded by its own module, so a member the local chain does not declare is taken to
+        // implement it.
+        private static bool InterfaceDeclares(Member iface, Member member, Scope scope, HashSet<string> seen)
+        {
+            if (!seen.Add(iface.Path))
+                return false;
+            if (scope.Index.MembersOf(iface.Path).Any(m => m.Name == member.Name && m.Kind == member.Kind))
+                return true;
+            foreach (var parentName in iface.Interfaces)
+            {
+                if (IsForeignBindingInterface(parentName, scope))
+                    return true;
+                var parents = scope.Index.TypesNamed(Leaf(parentName)).Where(t => t.DeclaringKind == "interface").ToList();
+                if (parents.Any(parent => InterfaceDeclares(parent, member, scope, seen)))
+                    return true;
+            }
+            return false;
+        }
+
+        // An interface of another binding's namespace: neither the module's own, nor the runtime's
+        // (Swift.*), nor the base class library's (System.*).
+        private static bool IsForeignBindingInterface(string qualified, Scope scope)
+        {
+            var dot = qualified.LastIndexOf('.');
+            var ns = dot < 0 ? "" : qualified[..dot];
+            return ns.Length > 0 && ns != scope.Namespace && !ns.StartsWith(scope.Namespace + ".", StringComparison.Ordinal)
+                   && ns != "System" && !ns.StartsWith("System.", StringComparison.Ordinal)
+                   && ns != "Swift" && !ns.StartsWith("Swift.", StringComparison.Ordinal);
+        }
+
+        private static string Leaf(string qualified) => qualified[(qualified.LastIndexOf('.') + 1)..];
 
         private static string Qualify(string parent, string name) => parent.Length > 0 ? parent + "." + name : name;
 
@@ -186,13 +319,14 @@ namespace BindingsGeneration
                 "A C# operator's name is fixed by its symbol (op_Equality for ==), and its operands are its signature: two Swift declarations of one symbol and operand types are one Swift operator.",
                 (m, _) => m.Kind == "method" && (m.Traits & MemberTraits.SpecialName) != 0 && m.Name.StartsWith("op_", StringComparison.Ordinal)),
             new("runtime-handle-plumbing",
-                "The handle, payload, tag and metadata plumbing the runtime gives every projected type (_handle, Handle, Payload, PayloadBuffer, Tag, PayloadConstructionSemantics; the ISwiftObject statics GetTypeMetadata, NewFromPayload, MarshalToSwift and GetProtocolConformanceDescriptor; constructors that take only runtime types such as SwiftInheritanceChain or NativeHandle): fixed names and runtime signatures, which no Swift declaration projects to.",
-                (m, _) => m.Kind switch
+                "The handle, payload, tag and metadata plumbing the runtime gives every projected type (each matched by name and runtime type: the _handle field and Payload property of a SwiftClassHandle or SwiftSafeHandle, PayloadBuffer, the CaseTag-typed Tag, PayloadConstructionSemantics, a Swift.Runtime type's IntPtr Handle; the ISwiftObject statics GetTypeMetadata, NewFromPayload, MarshalToSwift and GetProtocolConformanceDescriptor; constructors whose first parameter is a runtime type such as SwiftInheritanceChain, NativeHandle or an ExistentialContainer): fixed names and runtime types, which no Swift declaration projects to.",
+                (m, s) => m.Kind switch
                 {
-                    "field" => m.Name is "_handle",
-                    "property" => m.Name is "Handle" or "Payload" or "PayloadBuffer" or "Tag" or "PayloadConstructionSemantics",
-                    "method" => m.Name is "GetTypeMetadata" or "NewFromPayload" or "MarshalToSwift" or "GetProtocolConformanceDescriptor",
-                    "ctor" => m.Parameters.Length > 0 && m.Parameters.All(IsRuntimeType),
+                    "field" => m.Name is "_handle" && Generic(m.ValueType) == "SwiftClassHandle",
+                    "property" => IsPlumbingProperty(m, s),
+                    "method" => m.IsStatic && m.Name is "GetTypeMetadata" or "NewFromPayload" or "MarshalToSwift" or "GetProtocolConformanceDescriptor"
+                        || !m.IsStatic && m.Name == "MarshalToSwift" && ImplementsRuntimeInterface(m, s),
+                    "ctor" => IsPlumbingConstructor(m),
                     _ => false,
                 }),
             new("compiler-generated",
@@ -220,9 +354,9 @@ namespace BindingsGeneration
                              && m.Parameters[0].TrimEnd('~') == m.ParentPath[(m.ParentPath.LastIndexOf('.') + 1)..]
                           || m.Kind == "property" && m.IsStatic && m.Name == "AllCases"),
             new("module-function-holder",
-                "Functions is the class holding a module's free functions in every binding; each function is recorded under its own key, and the class's implicit constructor is the C# default.",
-                (m, s) => IsType(m) && m.ParentPath.Length == 0 && m.Name == "Functions"
-                          || m.Kind == "ctor" && m.Parameters.Length == 0 && m.ParentPath == "Functions"),
+                "The class holding a module's module-level functions (Functions, or the other names the module emitter falls back to); each function is recorded under its own key, and the class's implicit constructor is the C# default.",
+                (m, s) => IsType(m) && m.ParentPath.Length == 0 && s.Index.FunctionHolders(s.Module).Contains(m.Name)
+                          || m.Kind == "ctor" && m.Parameters.Length == 0 && s.Index.FunctionHolders(s.Module).Contains(m.ParentPath)),
             new("foreign-type-hosts",
                 "A class this module declares under another module's Swift type name holds only the types this module's extensions of that type nest in it (each recorded under its own path), and its implicit constructor is the C# default: its name is the foreign type's, which names only that type.",
                 (m, s) => (IsType(m) ? m : m.Kind == "ctor" && m.Parameters.Length == 0 ? Declaring(m, s) : null) is { DeclaringKind: "class", IsStatic: false } host
@@ -246,24 +380,31 @@ namespace BindingsGeneration
                 "A protocol composition A & B projects to I{A}And{B}, which declares nothing of its own, and to its proxy {A}And{B}Proxy, whose members implement the components' requirements. The name is formed from the components, and each requirement is recorded under its component's interface, so a requirement moving in a component moves its recorded key.",
                 (m, s) => IsCompositionInterface(m, s) || IsCompositionProxy(m, s) || m.Kind != "type" && IsCompositionProxy(Declaring(m, s), s)),
 
+            new("protocol-proxies",
+                "A protocol's proxy, {Name}Proxy in the module's SwiftInterop namespace, implements the protocol's interface I{Name}: its name is formed from the protocol's, each member it implements is recorded under the interface (so it moves only with the interface's member), and its constructors (the interface and an ownership mode) and ProtocolWitnessTableHandle are the runtime's existential plumbing.",
+                (m, s) => ProxiedInterface(m, s) is not null || m.Kind != "type" && IsProxyMember(m, s)),
+
             // The pending list: emitted members the record does not yet describe, each named here so a new
             // kind still fails. An entry is removed when its emitter records what it emits.
             new(PendingPrefix + "swiftui-view-sessions",
                 "Not yet recorded. A SwiftUI view's {View}ViewSession class: its hosting contract (ViewController, Set*/Clear* modifiers, Present/Dismiss) has fixed names, but Create mirrors the view's initializers and Update{Property}/BindTo/Unbind its properties, so the session emitter should record them as those declarations.",
                 (m, s) => (IsType(m) ? m : Declaring(m, s)) is { DeclaringKind: "class" } session && session.Name.EndsWith("ViewSession", StringComparison.Ordinal)),
             new(PendingPrefix + "extension-class-members",
-                "Not yet recorded. Members of extension classes emitted outside the recorded lanes: constrained extensions of a generic type closed over a concrete argument (the mangled {Module}_D{Type}_{Module}_D{Arg}Extensions classes and the Closed*Extensions classes), cross-module extensions of a dependency's type ({Type}{Module}Extensions) and the KVO observers (*KvoExtensions.Observe*). Each stands for a Swift extension member and should be recorded at its emitter.",
+                "Not yet recorded. Members of extension classes emitted outside the recorded lanes: constrained extensions of a generic type closed over a concrete argument (the mangled {Module}_D{Type}_{Module}_D{Arg}Extensions classes and the Closed*Extensions classes), and the KVO observers (*KvoExtensions.Observe*). Each stands for a Swift extension member and should be recorded at its emitter.",
                 (m, s) => m.Kind is "method" or "property" && m.IsStatic && DeclaredIn(m, s, t => IsStaticClass(t)
                           && (t.Name.Contains("_D", StringComparison.Ordinal) && t.Name.EndsWith("Extensions", StringComparison.Ordinal)
                               || t.Name.EndsWith("ClosedConstrainedClosureExtensions", StringComparison.Ordinal)
-                              || t.Name.EndsWith(s.Namespace + "Extensions", StringComparison.Ordinal)
                               || t.Name.EndsWith("KvoExtensions", StringComparison.Ordinal) && m.Name.StartsWith("Observe", StringComparison.Ordinal)))),
             new(PendingPrefix + "base-trampolines",
                 "Not yet recorded. *BaseTrampolines classes call a closed generic parent's members non-virtually; each trampoline stands for that parent member and should be recorded as it.",
                 (m, s) => m.Kind == "method" && m.IsStatic && DeclaredIn(m, s, t => IsStaticClass(t) && t.Name.EndsWith("BaseTrampolines", StringComparison.Ordinal))),
             new(PendingPrefix + "respelled-keys",
-                "Not yet fixed. Members whose record key spells a parameter differently from the compiled member (an existential generic keyed Swift.AnyType where the member takes ISwiftObject, a Func<…, T> closure keyed Action<…>, a collection parameter keyed by its Swift type). The record describes them, under a key the API manifest shares; the key builders should spell the emitted parameter types. Listed by path from the record's own respelled keys, which the report prints.",
-                (m, s) => m.Kind is "method" or "ctor" or "indexer" && s.RespelledPaths.Contains(m.ParentPath + "." + m.Name)),
+                "Not yet fixed. Members whose record key spells a parameter differently from the compiled member (an existential generic keyed Swift.AnyType where the member takes ISwiftObject, a Func<…, T> closure keyed Action<…>, a collection parameter keyed by its Swift type). The record describes them, under a key the API manifest shares; the key builders should spell the emitted parameter types. Each is paired with one respelled key of its declaring type, name, kind and parameter count, which the report prints.",
+                (m, s) => s.Respelled.Contains(m)),
+            new(PendingPrefix + "respelled-key-default-overloads",
+                "Not yet recorded. The default-argument overloads of a member whose record key is respelled (an async method-generic bridge member keyed Swift.AnyType where it takes ISwiftObject): shorter overloads of the same name beside the member a respelled key is paired with. They stand for that member's Swift declaration and should be recorded with it once its key spells the emitted parameter types.",
+                (m, s) => m.Kind == "method" && s.Respelled.Any(p => p.ParentPath == m.ParentPath && p.Name == m.Name && p.Kind == m.Kind
+                                                                      && p.Parameters.Length > m.Parameters.Length)),
             new(PendingPrefix + "closure-result-overloads",
                 "Not yet recorded. A generic method's overload whose closure parameter returns the method's type parameter (Func<…, T>), emitted beside a recorded overload of the same name whose closure returns nothing: it stands for the same Swift declaration and should be recorded as it.",
                 (m, s) => m.Kind == "method" && m.GenericArity > 0 && m.Parameters.Any(p => p.StartsWith("Func<", StringComparison.Ordinal))

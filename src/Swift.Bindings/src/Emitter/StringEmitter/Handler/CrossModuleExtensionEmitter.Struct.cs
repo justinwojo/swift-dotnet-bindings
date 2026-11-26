@@ -170,7 +170,7 @@ public static partial class CrossModuleExtensionEmitter
 
                 if (TryEmitStructPropertyExtension(csWriter, swiftWriter, property, structDecl,
                     origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
-                    typeDatabase, emittedSignatures, pinvokeDecls, logger))
+                    typeDatabase, emittedSignatures, pinvokeDecls, context?.GetEmissionContext(), logger))
                 {
                     emittedCount++;
                     bound.Add(BindKey(property));
@@ -194,7 +194,7 @@ public static partial class CrossModuleExtensionEmitter
 
                 if (TryEmitStructMethodExtension(csWriter, swiftWriter, method, structDecl,
                     origCSharpType, origSwiftTypeQualified, wrapperLibPath, currentModule,
-                    typeDatabase, emittedSignatures, pinvokeDecls, logger))
+                    typeDatabase, emittedSignatures, pinvokeDecls, context?.GetEmissionContext(), logger))
                 {
                     emittedCount++;
                     bound.Add(BindKey(method));
@@ -295,6 +295,7 @@ public static partial class CrossModuleExtensionEmitter
         ITypeDatabase typeDatabase,
         HashSet<string> emittedSignatures,
         List<StructPInvokeInfo> pinvokeDecls,
+        ModuleEmissionContext? recorder,
         ILogger logger)
     {
         if (method.IsGeneric || method.IsAsync || method.Throws || method.IsMutating)
@@ -408,6 +409,7 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine();
         TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
         csWriter.WriteLine($"public static unsafe {publicReturnType} {methodName}({string.Join(", ", publicParamParts)})");
+        RecordExtensionMember(recorder, structDecl, currentModule, methodName, publicParamParts, method, typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
@@ -470,6 +472,7 @@ public static partial class CrossModuleExtensionEmitter
         ITypeDatabase typeDatabase,
         HashSet<string> emittedSignatures,
         List<StructPInvokeInfo> pinvokeDecls,
+        ModuleEmissionContext? recorder,
         ILogger logger)
     {
         if (property.IsStatic)
@@ -517,6 +520,7 @@ public static partial class CrossModuleExtensionEmitter
         csWriter.WriteLine();
         TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
         csWriter.WriteLine($"public static unsafe {publicType} Get{propertyName}(this {origCSharpType} {getterReceiver.ReceiverName})");
+        RecordExtensionMember(recorder, structDecl, currentModule, $"Get{propertyName}", new[] { $"this {origCSharpType} {getterReceiver.ReceiverName}" }, property, typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);
@@ -579,6 +583,8 @@ public static partial class CrossModuleExtensionEmitter
             csWriter.WriteLine();
             TypeAnnotationHelper.EmitMainActorMemberHeader(csWriter, mainActor);
             csWriter.WriteLine($"public static unsafe void Set{propertyName}(this ref {origCSharpType} {setterReceiver.ReceiverName}, {publicType} {SetterValueParameterName})");
+            RecordExtensionMember(recorder, structDecl, currentModule, $"Set{propertyName}",
+                new[] { $"this ref {origCSharpType} {setterReceiver.ReceiverName}", $"{publicType} {SetterValueParameterName}" }, property, typeDatabase);
             csWriter.WriteLine("{");
             csWriter.Indent++;
             TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);

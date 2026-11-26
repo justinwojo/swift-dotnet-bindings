@@ -627,6 +627,12 @@ partial class Build
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
             }
 
+            // So does its Swift declaration record, which the completeness gate holds the compiled
+            // dependency module to.
+            var depRecord = depOutputDir / (DepModuleName + BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix);
+            if (File.Exists(depRecord))
+                File.Move(depRecord, BtOutputDir / (DepModuleName + BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix), overwrite: true);
+
             // The dependency module's Swift call facts sidecar, transition ledger, call plans and guards
             // travel with its C# for the same reason: they describe transitions compiled from BtOutputDir.
             foreach (var sidecar in SwiftTransitionSidecarNames(DepModuleName))

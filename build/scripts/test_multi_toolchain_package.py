@@ -144,6 +144,10 @@ class ReaderTests(unittest.TestCase):
         self.assertEqual(entries["lib/net10.0-ios26.0/Kit.dll"], b"MZ hash=" + witness(record))
         with self.assertRaises(ValueError):
             mtp.respell_record_key(source, "net10.0-ios27.2", "Loader.Absent()", "Loader.Other()", self.dir / "out2")
+        # The overload the respelled key must not take has to be in the record beside it.
+        with self.assertRaises(ValueError):
+            mtp.respell_record_key(source, "net10.0-ios27.2", "Loader.Load(string?,int?)", "Loader.Load(string,int?)",
+                                   self.dir / "out3", beside="Loader.Load(string,int)")
 
     def test_name_keyed_case_id_matches_the_generator(self):
         # EnumDecl.NameKeyedCaseId: 31-bit FNV-1a of the UTF-8 case name (the CaseOrder binding's Paint.CaseTag.Solid).

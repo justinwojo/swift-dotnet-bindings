@@ -22,6 +22,12 @@ public class SwiftDeclarationRecordCompletenessTests
                 public Widget(int size) { }
                 public int Size => 0;
                 public void Resize(int size) { }
+                public void Move(int x) { }
+                public void Move(string x) { }
+                public void Take(Other.A.Token t) { }
+                public void Take(Other.B.Token t) { }
+                public static int Answer() => 1;
+                public int Handle => 0;
                 public void Dispose() { }
                 public override string ToString() => "";
                 public static bool operator ==(Widget a, Widget b) => true;
@@ -46,6 +52,8 @@ public class SwiftDeclarationRecordCompletenessTests
             public sealed class AgeableAndNameableProxy : IAgeableAndNameable { public int Age => 0; public string Name => ""; }
             public sealed class Foreign { public sealed class Nested { private Nested() { } } }
         }
+        namespace Other.A { public sealed class Token { } }
+        namespace Other.B { public sealed class Token { } }
         """;
 
     private const string Record = """
@@ -64,6 +72,12 @@ public class SwiftDeclarationRecordCompletenessTests
             "Widget.Widget(int)": "init Kit.Widget.init(size:)",
             "Widget.Size": "var Kit.Widget.size",
             "Widget.Resize(int)": "func Kit.Widget.resize(size:)",
+            "Widget.Move(int)": "func Kit.Widget.move(x:)",
+            "Widget.Move(string)": "func Kit.Widget.move(name:)",
+            "Widget.Take(A.Token)": "func Kit.Widget.take(_:)",
+            "Widget.Take(B.Token)": "func Kit.Widget.take(other:)",
+            "Widget.Answer()": "static func Kit.Widget.answer()",
+            "Widget.Handle": "var Kit.Widget.handle",
             "Answer()": "func Kit.answer()",
             "WidgetExtensions.Doubled(this Widget)": "func Kit.Widget.doubled() (extension in Kit)",
             "IAgeable.Age": "var Kit.Ageable.age",
@@ -133,6 +147,55 @@ public class SwiftDeclarationRecordCompletenessTests
         var report = SwiftDeclarationRecordCompleteness.Check(Image, "Kit",
             Encoding.UTF8.GetBytes(Record.Replace("\"Widget.Resize(int)\"", "\"Widget.Resize(long)\"")), fixedNameRules);
         Assert.Equal("Widget.Resize(Int32)", Assert.Single(report.Uncovered).ToString());
+    }
+
+    [Fact]
+    public void ARespelledKey_StandsForOneUnrecordedOverload_NotEveryOverloadAtItsPath()
+    {
+        // Both Move overloads lose their keys and one respelled key is left: it cannot say which
+        // overload it means, so it is unresolved and both overloads are uncovered.
+        var report = Check(Record
+            .Replace("\"Widget.Move(int)\": \"func Kit.Widget.move(x:)\",", "")
+            .Replace("\"Widget.Move(string)\"", "\"Widget.Move(long)\""));
+        Assert.False(report.Passed);
+        Assert.StartsWith("Widget.Move(long)", Assert.Single(report.UnresolvedKeys));
+        Assert.Equal(new[] { "Widget.Move(Int32)", "Widget.Move(String~)" }, report.Uncovered.Select(m => m.ToString()).Order());
+    }
+
+    [Fact]
+    public void ARespelledKey_BesideRecordedOverloadsOnly_IsUnresolved()
+    {
+        var report = Check(Record.Replace("\"Widget.Handle\"", "\"Widget.Move(long)\": \"func Kit.Widget.move(count:)\", \"Widget.Handle\""));
+        Assert.False(report.Passed);
+        Assert.StartsWith("Widget.Move(long)", Assert.Single(report.UnresolvedKeys));
+        Assert.Empty(report.RespelledKeys);
+    }
+
+    [Fact]
+    public void OneKey_CoversOneMember_WhenItSpellsTwo()
+    {
+        // A key does not spell a parameter's namespace, so Take(A.Token) and Take(B.Token) both name
+        // both overloads; each key still covers only one of them.
+        var report = Check(Record.Replace("\"Widget.Take(B.Token)\": \"func Kit.Widget.take(other:)\",", ""));
+        Assert.False(report.Passed);
+        Assert.Equal("Widget.Take", Assert.Single(report.Uncovered).Path);
+    }
+
+    [Fact]
+    public void AModuleFunctionKey_NamesOnlyTheFunctionsHoldersMember()
+    {
+        var report = Check(Record.Replace("\"Widget.Answer()\": \"static func Kit.Widget.answer()\",", ""));
+        Assert.False(report.Passed);
+        Assert.Equal("Widget.Answer()", Assert.Single(report.Uncovered).ToString());
+    }
+
+    [Fact]
+    public void ASwiftPropertyNamedLikeRuntimePlumbing_IsNotCoveredByThePlumbingRule()
+    {
+        // Widget implements no runtime interface, so its Int32 Handle is a Swift property.
+        var report = Check(Record.Replace("\"Widget.Handle\": \"var Kit.Widget.handle\",", ""));
+        Assert.False(report.Passed);
+        Assert.Equal("Widget.Handle", Assert.Single(report.Uncovered).ToString());
     }
 
     [Fact]

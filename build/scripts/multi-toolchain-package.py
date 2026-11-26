@@ -84,11 +84,12 @@ MOVED_NAME_CONTROLS = [
 ]
 # The accepted controls: a valid pair of copies the merge must merge. A1 respells the newer copy's record
 # key of `load(a:b:)` (`Load(string?,int?)` -> `Load(string,int?)`, one CLR signature) beside the newer
-# build's added `load(c:d:)` (`Load(string,int)`, another signature of the same shape), and re-witnesses
+# build's added `load(c:d:)` (`Load(string,int)`, another signature of the same shape, which the newer
+# record must hold), and re-witnesses
 # the record in the copy's assembly; the merge must resolve the respelled key by its compiled signature.
 ACCEPTED_CONTROLS = [
     ("A1", "OverloadRespell", "a respelled key beside an added overload of the same shape",
-     "Loader.Load(string?,int?)", "Loader.Load(string,int?)"),
+     "Loader.Load(string?,int?)", "Loader.Load(string,int?)", "Loader.Load(string,int)"),
 ]
 PACKAGE_PREFIX = "MtpFixture."
 VERSION = "27.2.0"
@@ -177,9 +178,10 @@ def name_keyed_case_id(name):
     return value & 0x7FFFFFFF
 
 
-def respell_record_key(source, copy_tfm, spelled, respelled, out_dir):
+def respell_record_key(source, copy_tfm, spelled, respelled, out_dir, beside=None):
     """A doctored copy of a package whose copy_tfm record spells the member key `spelled` as `respelled`,
-    re-witnessed: the assembly that names the record carries the doctored record's hash (controls only)."""
+    re-witnessed: the assembly that names the record carries the doctored record's hash (controls only).
+    `beside`, when given, is a key the record must also hold (the overload the respelled key must not take)."""
     entries = read_entries(source)
     records = [n for n in entries if n.startswith(f"buildTransitive/{copy_tfm}/") and n.endswith(".swift-declarations.json")]
     old_key, new_key = json.dumps(spelled).encode(), json.dumps(respelled).encode()
@@ -187,6 +189,8 @@ def respell_record_key(source, copy_tfm, spelled, respelled, out_dir):
     if len(hit) != 1:
         raise ValueError(f"{len(hit)} record(s) of {copy_tfm} in {source.name} hold the key {spelled}")
     record = entries[hit[0]]
+    if beside is not None and json.dumps(beside).encode() not in record:
+        raise ValueError(f"the {copy_tfm} record in {source.name} does not hold the key {beside}")
     doctored = record.replace(old_key, new_key)
     def witness(data):
         return ("sha256:" + hashlib.sha256(data).hexdigest()).encode()
@@ -951,12 +955,12 @@ class Gate:
                 out = self.work / "merge-controls" / control
                 code, text = self.merge(fw, parts, VERSION, out, f"control-{control.lower()}.log")
                 self.control(f"SWIFTBIND138 {control} {title}", code if not list(out.glob("*.nupkg")) else 0, text, expect)
-        for control, fw, title, spelled, respelled in ACCEPTED_CONTROLS:
+        for control, fw, title, spelled, respelled, beside in ACCEPTED_CONTROLS:
             if (parts := self.control_contributions(control, fw)) is None:
                 continue
             (older, older_tfms), (newer, newer_tfms) = parts
             try:
-                doctored = respell_record_key(newer, newer_tfms[0], spelled, respelled, self.work / "control-contributions" / "doctored" / control)
+                doctored = respell_record_key(newer, newer_tfms[0], spelled, respelled, self.work / "control-contributions" / "doctored" / control, beside)
             except ValueError as error:
                 self.step(f"control {control} setup: respell {spelled} in {newer.name}", False, str(error))
                 continue

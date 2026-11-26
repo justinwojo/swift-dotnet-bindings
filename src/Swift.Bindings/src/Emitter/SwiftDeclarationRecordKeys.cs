@@ -46,7 +46,7 @@ namespace BindingsGeneration
         /// <param name="Kind">method, ctor, property, indexer, field, event or type.</param>
         /// <param name="Parameters">Canonical parameter types with <c>?</c> and <c>~</c> marks; empty for a property, field, event or type.</param>
         public sealed record Member(string ParentPath, string Name, string Kind, ImmutableArray<string> Parameters, int GenericArity,
-            bool IsStatic, bool DeclaringTypeIsInterface)
+            bool IsStatic)
         {
             /// <summary>The kind of the declaring type (of the type itself, for a type): class, struct, interface, enum or delegate.</summary>
             public string DeclaringKind { get; init; } = "class";
@@ -54,10 +54,10 @@ namespace BindingsGeneration
             /// <summary>Metadata facts the completeness check's fixed-name rules read.</summary>
             public MemberTraits Traits { get; init; }
 
-            /// <summary>For a type, its base type's name without namespace or arity; empty otherwise.</summary>
-            public string BaseType { get; init; } = "";
+            /// <summary>For a property, indexer or field, its canonical type; empty otherwise.</summary>
+            public string ValueType { get; init; } = "";
 
-            /// <summary>For a type, the names (without namespace or arity) of the interfaces it implements; empty otherwise.</summary>
+            /// <summary>For a type, the namespace-qualified names (without arity) of the interfaces it implements; empty otherwise.</summary>
             public ImmutableArray<string> Interfaces { get; init; } = ImmutableArray<string>.Empty;
 
             /// <summary>The member's full path: its declaring type's path and its name.</summary>
@@ -75,8 +75,6 @@ namespace BindingsGeneration
         public enum MemberTraits
         {
             None = 0,
-            /// <summary>A virtual method that overrides its base's slot (virtual, not a new slot).</summary>
-            Override = 1,
             /// <summary>A special-name method: an operator or a conversion.</summary>
             SpecialName = 2,
             /// <summary>A constant field.</summary>
@@ -398,8 +396,21 @@ namespace BindingsGeneration
         /// <summary>The members of one assembly's namespace, by declaring type path and name.</summary>
         public sealed class AssemblyIndex
         {
+            /// <summary>
+            /// The top-level classes of the namespace that can hold the module <paramref name="module"/>'s
+            /// module-level functions: the module's name, or, where the namespace already ends in it,
+            /// <c>Functions</c>, <c>GlobalFunctions</c>, <c>{module}Functions</c> or <c>Functions{N}</c>,
+            /// the names the module emitter tries in turn.
+            /// </summary>
+            public IEnumerable<string> FunctionHolders(string? module) =>
+                MembersOf("").Where(t => t.Kind == "type" && t.DeclaringKind == "class"
+                    && (t.Name == module || t.Name is "Functions" or "GlobalFunctions" || t.Name == module + "Functions"
+                        || t.Name.StartsWith("Functions", StringComparison.Ordinal) && t.Name.Length > 9 && t.Name[9..].All(char.IsAsciiDigit)))
+                    .Select(t => t.Name);
+
             private readonly Dictionary<(string Parent, string Name), List<Member>> _byName = new();
             private readonly Dictionary<string, Member> _types = new(StringComparer.Ordinal);
+            private readonly Dictionary<string, List<Member>> _typesByName = new(StringComparer.Ordinal);
             private readonly List<Member> _members = new();
             private readonly Dictionary<string, List<Member>> _byParent = new(StringComparer.Ordinal);
 
@@ -412,6 +423,9 @@ namespace BindingsGeneration
             /// <summary>The type at the nested C# path <paramref name="path"/>, or null.</summary>
             public Member? Type(string path) => _types.TryGetValue(path, out var type) ? type : null;
 
+            /// <summary>The types whose own name (the last segment of the path) is <paramref name="name"/>.</summary>
+            public IReadOnlyList<Member> TypesNamed(string name) => _typesByName.TryGetValue(name, out var types) ? types : Array.Empty<Member>();
+
             /// <summary>The members declared directly in the type at <paramref name="path"/>.</summary>
             public IReadOnlyList<Member> MembersOf(string path) => _byParent.TryGetValue(path, out var members) ? members : Array.Empty<Member>();
 
@@ -422,7 +436,12 @@ namespace BindingsGeneration
                     _byParent[member.ParentPath] = siblings = new List<Member>();
                 siblings.Add(member);
                 if (member.Kind == "type")
+                {
                     _types[member.Path] = member;
+                    if (!_typesByName.TryGetValue(member.Name, out var named))
+                        _typesByName[member.Name] = named = new List<Member>();
+                    named.Add(member);
+                }
                 var id = (member.ParentPath, member.Name);
                 if (!_byName.TryGetValue(id, out var list))
                     _byName[id] = list = new List<Member>();
@@ -432,13 +451,14 @@ namespace BindingsGeneration
             /// <summary>
             /// The members <paramref name="key"/> can name: its declaring type and name, its parameter
             /// count and generic arity, and parameters it spells (<see cref="Spells"/>). A module-level
-            /// function's key names no declaring type, so every type of the namespace is searched.
+            /// function's key names no declaring type; it names a member of a class
+            /// <see cref="FunctionHolders"/> lists for <paramref name="module"/>.
             /// </summary>
-            public IReadOnlyList<Member> Resolve(Key key)
+            public IReadOnlyList<Member> Resolve(Key key, string? module = null)
             {
                 IEnumerable<Member> named = key.ParentPath.Length > 0
                     ? _byName.TryGetValue((key.ParentPath, key.Name), out var list) ? list : Enumerable.Empty<Member>()
-                    : _members.Where(m => m.Name == key.Name && m.Kind is "method");
+                    : FunctionHolders(module).SelectMany(h => _byName.TryGetValue((h, key.Name), out var functions) ? functions : Enumerable.Empty<Member>());
                 if (key.Parameters is not { } parameters)
                     return named.Where(m => m.Kind is "property" or "field" or "event" or "type").ToList();
                 var kind = key.IsIndexer ? "indexer" : key.Name == ".ctor" ? "ctor" : "method";
@@ -469,15 +489,19 @@ namespace BindingsGeneration
                 var type = md.GetTypeDefinition(handle);
                 if (!type.GetDeclaringType().IsNil)
                     continue;
+                // A type of a namespace under the module's (the generated `.SwiftInterop` proxies) is
+                // listed under that namespace's relative path, which no type of the module's own
+                // namespace shares.
                 var ns = md.GetString(type.Namespace);
-                if (ns != @namespace)
-                    continue;
-                AddType(md, handle, "", index, ImmutableArray<string>.Empty);
+                if (ns == @namespace)
+                    AddType(md, handle, "", index);
+                else if (ns.StartsWith(@namespace + ".", StringComparison.Ordinal))
+                    AddType(md, handle, ns[(@namespace.Length + 1)..], index);
             }
             return index;
         }
 
-        private static void AddType(MetadataReader md, TypeDefinitionHandle handle, string parentPath, AssemblyIndex index, ImmutableArray<string> outerGenerics)
+        private static void AddType(MetadataReader md, TypeDefinitionHandle handle, string parentPath, AssemblyIndex index)
         {
             var type = md.GetTypeDefinition(handle);
             if (!Visible(type.Attributes))
@@ -495,17 +519,16 @@ namespace BindingsGeneration
             };
             var generics = type.GetGenericParameters().Select(p => md.GetString(md.GetGenericParameter(p).Name)).ToImmutableArray();
             var isStatic = (type.Attributes & (TypeAttributes.Abstract | TypeAttributes.Sealed)) == (TypeAttributes.Abstract | TypeAttributes.Sealed) && !isInterface;
-            index.Add(new Member(parentPath, name, "type", ImmutableArray<string>.Empty, 0, isStatic, false)
+            index.Add(new Member(parentPath, name, "type", ImmutableArray<string>.Empty, 0, isStatic)
             {
                 DeclaringKind = kind,
-                BaseType = WithoutArity(baseType[(baseType.LastIndexOf('.') + 1)..]),
                 Interfaces = type.GetInterfaceImplementations()
                     .Select(i => BaseTypeName(md, md.GetInterfaceImplementation(i).Interface))
-                    .Select(n => WithoutArity(n[(n.LastIndexOf('.') + 1)..])).ToImmutableArray(),
+                    .Select(WithoutArity).ToImmutableArray(),
                 Traits = CompilerGenerated(md, type.GetCustomAttributes()),
             });
             foreach (var nested in type.GetNestedTypes())
-                AddType(md, nested, path, index, generics);
+                AddType(md, nested, path, index);
 
             var accessors = new HashSet<MethodDefinitionHandle>();
             foreach (var propertyHandle in type.GetProperties())
@@ -523,10 +546,11 @@ namespace BindingsGeneration
                 var propertyName = md.GetString(property.Name);
                 var isIndexer = signature.ParameterTypes.Length > 0;
                 index.Add(new Member(path, isIndexer ? IndexerName(propertyName) : propertyName, isIndexer ? "indexer" : "property",
-                    signature.ParameterTypes, 0, (visible.Attributes & MethodAttributes.Static) != 0, isInterface)
+                    signature.ParameterTypes, 0, (visible.Attributes & MethodAttributes.Static) != 0)
                 {
                     DeclaringKind = kind,
                     Traits = MethodTraits(visible.Attributes) | CompilerGenerated(md, property.GetCustomAttributes()),
+                    ValueType = signature.ReturnType,
                 });
             }
             foreach (var eventHandle in type.GetEvents())
@@ -538,7 +562,7 @@ namespace BindingsGeneration
                 if (adder.IsNil || !VisibleMember(md.GetMethodDefinition(adder).Attributes))
                     continue;
                 index.Add(new Member(path, md.GetString(@event.Name), "event", ImmutableArray<string>.Empty, 0,
-                    (md.GetMethodDefinition(adder).Attributes & MethodAttributes.Static) != 0, isInterface)
+                    (md.GetMethodDefinition(adder).Attributes & MethodAttributes.Static) != 0)
                 {
                     DeclaringKind = kind,
                     Traits = MethodTraits(md.GetMethodDefinition(adder).Attributes),
@@ -552,9 +576,10 @@ namespace BindingsGeneration
                     || (field.Attributes & FieldAttributes.SpecialName) != 0)
                     continue;
                 index.Add(new Member(path, md.GetString(field.Name), "field", ImmutableArray<string>.Empty, 0,
-                    (field.Attributes & FieldAttributes.Static) != 0, isInterface)
+                    (field.Attributes & FieldAttributes.Static) != 0)
                 {
                     DeclaringKind = kind,
+                    ValueType = field.DecodeSignature(new Renderer(md), new Context(generics, ImmutableArray<string>.Empty)),
                     Traits = ((field.Attributes & FieldAttributes.Literal) != 0 ? MemberTraits.Literal : MemberTraits.None)
                              | CompilerGenerated(md, field.GetCustomAttributes()),
                 });
@@ -572,7 +597,7 @@ namespace BindingsGeneration
                 var methodGenerics = method.GetGenericParameters().Select(p => md.GetString(md.GetGenericParameter(p).Name)).ToImmutableArray();
                 var signature = method.DecodeSignature(new Renderer(md), new Context(generics, methodGenerics));
                 index.Add(new Member(path, methodName, methodName == ".ctor" ? "ctor" : "method", signature.ParameterTypes,
-                    signature.GenericParameterCount, (method.Attributes & MethodAttributes.Static) != 0, isInterface)
+                    signature.GenericParameterCount, (method.Attributes & MethodAttributes.Static) != 0)
                 {
                     DeclaringKind = kind,
                     Traits = MethodTraits(method.Attributes) | CompilerGenerated(md, method.GetCustomAttributes()),
@@ -581,8 +606,7 @@ namespace BindingsGeneration
         }
 
         private static MemberTraits MethodTraits(MethodAttributes attributes) =>
-            ((attributes & MethodAttributes.Virtual) != 0 && (attributes & MethodAttributes.NewSlot) == 0 ? MemberTraits.Override : MemberTraits.None)
-            | ((attributes & MethodAttributes.SpecialName) != 0 ? MemberTraits.SpecialName : MemberTraits.None);
+            (attributes & MethodAttributes.SpecialName) != 0 ? MemberTraits.SpecialName : MemberTraits.None;
 
         private static MemberTraits CompilerGenerated(MetadataReader md, CustomAttributeHandleCollection attributes)
         {

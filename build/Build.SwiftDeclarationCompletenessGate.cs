@@ -14,7 +14,8 @@
 // fails here until its emitter records it or a rule is written for it.
 //
 // Its negative controls run every time: the record with one recorded member's key removed must fail
-// naming that member, and the record with a key the assembly does not declare must fail naming that key.
+// naming that member, the record with a key the assembly does not declare must fail naming that key, and
+// a key respelling a recorded method's parameters, with no unrecorded overload left for it, must fail.
 // A checker that stopped reading either side would otherwise pass vacuously.
 //
 // Fail-closed and unconditional, with no `--permissive` arm: a policy, not a baseline.
@@ -34,7 +35,7 @@ partial class Build
     IEnumerable<(string Namespace, string Record)> SwiftDeclarationRecords() => new[]
     {
         ("SwiftBindingsTestLib", (string)(BtOutputDir / ("SwiftBindingsTestLib" + SwiftDeclarationRecordFormat.FileSuffix))),
-        ("SwiftBindingsTestLibDependency", (string)(BtOutputDir / "dep" / ("SwiftBindingsTestLibDependency" + SwiftDeclarationRecordFormat.FileSuffix))),
+        ("SwiftBindingsTestLibDependency", (string)(BtOutputDir / ("SwiftBindingsTestLibDependency" + SwiftDeclarationRecordFormat.FileSuffix))),
     };
 
     /// <summary>
@@ -84,12 +85,13 @@ partial class Build
                 "Swift declaration completeness gate: " + string.Join(" | ", failures) +
                 ". Record the member where it is emitted (ModuleEmissionContext.RecordSwiftDeclaration), or add a " +
                 "justified fixed-name rule to SwiftDeclarationRecordCompleteness.Rules.");
-        Log.Information("  ✓ every public type and member is recorded or named by a fixed-name rule; both negative controls failed as designed");
+        Log.Information("  ✓ every public type and member is recorded or named by a fixed-name rule; every negative control failed as designed");
     }
 
     /// <summary>
     /// The gate's negative controls on one module: dropping a recorded member's key must leave that member
-    /// uncovered, and a key the assembly does not declare must be reported unresolved. Returns the controls
+    /// uncovered, a key the assembly does not declare must be reported unresolved, and so must a key
+    /// respelling a recorded method's parameters. Returns the controls
     /// that did not fail as designed.
     /// </summary>
     static IEnumerable<string> RunCompletenessNegativeControls(byte[] image, string ns, byte[] record)
@@ -104,10 +106,12 @@ partial class Build
 
         // Control 1: remove the key of a member no rule would cover, so only the record names it.
         var index = SwiftDeclarationRecordKeys.Index(image, ns);
-        // Every path counted as recorded and respelled, so a member is picked only if no rule or pending
-        // entry could match it once its key is gone.
-        var allPaths = index.Members.Select(m => m.Path).ToHashSet(StringComparer.Ordinal);
-        var scope = new SwiftDeclarationRecordCompleteness.Scope(index, ns, allPaths, allPaths);
+        var module = root["module"]?.GetValue<string>();
+        // Every path counted as recorded, so a member is picked only if no rule or pending entry
+        // could match it once its key is gone; no member is paired with a respelled key.
+        var scope = new SwiftDeclarationRecordCompleteness.Scope(index, ns, module,
+            new HashSet<SwiftDeclarationRecordKeys.Member>(ReferenceEqualityComparer.Instance),
+            index.Members.Select(m => m.Path).ToHashSet(StringComparer.Ordinal));
         string? dropped = null;
         SwiftDeclarationRecordKeys.Member? droppedMember = null;
         foreach (var (key, _) in members)
@@ -115,9 +119,9 @@ partial class Build
             var parsed = SwiftDeclarationRecordKeys.Parse(key);
             if (parsed is null)
                 continue;
-            var resolved = index.Resolve(parsed);
+            var resolved = index.Resolve(parsed, module);
             if (resolved.Count == 1 && !SwiftDeclarationRecordCompleteness.Rules.Any(r => r.Matches(resolved[0], scope))
-                && members.Count(m => SwiftDeclarationRecordKeys.Parse(m.Key) is { } other && index.Resolve(other).Contains(resolved[0])) == 1)
+                && members.Count(m => SwiftDeclarationRecordKeys.Parse(m.Key) is { } other && index.Resolve(other, module).Contains(resolved[0])) == 1)
             {
                 dropped = key;
                 droppedMember = resolved[0];
@@ -137,6 +141,27 @@ partial class Build
                 yield return $"negative control 1: removing {dropped} did not leave {droppedMember} uncovered";
             else
                 Log.Information("    negative control 1 failed as designed: removing {Key} leaves {Member} uncovered", dropped, report.Uncovered[0]);
+        }
+
+        // Control 3: a key that spells a recorded method's parameters differently, where no unrecorded
+        // member of that name, kind and parameter count is left for it to stand for, is unresolved.
+        var target = index.Members.FirstOrDefault(m => m.Kind == "method" && m.Parameters.Length > 0
+            && index.MembersOf(m.ParentPath).Count(o => o.Kind == "method" && o.Name == m.Name && o.Parameters.Length == m.Parameters.Length) == 1
+            && members.Any(e => SwiftDeclarationRecordKeys.Parse(e.Key) is { } k && index.Resolve(k, module).Contains(m)));
+        if (target is null)
+        {
+            yield return "negative control 3: no recorded method with parameters has a unique name and parameter count";
+        }
+        else
+        {
+            var respelled = $"{target.ParentPath}.{target.Name}({string.Join(",", target.Parameters.Select(_ => "__SwiftDeclarationCompletenessGhost"))})";
+            var withRespelled = JsonNode.Parse(record)!.AsObject();
+            withRespelled["members"]!.AsObject()[respelled] = "func Ghost.respelled(_:)";
+            var respelledReport = SwiftDeclarationRecordCompleteness.Check(image, ns, JsonSerializer.SerializeToUtf8Bytes(withRespelled));
+            if (!respelledReport.UnresolvedKeys.Any(k => k.StartsWith(respelled, StringComparison.Ordinal)))
+                yield return $"negative control 3: the key {respelled}, beside the recorded {target}, was not reported unresolved";
+            else
+                Log.Information("    negative control 3 failed as designed: {Key} is unresolved beside the recorded {Member}", respelled, target);
         }
 
         // Control 2: a key that names nothing the assembly declares.
