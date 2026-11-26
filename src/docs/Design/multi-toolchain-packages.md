@@ -192,8 +192,8 @@ declares. A key that names a declared member's path but spells its parameters ot
 respelled. Members the record does not yet describe are named by the check's pending list
 (`pending:` entries: SwiftUI view sessions, a few extension-class lanes, base-call trampolines,
 closure-result overloads, the respelled keys), so a newly emitted kind still fails. Negative controls
-run every time: the record without one recorded member's key, and with a key the assembly does not
-declare, must both fail. The merge refuses a name whose declaration differs, naming the
+run every time: the record without one recorded member's key, with a key the assembly does not
+declare, and with a key respelling a recorded method's parameters must each fail. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy
 records that another copy does not, and a record that is incomplete (no module, a missing map or an empty
 declaration). Since a record no copy carries would leave its module unchecked, the assembly a module is
