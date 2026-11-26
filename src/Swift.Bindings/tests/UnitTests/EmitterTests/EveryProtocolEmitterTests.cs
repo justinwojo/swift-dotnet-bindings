@@ -4483,11 +4483,14 @@ public class EveryProtocolEmitterTests
 
     private void RegisterBridgeableURL()
     {
+        // As Foundation's real record does: the native C# type is what gives URL its bridged C#
+        // projection, without which the C# side of a bridged collection cannot match Swift's.
         var foundation = new ModuleTypeDatabase("Foundation", "/fake/Foundation.framework/Foundation");
         var urlName = SwiftTypeName.FromModuleQualifiedName("Foundation.URL");
         foundation.RegisterType(urlName, new TypeRecord
         {
             CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
+            NativeTypeName = CSharpTypeName.FromNamespaceAndName("Foundation", "NSUrl"),
             SwiftTypeName = urlName,
             MetadataAccessor = "$s10Foundation3URLVMa",
             Flags = TypeRecordFlags.ObjCBridgeable | TypeRecordFlags.RequiresMemoryManagement,
