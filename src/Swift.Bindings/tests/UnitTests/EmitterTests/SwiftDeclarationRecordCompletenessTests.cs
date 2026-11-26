@@ -52,7 +52,8 @@ public class SwiftDeclarationRecordCompletenessTests
             public interface IAgeable { int Age { get; } }
             public interface INameable { string Name { get; } }
             public interface IAgeableAndNameable : IAgeable, INameable { }
-            public sealed class AgeableAndNameableProxy : IAgeableAndNameable { public int Age => 0; public string Name => ""; }
+            // A composition proxy is constructed from an existential container (runtime plumbing), not by a public default constructor.
+            public sealed class AgeableAndNameableProxy : IAgeableAndNameable { private AgeableAndNameableProxy() { } public int Age => 0; public string Name => ""; }
             public sealed class Foreign { public sealed class Nested { private Nested() { } } }
         }
         namespace Other.A { public sealed class Token { } }
@@ -140,20 +141,13 @@ public class SwiftDeclarationRecordCompletenessTests
     }
 
     [Fact]
-    public void AKeySpellingADeclaredMembersParametersDifferently_IsListedRespelled_AndCoveredOnlyByThePendingEntry()
+    public void AKeySpellingADeclaredMembersParametersDifferently_IsUnresolved_AndTheMemberUncovered()
     {
+        // A key builder that spells a parameter as its Swift type (long for the member's int) names a
+        // signature the binding does not have: the key fails, and the member it means is unchecked.
         var report = Check(Record.Replace("\"Widget.Resize(int)\"", "\"Widget.Resize(long)\""));
-        Assert.True(report.Passed);
-        Assert.StartsWith("Widget.Resize(long)", Assert.Single(report.RespelledKeys));
-        Assert.Equal(1, report.ByRule[SwiftDeclarationRecordCompleteness.PendingPrefix + "respelled-keys"]);
-    }
-
-    [Fact]
-    public void WithoutThePendingList_TheRespelledMemberFails()
-    {
-        var fixedNameRules = SwiftDeclarationRecordCompleteness.Rules.Where(r => !r.IsPending).ToList();
-        var report = SwiftDeclarationRecordCompleteness.Check(Image, "Kit",
-            Encoding.UTF8.GetBytes(Record.Replace("\"Widget.Resize(int)\"", "\"Widget.Resize(long)\"")), fixedNameRules);
+        Assert.False(report.Passed);
+        Assert.StartsWith("Widget.Resize(long)", Assert.Single(report.UnresolvedKeys));
         Assert.Equal("Widget.Resize(Int32)", Assert.Single(report.Uncovered).ToString());
     }
 
@@ -176,7 +170,6 @@ public class SwiftDeclarationRecordCompletenessTests
         var report = Check(Record.Replace("\"Widget.Handle\"", "\"Widget.Move(long)\": \"func Kit.Widget.move(count:)\", \"Widget.Handle\""));
         Assert.False(report.Passed);
         Assert.StartsWith("Widget.Move(long)", Assert.Single(report.UnresolvedKeys));
-        Assert.Empty(report.RespelledKeys);
     }
 
     [Fact]
@@ -207,17 +200,6 @@ public class SwiftDeclarationRecordCompletenessTests
     }
 
     [Fact]
-    public void ARespelledKeysPairedMember_DoesNotCoverAnotherOverloadOfItsName()
-    {
-        // Push(long,int) stands for Push(int,int); Push(string) is not one of its default-argument
-        // overloads, so with its key gone it is uncovered.
-        var report = Check(Record
-            .Replace("\"Widget.Push(int,int)\"", "\"Widget.Push(long,int)\"")
-            .Replace("\"Widget.Push(string)\": \"func Kit.Widget.push(name:)\",", ""));
-        Assert.Equal("Widget.Push(String~)", Assert.Single(report.Uncovered).ToString());
-    }
-
-    [Fact]
     public void ASwiftClassNamedLikeTheFunctionHolder_IsNotTakenForIt()
     {
         var report = Check(Record
@@ -235,13 +217,14 @@ public class SwiftDeclarationRecordCompletenessTests
     }
 
     [Fact]
-    public void EveryRule_IsNamedOnce_AndJustified()
+    public void EveryRule_IsNamedOnce_Justified_AndFixedName()
     {
         var rules = SwiftDeclarationRecordCompleteness.Rules;
         Assert.Equal(rules.Count, rules.Select(r => r.Name).Distinct().Count());
         Assert.All(rules, r => Assert.False(string.IsNullOrWhiteSpace(r.Justification)));
-        // Fixed-name rules come first; the pending list follows, so a pending entry never shadows a rule.
-        Assert.Equal(rules.Count(r => !r.IsPending), rules.TakeWhile(r => !r.IsPending).Count());
+        // Every emitted member is recorded at its emitter or matched by a fixed-name rule: no rule
+        // stands in for members the record should describe.
+        Assert.DoesNotContain(rules, r => r.Name.StartsWith("pending:", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -309,5 +292,68 @@ public class SwiftDeclarationRecordCompletenessTests
             { "schema_version": 1, "module": "Kit", "types": { }, "members": { "Functions.Ping()": "static func Kit.Functions.ping()" } }
             """));
         Assert.Equal("Functions", Assert.Single(report.Uncovered).ToString());
+    }
+
+    // A proxy whose interface refines another binding's interface (Dep.IAnchored), and a composition
+    // proxy: each implements its interfaces' requirements, and either may carry a member none declares.
+    private const string ForeignProxyApi = """
+        namespace Dep { public interface IAnchored { int Anchor { get; } } }
+        namespace Kit
+        {
+            public interface IListener : Dep.IAnchored { void Spoke(); }
+            public interface IAgeable { int Age { get; } }
+            public interface INameable { string Name { get; } }
+            public interface IAgeableAndNameable : IAgeable, INameable { }
+            public sealed class AgeableAndNameableProxy : IAgeableAndNameable { private AgeableAndNameableProxy() { } public int Age => 0; public string Name => ""; public void Extra() { } }
+        }
+        namespace Kit.SwiftInterop
+        {
+            public sealed class ListenerProxy : Kit.IListener
+            {
+                public ListenerProxy(Kit.IListener impl) { }
+                public void Spoke() { }
+                public int Anchor => 0;
+                public void Extra() { }
+            }
+        }
+        """;
+
+    private const string ForeignProxyRecord = """
+        {
+          "schema_version": 1, "module": "Kit",
+          "types": { "IListener": "type Kit.Listener", "IAgeable": "type Kit.Ageable", "INameable": "type Kit.Nameable" },
+          "members": { "IListener.Spoke()": "func Kit.Listener.spoke()", "IAgeable.Age": "var Kit.Ageable.age", "INameable.Name": "var Kit.Nameable.name" }
+        }
+        """;
+
+    [Fact]
+    public void AProxyMember_NoInterfaceOfItsChainDeclares_IsUncovered_EvenBesideAForeignInterface()
+    {
+        // ListenerProxy.Anchor implements the dependency's requirement, which the assembly declares;
+        // ListenerProxy.Extra and the composition proxy's Extra implement nothing.
+        var image = SwiftTransitionManifestTests.Compile("Kit", ForeignProxyApi);
+        var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes(ForeignProxyRecord));
+        Assert.Equal(new[] { "AgeableAndNameableProxy.Extra()", "SwiftInterop.ListenerProxy.Extra()" }, report.Uncovered.Select(m => m.ToString()).Order());
+    }
+
+    [Fact]
+    public void AProxyMember_OfAForeignInterfaceTheAssemblyDoesNotDeclare_IsUncovered()
+    {
+        // The dependency's interface lives in another assembly the check cannot read: nothing proves
+        // the member implements it, so it fails closed rather than being taken on trust.
+        var image = SwiftTransitionManifestTests.Compile("Kit", ForeignProxyApi.Replace("namespace Dep { public interface IAnchored { int Anchor { get; } } }",
+            "namespace Dep { public interface IAnchored { } }"));
+        var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes(ForeignProxyRecord));
+        Assert.Contains("SwiftInterop.ListenerProxy.Anchor", report.Uncovered.Select(m => m.ToString()));
+    }
+
+    [Fact]
+    public void ATypeKeyNamingNoDeclaredType_Fails_AsUnresolved()
+    {
+        // A foreign receiver's type key left in the record for a class the module never declares fails
+        // the check rather than passing: it names nothing the merge could compare.
+        var report = Check(Record.Replace("\"Mode\": \"type Kit.Mode\",", "\"Mode\": \"type Kit.Mode\", \"Receiver\": \"type Dep.Receiver\","));
+        Assert.False(report.Passed);
+        Assert.StartsWith("type Receiver", Assert.Single(report.UnresolvedKeys));
     }
 }

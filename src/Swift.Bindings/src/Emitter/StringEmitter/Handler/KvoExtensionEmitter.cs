@@ -110,7 +110,7 @@ internal static class KvoExtensionEmitter
         var dedupKey = $"KVO|{classDecl.SwiftTypeName?.ModuleQualifiedName ?? classDecl.Name}";
         if (!emissionContext.TryAddKeyPathSingletonContainer(dedupKey)) return;
 
-        EmitCSharpExtensionClass(csWriter, classDecl, observable, typeDatabase);
+        EmitCSharpExtensionClass(csWriter, classDecl, observable, typeDatabase, emissionContext);
         EmitSwiftShims(swiftWriter, classDecl, observable);
     }
 
@@ -118,7 +118,8 @@ internal static class KvoExtensionEmitter
         CSharpWriter csWriter,
         ClassDecl classDecl,
         List<PropertyDecl> observable,
-        ITypeDatabase typeDatabase)
+        ITypeDatabase typeDatabase,
+        ModuleEmissionContext emissionContext)
     {
         var className = NameProvider.GetNaturalTypeLeafName(classDecl);
         var moduleName = classDecl.ModuleDecl!.Name;
@@ -193,6 +194,10 @@ internal static class KvoExtensionEmitter
             csWriter.WriteLine($"this {className} obj,");
             csWriter.WriteLine("global::Swift.Runtime.SbwKvoOptions options,");
             csWriter.WriteLine($"global::System.Action<{className}, {csType}> changed)");
+            // The observer stands for the property whose changes it registers for.
+            emissionContext.RecordSwiftDeclarationAt($"{className}KvoExtensions", $"Observe{propPascal}",
+                new[] { $"this {className}", "global::Swift.Runtime.SbwKvoOptions", $"global::System.Action<{className}, {csType}>" },
+                prop, typeDatabase, via: prop.Name, viaKind: SwiftDeclarationMapEmitter.KeyValueObserverOf);
             csWriter.Indent--;
             csWriter.WriteLine("{");
             csWriter.Indent++;

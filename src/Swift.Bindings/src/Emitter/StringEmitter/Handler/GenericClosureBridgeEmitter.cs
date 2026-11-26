@@ -1026,6 +1026,14 @@ public static class GenericClosureBridgeEmitter
         publicParamTypes.Add(actionType);
         AddNonClosurePublicParams(publicParams, publicParamTypes, methodDecl, env);
 
+        // The returning overload emitted just before this one stands for the same Swift declaration.
+        // The handler keys the declaration by the shape recorded last, which is this overload's, so
+        // the returning overload is recorded here under the parameter list it was emitted with.
+        if (env.EmissionContext is { } emissionCtx && emissionCtx.GetEmittedApiShape(methodDecl) is { ParameterPortion: not null } returning)
+            emissionCtx.RecordSwiftDeclaration(
+                ModuleEmissionContext.BuildApiManifestKey(methodDecl.ParentDecl, methodName,
+                    $"{methodName}()`{methodDecl.GenericParameters.Count}", env.TypeDatabase, returning),
+                methodDecl, env.TypeDatabase);
         env.EmissionContext?.RecordEmittedApiShape(
             methodDecl, methodName, ModuleEmissionContext.FormatParameterPortion(publicParamTypes));
         AvailabilityAttributeEmitter.EmitBridgedMemberAttributes(csWriter, env);

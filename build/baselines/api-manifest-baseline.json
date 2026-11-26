@@ -1479,12 +1479,12 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AsyncGenericProduct.PurchaseAsync(Swift.AnyType,IReadOnlySet\u003Cnint\u003E,System.Threading.CancellationToken)\u00601",
+      "signature": "AsyncGenericProduct.PurchaseAsync(global::Swift.Runtime.ISwiftObject,IReadOnlySet\u003Cnint\u003E,global::System.Threading.CancellationToken)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_AsyncGenericProduct_purchase_0396DAA8_XMA"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AsyncGenericProduct.ReserveAsync(Swift.AnyType,nint,System.Threading.CancellationToken)\u00601",
+      "signature": "AsyncGenericProduct.ReserveAsync(global::Swift.Runtime.ISwiftObject,nint,global::System.Threading.CancellationToken)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_AsyncGenericProduct_reserve_4C3F7624_XMA"
     },
     {
@@ -2309,7 +2309,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "AutoclosureBridgeHost.Pick(object?,Swift.AnyType)",
+      "signature": "AutoclosureBridgeHost.Pick(object?,object?)",
       "symbol": "$s20SwiftBindingsTestLib21AutoclosureBridgeHostC4pick5value7handlers5Int32VypyXE_yAA0E3BoxCyAA14DatabaseReaderCGXEtF"
     },
     {
@@ -10934,7 +10934,7 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "DocParamHost.RefreshAsync(Swift.AnyType,nint,IReadOnlySet\u003Cnint\u003E,System.Threading.CancellationToken)\u00601",
+      "signature": "DocParamHost.RefreshAsync(global::Swift.Runtime.ISwiftObject,nint,IReadOnlySet\u003Cnint\u003E,global::System.Threading.CancellationToken)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_DocParamHost_refresh_70CC856D_XMA"
     },
     {
@@ -13799,12 +13799,12 @@
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "GenericBridgeReturns.WrapAsync(Swift.AnyType,System.Threading.CancellationToken)\u00601",
+      "signature": "GenericBridgeReturns.WrapAsync(global::Swift.Runtime.ISwiftObject,global::System.Threading.CancellationToken)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_GenericBridgeReturns_wrap_55BF1793_XMA"
     },
     {
       "module": "SwiftBindingsTestLib",
-      "signature": "GenericBridgeReturns.WrapFrozenAsync(Swift.AnyType,System.Threading.CancellationToken)\u00601",
+      "signature": "GenericBridgeReturns.WrapFrozenAsync(global::Swift.Runtime.ISwiftObject,global::System.Threading.CancellationToken)\u00601",
       "symbol": "SBW_SwiftBindingsTestLib_GenericBridgeReturns_wrapFrozen_1CFB6753_XMA"
     },
     {

@@ -666,6 +666,66 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ATakeoverSpelledThroughAKeywordAlias_IsRefused()
+    {
+        // The takeover of `Merge_ATakeoverTheAssembliesResolve_IsRefused_NamingOnlyTheOlderSignature`, with
+        // the newer key spelling `string` as `global::System.String`: one type, so the key is a candidate
+        // for the older member, and its declaration moved.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public static class Kit { public static void Load(string? a, int? b) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string?,int?)", "static func Kit.Kit.load(a:b:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "namespace Kit { public static class Kit { public static void Load(string a, int? b) { } public static void Load(string a, int b) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(global::System.String,int?)", "static func Kit.Kit.load(c:d:)"), ("Kit.Load(string,int)", "static func Kit.Kit.load(a:b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(string?,int?) is Swift `static func Kit.Kit.load(a:b:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(c:d:)` in net10.0-ios27.2, as Kit.Kit.Load(global::System.String,int?)", problem);
+    }
+
+    [Fact]
+    public void Merge_ATakeoverBesideATypeOnlyTheNewerCopyDeclares_ReadsEachKeyInItsOwnCopy()
+    {
+        // The older key spells `int` as a bare `Int32`, which is `System.Int32` there: the newer copy's
+        // added `Kit.Int32` is not in the older copy's scope, so the two keys are one shape and the
+        // takeover is found.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public static class Kit { public static void Load(int a) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(Int32)", "static func Kit.Kit.load(a:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "namespace Kit { public static class Kit { public sealed class Int32 { } public static void Load(int c) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit"), ("Kit.Int32", "type Kit.Kit.Int32")],
+                members: [("Kit.Load(int)", "static func Kit.Kit.load(c:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(Int32) is Swift `static func Kit.Kit.load(a:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(c:)` in net10.0-ios27.2, as Kit.Kit.Load(int)", problem);
+    }
+
+    [Theory]
+    [InlineData("Kit.Load(global::System.String,System.Int32)", "Kit.Load(string,int)")]
+    [InlineData("Kit.Load(IReadOnlyList<global::System.String>)", "Kit.Load(IReadOnlyList<string>)")]
+    [InlineData("Kit.Present(IntPtr,Int32)", "Kit.Present(nint,int)")]
+    [InlineData("Kit.Load(Other.String)", "Kit.Load(Other.String)")]
+    [InlineData("Kit.Load(System.StringComparison)", "Kit.Load(System.StringComparison)")]
+    public void ClrShape_FoldsKeywordAliasesOnly(string key, string shape) =>
+        Assert.Equal(shape, SwiftBindingPackageMerge.ClrShape(key));
+
+    [Theory]
+    [InlineData("Kit.Load(Int32)", "Int32", "Kit.Load(Int32)")]
+    [InlineData("Kit.Load(Int32)", "Kit.Int32", "Kit.Load(Int32)")]
+    [InlineData("Outer.Kit.Load(Int32)", "Outer.Int32", "Outer.Kit.Load(Int32)")]
+    [InlineData("Kit.Load(System.Int32)", "Int32", "Kit.Load(int)")]
+    [InlineData("Kit.Load(global::System.Int32,String)", "Int32", "Kit.Load(int,string)")]
+    [InlineData("Kit.Load(Int32)", "Other.Int32", "Kit.Load(int)")]
+    [InlineData("Kit.this[Int32]", "Kit.Int32", "Kit.this[Int32]")]
+    public void ClrShape_KeepsABareNameTheBindingDeclaresInTheMembersScope(string key, string declaredType, string shape) =>
+        // A binding type named `Int32` is spelled bare in the keys of the members that see it; only
+        // `System.Int32`, or a bare `Int32` no enclosing scope declares, is the keyword.
+        Assert.Equal(shape, SwiftBindingPackageMerge.ClrShape(key, new HashSet<string>(StringComparer.Ordinal) { declaredType }));
+
+    [Fact]
     public void Merge_ARespellOfAnIndexerAndANestedNullableTheAssembliesResolve_Merges()
     {
         // `this[int?]` respelled with an annotation of its element list, and a method whose `Nullable<T>`

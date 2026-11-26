@@ -504,6 +504,34 @@ public class AsyncMethodGenericBridgeEmitterTests
     }
 
     [Fact]
+    public void TryEmit_EligibleAsyncVoidMethod_RecordsTheParametersThePublicMethodDeclares()
+    {
+        // The API manifest and the Swift declaration record key the member by its shape: the bridge
+        // declares the existential generic as ISwiftObject and adds a CancellationToken, which the
+        // Swift signature (a generic keyed Swift.AnyType) does not spell.
+        var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();
+        var method = CreateMethodDeclWithGenericParam();
+        method.IsAsync = true;
+        var parent = CreateClassDecl("Processor");
+        method.ParentDecl = parent;
+        var typeDatabase = CreateTypeDatabase();
+        typeDatabase.AsyncLibraryName = "TestBindings";
+        var ctx = new ModuleEmissionContext();
+        var env = new MethodEnvironment(method, typeDatabase) { EmissionContext = ctx };
+
+        Assert.True(AsyncMethodGenericBridgeEmitter.TryEmit(csWriter, swiftWriter, env, parent, ctx));
+
+        var declared = System.Text.RegularExpressions.Regex.Match(csOutput.ToString(),
+            @"public (?:static |unsafe |async )*global::System\.Threading\.Tasks\.Task \w+\((?<p>[^)]*)\)");
+        Assert.True(declared.Success, csOutput.ToString());
+        var expected = ModuleEmissionContext.FormatParameterPortion(declared.Groups["p"].Value
+            .Split(", ").Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType));
+        Assert.Equal(expected, ctx.GetEmittedApiShape(method).ParameterPortion);
+        Assert.Contains("ISwiftObject", expected);
+        Assert.EndsWith("CancellationToken)", expected);
+    }
+
+    [Fact]
     public void TryEmit_EligibleAsyncVoidMethod_EmitsCSharpHarness()
     {
         var (csWriter, swiftWriter, csOutput, _) = CreateWritersWithBuffers();

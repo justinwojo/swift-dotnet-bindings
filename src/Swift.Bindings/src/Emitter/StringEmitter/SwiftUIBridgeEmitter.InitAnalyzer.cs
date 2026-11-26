@@ -703,7 +703,8 @@ public static partial class SwiftUIBridgeEmitter
                     char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
                     Parameter: null,
                     IsParameterless: true,
-                    OriginalSwiftName: method.GetSwiftName()));
+                    OriginalSwiftName: method.GetSwiftName(),
+                    Declaration: method));
             }
             else if (paramCount == 1)
             {
@@ -723,7 +724,8 @@ public static partial class SwiftUIBridgeEmitter
                     char.ToUpperInvariant(method.Name[0]) + method.Name[1..],
                     Parameter: bridgeParam,
                     IsParameterless: false,
-                    OriginalSwiftName: method.GetSwiftName()));
+                    OriginalSwiftName: method.GetSwiftName(),
+                    Declaration: method));
             }
             // else: multi-param → skip
         }
@@ -970,7 +972,8 @@ public record BridgeModifier(
     string PascalName,          // C# name: "Playing", "AnimationSpeed"
     BridgeParameter? Parameter, // null for parameterless, single BridgeParameter otherwise
     bool IsParameterless,       // true = bool toggle, false = single non-optional param
-    string? OriginalSwiftName = null) // the method's real Swift name (recovers a parser-mangled keyword)
+    string? OriginalSwiftName = null, // the method's real Swift name (recovers a parser-mangled keyword)
+    MethodDecl? Declaration = null)   // the modifier method, which the session's modifier member stands for
 {
     /// <summary>The modifier's real Swift method name escaped as a BARE Swift identifier
     /// (backtick-wrapped for a Swift keyword). Built from <see cref="OriginalSwiftName"/> — NOT the

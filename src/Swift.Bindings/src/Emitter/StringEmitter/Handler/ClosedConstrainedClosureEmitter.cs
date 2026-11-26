@@ -486,6 +486,10 @@ public static class ClosedConstrainedClosureEmitter
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, plan.Parent.AvailabilityAnnotations);
         csWriter.WriteLine($"public static void {csMethodName}({string.Join(", ", sigParams)})");
+        // The extension method stands for the constrained-extension method, closed over its anchor.
+        emissionContext.RecordSwiftDeclarationAt($"{plan.Parent.Name}ClosedConstrainedClosureExtensions", csMethodName,
+            sigParams.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType), method, typeDatabase,
+            via: plan.ConcreteAnchor.ModuleQualifiedName, viaKind: SwiftDeclarationMapEmitter.ConcreteSpecialization);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(

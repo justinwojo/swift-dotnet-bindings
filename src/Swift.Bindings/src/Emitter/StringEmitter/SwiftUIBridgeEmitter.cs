@@ -40,7 +40,7 @@ public static partial class SwiftUIBridgeEmitter
         var hints = BridgeHintsLoader.Load(bridgeHintsPath, outputDirectory, moduleName, logger);
         var externalAsyncPatterns = AsyncPatternManifestLoader.Load(asyncPatternManifestPath, logger);
         var context = new BridgeContext(typeDatabase, moduleDecl, hints, logger, externalAsyncPatterns);
-        var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context)).ToList();
+        var viewInfos = collectedViews.Select(v => AnalyzeView(v, moduleName, context) with { ViewType = v }).ToList();
 
         // Record skipped views in report, then remove them. A hint-driven skip is
         // reported as "HintSkipped"; a structural skip (e.g. no accessible public
@@ -77,6 +77,7 @@ public static partial class SwiftUIBridgeEmitter
             AsyncViewPattern? asyncPattern = null;
             bool isFunctional = false;
             List<SynthesizedInitArg>? synthesizedArgs = null;
+            MethodDecl? bridgedInit = null;
             var viewHint = hints?.Views?.GetValueOrDefault(info.ViewName);
 
             if (info.Classification == ViewInitClassification.AsyncDependency)
@@ -111,6 +112,7 @@ public static partial class SwiftUIBridgeEmitter
                     bridgeParams = AnalyzeInitParameters(
                         info.Constructors[ctorIndex], context,
                         info.GenericAnalysis, out synthesizedArgs);
+                    bridgedInit = info.Constructors[ctorIndex];
                 }
                 else
                 {
@@ -125,6 +127,7 @@ public static partial class SwiftUIBridgeEmitter
                                 viewHint.PreferredInit.Value, info.ViewName, info.Constructors.Count);
                     }
                     bridgeParams = AnalyzeInitParameters(info.Constructors[ctorIndex], context);
+                    bridgedInit = info.Constructors[ctorIndex];
                 }
                 isFunctional = bridgeParams != null;
             }
@@ -134,7 +137,7 @@ public static partial class SwiftUIBridgeEmitter
                 isFunctional = true;
             }
 
-            bridgeResults.Add((info, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, info.Modifiers));
+            bridgeResults.Add((info with { BridgedInit = bridgedInit }, bridgeParams, asyncPattern, isFunctional, synthesizedArgs, info.Modifiers));
         }
 
         // Record bridged views in report
@@ -1949,13 +1952,16 @@ public static partial class SwiftUIBridgeEmitter
     /// generated DecodeFromJson static.
     /// </summary>
     private static void EmitCSharpReadMethods(
-        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> codableBindingParams)
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> codableBindingParams,
+        ModuleEmissionContext? emissionContext = null)
     {
         foreach (var param in codableBindingParams)
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
             var factoryType = GetFactoryParamType(param);
 
+            RecordSessionMember(emissionContext, $"{info.Identifier}Session", $"Read{pascalName}", [],
+                DescribeSessionMember(info, $"{SessionRead} {param.Name}", info.BridgedInit));
             sb.AppendLine($"        public {factoryType} Read{pascalName}()");
             sb.AppendLine("        {");
             sb.AppendLine($"            var ptr = {info.Identifier}BridgeNativeMethods.Read{pascalName}Json(Handle, out var len);");
@@ -1985,12 +1991,16 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# Update methods on the Session class for each updatable param.
     /// </summary>
     private static void EmitCSharpUpdateMethods(
-        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        ModuleEmissionContext? emissionContext = null)
     {
         foreach (var param in bridgeParams.Where(p => p.IsUpdatable))
         {
             var pascalName = char.ToUpperInvariant(param.Name[0]) + param.Name[1..];
             var factoryType = GetFactoryParamType(param);
+            // Each update stands for the initializer parameter it rebinds.
+            RecordSessionMember(emissionContext, $"{info.Identifier}Session", $"Update{pascalName}", [$"{factoryType} newValue"],
+                DescribeSessionMember(info, $"{SessionUpdate} {param.Name}", info.BridgedInit));
 
             if (param.Kind == BridgeParameterKind.String ||
                 (param.Kind == BridgeParameterKind.OptionalWrapped && param.InnerParameter?.Kind == BridgeParameterKind.String))
@@ -2100,11 +2110,17 @@ public static partial class SwiftUIBridgeEmitter
     /// Only emitted for views with updatable parameters.
     /// </summary>
     private static void EmitCSharpObservableBindingMethods(
-        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams)
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
+        ModuleEmissionContext? emissionContext = null)
     {
         var updatableParams = bridgeParams.Where(p => p.IsUpdatable).ToList();
         if (updatableParams.Count == 0)
             return;
+
+        RecordSessionMember(emissionContext, $"{info.Identifier}Session", "BindTo", ["T viewModel"],
+            DescribeSessionContract(info, SessionContract), genericArity: 1);
+        RecordSessionMember(emissionContext, $"{info.Identifier}Session", "Unbind", [],
+            DescribeSessionContract(info, SessionContract));
 
         // BindTo — generic with DAM on T for best-effort trim safety (covers common case where
         // T is the concrete VM type). Property resolution uses viewModel.GetType() (runtime type)
@@ -2343,12 +2359,18 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# public methods on the Session class for each modifier.
     /// </summary>
     private static void EmitCSharpModifierMethods(
-        StringBuilder sb, ViewBridgeInfo info, List<BridgeModifier> modifiers)
+        StringBuilder sb, ViewBridgeInfo info, List<BridgeModifier> modifiers,
+        ModuleEmissionContext? emissionContext = null)
     {
         foreach (var mod in modifiers)
         {
+            // Each setter stands for the View modifier it applies.
+            void record(string declaredParameter) =>
+                RecordSessionMember(emissionContext, $"{info.Identifier}Session", mod.PascalName, [declaredParameter],
+                    DescribeSessionMember(info, SessionModifier, mod.Declaration));
             if (mod.IsParameterless)
             {
+                record("bool enabled = true");
                 sb.AppendLine($"        public void {mod.PascalName}(bool enabled = true) =>");
                 sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, enabled ? 1 : 0);");
                 sb.AppendLine();
@@ -2367,6 +2389,7 @@ public static partial class SwiftUIBridgeEmitter
 
                 if (param.Kind == BridgeParameterKind.String)
                 {
+                    record("string? value");
                     sb.AppendLine($"        public unsafe void {mod.PascalName}(string? value)");
                     sb.AppendLine("        {");
                     sb.AppendLine("            if (value == null)");
@@ -2383,6 +2406,7 @@ public static partial class SwiftUIBridgeEmitter
                 else if (param.Kind == BridgeParameterKind.Primitive && param.SwiftConversion == "!= 0")
                 {
                     // Bool param
+                    record("bool? value");
                     sb.AppendLine($"        public void {mod.PascalName}(bool? value) =>");
                     sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? (value.Value ? 1 : 0) : 0);");
                     sb.AppendLine();
@@ -2392,11 +2416,13 @@ public static partial class SwiftUIBridgeEmitter
                     var factoryType = $"{param.CSharpTypeName}?";
                     if (param.IsSimpleEnum)
                     {
+                        record($"{factoryType} value");
                         sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
                         sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value.HasValue ? {SimpleEnumCaseFloors.ToNative(param.CaseFloorGuard, param.CSharpPInvokeType, "value.Value")} : 0);");
                     }
                     else
                     {
+                        record($"{factoryType} value");
                         sb.AppendLine($"        public void {mod.PascalName}({factoryType} value) =>");
                         sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value != null ? 1 : 0, value?.RawValue ?? 0);");
                     }
@@ -2406,6 +2432,7 @@ public static partial class SwiftUIBridgeEmitter
                 {
                     // Other primitives (Double, Float, Int32, etc.)
                     var factoryType = GetFactoryParamType(param);
+                    record($"{factoryType}? value");
                     sb.AppendLine($"        public void {mod.PascalName}({factoryType}? value) =>");
                     sb.AppendLine($"            {info.Identifier}BridgeNativeMethods.Set{mod.PascalName}(Handle, value.HasValue ? 1 : 0, value ?? 0);");
                     sb.AppendLine();
@@ -2537,6 +2564,82 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine("        }");
         sb.AppendLine("    }");
         sb.AppendLine();
+    }
+
+    /// <summary>A session class, standing for its View.</summary>
+    internal const string SessionOf = "SwiftUI view session";
+
+    /// <summary>A session's factory, standing for the View initializer it calls.</summary>
+    internal const string SessionFactory = "SwiftUI session factory";
+
+    /// <summary>A session member whose name the session contract fixes (its handle, view controller, presentation and binding plumbing).</summary>
+    internal const string SessionContract = "SwiftUI session contract of";
+
+    /// <summary>A session's setter of a modifier every View has (padding, frame, colors, corner radius, opacity, font size).</summary>
+    internal const string SessionUniversalModifier = "SwiftUI session universal modifier of";
+
+    /// <summary>A session's setter of a modifier the View declares.</summary>
+    internal const string SessionModifier = "SwiftUI session modifier";
+
+    /// <summary>A session's update of the initializer parameter it names.</summary>
+    internal const string SessionUpdate = "SwiftUI session update of";
+
+    /// <summary>A session's read of the bound initializer parameter it names.</summary>
+    internal const string SessionRead = "SwiftUI session read of";
+
+    /// <summary>
+    /// Records a session member <paramref name="member"/> of <paramref name="sessionClass"/> in the
+    /// Swift declaration record, keyed by the parameters it declares (<c>"type name = default"</c>
+    /// each, null for a property) and described by <paramref name="description"/>. A session's
+    /// names are formed from the View's initializer parameters, the View's own modifiers and the
+    /// session contract, and the View's identifier is path-qualified once another View shares its
+    /// leaf name, so a newer SDK can hand a session name to another declaration: the record says
+    /// which one each stands for.
+    /// </summary>
+    internal static void RecordSessionMember(ModuleEmissionContext? emissionContext, string sessionClass, string member,
+        IEnumerable<string>? declaredParameters, string description, int genericArity = 0)
+    {
+        if (emissionContext is not { TargetCompilesUIKitBridge: true })
+            return;
+        var key = declaredParameters is null
+            ? $"{sessionClass}.{member}"
+            : $"{sessionClass}.{member}{ModuleEmissionContext.FormatParameterPortion(declaredParameters.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType))}"
+              + (genericArity > 0 ? $"`{genericArity}" : "");
+        emissionContext.RecordSwiftDeclarationDescription(key, description);
+    }
+
+    /// <summary>
+    /// The description of a session member standing for <paramref name="declaration"/> in the role
+    /// <paramref name="role"/>, or for the View itself when the declaration is absent or one the record does not describe.
+    /// </summary>
+    internal static string DescribeSessionMember(ViewBridgeInfo info, string role, BaseDecl? declaration = null) =>
+        declaration is not null && SwiftDeclarationMapEmitter.Describe(declaration) is { } described
+            ? $"{described} ({role})"
+            : $"type {info.QualifiedViewName} ({role})";
+
+    /// <summary>The description of a session member the session contract or a universal modifier names.</summary>
+    internal static string DescribeSessionContract(ViewBridgeInfo info, string kind) =>
+        $"type {info.QualifiedViewName} ({kind})";
+
+    /// <summary>Records a session class as standing for its View.</summary>
+    internal static void RecordSessionClass(ModuleEmissionContext? emissionContext, ViewBridgeInfo info, string sessionClass)
+    {
+        if (emissionContext is { TargetCompilesUIKitBridge: true })
+            emissionContext.RecordSwiftTypeDeclarationDescription(sessionClass, DescribeSessionMember(info, SessionOf));
+    }
+
+    /// <summary>
+    /// Records the members every session declares around its native handle: <c>Handle</c>,
+    /// <c>GetViewController()</c> and, on UIKit-family platforms, the typed <c>ViewController</c>
+    /// (<see cref="EmitTypedViewControllerAccessor"/>).
+    /// </summary>
+    internal static void RecordSessionHandleMembers(ModuleEmissionContext? emissionContext, ViewBridgeInfo info)
+    {
+        var session = $"{info.Identifier}Session";
+        var contract = DescribeSessionContract(info, SessionContract);
+        RecordSessionMember(emissionContext, session, "Handle", null, contract);
+        RecordSessionMember(emissionContext, session, "GetViewController", [], contract);
+        RecordSessionMember(emissionContext, session, "ViewController", null, contract);
     }
 
     private static void EmitFunctionalCSharpBridge(
@@ -2688,6 +2791,8 @@ public static partial class SwiftUIBridgeEmitter
         sb.AppendLine();
 
         // Session class
+        RecordSessionClass(emissionContext, info, $"{info.Identifier}Session");
+        RecordSessionHandleMembers(emissionContext, info);
         sb.AppendLine($"    public sealed class {info.Identifier}Session : IDisposable");
         sb.AppendLine("    {");
         sb.AppendLine("        private IntPtr _handle;");
@@ -2754,32 +2859,32 @@ public static partial class SwiftUIBridgeEmitter
         EmitCSharpLifecycleTrampolines(sb);
 
         // Create factory method
-        EmitSimpleCreateFactory(sb, info, bridgeParams, needsUnsafe, hasClosures, hasStrings);
+        EmitSimpleCreateFactory(sb, info, bridgeParams, needsUnsafe, hasClosures, hasStrings, emissionContext);
 
         // Update methods for updatable params
-        EmitCSharpUpdateMethods(sb, info, bridgeParams);
+        EmitCSharpUpdateMethods(sb, info, bridgeParams, emissionContext);
 
         // Read methods for Binding<Codable> params
         var codableBindingParamsMethods = bridgeParams.Where(p => p.IsBindingCodableStruct).ToList();
         if (codableBindingParamsMethods.Count > 0)
-            EmitCSharpReadMethods(sb, info, codableBindingParamsMethods);
+            EmitCSharpReadMethods(sb, info, codableBindingParamsMethods, emissionContext);
 
         // Observable binding methods.
         if (hasUpdatableParams)
-            EmitCSharpObservableBindingMethods(sb, info, bridgeParams);
+            EmitCSharpObservableBindingMethods(sb, info, bridgeParams, emissionContext);
 
         // Modifier methods
         if (hasModifiers)
-            EmitCSharpModifierMethods(sb, info, modifiers!);
+            EmitCSharpModifierMethods(sb, info, modifiers!, emissionContext);
 
         // Lifecycle method.
         EmitCSharpLifecycleMethod(sb, info);
 
         // Universal modifier methods — skip collisions with view-specific modifiers.
-        EmitCSharpUniversalModifierMethods(sb, info, csharpModifierSetNames);
+        EmitCSharpUniversalModifierMethods(sb, info, csharpModifierSetNames, emissionContext);
 
         // Presentation methods.
-        EmitCSharpPresentationMethods(sb, info);
+        EmitCSharpPresentationMethods(sb, info, emissionContext);
 
         // Dispose pattern with finalizer: GC-driven cleanup is the only fallback when a
         // SwiftUI consumer constructs a session and stores it on a struct View without
@@ -2874,7 +2979,8 @@ public static partial class SwiftUIBridgeEmitter
 
     private static void EmitSimpleCreateFactory(
         StringBuilder sb, ViewBridgeInfo info, List<BridgeParameter> bridgeParams,
-        bool needsUnsafe, bool hasClosures, bool hasStrings)
+        bool needsUnsafe, bool hasClosures, bool hasStrings,
+        ModuleEmissionContext? emissionContext = null)
     {
         var hasCodableBindings = bridgeParams.Any(p => p.IsBindingCodableStruct);
         // Factory parameter list (idiomatic C# types)
@@ -2937,6 +3043,8 @@ public static partial class SwiftUIBridgeEmitter
 
         var unsafeKeyword = needsUnsafe ? "unsafe " : "";
         var hasArrays = bridgeParams.Any(p => p.Kind == BridgeParameterKind.BridgeArray);
+        RecordSessionMember(emissionContext, $"{info.Identifier}Session", "Create", requiredParams,
+            DescribeSessionMember(info, SessionFactory, info.BridgedInit));
         sb.AppendLine($"        public static {unsafeKeyword}{info.Identifier}Session Create({string.Join(", ", requiredParams)})");
         sb.AppendLine("        {");
 
@@ -4428,6 +4536,15 @@ public record ViewBridgeInfo(
     /// both. Never spell a Swift type from this — that is <see cref="SwiftTypeReference"/>'s job.
     /// </summary>
     public string Identifier { get; init; } = ViewName;
+
+    /// <summary>The View's declaration, which its session class stands for.</summary>
+    public TypeDecl? ViewType { get; init; }
+
+    /// <summary>The initializer the session's <c>Create</c> calls, once one is selected.</summary>
+    public MethodDecl? BridgedInit { get; init; }
+
+    /// <summary>The View's module-qualified Swift name.</summary>
+    public string QualifiedViewName => ViewType?.SwiftTypeName.ModuleQualifiedName ?? $"{ModuleName}.{SwiftTypeReference}";
 }
 
 /// <summary>

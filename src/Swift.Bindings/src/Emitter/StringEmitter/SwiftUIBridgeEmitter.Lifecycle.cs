@@ -391,13 +391,20 @@ public static partial class SwiftUIBridgeEmitter
     /// </summary>
     internal static void EmitCSharpUniversalModifierMethods(
         StringBuilder sb, ViewBridgeInfo info,
-        HashSet<string>? viewModifierNames = null)
+        HashSet<string>? viewModifierNames = null,
+        ModuleEmissionContext? emissionContext = null)
     {
         var nm = $"{info.Identifier}BridgeNativeMethods";
         bool skip(string name) => viewModifierNames != null && viewModifierNames.Contains(name);
+        // Each universal setter stands for the View it modifies; a View modifier of the same name
+        // takes the name over, and is then recorded as the View's own declaration instead.
+        void record(string member, params string[] declaredParameters) =>
+            RecordSessionMember(emissionContext, $"{info.Identifier}Session", member, declaredParameters,
+                DescribeSessionContract(info, SessionUniversalModifier));
 
         if (!skip("SetFrame"))
         {
+            record("SetFrame", "double? width = null", "double? height = null");
             sb.AppendLine($"        public void SetFrame(double? width = null, double? height = null) =>");
             sb.AppendLine($"            {nm}.SetFrame(Handle, width.HasValue ? 1 : 0, width ?? 0, height.HasValue ? 1 : 0, height ?? 0);");
             sb.AppendLine();
@@ -405,6 +412,7 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetPadding"))
         {
+            record("SetPadding", "double? value");
             sb.AppendLine($"        public void SetPadding(double? value) =>");
             sb.AppendLine($"            {nm}.SetPadding(Handle, value.HasValue ? 1 : 0, value ?? 0);");
             sb.AppendLine();
@@ -412,10 +420,12 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetBackground"))
         {
+            record("SetBackground", "double r", "double g", "double b", "double a = 1.0");
             sb.AppendLine($"        public void SetBackground(double r, double g, double b, double a = 1.0) =>");
             sb.AppendLine($"            {nm}.SetBackground(Handle, 1, r, g, b, a);");
             sb.AppendLine();
 
+            record("ClearBackground");
             sb.AppendLine($"        public void ClearBackground() =>");
             sb.AppendLine($"            {nm}.SetBackground(Handle, 0, 0, 0, 0, 0);");
             sb.AppendLine();
@@ -423,10 +433,12 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetForegroundColor"))
         {
+            record("SetForegroundColor", "double r", "double g", "double b", "double a = 1.0");
             sb.AppendLine($"        public void SetForegroundColor(double r, double g, double b, double a = 1.0) =>");
             sb.AppendLine($"            {nm}.SetForegroundColor(Handle, 1, r, g, b, a);");
             sb.AppendLine();
 
+            record("ClearForegroundColor");
             sb.AppendLine($"        public void ClearForegroundColor() =>");
             sb.AppendLine($"            {nm}.SetForegroundColor(Handle, 0, 0, 0, 0, 0);");
             sb.AppendLine();
@@ -434,6 +446,7 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetCornerRadius"))
         {
+            record("SetCornerRadius", "double? value");
             sb.AppendLine($"        public void SetCornerRadius(double? value) =>");
             sb.AppendLine($"            {nm}.SetCornerRadius(Handle, value.HasValue ? 1 : 0, value ?? 0);");
             sb.AppendLine();
@@ -441,6 +454,7 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetOpacity"))
         {
+            record("SetOpacity", "double? value");
             sb.AppendLine($"        public void SetOpacity(double? value) =>");
             sb.AppendLine($"            {nm}.SetOpacity(Handle, value.HasValue ? 1 : 0, value ?? 0);");
             sb.AppendLine();
@@ -448,6 +462,7 @@ public static partial class SwiftUIBridgeEmitter
 
         if (!skip("SetFont"))
         {
+            record("SetFontSize", "double? size");
             sb.AppendLine($"        public void SetFontSize(double? size) =>");
             sb.AppendLine($"            {nm}.SetFont(Handle, size.HasValue ? 1 : 0, size ?? 0);");
             sb.AppendLine();
@@ -477,18 +492,24 @@ public static partial class SwiftUIBridgeEmitter
     /// Emits C# public methods on the Session class for presentation.
     /// </summary>
     internal static void EmitCSharpPresentationMethods(
-        StringBuilder sb, ViewBridgeInfo info)
+        StringBuilder sb, ViewBridgeInfo info, ModuleEmissionContext? emissionContext = null)
     {
         var nm = $"{info.Identifier}BridgeNativeMethods";
+        void record(string member, params string[] declaredParameters) =>
+            RecordSessionMember(emissionContext, $"{info.Identifier}Session", member, declaredParameters,
+                DescribeSessionContract(info, SessionContract));
 
+        record("PresentAsSheet", "IntPtr fromViewController");
         sb.AppendLine($"        public void PresentAsSheet(IntPtr fromViewController) =>");
         sb.AppendLine($"            {nm}.PresentAsSheet(Handle, fromViewController);");
         sb.AppendLine();
 
+        record("PushOnNavigationStack", "IntPtr navigationController");
         sb.AppendLine($"        public void PushOnNavigationStack(IntPtr navigationController) =>");
         sb.AppendLine($"            {nm}.PushOnNav(Handle, navigationController);");
         sb.AppendLine();
 
+        record("Dismiss");
         sb.AppendLine($"        public void Dismiss() =>");
         sb.AppendLine($"            {nm}.Dismiss(Handle);");
         sb.AppendLine();

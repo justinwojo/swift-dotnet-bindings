@@ -914,6 +914,7 @@ namespace BindingsGeneration
                 emissionContext.RuntimeContractEpoch =
                     RuntimeVersionRange.Epoch(BindingProjectEmitter.ResolveSwiftRuntimeVersion(swiftRuntimeVersion));
                 emissionContext.SetUnderscoreSuppressedNames(underscoreSuppressedNames);
+                emissionContext.TargetCompilesUIKitBridge = platform != ApplePlatform.macOS;
                 emissionContext.SetCollisionContext(moduleNameForCollision, nestedTypesInCollidingClass);
                 emissionContext.SetDeclaredTypePredicate(name =>
                     SwiftTypeName.TryFromModuleQualifiedName(name, out var declared) && typeDatabase.IsTypeRegistered(declared));

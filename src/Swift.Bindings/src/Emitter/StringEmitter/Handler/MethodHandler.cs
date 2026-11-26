@@ -1239,6 +1239,9 @@ namespace BindingsGeneration
             // so consumers see the API exists. See ClosureParamTombstoneEmitter for scope.
             if (methodEnv.MethodDecl.IsClosureParamTombstone)
             {
+                // The tombstone records the parameter list it wrote (object? for each closure),
+                // which the member's manifest and declaration keys then spell.
+                methodEnv.EmissionContext = context.GetEmissionContext();
                 ClosureParamTombstoneEmitter.Emit(csWriter, methodEnv);
                 methodEnv.MethodDecl.MarkEmitted();
                 ReportCollector.RecordMemberWrapped(

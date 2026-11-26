@@ -278,6 +278,9 @@ public static class SubclassClosedParentTrampolineEmitter
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, baseDecl.AvailabilityAnnotations);
         csWriter.WriteLine($"public static {csReturn} {csMethodName}(this {leafDecl.Name} self)");
+        // The trampoline stands for the base method it calls, on the leaf it closes the base for.
+        emissionContext.RecordSwiftDeclarationAt($"{leafDecl.Name}BaseTrampolines", csMethodName, new[] { $"this {leafDecl.Name}" },
+            method, typeDatabase, via: leafSwiftName, viaKind: SwiftDeclarationMapEmitter.BaseTrampolineOn);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(

@@ -644,4 +644,29 @@ public class ProtocolExtensionEmitterTests
 
         return (moduleDecl, typeA, typeB, typeDatabase);
     }
+
+    // ─── The declaration record names the protocol, not the conformer ──
+
+    [Fact]
+    public void InjectedExtensionMethod_IsDescribedAsTheProtocolExtensionsMember()
+    {
+        // A conformer's copy of a protocol extension default calls the extension's
+        // declaration. If another Xcode's SDK gives the conformer a member of the same
+        // name, that member shadows the default under the same C# key; the record must
+        // name the extension so the package merge sees the takeover as a move.
+        var (moduleDecl, conformingType, typeDatabase) = CreateSetup("TestModule", "MyHolder", "TestProtocol");
+        var extMethods = CreateExtensionMethodDict("TestModule.TestProtocol",
+            CreateExtMethod("greet", "public func greet()"));
+
+        var ctx = new ModuleEmissionContext();
+        ProtocolExtensionEmitter.InjectExtensionMethods(moduleDecl, extMethods, typeDatabase, Logger, ctx);
+
+        var injected = Assert.Single(conformingType.Methods);
+        var description = SwiftDeclarationMapEmitter.Describe(injected);
+        Assert.NotNull(description);
+        Assert.EndsWith(
+            $"({SwiftDeclarationMapEmitter.ProtocolExtensionMemberOf} TestModule.TestProtocol)",
+            description);
+        Assert.StartsWith("func ", description);
+    }
 }

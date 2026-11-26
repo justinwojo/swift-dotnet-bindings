@@ -196,6 +196,7 @@ public static class AsyncMethodGenericBridgeEmitter
         EmitSharedCSharpInfra(csWriter, env, parentDecl, returnKind.Value, returnTypeSpec, returnTypeRecord, ctx);
 
         // Emit FULL primary (trim 0) + each trim variant (trim 1..maxTrim).
+        ModuleEmissionContext.EmittedApiShape primaryShape = default;
         foreach (var (trim, keptArgs, pinPlan) in variants)
         {
             string variantSymbol = trim == 0
@@ -212,6 +213,26 @@ public static class AsyncMethodGenericBridgeEmitter
                 methodDecl.Throws, keptArgs);
             EmitPublicTaskMethod(csWriter, env, parentDecl, genericInfo, variantPInvokeName,
                 returnKind.Value, returnTypeSpec, returnTypeRecord, methodDecl.Throws, keptArgs);
+            // Each variant recorded the parameter list it declared. The handler keys the member by
+            // the primary's, so a trim variant, which stands for the same Swift declaration with
+            // its trailing defaults left to Swift, is recorded under its own list here and the
+            // primary's is put back.
+            if (env.EmissionContext is { } shapes)
+            {
+                if (trim == 0)
+                {
+                    primaryShape = shapes.GetEmittedApiShape(methodDecl);
+                }
+                else
+                {
+                    shapes.RecordSwiftDeclaration(
+                        ModuleEmissionContext.BuildApiManifestKey(parentDecl, env.CSharpMethodName,
+                            $"{env.CSharpMethodName}()`{methodDecl.GenericParameters.Count}", env.TypeDatabase,
+                            shapes.GetEmittedApiShape(methodDecl)),
+                        methodDecl, env.TypeDatabase);
+                    shapes.RecordEmittedApiShape(methodDecl, parameterPortion: primaryShape.ParameterPortion);
+                }
+            }
         }
 
         methodDecl.MarkEmitted();
@@ -1305,6 +1326,11 @@ public static class AsyncMethodGenericBridgeEmitter
             .SelectMany(a => new[] { NameProvider.GetCSharpParameterName(a), NameProvider.GetMarshallingBaseName(a) }));
         var ctName = bodyScope.Reserve("cancellationToken");
         publicParams.Add($"global::System.Threading.CancellationToken {ctName} = default");
+        // The list just built is not the declared one: defaulted parameters are dropped and the
+        // generic parameter is erased to ISwiftObject. Record it so the API manifest and the Swift
+        // declaration record key the member as a caller spells it.
+        env.EmissionContext?.RecordEmittedApiShape(methodDecl,
+            parameterPortion: ModuleEmissionContext.FormatParameterPortion(publicParams.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType)));
         // The GC handle this body hands the native call as its callback context is a body local
         // rather than a parameter, but it lands in the same scope as the projected parameters, so
         // it is resolved against them too. Reserved up front, before any body emission, so the name
