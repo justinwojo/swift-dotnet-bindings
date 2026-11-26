@@ -1100,6 +1100,8 @@ namespace BindingsGeneration
                     {
                         IntPtr selfPtr = {{LiveHandleExpressions.ObjCSelf()}};
                         metadata.ValueWitnessTable->InitializeWithCopy(swiftDest, &selfPtr, metadata);
+                        // The copy's retain must run while this wrapper still owns the object.
+                        {{LiveHandleExpressions.ArgumentKeepAlive("this")}}
                         return (int)metadata.Size;
                     }
                 }

@@ -1394,8 +1394,11 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
                 {
                     // Frozen struct with ref fields (e.g., has String): the native buffer
-                    // is already allocated by the C# class's Payload. Get its handle.
-                    csWriter.WriteLine($"IntPtr {csName}Ptr = {csName}.Payload.DangerousGetHandle();");
+                    // is already allocated by the C# class's Payload. Get its handle. The
+                    // callee borrows the buffer the wrapper owns, so the wrapper is held until
+                    // the call returns: past this read its finalizer could free the buffer.
+                    csWriter.WriteLine($"IntPtr {csName}Ptr = {LiveHandleExpressions.SafeHandle($"{csName}.Payload")};");
+                    _borrowedObjectArgumentNames.Add(csName);
                 }
                 else if (_env.MethodDecl.IsAsync)
                 {
@@ -1890,7 +1893,14 @@ namespace BindingsGeneration
                             csWriter.WriteLine($"_handle.DangerousAddRef(ref {SuccessName});");
                         }
                     }
-                    // ObjC-rooted: no SafeHandle — lifecycle managed by NSObject via ARC
+                    // ObjC-rooted: no SafeHandle to lease. Self is read as the bare object pointer,
+                    // which is the wrapper's last use, so under a precise collector its finalizer
+                    // could release the object mid-call: hold it until the call returns, as a
+                    // borrowed argument is held. (Async: the holder carries `this`.)
+                    else if (!_env.MethodDecl.IsAsync)
+                    {
+                        _borrowedObjectArgumentNames.Add("this");
+                    }
                 }
                 else if (_env.ParentDecl is EnumDecl)
                 {

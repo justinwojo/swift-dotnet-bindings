@@ -1103,9 +1103,12 @@ public static class NestedClosureBridge
                 csWriter.Indent++;
 
                 var innerCallArgs = new List<string>();
+                var innerHeldArgs = new List<string>();
                 for (int j = 0; j < innerArgs.Count; j++)
                 {
                     innerCallArgs.Add(GetInnerArgMarshalToCdecl(innerArgs[j], $"__ia{j}", env));
+                    if (InnerArgBorrowsHandle(innerArgs[j], env))
+                        innerHeldArgs.Add($"__ia{j}");
                 }
                 innerCallArgs.Add($"innerContext{suffix}");
 
@@ -1113,6 +1116,7 @@ public static class NestedClosureBridge
                 {
                     var innerReturnCSharpType = GetCSharpTypeForOuterArg(innerClosureSpec.ReturnType, env);
                     csWriter.WriteLine($"var __innerRet = (({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                    LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, innerHeldArgs);
                     if (adoptsInnerBox)
                         EmitInnerBoxKeepAlive(csWriter, suffix);
                     if (innerClosureSpec.ReturnType is NamedTypeSpec innerRetNamed && innerRetNamed.Name == "Swift.Bool")
@@ -1123,6 +1127,7 @@ public static class NestedClosureBridge
                 else
                 {
                     csWriter.WriteLine($"(({innerDelegatePtrType})innerFuncPtr{suffix})({string.Join(", ", innerCallArgs)});");
+                    LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, innerHeldArgs);
                     if (adoptsInnerBox)
                         EmitInnerBoxKeepAlive(csWriter, suffix);
                 }
@@ -1459,6 +1464,8 @@ public static class NestedClosureBridge
 
         // Build P/Invoke call arguments
         var callArgs = new List<string>();
+        // Owners whose pointers the call borrows, held until it returns.
+        var heldOwners = new List<string>();
 
         // Non-closure passable method params
         foreach (var (arg, csName, _, category) in passableNonClosureParams)
@@ -1467,9 +1474,11 @@ public static class NestedClosureBridge
             {
                 case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                     callArgs.Add($"{csName}.Handle");
+                    heldOwners.Add(csName);
                     break;
                 case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                     callArgs.Add($"{csName}.Payload.DangerousGetHandle()");
+                    heldOwners.Add(csName);
                     break;
                 case MethodClosureBridge.ParamAbiCategory.Primitive:
                     callArgs.Add(csName);
@@ -1492,36 +1501,40 @@ public static class NestedClosureBridge
                 ? "(global::System.IntPtr)Handle"
                 : "Payload.DangerousGetHandle()";
             callArgs.Add(selfExpr);
+            heldOwners.Add("this");
         }
 
-        if (isCtor)
+        LiveHandleExpressions.WriteHeldRegion(csWriter, heldOwners, () =>
         {
-            csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
-            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
-            // The wrapper returns Unmanaged.passRetained(...).toOpaque() — the +1 reference the
-            // handle adopts. Marshalling it instead would build a SECOND wrapper object around the
-            // instance this constructor is supposed to BE.
-            csWriter.WriteLine($"_handle = new SwiftClassHandle<{ctorTypeName}>(__result);");
-        }
-        else if (returnsClass)
-        {
-            csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
-            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
-            csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
-        }
-        else if (!returnSpec.IsEmptyTuple)
-        {
-            // Primitive return — capture before marking transfer so the flag is only flipped
-            // on a successful P/Invoke return.
-            csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
-            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
-            csWriter.WriteLine("return __pinvokeResult;");
-        }
-        else
-        {
-            csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
-            EmitClosureOwnershipTransferred(csWriter, nestedClosures);
-        }
+            if (isCtor)
+            {
+                csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+                EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+                // The wrapper returns Unmanaged.passRetained(...).toOpaque() — the +1 reference the
+                // handle adopts. Marshalling it instead would build a SECOND wrapper object around the
+                // instance this constructor is supposed to BE.
+                csWriter.WriteLine($"_handle = new SwiftClassHandle<{ctorTypeName}>(__result);");
+            }
+            else if (returnsClass)
+            {
+                csWriter.WriteLine($"var __result = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+                EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+                csWriter.WriteLine($"return ({returnType})SwiftMarshal.MarshalFromSwift<{returnType}>(__result);");
+            }
+            else if (!returnSpec.IsEmptyTuple)
+            {
+                // Primitive return — capture before marking transfer so the flag is only flipped
+                // on a successful P/Invoke return.
+                csWriter.WriteLine($"var __pinvokeResult = {helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+                EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+                csWriter.WriteLine("return __pinvokeResult;");
+            }
+            else
+            {
+                csWriter.WriteLine($"{helperPrefix}{pInvokeName}({string.Join(", ", callArgs)});");
+                EmitClosureOwnershipTransferred(csWriter, nestedClosures);
+            }
+        });
 
         if (hasClosures)
         {
@@ -1653,6 +1666,19 @@ public static class NestedClosureBridge
     /// Gets the C# expression to marshal an inner arg from C# type to cdecl type
     /// for calling the inner closure's funcPtr.
     /// </summary>
+    /// <summary>
+    /// True when <see cref="GetInnerArgMarshalToCdecl"/> passes the argument as the pointer of an
+    /// object the caller owns (a class, an Objective-C class, or an Optional of one), which the call
+    /// borrows: the argument is held until the inner closure returns.
+    /// </summary>
+    private static bool InnerArgBorrowsHandle(TypeSpec argType, MethodEnvironment env)
+        => argType is NamedTypeSpec named
+           && (IsOptionalReferenceType(named, env.ClosureHandler)
+               || (named.Name != "Swift.Bool"
+                   && !MarshallingHelpers.IsSwiftPrimitive(named.Name)
+                   && env.ClosureHandler.GetSimpleEnumInfo(argType) == null
+                   && (env.ClosureHandler.IsObjCBridgedClass(argType) || env.ClosureHandler.IsClassType(argType))));
+
     private static string GetInnerArgMarshalToCdecl(TypeSpec argType, string varName, MethodEnvironment env)
     {
         if (argType is NamedTypeSpec named)

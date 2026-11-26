@@ -1500,6 +1500,10 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // value type — no fixed needed) but still requires an `unsafe` context.
         var fixedStatements = new List<string>();
         bool needsUnsafe = false;
+        // Owners the call borrows a bare pointer from (an Objective-C argument's handle, an unleased
+        // receiver's): each is held until the call returns. Leased SafeHandle arguments need no
+        // hold, as the marshaller keeps the handle open across the call.
+        var heldOwners = new List<string>();
         // Prelude locals emitted BEFORE the fixed-block stack opens — currently used by
         // Utf8Slice (Swift.String) params to allocate `var __{bareName}Utf8 = UTF8.GetBytes(...)`
         // so the matching `fixed (byte* __{bareName}Ptr = __{bareName}Utf8)` pin has a source
@@ -1640,6 +1644,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         publicParams.Add($"{csType} {csName}");
                         pinvokeParams.Add($"IntPtr {csName}");
                         callArgs.Add($"{csName}.Handle");
+                        heldOwners.Add(csName);
                         break;
                     }
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
@@ -1794,6 +1799,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                     callArgs.Add(leaseSelf
                         ? "self.Payload"
                         : LiveHandleExpressions.SwiftObject("self"));
+                    if (!leaseSelf)
+                        heldOwners.Add("self");
                 }
             }
             else
@@ -1812,6 +1819,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
                 else
                     selfExpr = isClass ? LiveHandleExpressions.SwiftObject("this") : LiveHandleExpressions.SafeHandle("_payload");
                 callArgs.Add(selfExpr);
+                if (!leaseSelf)
+                    heldOwners.Add("this");
             }
         }
 
@@ -2155,212 +2164,215 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // consumed on the Swift side by the time the wrapper returns, and the marginal
         // cost of keeping the pin a few instructions longer is not worth the complexity
         // of splitting the call and the marshal.
-        foreach (var fixedStmt in fixedStatements)
+        LiveHandleExpressions.WriteHeldRegion(csWriter, heldOwners, () =>
         {
-            csWriter.WriteLine(fixedStmt);
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-        }
-
-        // For throws, all direct-return shapes must capture the P/Invoke result into a local
-        // so the errorPtr check can run *after* the call but *before* we use the result.
-        // The error check never falls through — it throws — so using its result inline as the
-        // return expression is unsafe.
-        //
-        // The ownership-transfer arm needs no special free here: the check throws before the
-        // marshal call sets the ownership flag, so the finally below reclaims the buffer on
-        // this path exactly as it does on every other pre-handoff throw.
-        //
-        // A plain `throws` carries no static error type, but the module may still have
-        // Error-conforming types registered. When it does, the raw error box goes through the
-        // module's registry helper, which classifies it and returns SwiftException<TError> with
-        // the marshalled payload, or the untyped SwiftException when nothing matched — the same
-        // shape the member routes surface, so a consumer sees one typed exception for a given
-        // Swift error regardless of which route reached it. Either shape owns the box and releases
-        // it once, on finalization, and the classification runs before the exception exists, so the
-        // throw itself still performs no P/Invoke. Without a registry the check keeps the untyped
-        // single source (SwiftMarshal.ThrowSwiftError), whose SwiftException still carries the live
-        // error box on .ErrorHandle.
-        var errorRegistryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
-            method.ModuleDecl?.Name, emissionContext);
-        string errorCheck = throws
-            ? (errorRegistryRef != null
-                ? $"if ({errorPtrName} != IntPtr.Zero) throw {errorRegistryRef}.CreateSyncException({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);"
-                : $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);")
-            : string.Empty;
-
-        if (isConstructor)
-        {
-            if (isClass)
+            foreach (var fixedStmt in fixedStatements)
             {
-                // Constructor. On the class itself, csReturnType is the enclosing class, so its
-                // private (SwiftHandle) ctor is visible. A generic parent's closed-tuple factory
-                // lives in a sibling *CsmExtensions class instead, where that ctor is not visible:
-                // it goes through MarshalFromSwiftObject<T> (T.NewFromPayload), which adopts the
-                // initializer's +1 exactly as the ctor does.
-                string Construct(string handleExpr) => isExtension
-                    ? $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({handleExpr});"
-                    : $"return new {csReturnType}(new Swift.Runtime.SwiftHandle({handleExpr}));";
-                if (throws)
+                csWriter.WriteLine(fixedStmt);
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
+
+            // For throws, all direct-return shapes must capture the P/Invoke result into a local
+            // so the errorPtr check can run *after* the call but *before* we use the result.
+            // The error check never falls through — it throws — so using its result inline as the
+            // return expression is unsafe.
+            //
+            // The ownership-transfer arm needs no special free here: the check throws before the
+            // marshal call sets the ownership flag, so the finally below reclaims the buffer on
+            // this path exactly as it does on every other pre-handoff throw.
+            //
+            // A plain `throws` carries no static error type, but the module may still have
+            // Error-conforming types registered. When it does, the raw error box goes through the
+            // module's registry helper, which classifies it and returns SwiftException<TError> with
+            // the marshalled payload, or the untyped SwiftException when nothing matched — the same
+            // shape the member routes surface, so a consumer sees one typed exception for a given
+            // Swift error regardless of which route reached it. Either shape owns the box and releases
+            // it once, on finalization, and the classification runs before the exception exists, so the
+            // throw itself still performs no P/Invoke. Without a registry the check keeps the untyped
+            // single source (SwiftMarshal.ThrowSwiftError), whose SwiftException still carries the live
+            // error box on .ErrorHandle.
+            var errorRegistryRef = ErrorRegistryHelperEmitter.GetSyncDispatchHelperReference(
+                method.ModuleDecl?.Name, emissionContext);
+            string errorCheck = throws
+                ? (errorRegistryRef != null
+                    ? $"if ({errorPtrName} != IntPtr.Zero) throw {errorRegistryRef}.CreateSyncException({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);"
+                    : $"if ({errorPtrName} != IntPtr.Zero) SwiftMarshal.ThrowSwiftError({errorPtrName}, SBW_GetErrorDescription({errorPtrName}), SBW_ReleaseError);")
+                : string.Empty;
+
+            if (isConstructor)
+            {
+                if (isClass)
                 {
-                    csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
-                    csWriter.WriteLine(errorCheck);
-                    csWriter.WriteLine(Construct(resultLocalName));
+                    // Constructor. On the class itself, csReturnType is the enclosing class, so its
+                    // private (SwiftHandle) ctor is visible. A generic parent's closed-tuple factory
+                    // lives in a sibling *CsmExtensions class instead, where that ctor is not visible:
+                    // it goes through MarshalFromSwiftObject<T> (T.NewFromPayload), which adopts the
+                    // initializer's +1 exactly as the ctor does.
+                    string Construct(string handleExpr) => isExtension
+                        ? $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({handleExpr});"
+                        : $"return new {csReturnType}(new Swift.Runtime.SwiftHandle({handleExpr}));";
+                    if (throws)
+                    {
+                        csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
+                        csWriter.WriteLine(errorCheck);
+                        csWriter.WriteLine(Construct(resultLocalName));
+                    }
+                    else
+                    {
+                        csWriter.WriteLine(Construct(pinvokeCall));
+                    }
                 }
                 else
                 {
-                    csWriter.WriteLine(Construct(pinvokeCall));
+                    // Struct constructor: call writes into resultPtr, then marshal back.
+                    // Constructors are projection-excluded (the byte[]-projection block above is
+                    // !isConstructor-gated), so csReturnType is the ISwiftObject marshal type here
+                    // and no .ToByteArray()-style suffix applies -- a Data initializer returns a Data,
+                    // not its byte projection. Only the method path below (needsResultPtr) can diverge
+                    // public-vs-wire, which is why it uses csReturnMarshalType + returnProjectionSuffix.
+                    csWriter.WriteLine($"{pinvokeCall};");
+                    if (throws) csWriter.WriteLine(errorCheck);
+                    if (needsResultPtrDestroyWireRetains)
+                    {
+                        // Frozen-with-memory parent: NewFromPayload copies into its own buffer
+                        // (InitializeWithCopy bumps internal refs). Release the wire's +1 on
+                        // internal refs before the finally Free reclaims the wire buffer —
+                        // otherwise the retained inner allocations leak per call.
+                        csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
+                        csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrName});");
+                        csWriter.WriteLine($"return {resultLocalName};");
+                    }
+                    else if (needsResultPtrOwnershipTransfer)
+                    {
+                        EmitOwnershipTransferReturn(csWriter, csReturnType, string.Empty, resultPtrName, resultLocalName, resultPtrOwnedName);
+                    }
+                    else
+                    {
+                        csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
+                    }
                 }
             }
-            else
+            else if (isVoidReturn)
             {
-                // Struct constructor: call writes into resultPtr, then marshal back.
-                // Constructors are projection-excluded (the byte[]-projection block above is
-                // !isConstructor-gated), so csReturnType is the ISwiftObject marshal type here
-                // and no .ToByteArray()-style suffix applies -- a Data initializer returns a Data,
-                // not its byte projection. Only the method path below (needsResultPtr) can diverge
-                // public-vs-wire, which is why it uses csReturnMarshalType + returnProjectionSuffix.
+                csWriter.WriteLine($"{pinvokeCall};");
+                if (throws) csWriter.WriteLine(errorCheck);
+            }
+            else if (isStringReturn)
+            {
+                csWriter.WriteLine($"{pinvokeCall};");
+                if (throws) csWriter.WriteLine(errorCheck);
+                csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrName});");
+            }
+            else if (needsResultPtr)
+            {
                 csWriter.WriteLine($"{pinvokeCall};");
                 if (throws) csWriter.WriteLine(errorCheck);
                 if (needsResultPtrDestroyWireRetains)
                 {
-                    // Frozen-with-memory parent: NewFromPayload copies into its own buffer
-                    // (InitializeWithCopy bumps internal refs). Release the wire's +1 on
-                    // internal refs before the finally Free reclaims the wire buffer —
-                    // otherwise the retained inner allocations leak per call.
-                    csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
-                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrName});");
-                    csWriter.WriteLine($"return {resultLocalName};");
+                    // Frozen-with-memory return type: see struct-constructor branch above.
+                    csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
+                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnMarshalType}>({resultPtrName});");
+                    csWriter.WriteLine($"return {resultLocalName}{returnProjectionSuffix};");
+                }
+                else if (returnTypeIsClassCarrier)
+                {
+                    // Class conformer: Swift's initializeMemory stored the instance
+                    // pointer INTO the carrier with a +1. Read the slot's contents and adopt that +1
+                    // (no extra retain); the carrier word is raw-freed below in finally.
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalOwnedClassFromSlot<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
+                }
+                else if (returnProjectionSuffix.Length > 0)
+                {
+                    // An inline-struct carrier (Foundation.Data today) read out by value: the marshalled
+                    // C# struct is a bitwise view of the buffer, so the +1 Swift initialized the buffer
+                    // with (Data's out-of-line __DataStorage, for a payload past the inline threshold)
+                    // still belongs to the buffer. Freeing the buffer alone releases nothing.
+                    //
+                    // The projection suffix converts the value into an owned managed representation
+                    // (byte[]), so the Swift value is fully consumed here and the buffer can be
+                    // released — but WHETHER it must be is the carrier's declared
+                    // PayloadConstructionSemantics, not something to re-derive from the return shape:
+                    // the seam destroys for a by-value (Inline) or copying carrier and leaves an
+                    // adopting one alone. The storage free stays with the finally below.
+                    csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
+                    csWriter.WriteLine($"var {resultLocalName}Projected = {resultLocalName}{returnProjectionSuffix};");
+                    csWriter.WriteLine($"TypeMetadata.TryGetTypeMetadata<{csReturnMarshalType}>(out var {resultLocalName}Meta);");
+                    csWriter.WriteLine($"SwiftMarshal.ReleaseIndirectResultValue({resultPtrName}, typeof({csReturnMarshalType}), {resultLocalName}Meta, valueEscapesSeam: false);");
+                    csWriter.WriteLine($"return {resultLocalName}Projected;");
                 }
                 else if (needsResultPtrOwnershipTransfer)
                 {
-                    EmitOwnershipTransferReturn(csWriter, csReturnType, string.Empty, resultPtrName, resultLocalName, resultPtrOwnedName);
+                    EmitOwnershipTransferReturn(csWriter, csReturnMarshalType, returnProjectionSuffix, resultPtrName, resultLocalName, resultPtrOwnedName);
                 }
                 else
                 {
-                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrName});");
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
                 }
             }
-        }
-        else if (isVoidReturn)
-        {
-            csWriter.WriteLine($"{pinvokeCall};");
-            if (throws) csWriter.WriteLine(errorCheck);
-        }
-        else if (isStringReturn)
-        {
-            csWriter.WriteLine($"{pinvokeCall};");
-            if (throws) csWriter.WriteLine(errorCheck);
-            csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrName});");
-        }
-        else if (needsResultPtr)
-        {
-            csWriter.WriteLine($"{pinvokeCall};");
-            if (throws) csWriter.WriteLine(errorCheck);
-            if (needsResultPtrDestroyWireRetains)
+            else if (returnsGenericParam)
             {
-                // Frozen-with-memory return type: see struct-constructor branch above.
-                csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
-                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnMarshalType}>({resultPtrName});");
-                csWriter.WriteLine($"return {resultLocalName}{returnProjectionSuffix};");
-            }
-            else if (returnTypeIsClassCarrier)
-            {
-                // Class conformer: Swift's initializeMemory stored the instance
-                // pointer INTO the carrier with a +1. Read the slot's contents and adopt that +1
-                // (no extra retain); the carrier word is raw-freed below in finally.
-                csWriter.WriteLine($"return SwiftMarshal.MarshalOwnedClassFromSlot<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
-            }
-            else if (returnProjectionSuffix.Length > 0)
-            {
-                // An inline-struct carrier (Foundation.Data today) read out by value: the marshalled
-                // C# struct is a bitwise view of the buffer, so the +1 Swift initialized the buffer
-                // with (Data's out-of-line __DataStorage, for a payload past the inline threshold)
-                // still belongs to the buffer. Freeing the buffer alone releases nothing.
-                //
-                // The projection suffix converts the value into an owned managed representation
-                // (byte[]), so the Swift value is fully consumed here and the buffer can be
-                // released — but WHETHER it must be is the carrier's declared
-                // PayloadConstructionSemantics, not something to re-derive from the return shape:
-                // the seam destroys for a by-value (Inline) or copying carrier and leaves an
-                // adopting one alone. The storage free stays with the finally below.
-                csWriter.WriteLine($"var {resultLocalName} = SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName});");
-                csWriter.WriteLine($"var {resultLocalName}Projected = {resultLocalName}{returnProjectionSuffix};");
-                csWriter.WriteLine($"TypeMetadata.TryGetTypeMetadata<{csReturnMarshalType}>(out var {resultLocalName}Meta);");
-                csWriter.WriteLine($"SwiftMarshal.ReleaseIndirectResultValue({resultPtrName}, typeof({csReturnMarshalType}), {resultLocalName}Meta, valueEscapesSeam: false);");
-                csWriter.WriteLine($"return {resultLocalName}Projected;");
-            }
-            else if (needsResultPtrOwnershipTransfer)
-            {
-                EmitOwnershipTransferReturn(csWriter, csReturnMarshalType, returnProjectionSuffix, resultPtrName, resultLocalName, resultPtrOwnedName);
+                // Unreachable in practice: returnsGenericParam forces needsResultPtr above.
+                // Kept for parity with the pre-throws shape table.
+                csWriter.WriteLine($"return {pinvokeCall};");
             }
             else
             {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnMarshalType}>({resultPtrName}){returnProjectionSuffix};");
+                // Direct @_cdecl return. Capture into a local so:
+                //   1. the errorPtr check can run before using _result (throws path)
+                //   2. the directReturnMapping-based projection converts the raw ABI value
+                //      (raw scalar for SimpleEnum, IntPtr for ClassPointer, nullable IntPtr
+                //      for OptionalClassPointer) back to the public C# type.
+                // Mirrors the Swift side's unconditional EmitCdeclDirectReturn — non-Direct
+                // kinds need the conversion whether or not the method throws, because the
+                // Swift @_cdecl ABI is identical across both paths. For CdeclReturnKind.Direct
+                // the switch falls through to `return _result;`, equivalent to the prior
+                // inline `return pinvokeCall;`.
+                csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
+                if (throws) csWriter.WriteLine(errorCheck);
+                switch (directReturnMapping?.Kind)
+                {
+                    case CdeclReturnKind.SimpleEnum:
+                        csWriter.WriteLine($"return ({csReturnType}){resultLocalName};");
+                        break;
+                    case CdeclReturnKind.ClassPointer:
+                        // A direct class-pointer return may name a class from ANOTHER module
+                        // (e.g. a Moya method returning Alamofire.Session). That class's
+                        // SwiftHandle-taking constructor is `private`, so `new Foreign(new
+                        // SwiftHandle(...))` fails cross-module with CS1729. Route through
+                        // MarshalFromSwiftObject<T>, which calls the PUBLIC static
+                        // T.NewFromPayload — ownership-equivalent (both adopt the returned +1)
+                        // and cross-module-safe. Mirrors the non-specialized member path.
+                        csWriter.WriteLine(returnsObjCObject
+                            ? $"return {MarshallingHelpers.FormatObjCBridgeCall(csReturnType, resultLocalName, nonNull: true, ownsReference: true)};"
+                            : $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({resultLocalName});");
+                        break;
+                    case CdeclReturnKind.OptionalClassPointer:
+                        // csReturnType is `MyClass?` — strip the `?` for the marshal type. Same
+                        // cross-module rationale as ClassPointer above (NewFromPayload, not the
+                        // private ctor); a null pointer projects to a null reference.
+                        csWriter.WriteLine(returnsObjCObject
+                            ? $"return {resultLocalName} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(csReturnType.TrimEnd('?'), resultLocalName, ownsReference: true)};"
+                            : $"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
+                        break;
+                    case CdeclReturnKind.OptionalErrorPointer:
+                        // Optional<any Error> is a nullable owned error-box pointer, not an optional
+                        // class bridged through NewFromPayload (that factory is intentionally borrowed).
+                        csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocalName} }}, ownsContainer: true);");
+                        break;
+                    default:
+                        csWriter.WriteLine($"return {resultLocalName};");
+                        break;
+                }
             }
-        }
-        else if (returnsGenericParam)
-        {
-            // Unreachable in practice: returnsGenericParam forces needsResultPtr above.
-            // Kept for parity with the pre-throws shape table.
-            csWriter.WriteLine($"return {pinvokeCall};");
-        }
-        else
-        {
-            // Direct @_cdecl return. Capture into a local so:
-            //   1. the errorPtr check can run before using _result (throws path)
-            //   2. the directReturnMapping-based projection converts the raw ABI value
-            //      (raw scalar for SimpleEnum, IntPtr for ClassPointer, nullable IntPtr
-            //      for OptionalClassPointer) back to the public C# type.
-            // Mirrors the Swift side's unconditional EmitCdeclDirectReturn — non-Direct
-            // kinds need the conversion whether or not the method throws, because the
-            // Swift @_cdecl ABI is identical across both paths. For CdeclReturnKind.Direct
-            // the switch falls through to `return _result;`, equivalent to the prior
-            // inline `return pinvokeCall;`.
-            csWriter.WriteLine($"var {resultLocalName} = {pinvokeCall};");
-            if (throws) csWriter.WriteLine(errorCheck);
-            switch (directReturnMapping?.Kind)
-            {
-                case CdeclReturnKind.SimpleEnum:
-                    csWriter.WriteLine($"return ({csReturnType}){resultLocalName};");
-                    break;
-                case CdeclReturnKind.ClassPointer:
-                    // A direct class-pointer return may name a class from ANOTHER module
-                    // (e.g. a Moya method returning Alamofire.Session). That class's
-                    // SwiftHandle-taking constructor is `private`, so `new Foreign(new
-                    // SwiftHandle(...))` fails cross-module with CS1729. Route through
-                    // MarshalFromSwiftObject<T>, which calls the PUBLIC static
-                    // T.NewFromPayload — ownership-equivalent (both adopt the returned +1)
-                    // and cross-module-safe. Mirrors the non-specialized member path.
-                    csWriter.WriteLine(returnsObjCObject
-                        ? $"return {MarshallingHelpers.FormatObjCBridgeCall(csReturnType, resultLocalName, nonNull: true, ownsReference: true)};"
-                        : $"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({resultLocalName});");
-                    break;
-                case CdeclReturnKind.OptionalClassPointer:
-                    // csReturnType is `MyClass?` — strip the `?` for the marshal type. Same
-                    // cross-module rationale as ClassPointer above (NewFromPayload, not the
-                    // private ctor); a null pointer projects to a null reference.
-                    csWriter.WriteLine(returnsObjCObject
-                        ? $"return {resultLocalName} == IntPtr.Zero ? null : {MarshallingHelpers.FormatObjCBridgeCall(csReturnType.TrimEnd('?'), resultLocalName, ownsReference: true)};"
-                        : $"return {resultLocalName} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{csReturnType.TrimEnd('?')}>({resultLocalName});");
-                    break;
-                case CdeclReturnKind.OptionalErrorPointer:
-                    // Optional<any Error> is a nullable owned error-box pointer, not an optional
-                    // class bridged through NewFromPayload (that factory is intentionally borrowed).
-                    csWriter.WriteLine($"return {resultLocalName} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocalName} }}, ownsContainer: true);");
-                    break;
-                default:
-                    csWriter.WriteLine($"return {resultLocalName};");
-                    break;
-            }
-        }
 
-        // Close fixed blocks (reverse nesting order)
-        for (int i = 0; i < fixedStatements.Count; i++)
-        {
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-        }
+            // Close fixed blocks (reverse nesting order)
+            for (int i = 0; i < fixedStatements.Count; i++)
+            {
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+        });
 
         if (needsResultPtr || isStringReturn)
         {

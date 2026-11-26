@@ -578,6 +578,8 @@ public static partial class ClosureEmitter
                     heapPreTry.Add($"var _arg{i}Metadata = TypeMetadata.GetTypeMetadataOrThrow<{csType}>();");
                     heapInTry.Add($"_arg{i}Buffer = (byte*)NativeMemory.AllocZeroed((nuint)_arg{i}Metadata.Size, (nuint)_arg{i}Metadata.Stride);");
                     heapInTry.Add($"_arg{i}Metadata.ValueWitnessTable->InitializeWithCopy((void*)_arg{i}Buffer, (void*)_arg{i}.Payload.DangerousGetHandle(), _arg{i}Metadata);");
+                    // The copy reads the payload the wrapper owns: held until the copy is done.
+                    heapInTry.Add(LiveHandleExpressions.ArgumentKeepAlive($"_arg{i}"));
                     heapCleanup.Add($"if (_arg{i}Buffer != null) {{ _arg{i}Metadata.ValueWitnessTable->Destroy((void*)_arg{i}Buffer, _arg{i}Metadata); NativeMemory.Free(_arg{i}Buffer); }}");
                     invokeCallArgs.Add($"(nint)_arg{i}Buffer");
                 }
@@ -607,6 +609,13 @@ public static partial class ClosureEmitter
                 int i = invArgIndex;
                 heapCleanup.Add($"global::System.GC.KeepAlive(_arg{i});");
                 invokeCallArgs.Add($"(nint)_arg{i}.Handle");
+            }
+            else if (closureHandler.IsComplexEnum(arg))
+            {
+                // Complex enum: Swift borrows the wrapper's payload buffer; keep the wrapper
+                // reachable until Swift returns, so its SafeHandle cannot free the buffer first.
+                heapCleanup.Add(LiveHandleExpressions.ArgumentKeepAlive($"_arg{invArgIndex}"));
+                invokeCallArgs.Add(GetSwiftInvokeArgExpression(arg, invArgIndex, closureHandler, useNintCast: true));
             }
             else
             {

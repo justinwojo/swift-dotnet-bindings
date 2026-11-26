@@ -343,6 +343,9 @@ namespace BindingsGeneration
             var projectedArgs = new Dictionary<int, MarshalPlan>();
             // Track tuple params with per-element conversion (maps param index → converted tuple expression)
             var tuplePInvokeExprs = new Dictionary<int, string>();
+            // Wrappers whose native pointers the case constructor's arguments read (GetPInvokeArgument):
+            // held until the call has returned, as the existential arguments are.
+            var heldOwners = new List<string>();
             for (int i = 0; i < parameters.Count; i++)
             {
                 var (type, publicType, name, typeSpec) = parameters[i];
@@ -432,7 +435,7 @@ namespace BindingsGeneration
                             // Convert string → SwiftString, then extract IntPtr handle.
                             var elemVarName = $"__{bareName}_e{j}";
                             csWriter.WriteLine($"using var {elemVarName} = new SwiftString({elementAccess});");
-                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase, emissionCtx, moduleDecl));
+                            elementExprs.Add(GetPInvokeArgument(elemVarName, element, typeDatabase, emissionCtx, moduleDecl, heldOwners));
                         }
                         else if (proj is DataProjection)
                         {
@@ -489,7 +492,7 @@ namespace BindingsGeneration
                         else
                         {
                             // No projection or unsupported — use direct P/Invoke argument lowering
-                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl));
+                            elementExprs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl, heldOwners));
                         }
                     }
                     tuplePInvokeExprs[i] = $"({string.Join(", ", elementExprs)})";
@@ -525,6 +528,10 @@ namespace BindingsGeneration
                         }
 
                         var plan = projection.GetParameterPlan(planBase);
+                        // An optional object or payload argument crosses as the pointer its wrapper
+                        // owns: held until the case constructor returns, as GetPInvokeArgument's are.
+                        if (LiveHandleExpressions.PassesBorrowedObjectPointer(projection))
+                            heldOwners.Add(name);
 
                         // @_cdecl wrapper: collections and non-reference optionals pass pointer
                         // via UnsafeRawPointer. Use shared helper to skip PayloadBuffer and
@@ -825,7 +832,7 @@ namespace BindingsGeneration
                         (typeSpec is NamedTypeSpec ds && ds.Name == "Foundation.Data") ||
                         (typeSpec is NamedTypeSpec dts && dts.Name == "Foundation.Date");
                     var argName = isConvertedToLocal ? $"__{bareName}" : name;
-                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase, emissionCtx, moduleDecl));
+                    argList.Add(GetPInvokeArgument(argName, typeSpec, typeDatabase, emissionCtx, moduleDecl, heldOwners));
                 }
             }
 
@@ -870,6 +877,7 @@ namespace BindingsGeneration
             {
                 csWriter.WriteLine($"{pInvokeName}({invokeArgList});");
             }
+            LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, heldOwners);
 
             // Close fixed blocks
             if (stringFixedParams.Count > 0)
@@ -1261,14 +1269,24 @@ namespace BindingsGeneration
         }
 
         /// <summary>
-        /// Gets the P/Invoke argument expression for a parameter.
+        /// Gets the P/Invoke argument expression for a parameter. Each wrapper whose native pointer
+        /// the expression reads is added to <paramref name="heldOwners"/>, for the caller to hold
+        /// until the native call has returned.
         /// </summary>
-        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null, ModuleDecl? moduleDecl = null)
+        private static string GetPInvokeArgument(string paramName, TypeSpec typeSpec, ITypeDatabase typeDatabase, ModuleEmissionContext? emissionCtx = null, ModuleDecl? moduleDecl = null, List<string>? heldOwners = null)
         {
+            // An object pointer read off a wrapper the caller owns: the wrapper is held until the
+            // case constructor returns (see the call site).
+            string Borrowed(string pointer)
+            {
+                heldOwners?.Add(paramName);
+                return pointer;
+            }
+
             if (typeSpec is NamedTypeSpec genericParamType &&
                 TypeSpecHelpers.IsGenericTypeParameter(genericParamType.Name))
             {
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             // Handle existential types.
@@ -1331,7 +1349,7 @@ namespace BindingsGeneration
                         : $"{paramName}.Item{i + 1}";
 
                     // Recursively get the P/Invoke argument for this element
-                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl));
+                    elementArgs.Add(GetPInvokeArgument(elementAccess, element, typeDatabase, emissionCtx, moduleDecl, heldOwners));
                 }
                 return $"({string.Join(", ", elementArgs)})";
             }
@@ -1341,7 +1359,7 @@ namespace BindingsGeneration
             // ObjC bridged/rooted/bridgeable types use .Handle to get the native pointer
             if (MarshallingHelpers.UsesHandleAccessor(typeRecord))
             {
-                return $"{paramName}.Handle";
+                return Borrowed($"{paramName}.Handle");
             }
 
             // Enum values are projected as managed wrappers with SafeHandle payload.
@@ -1353,25 +1371,25 @@ namespace BindingsGeneration
                     var underlyingType = EnumHandler.GetCSharpEnumUnderlyingType(typeRecord.RawValueTypeName);
                     return SimpleEnumCaseFloors.ToNative(typeRecord, underlyingType, paramName);
                 }
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             // For types that have payloads (non-frozen structs, classes), access the Payload.DangerousGetHandle()
             if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
             {
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             // Non-frozen structs (ClassWithOpaquePayload) — extract SafeHandle payload
             if (typeRecord.Kind == TypeRecordKind.Struct && !MarshallingHelpers.IsTypeFrozen(typeRecord))
             {
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             // Swift classes — extract SafeHandle payload
             if (typeRecord.Kind == TypeRecordKind.Class)
             {
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             // AnyType fallback — extract SafeHandle payload. Reached when an unknown type
@@ -1381,7 +1399,7 @@ namespace BindingsGeneration
             // ProtocolListTypeSpec handled by the existential path above.
             if (typeRecord == TypeDatabaseExtensions.AnyType)
             {
-                return $"{paramName}.Payload.DangerousGetHandle()";
+                return Borrowed($"{paramName}.Payload.DangerousGetHandle()");
             }
 
             return paramName;

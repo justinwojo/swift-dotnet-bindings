@@ -235,6 +235,14 @@ internal static class KvoExtensionEmitter
             csWriter.WriteLine("throw;");
             csWriter.Indent--;
             csWriter.WriteLine("}");
+            // Reading the handle is `obj`'s last use, so under a precise collector its finalizer
+            // could release the object while Swift registers the observation: hold it until then.
+            csWriter.WriteLine("finally");
+            csWriter.WriteLine("{");
+            csWriter.Indent++;
+            csWriter.WriteLine(LiveHandleExpressions.ArgumentKeepAlive("obj"));
+            csWriter.Indent--;
+            csWriter.WriteLine("}");
             csWriter.Indent--;
             csWriter.WriteLine("}");
             csWriter.WriteLine("return new global::Swift.Runtime.KvoToken(token, gch, s_invalidate);");

@@ -49,6 +49,36 @@ internal static class LiveHandleExpressions
             writer.WriteLine(ArgumentKeepAlive(argument));
     }
 
+    /// <summary>
+    /// Writes <paramref name="emitCall"/>, a region whose native call borrows the pointers of
+    /// <paramref name="owners"/> (arguments, or <c>this</c> for a receiver read off the wrapper's own
+    /// handle), inside <c>try { … } finally { GC.KeepAlive(owner); … }</c>, so each owner outlives
+    /// the call on every return or throw out of the region. Writes the region bare when nothing is
+    /// borrowed. The same hold <see cref="WriteArgumentKeepAlives"/> writes after a single call,
+    /// for emitters whose call region has several exits.
+    /// </summary>
+    public static void WriteHeldRegion(CSharpWriter writer, IEnumerable<string> owners, Action emitCall)
+    {
+        var held = owners.Distinct(StringComparer.Ordinal).ToList();
+        if (held.Count == 0)
+        {
+            emitCall();
+            return;
+        }
+        writer.WriteLine("try");
+        writer.WriteLine("{");
+        writer.Indent++;
+        emitCall();
+        writer.Indent--;
+        writer.WriteLine("}");
+        writer.WriteLine("finally");
+        writer.WriteLine("{");
+        writer.Indent++;
+        WriteArgumentKeepAlives(writer, held);
+        writer.Indent--;
+        writer.WriteLine("}");
+    }
+
     /// <summary>Self of an Objective-C-rooted object (<paramref name="receiver"/> is an INativeObject).</summary>
     public static string ObjCSelf(string receiver = "this")
         => $"{Guard}.GetLiveObjCHandle({receiver})";

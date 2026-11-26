@@ -472,6 +472,10 @@ public static class ConstrainedExistentialBridge
 
         var callArgString = string.Join(", ", pInvokeArgs);
         csWriter.WriteLine($"var {resultPtrName} = {pInvokeCall}({callArgString});");
+        // Each object argument lent Swift its pointer; hold it until the call has returned.
+        LiveHandleExpressions.WriteArgumentKeepAlives(csWriter, bridgeParams
+            .Where(bp => bp.Kind is BridgeParamKind.ConstrainedExistential or BridgeParamKind.PayloadHandle)
+            .Select(bp => NameProvider.GetCSharpParameterName(bp.Arg)));
 
         // Class return unmarshal: wrap pointer directly in SwiftClassHandle.
         // No buffer allocation needed — SwiftClassHandle IS the Swift object pointer.

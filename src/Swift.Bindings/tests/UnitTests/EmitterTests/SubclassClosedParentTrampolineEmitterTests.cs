@@ -64,6 +64,28 @@ public class SubclassClosedParentTrampolineEmitterTests
         Assert.Contains("return __self.currentPhase()", swiftOut);
     }
 
+    /// <summary>
+    /// The trampoline reads the leaf's handle, which is then <c>self</c>'s last use: <c>self</c> is
+    /// held until the call has returned, with or without a result.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_HoldsTheReceiverUntilTheCallReturns(bool scalarReturn)
+    {
+        var (moduleDecl, typeDb) = CreateXcframeworkEnvironment();
+        CreateGenericBase("Base", moduleDecl, scalarReturn
+            ? CreateInheritedScalarMethod("currentPhase", "Swift.Int32", moduleDecl)
+            : CreateInheritedVoidMethod("pause", moduleDecl));
+        var leaf = CreateConcreteLeaf("Leaf", "Base", moduleDecl);
+
+        var (csOut, _) = Emit(leaf, moduleDecl, typeDb);
+
+        BorrowedOwnerAssert.HeldAfter(csOut, "GetLiveHandle(", "self", from: "(this Leaf self)");
+        if (scalarReturn)
+            Assert.True(csOut.IndexOf("return __result;", StringComparison.Ordinal) > csOut.IndexOf("GC.KeepAlive(self);", StringComparison.Ordinal), csOut);
+    }
+
     [Fact]
     public void Emit_SymbolRegisteredOnce_SecondPassWithSameContextDoesNotReEmit()
     {

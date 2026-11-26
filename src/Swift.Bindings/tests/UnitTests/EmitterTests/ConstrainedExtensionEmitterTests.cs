@@ -1517,6 +1517,33 @@ public class ConstrainedExtensionEmitterTests
         Assert.Contains("obj.ping()", swiftOutput);
     }
 
+    /// <summary>
+    /// An instance member reads <c>self</c>'s payload for the call, which is then its last use:
+    /// <c>self</c> is held in a finally past the call, for a getter and for a method.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void EmitConstrainedExtensions_GenericEnum_InstanceMember_HoldsTheReceiverUntilTheCallReturns(bool property)
+    {
+        var (csOutput, _) = property
+            ? EmitForGenericEnumWithProperty(propertyName: "jwsRepresentation", returnTypeName: "Swift.String")
+            : EmitForGenericEnumWithMethod(methodName: "ping", returnTypeSpec: TupleTypeSpec.Empty, isStatic: false);
+
+        var read = "GetLiveHandle((global::System.Runtime.InteropServices.SafeHandle)(self.Payload))";
+        BorrowedOwnerAssert.HeldAfter(csOutput, read, "self");
+        var hold = csOutput.IndexOf("GC.KeepAlive(self);", StringComparison.Ordinal);
+        Assert.True(csOutput.LastIndexOf("finally", hold, StringComparison.Ordinal) > csOutput.IndexOf(read, StringComparison.Ordinal), csOutput);
+    }
+
+    [Fact]
+    public void EmitConstrainedExtensions_GenericEnum_StaticMethod_HoldsNoReceiver()
+    {
+        var (csOutput, _) = EmitForGenericEnumWithMethod(methodName: "ping", returnTypeSpec: TupleTypeSpec.Empty, isStatic: true);
+
+        Assert.DoesNotContain("GC.KeepAlive(self);", csOutput);
+    }
+
     [Fact]
     public void EmitConstrainedExtensions_GenericEnum_MethodWithParameters_NotEmitted()
     {

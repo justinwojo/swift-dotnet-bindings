@@ -422,6 +422,32 @@ public class PropertyHandlerTests
         Assert.DoesNotContain("public virtual long Animation\n", csOutput);
     }
 
+    /// <summary>
+    /// The stream's producer call reads the receiver off this wrapper's own handle, which is then
+    /// its last use: the wrapper is held until that call has returned.
+    /// </summary>
+    [Fact]
+    public void Emit_AsyncStreamProperty_HoldsTheReceiverUntilTheProducerCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithInt();
+        var moduleDecl = CreateModuleDeclForEmission("TestModule");
+        var classDecl = CreateClassDeclForEmission("Feed", moduleDecl);
+        var property = new PropertyDecl
+        {
+            Name = "updates",
+            SwiftTypeSpec = new NamedTypeSpec("_Concurrency.AsyncStream", new NamedTypeSpec("Swift.Int")),
+            IsStatic = false,
+            HasStorage = false,
+            Accessors = new List<AccessorDecl>(),
+            ParentDecl = classDecl,
+            ModuleDecl = moduleDecl
+        };
+
+        var (csOutput, _) = EmitProperty(property, typeDatabase);
+
+        BorrowedOwnerAssert.HeldAfter(csOutput, "PInvoke_SBW_Feed_updates_AsyncStream((void*)", "this");
+    }
+
     [Fact]
     public void Emit_AsyncStreamProperty_EmitsAsyncEnumerableAndSwiftWrapper()
     {

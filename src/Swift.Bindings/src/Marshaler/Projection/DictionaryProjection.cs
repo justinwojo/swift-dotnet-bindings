@@ -571,6 +571,10 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return $"new Foundation.NSString({elementVar})";
         if (projection is DataProjection)
             return $"Foundation.NSData.FromArray({elementVar})";
+        // Swift bridges a Date element as the NSDate at the same instant, counted from Swift's
+        // reference date (2001-01-01 UTC), as DateProjection carries it on its own.
+        if (projection is DateProjection)
+            return $"Foundation.NSDate.FromTimeIntervalSinceReferenceDate(({elementVar} - {DateProjection.SwiftEpoch}).TotalSeconds)";
         // A nested container is the Objective-C collection Swift bridges it to, whether its own
         // elements bridge (`[String: [URL]]`) or not (`[URL: [Int]]`, whose `[Int]` Swift sends as an
         // NSArray of NSNumbers once the URL key bridges the dictionary around it).
@@ -594,6 +598,44 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         }
         return $"(Foundation.NSObject){elementVar}";
     }
+
+    /// <summary>
+    /// True when a key or element of this projection has a form inside an Objective-C collection
+    /// that <see cref="ToNSObject"/> writes and <see cref="FromNSObject"/> reads: an Objective-C
+    /// object, a bridgeable value (URL, String, Data, Date, an Apple typed enum), a number Swift
+    /// boxes as an NSNumber, a Swift object (the collection holds the object itself), bare
+    /// <c>Any</c>, an <c>@objc</c> protocol, nil (an Optional of one of these), or a nested
+    /// collection whose own elements all have one.
+    /// </summary>
+    /// <remarks>
+    /// Anything else, a Swift struct, enum or tuple, a non-<c>@objc</c> protocol existential or a
+    /// value Swift bridges to a class this generator does not convert (UUID → NSUUID), Swift holds in
+    /// the collection as an opaque box or as an object C# never builds; the default cast arms of
+    /// <see cref="ToNSObject"/> and <see cref="FromNSObject"/> cannot reach it (CS0030, or a cast
+    /// that fails at run time). <see cref="ObjCContainerBridgeAgreement"/> refuses a member whose
+    /// bridged collection holds one, before it is emitted.
+    /// </remarks>
+    internal static bool HasObjCElementForm(ITypeProjection projection)
+        => FindElementWithoutObjCForm(projection) is null;
+
+    /// <summary>
+    /// The first key or element, at any depth, of <paramref name="projection"/> that has no form in an
+    /// Objective-C collection (<see cref="HasObjCElementForm"/>), or null when every one has.
+    /// </summary>
+    internal static ITypeProjection? FindElementWithoutObjCForm(ITypeProjection projection) => projection switch
+    {
+        OptionalProjection optional => FindElementWithoutObjCForm(optional.InnerProjection),
+        { TypedEnumAdapter: not null } => null,
+        ObjCBridgeableProjection or ObjCBridgedProjection or ObjCRootedClassProjection
+            or StringProjection or DataProjection or DateProjection or ClassProjection => null,
+        ExistentialProjection existential => existential.IsBareAny || existential.IsObjCExistential ? null : existential,
+        ArrayProjection array => FindElementWithoutObjCForm(array.ElementProjection),
+        SetProjection set => FindElementWithoutObjCForm(set.ElementProjection),
+        DictionaryProjection dictionary => FindElementWithoutObjCForm(dictionary.KeyProjection)
+            ?? FindElementWithoutObjCForm(dictionary.ValueProjection),
+        BlittableProjection or BoolProjection when NSNumberBoxExpression(projection.PublicType, "_") != null => null,
+        _ => projection,
+    };
 
     /// <summary>
     /// One expression that builds a new <c>NSDictionary</c> from the .NET dictionary
@@ -708,6 +750,8 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
             return $"{nsObjectVar}.ToString()!";
         if (projection is DataProjection)
             return $"((Foundation.NSData){nsObjectVar}).ToArray()";
+        if (projection is DateProjection)
+            return $"{DateProjection.SwiftEpoch}.AddSeconds(((Foundation.NSDate){nsObjectVar}).SecondsSinceReferenceDate)";
         // A nested container is the Objective-C collection Swift bridged it to, borrowed from this
         // one: read its elements without adopting it. That holds whether its own elements bridge
         // (`[String: [URL]]`) or not (`[URL: [Int]]`: Swift bridges the `[Int]` with the dictionary

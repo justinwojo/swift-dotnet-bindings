@@ -19,6 +19,7 @@ public class OptionalValueWrapperCallbackTests
 {
     private static readonly NamedTypeSpec Wide = new("TestModule.Wide");
     private static readonly NamedTypeSpec OptionalWide = Optional(Wide);
+    private static readonly NamedTypeSpec ObjCThing = new("TestModule.NSThing");
 
     [Fact]
     public void SwiftLane_OptionalResilientStructArgument_IsReadThroughTheOptional()
@@ -114,6 +115,23 @@ public class OptionalValueWrapperCallbackTests
         Assert.DoesNotContain("SwiftOptional<", callback);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void IndirectReturn_ObjCClass_HandsTheObjectOverRetainedWhileTheWrapperLives(bool useCdecl)
+    {
+        // () -> NSThing: the adapter moves the reference out of the buffer and owns it (+1), as it
+        // does a Swift class. A bare `result.Handle` write lends a +0 pointer the adapter later
+        // releases, and leaves the wrapper collectable before the write.
+        var callback = EmitIndirect(new ClosureTypeSpec(TupleTypeSpec.Empty, ObjCThing), useCdecl);
+
+        Assert.DoesNotContain("*(IntPtr*)indirectResult = result.Handle;", callback);
+        var retain = callback.IndexOf("Swift.Runtime.Arc.UnknownObjectRetain(__objcHandle);", System.StringComparison.Ordinal);
+        var keepAlive = callback.IndexOf("System.GC.KeepAlive(result);", System.StringComparison.Ordinal);
+        var write = callback.IndexOf("*(IntPtr*)indirectResult = __objcHandle;", System.StringComparison.Ordinal);
+        Assert.True(retain >= 0 && keepAlive > retain && write > keepAlive, callback);
+    }
+
     private static NamedTypeSpec Optional(TypeSpec inner)
     {
         var optional = new NamedTypeSpec("Swift.Optional");
@@ -175,6 +193,16 @@ public class OptionalValueWrapperCallbackTests
                 MetadataAccessor = "$s10TestModule4WideVMa",
                 Flags = TypeRecordFlags.None,
                 Kind = TypeRecordKind.Struct,
+            });
+        testModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("TestModule.NSThing"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "NSThing"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.NSThing"),
+                MetadataAccessor = "$s10TestModule7NSThingCMa",
+                Flags = TypeRecordFlags.ObjCBridged | TypeRecordFlags.RequiresMemoryManagement,
+                Kind = TypeRecordKind.Class,
             });
         typeDatabase.AddModuleDatabase(testModule);
         return typeDatabase;

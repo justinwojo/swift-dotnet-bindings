@@ -284,6 +284,31 @@ public class BridgedContainerShapesTests : TestBase
         AssertEqual("a:x,y;b:", TestLibFunctions.UrlBoxRowsDescribe(read), "and what Swift returned, handed back");
     }
 
+    static readonly DateTimeOffset ReferenceDate = new(2001, 1, 1, 0, 0, 0, TimeSpan.Zero);
+
+    static string Dates(IReadOnlyDictionary<NSUrl, DateTimeOffset> dates)
+        => string.Join(";", dates.Select(e => $"{e.Key.LastPathComponent}={(e.Value - ReferenceDate).TotalSeconds:0.0###}").OrderBy(s => s, StringComparer.Ordinal));
+
+    /// <summary>A Date Swift puts in a dictionary keyed by URLs reaches C# as the same instant.</summary>
+    public void TestCSharpReadsDatesValuedByURLs()
+    {
+        var dates = TestLibFunctions.GetUrlDateIndex();
+        AssertEqual("a=1000.0;b=-2.5", Dates(dates), "every date comes back under its URL");
+        AssertTrue(dates.TryGetValue(NSUrlOf("b"), out var b) && b == ReferenceDate.AddSeconds(-2.5), "a fresh, equal URL finds its instant");
+    }
+
+    /// <summary>A DateTimeOffset C# puts in a dictionary keyed by URLs reaches Swift as the same instant.</summary>
+    public void TestSwiftReadsDatesValuedByURLsCSharpBuilt()
+    {
+        var dates = new Dictionary<NSUrl, DateTimeOffset> { [NSUrlOf("a")] = ReferenceDate.AddSeconds(1000), [NSUrlOf("b")] = ReferenceDate.AddSeconds(-2.5) };
+        AssertEqual("a=1000.0;b=-2.5", TestLibFunctions.UrlDateIndexDescribe(dates), "every date as C# built it");
+        AssertEqual("a=1000.0;b=-2.5", TestLibFunctions.UrlDateIndexDescribe(TestLibFunctions.GetUrlDateIndex()), "and what Swift returned, handed back");
+        using var holder = new URLDateHolder();
+        holder.Dates = dates;
+        AssertEqual("a=1000.0;b=-2.5", holder.GetDescribe(), "a property's new value");
+        AssertEqual("a=1000.0;b=-2.5", Dates(holder.Dates), "and the property read back");
+    }
+
     /// <summary>
     /// Swift objects C# puts in a bridged dictionary, with no other owner, are read by Swift after a
     /// collector has run beside the call.

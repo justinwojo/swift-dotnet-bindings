@@ -337,6 +337,9 @@ public static class AsyncStreamEmitter
             ? (classParent.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
             : LiveHandleExpressions.SafeHandle("_payload");
         var selfArg = isStatic ? "" : $"(void*){selfExpr}, ";
+        // The receiver is read off this wrapper's own handle, which is then its last use: the
+        // wrapper is held until the call that hands it to the Swift producer has returned.
+        var selfHold = isStatic ? "" : $" {LiveHandleExpressions.ArgumentKeepAlive("this")}";
         // Throwing streams pass the producer-error trampoline; all streams pass the cancel key.
         var errorArg = isThrowing ? $"&{callbackName}_OnError, " : "";
 
@@ -353,7 +356,7 @@ public static class AsyncStreamEmitter
                         // task-cancelled (and runs its completion path), not merely channel-completed.
                         long _sbwCancelKey = global::Swift.Runtime.SwiftAsyncCancellation.NextCancelKey();
                         stream.SetProducerCancellation(_sbwCancelKey, static __k => SBW_CancelTask(__k));
-                        PInvoke_{{swiftWrapperName}}({{selfArg}}&{{callbackName}}_OnElement, &{{callbackName}}_OnComplete, {{errorArg}}_sbwCancelKey, stream.GetContext());
+                        PInvoke_{{swiftWrapperName}}({{selfArg}}&{{callbackName}}_OnElement, &{{callbackName}}_OnComplete, {{errorArg}}_sbwCancelKey, stream.GetContext());{{selfHold}}
                         return stream;
                     }
                 }

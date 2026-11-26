@@ -894,6 +894,10 @@ public static class MethodGenericBridgeEmitter
             callArgs.Add(resultPtrLocal);
         }
 
+        // Owners whose pointers the call borrows: each is held until the call returns
+        // (LiveHandleExpressions.WriteHeldRegion below), since reading the pointer is its last use.
+        var heldOwners = new List<string>();
+
         // Regular parameters
         foreach (var arg in methodDecl.CSSignature.Skip(1))
         {
@@ -908,6 +912,7 @@ public static class MethodGenericBridgeEmitter
                 // For ISwiftObject, get the handle. Protocol proxies have _swiftContainer,
                 // classes have Payload. Use the Payload SafeHandle for class-like objects.
                 callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
+                heldOwners.Add(csName);
             }
             else
             {
@@ -919,9 +924,11 @@ public static class MethodGenericBridgeEmitter
                         break;
                     case MethodClosureBridge.ParamAbiCategory.ObjCHandle:
                         callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
+                        heldOwners.Add(csName);
                         break;
                     case MethodClosureBridge.ParamAbiCategory.PayloadHandle:
                         callArgs.Add(LiveHandleExpressions.SwiftObjectArgument(csName, csName));
+                        heldOwners.Add(csName);
                         break;
                     case MethodClosureBridge.ParamAbiCategory.Utf8Slice:
                     {
@@ -947,103 +954,108 @@ public static class MethodGenericBridgeEmitter
                 ? (parentDecl is ClassDecl cd && cd.IsObjCRooted ? LiveHandleExpressions.ObjCSelf() : LiveHandleExpressions.SafeHandle("_handle"))
                 : LiveHandleExpressions.SafeHandle("_payload");
             callArgs.Add(selfExpr);
+            // Self is read off this wrapper's own handle, so the wrapper is held like an argument.
+            heldOwners.Add("this");
         }
 
-        // Utf8Slice prelude: allocate UTF-8 bytes for each Swift.String param BEFORE the
-        // fixed-block stack opens so the `fixed (... = __{bareName}Utf8)` source binding
-        // resolves. Mirrors MethodClosureBridge.cs ~1283-1292 verbatim.
-        foreach (var (csName, bareName) in utf8SliceLocals)
-            csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
+        LiveHandleExpressions.WriteHeldRegion(csWriter, heldOwners, () =>
+        {
+            // Utf8Slice prelude: allocate UTF-8 bytes for each Swift.String param BEFORE the
+            // fixed-block stack opens so the `fixed (... = __{bareName}Utf8)` source binding
+            // resolves. Mirrors MethodClosureBridge.cs ~1283-1292 verbatim.
+            foreach (var (csName, bareName) in utf8SliceLocals)
+                csWriter.WriteLine($"var __{bareName}Utf8 = global::System.Text.Encoding.UTF8.GetBytes({csName});");
 
-        // Open fixed blocks pinning each UTF-8 byte[] so the P/Invoke + Swift @_silgen_name
-        // wrapper sees a stable byte pointer for the entire call duration.
-        foreach (var (_, bareName) in utf8SliceLocals)
-        {
-            csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
-            csWriter.WriteLine("{");
-            csWriter.Indent++;
-        }
-
-        // Emit P/Invoke call
-        string callExpr = $"{pInvokeName}_XM({string.Join(", ", callArgs)})";
-        // Check if the return is a class pointer (Unmanaged.passRetained on Swift side)
-        var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
-        var returnMapping = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
-        bool isClassPointerReturn = returnMapping.mapping.Kind is CdeclReturnKind.ClassPointer
-            or CdeclReturnKind.OptionalClassPointer
-            or CdeclReturnKind.OptionalErrorPointer;
-        if (isVoidReturn)
-        {
-            csWriter.WriteLine($"{callExpr};");
-        }
-        else if (isStringReturn)
-        {
-            csWriter.WriteLine($"{callExpr};");
-            csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrLocal});");
-        }
-        else if (needsResultPtr)
-        {
-            csWriter.WriteLine($"{callExpr};");
-            if (destroyWireRetains)
+            // Open fixed blocks pinning each UTF-8 byte[] so the P/Invoke + Swift @_silgen_name
+            // wrapper sees a stable byte pointer for the entire call duration.
+            foreach (var (_, bareName) in utf8SliceLocals)
             {
-                // Frozen-struct-with-ref return (ClassWithBufferStruct): NewFromPayload copies the
-                // wire into a managed buffer, but the wire still holds +1 retains on its ref fields,
-                // so VWT-Destroy it before the raw free below — otherwise each call leaks +1.
-                // Capture into a local so the Destroy runs before the return expression.
-                csWriter.WriteLine($"var {resultLocal} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
-                csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrLocal});");
-                csWriter.WriteLine($"return {resultLocal};");
+                csWriter.WriteLine($"fixed (byte* __{bareName}Ptr = __{bareName}Utf8)");
+                csWriter.WriteLine("{");
+                csWriter.Indent++;
+            }
+
+            // Emit P/Invoke call
+            string callExpr = $"{pInvokeName}_XM({string.Join(", ", callArgs)})";
+            // Check if the return is a class pointer (Unmanaged.passRetained on Swift side)
+            var returnTypeSpec = methodDecl.CSSignature.First().SwiftTypeSpec;
+            var returnMapping = CdeclReturnMapping.Classify(returnTypeSpec, env.TypeDatabase);
+            bool isClassPointerReturn = returnMapping.mapping.Kind is CdeclReturnKind.ClassPointer
+                or CdeclReturnKind.OptionalClassPointer
+                or CdeclReturnKind.OptionalErrorPointer;
+            if (isVoidReturn)
+            {
+                csWriter.WriteLine($"{callExpr};");
+            }
+            else if (isStringReturn)
+            {
+                csWriter.WriteLine($"{callExpr};");
+                csWriter.WriteLine($"return SwiftMarshal.ReadUtf8Slice({resultPtrLocal});");
+            }
+            else if (needsResultPtr)
+            {
+                csWriter.WriteLine($"{callExpr};");
+                if (destroyWireRetains)
+                {
+                    // Frozen-struct-with-ref return (ClassWithBufferStruct): NewFromPayload copies the
+                    // wire into a managed buffer, but the wire still holds +1 retains on its ref fields,
+                    // so VWT-Destroy it before the raw free below — otherwise each call leaks +1.
+                    // Capture into a local so the Destroy runs before the return expression.
+                    csWriter.WriteLine($"var {resultLocal} = SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
+                    csWriter.WriteLine($"SwiftMarshal.DestroyWireBufferRetains<{csReturnType}>({resultPtrLocal});");
+                    csWriter.WriteLine($"return {resultLocal};");
+                }
+                else
+                {
+                    // Ownership-transfer (non-frozen struct / complex enum): NewFromPayload adopts
+                    // resultPtr into the returned SafeHandle; no free here (NativeMemory.Alloc'd above,
+                    // released by ReleaseHandle). Pure-value returns are byte-copied by MarshalFromSwift
+                    // and the buffer is freed in the finally below.
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
+                }
+            }
+            else if (isClassPointerReturn)
+            {
+                // Class pointer: Swift returns Unmanaged.passRetained().toOpaque() (owned +1). Route
+                // through the public MarshalFromSwiftObject<T> factory (T.NewFromPayload): a generated
+                // class's (SwiftHandle) ctor is private to the class. The factory adopts the +1, so the
+                // ownership transfer is identical.
+                if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalErrorPointer)
+                {
+                    csWriter.WriteLine($"var {resultLocal} = {callExpr};");
+                    csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocal} }}, ownsContainer: true);");
+                }
+                else if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalClassPointer)
+                {
+                    // Optional class pointer: nil arrives as a null pointer. Null-check before the
+                    // factory (which does not short-circuit on IntPtr.Zero); the factory's T must be the
+                    // non-nullable class type.
+                    var nonNullReturnType = csReturnType.TrimEnd('?');
+                    csWriter.WriteLine($"var {resultLocal} = {callExpr};");
+                    csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{nonNullReturnType}>({resultLocal});");
+                }
+                else
+                {
+                    csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({callExpr});");
+                }
+            }
+            else if (returnMapping.mapping.Kind == CdeclReturnKind.SimpleEnum)
+            {
+                // The wrapper returns the enum's raw scalar; the public method returns the enum.
+                csWriter.WriteLine($"return ({csReturnType}){callExpr};");
             }
             else
             {
-                // Ownership-transfer (non-frozen struct / complex enum): NewFromPayload adopts
-                // resultPtr into the returned SafeHandle; no free here (NativeMemory.Alloc'd above,
-                // released by ReleaseHandle). Pure-value returns are byte-copied by MarshalFromSwift
-                // and the buffer is freed in the finally below.
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwift<{csReturnType}>({resultPtrLocal});");
+                csWriter.WriteLine($"return {callExpr};");
             }
-        }
-        else if (isClassPointerReturn)
-        {
-            // Class pointer: Swift returns Unmanaged.passRetained().toOpaque() (owned +1). Route
-            // through the public MarshalFromSwiftObject<T> factory (T.NewFromPayload): a generated
-            // class's (SwiftHandle) ctor is private to the class. The factory adopts the +1, so the
-            // ownership transfer is identical.
-            if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalErrorPointer)
-            {
-                csWriter.WriteLine($"var {resultLocal} = {callExpr};");
-                csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : new Swift.Foundation.AnyError(new Swift.Runtime.ExistentialContainer1 {{ Payload0 = {resultLocal} }}, ownsContainer: true);");
-            }
-            else if (returnMapping.mapping.Kind == CdeclReturnKind.OptionalClassPointer)
-            {
-                // Optional class pointer: nil arrives as a null pointer. Null-check before the
-                // factory (which does not short-circuit on IntPtr.Zero); the factory's T must be the
-                // non-nullable class type.
-                var nonNullReturnType = csReturnType.TrimEnd('?');
-                csWriter.WriteLine($"var {resultLocal} = {callExpr};");
-                csWriter.WriteLine($"return {resultLocal} == IntPtr.Zero ? null : SwiftMarshal.MarshalFromSwiftObject<{nonNullReturnType}>({resultLocal});");
-            }
-            else
-            {
-                csWriter.WriteLine($"return SwiftMarshal.MarshalFromSwiftObject<{csReturnType}>({callExpr});");
-            }
-        }
-        else if (returnMapping.mapping.Kind == CdeclReturnKind.SimpleEnum)
-        {
-            // The wrapper returns the enum's raw scalar; the public method returns the enum.
-            csWriter.WriteLine($"return ({csReturnType}){callExpr};");
-        }
-        else
-        {
-            csWriter.WriteLine($"return {callExpr};");
-        }
 
-        // Close fixed blocks (in reverse order — innermost first)
-        for (int i = 0; i < utf8SliceLocals.Count; i++)
-        {
-            csWriter.Indent--;
-            csWriter.WriteLine("}");
-        }
+            // Close fixed blocks (in reverse order — innermost first)
+            for (int i = 0; i < utf8SliceLocals.Count; i++)
+            {
+                csWriter.Indent--;
+                csWriter.WriteLine("}");
+            }
+        });
 
         // Close try blocks for indirect returns. The ownership-transfer path opened no try block —
         // the returned SafeHandle owns the NativeMemory.Alloc'd buffer and frees it via

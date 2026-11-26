@@ -5037,6 +5037,62 @@ public class EnumHandlerOutputTests
         Assert.Contains("new ImageProcessingProxy(", csOutput);
     }
 
+    /// <summary>
+    /// A case constructor hands Swift the pointer its associated value's wrapper owns. Reading it
+    /// is the wrapper's last use, so the wrapper is held until the constructor call has returned.
+    /// </summary>
+    [Fact]
+    public void Emit_EnumCaseWithNonFrozenStructParam_HoldsTheValueUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("ImagePipeline.ImageResponse"));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = System.Text.RegularExpressions.Regex.Match(csOutput, @"(\w+)\.Payload\.DangerousGetHandle\(\)");
+        Assert.True(read.Success, csOutput);
+        BorrowedOwnerAssert.HeldAfter(csOutput, read.Value, read.Groups[1].Value);
+    }
+
+    /// <summary>
+    /// An optional associated value crosses as the pointer its wrapper owns, or null. The
+    /// argument is held until the case constructor call has returned, as a non-optional one is.
+    /// </summary>
+    [Fact]
+    public void Emit_EnumCaseWithOptionalNonFrozenStructParam_HoldsTheValueUntilTheCallReturns()
+    {
+        var typeDatabase = CreateTypeDatabaseWithNonFrozenStruct();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("Swift.Optional"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("Swift", "SwiftOptional"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("Swift.Optional"),
+                MetadataAccessor = "$sSqMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Enum
+            })
+        });
+        typeDatabase.AsyncLibraryName = "/tmp/ImagePipelineWrapper.dylib";
+        var moduleDecl = CreateModuleDecl("ImagePipeline");
+        var enumDecl = CreateEnumDecl("ImageError", moduleDecl, isFrozen: false);
+        var failedCase = CreateCase("failed");
+        failedCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Optional", new NamedTypeSpec("ImagePipeline.ImageResponse")));
+        enumDecl.Cases.Add(failedCase);
+        enumDecl.Cases.Add(CreateCase("none"));
+
+        var (csOutput, _) = EmitEnum(enumDecl, typeDatabase);
+
+        var read = System.Text.RegularExpressions.Regex.Match(csOutput, @"(\w+) is \{ \} \w+ \? \w+\.Payload\.DangerousGetHandle\(\)");
+        Assert.True(read.Success, csOutput);
+        BorrowedOwnerAssert.HeldAfter(csOutput, read.Value, read.Groups[1].Value);
+    }
+
     [Fact]
     public void Emit_EnumCaseWithNonFrozenStructParam_UsesIntPtrAndPayloadExtract()
     {

@@ -48,6 +48,27 @@ public class ClosedConstrainedClosureEmitterTests
         Assert.Contains("onSuccess: _adapted_onSuccess, onReady: _adapted_onReady())", call);
     }
 
+    /// <summary>
+    /// The extension reads <c>self</c>'s handle for the call, which is then its last use: <c>self</c>
+    /// is held in the finally, past the call.
+    /// </summary>
+    [Fact]
+    public void Emit_HoldsTheReceiverUntilTheCallReturns()
+    {
+        var (method, db) = BuildEligibleMethod();
+        var csOutput = new StringWriter();
+
+        ClosedConstrainedClosureEmitter.EmitClosedConstrainedClosures(
+            new CSharpWriter(csOutput), new SwiftWriter(new StringWriter()),
+            (TypeDecl)method.ParentDecl!, method.ModuleDecl!, db, new ModuleEmissionContext(),
+            Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance);
+
+        var cs = csOutput.ToString();
+        BorrowedOwnerAssert.HeldAfter(cs, "GetLiveHandle((global::Swift.Runtime.ISwiftObject)self)", "self");
+        var hold = cs.IndexOf("GC.KeepAlive(self);", StringComparison.Ordinal);
+        Assert.True(cs.LastIndexOf("finally", hold, StringComparison.Ordinal) > cs.IndexOf("GetLiveHandle(", StringComparison.Ordinal), cs);
+    }
+
     // ─── Direct (non-xcframework) mode: no @_cdecl wrapper exists (Finding A) ────
 
     [Fact]
