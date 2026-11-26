@@ -279,21 +279,35 @@ public class SwiftDeclarationRecordCompletenessTests
     {
         // Codec implements a runtime interface; only the members of the runtime's signatures are plumbing.
         var image = SwiftTransitionManifestTests.Compile("Kit", """
-            namespace Swift.Runtime { public interface ISwiftObject { } }
+            namespace Swift.Runtime { public interface ISwiftObject { } public struct TypeMetadata { } }
             namespace Kit
             {
                 public sealed class Codec : Swift.Runtime.ISwiftObject
                 {
                     private Codec() { }
-                    public static System.IntPtr NewFromPayload(System.IntPtr payload) => payload;
+                    public static Swift.Runtime.TypeMetadata GetTypeMetadata() => default;
                     public int MarshalToSwift(ref System.Span<byte> destination) => 0;
                     public static void MarshalToSwift(int value) { }
+                    public static int NewFromPayload(System.IntPtr payload) => 0;
                 }
             }
             """);
         var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes("""
             { "schema_version": 1, "module": "Kit", "types": { "Codec": "type Kit.Codec" }, "members": { } }
             """));
-        Assert.Equal("Codec.MarshalToSwift(Int32)", Assert.Single(report.Uncovered).ToString());
+        Assert.Equal(new[] { "Codec.MarshalToSwift(Int32)", "Codec.NewFromPayload(IntPtr)" }, report.Uncovered.Select(m => m.ToString()).Order());
+    }
+
+    [Fact]
+    public void ACaselessSwiftEnumNamedLikeTheFunctionHolder_WithoutItsTypeKey_IsUncovered()
+    {
+        // A caseless Swift enum emits as a static class; the generated holder is a non-static one.
+        var image = SwiftTransitionManifestTests.Compile("Kit", """
+            namespace Kit { public static partial class Functions { public static void Ping() { } } }
+            """);
+        var report = SwiftDeclarationRecordCompleteness.Check(image, "Kit", Encoding.UTF8.GetBytes("""
+            { "schema_version": 1, "module": "Kit", "types": { }, "members": { "Functions.Ping()": "static func Kit.Functions.ping()" } }
+            """));
+        Assert.Equal("Functions", Assert.Single(report.Uncovered).ToString());
     }
 }

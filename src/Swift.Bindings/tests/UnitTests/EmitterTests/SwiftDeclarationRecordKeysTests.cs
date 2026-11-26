@@ -135,5 +135,6 @@ public class SwiftDeclarationRecordKeysTests
         var key = SwiftDeclarationRecordKeys.Parse("Load(string)")!;
         Assert.Equal("Functions.Load(String~)", Assert.Single(index.Resolve(key, "Kit")).ToString());
         Assert.Empty(index.Resolve(key, "Kit", new HashSet<string> { "Functions" }));
+        Assert.Empty(index.Resolve(SwiftDeclarationRecordKeys.Parse("Helper()")!, "Kit"));
     }
 }

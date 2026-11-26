@@ -329,19 +329,20 @@ namespace BindingsGeneration
                    && ns != "Swift" && !ns.StartsWith("Swift.", StringComparison.Ordinal);
         }
 
-        // The ISwiftObject members, by their runtime signatures: static GetTypeMetadata(), static
-        // NewFromPayload(IntPtr), static GetProtocolConformanceDescriptor<TProtocol>() and the instance
-        // MarshalToSwift(ref Span<byte>). A Swift member of one of these names takes Swift's parameters,
-        // so it does not match.
-        private static bool IsPlumbingMethod(Member m) => (m.Name, m.IsStatic, m.GenericArity, string.Join(",", m.Parameters)) is
-            ("GetTypeMetadata", true, 0, "") or ("NewFromPayload", true, 0, "IntPtr")
-            or ("GetProtocolConformanceDescriptor", true, 1, "") or ("MarshalToSwift", false, 0, "&Span<Byte>");
+        // The ISwiftObject members, by their runtime signatures and results: static TypeMetadata
+        // GetTypeMetadata(), static ISwiftObject NewFromPayload(IntPtr), static ProtocolConformanceDescriptor
+        // GetProtocolConformanceDescriptor<TProtocol>() and the instance int MarshalToSwift(ref Span<byte>).
+        // A Swift member of one of these names has Swift's parameters and result, so it does not match.
+        private static bool IsPlumbingMethod(Member m) => (m.Name, m.IsStatic, m.GenericArity, string.Join(",", m.Parameters), m.ValueType.TrimEnd('~')) is
+            ("GetTypeMetadata", true, 0, "", "TypeMetadata") or ("NewFromPayload", true, 0, "IntPtr", "ISwiftObject")
+            or ("GetProtocolConformanceDescriptor", true, 1, "", "ProtocolConformanceDescriptor") or ("MarshalToSwift", false, 0, "&Span<Byte>", "Int32");
 
-        // A function holder as the module emitter writes it: no interfaces, and only static members
-        // besides its parameterless constructor. An unrecorded Swift class of a holder's name implements
-        // the runtime's interfaces, so it stays uncovered.
+        // A function holder as the module emitter writes it: a non-static class with no interfaces, and
+        // only static members besides its parameterless constructor. An unrecorded Swift class of a
+        // holder's name implements the runtime's interfaces, and a caseless Swift enum emits as a static
+        // class, so either stays uncovered.
         private static bool IsGeneratedFunctionHolder(string name, Scope scope) =>
-            scope.Index.FunctionHolders(scope.Module).Contains(name) && scope.Index.Type(name) is { Interfaces.IsEmpty: true }
+            scope.Index.FunctionHolders(scope.Module).Contains(name) && scope.Index.Type(name) is { IsStatic: false, Interfaces.IsEmpty: true }
             && scope.Index.MembersOf(name).All(m => m.IsStatic && m.Kind != "type" || m.Kind == "ctor" && m.Parameters.IsEmpty);
 
         // The module's type of a namespace-qualified name (`Module.Outer.IInner`), or null for another namespace's.

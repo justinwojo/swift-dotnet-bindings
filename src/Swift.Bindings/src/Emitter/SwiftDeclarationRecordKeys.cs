@@ -456,6 +456,10 @@ namespace BindingsGeneration
                 IEnumerable<Member> named = key.ParentPath.Length > 0
                     ? _byName.TryGetValue((key.ParentPath, key.Name), out var list) ? list : Enumerable.Empty<Member>()
                     : FunctionHolders(module, swiftTypes).SelectMany(h => _byName.TryGetValue((h, key.Name), out var functions) ? functions : Enumerable.Empty<Member>());
+                // A module-level function is a static member of its holder; a binding project's instance
+                // helper on the holder is not one.
+                if (key.ParentPath.Length == 0)
+                    named = named.Where(m => m.IsStatic);
                 if (key.Parameters is not { } parameters)
                     return named.Where(m => m.Kind is "property" or "field" or "event" or "type").ToList();
                 var kind = key.IsIndexer ? "indexer" : key.Name == ".ctor" ? "ctor" : "method";
@@ -597,6 +601,7 @@ namespace BindingsGeneration
                 {
                     DeclaringKind = kind,
                     Traits = MethodTraits(method.Attributes) | CompilerGenerated(md, method.GetCustomAttributes()),
+                    ValueType = signature.ReturnType,
                 });
             }
         }
