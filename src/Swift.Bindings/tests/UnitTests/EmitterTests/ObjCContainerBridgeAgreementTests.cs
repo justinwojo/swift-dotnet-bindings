@@ -74,6 +74,8 @@ public class ObjCContainerBridgeAgreementTests
         "[URL: Int]" => Dictionary(Url, Named("Swift.Int")),
         "[URL: String]" => Dictionary(Url, Named("Swift.String")),
         "[URL: Node]" => Dictionary(Url, Named("TestModule.Node")),
+        "[URL: [Node]]" => Dictionary(Url, Array(Named("TestModule.Node"))),
+        "[URL: Set<Node>]" => Dictionary(Url, new NamedTypeSpec("Swift.Set", Named("TestModule.Node"))),
         "[URL]" => Array(Url),
         "[Int: Point]" => Dictionary(Named("Swift.Int"), Named("TestModule.Point")),
         _ => throw new ArgumentOutOfRangeException(nameof(shape)),
@@ -87,6 +89,7 @@ public class ObjCContainerBridgeAgreementTests
     [InlineData("[URL: Choice]", "TestModule.Choice")]
     [InlineData("[URL: (Int, Int)]", "nint")]
     [InlineData("[URL: UUID]", "System.Guid")]
+    [InlineData("[URL: Set<Node>]", "TestModule.Node")]
     public async Task BridgedCollection_HoldingAValueSwiftBoxes_IsRefusedWithTheElementNamed(string shape, string element)
     {
         var typeDatabase = await LoadDatabaseAsync();
@@ -105,6 +108,7 @@ public class ObjCContainerBridgeAgreementTests
     [InlineData("[URL: Int]")]
     [InlineData("[URL: String]")]
     [InlineData("[URL: Node]")]
+    [InlineData("[URL: [Node]]")]
     [InlineData("[URL]")]
     public async Task BridgedCollection_EveryElementOfWhichCSharpConverts_IsAccepted(string shape)
     {
@@ -120,6 +124,71 @@ public class ObjCContainerBridgeAgreementTests
         var typeDatabase = await LoadDatabaseAsync();
 
         Assert.False(ObjCContainerBridgeAgreement.Disagrees(Shape("[Int: Point]"), typeDatabase, null, isParameter: true, out _));
+    }
+
+    private static ProtocolDecl Protocol() => new()
+    {
+        Name = "Indexer",
+        SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Indexer"),
+        MangledName = "$s10TestModule7IndexerP",
+        Properties = new List<PropertyDecl>(),
+        Methods = new List<MethodDecl>(),
+        Types = new List<TypeDecl>(),
+        Operators = new List<OperatorDecl>(),
+        Subscripts = new List<SubscriptDecl>(),
+        AssociatedTypes = new List<AssociatedTypeDecl>(),
+        InheritedProtocols = new List<NamedTypeSpec>(),
+        ParentDecl = null,
+        ModuleDecl = null,
+    };
+
+    private static ArgumentDecl Arg(string name, TypeSpec spec) => new()
+    {
+        SwiftTypeSpec = spec, Name = name, PrivateName = name, IsInOut = false, IsGeneric = false, ParentDecl = null, ModuleDecl = null,
+    };
+
+    /// <summary>
+    /// Protocol requirements never pass through MemberValidationPipeline, so the protocol gate
+    /// refuses the same shapes: a requirement whose conformers are refused must not stay on the
+    /// interface, where its proxy would emit the cast that does not compile.
+    /// </summary>
+    [Theory]
+    [InlineData("parameter")]
+    [InlineData("result")]
+    [InlineData("property")]
+    [InlineData("subscript")]
+    public async Task ProtocolRequirement_WithABridgedCollectionCSharpCannotConvert_IsRefused(string position)
+    {
+        var typeDatabase = await LoadDatabaseAsync();
+        var shape = Shape("[URL: Point]");
+        var gate = new MemberGateEvaluator(typeDatabase);
+        var proto = Protocol();
+        MethodDecl Method(TypeSpec result, params ArgumentDecl[] parameters) => new()
+        {
+            Name = "index", MangledName = "$s10TestModule5index", MethodType = MethodType.Instance, IsConstructor = false,
+            CSSignature = parameters.Prepend(Arg(string.Empty, result)).ToList(), GenericParameters = new List<GenericArgumentDecl>(),
+            ParentDecl = proto, ModuleDecl = null, Throws = false, IsAsync = false, IsSynthesizedAccessor = false,
+        };
+
+        var result = position switch
+        {
+            "parameter" => gate.EvaluateMethod(Method(new TupleTypeSpec(new List<TypeSpec>()), Arg("d", shape)), null, proto),
+            "result" => gate.EvaluateMethod(Method(shape), null, proto),
+            "property" => gate.EvaluateProperty(new PropertyDecl
+            {
+                Name = "index", IsStatic = false, HasStorage = false, IsProtocolRequirement = true, SwiftTypeSpec = shape,
+                Accessors = new List<AccessorDecl>(), ParentDecl = proto, ModuleDecl = null,
+            }, null, proto),
+            _ => gate.EvaluateSubscript(new SubscriptDecl
+            {
+                Name = "subscript", ReturnTypeSpec = shape, IndexParameters = new List<ArgumentDecl> { Arg("i", Named("Swift.Int")) },
+                IsStatic = false, Accessors = new List<AccessorDecl>(), MangledName = "$sSubscript", ParentDecl = proto, ModuleDecl = null,
+            }, null, proto),
+        };
+
+        Assert.True(result.IsSkipped, position);
+        Assert.Equal(SkipReason.UnsupportedSignature, result.Reason);
+        Assert.Contains("as the Objective-C collection it bridges to", result.Details);
     }
 
     /// <summary>

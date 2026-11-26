@@ -1064,7 +1064,7 @@ public static class ExistentialBypassEmitter
             : wrapperSymbol;
 
         // The receiver is read off this wrapper's own handle, which is then its last use: the
-        // wrapper is held until the call has returned (or thrown, in the finally below).
+        // wrapper is held until the call has returned.
         if (!isExistentialReturn)
         {
             csWriter.WriteLine($"{wrapperCall}({callArgs});");

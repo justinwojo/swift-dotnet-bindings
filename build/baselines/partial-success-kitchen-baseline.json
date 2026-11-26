@@ -52,7 +52,7 @@
     },
     {
       "key": "UnsupportedSignature",
-      "count": 23
+      "count": 30
     },
     {
       "key": "UnsupportedType",
@@ -70,7 +70,7 @@
     },
     {
       "key": "KnownLimitation",
-      "count": 38
+      "count": 45
     },
     {
       "key": "Recovered",

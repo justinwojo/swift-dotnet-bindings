@@ -38,6 +38,23 @@ namespace BindingsGeneration
         }
 
         /// <summary>
+        /// True when an associated value, or an element of a tuple payload, is a collection Swift
+        /// bridges to Objective-C that the C# side cannot bridge to match
+        /// (<see cref="ObjCContainerBridgeAgreement"/>). <paramref name="detail"/> then says why.
+        /// </summary>
+        private static bool BridgedContainerDisagrees(TypeSpec typeSpec, ITypeDatabase typeDatabase, EnumDecl enumDecl, bool isParameter, out string detail)
+        {
+            detail = "";
+            var values = typeSpec is TupleTypeSpec tuple ? tuple.Elements : new List<TypeSpec> { typeSpec };
+            foreach (var value in values)
+            {
+                if (ObjCContainerBridgeAgreement.Disagrees(value, typeDatabase, enumDecl, isParameter, out detail))
+                    return true;
+            }
+            return false;
+        }
+
+        /// <summary>
         /// Emits a static method for an enum case with associated values.
         /// </summary>
         private bool EmitEnumCaseWithAssociatedValues(CSharpWriter csWriter, EnumDecl enumDecl, EnumCaseDecl caseDecl, ModuleDecl moduleDecl, ITypeDatabase typeDatabase, string enumTypeName, PInvokeHelperContext? pinvokeHelperContext, Dictionary<string, string>? propertyRenames = null, Dictionary<string, string>? caseNameMap = null, SwiftWriter? swiftWriter = null, ModuleEmissionContext? emissionCtx = null)
@@ -93,6 +110,17 @@ namespace BindingsGeneration
                         BindingItemKind.Method, capitalizedName, enumDecl,
                         SkipReason.AbsentFrameworkType,
                         $"Associated value '{absentType}' is an Apple-framework type absent from the .NET binding surface; the case cannot be reconstructed.");
+                    return false;
+                }
+
+                // A collection Swift bridges to Objective-C that C# cannot bridge to match: the factory
+                // would hand Swift a native collection, or an element C# cannot build, where the case
+                // factory reads an Objective-C collection (ObjCContainerBridgeAgreement).
+                if (BridgedContainerDisagrees(typeSpec, typeDatabase, enumDecl, isParameter: true, out var bridgeDetail))
+                {
+                    _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' has associated value '{typeSpec}', a collection Swift bridges to Objective-C that C# cannot bridge to match. Skipping case.");
+                    ReportCollector.RecordMemberSkipped(
+                        BindingItemKind.Method, capitalizedName, enumDecl, SkipReason.UnsupportedSignature, bridgeDetail);
                     return false;
                 }
 

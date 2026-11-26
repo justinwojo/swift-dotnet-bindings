@@ -2252,6 +2252,38 @@ public class EnumHandlerOutputTests
         Assert.Contains(report!.SkippedItems, i => i.Name == "TryGetDescribed" && i.Reason == SkipReason.UnsupportedType);
     }
 
+    /// <summary>
+    /// A payload that is a collection Swift bridges to Objective-C (a URL key) holding a Swift struct
+    /// is refused for the case factory and TryGet alike, with the reason, rather than emitted with a
+    /// cast from the struct to an Objective-C object that does not compile.
+    /// </summary>
+    [Fact]
+    public void Emit_CaseCarryingABridgedDictionaryOfStructs_RefusesFactoryAndTryGet()
+    {
+        var typeDatabase = CreateTypeDatabaseWithObjCBridgeableUrl();
+        typeDatabase.AddOutOfModuleTypes(new[]
+        {
+            (identifier: SwiftTypeName.FromModuleQualifiedName("TestModule.Point"), record: new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("TestModule", "Point"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("TestModule.Point"),
+                MetadataAccessor = "$s10TestModule5PointVMa",
+                Flags = TypeRecordFlags.Frozen,
+                Kind = TypeRecordKind.Struct,
+                InlineSize = 16,
+            })
+        });
+        var payload = new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("Foundation.URL"), new NamedTypeSpec("TestModule.Point"));
+
+        var (csOutput, _, report) = EmitBridgedPayloadEnum(typeDatabase, payload);
+
+        Assert.DoesNotContain(" Link(", csOutput);
+        Assert.DoesNotContain("TryGetLink", csOutput);
+        Assert.Contains("TryGetCode", csOutput);
+        Assert.Contains(report!.SkippedItems, i => i.Name == "Link" && i.Reason == SkipReason.UnsupportedSignature);
+        Assert.Contains(report.SkippedItems, i => i.Name == "TryGetLink" && i.Reason == SkipReason.UnsupportedSignature);
+    }
+
     private static TypeSpec BridgedShape(string shape)
     {
         var url = new NamedTypeSpec("Foundation.URL");

@@ -1394,11 +1394,8 @@ namespace BindingsGeneration
                 if (MarshallingHelpers.RequiresMemoryManagement(typeRecord))
                 {
                     // Frozen struct with ref fields (e.g., has String): the native buffer
-                    // is already allocated by the C# class's Payload. Get its handle. The
-                    // callee borrows the buffer the wrapper owns, so the wrapper is held until
-                    // the call returns: past this read its finalizer could free the buffer.
-                    csWriter.WriteLine($"IntPtr {csName}Ptr = {LiveHandleExpressions.SafeHandle($"{csName}.Payload")};");
-                    _borrowedObjectArgumentNames.Add(csName);
+                    // is already allocated by the C# class's Payload. Get its handle.
+                    csWriter.WriteLine($"IntPtr {csName}Ptr = {csName}.Payload.DangerousGetHandle();");
                 }
                 else if (_env.MethodDecl.IsAsync)
                 {

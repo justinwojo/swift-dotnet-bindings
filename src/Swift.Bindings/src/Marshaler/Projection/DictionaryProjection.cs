@@ -600,12 +600,13 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     }
 
     /// <summary>
-    /// True when a key or element of this projection has a form inside an Objective-C collection
-    /// that <see cref="ToNSObject"/> writes and <see cref="FromNSObject"/> reads: an Objective-C
-    /// object, a bridgeable value (URL, String, Data, Date, an Apple typed enum), a number Swift
-    /// boxes as an NSNumber, a Swift object (the collection holds the object itself), bare
-    /// <c>Any</c>, an <c>@objc</c> protocol, nil (an Optional of one of these), or a nested
-    /// collection whose own elements all have one.
+    /// The first key or element, at any depth, of <paramref name="projection"/> that has no form inside
+    /// an Objective-C collection that <see cref="ToNSObject"/> writes and <see cref="FromNSObject"/>
+    /// reads, or null when every one has. Those that have one: an Objective-C object, a bridgeable
+    /// value (URL, String, Data, Date, an Apple typed enum), a number Swift boxes as an NSNumber, a
+    /// Swift object (the collection holds the object itself), bare <c>Any</c>, an <c>@objc</c>
+    /// protocol, nil (an Optional of one of these), or a nested collection whose own elements all
+    /// have one.
     /// </summary>
     /// <remarks>
     /// Anything else, a Swift struct, enum or tuple, a non-<c>@objc</c> protocol existential or a
@@ -615,13 +616,6 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
     /// that fails at run time). <see cref="ObjCContainerBridgeAgreement"/> refuses a member whose
     /// bridged collection holds one, before it is emitted.
     /// </remarks>
-    internal static bool HasObjCElementForm(ITypeProjection projection)
-        => FindElementWithoutObjCForm(projection) is null;
-
-    /// <summary>
-    /// The first key or element, at any depth, of <paramref name="projection"/> that has no form in an
-    /// Objective-C collection (<see cref="HasObjCElementForm"/>), or null when every one has.
-    /// </summary>
     internal static ITypeProjection? FindElementWithoutObjCForm(ITypeProjection projection) => projection switch
     {
         OptionalProjection optional => FindElementWithoutObjCForm(optional.InnerProjection),
@@ -629,13 +623,23 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
         ObjCBridgeableProjection or ObjCBridgedProjection or ObjCRootedClassProjection
             or StringProjection or DataProjection or DateProjection or ClassProjection => null,
         ExistentialProjection existential => existential.IsBareAny || existential.IsObjCExistential ? null : existential,
-        ArrayProjection array => FindElementWithoutObjCForm(array.ElementProjection),
-        SetProjection set => FindElementWithoutObjCForm(set.ElementProjection),
-        DictionaryProjection dictionary => FindElementWithoutObjCForm(dictionary.KeyProjection)
-            ?? FindElementWithoutObjCForm(dictionary.ValueProjection),
+        ArrayProjection array => FindNestedElementWithoutObjCForm(array.ElementProjection),
+        SetProjection set => FindNestedElementWithoutObjCForm(set.ElementProjection),
+        DictionaryProjection dictionary => FindNestedElementWithoutObjCForm(dictionary.KeyProjection)
+            ?? FindNestedElementWithoutObjCForm(dictionary.ValueProjection),
         BlittableProjection or BoolProjection when NSNumberBoxExpression(projection.PublicType, "_") != null => null,
         _ => projection,
     };
+
+    /// <summary>
+    /// <see cref="FindElementWithoutObjCForm"/> for a key or element of a bridged collection. A set
+    /// nested there whose elements are Swift objects has no conversion: the nested-set arm of
+    /// <see cref="ToNSObject"/> builds an NSSet of NSObjects, which a Swift object is not.
+    /// </summary>
+    private static ITypeProjection? FindNestedElementWithoutObjCForm(ITypeProjection projection)
+        => Unwrapped(projection) is SetProjection set && IsSwiftObject(set.ElementProjection)
+            ? set.ElementProjection
+            : FindElementWithoutObjCForm(projection);
 
     /// <summary>
     /// One expression that builds a new <c>NSDictionary</c> from the .NET dictionary

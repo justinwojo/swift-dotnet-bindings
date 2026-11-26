@@ -30,3 +30,26 @@ public final class KitchenBridgedHolder {
     public init() {}
     public var values: [URL: KitchenBridgedValue] = [:]
 }
+
+// A set of Swift objects one container deeper: Swift bridges it to an NSSet of the objects
+// themselves, which C# builds only as a set of Objective-C objects.
+public final class KitchenBridgedNode: Hashable {
+    public init() {}
+    public static func == (a: KitchenBridgedNode, b: KitchenBridgedNode) -> Bool { a === b }
+    public func hash(into hasher: inout Hasher) { hasher.combine(ObjectIdentifier(self)) }
+}
+public func kitchenBridgedNodeSets(_ d: [URL: Set<KitchenBridgedNode>]) -> Int32 { Int32(d.count) }
+
+// The same refusals for an enum case's associated value and for protocol requirements, which
+// reach the generator through paths of their own. The plain case and requirement still bind.
+public enum KitchenBridgedPayload {
+    case values([URL: KitchenBridgedValue])
+    case identifiers([URL: UUID])
+    case none
+}
+
+public protocol KitchenBridgedIndexer {
+    func makeIdentifiers() -> [URL: UUID]
+    func takeValues(_ d: [URL: KitchenBridgedValue]) -> Int32
+    func count() -> Int32
+}

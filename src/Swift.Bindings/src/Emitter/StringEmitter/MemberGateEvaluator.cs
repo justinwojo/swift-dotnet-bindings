@@ -126,6 +126,12 @@ public class MemberGateEvaluator
             return GateResult.Skipped(ValidationRuleSet.ToSkipReason(propUnsupported),
                 $"Property type references {ValidationRuleSet.DescribeUnsupportedReference(propUnsupported, propOffending)}.");
 
+        // P5b: a collection Swift bridges to Objective-C that C# cannot bridge to match. The protocol
+        // mirror of MemberValidationPipeline's gate (ObjCContainerBridgeAgreement): a requirement the
+        // conformers are refused must not stay on the interface or its proxy.
+        if (ObjCContainerBridgeAgreement.Disagrees(property.SwiftTypeSpec, _typeDatabase, protocolContext, isParameter: false, out var propBridgeDetail))
+            return GateResult.Skipped(SkipReason.UnsupportedSignature, propBridgeDetail);
+
         // P6: Bound generic with non-ISwiftObject args
         if (property.SwiftTypeSpec is NamedTypeSpec propNamedType &&
             propNamedType.ContainsGenericParameters &&
@@ -318,6 +324,15 @@ public class MemberGateEvaluator
                     $"Method signature references {ValidationRuleSet.DescribeUnsupportedReference(kind, offending)}.");
         }
 
+        // A collection Swift bridges to Objective-C that C# cannot bridge to match — the protocol
+        // mirror of MemberValidationPipeline's gate 2c (ObjCContainerBridgeAgreement).
+        for (var i = 0; i < method.CSSignature.Count; i++)
+        {
+            if (ObjCContainerBridgeAgreement.Disagrees(method.CSSignature[i].SwiftTypeSpec, _typeDatabase, protocolContext,
+                    isParameter: i > 0, out var bridgeDetail))
+                return GateResult.Skipped(SkipReason.UnsupportedSignature, bridgeDetail);
+        }
+
         // Pattern 2 emission-time gate — method signature reaches a name in
         // ModuleDecl.InternalTypeNames. Mirrors S6 in EvaluateSubscript and the
         // concrete-side gate in MemberValidationPipeline.ValidateMethodEmission.
@@ -441,6 +456,14 @@ public class MemberGateEvaluator
             if (kind != ValidationRuleSet.UnsupportedReferenceKind.None)
                 return GateResult.Skipped(ValidationRuleSet.ToSkipReason(kind),
                     $"Subscript signature references {ValidationRuleSet.DescribeUnsupportedReference(kind, offending)}.");
+        }
+
+        // S5a: a collection Swift bridges to Objective-C that C# cannot bridge to match — the protocol
+        // mirror of MemberValidationPipeline's subscript gate (ObjCContainerBridgeAgreement).
+        foreach (var (spec, isIndex) in subscript.IndexParameters.Select(p => (p.SwiftTypeSpec, true)).Prepend((subscript.ReturnTypeSpec, false)))
+        {
+            if (ObjCContainerBridgeAgreement.Disagrees(spec, _typeDatabase, protocolContext, isParameter: isIndex, out var bridgeDetail))
+                return GateResult.Skipped(SkipReason.UnsupportedSignature, bridgeDetail);
         }
 
         // S5b: @objc protocol existential in an unsupported nested position — hard, fail-closed drop, in

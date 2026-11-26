@@ -11,7 +11,7 @@ namespace BindingsGeneration;
 /// hands a result back the same way. The C# side can only match that through a projection that
 /// bridges the whole collection (<see cref="ITypeProjection.UsesObjCContainerBridge"/>) and
 /// converts every key and element to and from its Objective-C form
-/// (<see cref="DictionaryProjection.HasObjCElementForm"/>).
+/// (<see cref="DictionaryProjection.FindElementWithoutObjCForm"/>).
 /// </summary>
 /// <remarks>
 /// Without either, the C# side compiles and still disagrees with Swift: with no bridged projection
@@ -61,8 +61,8 @@ internal static class ObjCContainerBridgeAgreement
         if (DictionaryProjection.FindElementWithoutObjCForm(projection) is { } element)
         {
             detail = $"Swift passes '{container}' as the Objective-C collection it bridges to, and holds each "
-                + $"'{element.PublicType}' in it as an opaque Swift box, or an Objective-C class this generator does not "
-                + "convert, that C# can neither build nor read.";
+                + $"'{element.PublicType}' in it in a form C# can neither build nor read (an opaque Swift box, an "
+                + "Objective-C class this generator does not convert, or a Swift object in a nested set).";
             return true;
         }
 
