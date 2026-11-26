@@ -471,6 +471,16 @@ namespace BindingsGeneration
             var boundGenericsHandler = new BoundGenericsHandler(typeDatabase, conformanceGraph: null,
                 currentModuleName: enumDecl.ModuleDecl?.Name);
 
+            // The read mirror of the case factory's refusal, ahead of the bridged-value refusal below
+            // so the reader reports the same reason as the factory.
+            if (BridgedContainerDisagrees(tupleSpec, typeDatabase, enumDecl, isParameter: false, out var bridgeDetail))
+            {
+                _logger.LogWarning($"Enum case '{enumDecl.Name}.{caseName}' carries a collection Swift bridges to Objective-C that C# cannot bridge to match. Skipping TryGet method.");
+                ReportCollector.RecordMemberSkipped(
+                    BindingItemKind.Method, $"TryGet{capitalizedName}", enumDecl, SkipReason.UnsupportedSignature, bridgeDetail);
+                return;
+            }
+
             // Validate tuple element count (max 7 per C# ValueTuple limit)
             if (tupleSpec.Elements.Count > TupleHandler.MaxSupportedTupleElements)
             {

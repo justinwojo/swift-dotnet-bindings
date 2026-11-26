@@ -3319,6 +3319,9 @@ public static partial class SwiftUIBridgeEmitter
     {
         foreach (var param in bridgeParams)
         {
+            // A Codable binding crosses as JSON bytes, not a pointer (BuildSimpleNativeCallArgs).
+            if (param.IsBindingCodableStruct)
+                continue;
             if (param.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct
                 || (param.Kind == BridgeParameterKind.OptionalWrapped
                     && param.InnerParameter?.Kind is BridgeParameterKind.BoundType or BridgeParameterKind.BoundStruct))

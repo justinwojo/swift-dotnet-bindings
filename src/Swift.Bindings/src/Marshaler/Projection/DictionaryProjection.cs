@@ -633,11 +633,12 @@ public class DictionaryProjection : ITypeProjection, IObjCContainerBridgeOwnerSo
 
     /// <summary>
     /// <see cref="FindElementWithoutObjCForm"/> for a key or element of a bridged collection. A set
-    /// nested there whose elements are Swift objects has no conversion: the nested-set arm of
-    /// <see cref="ToNSObject"/> builds an NSSet of NSObjects, which a Swift object is not.
+    /// nested there whose elements are pure Swift objects has no conversion: the nested-set arm of
+    /// <see cref="ToNSObject"/> builds an NSSet of NSObjects, which such an object's wrapper is not
+    /// (an <c>NSObject</c>-rooted class's wrapper is one, and converts).
     /// </summary>
     private static ITypeProjection? FindNestedElementWithoutObjCForm(ITypeProjection projection)
-        => Unwrapped(projection) is SetProjection set && IsSwiftObject(set.ElementProjection)
+        => Unwrapped(projection) is SetProjection set && Unwrapped(set.ElementProjection) is ClassProjection
             ? set.ElementProjection
             : FindElementWithoutObjCForm(projection);
 

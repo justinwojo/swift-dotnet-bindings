@@ -26,6 +26,7 @@ public class ObjCContainerBridgeAgreementTests
         Register(typeDatabase, "Point", TypeRecordKind.Struct, TypeRecordFlags.Frozen, inlineSize: 16);
         Register(typeDatabase, "Choice", TypeRecordKind.Enum, TypeRecordFlags.Frozen, inlineSize: 1);
         Register(typeDatabase, "Node", TypeRecordKind.Class, TypeRecordFlags.None, inlineSize: null);
+        Register(typeDatabase, "RootedNode", TypeRecordKind.Class, TypeRecordFlags.ObjCRooted, inlineSize: null);
         return typeDatabase;
     }
 
@@ -76,6 +77,7 @@ public class ObjCContainerBridgeAgreementTests
         "[URL: Node]" => Dictionary(Url, Named("TestModule.Node")),
         "[URL: [Node]]" => Dictionary(Url, Array(Named("TestModule.Node"))),
         "[URL: Set<Node>]" => Dictionary(Url, new NamedTypeSpec("Swift.Set", Named("TestModule.Node"))),
+        "[URL: Set<RootedNode>]" => Dictionary(Url, new NamedTypeSpec("Swift.Set", Named("TestModule.RootedNode"))),
         "[URL]" => Array(Url),
         "[Int: Point]" => Dictionary(Named("Swift.Int"), Named("TestModule.Point")),
         _ => throw new ArgumentOutOfRangeException(nameof(shape)),
@@ -109,6 +111,7 @@ public class ObjCContainerBridgeAgreementTests
     [InlineData("[URL: String]")]
     [InlineData("[URL: Node]")]
     [InlineData("[URL: [Node]]")]
+    [InlineData("[URL: Set<RootedNode>]")]
     [InlineData("[URL]")]
     public async Task BridgedCollection_EveryElementOfWhichCSharpConverts_IsAccepted(string shape)
     {

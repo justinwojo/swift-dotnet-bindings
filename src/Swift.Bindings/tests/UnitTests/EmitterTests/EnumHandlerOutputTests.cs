@@ -2257,8 +2257,10 @@ public class EnumHandlerOutputTests
     /// is refused for the case factory and TryGet alike, with the reason, rather than emitted with a
     /// cast from the struct to an Objective-C object that does not compile.
     /// </summary>
-    [Fact]
-    public void Emit_CaseCarryingABridgedDictionaryOfStructs_RefusesFactoryAndTryGet()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Emit_CaseCarryingABridgedDictionaryOfStructs_RefusesFactoryAndTryGet(bool besideAnotherValue)
     {
         var typeDatabase = CreateTypeDatabaseWithObjCBridgeableUrl();
         typeDatabase.AddOutOfModuleTypes(new[]
@@ -2273,9 +2275,19 @@ public class EnumHandlerOutputTests
                 InlineSize = 16,
             })
         });
-        var payload = new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("Foundation.URL"), new NamedTypeSpec("TestModule.Point"));
+        var dictionary = new NamedTypeSpec("Swift.Dictionary", new NamedTypeSpec("Foundation.URL"), new NamedTypeSpec("TestModule.Point"));
+        var moduleDecl = CreateModuleDecl("TestModule");
+        var enumDecl = CreateEnumDecl("Payload", moduleDecl, isFrozen: true);
+        var linkCase = CreateCase("link");
+        linkCase.AssociatedValues.Add(dictionary);
+        if (besideAnotherValue)
+            linkCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(linkCase);
+        var codeCase = CreateCase("code");
+        codeCase.AssociatedValues.Add(new NamedTypeSpec("Swift.Int"));
+        enumDecl.Cases.Add(codeCase);
 
-        var (csOutput, _, report) = EmitBridgedPayloadEnum(typeDatabase, payload);
+        var (csOutput, _, report) = EmitReported(enumDecl, typeDatabase);
 
         Assert.DoesNotContain(" Link(", csOutput);
         Assert.DoesNotContain("TryGetLink", csOutput);
