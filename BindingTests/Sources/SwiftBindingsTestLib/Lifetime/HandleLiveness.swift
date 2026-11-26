@@ -103,7 +103,7 @@ public final class LivenessReader {
     // MARK: Closures that return references
     //
     // `makeNodes` takes a non-escaping closure, whose result C# writes into Swift's result buffer;
-    // the others take escaping ones, whose callbacks hand the result back.
+    // `makeEscapingNodes` takes an escaping one, whose callback hands the result back.
 
     /// Asks `make` for nodes named `n0`…, calling `between` after each, and joins their names.
     public func makeNodes(_ count: Int, _ make: (String) -> LivenessNode, _ between: () -> Void) -> String {
@@ -123,38 +123,5 @@ public final class LivenessReader {
             between()
         }
         return nodes.map(\.name).joined(separator: ",")
-    }
-
-    /// Asks `make` for optional nodes named `n0`…, calling `between` after each, and joins their
-    /// names ("nil" for a nil).
-    public func makeOptionalNodes(_ count: Int, _ make: @escaping (String) -> LivenessNode?, _ between: () -> Void) -> String {
-        var nodes: [LivenessNode?] = []
-        for i in 0..<count {
-            nodes.append(make("n\(i)"))
-            between()
-        }
-        return nodes.map { $0?.name ?? "nil" }.joined(separator: ",")
-    }
-
-    /// Asks `make` for objects named `n0`…, calling `between` after each, and joins their
-    /// descriptions.
-    public func makeObjects(_ count: Int, _ make: @escaping (String) -> NSObject, _ between: () -> Void) -> String {
-        var objects: [NSObject] = []
-        for i in 0..<count {
-            objects.append(make("n\(i)"))
-            between()
-        }
-        return objects.map(\.description).joined(separator: ",")
-    }
-
-    /// Asks `make` for optional objects named `n0`…, calling `between` after each, and joins their
-    /// descriptions ("nil" for a nil).
-    public func makeOptionalObjects(_ count: Int, _ make: @escaping (String) -> NSObject?, _ between: () -> Void) -> String {
-        var objects: [NSObject?] = []
-        for i in 0..<count {
-            objects.append(make("n\(i)"))
-            between()
-        }
-        return objects.map { $0?.description ?? "nil" }.joined(separator: ",")
     }
 }

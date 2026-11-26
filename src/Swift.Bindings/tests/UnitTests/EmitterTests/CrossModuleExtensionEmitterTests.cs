@@ -555,6 +555,51 @@ public class CrossModuleExtensionEmitterTests
     }
 
     /// <summary>
+    /// The struct-receiver trampoline is handed each object argument's bare pointer; the wrapper
+    /// that owns it must stay reachable until the call returns.
+    /// </summary>
+    [Theory]
+    [InlineData("Foundation.NSString")]
+    [InlineData("OtherModule.OtherNode")]
+    public void EmitStruct_ObjectArgument_IsHeldUntilTheCallReturns(string argumentType)
+    {
+        var (csWriter, swiftWriter, csOutput, _, moduleDecl, structDecl, conductor, env)
+            = CreateStructSetup(frozen: true, requiresMemoryManagement: false);
+        var otherModule = new ModuleTypeDatabase("OtherModule", "/tmp/OtherModule.dylib");
+        otherModule.RegisterType(
+            SwiftTypeName.FromModuleQualifiedName("OtherModule.OtherNode"),
+            new TypeRecord
+            {
+                CSharpTypeName = CSharpTypeName.FromNamespaceAndName("OtherModule", "OtherNode"),
+                SwiftTypeName = SwiftTypeName.FromModuleQualifiedName("OtherModule.OtherNode"),
+                MetadataAccessor = "$s11OtherModule9OtherNodeCMa",
+                Flags = TypeRecordFlags.None,
+                Kind = TypeRecordKind.Class
+            });
+        ((TypeDatabase)env.TypeDatabase).AddModuleDatabase(otherModule);
+        var method = CreateMethodDecl("adopt", "TestModule", structDecl);
+        method.CSSignature.Add(new ArgumentDecl
+        {
+            Name = "other",
+            PrivateName = "other",
+            SwiftTypeSpec = new NamedTypeSpec(argumentType),
+            IsInOut = false,
+            IsGeneric = false,
+            ParentDecl = null,
+            ModuleDecl = method.ModuleDecl,
+        });
+        structDecl.Methods.Add(method);
+
+        CrossModuleExtensionEmitter.Emit(csWriter, swiftWriter, structDecl, moduleDecl, conductor, env, Logger);
+
+        var result = csOutput.ToString();
+        var body = result.Substring(result.IndexOf("Adopt(", StringComparison.Ordinal));
+        var call = body.IndexOf("NativeMethods.", StringComparison.Ordinal);
+        Assert.True(call >= 0, result);
+        Assert.True(body.IndexOf("global::System.GC.KeepAlive(other);", call, StringComparison.Ordinal) > call, result);
+    }
+
+    /// <summary>
     /// The struct-receiver trampoline calls the extension member synchronously, so a main-actor
     /// member (or a member of a main-actor receiver) needs the trampoline isolated with it, as the
     /// class-receiver trampoline already is; a nonisolated member stays unannotated.

@@ -288,6 +288,9 @@ namespace BindingsGeneration
             if (!handedOverToCallee)
             {
                 csWriter.WriteLine($"IntPtr {localName} = {handleExpression};");
+                // The callee borrows the pointer: its owner is held until the call returns.
+                if (owner is not null)
+                    _borrowedObjectArgumentNames.Add(owner);
                 return;
             }
             var leaseName = RegisterOwnedArgumentTransfer(leaseBaseName);

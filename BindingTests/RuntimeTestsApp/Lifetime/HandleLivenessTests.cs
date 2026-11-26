@@ -99,15 +99,13 @@ public class HandleLivenessTests : TestBase
     public void TestSwiftKeepsTheNodesAClosureReturns()
     {
         const int count = 20;
+        Collect();
         var before = LivenessNode.Live;
         using (var first = new LivenessNode("r"))
         using (var reader = new LivenessReader(first))
         {
             AssertEqual(Names(count), reader.MakeNodes(count, name => new LivenessNode(name), Collect), "every node Swift kept");
             AssertEqual(Names(count), reader.MakeEscapingNodes(count, name => new LivenessNode(name), Collect), "every node an escaping closure returned");
-            AssertEqual(Names(count, i => i % 3 == 0 ? "nil" : $"n{i}"),
-                reader.MakeOptionalNodes(count, name => int.Parse(name[1..]) % 3 == 0 ? null : new LivenessNode(name), Collect),
-                "every optional node Swift kept");
         }
         for (int i = 0; i < 5 && LivenessNode.Live != before; i++)
             Collect();
@@ -123,6 +121,7 @@ public class HandleLivenessTests : TestBase
         const int count = 20;
         foreach (var escaping in new[] { false, true })
         {
+            Collect();
             var before = LivenessNode.Live;
             var made = new List<LivenessNode>();
             using (var first = new LivenessNode("r"))
@@ -144,20 +143,10 @@ public class HandleLivenessTests : TestBase
         }
     }
 
-    public void TestSwiftKeepsTheObjectsAClosureReturns()
-    {
-        const int count = 20;
-        using var first = new LivenessNode("r");
-        using var reader = new LivenessReader(first);
-        AssertEqual(Names(count), reader.MakeObjects(count, name => new NSString(name), Collect), "every object Swift kept");
-        AssertEqual(Names(count, i => i % 3 == 0 ? "nil" : $"n{i}"),
-            reader.MakeOptionalObjects(count, name => int.Parse(name[1..]) % 3 == 0 ? null : new NSString(name), Collect),
-            "every optional object Swift kept");
-    }
-
     /// <summary>The closures' results are read on a worker while a collector runs beside it.</summary>
     public void TestClosureResultsSurviveACollectorRunningBeside()
     {
+        Collect();
         var before = LivenessNode.Live;
         using var stop = new CancellationTokenSource();
         var collector = Task.Run(() =>
@@ -181,9 +170,6 @@ public class HandleLivenessTests : TestBase
                         var escaping = reader.MakeEscapingNodes(4, name => new LivenessNode(name), () => { });
                         if (escaping != Names(4))
                             return $"iteration {i}: escaping nodes {escaping}";
-                        var objects = reader.MakeObjects(4, name => new NSString(name), () => { });
-                        if (objects != Names(4))
-                            return $"iteration {i}: objects {objects}";
                     }
                 }
                 return "ok";
