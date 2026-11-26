@@ -82,6 +82,7 @@
     <Compile Include="../RuntimeTestsApp/Infrastructure/ConservativeRootProbe.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/ImportRoutes.cs" />
     <Compile Include="../RuntimeTestsApp/Infrastructure/MainQueueSynchronizationContext.cs" />
+    <Compile Include="../RuntimeTestsApp/Infrastructure/NameKeyedCase.cs" />
   </ItemGroup>
 
   <!-- Global usings shared with RuntimeTestsApp -->
