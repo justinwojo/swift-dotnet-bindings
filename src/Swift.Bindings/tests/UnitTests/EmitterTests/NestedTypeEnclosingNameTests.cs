@@ -270,6 +270,65 @@ public class NestedTypeEnclosingNameTests
         Assert.Equal("type TestModule.Outer", Behind(newer: true, "Outer", out _));
     }
 
+    [Fact]
+    public void SwiftDeclarationRecord_KeysANestedProtocolByItsEmittedNesting_ApartFromATopLevelOneOfTheSameName()
+    {
+        // `Outer.Listener` emits as the nested interface `Outer.IListener`, while the type database
+        // names every protocol's interface by its leaf (`IListener`). Keyed by that leaf, a module
+        // with a top-level `Listener` too would write one key for both (last write wins), and the
+        // merge would compare the wrong declarations.
+        var fixture = new Fixture("class");
+        ProtocolDecl Protocol(TypeDecl? container)
+        {
+            var swiftName = SwiftTypeName.FromModuleQualifiedName(container is null ? "TestModule.Listener" : $"{container.SwiftTypeName}.Listener");
+            var protocol = TestDecls.Protocol("TestModule", "Listener") with { SwiftTypeName = swiftName };
+            protocol.ParentDecl = (BaseDecl?)container ?? fixture.Module;
+            protocol.ModuleDecl = fixture.Module;
+            if (container is null) fixture.Module.Protocols.Add(protocol); else container.Types.Add(protocol);
+            fixture.RegisterInterface(protocol, "IListener");
+            var method = TestDecls.Method("onEvent", parameters: [TestDecls.Param("value", new NamedTypeSpec("Swift.Int32"))], module: "TestModule");
+            method.ParentDecl = protocol;
+            method.ModuleDecl = fixture.Module;
+            protocol.Methods.Add(method);
+            return protocol;
+        }
+        var nested = Protocol(fixture.Container);
+        var topLevel = Protocol(null);
+
+        var context = new ModuleEmissionContext();
+        foreach (var protocol in new[] { nested, topLevel })
+            context.RecordSwiftDeclaration(ModuleEmissionContext.BuildApiManifestKey(protocol, "OnEvent", "OnEvent(int)", fixture.Database),
+                protocol.Methods[0], fixture.Database);
+
+        Assert.Equal("func TestModule.Outer.Listener.onEvent(value:)", context.SwiftMemberDeclarations["Outer.IListener.OnEvent(int)"]);
+        Assert.Equal("func TestModule.Listener.onEvent(value:)", context.SwiftMemberDeclarations["IListener.OnEvent(int)"]);
+        Assert.Equal("type TestModule.Outer.Listener", context.SwiftTypeDeclarations["Outer.IListener"]);
+        Assert.Equal("type TestModule.Listener", context.SwiftTypeDeclarations["IListener"]);
+    }
+
+    [Fact]
+    public void SwiftDeclarationRecord_KeepsOnlyItsOwnModulesTypes_WhenAMemberStandsForAnotherModulesDeclaration()
+    {
+        // A key-path factory this module emits stands for a dependency's initializer, and recording
+        // a member records its Swift parents: the dependency's type would be written into this
+        // module's record under a C# path this module's assembly does not declare.
+        var fixture = new Fixture("class");
+        var foreign = fixture.CreateForeign("OtherModule", "EntityProperty");
+        var init = TestDecls.Method("init", module: "OtherModule");
+        init.ParentDecl = foreign;
+        foreign.Methods.Add(init);
+
+        var context = new ModuleEmissionContext();
+        context.RecordSwiftTypeDeclaration(fixture.Container, fixture.Database);
+        context.RecordSwiftDeclarationAt("OuterEntityPropertyFactory", "Create", new[] { "string" }, init, fixture.Database);
+        Assert.Contains(context.SwiftTypeDeclarations, t => t.Value == "type OtherModule.EntityProperty");
+
+        context.DropForeignTypeDeclarations("TestModule");
+
+        Assert.Equal("type TestModule.Outer", Assert.Single(context.SwiftTypeDeclarations).Value);
+        Assert.True(context.SwiftMemberDeclarations.ContainsKey("OuterEntityPropertyFactory.Create(string)"));
+    }
+
     private sealed class Fixture
     {
         public TypeDatabase Database { get; } = new();
@@ -339,6 +398,9 @@ public class NestedTypeEnclosingNameTests
             return record!.CSharpTypeName.Name;
         }
 
+        /// <summary>Registers <paramref name="protocol"/> as the type database does: by its interface's leaf.</summary>
+        public void RegisterInterface(ProtocolDecl protocol, string interfaceName) => Register(protocol, interfaceName);
+
         private void Register(TypeDecl decl, string csharpName)
         {
             _types.RegisterType(decl.SwiftTypeName, new TypeRecord
@@ -347,13 +409,25 @@ public class NestedTypeEnclosingNameTests
                 SwiftTypeName = decl.SwiftTypeName,
                 MetadataAccessor = "$sMa",
                 Flags = TypeRecordFlags.Frozen,
-                Kind = decl switch { EnumDecl => TypeRecordKind.Enum, ClassDecl => TypeRecordKind.Class, _ => TypeRecordKind.Struct },
+                Kind = decl switch { ProtocolDecl => TypeRecordKind.Protocol, EnumDecl => TypeRecordKind.Enum, ClassDecl => TypeRecordKind.Class, _ => TypeRecordKind.Struct },
             });
             if (!_added)
             {
                 Database.AddModuleDatabase(_types);
                 _added = true;
             }
+        }
+
+        /// <summary>A struct of another module, as a dependency's declaration this module's members can stand for.</summary>
+        public TypeDecl CreateForeign(string module, string name)
+        {
+            var decl = Create("struct", name, SwiftTypeName.FromModuleQualifiedName($"{module}.{name}"));
+            decl.ModuleDecl = new ModuleDecl
+            {
+                Name = module, Properties = new List<PropertyDecl>(), Methods = new List<MethodDecl>(), Types = new List<TypeDecl>(),
+                Dependencies = new List<string>(), Protocols = new List<ProtocolDecl>(), ParentDecl = null, ModuleDecl = null,
+            };
+            return decl;
         }
 
         private TypeDecl Create(string kind, string name, SwiftTypeName swiftName)

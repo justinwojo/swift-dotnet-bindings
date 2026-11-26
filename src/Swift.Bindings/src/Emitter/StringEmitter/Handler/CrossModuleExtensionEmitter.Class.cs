@@ -191,6 +191,7 @@ public static partial class CrossModuleExtensionEmitter
             publicParams.Add($"{p.PublicCSharpType} {p.Name}");
         }
         csWriter.WriteLine($"public static unsafe {publicReturnType} {methodName}({string.Join(", ", publicParams)})");
+        RecordExtensionMember(context?.GetEmissionContext(), classDecl, currentModule, methodName, publicParams, method, typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -1157,6 +1158,7 @@ public static partial class CrossModuleExtensionEmitter
         if (isAsync)
             publicParams.Add($"global::System.Threading.CancellationToken {ctParamName} = default");
         csWriter.WriteLine($"public static unsafe {publicWrapperReturn} {publicMethodName}({string.Join(", ", publicParams)})");
+        RecordExtensionMember(context?.GetEmissionContext(), classDecl, currentModule, publicMethodName, publicParams, method, typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
 

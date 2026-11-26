@@ -627,6 +627,12 @@ partial class Build
                 Log.Information("Dependency API manifest: {File}", BtOutputDir / $"{DepModuleName}.api-manifest.json");
             }
 
+            // So does its Swift declaration record, which the completeness gate holds the compiled
+            // dependency module to.
+            var depRecord = depOutputDir / (DepModuleName + BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix);
+            if (File.Exists(depRecord))
+                File.Move(depRecord, BtOutputDir / (DepModuleName + BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix), overwrite: true);
+
             // The dependency module's Swift call facts sidecar, transition ledger, call plans and guards
             // travel with its C# for the same reason: they describe transitions compiled from BtOutputDir.
             foreach (var sidecar in SwiftTransitionSidecarNames(DepModuleName))
@@ -1449,6 +1455,13 @@ partial class Build
                 // app carries a few tens of thousands; only the Swift convention needs one.
                 // Fail-closed and unconditional: policy, not baseline.
                 RunCallConvAttributeGate();
+
+                // Swift declaration record completeness gate: every public type and member of each
+                // BindingTests module in the compiled assembly is named by its module's record (which
+                // the package merge compares, SWIFTBIND138) or by a justified fixed-name rule, and every
+                // record key names a declared member. Negative controls included. Fail-closed and
+                // unconditional: policy, not baseline.
+                RunSwiftDeclarationCompletenessGate();
 
                 // Transition ledger cross-check: join the generator's per-module transition ledgers
                 // with the compiled assembly's IL transition sites and demand a bijection, kind by

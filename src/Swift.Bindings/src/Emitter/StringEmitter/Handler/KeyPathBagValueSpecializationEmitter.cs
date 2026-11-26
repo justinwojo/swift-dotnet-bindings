@@ -251,7 +251,7 @@ internal static class KeyPathBagValueSpecializationEmitter
         csWriter.Indent++;
 
         foreach (var ov in staged)
-            EmitCSharpOverload(csWriter, ov, wrapperLibPath);
+            EmitCSharpOverload(csWriter, ov, wrapperLibPath, extClassName, emissionContext, typeDatabase);
 
         csWriter.Indent--;
         csWriter.WriteLine("}");
@@ -431,7 +431,8 @@ internal static class KeyPathBagValueSpecializationEmitter
             MergedAvailability: mergedAvailability);
     }
 
-    private static void EmitCSharpOverload(CSharpWriter csWriter, StagedOverload ov, string wrapperLibPath)
+    private static void EmitCSharpOverload(CSharpWriter csWriter, StagedOverload ov, string wrapperLibPath,
+        string extClassName, ModuleEmissionContext emissionContext, ITypeDatabase typeDatabase)
     {
         // ProtocolDecl bags MUST surface as the `I`-prefixed interface name (e.g.
         // `global::MusicKit.ILibraryAlbumSortProperties`). `BagCsFullName` carries
@@ -473,6 +474,9 @@ internal static class KeyPathBagValueSpecializationEmitter
             publicParams.Add($"{p.CsType} {p.Name}");
 
         csWriter.WriteLine($"public static void {ov.PublicMethodName}({string.Join(", ", publicParams)})");
+        emissionContext.RecordSwiftDeclarationAt(extClassName, ov.PublicMethodName,
+            publicParams.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType), ov.Method, typeDatabase,
+            $"{ov.Conformer.SwiftQualifiedName}, {ov.CsValueType}", SwiftDeclarationMapEmitter.ConcreteSpecialization);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         TypeAnnotationHelper.EmitMainActorGuard(csWriter, mainActor);

@@ -43,5 +43,6 @@
          for the generator's standalone projects and the SDK's pack. -->
     <Compile Include="../../Swift.Bindings/src/Emitter/PackageCopyDeclarationEmitter.cs" Link="Packaging/PackageCopyDeclarationEmitter.cs" />
     <Compile Include="../../Swift.Bindings/src/Emitter/SwiftDeclarationRecordFormat.cs" Link="Packaging/SwiftDeclarationRecordFormat.cs" />
+    <Compile Include="../../Swift.Bindings/src/Emitter/SwiftDeclarationRecordKeys.cs" Link="Packaging/SwiftDeclarationRecordKeys.cs" />
   </ItemGroup>
 </Project>

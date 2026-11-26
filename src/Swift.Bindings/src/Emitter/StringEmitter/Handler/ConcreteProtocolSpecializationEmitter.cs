@@ -389,7 +389,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         CsmOverloadLedger overloadLedger,
         ILogger logger,
         bool isExtension = false,
-        DeclId? surfaceOwner = null)
+        DeclId? surfaceOwner = null,
+        string? extensionClassName = null)
     {
         bool isConstructor = method.IsConstructor;
         bool isStatic = method.MethodType == MethodType.Static || isConstructor;
@@ -536,7 +537,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter, method, csMethodName, parentTypeDecl, pairing,
             cdeclSymbol, moduleName, wrapperLibPath, isConstructor, isStatic, isClass,
             isVoidReturn, isStringReturn, returnsGenericParam, typeDatabase,
-            emissionContext, mergedAvailability, isExtension, existentialArrayReturn);
+            emissionContext, mergedAvailability, isExtension, existentialArrayReturn, extensionClassName);
         if (emittedPrimaryKey != null)
             overloadLedger.ReserveEmittedPrimary(emittedPrimaryKey);
 
@@ -1449,7 +1450,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ModuleEmissionContext emissionContext,
         IReadOnlyList<AvailabilityAnnotation>? mergedAvailability,
         bool isExtension = false,
-        ExistentialArrayReturn? existentialArrayReturn = null)
+        ExistentialArrayReturn? existentialArrayReturn = null,
+        string? extensionClassName = null)
     {
         // Resolve the return-side conformer if the return is a generic param.
         ConcreteSpecializationEngine.ConcreteConformer? returnConformer = null;
@@ -1996,6 +1998,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         AvailabilityAttributeEmitter.EmitSupportedOSPlatformsFromAnnotations(
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         csWriter.WriteLine($"public {unsafeStr}{staticStr}{csReturnType} {methodName}({string.Join(", ", publicParams)})");
+        RecordSpecialization(emissionContext, method, parentTypeDecl, pairing, extensionClassName,
+            methodName, publicParams.Select(DeclaredParameterType), typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(
@@ -4561,7 +4565,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             TryEmitParentOnlyAsyncOverload(
                                 csWriter, swiftWriter, method, typeDecl, parentTuple,
                                 moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                                emittedSignatures, logger, surfaceOwner: specId));
+                                emittedSignatures, logger, surfaceOwner: specId, extensionClassName: extClassName));
                     }
                     // Async with method-own generics still rejects — not yet supported.
                     continue;
@@ -4582,7 +4586,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         if (TryEmitConcreteOverload(
                             csWriter, swiftWriter, method, typeDecl, parentTuple,
                             moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId))
+                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId, extensionClassName: extClassName))
                         {
                             RecordCsmMethodRecovered(method, typeDecl, parentTuple);
                         }
@@ -4618,7 +4622,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                         if (TryEmitConcreteOverload(
                             csWriter, swiftWriter, method, typeDecl, fullPairing,
                             moduleName, wrapperLibPath, typeDatabase, emissionContext,
-                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId))
+                            emittedSignatures, overloadLedger, logger, isExtension: true, surfaceOwner: specId, extensionClassName: extClassName))
                         {
                             // Keyed on parentTuple, not fullPairing: the receiver a consumer names is the
                             // closed parent, and the method-own conformers vary across overloads that all
@@ -4651,7 +4655,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
                             csWriter, swiftWriter, specProp.Getter, typeDecl, parentTuple,
                             moduleName, wrapperLibPath, typeDatabase, emissionContext,
                             emittedSignatures, overloadLedger, logger, isExtension: true,
-                            surfaceOwner: specId));
+                            surfaceOwner: specId, extensionClassName: extClassName));
 
                 // Emission fact: this closed getter recovers the open-generic property that
                 // PropertyHandler skipped (AnyTypeFallback) on the shell. Annotate the skip row so the
@@ -4681,6 +4685,45 @@ public static partial class ConcreteProtocolSpecializationEmitter
     /// would otherwise keep calling a reachable member unreachable. Keyed on the ORIGINAL method decl so
     /// the containing-type + name matches the recorded skip.
     /// </summary>
+    /// <summary>
+    /// Records an emitted specialization in the module's Swift declaration record: keyed by the C#
+    /// member it declares (its owner, the generic type's extension class
+    /// <paramref name="extensionClassName"/> or the Swift parent's C# type, its name and its parameter
+    /// types as declared), and described as the generic Swift declaration it specializes and the
+    /// conformers it specializes it for. A sibling Swift overload that a newer SDK specializes to the
+    /// same C# signature then reads as another declaration, which the package merge refuses.
+    /// </summary>
+    internal static void RecordSpecialization(
+        ModuleEmissionContext emissionContext,
+        MethodDecl method,
+        TypeDecl parentTypeDecl,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        string? extensionClassName,
+        string methodName,
+        IEnumerable<string> declaredParameterTypes,
+        ITypeDatabase typeDatabase)
+    {
+        var parameters = $"({string.Join(",", declaredParameterTypes)})";
+        var key = extensionClassName is null
+            ? ModuleEmissionContext.BuildApiManifestKey(parentTypeDecl, methodName, parameters, typeDatabase)
+            : $"{extensionClassName}.{methodName}{parameters}";
+        // A closed property getter is emitted through a synthetic getter method named after the
+        // property (ConcreteSpecializationEngine.BuildSyntheticPropertyGetter); it stands for the property.
+        BaseDecl declaration = method.IsExtensionPropertyGetter
+            && parentTypeDecl.Properties.FirstOrDefault(p => p.Name == method.Name && !p.IsStatic) is { } property ? property : method;
+        emissionContext.RecordSwiftDeclaration(key, declaration, typeDatabase,
+            string.Join(", ", pairing.Select(p => p.Conformer.SwiftQualifiedName)),
+            SwiftDeclarationMapEmitter.ConcreteSpecialization);
+    }
+
+    /// <summary>The type of a C# parameter declaration (<c>T name</c>, <c>T name = default</c>).</summary>
+    internal static string DeclaredParameterType(string declaration)
+    {
+        var assignment = declaration.IndexOf(" = ", StringComparison.Ordinal);
+        var declared = assignment >= 0 ? declaration[..assignment] : declaration;
+        return declared[..declared.TrimEnd().LastIndexOf(' ')];
+    }
+
     private static void RecordCsmMethodRecovered(
         MethodDecl method,
         TypeDecl typeDecl,

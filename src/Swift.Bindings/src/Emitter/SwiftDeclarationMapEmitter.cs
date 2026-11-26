@@ -82,6 +82,15 @@ namespace BindingsGeneration
         /// <summary>A non-throwing delegate forwarder to the member taking a throwing Swift closure.</summary>
         public const string NonThrowingClosureForwarder = "non-throwing-closure forwarder to";
 
+        /// <summary>A key-path singleton to a property, rooted at the conformer it names.</summary>
+        public const string KeyPathRootedAt = "key path rooted at";
+
+        /// <summary>A factory taking a key path rooted at the conformer it names.</summary>
+        public const string KeyPathFactoryFor = "key-path factory for";
+
+        /// <summary>A concrete overload of a generic declaration, specialized for the conformers it names.</summary>
+        public const string ConcreteSpecialization = "concrete specialization for";
+
         /// <summary>An overload with its own wrapper that passes one conformer as a marker existential.</summary>
         public const string MarkerConformerOverload = "marker-conformer overload taking";
 
@@ -97,12 +106,16 @@ namespace BindingsGeneration
                 var type = pending.Pop();
                 foreach (var nested in type.Types)
                     pending.Push(nested);
-                if (type.IsModuleInternal || type.IsSpiProtected
+                // An internal or SPI type is recorded only when the binding emitted it (a public
+                // type's parent or conformance needs it), since its C# name is then public too.
+                var emitted = ReportCollector.IsTypeEmitted(type.SwiftTypeName.ModuleQualifiedName);
+                if ((type.IsModuleInternal || type.IsSpiProtected) && emitted != true
                     || !typeDatabase.TryGetTypeRecord(type.SwiftTypeName, out _)
-                    || ReportCollector.IsTypeEmitted(type.SwiftTypeName.ModuleQualifiedName) == false)
+                    || emitted == false)
                     continue;
                 emissionCtx.RecordSwiftTypeDeclaration(type, typeDatabase);
             }
+            emissionCtx.DropForeignTypeDeclarations(module.Name);
         }
 
         private static string Labels(IEnumerable<string> labels)

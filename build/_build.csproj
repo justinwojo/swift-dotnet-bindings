@@ -78,5 +78,14 @@
          direct P/Invoke against the inventory the generator floored declarations from. -->
     <Compile Include="..\src\Swift.Bindings\src\Configuration\OsSymbolInventory.cs"
              Link="Helpers\OsSymbolInventory.cs" />
+    <!-- The Swift declaration record's key reader and completeness check: the compile gate reads the
+         compiled assembly against each module's record with the same reader the package merge uses.
+         Base class library and System.Reflection.Metadata only. -->
+    <Compile Include="..\src\Swift.Bindings\src\Emitter\SwiftDeclarationRecordFormat.cs"
+             Link="Helpers\SwiftDeclarationRecordFormat.cs" />
+    <Compile Include="..\src\Swift.Bindings\src\Emitter\SwiftDeclarationRecordKeys.cs"
+             Link="Helpers\SwiftDeclarationRecordKeys.cs" />
+    <Compile Include="..\src\Swift.Bindings\src\Emitter\SwiftDeclarationRecordCompleteness.cs"
+             Link="Helpers\SwiftDeclarationRecordCompleteness.cs" />
   </ItemGroup>
 </Project>

@@ -173,7 +173,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ModuleEmissionContext emissionContext,
         HashSet<string> emittedSignatures,
         ILogger logger,
-        DeclId? surfaceOwner = null)
+        DeclId? surfaceOwner = null,
+        string? extensionClassName = null)
     {
         // Method-level guards — must agree with the predicate above.
         if (!method.IsAsync) return false;
@@ -344,7 +345,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
         EmitParentOnlyAsyncCSharpExtension(
             csWriter, method, parentCsName, returnCsType,
             cdeclSymbol, csMethodName, wrapperLibPath, throws,
-            mergedAvailability, parentTypeDecl, typeDatabase, emissionContext, returnIsBlittable, isVoid);
+            mergedAvailability, parentTypeDecl, typeDatabase, emissionContext, returnIsBlittable, isVoid,
+            pairing, extensionClassName);
 
         method.MarkEmitted();
 
@@ -782,7 +784,9 @@ public static partial class ConcreteProtocolSpecializationEmitter
         ITypeDatabase typeDatabase,
         ModuleEmissionContext emissionContext,
         bool returnIsBlittable,
-        bool isVoid)
+        bool isVoid,
+        (ConcreteSpecializationEngine.SpecializableParam Param, ConcreteSpecializationEngine.ConcreteConformer Conformer)[] pairing,
+        string? extensionClassName)
     {
         // Void shape: a non-generic TaskCompletionSource/Task, a context-only success
         // completion callback, and NO result buffer (no alloc, no marshal, no free). The
@@ -1125,6 +1129,8 @@ public static partial class ConcreteProtocolSpecializationEmitter
             csWriter, mergedAvailability, parentTypeDecl.AvailabilityAnnotations);
         csWriter.WriteLine(
             $"public static unsafe {taskType} {csMethodName}({string.Join(", ", publicParams)})");
+        RecordSpecialization(emissionContext, method, parentTypeDecl, pairing, extensionClassName,
+            csMethodName, publicParams.Select(DeclaredParameterType), typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
         AvailabilityAttributeEmitter.EmitRuntimeAvailabilityGuard(

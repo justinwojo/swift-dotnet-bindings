@@ -166,11 +166,34 @@ member has one, have keys of their own. A key spells each parameter as the membe
 annotations and tuple element names included, and neither is part of the CLR signature, so an older key
 the newer copy lacks is compared with the newer copy's keys of the same shape without them (`Load(string?)`
 with `Load(string)`, an indexer's `this[string?]` with `this[string]`). A value type's `T?` folds into
-the same shape, so the spelling cannot tell which of them is the older member's: the name moved unless
-every one of them keeps its declaration. That errs toward refusing: a copy that only respells a member
-beside an added overload of another declaration whose key has the same shape is refused too. A simple enum's extension members (`<Enum>Extensions`) and a
+the same shape, so the spelling alone cannot tell which of them is the older member's. The merge reads it
+from the copies' `lib/<T>/` assemblies (`SwiftDeclarationRecordKeys`), where `Nullable<T>` is a type and
+an annotation is not: a candidate whose compiled signature differs from the older member's
+(`Load(string, int)` beside `Load(string, int?)`) is another member and is not compared. A key either
+assembly does not resolve to one signature stays a candidate, and the name moved unless every candidate
+keeps its declaration. A simple enum's extension members (`<Enum>Extensions`) and a
 protocol's interface properties, methods, indexers and `int` default-interface forwarders, which have
-no API-manifest entry, are recorded like any other. The merge refuses a name whose declaration differs, naming the
+no API-manifest entry, are recorded like any other, and so are the members emitted outside their Swift
+parent's C# type: a protocol extension's concrete specializations (`*CsmExtensions` and the
+sequence-specialized overloads), a foreign type's extension members, key-path singletons and factories,
+and a collection conformance's `Count`, indexer and `GetEnumerator`, each described as the Swift
+declaration or conformance it stands for. A nested protocol's interface is keyed by its emitted nesting
+(`Outer.IListener`), apart from a top-level protocol of the same name. Only the module's own types are
+recorded: a member standing for a dependency's declaration does not write the dependency's type into
+this module's record.
+
+The compile gate's **completeness check** (`SwiftDeclarationRecordCompleteness`, run by
+`nuke binding-tests --compile-only`) keeps the record whole. It reads the compiled assembly and fails
+when a public or protected type or member is neither named by its module's record nor matched by a
+named fixed-name rule, each of which says why no Swift declaration can move what it matches (runtime
+plumbing, operators, case constants and case members, generated container classes, protocol
+compositions, standard-library conformance members), and when a record key names nothing the assembly
+declares. A key that names a declared member's path but spells its parameters otherwise is listed as
+respelled. Members the record does not yet describe are named by the check's pending list
+(`pending:` entries: SwiftUI view sessions, a few extension-class lanes, base-call trampolines,
+closure-result overloads, the respelled keys), so a newly emitted kind still fails. Negative controls
+run every time: the record without one recorded member's key, with a key the assembly does not
+declare, and with a key respelling a recorded method's parameters must each fail. The merge refuses a name whose declaration differs, naming the
 C# name and both Swift declarations (ten in the refusal, every one in the log), a module an older copy
 records that another copy does not, and a record that is incomplete (no module, a missing map or an empty
 declaration). Since a record no copy carries would leave its module unchecked, the assembly a module is

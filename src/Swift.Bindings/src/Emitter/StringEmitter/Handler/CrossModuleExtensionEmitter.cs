@@ -192,7 +192,7 @@ public static partial class CrossModuleExtensionEmitter
                     continue;
                 }
 
-                if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                if (TryEmitPropertyExtension(csWriter, property, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, currentModule, typeDatabase, emittedSignatures, context?.GetEmissionContext(), logger))
                 {
                     emittedCount++;
                     bound.Add(BindKey(property));
@@ -250,7 +250,7 @@ public static partial class CrossModuleExtensionEmitter
                     continue;
                 }
 
-                if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, typeDatabase, emittedSignatures, logger))
+                if (TryEmitMethodExtension(csWriter, method, classDecl, origCSharpType, moduleLibPath, wrapperLibPath, currentModule, typeDatabase, emittedSignatures, context?.GetEmissionContext(), logger))
                 {
                     emittedCount++;
                     bound.Add(BindKey(method));
@@ -574,8 +574,10 @@ public static partial class CrossModuleExtensionEmitter
         string origCSharpType,
         string moduleLibPath,
         string wrapperLibPath,
+        string currentModule,
         ITypeDatabase typeDatabase,
         HashSet<string> emittedSignatures,
+        ModuleEmissionContext? recorder,
         ILogger logger)
     {
         // Gate: skip generic methods
@@ -687,6 +689,7 @@ public static partial class CrossModuleExtensionEmitter
 
         // Emit public extension method
         csWriter.WriteLine($"public static {unsafeModifier}{csharpReturnType} {methodName}({string.Join(", ", paramParts)})");
+        RecordExtensionMember(recorder, classDecl, currentModule, methodName, paramParts, method, typeDatabase);
         csWriter.WriteLine("{");
         csWriter.Indent++;
 
@@ -697,6 +700,17 @@ public static partial class CrossModuleExtensionEmitter
 
         return true;
     }
+
+    /// <summary>
+    /// Records an extension member emitted on <c>{receiver}{currentModule}Extensions</c> as the Swift
+    /// <paramref name="declaration"/> it binds, keyed by its name and the types of
+    /// <paramref name="publicParameters"/> (each <c>{type} {name}</c> or <c>{type} {name} = {default}</c>,
+    /// as the signature declares it).
+    /// </summary>
+    internal static void RecordExtensionMember(ModuleEmissionContext? recorder, TypeDecl receiver, string currentModule, string name,
+        IEnumerable<string> publicParameters, BaseDecl declaration, ITypeDatabase typeDatabase) =>
+        recorder?.RecordSwiftDeclarationAt($"{receiver.Name}{currentModule}Extensions", name,
+            publicParameters.Select(ConcreteProtocolSpecializationEmitter.DeclaredParameterType), declaration, typeDatabase);
 
     /// <summary>
     /// Gets the self expression for P/Invoke calls under CallConvSwift.
@@ -790,8 +804,10 @@ public static partial class CrossModuleExtensionEmitter
         string origCSharpType,
         string moduleLibPath,
         string wrapperLibPath,
+        string currentModule,
         ITypeDatabase typeDatabase,
         HashSet<string> emittedSignatures,
+        ModuleEmissionContext? recorder,
         ILogger logger)
     {
         // Gate: skip static properties
@@ -837,6 +853,7 @@ public static partial class CrossModuleExtensionEmitter
 
             csWriter.WriteLine();
             csWriter.WriteLine($"public static unsafe {csharpType} Get{propertyName}(this {origCSharpType} {getterReceiver.ReceiverName})");
+            RecordExtensionMember(recorder, classDecl, currentModule, $"Get{propertyName}", new[] { $"this {origCSharpType} {getterReceiver.ReceiverName}" }, property, typeDatabase);
             csWriter.WriteLine("{");
             csWriter.Indent++;
 
@@ -861,6 +878,8 @@ public static partial class CrossModuleExtensionEmitter
 
             csWriter.WriteLine();
             csWriter.WriteLine($"public static unsafe void Set{propertyName}(this {origCSharpType} {setterReceiver.ReceiverName}, {setParamType} {SetterValueParameterName})");
+            RecordExtensionMember(recorder, classDecl, currentModule, $"Set{propertyName}",
+                new[] { $"this {origCSharpType} {setterReceiver.ReceiverName}", $"{setParamType} {SetterValueParameterName}" }, property, typeDatabase);
             csWriter.WriteLine("{");
             csWriter.Indent++;
 

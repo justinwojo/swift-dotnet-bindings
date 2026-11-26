@@ -2516,9 +2516,69 @@ public sealed class ModuleEmissionContext
             RecordSwiftTypeDeclaration(type, typeDatabase);
     }
 
+    /// <summary>
+    /// Records a member an emitter declares outside its Swift parent's C# type (an extension or
+    /// helper class at <paramref name="ownerPath"/>): keyed <c>{ownerPath}.{name}({parameter types})</c>,
+    /// or <c>{ownerPath}.{name}</c> for a property (null <paramref name="parameterTypes"/>), with the
+    /// parameter types as the member declares them, and described as the Swift
+    /// <paramref name="declaration"/> it stands for, through <paramref name="via"/> when the member is
+    /// one of several C# shapes of it (<see cref="SwiftDeclarationMapEmitter"/>'s forwarder kinds).
+    /// </summary>
+    public void RecordSwiftDeclarationAt(string ownerPath, string name, IEnumerable<string>? parameterTypes,
+        BaseDecl declaration, ITypeDatabase? typeDatabase, string? via = null, string? viaKind = null)
+    {
+        var key = parameterTypes is null ? $"{ownerPath}.{name}" : $"{ownerPath}.{name}({string.Join(",", parameterTypes)})";
+        if (via is null)
+            RecordSwiftDeclaration(key, declaration, typeDatabase);
+        else
+            RecordSwiftDeclaration(key, declaration, typeDatabase, via, viaKind ?? SwiftDeclarationMapEmitter.NativeWidthForwarder);
+    }
+
+    /// <summary>
+    /// Records that the emitted member keyed <paramref name="memberSignature"/> stands for the Swift
+    /// declaration <paramref name="description"/>, for a member whose Swift declaration the model holds
+    /// in no <see cref="BaseDecl"/> (a protocol or foreign-type extension member read from its printed
+    /// interface). The description has <see cref="SwiftDeclarationMapEmitter.Describe"/>'s shape.
+    /// </summary>
+    public void RecordSwiftDeclarationDescription(string memberSignature, string description) =>
+        _swiftMemberDeclarations[memberSignature] = description;
+
     /// <summary>Records that the emitted type <paramref name="type"/>'s C# path stands for it.</summary>
-    public void RecordSwiftTypeDeclaration(TypeDecl type, ITypeDatabase? typeDatabase) =>
-        _swiftTypeDeclarations[BuildParentPath(type, typeDatabase)] = SwiftDeclarationMapEmitter.Describe(type)!;
+    public void RecordSwiftTypeDeclaration(TypeDecl type, ITypeDatabase? typeDatabase)
+    {
+        var path = BuildParentPath(type, typeDatabase);
+        _swiftTypeDeclarations[path] = SwiftDeclarationMapEmitter.Describe(type)!;
+        _swiftTypeNames[path] = type.SwiftTypeName.ModuleQualifiedName;
+    }
+
+    /// <summary>
+    /// Drops the recorded types of other modules that this generation did not emit. Recording a member
+    /// records its Swift parents, and a member standing for another module's declaration (a key-path
+    /// factory for a dependency's initializer, an extension member of a standard-library type) has
+    /// that module's type as its parent: its C# name belongs to the other module's binding, not to
+    /// <paramref name="moduleName"/>'s. A type this module declares in an extension of a foreign type
+    /// keeps its entry: its Swift name starts with the foreign module, but this generation emitted it.
+    /// A standard-library type projected to a C# keyword (<c>Swift.Int32</c> to <c>int</c>, the parent
+    /// of an extension member of it) names a BCL type, never one of this module's, and is dropped too.
+    /// </summary>
+    public void DropForeignTypeDeclarations(string moduleName)
+    {
+        var own = moduleName + ".";
+        foreach (var key in _swiftTypeNames
+                     .Where(t => !t.Value.StartsWith(own, StringComparison.Ordinal)
+                                 && (ReportCollector.IsTypeEmitted(t.Value) != true || CSharpBuiltInTypeKeywords.Contains(t.Key)))
+                     .Select(t => t.Key).ToList())
+            _swiftTypeDeclarations.Remove(key);
+    }
+
+    private static readonly HashSet<string> CSharpBuiltInTypeKeywords = new(StringComparer.Ordinal)
+    {
+        "bool", "byte", "sbyte", "short", "ushort", "int", "uint", "long", "ulong", "nint", "nuint",
+        "float", "double", "decimal", "char", "string", "object",
+    };
+
+    // The module-qualified Swift name of each recorded type.
+    private readonly Dictionary<string, string> _swiftTypeNames = new(StringComparer.Ordinal);
 
     private readonly SortedDictionary<string, string> _swiftMemberDeclarations = new(StringComparer.Ordinal);
     private readonly SortedDictionary<string, string> _swiftTypeDeclarations = new(StringComparer.Ordinal);
@@ -2779,6 +2839,18 @@ public sealed class ModuleEmissionContext
     private static string BuildParentPath(BaseDecl? parent, ITypeDatabase? typeDatabase)
     {
         if (parent is null or ModuleDecl) return "";
+        // A protocol nested in a type emits as an interface nested in that type's C# class
+        // (`Outer.IListener`), but the type database names every protocol's interface by its leaf
+        // (`IListener`), which a top-level protocol of the same name shares: key it by its emitted
+        // nesting, the container's own C# path and the interface's leaf.
+        if (parent is ProtocolDecl protocol && protocol.ParentDecl is TypeDecl container)
+        {
+            var leaf = typeDatabase != null && typeDatabase.TryGetTypeRecord(protocol.SwiftTypeName, out var protocolRecord)
+                       && !string.IsNullOrEmpty(protocolRecord.CSharpTypeName.Name)
+                ? protocolRecord.CSharpTypeName.Name
+                : NameProvider.GetInterfaceName(protocol.Name);
+            return $"{BuildParentPath(container, typeDatabase)}.{leaf[(leaf.LastIndexOf('.') + 1)..]}";
+        }
         // Prefer the authoritative C# nested path from the TypeDatabase so an emission-time
         // nested-type rename (Entry → EntryInfo when a sibling `entry` property collides) is
         // reflected in a member's parent path — keeping a member declared ON the renamed type

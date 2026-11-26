@@ -1318,7 +1318,7 @@ public static class ForeignTypeExtensionEmitter
         foreach (var member in members)
         {
             using var scope = BeginMemberFragment(csWriter, member);
-            EmitExtensionMember(csWriter, member, emittedNames[member], csharpSelfType, wrapperLibPath, typeDatabase, moduleName);
+            EmitExtensionMember(csWriter, member, emittedNames[member], csharpSelfType, wrapperLibPath, typeDatabase, moduleName, ctx, className);
         }
 
         // Emit NativeMethods nested class
@@ -1478,10 +1478,23 @@ public static class ForeignTypeExtensionEmitter
     }
 
     /// <summary>
+    /// The Swift declaration of an extension member, as the declaration record describes it: the
+    /// extended type's member and the module whose extension declares it, with the accessor a
+    /// property's getter or setter method stands for.
+    /// </summary>
+    internal static string DescribeExtensionMember(ProtocolExtensionMethodDecl member, string moduleName, bool getter, bool setter)
+    {
+        var kind = (member.IsStatic ? "static " : "") + (member.IsProperty ? "var" : "func");
+        var accessor = getter ? " getter" : setter ? " setter" : "";
+        return $"{kind} {member.ProtocolQualifiedName}.{member.PrintedName}{accessor} (extension in {moduleName})";
+    }
+
+    /// <summary>
     /// Emits a single public extension method in the extension class.
     /// </summary>
     private static void EmitExtensionMember(CSharpWriter csWriter, ForeignExtensionMemberInfo member,
-        string emittedMethodName, string csharpSelfType, string wrapperLibPath, ITypeDatabase typeDatabase, string moduleName)
+        string emittedMethodName, string csharpSelfType, string wrapperLibPath, ITypeDatabase typeDatabase, string moduleName,
+        ModuleEmissionContext ctx, string className)
     {
         var csharpReturnType = ResolveCSharpReturnType(member, typeDatabase, moduleName);
 
@@ -1503,6 +1516,9 @@ public static class ForeignTypeExtensionEmitter
 
         csWriter.WriteLine();
         csWriter.WriteLine($"public static {methodReturnType} {emittedMethodName}({string.Join(", ", paramList)})");
+        ctx.RecordSwiftDeclarationDescription(
+            $"{className}.{emittedMethodName}({string.Join(",", paramList.Select(p => p[..p.LastIndexOf(' ')]))})",
+            DescribeExtensionMember(member.ExtMethod, moduleName, member.IsPropertyGetter, member.IsPropertySetter));
         csWriter.WriteLine("{");
         csWriter.Indent++;
 

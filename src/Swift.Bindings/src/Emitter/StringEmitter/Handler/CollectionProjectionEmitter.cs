@@ -135,6 +135,8 @@ internal static class CollectionProjectionEmitter
         if (backing.Kind == BackingKind.ArrayProperty)
         {
             EmitArrayBackedMembers(csWriter, structDecl, backing, propertyRenames, logger, alreadyEmittedMembers);
+            RecordConformanceMembers(moduleCtx, structDecl, typeDatabase,
+                alreadyEmittedMembers is null || !alreadyEmittedMembers.Contains("Count"), backing.ArrayProperty!);
             return;
         }
 
@@ -151,6 +153,28 @@ internal static class CollectionProjectionEmitter
             csWriter, swiftWriter, moduleCtx, pinvokeHelperContext,
             structDecl, typeNameWithGenerics, backing, typeDatabase, logger,
             alreadyEmittedMembers);
+    }
+
+    /// <summary>
+    /// Records the projection's members in the module's Swift declaration record as the Swift
+    /// Collection requirements they stand for, reached through <paramref name="through"/> (the
+    /// backing array property, or the subscript that witnesses the element access). A newer SDK
+    /// that gives the type a Swift <c>subscript(_: Int)</c> or a <c>count</c> of its own takes the
+    /// member's C# signature with another declaration, which the package merge refuses.
+    /// </summary>
+    private static void RecordConformanceMembers(
+        ModuleEmissionContext? moduleCtx, StructDecl structDecl, ITypeDatabase typeDatabase, bool count, BaseDecl through)
+    {
+        if (moduleCtx is null)
+            return;
+        var conformance = $"(Collection conformance of {structDecl.SwiftTypeName.ModuleQualifiedName} through {SwiftDeclarationMapEmitter.Describe(through)})";
+        if (count)
+            moduleCtx.RecordSwiftDeclarationDescription(
+                ModuleEmissionContext.BuildPropertyApiManifestKey(structDecl, "Count", typeDatabase), $"var Swift.Collection.count {conformance}");
+        moduleCtx.RecordSwiftDeclarationDescription(
+            ModuleEmissionContext.BuildSubscriptApiManifestKey(structDecl, new[] { "int" }, typeDatabase), $"subscript Swift.Collection.subscript(_:) {conformance}");
+        moduleCtx.RecordSwiftDeclarationDescription(
+            ModuleEmissionContext.BuildApiManifestKey(structDecl, "GetEnumerator", "()", typeDatabase), $"func Swift.Sequence.makeIterator() {conformance}");
     }
 
     private static void EmitArrayBackedMembers(
@@ -299,6 +323,7 @@ internal static class CollectionProjectionEmitter
         EmitWitnessIndexerBody(
             csWriter, structDecl, typeNameWithGenerics, elementCsName,
             pinvokeHelperContext, pinvokeSubscriptName);
+        RecordConformanceMembers(moduleCtx, structDecl, typeDatabase, emitCount, backing.ElementSubscript!);
 
         csWriter.WriteLine();
         csWriter.WriteLine("/// <summary>Iterates the collection in index order via the projected indexer.</summary>");

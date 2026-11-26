@@ -624,6 +624,69 @@ public sealed class PackageCopyTests : IDisposable
     }
 
     [Fact]
+    public void Merge_ARespellBesideAnAddedValueTypeOverloadOfTheSameShape_Merges()
+    {
+        // `Load(string?, int?)` is `load(a:b:)`; the newer SDK respells it `Load(string, int?)` (the same
+        // CLR signature, the same declaration) and adds `load(c:d:)` as `Load(string, int)`, another CLR
+        // signature. Both newer keys have the older key's shape, but only the first is its signature,
+        // which the copies' assemblies tell apart, and it keeps the declaration.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public static class Kit { public static void Load(string? a, int? b) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string?,int?)", "static func Kit.Kit.load(a:b:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "namespace Kit { public static class Kit { public static void Load(string a, int? b) { } public static void Load(string a, int b) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,int?)", "static func Kit.Kit.load(a:b:)"), ("Kit.Load(string,int)", "static func Kit.Kit.load(c:d:)")])]);
+
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
+    [Fact]
+    public void Merge_ATakeoverTheAssembliesResolve_IsRefused_NamingOnlyTheOlderSignature()
+    {
+        // The takeover of `Merge_ATakeoverBesideAnAddedOverloadThatKeepsTheOlderDeclaration_IsRefused`
+        // with assemblies that declare the record's namespace: the older signature `Load(string, int?)`
+        // resolves to the newer key `Load(string,int?)`, now another declaration, and the added
+        // `Load(string, int)` that keeps `load(a:b:)` is another signature, so it neither clears nor
+        // joins the refusal.
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: "namespace Kit { public static class Kit { public static void Load(string? a, int? b) { } } }",
+            extra: [Declarations("net10.0-ios26.0", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string?,int?)", "static func Kit.Kit.load(a:b:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"],
+            api: "namespace Kit { public static class Kit { public static void Load(string a, int? b) { } public static void Load(string a, int b) { } } }",
+            extra: [Declarations("net10.0-ios27.2", types: [("Kit", "type Kit.Kit")],
+                members: [("Kit.Load(string,int?)", "static func Kit.Kit.load(c:d:)"), ("Kit.Load(string,int)", "static func Kit.Kit.load(a:b:)")])]);
+
+        var problem = Assert.Single(Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2").Problems);
+
+        Assert.Contains("the C# member Kit.Kit.Load(string?,int?) is Swift `static func Kit.Kit.load(a:b:)` in net10.0-ios26.0 but Swift `static func Kit.Kit.load(c:d:)` in net10.0-ios27.2, as Kit.Kit.Load(string,int?)", problem);
+        Assert.DoesNotContain("Kit.Kit.Load(string,int) ", problem);
+    }
+
+    [Fact]
+    public void Merge_ARespellOfAnIndexerAndANestedNullableTheAssembliesResolve_Merges()
+    {
+        // `this[int?]` respelled with an annotation of its element list, and a method whose `Nullable<T>`
+        // sits inside a generic argument: each resolves to the signature it had, beside an added
+        // overload of the same shape that is another signature.
+        const string olderApi = "namespace Kit { public sealed class Box { public string this[int? i, string? k] => \"\"; "
+                                + "public void Fill(System.Collections.Generic.IReadOnlyList<int?>? values) { } } }";
+        const string newerApi = "namespace Kit { public sealed class Box { public string this[int? i, string? k] => \"\"; public string this[int i, string k] => \"\"; "
+                                + "public void Fill(System.Collections.Generic.IReadOnlyList<int?>? values) { } public void Fill(System.Collections.Generic.IReadOnlyList<int> values) { } } }";
+        var older = Contribution("x26", ["net10.0-ios26.0"], api: olderApi, extra: [Declarations("net10.0-ios26.0", types: [("Box", "type Kit.Box")],
+            members: [("Box.this[int?,string?]", "subscript Kit.Box.subscript(_:k:)"), ("Box.Fill(IReadOnlyList<int?>?)", "func Kit.Box.fill(_:)")])]);
+        var newer = Contribution("x27", ["net10.0-ios27.2"], api: newerApi, extra: [Declarations("net10.0-ios27.2", types: [("Box", "type Kit.Box")],
+            members: [("Box.this[int?,string]", "subscript Kit.Box.subscript(_:k:)"), ("Box.this[int,string]", "subscript Kit.Box.subscript(_:j:)"),
+                      ("Box.Fill(IReadOnlyList<int?>)", "func Kit.Box.fill(_:)"), ("Box.Fill(IReadOnlyList<int>)", "func Kit.Box.fill(other:)")])]);
+
+        var merged = Merge([older, newer], "net10.0-ios26.0", "net10.0-ios27.2");
+
+        Assert.True(merged.Problems.IsEmpty, string.Join("\n", merged.Problems));
+    }
+
+    [Fact]
     public void Merge_AnIndexerANewerSubscriptTakesWithOtherNullableAnnotations_IsRefused()
     {
         const string api = "public interface IIndexed { string this[string key] { get; } }";
