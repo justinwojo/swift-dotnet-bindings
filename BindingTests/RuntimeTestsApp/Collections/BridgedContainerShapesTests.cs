@@ -302,7 +302,7 @@ public class BridgedContainerShapesTests : TestBase
     {
         var dates = new Dictionary<NSUrl, DateTimeOffset> { [NSUrlOf("a")] = ReferenceDate.AddSeconds(1000), [NSUrlOf("b")] = ReferenceDate.AddSeconds(-2.5) };
         AssertEqual("a=1000.0;b=-2.5", TestLibFunctions.UrlDateIndexDescribe(dates), "every date as C# built it");
-        AssertEqual("a=1000.0;b=-2.5", TestLibFunctions.UrlDateIndexDescribe(TestLibFunctions.GetUrlDateIndex()), "and what Swift returned, handed back");
+        AssertEqual("a=1000.0;b=-2.5", TestLibFunctions.UrlDateIndexDescribe(new Dictionary<NSUrl, DateTimeOffset>(TestLibFunctions.GetUrlDateIndex())), "and what Swift returned, handed back");
         using var holder = new URLDateHolder();
         holder.Dates = dates;
         AssertEqual("a=1000.0;b=-2.5", holder.GetDescribe(), "a property's new value");
