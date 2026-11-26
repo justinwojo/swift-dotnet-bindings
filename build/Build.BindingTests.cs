@@ -547,14 +547,7 @@ partial class Build
             depArgs.Add($"--target-framework {(platformOverride ?? ApplePlatform.IOS).GetTfm(BtFramework)}");
             if (platformOverride != null && platformOverride.Name != "ios")
                 depArgs.Add($"--platform {platformOverride.Name}");
-            if (strict)
-                depArgs.Add("--strict-inputs");
-            depArgs.Add("--no-verify-csharp");
-            if (BridgeEvidenceApplies(platformOverride))
-                depArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
-            // Load-safety P2 fixture: an inventory claiming the dependency's OS lacks a few of its
-            // members, so the generator floors them and the runtime suite sees them refuse.
-            depArgs.Add($"--os-symbol-inventory \"{WriteDependencyTestInventory()}\"");
+            depArgs.AddRange(DependencyRegenSharedArgs(platformOverride, strict));
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),

@@ -185,6 +185,25 @@ partial class Build
         return DependencyTestInventoryPath;
     }
 
+    /// <summary>
+    /// The arguments every dependency regeneration passes after its platform, framework and output
+    /// arguments. The simulator and device lanes and the macOS and Mac Catalyst lanes regenerate the
+    /// dependency in separate places; both take these from here so a fixture input added for one
+    /// reaches the other.
+    /// </summary>
+    IEnumerable<string> DependencyRegenSharedArgs(ApplePlatform? platform, bool strict)
+    {
+        if (strict)
+            yield return "--strict-inputs";
+        // The app build is the real compile gate for the dependency, as for the main module.
+        yield return "--no-verify-csharp";
+        if (BridgeEvidenceApplies(platform))
+            yield return $"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"";
+        // Load-safety P2 fixture: an inventory claiming the dependency's OS lacks a few of its
+        // members, so the generator floors them and the runtime suite sees them refuse.
+        yield return $"--os-symbol-inventory \"{WriteDependencyTestInventory()}\"";
+    }
+
     /// <summary>The lines a tool printed to standard output, unlogged.</summary>
     IReadOnlyList<string> XcRunLines(ArgumentStringHandler arguments) =>
         XcRunTool(arguments, logOutput: false, logInvocation: false).Where(o => o.Type == OutputType.Std).Select(o => o.Text).ToList();

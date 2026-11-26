@@ -3680,12 +3680,7 @@ partial class Build
             };
             if (platform.SliceArchitecture == "x86_64")
                 depArgs.Add($"--rid {platform.Rid}");
-            if (strict)
-                depArgs.Add("--strict-inputs");
-            // Same compile gate as the main module above: the app build is the real one.
-            depArgs.Add("--no-verify-csharp");
-            if (BridgeEvidenceApplies(platform))
-                depArgs.Add($"--swift-lowering-qualification \"{SwiftLoweringEvidencePath}\"");
+            depArgs.AddRange(DependencyRegenSharedArgs(platform, strict));
 
             var depProcess = ProcessTasks.StartProcess(
                 "dotnet", string.Join(" ", depArgs),
