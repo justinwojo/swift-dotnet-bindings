@@ -217,6 +217,16 @@ namespace BindingsGeneration
 
         private static Member? Declaring(Member member, Scope scope) => scope.Index.Type(member.ParentPath);
 
+        // Whether `subset` is `sequence` with some entries left out, in order.
+        private static bool IsOrderedSubset(IReadOnlyList<string> subset, IReadOnlyList<string> sequence)
+        {
+            var next = 0;
+            foreach (var entry in sequence)
+                if (next < subset.Count && subset[next] == entry)
+                    next++;
+            return next == subset.Count;
+        }
+
         private static bool ImplementsRuntimeInterface(Member member, Scope scope) =>
             DeclaredIn(member, scope, t => t.Interfaces.Any(i => i.StartsWith("Swift.Runtime.", StringComparison.Ordinal)));
 
@@ -251,11 +261,22 @@ namespace BindingsGeneration
 
         // The interface a protocol proxy implements: `{Name}Proxy` in a namespace under the module's
         // implements `I{Name}`, which the module declares.
-        private static Member? ProxiedInterface(Member? type, Scope scope) =>
-            type is { Kind: "type", DeclaringKind: "class" } && type.ParentPath.Length > 0 && scope.Index.Type(type.ParentPath) is null
-            && type.Name.EndsWith("Proxy", StringComparison.Ordinal) && type.Interfaces.Select(Leaf).Contains("I" + type.Name[..^"Proxy".Length])
-                ? scope.Index.TypesNamed("I" + type.Name[..^"Proxy".Length]).FirstOrDefault(t => t.DeclaringKind == "interface" && !t.Path.StartsWith(type.ParentPath + ".", StringComparison.Ordinal))
-                : null;
+        private static Member? ProxiedInterface(Member? type, Scope scope)
+        {
+            if (type is not { Kind: "type", DeclaringKind: "class" } || type.ParentPath.Length == 0 || scope.Index.Type(type.ParentPath) is not null
+                || !type.Name.EndsWith("Proxy", StringComparison.Ordinal))
+                return null;
+            var protocol = type.Name[..^"Proxy".Length];
+            // NameProvider names a protocol's interface I{Name}, or ISwift{Name} where I{Name} would
+            // collide with a runtime or System interface.
+            foreach (var name in new[] { "I" + protocol, "ISwift" + protocol })
+            {
+                if (type.Interfaces.Select(Leaf).Contains(name)
+                    && scope.Index.TypesNamed(name).FirstOrDefault(t => t.DeclaringKind == "interface" && !t.Path.StartsWith(type.ParentPath + ".", StringComparison.Ordinal)) is { } iface)
+                    return iface;
+            }
+            return null;
+        }
 
         // A member of a protocol proxy that implements one of the interface's own members (by name and
         // kind), or the proxy plumbing: constructors taking the interface (and an ownership mode) and the
@@ -324,8 +345,8 @@ namespace BindingsGeneration
                 {
                     "field" => m.Name is "_handle" && Generic(m.ValueType) == "SwiftClassHandle",
                     "property" => IsPlumbingProperty(m, s),
-                    "method" => m.IsStatic && m.Name is "GetTypeMetadata" or "NewFromPayload" or "MarshalToSwift" or "GetProtocolConformanceDescriptor"
-                        || !m.IsStatic && m.Name == "MarshalToSwift" && ImplementsRuntimeInterface(m, s),
+                    "method" => m.Name is "GetTypeMetadata" or "NewFromPayload" or "MarshalToSwift" or "GetProtocolConformanceDescriptor"
+                                && ImplementsRuntimeInterface(m, s),
                     "ctor" => IsPlumbingConstructor(m),
                     _ => false,
                 }),
@@ -402,9 +423,10 @@ namespace BindingsGeneration
                 "Not yet fixed. Members whose record key spells a parameter differently from the compiled member (an existential generic keyed Swift.AnyType where the member takes ISwiftObject, a Func<…, T> closure keyed Action<…>, a collection parameter keyed by its Swift type). The record describes them, under a key the API manifest shares; the key builders should spell the emitted parameter types. Each is paired with one respelled key of its declaring type, name, kind and parameter count, which the report prints.",
                 (m, s) => s.Respelled.Contains(m)),
             new(PendingPrefix + "respelled-key-default-overloads",
-                "Not yet recorded. The default-argument overloads of a member whose record key is respelled (an async method-generic bridge member keyed Swift.AnyType where it takes ISwiftObject): shorter overloads of the same name beside the member a respelled key is paired with. They stand for that member's Swift declaration and should be recorded with it once its key spells the emitted parameter types.",
+                "Not yet recorded. The default-argument overloads of a member whose record key is respelled (an async method-generic bridge member keyed Swift.AnyType where it takes ISwiftObject): overloads of the same name and generic arity beside the member a respelled key is paired with, whose parameters are that member's with some left out, in order. They stand for that member's Swift declaration and should be recorded with it once its key spells the emitted parameter types.",
                 (m, s) => m.Kind == "method" && s.Respelled.Any(p => p.ParentPath == m.ParentPath && p.Name == m.Name && p.Kind == m.Kind
-                                                                      && p.Parameters.Length > m.Parameters.Length)),
+                                                                      && p.GenericArity == m.GenericArity && p.Parameters.Length > m.Parameters.Length
+                                                                      && IsOrderedSubset(m.Parameters, p.Parameters))),
             new(PendingPrefix + "closure-result-overloads",
                 "Not yet recorded. A generic method's overload whose closure parameter returns the method's type parameter (Func<…, T>), emitted beside a recorded overload of the same name whose closure returns nothing: it stands for the same Swift declaration and should be recorded as it.",
                 (m, s) => m.Kind == "method" && m.GenericArity > 0 && m.Parameters.Any(p => p.StartsWith("Func<", StringComparison.Ordinal))

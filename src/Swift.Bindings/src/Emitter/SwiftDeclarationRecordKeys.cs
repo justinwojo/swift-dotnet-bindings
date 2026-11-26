@@ -397,15 +397,18 @@ namespace BindingsGeneration
         public sealed class AssemblyIndex
         {
             /// <summary>
-            /// The top-level classes of the namespace that can hold the module <paramref name="module"/>'s
-            /// module-level functions: the module's name, or, where the namespace already ends in it,
-            /// <c>Functions</c>, <c>GlobalFunctions</c>, <c>{module}Functions</c> or <c>Functions{N}</c>,
-            /// the names the module emitter tries in turn.
+            /// The top-level classes of the namespace that hold the module <paramref name="module"/>'s
+            /// module-level functions: a class named as the module emitter names its holder (the module's
+            /// name, or, where the namespace already ends in it, <c>Functions</c>, <c>GlobalFunctions</c>,
+            /// <c>{module}Functions</c> or <c>Functions{N}</c>) that is shaped as the holder is: no
+            /// interfaces, and only static members besides its parameterless constructor. A Swift class
+            /// of one of those names implements the runtime's interfaces and is not taken for it.
             /// </summary>
             public IEnumerable<string> FunctionHolders(string? module) =>
-                MembersOf("").Where(t => t.Kind == "type" && t.DeclaringKind == "class"
+                MembersOf("").Where(t => t.Kind == "type" && t.DeclaringKind == "class" && !t.IsStatic && t.Interfaces.IsEmpty
                     && (t.Name == module || t.Name is "Functions" or "GlobalFunctions" || t.Name == module + "Functions"
-                        || t.Name.StartsWith("Functions", StringComparison.Ordinal) && t.Name.Length > 9 && t.Name[9..].All(char.IsAsciiDigit)))
+                        || t.Name.StartsWith("Functions", StringComparison.Ordinal) && t.Name.Length > 9 && t.Name[9..].All(char.IsAsciiDigit))
+                    && MembersOf(t.Name).All(m => m.IsStatic && m.Kind != "type" || m.Kind == "ctor" && m.Parameters.IsEmpty))
                     .Select(t => t.Name);
 
             private readonly Dictionary<(string Parent, string Name), List<Member>> _byName = new();

@@ -4710,7 +4710,7 @@ public static partial class ConcreteProtocolSpecializationEmitter
         // A closed property getter is emitted through a synthetic getter method named after the
         // property (ConcreteSpecializationEngine.BuildSyntheticPropertyGetter); it stands for the property.
         BaseDecl declaration = method.IsExtensionPropertyGetter
-            && parentTypeDecl.Properties.FirstOrDefault(p => p.Name == method.Name) is { } property ? property : method;
+            && parentTypeDecl.Properties.FirstOrDefault(p => p.Name == method.Name && !p.IsStatic) is { } property ? property : method;
         emissionContext.RecordSwiftDeclaration(key, declaration, typeDatabase,
             string.Join(", ", pairing.Select(p => p.Conformer.SwiftQualifiedName)),
             SwiftDeclarationMapEmitter.ConcreteSpecialization);

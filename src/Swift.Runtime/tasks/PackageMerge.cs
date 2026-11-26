@@ -651,8 +651,8 @@ public static class SwiftBindingPackageMerge
             // unless every candidate keeps its declaration. An older signature the newer copy lost
             // outright is refused by the public API comparison.
             var @namespace = file[..^BindingsGeneration.SwiftDeclarationRecordFormat.FileSuffix.Length];
-            var olderSignatures = new ClrSignatures(older, @namespace);
-            var newerSignatures = new ClrSignatures(newer, @namespace);
+            var olderSignatures = new ClrSignatures(older, @namespace, before.Module);
+            var newerSignatures = new ClrSignatures(newer, @namespace, after.Module);
             var newerOnly = after.Members.Keys.Where(k => !before.Members.ContainsKey(k)).ToLookup(ClrShape, StringComparer.Ordinal);
             foreach (var (olderKey, was) in before.Members.Where(m => !after.Members.ContainsKey(m.Key)).OrderBy(m => m.Key, StringComparer.Ordinal))
             {
@@ -688,7 +688,7 @@ public static class SwiftBindingPackageMerge
     /// does not resolve to exactly one signature (a property, a member no assembly of the copy
     /// declares in the record's namespace), which the comparison then treats as any signature.
     /// </summary>
-    private sealed class ClrSignatures(Copy copy, string @namespace)
+    private sealed class ClrSignatures(Copy copy, string @namespace, string module)
     {
         private List<BindingsGeneration.SwiftDeclarationRecordKeys.AssemblyIndex>? _indexes;
         private readonly Dictionary<string, string?> _resolved = new(StringComparer.Ordinal);
@@ -705,7 +705,7 @@ public static class SwiftBindingPackageMerge
             string? signature = null;
             if (BindingsGeneration.SwiftDeclarationRecordKeys.Parse(key) is { Parameters: not null } parsed)
             {
-                var signatures = _indexes.SelectMany(i => i.Resolve(parsed))
+                var signatures = _indexes.SelectMany(i => i.Resolve(parsed, module))
                     .Select(m => BindingsGeneration.SwiftDeclarationRecordKeys.ClrSignature(m.Parameters))
                     .Distinct(StringComparer.Ordinal).ToList();
                 signature = signatures.Count == 1 ? signatures[0] : null;

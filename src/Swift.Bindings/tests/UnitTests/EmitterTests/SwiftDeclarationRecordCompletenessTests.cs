@@ -28,6 +28,8 @@ public class SwiftDeclarationRecordCompletenessTests
                 public void Take(Other.B.Token t) { }
                 public static int Answer() => 1;
                 public int Handle => 0;
+                public void Push(int a, int b) { }
+                public void Push(string s) { }
                 public void Dispose() { }
                 public override string ToString() => "";
                 public static bool operator ==(Widget a, Widget b) => true;
@@ -44,7 +46,8 @@ public class SwiftDeclarationRecordCompletenessTests
                 public bool TryGetCircle(out double radius) { radius = 0; return false; }
                 public static Shape Square => new();
             }
-            public partial class Functions { public static int Answer() => 42; }
+            public partial class Functions { public static int Answer() => 42; public static void MarshalToSwift(int x) { } }
+            public sealed class GlobalFunctions : System.IDisposable { public GlobalFunctions() { } public void Dispose() { } }
             public static class WidgetExtensions { public static int Doubled(this Widget w) => 0; }
             public interface IAgeable { int Age { get; } }
             public interface INameable { string Name { get; } }
@@ -66,7 +69,8 @@ public class SwiftDeclarationRecordCompletenessTests
             "Shape": "type Kit.Shape",
             "IAgeable": "type Kit.Ageable",
             "INameable": "type Kit.Nameable",
-            "Foreign.Nested": "type Kit.Foreign.Nested"
+            "Foreign.Nested": "type Kit.Foreign.Nested",
+            "GlobalFunctions": "type Kit.GlobalFunctions"
           },
           "members": {
             "Widget.Widget(int)": "init Kit.Widget.init(size:)",
@@ -78,6 +82,10 @@ public class SwiftDeclarationRecordCompletenessTests
             "Widget.Take(B.Token)": "func Kit.Widget.take(other:)",
             "Widget.Answer()": "static func Kit.Widget.answer()",
             "Widget.Handle": "var Kit.Widget.handle",
+            "Widget.Push(int,int)": "func Kit.Widget.push(a:b:)",
+            "Widget.Push(string)": "func Kit.Widget.push(name:)",
+            "MarshalToSwift(int)": "func Kit.marshalToSwift(_:)",
+            "GlobalFunctions.GlobalFunctions()": "init Kit.GlobalFunctions.init()",
             "Answer()": "func Kit.answer()",
             "WidgetExtensions.Doubled(this Widget)": "func Kit.Widget.doubled() (extension in Kit)",
             "IAgeable.Age": "var Kit.Ageable.age",
@@ -196,6 +204,34 @@ public class SwiftDeclarationRecordCompletenessTests
         var report = Check(Record.Replace("\"Widget.Handle\": \"var Kit.Widget.handle\",", ""));
         Assert.False(report.Passed);
         Assert.Equal("Widget.Handle", Assert.Single(report.Uncovered).ToString());
+    }
+
+    [Fact]
+    public void ARespelledKeysPairedMember_DoesNotCoverAnotherOverloadOfItsName()
+    {
+        // Push(long,int) stands for Push(int,int); Push(string) is not one of its default-argument
+        // overloads, so with its key gone it is uncovered.
+        var report = Check(Record
+            .Replace("\"Widget.Push(int,int)\"", "\"Widget.Push(long,int)\"")
+            .Replace("\"Widget.Push(string)\": \"func Kit.Widget.push(name:)\",", ""));
+        Assert.Equal("Widget.Push(String~)", Assert.Single(report.Uncovered).ToString());
+    }
+
+    [Fact]
+    public void ASwiftClassNamedLikeTheFunctionHolder_IsNotTakenForIt()
+    {
+        var report = Check(Record
+            .Replace("\"GlobalFunctions\": \"type Kit.GlobalFunctions\"", "\"Mode\": \"type Kit.Mode\"")
+            .Replace("\"Mode\": \"type Kit.Mode\",", "")
+            .Replace("\"GlobalFunctions.GlobalFunctions()\": \"init Kit.GlobalFunctions.init()\",", ""));
+        Assert.Equal(new[] { "GlobalFunctions", "GlobalFunctions..ctor()" }, report.Uncovered.Select(m => m.ToString()).Order());
+    }
+
+    [Fact]
+    public void AModuleFunctionNamedLikeRuntimePlumbing_IsNotCoveredByThePlumbingRule()
+    {
+        var report = Check(Record.Replace("\"MarshalToSwift(int)\": \"func Kit.marshalToSwift(_:)\",", ""));
+        Assert.Equal("Functions.MarshalToSwift(Int32)", Assert.Single(report.Uncovered).ToString());
     }
 
     [Fact]

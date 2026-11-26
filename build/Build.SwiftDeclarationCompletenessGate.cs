@@ -137,7 +137,8 @@ partial class Build
             var doctored = JsonNode.Parse(record)!.AsObject();
             doctored["members"]!.AsObject().Remove(dropped);
             var report = SwiftDeclarationRecordCompleteness.Check(image, ns, JsonSerializer.SerializeToUtf8Bytes(doctored));
-            if (report.Passed || !report.Uncovered.Contains(droppedMember!))
+            // Each Check reads the assembly afresh, so the member is found again by its kind and signature.
+            if (report.Passed || !report.Uncovered.Any(m => m.Kind == droppedMember!.Kind && m.ToString() == droppedMember.ToString()))
                 yield return $"negative control 1: removing {dropped} did not leave {droppedMember} uncovered";
             else
                 Log.Information("    negative control 1 failed as designed: removing {Key} leaves {Member} uncovered", dropped, report.Uncovered[0]);
